@@ -34,11 +34,11 @@ pub const Ctx = struct {
     /// session's host resolves later dials against this slice — a redeem
     /// reaches an exporter this way (ADR-0090) — so the residents and the
     /// slice storage must outlive the session, not the dialing frame. Slot 0
-    /// is always tcp; slot 1 joins when `PANCAKE_RENDEZVOUS` configures a
-    /// keyed-relay rendezvous mapping (the dial builds the used prefix).
+    /// is always tcp; slots 1 and 2 join when `PANCAKE_RENDEZVOUS` configures
+    /// the relay provider's clear and sealed rendezvous profiles.
     dial_resident: pancake.net.tcp.Resident = undefined,
-    rendezvous_resident: pancake.net.keyed_relay.Resident = undefined,
-    dial_netlayers: [2]pancake.net.netlayer.Netlayer = undefined,
+    rendezvous_provider: ?pancake.net.keyed_relay.Provider = null,
+    dial_netlayers: [3]pancake.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
     /// The non-argv fronts' background listener (`listen` on MCP or the
     /// REPL), or null. One per context; `close` and `deinit` stop it.
@@ -133,6 +133,10 @@ pub const Ctx = struct {
         if (self.session) |s| {
             s.deinit();
             self.session = null;
+        }
+        if (self.rendezvous_provider) |*provider| {
+            provider.deinit();
+            self.rendezvous_provider = null;
         }
     }
 

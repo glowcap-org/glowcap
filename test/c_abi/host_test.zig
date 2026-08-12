@@ -1,6 +1,6 @@
 //! `libpancake_host` loopback: the byte-fed host tier over the C ABI.
 //!
-//! Multi-connection `PancakeHost`s are wired by shuttling frames between
+//! Multi-session `PancakeHost`s are wired by shuttling frames between
 //! `pancake_host_session_take_outbound` and `pancake_host_session_feed`, with no
 //! socket anywhere, and every host effect (a dial, gift-id entropy) is
 //! answered through the C action queue (ADR-0072). The capstone is the full
@@ -19,6 +19,7 @@ const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const pancake = @import("pancake");
 const model = pancake.ocapn.model;
+const keyed_relay = pancake.net.keyed_relay;
 const stream_framing = pancake.foundation.stream_framing;
 
 const frame_cap: usize = 4096;
@@ -27,9 +28,50 @@ fn expectOk(rc: i32) !void {
     try std.testing.expectEqual(c.PANCAKE_OK, rc);
 }
 
+/// Durable identity in the first 32 bytes, deterministic session-key root in the
+/// rest — the only seed length `pancake_host_new` accepts (ADR-0097).
+fn hostSeed(durable_byte: u8) [64]u8 {
+    var seed: [64]u8 = undefined;
+    @memset(seed[0..32], durable_byte);
+    @memset(seed[32..], durable_byte ^ 0xa5);
+    return seed;
+}
+
+fn openDialed(
+    host: ?*cd.PancakeHost,
+    transport: ?[*]const u8,
+    transport_len: usize,
+    designator: ?[*]const u8,
+    designator_len: usize,
+    out_session: ?*?*cd.PancakeHostSession,
+) i32 {
+    return cd.pancake_host_session_open_dialed_locator(
+        host,
+        transport,
+        transport_len,
+        designator,
+        designator_len,
+        out_session,
+    );
+}
+
+fn openAccepted(
+    host: ?*cd.PancakeHost,
+    transport: ?[*]const u8,
+    transport_len: usize,
+    out_session: ?*?*cd.PancakeHostSession,
+) i32 {
+    return cd.pancake_host_session_open_accepted(
+        host,
+        transport,
+        transport_len,
+        out_session,
+    );
+}
+
 fn newHostWithProfile(seed_byte: u8, codec: u32, captp_version: u32) !?*cd.PancakeHost {
     var host: ?*cd.PancakeHost = null;
-    const seed = [_]u8{seed_byte} ** 32;
+    const seed = hostSeed(seed_byte);
     try expectOk(cd.pancake_host_new(&seed, seed.len, frame_cap, 1, codec, captp_version, c.PANCAKE_FEATURE_FULL, 0, &host));
     return host;
 }
@@ -42,10 +84,60 @@ fn newHost(seed_byte: u8) !?*cd.PancakeHost {
     return newHostWith(seed_byte, c.PANCAKE_CODEC_SYRUP);
 }
 
+fn locatorView(locator: model.PeerLocator, hints: []cd.PancakeLocatorHintView) cd.PancakeLocatorView {
+    std.debug.assert(hints.len == locator.hints.entries.len);
+    for (locator.hints.entries, hints) |entry, *out| {
+        out.* = .{
+            .name = entry.name.ptr,
+            .name_len = entry.name.len,
+            .kind = undefined,
+            .bytes = null,
+            .bytes_len = 0,
+            .boolean_value = 0,
+            .integer_value = 0,
+        };
+        switch (entry.value) {
+            .string => |value| {
+                out.kind = c.PANCAKE_HINT_STRING;
+                out.bytes = value.ptr;
+                out.bytes_len = value.len;
+            },
+            .bytes => |value| {
+                out.kind = c.PANCAKE_HINT_BYTES;
+                out.bytes = value.ptr;
+                out.bytes_len = value.len;
+            },
+            .boolean => |value| {
+                out.kind = c.PANCAKE_HINT_BOOLEAN;
+                out.boolean_value = @intFromBool(value);
+            },
+            .integer => |value| {
+                out.kind = c.PANCAKE_HINT_INTEGER;
+                out.integer_value = value;
+            },
+        }
+    }
+    return .{
+        .abi_version = c.PANCAKE_LOCATOR_VIEW_ABI_VERSION,
+        .struct_size = @sizeOf(cd.PancakeLocatorView),
+        .transport = locator.transport.ptr,
+        .transport_len = locator.transport.len,
+        .designator = locator.designator.ptr,
+        .designator_len = locator.designator.len,
+        .hints = if (hints.len == 0) null else hints.ptr,
+        .hint_count = hints.len,
+        .hint_wire_form = switch (locator.hints.wire_form) {
+            .map => c.PANCAKE_HINTS_MAP,
+            .boolean_false => c.PANCAKE_HINTS_BOOLEAN_FALSE,
+        },
+    };
+}
+
 fn setAdvertisedLocator(host: ?*cd.PancakeHost, locator: model.PeerLocator) !void {
-    const encoded = try pancake.ocapn.engine.encodePeerLocatorRecord(std.testing.allocator, locator);
-    defer std.testing.allocator.free(encoded);
-    try expectOk(cd.pancake_host_set_advertised_locator(host, encoded.ptr, encoded.len));
+    var hint_storage: [8]cd.PancakeLocatorHintView = undefined;
+    try std.testing.expect(locator.hints.entries.len <= hint_storage.len);
+    var view = locatorView(locator, hint_storage[0..locator.hints.entries.len]);
+    try expectOk(cd.pancake_host_set_advertised_locator(host, &view));
 }
 
 fn ensureAdvertisedLocator(host: ?*cd.PancakeHost, transport: []const u8) !void {
@@ -59,11 +151,11 @@ fn tcpLocator(designator: []const u8) model.PeerLocator {
 test "pancake_host_set_session_limits overrides queue_cap before mint (ADR-0082)" {
     const host = try newHost(0x51);
     defer _ = cd.pancake_host_release(host);
-    try expectOk(cd.pancake_host_set_session_limits(host, 0, 19));
+    try expectOk(cd.pancake_host_set_session_limits(host, 0, 19, 0));
     // Mint a dialed session; limits land via Host.negotiatingOptions.
     try ensureAdvertisedLocator(host, "tcp");
     var session: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(
+    try expectOk(openDialed(
         host,
         "tcp",
         3,
@@ -73,6 +165,157 @@ test "pancake_host_set_session_limits overrides queue_cap before mint (ADR-0082)
     ));
     defer _ = cd.pancake_host_session_release(session);
     try std.testing.expect(session != null);
+}
+
+test "take_outbound returns one stream-ready vector without transport inference" {
+    const clear = try newHost(0x49);
+    defer _ = cd.pancake_host_release(clear);
+    try ensureAdvertisedLocator(clear, "tcp");
+
+    var clear_session: ?*cd.PancakeHostSession = null;
+    try expectOk(openDialed(clear, "tcp", 3, "127.0.0.1:1", 11, &clear_session));
+    defer _ = cd.pancake_host_session_release(clear_session);
+
+    // Refusing an undersized prefix destination must not transfer the queued
+    // payload. A correctly sized retry sees the original first frame.
+    var mf: c.PancakeManagedFrame = undefined;
+    var short_prefix: [1]u8 = undefined;
+    var required: usize = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_BUFFER_TOO_SMALL,
+        cd.pancake_host_session_take_outbound(
+            clear_session,
+            &mf,
+            &short_prefix,
+            short_prefix.len,
+            &required,
+        ),
+    );
+    try std.testing.expectEqual(cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP, required);
+
+    var clear_prefix: [cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP]u8 = undefined;
+    var clear_prefix_len: usize = undefined;
+    try expectOk(cd.pancake_host_session_take_outbound(
+        clear_session,
+        &mf,
+        &clear_prefix,
+        clear_prefix.len,
+        &clear_prefix_len,
+    ));
+    defer c.pancake_managed_frame_release(&mf);
+    var expected_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
+    const expected = stream_framing.renderPrefix(&expected_buf, mf.len);
+    try std.testing.expectEqualSlices(u8, expected, clear_prefix[0..clear_prefix_len]);
+
+    // A sealed session starts with Noise handshake bytes. They are already
+    // stream-ready, so the same generic drain returns no outer prefix.
+    const noise_host = try newHost(0x4a);
+    defer _ = cd.pancake_host_release(noise_host);
+    const crypto = pancake.foundation.crypto;
+    const local_seed = hostSeed(0x4a);
+    const local_designator = crypto.SecretKey.fromSeed(local_seed[0..32].*).publicKey().toDesignator();
+    const remote_seed = hostSeed(0x4b);
+    const remote_designator = crypto.SecretKey.fromSeed(remote_seed[0..32].*).publicKey().toDesignator();
+    try setAdvertisedLocator(noise_host, .{
+        .transport = model.transport.noise_tcp,
+        .designator = &local_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+    var noise_session: ?*cd.PancakeHostSession = null;
+    try expectOk(openDialed(
+        noise_host,
+        model.transport.noise_tcp.ptr,
+        model.transport.noise_tcp.len,
+        &remote_designator,
+        remote_designator.len,
+        &noise_session,
+    ));
+    defer _ = cd.pancake_host_session_release(noise_session);
+
+    var noise_frame: c.PancakeManagedFrame = undefined;
+    var noise_prefix: [cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP]u8 = undefined;
+    var noise_prefix_len: usize = undefined;
+    try expectOk(cd.pancake_host_session_take_outbound(
+        noise_session,
+        &noise_frame,
+        &noise_prefix,
+        noise_prefix.len,
+        &noise_prefix_len,
+    ));
+    defer c.pancake_managed_frame_release(&noise_frame);
+    try std.testing.expectEqual(@as(usize, 0), noise_prefix_len);
+    try std.testing.expect(noise_frame.len > 0);
+}
+
+test "take_outbound allocation refusal preserves the queued frame" {
+    const CountingHost = @import("../support/c_abi_counting_alloc.zig").CountingHost;
+    var counting = CountingHost{};
+    const spec = counting.spec();
+    var context: ?*c.PancakeContext = null;
+    try expectOk(c.pancake_context_new_with_allocator(&spec, &context));
+
+    const seed = hostSeed(0x4c);
+    var host: ?*cd.PancakeHost = null;
+    try expectOk(cd.pancake_host_new_in(
+        context,
+        &seed,
+        seed.len,
+        frame_cap,
+        1,
+        c.PANCAKE_CODEC_SYRUP,
+        c.PANCAKE_CAPTP_V1_0,
+        c.PANCAKE_FEATURE_FULL,
+        0,
+        &host,
+    ));
+    try ensureAdvertisedLocator(host, "tcp");
+    var session: ?*cd.PancakeHostSession = null;
+    try expectOk(openDialed(host, "tcp", 3, "127.0.0.1:1", 11, &session));
+
+    var frame: c.PancakeManagedFrame = undefined;
+    var prefix: [cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP]u8 = undefined;
+    var prefix_len: usize = undefined;
+    counting.fail_allocations = true;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INTERNAL,
+        cd.pancake_host_session_take_outbound(
+            session,
+            &frame,
+            &prefix,
+            prefix.len,
+            &prefix_len,
+        ),
+    );
+    counting.fail_allocations = false;
+    try expectOk(cd.pancake_host_session_take_outbound(
+        session,
+        &frame,
+        &prefix,
+        prefix.len,
+        &prefix_len,
+    ));
+    c.pancake_managed_frame_release(&frame);
+
+    try expectOk(cd.pancake_host_session_release(session));
+    try expectOk(cd.pancake_host_release(host));
+    c.pancake_context_release(context);
+    try std.testing.expect(counting.balanced());
+}
+
+test "pancake_host_release accepts an exclusive terminal thread transfer" {
+    const host = try newHost(0x52);
+    // Claim the Host on this thread through an ordinary live verb first. Only
+    // terminal ownership moves; every nonterminal call remains thread-affine.
+    try expectOk(cd.pancake_host_set_session_limits(host, 0, 19, 0));
+
+    var release_rc: i32 = c.PANCAKE_ERR_INTERNAL;
+    const thread = try std.Thread.spawn(.{}, struct {
+        fn run(owned: ?*cd.PancakeHost, rc: *i32) void {
+            rc.* = cd.pancake_host_release(owned);
+        }
+    }.run, .{ host, &release_rc });
+    thread.join();
+    try expectOk(release_rc);
 }
 
 test "libpancake_host: opaque references cannot cross Host authority" {
@@ -118,10 +361,10 @@ test "libpancake_host: raw capability ids are opaque and process-unique across e
     try setAdvertisedLocator(a, tcpLocator("a"));
     try setAdvertisedLocator(b, tcpLocator("b"));
     var a_session: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(a, "tcp", 3, &a_session));
+    try expectOk(openAccepted(a, "tcp", 3, &a_session));
     defer _ = cd.pancake_host_session_release(a_session);
     var b_session: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(b, "tcp", 3, &b_session));
+    try expectOk(openAccepted(b, "tcp", 3, &b_session));
     defer _ = cd.pancake_host_session_release(b_session);
 
     var a_first: c.PancakeReference = .{ .id = 0 };
@@ -212,6 +455,12 @@ const Pair = struct {
     b: ?*cd.PancakeHostSession,
 };
 
+fn takeOutbound(raw: ?*cd.PancakeHostSession, out: *c.PancakeManagedFrame) i32 {
+    var prefix: [cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP]u8 = undefined;
+    var prefix_len: usize = undefined;
+    return cd.pancake_host_session_take_outbound(raw, out, &prefix, prefix.len, &prefix_len);
+}
+
 /// One DIAL action parked for the test to execute, dial parts copied clear of
 /// the action queue's popped-view lifetime.
 const ParkedDial = struct {
@@ -221,7 +470,9 @@ const ParkedDial = struct {
     transport_len: usize = 0,
     designator: [64]u8 = undefined,
     designator_len: usize = 0,
-    hint_len: usize = 0,
+    hint_count: usize = 0,
+    relay_route: [128]u8 = undefined,
+    relay_route_len: usize = 0,
 };
 
 const Dials = struct {
@@ -236,7 +487,7 @@ fn shuttle(from: ?*cd.PancakeHostSession, to: ?*cd.PancakeHostSession) !bool {
     var moved = false;
     while (true) {
         var mf: c.PancakeManagedFrame = undefined;
-        const rc = cd.pancake_host_session_take_outbound(from, &mf);
+        const rc = takeOutbound(from, &mf);
         if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
         try expectOk(rc);
         defer c.pancake_managed_frame_release(&mf);
@@ -347,21 +598,53 @@ fn drainActions(hosts: []const ?*cd.PancakeHost, dials: *Dials, watches: *Watche
             return true;
         }
         pub fn dial(self: @This(), host: ?*cd.PancakeHost, action: *const cd.PancakeHostAction) !bool {
-            // Ticket-only DIAL: one pending-dial view (transport/designator/hint).
-            var view: cd.PancakePendingDial = undefined;
-            try expectOk(cd.pancake_host_pending_dial(host, action.ticket, &view));
             var parked = ParkedDial{ .host = host, .ticket = action.ticket };
-            parked.transport_len = view.transport_len;
-            if (view.transport_len != 0) @memcpy(parked.transport[0..view.transport_len], view.transport.?[0..view.transport_len]);
-            parked.designator_len = view.designator_len;
-            if (view.designator_len != 0) @memcpy(parked.designator[0..view.designator_len], view.designator.?[0..view.designator_len]);
-            parked.hint_len = view.hint_len;
+            const Capture = struct {
+                fn receive(raw: ?*anyopaque, view_ptr: ?*const cd.PancakeLocatorView) callconv(.c) i32 {
+                    const out: *ParkedDial = @ptrCast(@alignCast(raw orelse return c.PANCAKE_ERR_NULL_POINTER));
+                    const view = view_ptr orelse return c.PANCAKE_ERR_NULL_POINTER;
+                    if (view.transport_len > out.transport.len or view.designator_len > out.designator.len)
+                        return c.PANCAKE_ERR_BUFFER_TOO_SMALL;
+                    out.transport_len = view.transport_len;
+                    @memcpy(out.transport[0..view.transport_len], view.transport.?[0..view.transport_len]);
+                    out.designator_len = view.designator_len;
+                    @memcpy(out.designator[0..view.designator_len], view.designator.?[0..view.designator_len]);
+                    out.hint_count = view.hint_count;
+                    const hints = if (view.hint_count == 0) &.{} else view.hints.?[0..view.hint_count];
+                    for (hints) |hint| {
+                        const name = hint.name.?[0..hint.name_len];
+                        if (!std.mem.eql(u8, name, keyed_relay.rendezvous_relay_hint)) continue;
+                        if (hint.bytes_len > out.relay_route.len) return c.PANCAKE_ERR_BUFFER_TOO_SMALL;
+                        out.relay_route_len = hint.bytes_len;
+                        if (hint.bytes_len != 0) @memcpy(out.relay_route[0..hint.bytes_len], hint.bytes.?[0..hint.bytes_len]);
+                    }
+                    return c.PANCAKE_OK;
+                }
+            };
+            var hint_storage: [8]cd.PancakeLocatorHintView = undefined;
+            var view: cd.PancakeLocatorView = undefined;
+            var hint_count: usize = 0;
+            try expectOk(cd.pancake_host_pending_dial(
+                host,
+                action.ticket,
+                &hint_storage,
+                hint_storage.len,
+                &view,
+                &hint_count,
+            ));
+            try expectOk(Capture.receive(&parked, &view));
+            try std.testing.expectEqual(view.hint_count, hint_count);
             self.dials.items[self.dials.len] = parked;
             self.dials.len += 1;
             return true;
         }
     };
-    return cd.embedder_pump.drainHosts(cd, c, hosts, Exec{ .dials = dials, .watches = watches });
+    return (try cd.embedder_pump.drainHosts(
+        cd,
+        c,
+        hosts,
+        Exec{ .dials = dials, .watches = watches },
+    )).acted;
 }
 
 /// Pump shuttles and action drains until the whole network is quiescent.
@@ -392,9 +675,9 @@ fn openPair(
     try ensureAdvertisedLocator(dialer, "tcp");
     try setAdvertisedLocator(acceptor, tcpLocator(designator));
     var accepted: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(acceptor, "tcp", 3, &accepted));
+    try expectOk(openAccepted(acceptor, "tcp", 3, &accepted));
     var dialed: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(dialer, "tcp", 3, designator.ptr, designator.len, &dialed));
+    try expectOk(openDialed(dialer, "tcp", 3, designator.ptr, designator.len, &dialed));
     const pair = Pair{ .a = dialed, .b = accepted };
     try pump(hosts, &.{pair}, dials, watches);
     try std.testing.expect(cd.pancake_host_session_is_open(dialed) != 0);
@@ -605,17 +888,15 @@ test "libpancake_host: two byte-fed hosts open a keyed session through the C sur
     // The dialer allocates through a context, the acceptor through the
     // library allocator, so both constructors are exercised.
     var dialer: ?*cd.PancakeHost = null;
-    const dialer_seed = [_]u8{0x0a} ** 32;
+    const dialer_seed = hostSeed(0x0a);
     try expectOk(cd.pancake_host_new_in(context, &dialer_seed, dialer_seed.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &dialer));
     defer _ = cd.pancake_host_release(dialer);
     const acceptor = try newHost(0x0b);
     defer _ = cd.pancake_host_release(acceptor);
 
-    // The dialer also listens, so its hellos sign a real designator; an
-    // over-long designator is refused before anything is retained.
-    try expectOk(cd.pancake_host_set_self_designator(dialer, "127.0.0.1:9999", 14));
-    const too_long = [_]u8{'x'} ** 65;
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_set_self_designator(dialer, &too_long, too_long.len));
+    // The dialer also listens, so its complete reachable locator is the route
+    // its hellos advertise.
+    try setAdvertisedLocator(dialer, tcpLocator("127.0.0.1:9999"));
 
     var dials = Dials{};
     var watches = Watches{};
@@ -625,7 +906,7 @@ test "libpancake_host: two byte-fed hosts open a keyed session through the C sur
 
     // Quiescent: nothing queued on either side, on either channel.
     var mf: c.PancakeManagedFrame = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cd.pancake_host_session_take_outbound(pair.a, &mf));
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, takeOutbound(pair.a, &mf));
     var action: cd.PancakeHostAction = undefined;
     try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cd.pancake_host_next_action(dialer, &action));
 
@@ -668,6 +949,13 @@ test "libpancake_host: the drained trace reports the same facts the callback doe
     const pair = try openPair(&hosts, dialer, acceptor, "127.0.0.1:7003", &dials, &watches);
     defer _ = cd.pancake_host_session_release(pair.a);
     defer _ = cd.pancake_host_session_release(pair.b);
+
+    // A failed replacement is transactional: overflow is refused and the
+    // already-captured open remains in the original one-slot queue.
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_set_trace_queue(dialer, std.math.maxInt(usize), 2),
+    );
 
     try expectOk(cd.pancake_host_publish(acceptor, "widget", 6, widgetBehavior, null, null));
     var fetch_vow: u64 = 0;
@@ -731,7 +1019,7 @@ test "libpancake_host: the drained trace reports the same facts the callback doe
     try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cd.pancake_host_next_trace(dialer, &ev));
 }
 
-test "libpancake_host: a malformed frame classifies CODEC, conn_last_abort names it, and the partner retains the abort" {
+test "libpancake_host: a malformed frame classifies CODEC, session_last_abort names it, and the partner retains the abort" {
     const dialer = try newHost(0x11);
     defer _ = cd.pancake_host_release(dialer);
     const acceptor = try newHost(0x12);
@@ -771,7 +1059,7 @@ test "libpancake_host: a malformed frame classifies CODEC, conn_last_abort names
     // The failure is loud on the wire: a typed op:abort is queued for the
     // partner, and once fed the partner retains kind and diagnostic.
     var mf: c.PancakeManagedFrame = undefined;
-    try expectOk(cd.pancake_host_session_take_outbound(pair.b, &mf));
+    try expectOk(takeOutbound(pair.b, &mf));
     const abort_frame: c.PancakeFrame = .{ .bytes = mf.bytes, .len = mf.len, .shape = mf.shape };
     _ = cd.pancake_host_session_feed(pair.a, &abort_frame);
     c.pancake_managed_frame_release(&mf);
@@ -844,7 +1132,7 @@ test "libpancake_host: publish, fetch, send, tell, and the enliven cache hit's p
         cd.pancake_host_session_enliven(pair.a, wrong_peer, wrong_peer.len, &refused_vow),
     );
     var no_fetch: c.PancakeManagedFrame = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cd.pancake_host_session_take_outbound(pair.a, &no_fetch));
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, takeOutbound(pair.a, &no_fetch));
     var enlivened = CapturedSettle{};
     var enlivened_vow: u64 = 0;
     try expectOk(cd.pancake_host_session_enliven(pair.a, sturdyref, sturdyref.len, &enlivened_vow));
@@ -889,7 +1177,7 @@ test "libpancake_host: publish, fetch, send, tell, and the enliven cache hit's p
 
 test "libpancake_host: a nonzero local_turn_budget constructs a host (ADR-0076)" {
     var host: ?*cd.PancakeHost = null;
-    const seed = [_]u8{0x41} ** 32;
+    const seed = hostSeed(0x41);
     try expectOk(cd.pancake_host_new(&seed, seed.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 64, &host));
     defer _ = cd.pancake_host_release(host);
     // 0 remains the unbounded default; a second host with 0 still constructs.
@@ -897,10 +1185,20 @@ test "libpancake_host: a nonzero local_turn_budget constructs a host (ADR-0076)"
     defer _ = cd.pancake_host_release(unbounded);
 }
 
+test "libpancake_host: a zero frame cap is refused before allocation" {
+    var host: ?*cd.PancakeHost = null;
+    const seed = hostSeed(0x43);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_new(&seed, seed.len, 0, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &host),
+    );
+    try std.testing.expect(host == null);
+}
+
 test "libpancake_host: the host codec option carries a Cap'n Proto session end to end" {
     // Selectors outside their C ABI families are refused before allocation.
     var refused: ?*cd.PancakeHost = null;
-    const seed = [_]u8{0x31} ** 32;
+    const seed = hostSeed(0x31);
     try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_new(&seed, seed.len, frame_cap, 1, c.PANCAKE_CODEC_UNKNOWN, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &refused));
     try std.testing.expect(refused == null);
     try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_new(&seed, seed.len, frame_cap, 1, 99, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &refused));
@@ -925,11 +1223,11 @@ test "libpancake_host: the host codec option carries a Cap'n Proto session end t
     try ensureAdvertisedLocator(client, "tcp");
     try setAdvertisedLocator(server, tcpLocator(designator));
     var accepted: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(server, "tcp", 3, &accepted));
+    try expectOk(openAccepted(server, "tcp", 3, &accepted));
     var dialed: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(client, "tcp", 3, designator.ptr, designator.len, &dialed));
+    try expectOk(openDialed(client, "tcp", 3, designator.ptr, designator.len, &dialed));
     var hello: c.PancakeManagedFrame = undefined;
-    try expectOk(cd.pancake_host_session_take_outbound(dialed, &hello));
+    try expectOk(takeOutbound(dialed, &hello));
     try std.testing.expect(hello.len >= 8);
     try std.testing.expectEqual(@as(u8, '<'), hello.bytes.?[0]);
     const borrowed: c.PancakeFrame = .{ .bytes = hello.bytes, .len = hello.len, .shape = hello.shape };
@@ -1031,7 +1329,7 @@ test "libpancake_host: uncommon typed values and a nested capability cross the H
         cd.pancake_host_session_send(pair.a, &target, "typed", 5, @ptrCast(&small), 1, &refused_vow),
     );
     var outbound: c.PancakeManagedFrame = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cd.pancake_host_session_take_outbound(pair.a, &outbound));
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, takeOutbound(pair.a, &outbound));
 
     try expectOk(cd.pancake_host_ref_release(client, &nested, 1));
     try expectOk(cd.pancake_host_ref_release(client, &target, 1));
@@ -1273,7 +1571,7 @@ test "libpancake_host: the full three-party handoff through the C surface — on
     // direct-addresses hint.
     try std.testing.expectEqualStrings("tcp", parked.transport[0..parked.transport_len]);
     try std.testing.expectEqualStrings("127.0.0.1:7001", parked.designator[0..parked.designator_len]);
-    try std.testing.expectEqual(@as(usize, 0), parked.hint_len);
+    try std.testing.expectEqual(@as(usize, 0), parked.hint_count);
 
     // The test is the dial executor: open the recipient's own connection to
     // the exporter, drive it open, and report it back. The withdraw, its
@@ -1281,9 +1579,9 @@ test "libpancake_host: the full three-party handoff through the C surface — on
     // exporter publishes nothing on this session by hand — withdrawal projects
     // the exact deposited target onto this Port.
     var e_accepts_r: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(exporter, "tcp", 3, &e_accepts_r));
+    try expectOk(openAccepted(exporter, "tcp", 3, &e_accepts_r));
     var r_to_e: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(
+    try expectOk(openDialed(
         recipient,
         parked.transport[0..parked.transport_len].ptr,
         parked.transport_len,
@@ -1390,7 +1688,7 @@ test "libpancake_host: a failed dial breaks the redeeming vow with the reason" {
 /// enqueueing verb succeeded.
 const ReentryCtx = struct {
     host: ?*cd.PancakeHost = null,
-    conn: ?*cd.PancakeHostSession = null,
+    session: ?*cd.PancakeHostSession = null,
     widget_local_ref: c.PancakeReference = .{ .id = 0 },
     watches: *Watches = undefined,
     ran: bool = false,
@@ -1419,30 +1717,30 @@ fn reentryBehavior(
 
     const garbage = "x";
     const borrowed: c.PancakeFrame = .{ .bytes = @constCast(garbage.ptr), .len = garbage.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    ok = ok and cd.pancake_host_session_feed(rc.conn, &borrowed) == inv;
-    ok = ok and cd.pancake_host_session_feed_bytes(rc.conn, garbage.ptr, garbage.len) == inv;
+    ok = ok and cd.pancake_host_session_feed(rc.session, &borrowed) == inv;
+    ok = ok and cd.pancake_host_session_feed_bytes(rc.session, garbage.ptr, garbage.len) == inv;
     var mf: c.PancakeManagedFrame = undefined;
-    ok = ok and cd.pancake_host_session_take_outbound(rc.conn, &mf) == inv;
+    ok = ok and takeOutbound(rc.session, &mf) == inv;
     var action: cd.PancakeHostAction = undefined;
     ok = ok and cd.pancake_host_next_action(rc.host, &action) == inv;
-    ok = ok and cd.pancake_host_dialed(rc.host, 0, rc.conn) == inv;
+    ok = ok and cd.pancake_host_dialed(rc.host, 0, rc.session) == inv;
     ok = ok and cd.pancake_host_dial_failed(rc.host, 0, "x", 1) == inv;
     ok = ok and cd.pancake_host_provide_gift_id(rc.host, 0, "x", 1) == inv;
-    var new_conn: ?*cd.PancakeHostSession = null;
-    ok = ok and cd.pancake_host_session_open_dialed_locator(rc.host, "tcp", 3, "d", 1, &new_conn) == inv;
-    ok = ok and cd.pancake_host_session_open_accepted(rc.host, "tcp", 3, &new_conn) == inv;
+    var new_session: ?*cd.PancakeHostSession = null;
+    ok = ok and openDialed(rc.host, "tcp", 3, "d", 1, &new_session) == inv;
+    ok = ok and openAccepted(rc.host, "tcp", 3, &new_session) == inv;
     var refused_ref: c.PancakeReference = .{ .id = 0 };
-    ok = ok and cd.pancake_host_session_publish(rc.conn, "n", 1, widgetBehavior, null, null, &refused_ref) == inv;
-    ok = ok and cd.pancake_host_session_spawn(rc.conn, widgetBehavior, null, null, &refused_ref) == inv;
+    ok = ok and cd.pancake_host_session_publish(rc.session, "n", 1, widgetBehavior, null, null, &refused_ref) == inv;
+    ok = ok and cd.pancake_host_session_spawn(rc.session, widgetBehavior, null, null, &refused_ref) == inv;
     ok = ok and cd.pancake_host_publish(rc.host, "n", 1, widgetBehavior, null, null) == inv;
     var refused_vow: u64 = 0;
-    ok = ok and cd.pancake_host_session_fetch(rc.conn, "n", 1, &refused_vow) == inv;
-    ok = ok and cd.pancake_host_session_enliven(rc.conn, "n", 1, &refused_vow) == inv;
-    ok = ok and cd.pancake_host_session_break_far_vows(rc.conn, "x", 1) == inv;
+    ok = ok and cd.pancake_host_session_fetch(rc.session, "n", 1, &refused_vow) == inv;
+    ok = ok and cd.pancake_host_session_enliven(rc.session, "n", 1, &refused_vow) == inv;
+    ok = ok and cd.pancake_host_session_break_far_vows(rc.session, "x", 1) == inv;
     // The void releases refuse through the last-error slot and keep the
     // handles alive.
     cd.pancake_host_clear_last_error();
-    _ = cd.pancake_host_session_release(rc.conn);
+    _ = cd.pancake_host_session_release(rc.session);
     ok = ok and cd.pancake_host_last_error(null, 0) > 0;
     cd.pancake_host_clear_last_error();
     _ = cd.pancake_host_release(rc.host);
@@ -1455,12 +1753,12 @@ fn reentryBehavior(
     // watch registered here routes the vow's queued completion.
     const near = rc.widget_local_ref;
     var vow: u64 = 0;
-    var eok = cd.pancake_host_session_send(rc.conn, &near, "poke", 4, null, 0, &vow) == c.PANCAKE_OK;
+    var eok = cd.pancake_host_session_send(rc.session, &near, "poke", 4, null, 0, &vow) == c.PANCAKE_OK;
     if (eok) rc.watches.add(rc.host, vow, &rc.nested);
     var projected: u64 = 0;
     eok = eok and cd.pancake_host_vow_index(rc.host, vow, 0, &projected) == inv;
-    eok = eok and cd.pancake_host_session_tell(rc.conn, &near, "poke", 4, null, 0) == c.PANCAKE_OK;
-    eok = eok and cd.pancake_host_session_set_exporter_location(rc.conn, null, 0) == c.PANCAKE_OK;
+    eok = eok and cd.pancake_host_session_tell(rc.session, &near, "poke", 4, null, 0) == c.PANCAKE_OK;
+    eok = eok and cd.pancake_host_session_set_exporter_location(rc.session, null) == c.PANCAKE_OK;
     rc.enqueued_ok = eok;
 
     out_reply.* = argStr("probed");
@@ -1480,7 +1778,7 @@ test "libpancake_host: inside a callback every top-level verb refuses and every 
     var counter = Counter{};
     var widget_local_ref: c.PancakeReference = .{ .id = 0 };
     try expectOk(cd.pancake_host_session_spawn(pair.b, widgetBehavior, &counter, null, &widget_local_ref));
-    var rctx = ReentryCtx{ .host = server, .conn = pair.b, .widget_local_ref = widget_local_ref, .watches = &watches };
+    var rctx = ReentryCtx{ .host = server, .session = pair.b, .widget_local_ref = widget_local_ref, .watches = &watches };
     var probe_local_ref: c.PancakeReference = .{ .id = 0 };
     try expectOk(cd.pancake_host_session_publish(pair.b, "probe", 5, reentryBehavior, &rctx, null, &probe_local_ref));
 
@@ -1519,9 +1817,7 @@ const BytePipe = struct {
     len: usize = 0,
 };
 
-fn appendStreamFrame(pipe: *BytePipe, bytes: []const u8) !void {
-    var prefix_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
-    const prefix = stream_framing.renderPrefix(&prefix_buf, bytes.len);
+fn appendStreamOutbound(pipe: *BytePipe, prefix: []const u8, bytes: []const u8) !void {
     try std.testing.expect(pipe.len + prefix.len + bytes.len <= pipe.buf.len);
     @memcpy(pipe.buf[pipe.len..][0..prefix.len], prefix);
     pipe.len += prefix.len;
@@ -1539,11 +1835,19 @@ fn shuttleBytes(from: ?*cd.PancakeHostSession, to: ?*cd.PancakeHostSession, pipe
     var moved = false;
     while (true) {
         var mf: c.PancakeManagedFrame = undefined;
-        const rc = cd.pancake_host_session_take_outbound(from, &mf);
+        var prefix: [cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP]u8 = undefined;
+        var prefix_len: usize = undefined;
+        const rc = cd.pancake_host_session_take_outbound(
+            from,
+            &mf,
+            &prefix,
+            prefix.len,
+            &prefix_len,
+        );
         if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
         try expectOk(rc);
         defer c.pancake_managed_frame_release(&mf);
-        try appendStreamFrame(pipe, mf.bytes.?[0..mf.len]);
+        try appendStreamOutbound(pipe, prefix[0..prefix_len], mf.bytes.?[0..mf.len]);
         moved = true;
     }
     var offset: usize = 0;
@@ -1598,9 +1902,9 @@ test "libpancake_host: feed_bytes delimits a chunked byte stream end to end, bot
         try ensureAdvertisedLocator(client, "tcp");
         try setAdvertisedLocator(server, tcpLocator(designator));
         var accepted: ?*cd.PancakeHostSession = null;
-        try expectOk(cd.pancake_host_session_open_accepted(server, "tcp", 3, &accepted));
+        try expectOk(openAccepted(server, "tcp", 3, &accepted));
         var dialed: ?*cd.PancakeHostSession = null;
-        try expectOk(cd.pancake_host_session_open_dialed_locator(client, "tcp", 3, designator.ptr, designator.len, &dialed));
+        try expectOk(openDialed(client, "tcp", 3, designator.ptr, designator.len, &dialed));
         const pair = Pair{ .a = dialed, .b = accepted };
         try pumpBytes(&hosts, pair, &pipes, chunk, &dials, &watches);
         try std.testing.expect(cd.pancake_host_session_is_open(dialed) != 0);
@@ -1631,11 +1935,72 @@ test "libpancake_host: feed_bytes delimits a chunked byte stream end to end, bot
     }
 }
 
+test "libpancake_host: producers honor their minted outbound high-water until frames drain" {
+    const client = try newHost(0x72);
+    defer _ = cd.pancake_host_release(client);
+    const server = try newHost(0x73);
+    defer _ = cd.pancake_host_release(server);
+    var dials = Dials{};
+    var watches = Watches{};
+    const hosts = [_]?*cd.PancakeHost{ client, server };
+
+    // This limit belongs to the session minted below, not to the Host options
+    // after that point. It is large enough for an ordinary fetch producer but
+    // small enough for a short burst to reach deterministically.
+    try expectOk(cd.pancake_host_set_session_limits(client, 0, 0, 1024));
+
+    const designator = "127.0.0.1:7072";
+    try ensureAdvertisedLocator(client, "tcp");
+    try setAdvertisedLocator(server, tcpLocator(designator));
+    var accepted: ?*cd.PancakeHostSession = null;
+    try expectOk(openAccepted(server, "tcp", 3, &accepted));
+    defer _ = cd.pancake_host_session_release(accepted);
+    var dialed: ?*cd.PancakeHostSession = null;
+    try expectOk(openDialed(client, "tcp", 3, designator.ptr, designator.len, &dialed));
+    defer _ = cd.pancake_host_session_release(dialed);
+    const pair = Pair{ .a = dialed, .b = accepted };
+    try pump(&hosts, &.{pair}, &dials, &watches);
+
+    var first_vow: u64 = 0;
+    try expectOk(cd.pancake_host_session_fetch(dialed, "first", 5, &first_vow));
+    try std.testing.expect(first_vow != 0);
+    // Raising the Host default now must not rewrite this live session.
+    try expectOk(cd.pancake_host_set_session_limits(client, 0, 0, 1024 * 1024));
+    var admitted: usize = 1;
+    var refused = false;
+    for (0..128) |_| {
+        var vow: u64 = 0;
+        const rc = cd.pancake_host_session_fetch(dialed, "next", 4, &vow);
+        if (rc == c.PANCAKE_ERR_WOULD_BLOCK) {
+            try std.testing.expectEqual(@as(u64, 0), vow);
+            refused = true;
+            break;
+        }
+        try expectOk(rc);
+        try std.testing.expect(vow != 0);
+        admitted += 1;
+    }
+    try std.testing.expect(admitted > 1);
+    try std.testing.expect(refused);
+    // Inbound production is parked by the same session-owned mark.
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, cd.pancake_host_session_feed_bytes(dialed, null, 0));
+    while (true) {
+        var mf: c.PancakeManagedFrame = undefined;
+        const rc = takeOutbound(dialed, &mf);
+        if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
+        try expectOk(rc);
+        c.pancake_managed_frame_release(&mf);
+    }
+    var retry_vow: u64 = 0;
+    try expectOk(cd.pancake_host_session_fetch(dialed, "next", 4, &retry_vow));
+    try std.testing.expect(retry_vow != 0);
+}
+
 test "libpancake_host: feed_bytes refuses an over-cap frame with the typed FRAME_TOO_LARGE and queues the abort" {
     // The receiver's cap is smaller than any keyed hello, so the partner's
     // first frame trips the cap-during-scan verdict.
     var tiny: ?*cd.PancakeHost = null;
-    const tiny_seed = [_]u8{0x91} ** 32;
+    const tiny_seed = hostSeed(0x91);
     try expectOk(cd.pancake_host_new(&tiny_seed, tiny_seed.len, 64, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &tiny));
     defer _ = cd.pancake_host_release(tiny);
     const dialer = try newHost(0x92);
@@ -1645,12 +2010,12 @@ test "libpancake_host: feed_bytes refuses an over-cap frame with the typed FRAME
     try ensureAdvertisedLocator(dialer, "tcp");
     try setAdvertisedLocator(tiny, tcpLocator(designator));
     var accepted: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(tiny, "tcp", 3, &accepted));
+    try expectOk(openAccepted(tiny, "tcp", 3, &accepted));
     var dialed: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(dialer, "tcp", 3, designator.ptr, designator.len, &dialed));
+    try expectOk(openDialed(dialer, "tcp", 3, designator.ptr, designator.len, &dialed));
 
     var hello: c.PancakeManagedFrame = undefined;
-    try expectOk(cd.pancake_host_session_take_outbound(dialed, &hello));
+    try expectOk(takeOutbound(dialed, &hello));
     defer c.pancake_managed_frame_release(&hello);
     try std.testing.expect(hello.len > 64);
 
@@ -1670,11 +2035,21 @@ test "libpancake_host: feed_bytes refuses an over-cap frame with the typed FRAME
     try std.testing.expect(abort_info.has_kind != 0);
     while (true) {
         var out: c.PancakeManagedFrame = undefined;
-        const rc = cd.pancake_host_session_take_outbound(accepted, &out);
+        const rc = takeOutbound(accepted, &out);
         if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
         try expectOk(rc);
+        // The dialed side's own hello/handshake output is unrelated to this
+        // terminal-delivery assertion, but it still counts against that
+        // session's waterline. Drain it before feeding the next partner frame.
+        while (true) {
+            var local: c.PancakeManagedFrame = undefined;
+            const local_rc = takeOutbound(dialed, &local);
+            if (local_rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
+            try expectOk(local_rc);
+            c.pancake_managed_frame_release(&local);
+        }
         const borrowed: c.PancakeFrame = .{ .bytes = out.bytes, .len = out.len, .shape = out.shape };
-        _ = cd.pancake_host_session_feed(dialed, &borrowed);
+        try expectOk(cd.pancake_host_session_feed(dialed, &borrowed));
         c.pancake_managed_frame_release(&out);
     }
     // An over-cap frame projects the resource-exhaustion abort kind.
@@ -1694,18 +2069,17 @@ test "libpancake_host: break_far_vows fires a parked fetch broken, and the expor
     const hosts = [_]?*cd.PancakeHost{ client, server };
     const pair = try openPair(&hosts, client, server, "127.0.0.1:7001", &dials, &watches);
 
-    // Gives whose exporter is this connection would name the override; empty
-    // clears it back to the session record. The boundary takes a Syrup
-    // ocapn-peer record (not a URI) — the same bytes encode_peer_locator returns.
+    // Gives whose exporter is this connection would name the override; null
+    // clears it back to the session record.
     const override_loc = try pancake.ocapn.model.uri.parsePeer(std.testing.allocator, "ocapn://192.0.2.1%3A7009.tcp");
     defer pancake.ocapn.model.freePeerLocator(std.testing.allocator, override_loc);
-    const override = try pancake.ocapn.engine.encodePeerLocatorRecord(std.testing.allocator, override_loc);
-    defer std.testing.allocator.free(override);
-    try expectOk(cd.pancake_host_session_set_exporter_location(pair.b, override.ptr, override.len));
-    // A URI must fail loud — that was the footgun that spliced into a signed give.
-    const uri = "ocapn://192.0.2.1%3A7009.tcp";
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_session_set_exporter_location(pair.b, uri.ptr, uri.len));
-    try expectOk(cd.pancake_host_session_set_exporter_location(pair.b, null, 0));
+    var no_hints: [0]cd.PancakeLocatorHintView = .{};
+    var override = locatorView(override_loc, &no_hints);
+    try expectOk(cd.pancake_host_session_set_exporter_location(pair.b, &override));
+    var malformed = override;
+    malformed.abi_version = 0;
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, cd.pancake_host_session_set_exporter_location(pair.b, &malformed));
+    try expectOk(cd.pancake_host_session_set_exporter_location(pair.b, null));
 
     // A fetch whose resolve never arrives: the transport dies, the break
     // queues the vow's FAIL completion inside the call, and the drain routes
@@ -1841,13 +2215,13 @@ test "libpancake_host: feed_bytes stops at the session-open transition so a coal
     try ensureAdvertisedLocator(client, "tcp");
     try setAdvertisedLocator(server, tcpLocator(designator));
     var accepted: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(server, "tcp", 3, &accepted));
+    try expectOk(openAccepted(server, "tcp", 3, &accepted));
     var dialed: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(client, "tcp", 3, designator.ptr, designator.len, &dialed));
+    try expectOk(openDialed(client, "tcp", 3, designator.ptr, designator.len, &dialed));
 
     // Open the client side first: feed it the server's hello whole.
     var server_hello: c.PancakeManagedFrame = undefined;
-    try expectOk(cd.pancake_host_session_take_outbound(accepted, &server_hello));
+    try expectOk(takeOutbound(accepted, &server_hello));
     const borrowed_hello: c.PancakeFrame = .{ .bytes = server_hello.bytes, .len = server_hello.len, .shape = server_hello.shape };
     try expectOk(cd.pancake_host_session_feed(dialed, &borrowed_hello));
     c.pancake_managed_frame_release(&server_hello);
@@ -1863,7 +2237,7 @@ test "libpancake_host: feed_bytes stops at the session-open transition so a coal
     var frames: usize = 0;
     while (true) {
         var mf: c.PancakeManagedFrame = undefined;
-        const rc = cd.pancake_host_session_take_outbound(dialed, &mf);
+        const rc = takeOutbound(dialed, &mf);
         if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
         try expectOk(rc);
         defer c.pancake_managed_frame_release(&mf);
@@ -1905,8 +2279,8 @@ test "libpancake_host: feed_bytes stops at the session-open transition so a coal
 test "libpancake_host: keyed-tcp accept signs the published direct-addresses locator" {
     const crypto = pancake.foundation.crypto;
 
-    const seed = [_]u8{0x5c} ** 32;
-    const designator = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    const seed = hostSeed(0x5c);
+    const designator = crypto.SecretKey.fromSeed(seed[0..32].*).publicKey().toDesignator();
     const hint = "127.0.0.1:9000";
 
     var host: ?*cd.PancakeHost = null;
@@ -1917,7 +2291,7 @@ test "libpancake_host: keyed-tcp accept signs the published direct-addresses loc
     var refused: ?*cd.PancakeHostSession = null;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        cd.pancake_host_session_open_accepted(host, "keyed-tcp", 9, &refused),
+        openAccepted(host, "keyed-tcp", 9, &refused),
     );
 
     var hint_entries: [1]model.HintEntry = undefined;
@@ -1928,12 +2302,12 @@ test "libpancake_host: keyed-tcp accept signs the published direct-addresses loc
     });
 
     var accepted: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(host, "keyed-tcp", 9, &accepted));
+    try expectOk(openAccepted(host, "keyed-tcp", 9, &accepted));
     defer _ = cd.pancake_host_session_release(accepted);
 
     // The signed hello carries the hint entry name and the bound address.
     var mf: c.PancakeManagedFrame = undefined;
-    try expectOk(cd.pancake_host_session_take_outbound(accepted, &mf));
+    try expectOk(takeOutbound(accepted, &mf));
     defer c.pancake_managed_frame_release(&mf);
     const bytes = mf.bytes.?[0..mf.len];
     try std.testing.expect(std.mem.indexOf(u8, bytes, "direct-addresses") != null);
@@ -1942,17 +2316,24 @@ test "libpancake_host: keyed-tcp accept signs the published direct-addresses loc
 }
 
 test "libpancake_host: a 64-byte seed gives every session its own signing key" {
-    // ADR-0097 step 4 at the byte-fed tier. The core draws no entropy, so the
+    // ADR-0097 at the byte-fed tier. The core draws no entropy, so the
     // embedder supplies a session-key root after the durable identity in the
-    // one seed buffer, and each session then signs with its own key. The
-    // 32-byte call stays accepted and keeps the durable-key posture, which is
-    // what makes this additive for an existing embedder.
+    // one seed buffer, and each session then signs with its own key. A
+    // durable-only 32-byte seed is refused — CapTP session keys must not
+    // silently reuse the identity seed.
     const crypto = pancake.foundation.crypto;
 
     const durable = [_]u8{0x71} ** 32;
     var seed_with_root: [64]u8 = undefined;
     @memcpy(seed_with_root[0..32], &durable);
     @memcpy(seed_with_root[32..], &[_]u8{0x72} ** 32);
+
+    var refused: ?*cd.PancakeHost = null;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        cd.pancake_host_new(&durable, durable.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &refused),
+    );
+    try std.testing.expect(refused == null);
 
     var host: ?*cd.PancakeHost = null;
     try expectOk(cd.pancake_host_new(&seed_with_root, seed_with_root.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &host));
@@ -1961,17 +2342,17 @@ test "libpancake_host: a 64-byte seed gives every session its own signing key" {
 
     // Two sessions, two hellos. Each carries the key that session signed with.
     var first: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(host, "tcp", 3, &first));
+    try expectOk(openAccepted(host, "tcp", 3, &first));
     defer _ = cd.pancake_host_session_release(first);
     var second: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(host, "tcp", 3, &second));
+    try expectOk(openAccepted(host, "tcp", 3, &second));
     defer _ = cd.pancake_host_session_release(second);
 
     var first_key: [32]u8 = undefined;
     var second_key: [32]u8 = undefined;
     inline for (.{ .{ first, &first_key }, .{ second, &second_key } }) |pair| {
         var mf: c.PancakeManagedFrame = undefined;
-        try expectOk(cd.pancake_host_session_take_outbound(pair[0], &mf));
+        try expectOk(takeOutbound(pair[0], &mf));
         defer c.pancake_managed_frame_release(&mf);
         const view = try pancake.ocapn.codec.syrup.decodeBody(.{ .bytes = mf.bytes.?[0..mf.len], .shape = .byte });
         @memcpy(pair[1], view.start_session.session_pubkey[0..32]);
@@ -1990,12 +2371,13 @@ test "libpancake_host: one PartnerIdentity reports session key, durable name, an
     // key-shaped designator remains unauthenticated.
     const crypto = pancake.foundation.crypto;
 
-    const server_seed = [_]u8{0x6d} ** 32;
-    const designator = crypto.SecretKey.fromSeed(server_seed).publicKey().toDesignator();
+    const server_seed = hostSeed(0x6d);
+    const designator = crypto.SecretKey.fromSeed(server_seed[0..32].*).publicKey().toDesignator();
     const hint = "127.0.0.1:9100";
 
     var client: ?*cd.PancakeHost = null;
-    try expectOk(cd.pancake_host_new(&[_]u8{0x6c} ** 32, 32, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &client));
+    const client_seed = hostSeed(0x6c);
+    try expectOk(cd.pancake_host_new(&client_seed, client_seed.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &client));
     defer _ = cd.pancake_host_release(client);
     var server: ?*cd.PancakeHost = null;
     try expectOk(cd.pancake_host_new(&server_seed, server_seed.len, frame_cap, 1, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_V1_0, c.PANCAKE_FEATURE_FULL, 0, &server));
@@ -2010,10 +2392,10 @@ test "libpancake_host: one PartnerIdentity reports session key, durable name, an
     });
 
     var accepted: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(server, "keyed-tcp", 9, &accepted));
+    try expectOk(openAccepted(server, "keyed-tcp", 9, &accepted));
     defer _ = cd.pancake_host_session_release(accepted);
     var dialed: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(
+    try expectOk(openDialed(
         client,
         "keyed-tcp",
         9,
@@ -2125,11 +2507,11 @@ test "plan_dial C: an unknown transport is a typed refusal" {
 
 test "plan_accept C: tcp signs the accepted address; keyed-tcp signs the key with the address as hint" {
     var plan: cd.PancakeAcceptPlan = undefined;
-    try expectOk(cd.pancake_host_plan_accept("tcp", 3, null, 0, "127.0.0.1:5000", 14, &plan));
+    try expectOk(cd.pancake_host_plan_accept(cd.PANCAKE_DESIGNATOR_SCHEME_ADDRESS, null, 0, "127.0.0.1:5000", 14, &plan));
     try std.testing.expectEqualStrings("127.0.0.1:5000", plan.designator.?[0..plan.designator_len]);
     try std.testing.expectEqual(@as(usize, 0), plan.direct_addresses_hint_len);
 
-    try expectOk(cd.pancake_host_plan_accept("keyed-tcp", 9, key64.ptr, key64.len, "127.0.0.1:6000", 14, &plan));
+    try expectOk(cd.pancake_host_plan_accept(cd.PANCAKE_DESIGNATOR_SCHEME_KEY, key64.ptr, key64.len, "127.0.0.1:6000", 14, &plan));
     try std.testing.expectEqualStrings(key64, plan.designator.?[0..plan.designator_len]);
     try std.testing.expectEqualStrings("127.0.0.1:6000", plan.direct_addresses_hint.?[0..plan.direct_addresses_hint_len]);
 }
@@ -2232,12 +2614,12 @@ test "libpancake_host: select-or-dial enliven rides a live session, then parks o
     try setAdvertisedLocator(second, tcpLocator("127.0.0.1:7022"));
     var second_counter = Counter{};
     var accepted: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_accepted(second, "tcp", 3, &accepted));
+    try expectOk(openAccepted(second, "tcp", 3, &accepted));
     defer _ = cd.pancake_host_session_release(accepted);
     var second_published: c.PancakeReference = undefined;
     try expectOk(cd.pancake_host_session_publish(accepted, "widget", 6, widgetBehavior, &second_counter, null, &second_published));
     var dialed: ?*cd.PancakeHostSession = null;
-    try expectOk(cd.pancake_host_session_open_dialed_locator(client, "tcp", 3, "127.0.0.1:7022", 14, &dialed));
+    try expectOk(openDialed(client, "tcp", 3, "127.0.0.1:7022", 14, &dialed));
     defer _ = cd.pancake_host_session_release(dialed);
     const second_pair = Pair{ .a = dialed, .b = accepted };
     const both = [_]?*cd.PancakeHost{ client, second };
@@ -2257,13 +2639,28 @@ test "libpancake_host: a select-or-dial enliven breaks when the embedder cannot 
     var watches = Watches{};
     const hosts = [_]?*cd.PancakeHost{client};
 
-    const elsewhere = "ocapn://127.0.0.1%3A7023.tcp/s/d2lkZ2V0";
+    const relay_route = "ws://127.0.0.1:9999/relay";
+    const elsewhere = "ocapn://" ++ key64 ++
+        ".keyed-relay/s/d2lkZ2V0?rendezvous-relay=ws%3A%2F%2F127.0.0.1%3A9999%2Frelay";
     var parked_vow: u64 = 0;
     try expectOk(cd.pancake_host_enliven(client, elsewhere, elsewhere.len, &parked_vow));
     var parked = CapturedSettle{};
     watches.add(client, parked_vow, &parked);
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expectEqual(@as(usize, 1), dials.len);
+    try std.testing.expectEqualStrings(
+        "keyed-relay",
+        dials.items[0].transport[0..dials.items[0].transport_len],
+    );
+    try std.testing.expectEqualStrings(
+        key64,
+        dials.items[0].designator[0..dials.items[0].designator_len],
+    );
+    try std.testing.expectEqual(@as(usize, 1), dials.items[0].hint_count);
+    try std.testing.expectEqualStrings(
+        relay_route,
+        dials.items[0].relay_route[0..dials.items[0].relay_route_len],
+    );
 
     // Reporting the failure breaks the parked vow rather than stranding it.
     const reason = "connection refused";
@@ -2286,8 +2683,56 @@ test "libpancake_host: next select-or-dial enliven parses raw swiss URI bytes" {
     try std.testing.expectEqual(cd.PANCAKE_HOST_ACTION_DIAL, action.kind);
 }
 
+const PumpRetryCtx = struct {
+    calls: usize = 0,
+    tickets: [2]u64 = undefined,
+};
+
+fn refuseFirstPumpArm(
+    raw: ?*anyopaque,
+    _: ?*cd.PancakeHost,
+    action: *const cd.PancakeHostAction,
+    out_progressed: ?*u32,
+) callconv(.c) i32 {
+    const ctx: *PumpRetryCtx = @ptrCast(@alignCast(raw.?));
+    ctx.tickets[ctx.calls] = action.ticket;
+    ctx.calls += 1;
+    if (ctx.calls == 1) return c.PANCAKE_ERR_IO;
+    if (out_progressed) |progressed| progressed.* = 1;
+    return c.PANCAKE_OK;
+}
+
+test "libpancake_host: pump callback refusal preserves the exact action for retry" {
+    const client = try newHostWithProfile(0x35, c.PANCAKE_CODEC_SYRUP, c.PANCAKE_CAPTP_NEXT);
+    defer _ = cd.pancake_host_release(client);
+
+    const sturdyref = "ocapn://127.0.0.1%3A7025.tcp/s/widget";
+    var vow: u64 = 0;
+    try expectOk(cd.pancake_host_enliven(client, sturdyref, sturdyref.len, &vow));
+
+    var ctx = PumpRetryCtx{};
+    const hooks = cd.PancakeHostPumpHooks{
+        .ctx = &ctx,
+        .flush = null,
+        .close = null,
+        .need_gift_id = null,
+        .complete = null,
+        .dial = refuseFirstPumpArm,
+    };
+    var acted: u32 = 0;
+    var yielded: u32 = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_IO,
+        cd.pancake_host_pump_drain(client, &hooks, &acted, &yielded),
+    );
+    try expectOk(cd.pancake_host_pump_drain(client, &hooks, &acted, &yielded));
+    try std.testing.expectEqual(@as(usize, 2), ctx.calls);
+    try std.testing.expectEqual(ctx.tickets[0], ctx.tickets[1]);
+    try std.testing.expectEqual(@as(u32, 1), acted);
+}
+
 /// A behavior that defers its answer onto a resolver vow (ADR-0102): it
-/// mints the pair, forwards its turn, proves the in-turn settle refuses, and
+/// atomically defers the turn, proves the in-turn settle refuses, and
 /// parks the resolver id for the test body — the stand-in for a worker that
 /// completes off-turn.
 const DeferCtx = struct {
@@ -2307,12 +2752,9 @@ fn deferringBehavior(
     _ = .{ args, args_len };
     if (!std.mem.eql(u8, verb[0..verb_len], "work")) return c.PANCAKE_ERR_INVALID_ARGUMENT;
     const state: *DeferCtx = @ptrCast(@alignCast(ctx.?));
-    var vow_id: u64 = 0;
     var resolver_id: u64 = 0;
-    const spawned = cd.pancake_host_spawn_resolver(state.host, &vow_id, &resolver_id);
-    if (spawned != c.PANCAKE_OK) return spawned;
-    const forwarded = cd.pancake_host_turn_forward_vow(turn, vow_id);
-    if (forwarded != c.PANCAKE_OK) return forwarded;
+    const deferred = cd.pancake_host_turn_defer(turn, &resolver_id);
+    if (deferred != c.PANCAKE_OK) return deferred;
     // A settle from inside the turn must refuse: the worker's completion
     // re-enters top-level only.
     var premature = argStr("early");

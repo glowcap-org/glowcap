@@ -13,7 +13,7 @@ session.serve().catch((err) => console.error("session ended:", err));
 const greeter = await session.fetch("greeter");
 console.log(await session.send(greeter, "greet", ["world"]));
 
-session.close();
+await session.close();
 ```
 
 ## Packages
@@ -30,12 +30,20 @@ session.close();
 Runtime-specific FFI and socket code stays behind an adapter selected at load
 time, so Deno never loads Bun FFI and Bun never loads Deno FFI.
 
+On the native path the stack loads the symbol-disjoint `libpancake_host` and
+`libpancake_driver` archives. The driver adopts a quiescent Host and receives
+archive-owned provider packages: one TCP package owns TCP, keyed TCP, and
+Noise TCP, while the optional iroh package owns its dial and listener halves.
+On Deno those providers run on one stepping driver loop that owns readiness,
+pumping, and admission. Explicit keyed-relay channels, Bun, and the browser
+keep the byte-fed Host path.
+
 ## What is checked
 
 | Runtime | Recurring evidence | Still manual |
 | --- | --- | --- |
 | Deno | Application round trips, live Goblins client and listener, handoff, relay, and iroh checks. | None known in the supported native path. |
-| Bun | The shared TypeScript application smoke against pancake. | Live Goblins and iroh checks. |
+| Bun | Host identity/lifetime, locator and sturdyref ABI, and fail-closed native-loop/transport admission. | Hosted application round trips, live Goblins, and iroh checks. |
 | Browser | WebAssembly handshake, ABI layout, and import checks. | Real Chromium, WebRTC, mesh, and cold-dial scenarios. |
 
 `@pancake/web` uses the same byte-fed host as the native binding. JavaScript

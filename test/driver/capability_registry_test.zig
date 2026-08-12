@@ -1,5 +1,6 @@
 const std = @import("std");
 const pancake = @import("pancake");
+const test_host = @import("../support/core_host.zig");
 
 const model = pancake.ocapn.model;
 const core = pancake.driver.core;
@@ -45,7 +46,7 @@ const LiftSink = struct {
 };
 
 test "Host lift keeps equal import positions scoped to their owning sessions" {
-    var host = core.Host.init(std.testing.allocator, [_]u8{0x41} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, [_]u8{0x41} ** 32, .{});
     defer host.deinit();
     const a = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9101", &.{});
     const b = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9102", &.{});
@@ -63,7 +64,7 @@ test "Host lift keeps equal import positions scoped to their owning sessions" {
 }
 
 test "Host local capability identity survives Port closure and reprojects lazily" {
-    var host = core.Host.init(std.testing.allocator, [_]u8{0x42} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, [_]u8{0x42} ** 32, .{});
     defer host.deinit();
     const owner = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9201", &.{});
     const survivor = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9202", &.{});
@@ -91,7 +92,7 @@ test "Host local capability identity survives Port closure and reprojects lazily
 
 test "reserved fresh local capability lift cannot allocate after publication" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var host = core.Host.init(failing.allocator(), [_]u8{0x4b} ** 32, .{});
+    var host = test_host.init(failing.allocator(), [_]u8{0x4b} ** 32, .{});
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9251", &.{});
 
@@ -109,9 +110,9 @@ test "reserved fresh local capability lift cannot allocate after publication" {
 }
 
 test "failed projection rolls back a lift with an exact wire release" {
-    var host = core.Host.init(std.testing.allocator, [_]u8{0x4c} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, [_]u8{0x4c} ** 32, .{});
     defer host.deinit();
-    var partner = core.Host.init(std.testing.allocator, [_]u8{0x4d} ** 32, .{});
+    var partner = test_host.init(std.testing.allocator, [_]u8{0x4d} ** 32, .{});
     defer partner.deinit();
     const pair = try host_pair.openPair(&host, &partner, "127.0.0.1:9252");
     const session = pair.a;
@@ -134,9 +135,9 @@ test "failed projection rolls back a lift with an exact wire release" {
 }
 
 test "repeated lift is canonical and partial then final release tracks wire retains" {
-    var host = core.Host.init(std.testing.allocator, [_]u8{0x43} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, [_]u8{0x43} ** 32, .{});
     defer host.deinit();
-    var partner = core.Host.init(std.testing.allocator, [_]u8{0x44} ** 32, .{});
+    var partner = test_host.init(std.testing.allocator, [_]u8{0x44} ** 32, .{});
     defer partner.deinit();
     const pair = try host_pair.openPair(&host, &partner, "127.0.0.1:9301");
     const session = pair.a;
@@ -157,9 +158,9 @@ test "repeated lift is canonical and partial then final release tracks wire reta
 }
 
 test "repeated lift reuses identity without inventing a wire retain" {
-    var host = core.Host.init(std.testing.allocator, [_]u8{0x45} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, [_]u8{0x45} ** 32, .{});
     defer host.deinit();
-    var partner = core.Host.init(std.testing.allocator, [_]u8{0x46} ** 32, .{});
+    var partner = test_host.init(std.testing.allocator, [_]u8{0x46} ** 32, .{});
     defer partner.deinit();
     const pair = try host_pair.openPair(&host, &partner, "127.0.0.1:9401");
     const session = pair.a;
@@ -183,7 +184,7 @@ test "repeated lift reuses identity without inventing a wire retain" {
 }
 
 test "bootstrap without an import row cannot become a retained Host capability" {
-    var host = core.Host.init(std.testing.allocator, [_]u8{0x4b} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, [_]u8{0x4b} ** 32, .{});
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9451", &.{});
     try std.testing.expectError(
@@ -193,7 +194,7 @@ test "bootstrap without an import row cannot become a retained Host capability" 
 }
 
 test "reclaimed Host slot receives a new public id before reuse" {
-    var host = core.Host.init(std.testing.allocator, [_]u8{0x47} ** 32, .{});
+    var host = test_host.init(std.testing.allocator, [_]u8{0x47} ** 32, .{});
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9501", &.{});
     const first_cap = try session.served.publish(&session.host.vat, "first", LocalActor, .{});
@@ -208,9 +209,9 @@ test "reclaimed Host slot receives a new public id before reuse" {
 }
 
 test "Host capability verbs refuse a session owned by another Host" {
-    var a = core.Host.init(std.testing.allocator, [_]u8{0x48} ** 32, .{});
+    var a = test_host.init(std.testing.allocator, [_]u8{0x48} ** 32, .{});
     defer a.deinit();
-    var b = core.Host.init(std.testing.allocator, [_]u8{0x49} ** 32, .{});
+    var b = test_host.init(std.testing.allocator, [_]u8{0x49} ** 32, .{});
     defer b.deinit();
     const a_session = try publishAndOpenAccepted(&a, "tcp", "127.0.0.1:9601", &.{});
     const b_session = try publishAndOpenAccepted(&b, "tcp", "127.0.0.1:9602", &.{});
@@ -233,11 +234,11 @@ test "Host capability verbs refuse a session owned by another Host" {
 }
 
 test "ordinary replies and delivered arguments lift canonically under their owning sessions" {
-    var client = core.Host.init(std.testing.allocator, [_]u8{0x50} ** 32, .{});
+    var client = test_host.init(std.testing.allocator, [_]u8{0x50} ** 32, .{});
     defer client.deinit();
-    var exporter_a = core.Host.init(std.testing.allocator, [_]u8{0x51} ** 32, .{});
+    var exporter_a = test_host.init(std.testing.allocator, [_]u8{0x51} ** 32, .{});
     defer exporter_a.deinit();
-    var exporter_b = core.Host.init(std.testing.allocator, [_]u8{0x52} ** 32, .{});
+    var exporter_b = test_host.init(std.testing.allocator, [_]u8{0x52} ** 32, .{});
     defer exporter_b.deinit();
     const a = try host_pair.openPair(&client, &exporter_a, "127.0.0.1:9651");
     const b = try host_pair.openPair(&client, &exporter_b, "127.0.0.1:9652");
@@ -286,7 +287,7 @@ test "ordinary replies and delivered arguments lift canonically under their owni
 
 test "first remote lift pays bounded indexes and repeated lift allocates nothing" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var host = core.Host.init(failing.allocator(), [_]u8{0x4a} ** 32, .{});
+    var host = test_host.init(failing.allocator(), [_]u8{0x4a} ** 32, .{});
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9701", &.{});
     try session.served.port.peer.importObject(7);

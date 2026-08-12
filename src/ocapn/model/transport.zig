@@ -2,54 +2,188 @@
 //!
 //! These are locator vocabulary, not I/O: every netlayer resident and the
 //! sans-io driver (`driver_core.vocab`) must use the same bytes. Residents
-//! alias `transport_name` to one of these constants; vocab policy tables
-//! compare against them. Keeping the literals here — under `model`, which both
-//! `net` and `driver_core` may import — is what prevents the strings from
-//! drifting apart across the I/O ban.
+//! derive `transport_name` and locator posture from `Known.metadata`. Keeping
+//! those facts here — under `model`, which both `net` and `driver_core` may
+//! import — prevents parallel registries across the I/O ban.
 
 const std = @import("std");
-
-/// Plain TCP: designator is `host:port` (cleartext conformance transport).
-pub const tcp = "tcp";
-
-/// Keyed TCP: designator is the partner Ed25519 key; socket address rides the
-/// `direct-addresses` hint (ADR-0075).
-pub const keyed_tcp = "keyed-tcp";
-
-/// In-process pipes: designator is a switchboard name, no sockets.
-pub const inproc = "inproc";
-
-/// Iroh encrypted QUIC: designator is the endpoint node id (Ed25519 key).
-pub const iroh = "iroh";
-
-/// Relay rendezvous: designator is the peer's Ed25519 key, and there is no
-/// dialable address — the peer holds an inbound socket at a relay under this
-/// key, and a dialer is bridged onto it (ADR-0088 cold-dial rendezvous). The
-/// byte channel is the relay leg; the keyed handshake runs end to end. Used to
-/// reach a peer that opens no listening socket, such as a browser.
-pub const keyed_relay = "keyed-relay";
-
-/// WebRTC DataChannel: designator is the peer's Ed25519 key, and the offer,
-/// answer, and ICE candidates that bring the channel up ride a signaling
-/// capability rather than a dialable address (ADR-0089).
-pub const webrtc = "webrtc";
 
 /// What a transport's locator designator means. The locator vocabulary owns
 /// this distinction because handshake admission and netlayer dispatch must
 /// interpret the same transport symbol identically.
 pub const DesignatorScheme = enum { address, key };
 
-pub fn designatorScheme(transport: []const u8) DesignatorScheme {
-    if (std.mem.eql(u8, transport, keyed_tcp)) return .key;
-    if (std.mem.eql(u8, transport, iroh)) return .key;
-    if (std.mem.eql(u8, transport, keyed_relay)) return .key;
-    if (std.mem.eql(u8, transport, webrtc)) return .key;
-    return .address;
+/// Where a host-port realization obtains its dial address. This is locator
+/// grammar, not an I/O backend choice: TCP uses it, and an extension transport
+/// with the same locator shape can use it without claiming to be TCP.
+pub const AddressSource = enum { none, designator, direct_addresses_hint };
+
+/// The host-integration shape required to open a locator. This classifies the
+/// authority an adapter needs without selecting a concrete implementation.
+pub const DialShape = enum { unsupported, host_port, peer_id, signaling, rendezvous };
+
+pub const Metadata = struct {
+    symbol: []const u8,
+    designator_scheme: DesignatorScheme,
+    address_source: AddressSource = .none,
+    dial_shape: DialShape = .unsupported,
+    sealed_channel: bool = false,
+
+    pub fn eql(left: Metadata, right: Metadata) bool {
+        return std.mem.eql(u8, left.symbol, right.symbol) and
+            left.designator_scheme == right.designator_scheme and
+            left.address_source == right.address_source and
+            left.dial_shape == right.dial_shape and
+            left.sealed_channel == right.sealed_channel;
+    }
+};
+
+/// The transport symbols whose locator semantics pancake defines. Extensions
+/// remain legal at runtime, but the exhaustive metadata switch gives each
+/// first-party symbol exactly one policy definition.
+pub const Known = enum {
+    tcp,
+    onion,
+    keyed_tcp,
+    inproc,
+    iroh,
+    keyed_relay,
+    webrtc,
+    noise_tcp,
+    noise_relay,
+
+    pub fn metadata(self: Known) Metadata {
+        return switch (self) {
+            .tcp => .{ .symbol = "tcp", .designator_scheme = .address, .address_source = .designator, .dial_shape = .host_port },
+            .onion => .{ .symbol = "onion", .designator_scheme = .address },
+            .keyed_tcp => .{ .symbol = "keyed-tcp", .designator_scheme = .key, .address_source = .direct_addresses_hint, .dial_shape = .host_port },
+            .inproc => .{ .symbol = "inproc", .designator_scheme = .address },
+            .iroh => .{ .symbol = "iroh", .designator_scheme = .key, .dial_shape = .peer_id },
+            .keyed_relay => .{ .symbol = "keyed-relay", .designator_scheme = .key, .dial_shape = .rendezvous },
+            .webrtc => .{ .symbol = "webrtc", .designator_scheme = .key, .dial_shape = .signaling },
+            .noise_tcp => .{ .symbol = "noise-tcp", .designator_scheme = .key, .address_source = .direct_addresses_hint, .dial_shape = .host_port, .sealed_channel = true },
+            .noise_relay => .{ .symbol = "noise-relay", .designator_scheme = .key, .dial_shape = .rendezvous, .sealed_channel = true },
+        };
+    }
+};
+
+comptime {
+    const values = std.enums.values(Known);
+    for (values, 0..) |known, i| {
+        const left = known.metadata();
+        if (left.symbol.len == 0) @compileError("a transport symbol cannot be empty");
+        for (values[i + 1 ..]) |other| {
+            const right = other.metadata();
+            if (std.mem.eql(u8, left.symbol, right.symbol))
+                @compileError("transport metadata contains a duplicate symbol");
+        }
+    }
 }
+
+pub fn parseKnown(symbol: []const u8) ?Known {
+    inline for (std.enums.values(Known)) |known| {
+        if (std.mem.eql(u8, symbol, known.metadata().symbol)) return known;
+    }
+    return null;
+}
+
+pub const SymbolError = error{InvalidTransportSymbol};
+
+/// Validate the OCapN peer-locator transport symbol. The locator grammar uses
+/// the final `.` as its designator/transport separator and the Syrup form
+/// explicitly forbids `.` inside the transport symbol.
+pub fn validateSymbol(symbol: []const u8) SymbolError!void {
+    if (symbol.len == 0 or std.mem.indexOfScalar(u8, symbol, '.') != null)
+        return error.InvalidTransportSymbol;
+}
+
+/// Expand the portable provider claim into this model's complete metadata.
+/// Provider ABIs need only carry the locator-level facts every implementation
+/// shares; first-party dial planning remains canonical here and extensions
+/// retain the conservative defaults they declared.
+pub fn metadataFromClaim(
+    symbol: []const u8,
+    designator_scheme: DesignatorScheme,
+    sealed_channel: bool,
+) (SymbolError || error{TransportSemanticsConflict})!Metadata {
+    try validateSymbol(symbol);
+    if (parseKnown(symbol)) |known| {
+        const metadata = known.metadata();
+        if (metadata.designator_scheme != designator_scheme or
+            metadata.sealed_channel != sealed_channel)
+            return error.TransportSemanticsConflict;
+        return metadata;
+    }
+    return .{
+        .symbol = symbol,
+        .designator_scheme = designator_scheme,
+        .sealed_channel = sealed_channel,
+    };
+}
+
+/// Plain TCP: designator is `host:port` (cleartext conformance transport).
+pub const tcp = Known.tcp.metadata().symbol;
+
+/// Tor onion service: designator is the version 3 service id, without its
+/// `.onion` suffix, which the locator's transport label supplies. The one
+/// transport symbol the OCapN draft standardizes, and the one upstream Spritely
+/// Goblins ships (ADR-0108).
+///
+/// The designator stays an address even though a version 3 service id encodes an
+/// Ed25519 public key. Tor's rendezvous handshake proves the far end holds that
+/// key, but what the key names is the rendezvous service; the CapTP peer is
+/// whoever holds the local endpoint the service forwards to. ADR-0108 derives
+/// this, and the pinned Goblins dials and is dialed on the same reading.
+pub const onion = Known.onion.metadata().symbol;
+
+/// Keyed TCP: designator is the partner Ed25519 key; socket address rides the
+/// `direct-addresses` hint (ADR-0075).
+pub const keyed_tcp = Known.keyed_tcp.metadata().symbol;
+
+/// In-process pipes: designator is a switchboard name, no sockets.
+pub const inproc = Known.inproc.metadata().symbol;
+
+/// Iroh encrypted QUIC: designator is the endpoint node id (Ed25519 key).
+pub const iroh = Known.iroh.metadata().symbol;
+
+/// Relay rendezvous: designator is the peer's Ed25519 key, and there is no
+/// dialable address — the peer holds an inbound socket at a relay under this
+/// key, and a dialer is bridged onto it (ADR-0088 cold-dial rendezvous). The
+/// byte channel is the relay leg; the keyed handshake runs end to end. Used to
+/// reach a peer that opens no listening socket, such as a browser.
+pub const keyed_relay = Known.keyed_relay.metadata().symbol;
+
+/// WebRTC DataChannel: designator is the peer's Ed25519 key, and the offer,
+/// answer, and ICE candidates that bring the channel up ride a signaling
+/// capability rather than a dialable address (ADR-0089).
+pub const webrtc = Known.webrtc.metadata().symbol;
+
+/// Noise-sealed TCP (ADR-0107): `tcp` sockets carrying the sealed byte
+/// channel. The designator is the responder's durable Ed25519 key and the
+/// socket address rides the `direct-addresses` hint, exactly as `keyed-tcp`;
+/// what differs is the wire, where the two CapTP peers complete a Noise_XK
+/// handshake before any CapTP byte moves.
+pub const noise_tcp = Known.noise_tcp.metadata().symbol;
+
+/// Noise-sealed relay rendezvous (ADR-0107): the same sealed channel over a
+/// relay's WebSocket pipe, so the relay forwards ciphertext. The designator
+/// is the registered responder's Ed25519 key, exactly as `keyed-relay`; the
+/// relay transport owns the same registered byte-pipe realization, while the
+/// Host selected by this symbol owns the sealed channel.
+/// The completion-loop tier composes the same channel at its backend byte seam
+/// because that tier has no HostSession.
+pub const noise_relay = Known.noise_relay.metadata().symbol;
 
 /// Locator hint entry name that carries dial addresses when the designator is
 /// a key (`keyed-tcp`, `iroh`).
 pub const hint_direct_addresses = "direct-addresses";
+
+/// Locator hint entry name carrying an ordered, comma-separated list of
+/// complete peer URIs to try after the locator carrying this hint. The value
+/// is routing advice, not peer identity: the recipient owns the fallback
+/// policy and the exporter locator remains the signed authority for the
+/// redeem.
+pub const hint_alt_locators = "alt-locators";
 
 /// Hint entry names that carry a peer's preferred wire profile: the CapTP
 /// version in the same representation the version field uses

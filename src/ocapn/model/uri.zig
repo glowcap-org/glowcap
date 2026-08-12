@@ -29,12 +29,16 @@ pub const Error = error{
     InvalidSwissNumber,
     MalformedHint,
     UnsupportedHintValue,
+    InvalidLocator,
     UriParseError,
+    MalformedPercentEncoding,
+    UnsupportedUriComponent,
     InvalidHostPort,
     /// `tcpConnectHostPort` was asked for a transport it does not resolve
-    /// (`tcp` and `keyed-tcp` only).
+    /// (`tcp`, `keyed-tcp`, and `noise-tcp` only).
     UnknownTransport,
-    /// A `keyed-tcp` dial has no usable `direct-addresses` hint entry.
+    /// A `keyed-tcp` or `noise-tcp` dial has no usable `direct-addresses`
+    /// hint entry.
     MissingDirectAddressesHint,
     OutOfMemory,
 };
@@ -63,6 +67,7 @@ fn componentBytes(component: std.Uri.Component) []const u8 {
 /// Percent-decode `s` into a fresh owned allocation. Uses `std.Uri.percentDecodeInPlace`
 /// on a mutable copy.
 fn percentDecodeOwned(allocator: std.mem.Allocator, s: []const u8) Error![]u8 {
+    try validatePercentEncoding(s);
     const buf = try allocator.dupe(u8, s);
     errdefer allocator.free(buf);
     const decoded = std.Uri.percentDecodeInPlace(buf);
@@ -74,7 +79,28 @@ fn percentDecodeOwned(allocator: std.mem.Allocator, s: []const u8) Error![]u8 {
 }
 
 fn parseUri(uri_str: []const u8) Error!std.Uri {
-    return std.Uri.parse(uri_str) catch return Error.UriParseError;
+    try validatePercentEncoding(uri_str);
+    const uri = std.Uri.parse(uri_str) catch return Error.UriParseError;
+    if (uri.user != null or uri.password != null or uri.port != null or uri.fragment != null)
+        return error.UnsupportedUriComponent;
+    return uri;
+}
+
+fn validatePercentEncoding(bytes: []const u8) Error!void {
+    var at: usize = 0;
+    while (at < bytes.len) : (at += 1) {
+        if (bytes[at] != '%') continue;
+        if (at + 2 >= bytes.len or !isHex(bytes[at + 1]) or !isHex(bytes[at + 2]))
+            return error.MalformedPercentEncoding;
+        at += 2;
+    }
+}
+
+fn isHex(byte: u8) bool {
+    return switch (byte) {
+        '0'...'9', 'a'...'f', 'A'...'F' => true,
+        else => false,
+    };
 }
 
 /// Split the netloc into designator and transport on the last dot. The split
@@ -136,7 +162,10 @@ pub fn parsePeer(allocator: std.mem.Allocator, uri_str: []const u8) Error!model.
     if (path_pe.len > 0) return Error.MalformedPath;
 
     const hints = try decodeHints(allocator, uri.query);
-    return .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
+    errdefer model.freeHints(allocator, hints);
+    const locator: model.PeerLocator = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
+    model.validatePeerLocator(locator) catch return error.InvalidLocator;
+    return locator;
 }
 
 /// Parse the baseline Goblins-compatible sturdyref URI form.
@@ -165,8 +194,11 @@ pub fn parseSturdyrefForProfile(
     errdefer allocator.free(swissnum);
 
     const hints = try decodeHints(allocator, uri.query);
+    errdefer model.freeHints(allocator, hints);
+    const peer: model.PeerLocator = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
+    model.validatePeerLocator(peer) catch return error.InvalidLocator;
     return .{
-        .peer = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints },
+        .peer = peer,
         .swissnum = swissnum,
     };
 }
@@ -238,26 +270,36 @@ pub fn splitHostPort(designator: []const u8) Error!HostPort {
     return .{ .host = host, .port = port };
 }
 
-/// Resolve the TCP-family connect `host:port` from locator pieces. This is the
-/// one admission for `tcp` / `keyed-tcp` hostport selection: `planDial` and
-/// `tcp.DialResolver` both call it so the first-address / split grammar cannot
-/// drift. Key-shape checks stay with the callers that own crypto
-/// (`PeerKey.fromDesignator`). Views borrow `designator` or `hint`.
+/// Resolve the TCP provider's connect `host:port` from locator pieces. This is
+/// the one admission for `tcp` / `keyed-tcp` / `noise-tcp` hostport
+/// selection: `planDial` and `tcp.DialResolver` both call it so the
+/// first-address / split grammar cannot drift. Key-shape checks stay with the
+/// callers that own crypto (`PeerKey.fromDesignator`). Views borrow
+/// `designator` or `hint`.
 pub fn tcpConnectHostPort(
     transport: []const u8,
     designator: []const u8,
     direct_addresses_hint: []const u8,
 ) Error!HostPort {
-    if (std.mem.eql(u8, transport, model.transport.tcp)) {
-        return splitHostPort(designator);
-    }
-    if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) {
-        if (direct_addresses_hint.len == 0) return Error.MissingDirectAddressesHint;
-        const first = firstDirectAddress(direct_addresses_hint);
-        if (first.len == 0) return Error.MissingDirectAddressesHint;
-        return splitHostPort(first);
-    }
-    return Error.UnknownTransport;
+    const known = model.transport.parseKnown(transport) orelse return Error.UnknownTransport;
+    return connectHostPort(known.metadata(), designator, direct_addresses_hint);
+}
+
+pub fn connectHostPort(
+    profile: model.transport.Metadata,
+    designator: []const u8,
+    direct_addresses_hint: []const u8,
+) Error!HostPort {
+    return switch (profile.address_source) {
+        .none => Error.UnknownTransport,
+        .designator => splitHostPort(designator),
+        .direct_addresses_hint => {
+            if (direct_addresses_hint.len == 0) return Error.MissingDirectAddressesHint;
+            const first = firstDirectAddress(direct_addresses_hint);
+            if (first.len == 0) return Error.MissingDirectAddressesHint;
+            return splitHostPort(first);
+        },
+    };
 }
 
 // ── Emit ─────────────────────────────────────────────────────────────────────
@@ -311,15 +353,11 @@ fn writeInto(
     profile: model.CaptpVersion,
     swissnum: ?[]const u8,
 ) Error!void {
+    model.validatePeerLocator(locator) catch return error.InvalidLocator;
     try out.appendSlice(allocator, "ocapn://");
     try appendPercentEncoded(allocator, out, locator.designator, safeNetloc);
     try out.append(allocator, '.');
-    // The transport uses `safeTransport`, not `safeNetloc`: a bare '.' in the
-    // transport would re-split on parse (`splitNetloc` cuts on the last dot),
-    // turning a dotted transport into a different locator. A designator dot stays
-    // bare — it lands left of the delimiter and survives the last-dot split — so
-    // only the transport half escapes '.'.
-    try appendPercentEncoded(allocator, out, locator.transport, safeTransport);
+    try appendPercentEncoded(allocator, out, locator.transport, safeNetloc);
     if (swissnum) |swiss| {
         try out.appendSlice(allocator, sturdyref_path_prefix);
         switch (profile) {
@@ -367,13 +405,6 @@ fn safeNetloc(c: u8) bool {
         '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => true,
         else => false,
     };
-}
-
-/// The transport half of a netloc: `safeNetloc` minus '.', which is the
-/// structural designator/transport delimiter. Escaping '.' here (as `%2E`) keeps
-/// a dotted transport from re-splitting when `splitNetloc` cuts on the last dot.
-fn safeTransport(c: u8) bool {
-    return c != '.' and safeNetloc(c);
 }
 
 fn safePath(c: u8) bool {

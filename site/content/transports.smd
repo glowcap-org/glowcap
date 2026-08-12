@@ -1,50 +1,59 @@
 ---
 .title = "Transports",
-.description = "The netlayers that move a session's bytes between two peers, what each one authenticates and encrypts, and which of them are safe to deploy.",
+.description = "A transport carries CapTP between two peers. The session above it stays the same; what changes is how a peer is named and how the bytes travel.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-A transport, or *netlayer*, moves session bytes between two peers. The session
-above it does not change. In the table, the **designator** is the peer name
-inside an OCapN locator.
+A transport, or *netlayer*, is the byte path under a CapTP session. Fetch,
+call, promises, and handoffs stay the same no matter which one you pick.
+What changes is how you name a peer and how the bytes get there: a TCP socket,
+an encrypted QUIC channel, a Tor circuit, a browser DataChannel, and so on.
 
-| Symbol | Designator | Channel | What proves the peer | Safe to deploy |
-| --- | --- | --- | --- | --- |
-| `tcp` | `host:port` | cleartext | Nothing does. | No. Keep it for testing and Goblins interoperability. |
-| `keyed-tcp` | Ed25519 key, address in the `direct-addresses` hint | cleartext | Nothing; the key is only a dial target. | Only on a network you already trust. |
-| `keyed-relay` | Ed25519 key, no address at all | cleartext WebSocket to the relay | Nothing; the key is only a dial target. | Only with a relay and a network you already trust. |
-| `iroh` | Ed25519 node id | encrypted QUIC | The QUIC handshake itself. | Yes. |
-| `webrtc` | Ed25519 key, reached through signaling | encrypted DataChannel over DTLS | The signaling authority binds the identity to the channel. | Yes, with a signaling authority you trust. |
-| `inproc` | a name inside one process | in-memory pipes | Nothing, and there is nothing to prove. | No. Keep it for tests and demos. |
+That split is the whole point of the layer. Application code holds capabilities.
+The netlayer only moves the frames those capabilities travel in.
 
-Two different facts sit behind that fourth column. Every pancake connection
-signs its handshake with a key it draws fresh for that connection, so the
-signature proves the session held together and nothing more. Naming *who* the
-peer is requires an authenticated end-to-end channel. iroh reads the identity
-its QUIC handshake authenticated, and WebRTC uses the identity its signaling
-authority assigned. A key in a cleartext locator proves nothing by itself.
+## How a peer is named
 
-Plain `tcp` is the one to be careful with. The OCapN draft specification
-requires a netlayer to keep a session secure enough that only its participants
-can insert messages, and cleartext TCP does not. Upstream
-[Spritely Goblins](https://spritely.institute/goblins/) ships no TCP netlayer,
-and the OCapN test suite's equivalent is named `tcp-testing-only` and says in
-its own source that it is not safe and should not be used in production. Treat
-pancake's `tcp` the same way: it exists so live checks can run against outside
-peers.
+You reach a peer through an OCapN locator:
 
-`keyed-tcp` and `keyed-relay` do not authenticate the peer or encrypt the
-bytes. Anyone on the path can read every frame and change it. On `keyed-relay` that
-includes the relay operator, who sees plaintext even when the browser leg is
-`wss://`. Use iroh when a native channel must be confidential, and WebRTC for a
-direct browser channel. A browser can also reach a native peer through the
-byte-transparent [relay]($link.page('relay')); ADR-0107 proposes Noise_XK to
-seal that byte channel end to end.
+```
+ocapn://<designator>.<transport>
+```
 
-[Choosing a transport]($link.page('transports/choosing')) turns the table into
-a decision. The [iroh]($link.page('transports/iroh')) and
-[WebRTC]($link.page('transports/webrtc')) pages cover setup and limits.
-[Modules]($link.page('modules')) explains how netlayers plug into the driver.
+The **designator** is the peer's name for that transport. Plain `tcp` uses a
+`host:port`. The keyed and sealed transports use an Ed25519 public key. iroh
+uses a node id. Onion uses a Tor service id. Optional hints can carry routing
+help, such as the bound address for a key-addressed listener, but a hint is
+never permission. [Concepts]($link.page('concepts')) covers locators and
+sturdyrefs in full.
+
+## The hello is not the channel
+
+Every CapTP session signs its hello with a fresh key. That
+signature proves the CapTP handshake held together. It does not prove who the
+durable peer is.
+
+Who answered is a fact the channel has to supply. On
+[Noise]($link.page('transports/noise')), completing the handshake proves the
+dialed key. On [iroh]($link.page('transports/iroh')), the QUIC handshake
+authenticates the node id. On [WebRTC]($link.page('transports/webrtc')), the
+signaling authority binds the peer to the DataChannel. On
+[onion]($link.page('transports/onion')), Tor proves the dialed service. A key
+written into a cleartext locator is only a dial target until something like
+that proves possession of it.
+
+## Picking one
+
+How far you can trust a netlayer is about that byte path, not about whether
+CapTP works on it. Cleartext keyed transports still speak CapTP. Anyone who can
+see the path can also read and alter every frame.
+
+[Choosing a transport]($link.page('transports/choosing')) is the decision
+table: every symbol pancake ships, when to reach for it, how far you can trust
+it, and what the path proves. The Noise, iroh, WebRTC, and onion pages cover
+setup once you know which path you want. A browser that cannot open a native
+socket uses the [relay]($link.page('relay')) as a byte pipe; the relay is not a
+netlayer of its own.

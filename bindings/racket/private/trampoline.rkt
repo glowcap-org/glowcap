@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the bridge between the vat's local actors and the byte-fed host's
-;; wire hosting — one actor, two doors. An actor spawned through a connection
+;; wire hosting — one actor, two doors. An actor spawned through a session
 ;; lives in the Racket vat as a closure cell; this module builds the
 ;; `PancakeHostBehavior` trampoline the host invokes on each wire deliver, hosts
 ;; spawn/publish mint (`register-hosted-actor!`), and owns the ADR-0064 proxy
@@ -40,7 +40,7 @@
 (provide (all-defined-out))
 
 ;; The turn context while a hosted actor's trampoline runs: a pair of the
-;; opaque `PancakeHostTurn*` and the connection the turn arrived on, or #f
+;; opaque `PancakeHostTurn*` and the session the turn arrived on, or #f
 ;; outside any turn. `session-spawn`/`session-caretaker` read it to pick the
 ;; turn-time spawn (`pancake_host_turn_spawn`) over the top-level one, which
 ;; the host refuses inside a callback; the pump reads it to defer action
@@ -258,7 +258,7 @@
           (forward target method args)
           (error "Attenuated")))))
 
-;; Host `actor` on connection `c`: build the trampoline that runs the actor's
+;; Host `actor` on session `c`: build the trampoline that runs the actor's
 ;; current cell on each wire deliver, bind it at a fresh Host identity —
 ;; through the turn-time spawn when called from inside a hosted turn (a served
 ;; factory minting the capability it replies with), through the top-level

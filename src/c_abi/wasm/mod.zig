@@ -24,8 +24,9 @@ comptime {
     // library allocator resolves to the single-threaded wasm allocator on this
     // target (see `c_abi_shared.library_allocator`), so `pancake_host_new`
     // works here without a caller-supplied `PancakeContext`.
-    _ = @import("c_abi");
-    _ = @import("c_abi_host");
+    const ocapn = @import("c_abi");
+    for (ocapn.symbols.symbols) |symbol| _ = @field(ocapn, symbol.name);
+    for (driver.symbols.symbols) |symbol| _ = @field(driver, symbol.name);
 }
 
 /// Allocate `len` bytes in wasm linear memory and return the offset (0 on

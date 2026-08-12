@@ -118,6 +118,61 @@ pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.
     return total;
 }
 
+/// Requested payload bytes an owned `Message` retains, excluding allocator
+/// metadata and alignment padding.  Engine outbound admission calls this once
+/// when a message enters its staged queue; the charge travels with that queue
+/// row until encoding, so later admission checks never rescan the payload.
+pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!usize {
+    var total: usize = @sizeOf(model.Message);
+    switch (message) {
+        .deliver => |deliver| {
+            try measureReference(&total, deliver.target, 0);
+            try addProduct(&total, deliver.args.len, @sizeOf(model.Argument));
+            for (deliver.args) |arg| try measureArgument(&total, arg, 0);
+            if (deliver.resolve_me_desc) |reference| try measureReference(&total, reference, 0);
+        },
+        .resolve => |resolve| try measureResolution(&total, resolve.resolution),
+        .gc_export => |gc| {
+            try addProduct(&total, gc.positions.len, @sizeOf(u64));
+            try addProduct(&total, gc.deltas.len, @sizeOf(u64));
+        },
+        .gc_answer => |gc| try addProduct(&total, gc.positions.len, @sizeOf(u64)),
+        .start_session => |start| {
+            try addBytes(&total, start.session_pubkey.bytes.len);
+            try measurePeerLocator(&total, start.acceptable_location);
+            try addBytes(&total, start.acceptable_location_sig.bytes.len);
+        },
+        .abort => |abort| try addBytes(&total, abort.message.len),
+        .listen => |listen| {
+            try measureReference(&total, listen.target, 0);
+            try measureReference(&total, listen.listener, 0);
+        },
+        .get => |get| {
+            try measureReference(&total, get.receiver, 0);
+            try addBytes(&total, get.field.len);
+        },
+        .index => |index| {
+            try measureReference(&total, index.receiver, 0);
+            switch (index.index) {
+                .integer => {},
+                .big_integer => |big| try addBytes(&total, big.digits.len),
+            }
+        },
+        .untag => |untag| {
+            try measureReference(&total, untag.receiver, 0);
+            try addBytes(&total, untag.tag.len);
+        },
+    }
+    return total;
+}
+
+fn measureResolution(total: *usize, resolution: model.Resolution) model.view.ProjectError!void {
+    switch (resolution) {
+        .fulfill => |value| try measureArgument(total, value, 0),
+        .@"break" => |reason| try addBytes(total, reason.message.len),
+    }
+}
+
 fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.view.ProjectError!void {
     if (depth > model.max_value_depth) return error.MalformedView;
     switch (argument) {
@@ -311,6 +366,15 @@ pub fn freePeerLocator(allocator: std.mem.Allocator, locator: model.PeerLocator)
     allocator.free(locator.transport);
     allocator.free(locator.designator);
     freeHints(allocator, locator.hints);
+}
+
+pub fn clonePeerLocator(allocator: std.mem.Allocator, locator: model.PeerLocator) std.mem.Allocator.Error!model.PeerLocator {
+    const transport = try allocator.dupe(u8, locator.transport);
+    errdefer allocator.free(transport);
+    const designator = try allocator.dupe(u8, locator.designator);
+    errdefer allocator.free(designator);
+    const hints = try cloneHints(allocator, locator.hints);
+    return .{ .transport = transport, .designator = designator, .hints = hints };
 }
 
 pub fn cloneHints(allocator: std.mem.Allocator, hints: model.Hints) std.mem.Allocator.Error!model.Hints {

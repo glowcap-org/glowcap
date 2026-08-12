@@ -7,13 +7,18 @@
 
 const std = @import("std");
 
+/// Whether `a` precedes `b` in canonical encoded-byte order.
+pub fn byteSliceBefore(a: []const u8, b: []const u8) bool {
+    return std.mem.lessThan(u8, a, b);
+}
+
 /// Byte-slice total order used as the canonical sort key comparator. `Key` is
 /// `[]const u8` or `[]u8` (the Syrup set encoder sorts owned buffers in
 /// place); one definition serves both so the two cannot drift.
 pub fn lessByteSlice(comptime Key: type) fn (void, Key, Key) bool {
     return struct {
         fn less(_: void, a: Key, b: Key) bool {
-            return std.mem.lessThan(u8, a, b);
+            return byteSliceBefore(a, b);
         }
     }.less;
 }

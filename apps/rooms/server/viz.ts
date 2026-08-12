@@ -1,11 +1,12 @@
 // The live timeline endpoint: one WebSocket that carries the room's own
 // sessions AND every other peer's, in the versioned timeline schema ocapnviz's
-// Live mode consumes. Point the viewer's "Live feed…" URL at
-// `ws://127.0.0.1:<port>/` and the topology draws as it happens.
+// Live mode consumes. Give the viewer the `ROOMS-VIZ-LISTENING` sturdyref and
+// the topology draws as it happens.
 //
-// Two kinds of socket connect here. A VIEWER connects to `/` and receives; a
-// PRODUCER connects to `/publish` and sends, one JSON record per line, and
-// receives nothing. That split is what lets a direct message appear at all: a
+// Two kinds of socket connect here. An OCapN VIEWER connects to `/` and
+// receives through a durable trace capability; a PRODUCER connects to
+// `/publish` and sends, one JSON record per line, and receives nothing. That
+// split is what lets a direct message appear at all: a
 // DM is a session between two members, held on the members' own hosts, and the
 // room server never sees a byte of it. Telemetry converges here; the traffic
 // stays direct. Nothing a producer sends can reach another peer — this endpoint
@@ -45,7 +46,19 @@
 // one wire is two rows here, and a viewer drawing them one at a time would
 // invent the same learning sequence a live feed genuinely goes through.
 
+import {
+	currentSession,
+	formatSturdyRef,
+	Host,
+	Ref,
+	Session,
+	socketAddrDesignator,
+	tcpLocator,
+	TRANSPORT_TCP,
+	webSocketChannel,
+} from "@pancake/stack";
 import type { TraceEvent } from "@pancake/stack";
+import { DESIGNATOR_SCHEME_ADDRESS } from "@pancake/abi";
 import { VIZ_PUBLISH_PATH } from "../lib/viz_publish.ts";
 
 export type VizServer = {
@@ -53,6 +66,8 @@ export type VizServer = {
 	/** The port the socket actually bound, once it has. `0` asks for an
 	 * ephemeral one, and a caller that did needs this to reach it. */
 	ready: Promise<number>;
+	/** The durable trace capability announced by the endpoint. */
+	sturdyref: Promise<string>;
 	close: () => void;
 };
 
@@ -74,6 +89,15 @@ type Producer = {
 	socket: WebSocket | null;
 };
 
+type TraceSubscriber = {
+	session: Session;
+	inbox: Ref;
+	queue: Array<{ line: string; bytes: number }>;
+	queuedBytes: number;
+	draining: boolean;
+	active: boolean;
+};
+
 /** Records a producer may report before the endpoint stops believing it. A
  * peer holds one session per partner; a thousand is far past any real room and
  * still bounds what one misbehaving publisher can make this process hold. */
@@ -87,6 +111,11 @@ const MAX_FIELD_BYTES = 4096;
 /** The longest line a producer may send. A message record carries a base64
  * frame, so this is well above the producer's own payload cap. */
 const MAX_LINE_BYTES = 1 << 20;
+
+/** A subscriber is a bounded observer, not a second unbounded trace buffer. */
+const MAX_SUBSCRIBERS = 64;
+const MAX_SUBSCRIBER_QUEUE = 256;
+const MAX_SUBSCRIBER_QUEUE_BYTES = 8 << 20;
 
 /** What travels on the feed. A producer's records are protocol observations
  * (`TraceEvent`, the type the bindings emit); the endpoint adds facts about the
@@ -208,16 +237,37 @@ export function replayLines(
  * guessing at one. Sends never block the room server: a socket that cannot
  * accept a frame is dropped (the viewer reconnects and replays). */
 export function startViz(port: number): VizServer {
+	const traceHost = new Host(); // rooms-profile-exempt: generic v1.0 observer, not a Rooms peer.
+	const traceDesignator = traceHost.designator();
+	const traceSwiss = traceHost.publishDurable((verb, args) => {
+		if (verb !== "subscribe" || args.length !== 1 || !(args[0] instanceof Ref)) {
+			throw new Error("trace.subscribe expects one inbox capability");
+		}
+		const session = currentSession();
+		if (session === null) throw new Error("trace.subscribe requires a session");
+		addSubscriber(session, args[0]);
+		return null;
+	});
 	const liveOpens = new Map<string, Stamped>();
 	const liveMetas = new Map<string, Stamped>();
-	const clients = new Set<WebSocket>();
+	const subscribers = new Set<TraceSubscriber>();
+	const subscriberBySession = new Map<Session, TraceSubscriber>();
+	const acceptedSessions = new Set<Session>();
+	const viewerSockets = new Set<WebSocket>();
+	const viewerTasks = new Set<Promise<void>>();
 	const controller = new AbortController();
 	const epoch = Date.now();
 	const t0 = performance.now();
+	let boundPort = port;
+	let closing = false;
 
 	let announceBound: (port: number) => void = () => {};
 	const ready = new Promise<number>((resolve) => {
 		announceBound = resolve;
+	});
+	let announceSturdyref: (sturdyref: string) => void = () => {};
+	const sturdyref = new Promise<string>((resolve) => {
+		announceSturdyref = resolve;
 	});
 
 	const producers = new Set<Producer>();
@@ -229,7 +279,7 @@ export function startViz(port: number): VizServer {
 	};
 
 	let seq = 0;
-	const broadcast = (ev: FeedRecord): Stamped => {
+	const broadcast = (ev: FeedRecord): Stamped | null => {
 		seq += 1;
 		const line = JSON.stringify({
 			...ev,
@@ -237,15 +287,78 @@ export function startViz(port: number): VizServer {
 			seq,
 			epoch,
 		});
-		for (const socket of clients) {
-			try {
-				socket.send(line);
-			} catch {
-				clients.delete(socket);
-			}
-		}
+		const bytes = new TextEncoder().encode(line).byteLength;
+		if (bytes > MAX_LINE_BYTES) return null;
+		for (const subscriber of subscribers) enqueue(subscriber, line, bytes);
 		return { seq, line };
 	};
+
+	function removeSubscriber(subscriber: TraceSubscriber, closeSession = false): void {
+		if (!subscriber.active) return;
+		subscriber.active = false;
+		subscriber.queue.length = 0;
+		subscriber.queuedBytes = 0;
+		subscribers.delete(subscriber);
+		if (subscriberBySession.get(subscriber.session) === subscriber) {
+			subscriberBySession.delete(subscriber.session);
+		}
+		if (closeSession) void subscriber.session.close();
+	}
+
+	async function drain(subscriber: TraceSubscriber): Promise<void> {
+		if (subscriber.draining) return;
+		subscriber.draining = true;
+		try {
+			while (subscriber.active && subscriber.queue.length > 0) {
+				const record = subscriber.queue.shift()!;
+				subscriber.queuedBytes -= record.bytes;
+				await subscriber.session.tell(subscriber.inbox, "record", [record.line]);
+			}
+		} catch {
+			removeSubscriber(subscriber, true);
+		} finally {
+			subscriber.draining = false;
+		}
+	}
+
+	function enqueue(subscriber: TraceSubscriber, line: string, bytes?: number): void {
+		if (!subscriber.active) return;
+		const size = bytes ?? new TextEncoder().encode(line).byteLength;
+		if (
+			size > MAX_LINE_BYTES ||
+			subscriber.queue.length >= MAX_SUBSCRIBER_QUEUE ||
+			subscriber.queuedBytes + size > MAX_SUBSCRIBER_QUEUE_BYTES
+		) {
+			removeSubscriber(subscriber, true);
+			return;
+		}
+		subscriber.queue.push({ line, bytes: size });
+		subscriber.queuedBytes += size;
+		void drain(subscriber);
+	}
+
+	function addSubscriber(session: Session, inbox: Ref): void {
+		const prior = subscriberBySession.get(session);
+		if (prior !== undefined) removeSubscriber(prior);
+		if (subscribers.size >= MAX_SUBSCRIBERS) {
+			throw new Error("trace subscriber limit reached");
+		}
+		const subscriber: TraceSubscriber = {
+			session,
+			inbox,
+			queue: [],
+			queuedBytes: 0,
+			draining: false,
+			active: true,
+		};
+		subscribers.add(subscriber);
+		subscriberBySession.set(session, subscriber);
+		for (const line of replayLines(liveOpens, liveMetas)) enqueue(subscriber, line);
+		enqueue(
+			subscriber,
+			replayEndLine(epoch, Math.round((performance.now() - t0) * 1_000_000)),
+		);
+	}
 
 	/** Drop a row from the endpoint's state, forwarding a close when the
 	 * viewer should see one. `announce` is true only where a producer told
@@ -269,7 +382,8 @@ export function startViz(port: number): VizServer {
 			if (existing !== undefined) retire(producer, existing, false);
 			if (producer.rows.size >= MAX_ROWS_PER_PRODUCER) return;
 			producer.rows.set(id, { id });
-			liveOpens.set(id, broadcast(ev));
+			const stamped = broadcast(ev);
+			if (stamped !== null) liveOpens.set(id, stamped);
 			return;
 		}
 		const row = producer.rows.get(id);
@@ -279,7 +393,7 @@ export function startViz(port: number): VizServer {
 			return;
 		}
 		const stamped = broadcast(ev);
-		if (ev.kind === "ocapn.session-meta") liveMetas.set(id, stamped);
+		if (ev.kind === "ocapn.session-meta" && stamped !== null) liveMetas.set(id, stamped);
 	};
 
 	const dropProducer = (producer: Producer): void => {
@@ -312,14 +426,18 @@ export function startViz(port: number): VizServer {
 			port,
 			signal: controller.signal,
 			onListen: ({ port: bound }) => {
+				boundPort = bound;
 				announceBound(bound);
-				console.error(`ROOMS-VIZ-LISTENING ws://127.0.0.1:${bound}/`);
+				const locator = tcpLocator("127.0.0.1", bound);
+				const ref = formatSturdyRef(locator, traceSwiss);
+				announceSturdyref(ref);
+				console.error(`ROOMS-VIZ-LISTENING ${ref}`);
 			},
 		},
 		(req) => {
 			if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
 				return new Response(
-					"rooms viz: connect a websocket — / to watch, /publish to send\n",
+					"rooms viz: connect an OCapN websocket at / or publish telemetry at /publish\n",
 					{ status: 400 },
 				);
 			}
@@ -336,19 +454,38 @@ export function startViz(port: number): VizServer {
 				socket.onerror = () => dropProducer(producer);
 				return response;
 			}
+			viewerSockets.add(socket);
 			socket.onopen = () => {
-				for (const line of replayLines(liveOpens, liveMetas)) socket.send(line);
-				// Sent even when there was nothing to replay: the mark says the
-				// batch is complete, and an empty one is complete too. It goes
-				// before the socket joins `clients`, so no live record can slip
-				// into the middle of a batch a viewer is still holding.
-				socket.send(
-					replayEndLine(epoch, Math.round((performance.now() - t0) * 1_000_000)),
-				);
-				clients.add(socket);
+				const task = (async () => {
+					let session: Session | null = null;
+					try {
+						session = await Session.establishAccepted(traceHost, {
+							transport: TRANSPORT_TCP,
+							designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
+							serverDesignator: socketAddrDesignator("127.0.0.1", boundPort),
+							channel: webSocketChannel(socket),
+							localAddress: socketAddrDesignator("127.0.0.1", boundPort),
+						});
+						acceptedSessions.add(session);
+						await session.serve().catch(() => {});
+					} catch {
+						try {
+							socket.close();
+						} catch {
+							// already closed
+						}
+					} finally {
+						viewerSockets.delete(socket);
+						if (session !== null) {
+							const subscriber = subscriberBySession.get(session);
+							if (subscriber !== undefined) removeSubscriber(subscriber);
+							acceptedSessions.delete(session);
+						}
+					}
+				})();
+				viewerTasks.add(task);
+				void task.finally(() => viewerTasks.delete(task));
 			};
-			socket.onclose = () => clients.delete(socket);
-			socket.onerror = () => clients.delete(socket);
 			return response;
 		},
 	);
@@ -356,10 +493,28 @@ export function startViz(port: number): VizServer {
 	// The room server's own trace is a producer like any other, scoped like any
 	// other, so its session ids cannot collide with a peer's.
 	const local = newProducer(null);
+	const ignoredTraceSessions = new Set<string>();
 	return {
-		sink: (ev) => ingest(local, ev),
+		sink: (ev) => {
+			// The trace endpoint is itself a Host. Its browser observer session is
+			// implementation machinery, not room activity, and must not become a
+			// row in the trace it is delivering. The open identifies the session;
+			// subsequent messages and close carry only that session handle.
+			if (ev.kind === "ocapn.session-opened" && ev.a === traceDesignator) {
+				ignoredTraceSessions.add(ev.session);
+				return;
+			}
+			if (ignoredTraceSessions.has(ev.session)) {
+				if (ev.kind === "ocapn.session-closed") ignoredTraceSessions.delete(ev.session);
+				return;
+			}
+			ingest(local, ev);
+		},
 		ready,
+		sturdyref,
 		close: () => {
+			if (closing) return;
+			closing = true;
 			controller.abort();
 			for (const producer of [...producers]) {
 				if (producer.socket !== null) {
@@ -371,14 +526,24 @@ export function startViz(port: number): VizServer {
 				}
 			}
 			producers.clear();
-			for (const socket of clients) {
+			for (const subscriber of subscribers) removeSubscriber(subscriber);
+			for (const socket of viewerSockets) {
 				try {
 					socket.close();
 				} catch {
-					// already gone
+					// already closed
 				}
 			}
-			clients.clear();
+			viewerSockets.clear();
+			const sessions = [...acceptedSessions];
+			acceptedSessions.clear();
+			// `Session.close()` is asynchronous even though this embedding's close
+			// lever is not. Keep the shared Host alive until every accepted session
+			// has stopped using it.
+			void Promise.allSettled([
+				...sessions.map((session) => session.close()),
+				...viewerTasks,
+			]).then(() => traceHost.release());
 		},
 	};
 }

@@ -42,8 +42,9 @@ this project will not send it.
 ## Responsibility and licensing
 
 The maintainer uses pancake and stands behind the repository. The author field
-means the work was reviewed and accepted; it does not erase how the work was
-made or create an exception to another project's policy.
+records who accepted responsibility for what landed; it is not evidence of
+independent review, does not erase how the work was made, and creates no
+exception to another project's policy.
 
 pancake-authored work is available under [Apache-2.0](LICENSE-APACHE). This does
 not settle broader copyright questions about generated code. Third-party files
@@ -67,6 +68,17 @@ External evidence is separate:
   [Spritely Goblins](https://spritely.institute/goblins/) vat.
 - `zig build goblins-handoff`, `goblins-gift`, and `goblins-exporter` exercise
   pancake in each three-party handoff role against Goblins.
+
+External evidence does not resolve its direct inputs from moving package
+catalogs. OCapN conformance dependencies and Python WebSocket proofs use
+committed `uv` locks. Direct Racket packages are installed at the checksums in
+`.devcontainer/pins.sh`; the Racket 9.2 crypto-lib compatibility change is a
+committed patch whose source and output hashes are checked during image build.
+Racket's `--auto` still resolves transitive packages through its catalogs; the
+direct source pins prevent those roots from moving but do not make that graph a
+lockfile.
+GitHub workflow actions use immutable commit SHAs, with the corresponding
+major tag left only as a review aid; upgrades deliberately change both together.
 
 [Community review](docs/community-review.md) distinguishes in-tree evidence
 from outside evidence. [Known boundaries](docs/boundaries.md) records what the

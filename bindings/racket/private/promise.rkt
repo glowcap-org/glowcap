@@ -38,14 +38,14 @@
          session-far-send)
 
 ;; A far vow is the binding's handle on one host vow: the home
-;; connection, the settled state, and the Racket listeners waiting on it. The
+;; session, the settled state, and the Racket listeners waiting on it. The
 ;; vow is registered in the host's vow table the instant it is minted, under
 ;; the same host lock as the minting FFI call, and the action drain's
 ;; SETTLE/FAIL arms record the outcome here — so a late `on`/`session-await`
 ;; still settles from the recorded state (the binding's spelling of the
 ;; resolution stash the other bindings keep), and no settle callback ever
 ;; crosses the C boundary.
-(struct session-vow (conn id [state #:mutable] [listeners #:mutable]) #:transparent)
+(struct session-vow (session id [state #:mutable] [listeners #:mutable]) #:transparent)
 
 ;; Register a freshly minted vow so the drain can route its completion.
 ;; Caller holds the host lock, so no drain can pop the completion first.
@@ -70,6 +70,16 @@
      (for/list ([l (in-list (reverse ls))])
        (lambda () (l (cdr outcome) (not (eq? (car outcome) 'ok)))))]
     [else '()]))
+
+;; Host release owns the terminal transition for vows that no session teardown
+;; settled first. Return listener thunks so `host-release!` fires application
+;; code only after dropping the host lock.
+(set-box!
+ fail-host-vows-hook
+ (lambda (m message)
+   (apply append
+          (for/list ([v (in-list (hash-values (host-vows m)))])
+            (settle-vow! m (session-vow-id v) (cons 'closed message))))))
 
 ;; Register `(listener value broken?)` on a far vow: fire now from the recorded
 ;; state when it already settled, else park it for the drain's settle arm. The
@@ -111,13 +121,13 @@
 
 (define (project-vow m a-vow mint)
   (unless (session-vow? a-vow)
-    (raise-pancake 'conn-project ERR-INVALID-ARGUMENT
+    (raise-pancake 'session-project ERR-INVALID-ARGUMENT
                    "projection target is not a far vow: ~a" a-vow))
   (call-with-host m
     (lambda ()
       (define-values (rc id) (mint m (session-vow-id a-vow)))
       (check/host rc)
-      (define home (session-vow-conn a-vow))
+      (define home (session-vow-session a-vow))
       (define v (session-vow home id 'pending '()))
       (register-vow! m v)
       v)))
@@ -174,9 +184,10 @@
     [else
      (raise-pancake who ERR-BROKEN "~a \"~a\" broke: ~a" what label (cdr r))]))
 
-;; Far-send / far-tell mint: encode args, enqueue `conn_send` / `vow_send` /
-;; `conn_tell`, register any answer vow. Local-hosted targets stay in Session
-;; (`session-send-local`). Outside a turn, flush this connection after the mint
+;; Far-send / far-tell mint: encode args, call `pancake_host_session_send` /
+;; `pancake_host_vow_send` / `pancake_host_session_tell`, and register any answer
+;; vow. Local-hosted targets stay in Session
+;; (`session-send-local`). Outside a turn, flush this session after the mint
 ;; so the deliver cannot sit unsent while a partner waits; inside a turn the
 ;; flush is deferred (`session-flush!` no-ops) and the host encodes at unwind,
 ;; so a pipelined chain still travels as one batch on the settling send's pump.
@@ -214,7 +225,7 @@
            (define-values (rc id)
              (pancake_host_vow_send (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt))
            (check/host rc)
-           (define home (session-vow-conn target))
+           (define home (session-vow-session target))
            (define v (session-vow home id 'pending '()))
            (register-vow! m v)
            (if answer? v (void))]

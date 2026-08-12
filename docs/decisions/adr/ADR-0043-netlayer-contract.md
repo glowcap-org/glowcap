@@ -6,6 +6,7 @@ tags: [net, driver, transport, architecture]
 decision: "A netlayer is a runtime resident vtable the driver dispatches against by transport symbol, over a transport-generic Connection; tcp is its first resident."
 supersedes: []
 superseded_by: [ADR-0062]
+amended_by: [ADR-0113]
 ---
 
 # ADR-0043 Netlayer contract: runtime residents over a transport-generic Connection
@@ -96,8 +97,12 @@ error sets are coarse on purpose (`InvalidAddress` / `ConnectionLost` /
   wrapper on the peer's allocator (recorded in the memory rule's load-bearing
   list). The completion `Loop` path is untouched: peer-scaling memory is
   unchanged (0.65 GiB warmed at 500k).
-- `Connection.socketHandle()` now returns `?Handle`; `driver.stepReadable` polls
-  only when a pollable fd exists and otherwise falls through to a blocking step.
+- `Connection.socketHandle()` then returned `?Handle`. The owning application
+  faces refused fd-less per-connection streams because their waits were
+  poll-based; the lower `driver.BlockingSession` remained the explicit
+  owner-and-pump path for such a stream. ADR-0112 later added provider-owned
+  multiplexed execution behind one readiness descriptor, and ADR-0113 named
+  that owning face `driver.HostRuntime`.
 - `net.netlayer.Listener` is now the contract's pluggable listener; the concrete
   bound TCP socket is `net.tcp.Listener`.
 - Live Goblins interop passes both directions over the refactored wire path.

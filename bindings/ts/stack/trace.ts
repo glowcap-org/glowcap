@@ -25,7 +25,7 @@
  * clock, since two processes share no time origin.
  */
 
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64, readBytes } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
@@ -304,21 +304,36 @@ function decode(host: TracedHost, out: Uint8Array): TraceEvent | null {
  * eight elsewhere, and taken on first use because the browser adapter chooses
  * that layout as it loads. */
 let popScratch: Uint8Array | null = null;
+// A sink may call back into Host.release(), which drains this same ring. Keep
+// one active drainer per Host and let the outer call finish or observe detach.
+const drainingHosts = new Set<Ptr>();
 
 /** Drain one host's captured facts to the sink. Called on the same unwind
  * that drains the action queue (`Host.kickActions`) and before any record
  * this veneer emits itself, so causal order survives the queueing.
  * Binding-internal. */
 export function traceDrainHost(raw: Ptr): void {
-	const s = sink;
-	if (s === null) return;
-	const host = hosts.get(raw);
-	if (host === undefined) return;
+	if (sink == null || !hosts.has(raw) || drainingHosts.has(raw)) return;
+	drainingHosts.add(raw);
 	if (popScratch === null) popScratch = new Uint8Array(L.TRACE_EVENT_SIZE);
 	const out = popScratch;
-	while (driverS.pancake_host_next_trace(raw, ab(out)) === 0) {
-		const ev = decode(host, out);
-		if (ev !== null) s(ev);
+	try {
+		while (hosts.has(raw)) {
+			const currentSink = sink;
+			if (currentSink == null) return;
+			if (hostS.pancake_host_next_trace(raw, ab(out)) !== 0) return;
+			const host = hosts.get(raw);
+			if (host == null) return;
+			const ev = decode(host, out);
+			if (ev == null) continue;
+			try {
+				currentSink(ev);
+			} catch {
+				// Trace observation cannot interrupt Host progress or teardown.
+			}
+		}
+	} finally {
+		drainingHosts.delete(raw);
 	}
 }
 
@@ -347,7 +362,7 @@ export function enableTrace(
 		if (sink !== next) return;
 		for (const raw of hosts.keys()) {
 			traceDrainHost(raw);
-			driverS.pancake_host_set_trace_queue(raw, 0n, 0n);
+			hostS.pancake_host_set_trace_queue(raw, 0n, 0n);
 		}
 		sink = null;
 	};
@@ -361,7 +376,7 @@ function windowBytes(): number {
 }
 
 function installQueue(raw: Ptr): void {
-	driverS.pancake_host_set_trace_queue(raw, BigInt(queueDepth), BigInt(windowBytes()));
+	hostS.pancake_host_set_trace_queue(raw, BigInt(queueDepth), BigInt(windowBytes()));
 }
 
 /** Annotate a session with application metadata — the SET half of the
@@ -377,24 +392,31 @@ export function annotateSession(
 	session: { readonly raw: Ptr; readonly host: { readonly raw: Ptr } },
 	meta: { label?: string | null },
 ): void {
-	const s = sink;
-	if (s === null) return;
-	const host = hosts.get(session.host.raw);
+	if (sink == null) return;
+	const hostRaw = session.host.raw;
+	const host = hosts.get(hostRaw);
 	if (host === undefined) return;
 	const out = new Uint8Array(8);
-	const code = driverS.pancake_host_session_trace_id(session.raw, ab(out));
+	const code = hostS.pancake_host_session_trace_id(session.raw, ab(out));
 	if (code !== 0) return;
 	// The session's own open may still be sitting in the capture ring; drain
 	// first so an annotation never reaches a consumer ahead of the session it
 	// names.
-	traceDrainHost(session.host.raw);
-	s({
+	traceDrainHost(hostRaw);
+	const currentSink = sink;
+	if (currentSink == null || hosts.get(hostRaw) !== host) return;
+	const event: TraceEvent = {
 		v: 1,
 		sim_t_ns: now_ns(),
 		kind: "ocapn.session-meta",
 		session: `live-h${host.cookie}-s${outU64(out)}`,
 		meta,
-	});
+	};
+	try {
+		currentSink(event);
+	} catch {
+		// An annotation sink has the same observer-only contract as native facts.
+	}
 }
 
 /** Binding-internal: a Host reports its raw pointer and its own key

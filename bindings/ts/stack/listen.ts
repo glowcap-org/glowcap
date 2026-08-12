@@ -1,245 +1,462 @@
-// The listen / accept surface (binding spine Pass 3d): `Server`,
-// `KeyedTcpServer`, and the top-level `listen` / `listenKeyedTcp` hosters.
-// Session owns mint/handshake (`establishAccepted`); this module owns the
-// listening socket, accept loop, and self-designator bind. iroh hosting lives
-// in `@pancake/iroh`, not here.
+// Generic native-driver listener surfaces. The driver owns the socket,
+// admission, handshake, events, and terminal release; this module only
+// projects listener metadata and accepted handles into the TypeScript API.
 
 import { Session } from "./session.ts";
 import { Host } from "./host.ts";
-import { net } from "./internal/ffi/runtime.ts";
-import { type NetConn, type NetListener } from "./internal/seam.ts";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { DriverListener, DriverLoop, loopTierAvailable } from "./driver_loop.ts";
+import { installProvider as installTcpProvider } from "./transport/tcp.ts";
+import { INVALID_ARGUMENT, IO } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
 import { type Codec } from "./value.ts";
 import {
+	designatorHostPort,
+	formatPeerUri,
+	HINT_DIRECT_ADDRESSES,
 	keyedTcpLocator,
+	noiseTcpLocator,
+	parseLocator,
 	socketAddrDesignator,
+	stringHint,
 	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_TCP,
 	TRANSPORT_TCP,
 } from "./locator.ts";
 
-/** The shared accept-loop server: owns the listening socket, the bind, and the
- * accept loop. A subclass supplies only `acceptOne` — how to mint the accepting
- * session over one accepted socket. The loop closes every socket whose accept
- * fails (a rude caller, a stray probe, a handshake that throws before a
- * `Session` exists to own the socket, or one that overruns
- * `HANDSHAKE_TIMEOUT_MS`) and keeps accepting, so one bad connection neither
- * takes the server down nor leaks its fd. That close-on-failure guarantee lives
- * here once, not copied — and drifting — per subclass; the handshake bound
- * itself lives in `Session`'s establish spine, which the dialer reaches too. */
-abstract class AcceptLoopServer {
-	#pending: Promise<NetListener>;
-	#listener: NetListener | null = null;
-	// One identity and one live-session directory for the whole host: every
-	// accepted session keys its handshake with this host's seed, and a withdraw
-	// resolves the still-open session that owns its gift. This is the exporter
-	// shape a handoff recipient relies on (ADR-0009/ADR-0100).
-	readonly #host: Host;
+export interface ListenOptions {
+	/** Dialable address to sign when the socket binds a wildcard interface. */
+	readonly advertisedHost?: string;
+}
 
-	constructor(pending: Promise<NetListener>, host: Host) {
-		this.#pending = pending;
-		this.#host = host;
-	}
+function loopUnavailable(): PancakeError {
+	return new PancakeError(
+		INVALID_ARGUMENT,
+		"native driver listeners require a runtime that can park the loop",
+	);
+}
 
-	/** The server's shared host, its retained identity and handoff router. An
-	 * exporter application reads it to originate gifts that recipients withdraw
-	 * across the host's sessions. */
-	get host(): Host {
-		return this.#host;
-	}
+/** A native-driver listener. Its Host is the driver's Host wrapper, which is
+ * either minted by the loop or the exact supplied wrapper transferred through
+ * `pancake_driver_take_host`. */
+export class Server {
+	readonly #listener: DriverListener | null;
+	readonly #designator: string | null;
+	readonly #bindError: PancakeError | null;
+	readonly #ownedLoop: DriverLoop | null;
+	#closePromise: Promise<void> | null = null;
+	#admissionClosed = false;
 
-	/** Await the bind and return the bound TCP port. Idempotent. */
-	async ready(): Promise<number> {
-		return (await this.boundListener()).port;
-	}
-
-	/** The bound TCP port. Throws until `ready()` has resolved the bind. */
-	get port(): number {
-		if (this.#listener === null) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"server not bound yet; await server.ready() before reading port",
-			);
+	constructor(
+		bound:
+			| { listener: DriverListener; designator: string; ownedLoop?: DriverLoop }
+			| { bindError: PancakeError },
+	) {
+		if ("bindError" in bound) {
+			this.#listener = null;
+			this.#designator = null;
+			this.#bindError = bound.bindError;
+			this.#ownedLoop = null;
+		} else {
+			this.#listener = bound.listener;
+			this.#designator = bound.designator;
+			this.#bindError = null;
+			this.#ownedLoop = bound.ownedLoop ?? null;
 		}
-		return this.#listener.port;
 	}
 
-	/** The bound listener, awaiting the bind on first call and caching it — for
-	 * subclasses that need the bound address (a keyed locator). */
-	protected async boundListener(): Promise<NetListener> {
-		if (this.#listener === null) this.#listener = await this.#pending;
-		return this.#listener;
+	get port(): number {
+		if (this.#designator == null) {
+			throw this.#bindError ?? new PancakeError(INVALID_ARGUMENT, "server not bound");
+		}
+		return Number(this.#designator.slice(this.#designator.lastIndexOf(":") + 1));
 	}
 
-	/** Mint the accepting session over one accepted socket. The base guarantees
-	 * `tcp.close()` if this throws, so an implementation never closes on failure. */
-	protected abstract acceptOne(tcp: NetConn): Promise<Session>;
+	ready(): Promise<number> {
+		if (this.#bindError != null) return Promise.reject(this.#bindError);
+		return Promise.resolve(this.port);
+	}
+
+	get host(): Host {
+		if (this.#listener == null) {
+			throw this.#bindError ?? new PancakeError(INVALID_ARGUMENT, "server not bound");
+		}
+		return this.#listener.host;
+	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
-		const listener = await this.boundListener();
-		// Closing the listener when iteration ends (a `break`, a `return`, or the
-		// listener itself closing) frees the bound socket, so a one-client server
-		// (`for await (const session of server) { …; break; }`) leaves nothing
-		// holding the runtime's event loop open.
+		if (this.#listener == null) return;
 		try {
 			while (true) {
-				let tcp: NetConn;
-				try {
-					tcp = await listener.accept();
-				} catch {
-					return; // the listener was closed
-				}
-				// A handshake failure belongs to that one connection — a client that
-				// dialed and died, a stray port probe, or one that connects and
-				// then says nothing (the accept runs inline, so an unbounded wait
-				// on that partner parks every later connection behind it). Close
-				// its socket and keep accepting, so one rude caller neither takes
-				// the whole server down nor leaks an fd (the throw may land before
-				// `acceptOne` built a `Session` to close the socket itself).
-				let session: Session | null;
-				try {
-					session = await this.acceptOne(tcp);
-				} catch {
-					session = null;
-				}
-				if (session === null) {
-					tcp.close();
-					continue;
-				}
+				const session = await this.#listener.accept();
+				if (session == null) return;
 				yield session;
 			}
 		} finally {
-			listener.close();
+			await this.stopAdmission();
+			// Yielded sessions may still be live after iterator close. Request
+			// retirement now; the last session completes it without making iterator
+			// completion wait on its own consumer.
+			if (this.#ownedLoop != null) void this.#ownedLoop.requestClose();
 		}
 	}
 
-	/** Stop accepting new partners. Closes the listening socket only; sessions
-	 * already accepted are unaffected. */
+	/** Close this server. A server that minted its own stack also closes that
+	 * loop; a server on a caller-owned Host stops only its listener. */
 	close(): void {
-		if (this.#listener !== null) {
-			this.#listener.close();
-			return;
+		void this.closeAsync();
+	}
+
+	stopAdmission(): Promise<void> {
+		if (this.#admissionClosed) return Promise.resolve();
+		this.#admissionClosed = true;
+		try {
+			this.#listener?.close();
+			return Promise.resolve();
+		} catch (error) {
+			return Promise.reject(error);
 		}
-		void this.#pending.then((l) => l.close()).catch(() => {});
+	}
+
+	closeAsync(): Promise<void> {
+		if (this.#closePromise != null) return this.#closePromise;
+		this.#closePromise = (async () => {
+			await this.stopAdmission();
+			if (this.#ownedLoop != null) await this.#ownedLoop.requestClose();
+		})();
+		return this.#closePromise;
+	}
+
+	[Symbol.dispose](): void {
+		this.close();
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		await this.closeAsync();
 	}
 }
 
-/** A listening server. Iterate it for an accepted `Session` per partner —
- * `for await (const session of listen(host, port)) { ... }`.
- *
- * Binding the socket is asynchronous on some runtimes, so `await
- * server.ready()` for the bound port (the value you need when you pass port 0
- * for an ephemeral one). The async iterator awaits the bind itself, so a
- * `for await` works without `ready()`; the `port` getter requires `ready()` to
- * have resolved. */
-export class Server extends AcceptLoopServer {
-	constructor(pending: Promise<NetListener>, host: Host = new Host()) {
-		super(pending, host);
+/** A native-loop `noise-tcp` server. Its durable key is the locator
+ * designator, and every accepted channel is sealed before CapTP opens. */
+export class NoiseTcpServer {
+	readonly #server: Server;
+	readonly #designator: string | null;
+	readonly #directAddress: string | null;
+
+	constructor(server: Server, designator: string | null, directAddress: string | null) {
+		this.#server = server;
+		this.#designator = designator;
+		this.#directAddress = directAddress;
 	}
 
-	protected acceptOne(tcp: NetConn): Promise<Session> {
-		// serverDesignator unused for address transports; acceptedLocalAddr signs.
-		const la = tcp.localAddr();
-		return Session.establishAccepted(
-			this.host,
-			TRANSPORT_TCP,
-			"",
-			tcp,
-			socketAddrDesignator(la.hostname, la.port),
+	get port(): number {
+		return this.#server.port;
+	}
+
+	ready(): Promise<number> {
+		return this.#server.ready();
+	}
+
+	get host(): Host {
+		return this.#server.host;
+	}
+
+	get designator(): string {
+		if (this.#designator == null) {
+			throw new PancakeError(INVALID_ARGUMENT, "noise-tcp server not bound");
+		}
+		return this.#designator;
+	}
+
+	uri(): string {
+		if (this.#directAddress == null) {
+			throw new PancakeError(INVALID_ARGUMENT, "noise-tcp server not bound");
+		}
+		const { hostname, port } = designatorHostPort(this.#directAddress);
+		return noiseTcpLocator(this.designator, hostname, port);
+	}
+
+	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
+		for await (const session of this.#server) yield session;
+	}
+
+	close(): void {
+		this.#server.close();
+	}
+
+	stopAdmission(): Promise<void> {
+		return this.#server.stopAdmission();
+	}
+
+	closeAsync(): Promise<void> {
+		return this.#server.closeAsync();
+	}
+
+	[Symbol.dispose](): void {
+		this.close();
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		await this.closeAsync();
+	}
+}
+
+function bindLoopListener(
+	loop: DriverLoop,
+	bindHost: string,
+	port: number,
+	advertisedHost: string | undefined,
+): { listener: DriverListener; designator: string } {
+	installTcpProvider(loop);
+	const listener = DriverListener.open(
+		loop,
+		TRANSPORT_TCP,
+		socketAddrDesignator(bindHost, port),
+	);
+	const boundDesignator = listener.locator().designator;
+	const designator = dialableSocketAddress(boundDesignator, advertisedHost);
+	if (designator !== boundDesignator) {
+		listener.advertise(formatPeerUri(TRANSPORT_TCP, designator));
+	}
+	listener.select();
+	loop.start();
+	return { listener, designator };
+}
+
+function dialableSocketAddress(boundAddress: string, advertisedHost?: string): string {
+	const { hostname, port } = designatorHostPort(boundAddress);
+	const bare = hostname.startsWith("[") && hostname.endsWith("]")
+		? hostname.slice(1, -1)
+		: hostname;
+	const ipv6Unspecified = bare.includes(":") &&
+		bare.split(":").every((part) => part === "" || /^0+$/.test(part));
+	if ((bare === "0.0.0.0" || ipv6Unspecified) && advertisedHost == null) {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			"a wildcard bind has no dialable address; provide advertisedHost",
 		);
 	}
+	return advertisedHost == null ? boundAddress : socketAddrDesignator(advertisedHost, port);
 }
 
-/** Accept connections on `bindHost:port`, returning a `Server` you iterate for
- * each accepted `Session`. The bind completes asynchronously; `await
- * server.ready()` for the bound port. The server holds one host identity and
- * live-session directory, read as `server.host` — a dialed sibling session
- * joins it through `connect(locator, reachability, server.host)` so a
- * three-party handoff can resolve that session's gift table. `codec` picks the
- * wire grammar for a server built on a fresh host;
- * a supplied `host` already carries one, and a conflicting explicit codec is
- * refused rather than silently ignored. */
+/** Bind plain TCP through the generic driver. A supplied Host is transferred
+ * before binding, preserving that wrapper as the server's Host authority. */
 export function listen(
 	bindHost: string,
 	port: number,
 	host?: Host,
 	codec?: Codec,
+	options: ListenOptions = {},
 ): Server {
-	if (host != null && codec != null && codec != host.codec) {
+	if (host != null && codec != null && codec !== host.codec) {
 		throw new PancakeError(
 			INVALID_ARGUMENT,
 			`codec "${codec}" conflicts with the host's "${host.codec}"; mint the host with it instead`,
 		);
 	}
-	const listenHost = host ?? new Host(undefined, { codec });
-	const pending = net.listen(bindHost, port).then((listener) => {
-		// This host also dials (the gifter side of a handoff), and its dials sign
-		// the listener's own address so a partner's crossed-hellos table can
-		// recognize it. Prefer the kernel-bound address (IPv6-safe brackets).
-		const la = listener.localAddr();
-		const designator = socketAddrDesignator(la.hostname, la.port);
-		listenHost.setSelfDesignator(designator);
-		listenHost.setAdvertisedLocator(TRANSPORT_TCP, designator);
-		return listener;
-	});
-	return new Server(pending, listenHost);
+	if (!loopTierAvailable()) return new Server({ bindError: loopUnavailable() });
+	let loop: DriverLoop | null = null;
+	let createdLoop = false;
+	try {
+		if (host?.driverLoop != null) {
+			loop = host.driverLoop as DriverLoop;
+		} else {
+			loop = host == null ? DriverLoop.open({ codec }) : DriverLoop.takeHost(host);
+			createdLoop = true;
+		}
+		const bound = bindLoopListener(loop, bindHost, port, options.advertisedHost);
+		return new Server({
+			listener: bound.listener,
+			designator: bound.designator,
+			ownedLoop: host == null ? loop : undefined,
+		});
+	} catch (error) {
+		if (createdLoop) void loop?.close();
+		return new Server({
+			bindError: error instanceof PancakeError ? error : new PancakeError(IO, String(error)),
+		});
+	}
 }
 
-/** A keyed-tcp listening server: TCP sockets under a durable key designator
- * (ADR-0075). The host's Ed25519 identity *is* the locator designator and the
- * session signing key — one seed, not a second minted identity. */
-export class KeyedTcpServer extends AcceptLoopServer {
-	readonly #designator: string;
-
-	constructor(pending: Promise<NetListener>, host: Host, designator: string) {
-		super(pending, host);
-		this.#designator = designator;
+/** Bind a native-loop `noise-tcp` server. Reuse the optional 32-byte `seed`
+ * across restarts to keep the same durable key designator; a fresh per-process
+ * session-key root is still drawn. */
+export function listenNoiseTcp(
+	bindHost: string,
+	port: number,
+	seed?: Uint8Array,
+	codec?: Codec,
+	options: Pick<ListenOptions, "advertisedHost"> = {},
+): NoiseTcpServer {
+	if (seed != null && seed.length !== 32) {
+		throw new PancakeError(INVALID_ARGUMENT, "listenNoiseTcp: seed must be 32 bytes");
 	}
-
-	get designator(): string {
-		return this.#designator;
-	}
-
-	async uri(): Promise<string> {
-		const la = (await this.boundListener()).localAddr();
-		return keyedTcpLocator(this.#designator, la.hostname, la.port);
-	}
-
-	protected acceptOne(tcp: NetConn): Promise<Session> {
-		const la = tcp.localAddr();
-		return Session.establishAccepted(
-			this.host,
-			TRANSPORT_KEYED_TCP,
-			this.#designator,
-			tcp,
-			socketAddrDesignator(la.hostname, la.port),
+	if (!loopTierAvailable()) throw loopUnavailable();
+	const loop = DriverLoop.open({ seed, codec });
+	try {
+		installTcpProvider(loop);
+		const listener = DriverListener.open(
+			loop,
+			TRANSPORT_NOISE_TCP,
+			socketAddrDesignator(bindHost, port),
+		);
+		const locator = listener.locator();
+		const designator = locator.designator;
+		const boundDirect = stringHint(locator, HINT_DIRECT_ADDRESSES);
+		if (boundDirect == null) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"noise-tcp listener locator has no direct-addresses hint",
+			);
+		}
+		const directAddress = dialableSocketAddress(boundDirect, options.advertisedHost);
+		if (options.advertisedHost != null) {
+			listener.advertise(formatPeerUri(
+				TRANSPORT_NOISE_TCP,
+				designator,
+				new Map([[HINT_DIRECT_ADDRESSES, directAddress]]),
+			));
+		}
+		listener.select();
+		loop.start();
+		return new NoiseTcpServer(
+			new Server({ listener, designator: directAddress, ownedLoop: loop }),
+			designator,
+			directAddress,
+		);
+	} catch (error) {
+		void loop.close();
+		return new NoiseTcpServer(
+			new Server({
+				bindError: error instanceof PancakeError
+					? error
+					: new PancakeError(IO, String(error)),
+			}),
+			null,
+			null,
 		);
 	}
 }
 
-/** Bind `bindHost`:`port` as a keyed-tcp listener whose designator is the public
- * half of `seed` (or a fresh random seed when omitted). Pass the same seed
- * after a restart to keep the designator stable (ADR-0075). */
+/** A keyed-tcp listener uses the driver's keyed provider and the durable half
+ * of `seed` as its locator designator. */
+export class KeyedTcpServer {
+	readonly #server: Server;
+	readonly #designator: string | null;
+	readonly #directAddress: string | null;
+
+	constructor(server: Server, designator: string | null, directAddress: string | null) {
+		this.#server = server;
+		this.#designator = designator;
+		this.#directAddress = directAddress;
+	}
+
+	get designator(): string {
+		if (this.#designator == null) {
+			throw new PancakeError(INVALID_ARGUMENT, "keyed-tcp server not bound");
+		}
+		return this.#designator;
+	}
+
+	get host(): Host {
+		return this.#server.host;
+	}
+
+	get port(): number {
+		return this.#server.port;
+	}
+
+	ready(): Promise<number> {
+		return this.#server.ready();
+	}
+
+	async uri(): Promise<string> {
+		if (this.#directAddress == null) {
+			throw new PancakeError(INVALID_ARGUMENT, "keyed-tcp server not bound");
+		}
+		const { hostname, port } = designatorHostPort(this.#directAddress);
+		return keyedTcpLocator(this.designator, hostname, port);
+	}
+
+	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
+		for await (const session of this.#server) yield session;
+	}
+
+	close(): void {
+		this.#server.close();
+	}
+
+	stopAdmission(): Promise<void> {
+		return this.#server.stopAdmission();
+	}
+
+	closeAsync(): Promise<void> {
+		return this.#server.closeAsync();
+	}
+
+	[Symbol.dispose](): void {
+		this.close();
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		await this.closeAsync();
+	}
+}
+
 export function listenKeyedTcp(
 	bindHost: string,
 	port: number,
 	seed?: Uint8Array,
 	codec?: Codec,
+	options: ListenOptions = {},
 ): KeyedTcpServer {
 	if (seed != null && seed.length !== 32) {
 		throw new PancakeError(INVALID_ARGUMENT, "listenKeyedTcp: seed must be 32 bytes");
 	}
-	const host = new Host(seed ?? undefined, { codec });
-	const designator = host.designator();
-	const pending = net.listen(bindHost, port).then((listener) => {
-		host.setSelfDesignator(designator);
-		const la = listener.localAddr();
-		host.setAdvertisedLocator(
+	if (!loopTierAvailable()) {
+		return new KeyedTcpServer(new Server({ bindError: loopUnavailable() }), null, null);
+	}
+	const loop = DriverLoop.open({ seed, codec });
+	try {
+		installTcpProvider(loop);
+		const listener = DriverListener.open(
+			loop,
 			TRANSPORT_KEYED_TCP,
-			designator,
-			socketAddrDesignator(la.hostname, la.port),
+			socketAddrDesignator(bindHost, port),
 		);
-		return listener;
-	});
-	return new KeyedTcpServer(pending, host, designator);
+		const locator = listener.locator();
+		const designator = locator.designator;
+		const boundDirect = stringHint(locator, HINT_DIRECT_ADDRESSES);
+		if (boundDirect == null) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"keyed-tcp listener locator has no direct-addresses hint",
+			);
+		}
+		const directAddress = dialableSocketAddress(boundDirect, options.advertisedHost);
+		if (options.advertisedHost != null) {
+			listener.advertise(formatPeerUri(
+				TRANSPORT_KEYED_TCP,
+				designator,
+				new Map([[HINT_DIRECT_ADDRESSES, directAddress]]),
+			));
+		}
+		listener.select();
+		loop.start();
+		return new KeyedTcpServer(
+			new Server({ listener, designator: directAddress, ownedLoop: loop }),
+			designator,
+			directAddress,
+		);
+	} catch (error) {
+		void loop.close();
+		return new KeyedTcpServer(
+			new Server({
+				bindError: error instanceof PancakeError
+					? error
+					: new PancakeError(IO, String(error)),
+			}),
+			null,
+			null,
+		);
+	}
 }

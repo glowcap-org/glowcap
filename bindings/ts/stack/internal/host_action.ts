@@ -17,6 +17,7 @@ import {
 	HOST_ACTION_FAIL,
 	HOST_ACTION_FLUSH,
 	HOST_ACTION_NEED_GIFT_ID,
+	HOST_ACTION_RESUME,
 	HOST_ACTION_SETTLE,
 	INVALID_ARGUMENT,
 } from "@pancake/abi";
@@ -34,11 +35,12 @@ const utf8Decoder = new TextDecoder();
  * before the next `pancake_host_next_action` call can free them. */
 export type HostAction =
 	| { kind: typeof HOST_ACTION_DIAL; ticket: bigint }
-	| { kind: typeof HOST_ACTION_FLUSH; conn: Ptr }
+	| { kind: typeof HOST_ACTION_FLUSH; session: Ptr }
 	| { kind: typeof HOST_ACTION_NEED_GIFT_ID; ticket: bigint }
 	| { kind: typeof HOST_ACTION_SETTLE; ticket: bigint; value: Argument }
 	| { kind: typeof HOST_ACTION_FAIL; ticket: bigint; message: string }
-	| { kind: typeof HOST_ACTION_CLOSE; conn: Ptr };
+	| { kind: typeof HOST_ACTION_CLOSE; session: Ptr }
+	| { kind: typeof HOST_ACTION_RESUME };
 
 /** Decode a filled `PancakeHostAction` buffer into an owned HostAction. */
 export function decodeHostAction(dv: DataView): HostAction {
@@ -61,9 +63,11 @@ export function decodeHostAction(dv: DataView): HostAction {
 				ticket,
 				message: view(L.HOST_ACTION_MESSAGE_OFF, L.HOST_ACTION_MESSAGE_LEN_OFF),
 			};
+		case HOST_ACTION_RESUME:
+			return { kind };
 		case HOST_ACTION_FLUSH:
 		case HOST_ACTION_CLOSE:
-			return { kind, conn: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };
+			return { kind, session: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };
 		default:
 			throw new PancakeError(
 				INVALID_ARGUMENT,
@@ -72,7 +76,7 @@ export function decodeHostAction(dv: DataView): HostAction {
 	}
 }
 
-/** Exhaustive dispatch over `HostAction`: a seventh kind fails compile.
+/** Exhaustive dispatch over `HostAction`: a new kind fails compile.
  * Bindings supply the per-arm I/O; this switch is the generated inventory. */
 export type HostActionHandlers = {
 	dial: (action: Extract<HostAction, { kind: typeof HOST_ACTION_DIAL }>) => void | Promise<void>;
@@ -88,6 +92,9 @@ export type HostActionHandlers = {
 	fail: (action: Extract<HostAction, { kind: typeof HOST_ACTION_FAIL }>) => void | Promise<void>;
 	close: (
 		action: Extract<HostAction, { kind: typeof HOST_ACTION_CLOSE }>,
+	) => void | Promise<void>;
+	resume: (
+		action: Extract<HostAction, { kind: typeof HOST_ACTION_RESUME }>,
 	) => void | Promise<void>;
 };
 
@@ -113,6 +120,9 @@ export async function dispatchHostAction(
 			return;
 		case HOST_ACTION_CLOSE:
 			await handlers.close(action);
+			return;
+		case HOST_ACTION_RESUME:
+			await handlers.resume(action);
 			return;
 		default: {
 			const _exhaustive: never = action;

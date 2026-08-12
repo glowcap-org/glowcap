@@ -32,6 +32,120 @@ const no_dial = @import("../support/no_dial_locator.zig");
 const frame_cap = 4096;
 const client_count = 8;
 
+const DeferredTurnProbe = struct {
+    turns: usize = 0,
+    done: *std.atomic.Value(bool),
+
+    fn run(ctx: ?*anyopaque) anyerror!bool {
+        const self: *@This() = @ptrCast(@alignCast(ctx.?));
+        self.turns += 1;
+        if (self.turns == 3) self.done.store(true, .release);
+        return true;
+    }
+};
+
+const DriverExitProbe = struct {
+    exits: usize = 0,
+
+    fn run(ctx: ?*anyopaque) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx.?));
+        self.exits += 1;
+    }
+};
+
+test "completion loop interleaves deferred adapter turns with nonblocking polls" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+
+    var done = std.atomic.Value(bool).init(false);
+    var probe = DeferredTurnProbe{ .done = &done };
+    var loop = try Loop.initWithBackendOptions(
+        std.testing.allocator,
+        .{ .queue_entries = 8, .read_buffers = 1 },
+        makeServerPeer,
+        &probe,
+        .{
+            .max_conns = 1,
+            .on_loop_turn = DeferredTurnProbe.run,
+        },
+    );
+    defer loop.deinit();
+
+    // There are no descriptors or completions to wake this dialer-only loop.
+    // Each callback result must therefore force the intervening poll to zero
+    // timeout, including the turn that sets the driver's stop condition.
+    try loop.runUntil(&done, 1_000);
+    try std.testing.expectEqual(@as(usize, 3), probe.turns);
+}
+
+test "completion loop reports driver exit only for a driver lifetime" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+
+    var probe: DriverExitProbe = .{};
+    var loop = try Loop.initWithBackendOptions(
+        std.testing.allocator,
+        .{ .queue_entries = 8, .read_buffers = 1 },
+        makeServerPeer,
+        &probe,
+        .{
+            .max_conns = 1,
+            .on_driver_exit = DriverExitProbe.run,
+        },
+    );
+    defer loop.deinit();
+
+    // Setup-time operations may inspect or address an unclaimed loop, but
+    // they are not a run and must not transfer adapter ownership on return.
+    loop.armOutbound(0);
+    loop.closeSlot(0);
+    try std.testing.expect(loop.verifiedChannelKey(0) == null);
+    try std.testing.expectEqual(@as(usize, 0), probe.exits);
+
+    var done = std.atomic.Value(bool).init(true);
+    try loop.runUntil(&done, 0);
+    try std.testing.expectEqual(@as(usize, 1), probe.exits);
+}
+
+test "completion adapter namespaces compose without handle or token collisions" {
+    const Base = struct {
+        pub const Fd = i32;
+        pub const adapter_depth = 0;
+    };
+    const First = completion.AdapterNamespace(Base);
+    const FirstBackend = struct {
+        pub const Fd = i32;
+        pub const adapter_depth = First.depth;
+    };
+    const Second = completion.AdapterNamespace(FirstBackend);
+
+    const first_fd = try First.fdFromId(17);
+    const second_fd = try Second.fdFromId(17);
+    try std.testing.expect(first_fd < 0 and second_fd < 0);
+    try std.testing.expect(First.ownsFd(first_fd));
+    try std.testing.expect(!First.ownsFd(second_fd));
+    try std.testing.expect(Second.ownsFd(second_fd));
+    try std.testing.expect(!Second.ownsFd(first_fd));
+    try std.testing.expectEqual(@as(u32, 17), First.fdId(first_fd));
+    try std.testing.expectEqual(@as(u32, 17), Second.fdId(second_fd));
+
+    const first_ud = First.userData(29);
+    const second_ud = Second.userData(29);
+    try std.testing.expect(First.ownsUserData(first_ud));
+    try std.testing.expect(!First.ownsUserData(second_ud));
+    try std.testing.expect(Second.ownsUserData(second_ud));
+    try std.testing.expect(!Second.ownsUserData(first_ud));
+    try std.testing.expectEqual(@as(u64, 29), First.userDataPayload(first_ud));
+    try std.testing.expectEqual(@as(u64, 29), Second.userDataPayload(second_ud));
+
+    const first_token = First.recvToken(3);
+    const second_token = Second.recvToken(3);
+    try std.testing.expect(First.ownsRecvToken(first_token));
+    try std.testing.expect(!First.ownsRecvToken(second_token));
+    try std.testing.expect(Second.ownsRecvToken(second_token));
+    try std.testing.expect(!Second.ownsRecvToken(first_token));
+    try std.testing.expectEqual(@as(u32, 3), First.recvTokenPayload(first_token));
+    try std.testing.expectEqual(@as(u32, 3), Second.recvTokenPayload(second_token));
+}
+
 test "completion backend: a wake-channel nudge completes an armed recv" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
 
@@ -60,6 +174,50 @@ test "completion backend: a wake-channel nudge completes an armed recv" {
     try std.testing.expect(!received.recv_no_buffer);
     try std.testing.expectEqual(@as(usize, 1), received.recv_bytes.?.len);
     backend.recycleRecv(received);
+}
+
+test "completion backend: cancel retires an exact recv without closing its fd" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var backend = try pancake.net.Backend.init(allocator, 8, 2, frame_cap);
+    defer backend.deinit();
+    const wake = try pancake.net.wake_channel.WakeChannel.open();
+    defer wake.deinit();
+
+    const recv_ud = 0xc001;
+    const cancel_ud = 0xc002;
+    try backend.submitRecv(recv_ud, wake.read);
+    try backend.submitCancel(cancel_ud, recv_ud, wake.read);
+
+    var saw_recv = false;
+    var saw_cancel = false;
+    var completions: [2]completion.Completion = undefined;
+    while (!saw_recv or !saw_cancel) {
+        const count = try backend.poll(&completions, 1_000);
+        try std.testing.expect(count != 0);
+        for (completions[0..count]) |item| {
+            if (item.recv_bytes != null) backend.recycleRecv(item);
+            if (item.user_data == recv_ud) {
+                saw_recv = true;
+            } else if (item.user_data == cancel_ud) {
+                saw_cancel = true;
+            } else {
+                return error.UnexpectedCompletion;
+            }
+        }
+    }
+
+    // Cancellation retires only the operation. The caller-owned descriptor is
+    // still usable for a fresh recv.
+    const rearm_ud = 0xc003;
+    try backend.submitRecv(rearm_ud, wake.read);
+    wake.nudge();
+    const count = try backend.poll(&completions, 1_000);
+    try std.testing.expectEqual(@as(usize, 1), count);
+    try std.testing.expectEqual(@as(u64, rearm_ud), completions[0].user_data);
+    try std.testing.expect(completions[0].result > 0);
+    backend.recycleRecv(completions[0]);
 }
 
 fn startSession(designator: []const u8) model.Message {
@@ -114,12 +272,11 @@ test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
     const allocator = std.testing.allocator;
 
     var loop = try Loop.init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 64,
         .listen = 0,
     });
     defer loop.deinit();
-    const port = loop.port.?;
+    const port = loop.port().?;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -286,7 +443,6 @@ test "completion loop: a hosted actor answers a call over the loop (objects on t
     var ctx_alloc = allocator;
 
     var loop = try Loop.init(allocator, makeVatHostPeer, @ptrCast(&ctx_alloc), .{
-        .frame_cap = frame_cap,
         .max_conns = 16,
         .listen = 0,
         .make_conn_ctx = LoopVat.make,
@@ -294,7 +450,7 @@ test "completion loop: a hosted actor answers a call over the loop (objects on t
         .free_conn_ctx = LoopVat.free,
     });
     defer loop.deinit();
-    const port = loop.port.?;
+    const port = loop.port().?;
 
     const clients = 6;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -347,8 +503,9 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
     const total = per_wave * waves; // 480 connection lifecycles
     const max_conns = 56; // < concurrent-peak's headroom, so slots recycle across waves
 
-    var loop = try Loop.init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
+    var loop = try Loop.initWithBackendOptions(allocator, .{
+        .queue_entries = 8,
+    }, makeServerPeer, null, .{
         .max_conns = max_conns,
         .listen = 0,
         // A deliberately tiny ring: one dispatch batch arms far more
@@ -357,10 +514,9 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
         // mid-batch flush in `getSqe`, a full queue would close healthy
         // connections (or kill the accept re-arm, and with it the loop) long
         // before the waves complete. kqueue ignores the hint.
-        .queue_entries = 8,
     });
     defer loop.deinit();
-    const port = loop.port.?;
+    const port = loop.port().?;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -432,12 +588,11 @@ test "completion loop: survives abrupt mid-handshake drops under churn (close-wh
     const max_conns = 56;
 
     var loop = try Loop.init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = max_conns,
         .listen = 0,
     });
     defer loop.deinit();
-    const port = loop.port.?;
+    const port = loop.port().?;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -480,9 +635,16 @@ const FakeBackend = struct {
 
     /// The inbound wire script, set by the test before `Loop.init`.
     var chunks: []const []const u8 = &.{};
+    /// Test-only pressure injection for listener cancellation. Connection
+    /// closes remain unaffected.
+    var refuse_listener_close_once: bool = false;
+    /// Report the canceled accept on the poll after the listener close. This
+    /// pins that the Loop drains both operations independent of CQE ordering.
+    var defer_listener_accept_cancel: bool = false;
 
     chunk_idx: usize = 0,
     pool_free: usize = 0,
+    read_buffer_bytes: u32 = 0,
     handed: usize = 0,
     recycles: usize = 0,
     ready: [8]completion.Completion = undefined,
@@ -491,12 +653,16 @@ const FakeBackend = struct {
     accepted: bool = false,
     journal: [16]FakeEvent = undefined,
     journal_len: usize = 0,
+    listener_close_attempts: usize = 0,
+    listener_close_fallbacks: usize = 0,
+    pending_accept_ud: ?u64 = null,
+    deferred_accept_cancel_ud: ?u64 = null,
+    shutdown_fd: ?Fd = null,
 
     pub fn init(allocator: std.mem.Allocator, queue_entries: u16, read_buffers: u16, read_buffer_bytes: u32) !FakeBackend {
         _ = allocator;
         _ = queue_entries;
-        _ = read_buffer_bytes;
-        return .{ .pool_free = read_buffers };
+        return .{ .pool_free = read_buffers, .read_buffer_bytes = read_buffer_bytes };
     }
 
     pub fn deinit(self: *FakeBackend) void {
@@ -509,14 +675,16 @@ const FakeBackend = struct {
         return 1;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
+        if (fd == 1) self.listener_close_fallbacks += 1;
     }
 
     pub const ConnectTarget = void;
@@ -529,8 +697,7 @@ const FakeBackend = struct {
     }
 
     pub fn shutdownFd(self: *@This(), fd: Fd) void {
-        _ = self;
-        _ = fd;
+        self.shutdown_fd = fd;
     }
 
     fn push(self: *FakeBackend, c: completion.Completion) void {
@@ -546,7 +713,11 @@ const FakeBackend = struct {
     pub fn submitAccept(self: *FakeBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
         // One scripted connection; the loop's re-armed accept pends forever.
-        if (self.accepted) return;
+        if (self.accepted) {
+            std.debug.assert(self.pending_accept_ud == null);
+            self.pending_accept_ud = user_data;
+            return;
+        }
         self.accepted = true;
         self.push(.{ .user_data = user_data, .result = 7 });
     }
@@ -587,13 +758,42 @@ const FakeBackend = struct {
         self.held_send = .{ .user_data = user_data, .len = bytes.len };
     }
 
+    pub fn submitCancel(self: *FakeBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = .{ target_user_data, fd };
+        // submitRecv completes synchronously into `ready`; only the distinct
+        // cancellation operation still needs publication.
+        self.push(.{ .user_data = cancel_user_data, .result = 0 });
+    }
+
     pub fn submitClose(self: *FakeBackend, user_data: u64, fd: Fd) !void {
-        _ = fd;
+        // The Loop owns the ordering guarantee: shutdown must precede every
+        // accepted close submission, including listener cancellation.
+        std.debug.assert(self.shutdown_fd != null and self.shutdown_fd.? == fd);
+        if (fd == 1) {
+            self.listener_close_attempts += 1;
+            if (refuse_listener_close_once and self.listener_close_attempts == 1)
+                return error.OutOfMemory;
+            if (self.pending_accept_ud) |accept_ud| {
+                self.pending_accept_ud = null;
+                if (defer_listener_accept_cancel) {
+                    self.deferred_accept_cancel_ud = accept_ud;
+                } else {
+                    self.push(.{ .user_data = accept_ud, .result = -1 });
+                }
+            }
+        }
+        self.shutdown_fd = null;
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
     pub fn poll(self: *FakeBackend, out: []completion.Completion, timeout_ms: i32) !usize {
         _ = timeout_ms;
+        if (self.ready_len == 0) {
+            if (self.deferred_accept_cancel_ud) |accept_ud| {
+                self.deferred_accept_cancel_ud = null;
+                self.push(.{ .user_data = accept_ud, .result = -1 });
+            }
+        }
         if (self.ready_len == 0) {
             // The loop is out of work: the slow reader finally drains the
             // held write. A stall with no held write would be a loop bug.
@@ -609,6 +809,52 @@ const FakeBackend = struct {
         return n;
     }
 };
+
+test "completion loop: listener close retries instead of abandoning an armed accept" {
+    const allocator = std.testing.allocator;
+    FakeBackend.chunks = &.{};
+    FakeBackend.refuse_listener_close_once = true;
+    defer FakeBackend.refuse_listener_close_once = false;
+
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
+        .max_conns = 1,
+        .listen = 0,
+    });
+    defer loop.deinit();
+
+    // `runUntil` arms the accept even when the stop flag is already set. The
+    // first close submit then fails under injected backend pressure; the drain
+    // must retain the listener and retry rather than calling `closeFd` directly.
+    var done = std.atomic.Value(bool).init(true);
+    try loop.runUntil(&done, 0);
+    try loop.closeAndDrain();
+
+    try std.testing.expectEqual(@as(usize, 2), loop.backend.listener_close_attempts);
+    try std.testing.expectEqual(@as(usize, 0), loop.backend.listener_close_fallbacks);
+}
+
+test "completion loop: listener shutdown drains a canceled accept after close completion" {
+    const allocator = std.testing.allocator;
+    FakeBackend.chunks = &.{};
+    FakeBackend.defer_listener_accept_cancel = true;
+    defer FakeBackend.defer_listener_accept_cancel = false;
+
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
+        .max_conns = 1,
+        .listen = 0,
+    });
+    defer loop.deinit();
+
+    // The scripted connection closes on its first recv, after onAccept has
+    // armed a second accept. Listener close completes first; the backend does
+    // not surface the canceled accept until the following poll.
+    try loop.run(.{ .after_closed = 1 });
+    try std.testing.expect(loop.accept_armed);
+    try loop.closeAndDrain();
+
+    try std.testing.expect(!loop.accept_armed);
+    try std.testing.expect(loop.backend.deferred_accept_cancel_ud == null);
+}
 
 /// Encode `peer`'s queued sends and append their bare frame bytes to `sink`.
 /// This is the intrinsic message-framed path used to prepare a peer directly.
@@ -672,9 +918,12 @@ const OneBadPartnerBackend = struct {
         return 1;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -748,6 +997,11 @@ const OneBadPartnerBackend = struct {
         self.push(.{ .user_data = user_data, .result = @intCast(bytes.len) });
     }
 
+    pub fn submitCancel(self: *OneBadPartnerBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = .{ target_user_data, fd };
+        self.push(.{ .user_data = cancel_user_data, .result = 0 });
+    }
+
     pub fn submitClose(self: *OneBadPartnerBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         self.push(.{ .user_data = user_data, .result = 0 });
@@ -798,7 +1052,6 @@ test "completion loop: a per-connection drive failure closes that connection, no
     defer OneBadPartnerBackend.chunks = &.{};
 
     var loop = try completion.Loop(OneBadPartnerBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -871,10 +1124,9 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     defer FakeBackend.chunks = &.{};
 
     var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, &park_hits, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
-        .outbound_high_water = high_water,
+        .outbound_high_water_bytes = high_water,
         .on_park = ParkCount.onPark,
     });
     defer loop.deinit();
@@ -894,6 +1146,46 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     // Every successful recv's pool buffer was recycled exactly once.
     try std.testing.expectEqual(@as(usize, 2), loop.backend.handed);
     try std.testing.expectEqual(loop.backend.handed, loop.backend.recycles);
+}
+
+test "completion loop: outbound high-water has an independent default and explicit override" {
+    const defaults: completion.Options = .{};
+    try std.testing.expectEqual(completion.default_outbound_high_water_bytes, defaults.outbound_high_water_bytes);
+
+    const overridden: completion.Options = .{ .outbound_high_water_bytes = 333 };
+    try std.testing.expectEqual(@as(usize, 333), overridden.outbound_high_water_bytes);
+}
+
+test "completion loop: exact read-buffer bytes reach the constructed backend" {
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).initWithBackendOptions(
+        std.testing.allocator,
+        .{ .read_buffers = 1, .read_buffer_bytes = 12_345 },
+        makeServerPeer,
+        null,
+        .{ .max_conns = 1 },
+    );
+    defer loop.deinit();
+    try std.testing.expectEqual(@as(u32, 12_345), loop.backend.read_buffer_bytes);
+}
+
+test "completion loop: an empty shared read buffer is refused" {
+    try std.testing.expectError(
+        error.InvalidReadBufferBytes,
+        completion.Loop(FakeBackend, no_dial.Unsupported).initWithBackendOptions(
+            std.testing.allocator,
+            .{ .read_buffer_bytes = 0 },
+            makeServerPeer,
+            null,
+            .{},
+        ),
+    );
+}
+
+test "completion scratch pool refuses zero-sized buffers at its ownership boundary" {
+    try std.testing.expectError(
+        error.InvalidReadBufferBytes,
+        completion.ScratchPool.init(std.testing.allocator, 1, 0),
+    );
 }
 
 /// A scripted backend for the shared-pool contract (ADR-0054): every accepted
@@ -939,9 +1231,12 @@ const ScriptBackend = struct {
         return 1;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -1013,6 +1308,11 @@ const ScriptBackend = struct {
         self.push(.{ .user_data = user_data, .result = @intCast(bytes.len) });
     }
 
+    pub fn submitCancel(self: *ScriptBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = .{ target_user_data, fd };
+        self.push(.{ .user_data = cancel_user_data, .result = 0 });
+    }
+
     pub fn submitClose(self: *ScriptBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         self.push(.{ .user_data = user_data, .result = 0 });
@@ -1075,11 +1375,11 @@ test "completion loop: a pool of one serves two starved connections, a starved r
         ScriptBackend.accept_count = 1;
     }
 
-    var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
+    var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).initWithBackendOptions(allocator, .{
+        .read_buffers = 1,
+    }, makeServerPeer, null, .{
         .max_conns = 4,
         .listen = 0,
-        .read_buffers = 1,
     });
     defer loop.deinit();
 
@@ -1126,7 +1426,6 @@ test "completion loop: a frame split across two recv completions applies exactly
     defer ScriptBackend.chunks = &.{};
 
     var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -1188,9 +1487,12 @@ const HeldSendBackend = struct {
         return 1;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -1264,6 +1566,11 @@ const HeldSendBackend = struct {
         self.held = .{ .user_data = user_data, .bytes = bytes, .snapshot = snapshot };
     }
 
+    pub fn submitCancel(self: *HeldSendBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = .{ target_user_data, fd };
+        self.push(.{ .user_data = cancel_user_data, .result = 0 });
+    }
+
     pub fn submitClose(self: *HeldSendBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         self.push(.{ .user_data = user_data, .result = 0 });
@@ -1333,7 +1640,6 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     defer HeldSendBackend.chunks = &.{};
 
     var loop = try completion.Loop(HeldSendBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -1357,7 +1663,6 @@ test "completion loop: the listener sets SO_REUSEADDR, parity with the blocking 
     const allocator = std.testing.allocator;
 
     var loop = try Loop.init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -1376,9 +1681,8 @@ test "completion loop: the listener sets SO_REUSEADDR, parity with the blocking 
     try std.testing.expect(value != 0);
 }
 
-/// A server peer whose `max_frame_bytes` is set deliberately *above* the loop's
-/// `frame_cap`, to prove the loop admits a frame the peer would accept rather
-/// than aborting it at its own smaller `frame_cap`.
+/// A server peer whose admission limit is deliberately above the shared read
+/// buffer, proving pool sizing does not become a second frame limit.
 fn makeBigFramePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     _ = ctx;
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
@@ -1389,12 +1693,13 @@ fn makeBigFramePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!eng
     return peer;
 }
 
-const big_frame_max = 1 << 16; // 64 KiB, far above `frame_cap` (4 KiB)
+const big_frame_max = 1 << 16;
+const small_read_buffer_bytes: u32 = 4 * 1024;
 
 /// Build a large but structurally valid `op:deliver` frame in the negotiated
 /// codec: the client handshakes against a server twin, then sends a fetch whose
-/// swissnum is padded to many kilobytes, so the frame is well over the loop's
-/// `frame_cap` yet well under the peers' `max_frame_bytes`. Returns the client's
+/// swissnum is padded to many kilobytes, so the frame is larger than one pool
+/// buffer yet well under the peers' `max_frame_bytes`. Returns the client's
 /// start-session bytes and the big deliver bytes, both owned by the caller.
 fn buildBigDeliverScript(
     allocator: std.mem.Allocator,
@@ -1426,7 +1731,7 @@ fn buildBigDeliverScript(
     try drainOutboundStreamBytes(&client, allocator, big_deliver);
 }
 
-test "completion loop: an incomplete prefix over frame_cap but under the peer's max_frame_bytes is not aborted" {
+test "completion loop: an incomplete prefix over one read buffer but under the peer cap is not aborted" {
     const allocator = std.testing.allocator;
 
     var client_ss: std.ArrayList(u8) = .empty;
@@ -1436,11 +1741,11 @@ test "completion loop: an incomplete prefix over frame_cap but under the peer's 
     try buildBigDeliverScript(allocator, &client_ss, &big_deliver);
 
     // Feed the big frame only in prefix: the first prefix chunk alone already
-    // crosses `frame_cap` (4 KiB) while the frame stays incomplete. A loop that
-    // mirrors the cap at its own `frame_cap` (the bug) aborts the connection on
-    // this first prefix and never requests the second chunk. A loop that mirrors
-    // the peer's `max_frame_bytes` (the fix) keeps reading, so the second prefix
-    // chunk is handed out and the connection ends only at the scripted EOF.
+    // crosses one 4 KiB pool buffer while the frame stays incomplete. A loop
+    // that mistakes pool sizing for admission aborts the connection on this
+    // first prefix and never requests the second chunk. Using only the peer's
+    // admission limit keeps reading, so the second prefix is handed out and
+    // the connection ends only at the scripted EOF.
     try std.testing.expect(big_deliver.items.len > 5500);
     const prefix1 = big_deliver.items[0..5000];
     const prefix2 = big_deliver.items[5000..5500];
@@ -1448,8 +1753,9 @@ test "completion loop: an incomplete prefix over frame_cap but under the peer's 
     ScriptBackend.chunks = &.{ client_ss.items, prefix1, prefix2 };
     defer ScriptBackend.chunks = &.{};
 
-    var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).init(allocator, makeBigFramePeer, null, .{
-        .frame_cap = frame_cap, // 4 KiB, below both prefix chunks' running total
+    var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).initWithBackendOptions(allocator, .{
+        .read_buffer_bytes = small_read_buffer_bytes,
+    }, makeBigFramePeer, null, .{
         .max_conns = 4,
         .listen = 0,
     });
@@ -1459,7 +1765,7 @@ test "completion loop: an incomplete prefix over frame_cap but under the peer's 
 
     try std.testing.expectEqual(@as(usize, 1), loop.closed_count);
     // Both prefix chunks were consumed (3 = client_ss + prefix1 + prefix2): the
-    // admissible-but-incomplete frame was never falsely aborted at `frame_cap`.
+    // admissible-but-incomplete frame crossed the pool-buffer boundary.
     try std.testing.expectEqual(@as(usize, 3), loop.backend.chunk_idx[0]);
 }
 
@@ -1491,9 +1797,12 @@ const DeadPeerBackend = struct {
         _ = port;
         return 1;
     }
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
     pub fn closeFd(self: *@This(), fd: Fd) void {
         _ = self;
@@ -1528,6 +1837,10 @@ const DeadPeerBackend = struct {
         _ = fd;
         // The vanish surfaces: a read error, not a clean EOF (result 0).
         self.push(.{ .user_data = user_data, .result = read_error });
+    }
+    pub fn submitCancel(self: *DeadPeerBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = .{ target_user_data, fd };
+        self.push(.{ .user_data = cancel_user_data, .result = 0 });
     }
     pub fn verifiedChannelKey(self: *DeadPeerBackend, fd: Fd) ?[32]u8 {
         _ = self;
@@ -1576,7 +1889,6 @@ test "completion loop: a dead peer's read error reclaims the slot and fires on_c
     CloseWatch.opened = false;
 
     var loop = try completion.Loop(DeadPeerBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
         .on_close = watchClose,
@@ -1633,10 +1945,9 @@ test "completion loop: park past park_kill_ms reclaims with CloseReason.park_kil
     ParkKillWatch.reason = .ordinary;
 
     var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
-        .outbound_high_water = high_water,
+        .outbound_high_water_bytes = high_water,
         .park_kill_ms = 0, // reclaim as soon as reap runs after park
         .on_close = watchParkKill,
     });
@@ -1697,9 +2008,12 @@ const FanInBackend = struct {
         return 1;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -1771,6 +2085,11 @@ const FanInBackend = struct {
 
     pub fn submitSend(self: *FanInBackend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         self.held[idx(fd)] = .{ .user_data = user_data, .len = bytes.len };
+    }
+
+    pub fn submitCancel(self: *FanInBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = .{ target_user_data, fd };
+        self.push(.{ .user_data = cancel_user_data, .result = 0 });
     }
 
     pub fn submitClose(self: *FanInBackend, user_data: u64, fd: Fd) !void {
@@ -1850,10 +2169,9 @@ test "completion loop: fan_in_throttle parks a drained source while a sink is ov
     };
 
     var loop = try completion.Loop(FanInBackend, no_dial.Unsupported).init(allocator, makeServerPeer, &park_hits, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
-        .outbound_high_water = high_water,
+        .outbound_high_water_bytes = high_water,
         .fan_in_throttle = true,
         // The throttle refuses to be built without one, and generously: this
         // test asserts the park, not the reaping, so the deadline must not
@@ -1887,10 +2205,9 @@ test "completion loop: a fan-in victim starts its slow-reader clock when it beco
 
     const LoopType = completion.Loop(FanInBackend, no_dial.Unsupported);
     var loop = try completion.Loop(FanInBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 2,
         .listen = 0,
-        .outbound_high_water = 16,
+        .outbound_high_water_bytes = 16,
         .fan_in_throttle = true,
         .park_kill_ms = 60_000,
     });
@@ -1907,7 +2224,7 @@ test "completion loop: a fan-in victim starts its slow-reader clock when it beco
     // still on it is one connection handed to two adopters — the state
     // `freeSlot` now asserts against. `adoptSlot`'s callers pop before they
     // adopt; a hand-built slot has to do the same.
-    loop.free_head = c.next_link;
+    loop.ordinary_free_head = c.next_link;
     c.state = .open;
     c.opened = true;
     c.fd = 10;
@@ -1977,10 +2294,9 @@ test "completion loop: condemning a parked sink restarts the clock for the flush
 
     const LoopType = completion.Loop(FanInBackend, no_dial.Unsupported);
     var loop = try completion.Loop(FanInBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 2,
         .listen = 0,
-        .outbound_high_water = 16,
+        .outbound_high_water_bytes = 16,
         .park_kill_ms = 600_000,
         .drain_kill_ms = 5_000,
     });
@@ -1997,7 +2313,7 @@ test "completion loop: condemning a parked sink restarts the clock for the flush
     // still on it is one connection handed to two adopters — the state
     // `freeSlot` now asserts against. `adoptSlot`'s callers pop before they
     // adopt; a hand-built slot has to do the same.
-    loop.free_head = c.next_link;
+    loop.ordinary_free_head = c.next_link;
     c.state = .open;
     c.opened = true;
     c.fd = 10;
@@ -2068,10 +2384,9 @@ test "completion loop: a condemned sink releases the fan-in sources it throttled
     }
 
     var loop = try completion.Loop(FanInBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
-        .outbound_high_water = high_water,
+        .outbound_high_water_bytes = high_water,
         .fan_in_throttle = true,
         // Required beside the throttle; long enough not to fire here.
         .park_kill_ms = 60_000,

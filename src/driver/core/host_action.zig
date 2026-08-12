@@ -25,9 +25,11 @@ const HostError = host_mod.HostError;
 /// `dial` carries only the pending ticket; the dial view lives on the node
 /// pending row (`Host.pendingDial` / C `pancake_host_pending_dial`).
 pub const HostAction = union(enum) {
-    /// Dial the exporter named by this ticket's pending dial view with this
-    /// host's identity, then report `exporterDialed(ticket, conn)` — or
-    /// `dialFailed(ticket, reason)` if any step refuses.
+    /// Dial the exporter named by this ticket's active pending-dial view with
+    /// this host's identity, then report `exporterDialed(ticket, conn)` — or
+    /// `dialFailed(ticket, reason)` if the path refuses. A failed path may
+    /// produce another DIAL for the same ticket; the Host/Node owns that
+    /// fallback and the embedder does not select alternatives.
     dial: struct { ticket: engine.Node.PendingId },
     /// Outbound frames may be ready on this session: drain
     /// `Conn.takeOutbound` until empty and write them.
@@ -56,6 +58,11 @@ pub const HostAction = union(enum) {
     /// whose dial never opened one (ADR-0098). A break carries no value, so
     /// every drain routes it by `vow_id` alone.
     failed: struct { peer_id: ?engine.PeerId, vow_id: u64, message: []const u8 },
+    /// The finite Host scheduler yielded with internal work remaining and no
+    /// ordinary action available to wake the next drain. A reactor-backed
+    /// embedder returns to its scheduler before starting the next drain turn;
+    /// no I/O or session belongs to this action.
+    resume_work,
 };
 
 /// Free every owned byte view a `HostAction` may carry. POD arms are no-ops.
@@ -63,7 +70,7 @@ pub fn freePayload(allocator: std.mem.Allocator, action: HostAction) void {
     switch (action) {
         .settled => |s| model.freeArgument(allocator, s.value),
         .failed => |f| if (f.message.len != 0) allocator.free(f.message),
-        .dial, .flush, .close, .need_gift_id => {},
+        .dial, .flush, .close, .need_gift_id, .resume_work => {},
     }
 }
 
@@ -74,6 +81,10 @@ pub fn freePayload(allocator: std.mem.Allocator, action: HostAction) void {
 /// previous action would dangle views the embedder still holds.
 pub fn nextAction(self: *Host) HostError!?HostAction {
     try self.refuseReentry();
+    if (self.retry_last_action) {
+        self.retry_last_action = false;
+        return self.last_action orelse unreachable;
+    }
     try resumeWorkForActionDrain(
         self,
     );
@@ -88,6 +99,29 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
     return action;
 }
 
+/// Preserve the current borrowed pop for the next `nextAction` call. This is
+/// the transactional refusal path for the C convenience pump: a non-OK arm
+/// means it committed no externally visible effect, so the exact action must
+/// remain first without being copied or appended behind younger rows.
+pub fn retryBorrowedAction(self: *Host) bool {
+    if (self.last_action == null or self.retry_last_action) return false;
+    self.retry_last_action = true;
+    return true;
+}
+
+/// Borrow the next owned-pop action without consuming it. This is the
+/// preflight seam for fallible external preparation: an embedder may acquire
+/// entropy or another resource first, then call `takeAction` only once that
+/// preparation succeeds. The view follows the queue's lifetime and is invalid
+/// after any Host mutation.
+pub fn peekAction(self: *Host) HostError!?HostAction {
+    try self.refuseReentry();
+    if (self.retry_last_action)
+        return self.last_action orelse unreachable;
+    try resumeWorkForActionDrain(self);
+    return self.actions.peek();
+}
+
 /// Pop the next embedder action, owned: the caller adopts the payload and
 /// frees it with `freeAction` — or moves it into a durable owner first,
 /// which is how `driver.Bridge` parks a completion with zero
@@ -95,6 +129,12 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
 /// compose. Refused under the latch like `nextAction`.
 pub fn takeAction(self: *Host) HostError!?HostAction {
     try self.refuseReentry();
+    if (self.retry_last_action) {
+        self.retry_last_action = false;
+        const action = self.last_action orelse unreachable;
+        self.last_action = null;
+        return action;
+    }
     try resumeWorkForActionDrain(
         self,
     );
@@ -107,6 +147,18 @@ pub fn takeAction(self: *Host) HostError!?HostAction {
 /// (a moved-out payload is the new owner's to free instead).
 pub fn freeAdopted(self: *Host, action: HostAction) void {
     freePayload(self.allocator, action);
+}
+
+/// Put a popped, retryable external-effect action back on the FIFO after its
+/// executor failed. These ticket-only arms are idempotent: if the first attempt
+/// committed before its tail failed, the retried ticket is stale and resumes
+/// cleanup; if it did not commit, the Node still owns the pending row. Popping
+/// left one physical slot, so this append cannot allocate.
+pub fn retryEffect(self: *Host, action: HostAction) void {
+    switch (action) {
+        .dial, .need_gift_id => self.actions.pushReserved(action),
+        else => unreachable,
+    }
 }
 
 /// The one FIFO pop under both action verbs: compact the dead prefix past
@@ -122,14 +174,25 @@ pub fn popAction(self: *Host) ?HostAction {
             if (self.sessions.get(peer_id)) |session|
                 session.close_action_pending = false;
         },
+        .resume_work => self.resume_action_pending = false,
         else => {},
     }
     return action;
 }
 
 pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
+    // External actions already wake the embedder and must leave before more
+    // core work is admitted. Pumping while one is parked lets a drain grow an
+    // unbounded action suffix before the reactor can honor its first effect.
+    if (self.actions.peek() != null) return;
     host_pump.finishVerb(self) catch |err| switch (err) {
         error.OutOfMemory => return HostError.OutOfMemory,
+        // `drainWork` requeued the dirty session and published its deduplicated
+        // FLUSH wake before returning. Continue into `popAction` so the
+        // embedder can drain the bytes that make this pressure actionable;
+        // condemning every session here would turn normal flow control into a
+        // Host-wide protocol failure.
+        error.OutboundBackpressure => return,
         else => sessions_mod.condemnRemainingSessions(self, "host action cleanup failed"),
     };
 }

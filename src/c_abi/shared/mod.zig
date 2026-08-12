@@ -33,29 +33,101 @@ const engine = @import("engine");
 /// generators.
 pub const symbols = @import("symbols.zig");
 
+/// The multiplexed-transport table layout (ADR-0112): how a sidecar transport
+/// archive plugs its multiplexed transport into the driver archive.
+/// Layout only, no exports, like everything in this leaf.
+pub const multiplexed_transport = @import("multiplexed_transport.zig");
+pub const locator = @import("locator.zig");
+pub const locator_adapter = @import("locator_adapter.zig");
+pub const transport_provider = @import("transport_provider.zig");
+pub const PancakeMultiplexedTransport = multiplexed_transport.PancakeMultiplexedTransport;
+pub const PancakeMultiplexedReadyEvent = multiplexed_transport.PancakeMultiplexedReadyEvent;
+pub const PancakeStreamTransport = transport_provider.PancakeStreamTransport;
+pub const PancakeLocatorHintView = locator.PancakeLocatorHintView;
+pub const PancakeLocatorView = locator.PancakeLocatorView;
+pub const PancakeTransportProfile = transport_provider.PancakeTransportProfile;
+pub const PancakeTransportProviderEntry = transport_provider.PancakeTransportProviderEntry;
+pub const PancakeTransportProvider = transport_provider.PancakeTransportProvider;
+pub const PancakeStreamStartConnectFn = transport_provider.PancakeStreamStartConnectFn;
+pub const PancakeStreamFinishConnectFn = transport_provider.PancakeStreamFinishConnectFn;
+pub const PancakeStreamCancelConnectFn = transport_provider.PancakeStreamCancelConnectFn;
+pub const PancakeStreamListenFn = transport_provider.PancakeStreamListenFn;
+pub const PancakeStreamListenerWaitFn = transport_provider.PancakeStreamListenerWaitFn;
+pub const PancakeStreamListenerReadinessFdFn = transport_provider.PancakeStreamListenerReadinessFdFn;
+pub const PancakeLocatorSinkFn = locator.PancakeLocatorSinkFn;
+pub const PancakeTransportListenerLocatorFn = transport_provider.PancakeTransportListenerLocatorFn;
+pub const PancakeTransportListenerAdvertiseFn = transport_provider.PancakeTransportListenerAdvertiseFn;
+pub const PancakeStreamAcceptFn = transport_provider.PancakeStreamAcceptFn;
+pub const PancakeStreamListenerCloseFn = transport_provider.PancakeStreamListenerCloseFn;
+pub const PancakeStreamReadFn = transport_provider.PancakeStreamReadFn;
+pub const PancakeStreamWriteAllFn = transport_provider.PancakeStreamWriteAllFn;
+pub const PancakeStreamConnCloseFn = transport_provider.PancakeStreamConnCloseFn;
+pub const PancakeTransportRetainFn = transport_provider.PancakeTransportRetainFn;
+pub const PancakeTransportReleaseFn = transport_provider.PancakeTransportReleaseFn;
+pub const PancakeMultiplexedReadinessFdFn = multiplexed_transport.PancakeMultiplexedReadinessFdFn;
+pub const PancakeMultiplexedDrainReadyFn = multiplexed_transport.PancakeMultiplexedDrainReadyFn;
+pub const PancakeMultiplexedStartConnectFn = multiplexed_transport.PancakeMultiplexedStartConnectFn;
+pub const PancakeMultiplexedFinishConnectFn = multiplexed_transport.PancakeMultiplexedFinishConnectFn;
+pub const PancakeMultiplexedClaimExternalFn = multiplexed_transport.PancakeMultiplexedClaimExternalFn;
+pub const PancakeMultiplexedStartListenFn = multiplexed_transport.PancakeMultiplexedStartListenFn;
+pub const PancakeMultiplexedFinishAcceptFn = multiplexed_transport.PancakeMultiplexedFinishAcceptFn;
+pub const PancakeMultiplexedStopListenFn = multiplexed_transport.PancakeMultiplexedStopListenFn;
+pub const PancakeMultiplexedSubjectFn = multiplexed_transport.PancakeMultiplexedSubjectFn;
+pub const PancakeMultiplexedTryReadFn = multiplexed_transport.PancakeMultiplexedTryReadFn;
+pub const PancakeMultiplexedTryWriteFn = multiplexed_transport.PancakeMultiplexedTryWriteFn;
+pub const PancakeMultiplexedConnRemoteKeyFn = multiplexed_transport.PancakeMultiplexedConnRemoteKeyFn;
+pub const PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION = transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION;
+pub const PANCAKE_TRANSPORT_PROFILE_ABI_VERSION = transport_provider.PANCAKE_TRANSPORT_PROFILE_ABI_VERSION;
+pub const PANCAKE_LOCATOR_VIEW_ABI_VERSION = locator.PANCAKE_LOCATOR_VIEW_ABI_VERSION;
+pub const PANCAKE_STREAM_TRANSPORT_ABI_VERSION = transport_provider.PANCAKE_STREAM_TRANSPORT_ABI_VERSION;
+pub const PANCAKE_TRANSPORT_EXEC_STREAM = transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM;
+pub const PANCAKE_TRANSPORT_EXEC_MULTIPLEXED = transport_provider.PANCAKE_TRANSPORT_EXEC_MULTIPLEXED;
+pub const PANCAKE_MULTIPLEXED_WOULD_BLOCK = multiplexed_transport.PANCAKE_MULTIPLEXED_WOULD_BLOCK;
+pub const PANCAKE_MULTIPLEXED_EV_READABLE = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_READABLE;
+pub const PANCAKE_MULTIPLEXED_EV_WRITABLE = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_WRITABLE;
+pub const PANCAKE_MULTIPLEXED_EV_CLOSED = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_CLOSED;
+pub const PANCAKE_MULTIPLEXED_EV_ACCEPT = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_ACCEPT;
+pub const PANCAKE_MULTIPLEXED_EV_CONNECT = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_CONNECT;
+pub const PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION = multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION;
+pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = transport_provider.PANCAKE_DESIGNATOR_SCHEME_ADDRESS;
+pub const PANCAKE_DESIGNATOR_SCHEME_KEY = transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
+pub const PANCAKE_SEALED_CHANNEL_NONE = transport_provider.PANCAKE_SEALED_CHANNEL_NONE;
+pub const PANCAKE_SEALED_CHANNEL_NOISE_XK = transport_provider.PANCAKE_SEALED_CHANNEL_NOISE_XK;
+pub const PANCAKE_HINT_STRING = locator.PANCAKE_HINT_STRING;
+pub const PANCAKE_HINT_BYTES = locator.PANCAKE_HINT_BYTES;
+pub const PANCAKE_HINT_BOOLEAN = locator.PANCAKE_HINT_BOOLEAN;
+pub const PANCAKE_HINT_INTEGER = locator.PANCAKE_HINT_INTEGER;
+pub const PANCAKE_HINTS_MAP = locator.PANCAKE_HINTS_MAP;
+pub const PANCAKE_HINTS_BOOLEAN_FALSE = locator.PANCAKE_HINTS_BOOLEAN_FALSE;
+
 pub const PANCAKE_OK: i32 = 0;
 pub const PANCAKE_ERR_NULL_POINTER: i32 = -1;
-// -2 is retired (an unimplemented stale-handle check); the value is never
-// reused, so an old consumer comparing against it cannot mistake a new code.
 /// A non-pointer argument was out of range or unparseable (e.g. a zero frame
 /// cap, or a host string that is not an address). Distinct from `_NULL_POINTER`
 /// (a required pointer was null) and `_IO` (the network itself failed).
-pub const PANCAKE_ERR_INVALID_ARGUMENT: i32 = -3;
-pub const PANCAKE_ERR_SESSION: i32 = -4;
-pub const PANCAKE_ERR_CODEC: i32 = -5;
-pub const PANCAKE_ERR_INTERNAL: i32 = -6;
-pub const PANCAKE_ERR_WOULD_BLOCK: i32 = -7;
+pub const PANCAKE_ERR_INVALID_ARGUMENT: i32 = -2;
+pub const PANCAKE_ERR_SESSION: i32 = -3;
+pub const PANCAKE_ERR_CODEC: i32 = -4;
+pub const PANCAKE_ERR_INTERNAL: i32 = -5;
+pub const PANCAKE_ERR_WOULD_BLOCK: i32 = -6;
+
+/// Translate the shared locator adapter's complete error set at C crossings.
+pub fn locatorAdapterErrorCode(err: locator_adapter.CloneViewError) i32 {
+    return switch (err) {
+        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.InvalidLocatorView => PANCAKE_ERR_INVALID_ARGUMENT,
+    };
+}
+
 /// The peer closed the stream gracefully on a frame boundary (clean EOF).
-pub const PANCAKE_ERR_CLOSED: i32 = -8;
+pub const PANCAKE_ERR_CLOSED: i32 = -7;
 /// An underlying socket read/write failed; `pancake_last_error` carries the
 /// concrete cause.
-pub const PANCAKE_ERR_IO: i32 = -9;
+pub const PANCAKE_ERR_IO: i32 = -8;
 /// Inbound bytes were not a structurally valid frame.
-pub const PANCAKE_ERR_MALFORMED: i32 = -10;
+pub const PANCAKE_ERR_MALFORMED: i32 = -9;
 /// An inbound frame exceeded the endpoint's `max_frame_bytes`.
-pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -11;
-// -12 is retired (the old raw-peer pairwise typed polls' wrong-kind refusal).
-// Never reused.
+pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -10;
 /// A value *sent* across the typed surface uses a variant the C ABI cannot carry:
 /// a `handoff` argument, an OCapN Struct argument (there is no `PANCAKE_ARG_STRUCT`),
 /// or a `sturdy`/`broken` reference target. Those are refused loudly with this
@@ -65,27 +137,51 @@ pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -11;
 /// `broken` reference projects lossily — the kind is reported but its
 /// swissnum/detail is dropped — since the deliver was authored by the partner,
 /// not refused on this consumer's behalf.
-pub const PANCAKE_ERR_UNSUPPORTED_VALUE: i32 = -13;
+pub const PANCAKE_ERR_UNSUPPORTED_VALUE: i32 = -11;
 /// A promise the partner broke: a `send`/`fetch` the remote side refused with a
 /// reason, not a fault in the Host or transport. Bindings reuse it when they
 /// turn that break into their own error type, so the reason stays distinct from
 /// a real failure.
-pub const PANCAKE_ERR_BROKEN: i32 = -14;
+pub const PANCAKE_ERR_BROKEN: i32 = -12;
 /// A lookup found nothing: the `pancake_locator_hint` key names no hint on the
 /// locator. Distinct from `_INVALID_ARGUMENT` (the request was malformed) — the
 /// request was well-formed, the thing asked for is simply absent.
-pub const PANCAKE_ERR_NOT_FOUND: i32 = -15;
+pub const PANCAKE_ERR_NOT_FOUND: i32 = -13;
 /// A caller-provided output buffer was too small for the value being written.
 /// The call still reports the required length in its `out_len` parameter, so a
 /// caller retries with a large enough buffer. Distinct from `_INVALID_ARGUMENT`
 /// (a malformed request) — the request is well-formed, the buffer is just short.
-pub const PANCAKE_ERR_BUFFER_TOO_SMALL: i32 = -16;
+pub const PANCAKE_ERR_BUFFER_TOO_SMALL: i32 = -14;
 /// A caller-set deadline elapsed: the handshake budget passed with no hello, or
 /// a blocking answer-wait's budget passed with no settle. Distinct from `_IO`
 /// (the socket itself failed) and `_SESSION` (the partner refused something) —
 /// nothing went wrong on the wire, the caller's own budget is what ended the
 /// wait, so a retry with a longer one is a reasonable response.
-pub const PANCAKE_ERR_TIMEOUT: i32 = -17;
+pub const PANCAKE_ERR_TIMEOUT: i32 = -15;
+
+comptime {
+    const errors = [_]i32{
+        PANCAKE_ERR_NULL_POINTER,
+        PANCAKE_ERR_INVALID_ARGUMENT,
+        PANCAKE_ERR_SESSION,
+        PANCAKE_ERR_CODEC,
+        PANCAKE_ERR_INTERNAL,
+        PANCAKE_ERR_WOULD_BLOCK,
+        PANCAKE_ERR_CLOSED,
+        PANCAKE_ERR_IO,
+        PANCAKE_ERR_MALFORMED,
+        PANCAKE_ERR_FRAME_TOO_LARGE,
+        PANCAKE_ERR_UNSUPPORTED_VALUE,
+        PANCAKE_ERR_BROKEN,
+        PANCAKE_ERR_NOT_FOUND,
+        PANCAKE_ERR_BUFFER_TOO_SMALL,
+        PANCAKE_ERR_TIMEOUT,
+    };
+    for (errors, 1..) |code, ordinal| {
+        if (code != -@as(i32, @intCast(ordinal)))
+            @compileError("prerelease C error codes must remain contiguous");
+    }
+}
 
 // ── Codec selector ───────────────────────────────────────────────────────────
 
@@ -282,27 +378,43 @@ const ManagedFramePayload = struct {
     allocator: std.mem.Allocator,
 };
 
+/// Preallocated ownership cell for a managed C frame. Reserve before removing
+/// a frame from its source queue; commit after dequeue, or cancel on an empty
+/// queue/refusal. This makes allocator failure transactional without copying
+/// or requeueing frame bytes.
+pub const ManagedFrameReservation = struct {
+    payload: *ManagedFramePayload,
+
+    pub fn cancel(self: ManagedFrameReservation) void {
+        self.payload.allocator.destroy(self.payload);
+    }
+
+    pub fn commit(self: ManagedFrameReservation, frame: foundation.Frame) PancakeManagedFrame {
+        self.payload.frame = frame;
+        return .{
+            .bytes = @constCast(self.payload.frame.bytes().ptr),
+            .len = self.payload.frame.bytes().len,
+            .shape = frameShapeToC(self.payload.frame.view().shape),
+            .release = releaseOwnedFrame,
+            .private_data = self.payload,
+        };
+    }
+};
+
+pub fn reserveManagedFrame(alloc: std.mem.Allocator) !ManagedFrameReservation {
+    const payload = try alloc.create(ManagedFramePayload);
+    payload.allocator = alloc;
+    return .{ .payload = payload };
+}
+
 /// Wrap an owned `foundation.Frame` as a self-releasing managed frame. The frame
 /// moves into a heap payload; the descriptor's `release` frees the payload and
 /// the frame through `alloc`.
 pub fn tryManagedFrame(alloc: std.mem.Allocator, frame: foundation.Frame) !PancakeManagedFrame {
-    const payload = try alloc.create(ManagedFramePayload);
-    payload.* = .{ .frame = frame, .allocator = alloc };
-    return .{
-        .bytes = @constCast(payload.frame.bytes().ptr),
-        .len = payload.frame.bytes().len,
-        .shape = frameShapeToC(payload.frame.view().shape),
-        .release = releaseOwnedFrame,
-        .private_data = payload,
-    };
+    const reservation = try reserveManagedFrame(alloc);
+    return reservation.commit(frame);
 }
 
-/// The one body behind every `pancake_*_take_outbound`: dequeue the peer's next
-/// encoded frame into `slot` as an owned managed frame. Returns
-/// `PANCAKE_ERR_WOULD_BLOCK` when the outbound queue is empty (the family-wide
-/// "nothing pending" code), and `PANCAKE_ERR_INTERNAL` (last error set, the
-/// dequeued frame freed and not retrievable) when the frame could not be
-/// wrapped for C. Shared so no two archives can drift on these codes.
 /// Wrap an owned frame into `slot` as a managed frame, or free it and fail: the
 /// one body behind every take-outbound / read-frame tail. On wrap-allocation
 /// failure the frame is deinit'd (it is owned and unreachable after), the last
@@ -492,6 +604,20 @@ pub fn lastErrorRead(out_buf: ?[*]u8, cap: usize) usize {
 /// Clear the calling thread's last error slot.
 pub fn lastErrorClear() void {
     last_error_len = 0;
+}
+
+/// Complete one off-thread FFI call by copying this worker thread's diagnostic
+/// into caller-owned storage before control returns to the runtime. The
+/// operation must clear the slot on entry, so a status with no concrete cause
+/// reports a zero length rather than an earlier call's message.
+pub fn captureCallError(
+    code: i32,
+    out_buf: ?[*]u8,
+    cap: usize,
+    out_len: *usize,
+) i32 {
+    out_len.* = lastErrorRead(out_buf, cap);
+    return code;
 }
 
 // ── Typed OCapN value vocabulary ─────────────────────────────────────────────
@@ -852,28 +978,96 @@ pub fn argsToCWith(
 
 // ── Transport connection payload lifecycle ───────────────────────────────────
 
-/// Modest caps on a stream-shaped transport endpoint's per-connection buffers.
+/// Admission barrier for operations entered from foreign threads. The handle's
+/// `std.Io` supplies the wait primitive, so this adds no thread, allocation, or
+/// process-global runtime. Shutdown may race operations because it never frees
+/// the handle: it seals admission and wakes transport work separately. Before
+/// release, the foreign owner must prevent new calls and join its own operation
+/// leases; `wait` then verifies that every natively admitted call returned.
+/// No counter stored inside a C handle can make dereferencing that handle safe
+/// against a concurrent free before admission.
+pub const ForeignCallBarrier = struct {
+    const closing_bit = @as(usize, 1) << (@bitSizeOf(usize) - 1);
+    const active_mask = closing_bit - 1;
+
+    gate: std.Io.Mutex = .init,
+    drained: std.Io.Condition = .init,
+    /// High bit seals admission; low bits count calls that already crossed the
+    /// C boundary. Admission and shutdown never wait on the release barrier.
+    state: std.atomic.Value(usize) = .init(0),
+
+    pub fn acquire(self: *ForeignCallBarrier, io: std.Io) bool {
+        _ = io;
+        var state = self.state.load(.acquire);
+        while (true) {
+            if (state & closing_bit != 0) return false;
+            std.debug.assert(state & active_mask != active_mask);
+            if (self.state.cmpxchgWeak(state, state + 1, .acquire, .monotonic)) |observed| {
+                state = observed;
+                continue;
+            }
+            return true;
+        }
+    }
+
+    pub fn release(self: *ForeignCallBarrier, io: std.Io) void {
+        const previous = self.state.fetchSub(1, .release);
+        std.debug.assert(previous & active_mask != 0);
+        if (previous & active_mask != 1) return;
+        self.gate.lockUncancelable(io);
+        self.drained.signal(io);
+        self.gate.unlock(io);
+    }
+
+    /// Seal admission. True exactly once, so the caller that wins performs the
+    /// transport's idempotent wake without every concurrent closer repeating it.
+    pub fn beginShutdown(self: *ForeignCallBarrier, io: std.Io) bool {
+        _ = io;
+        return self.state.fetchOr(closing_bit, .acq_rel) & closing_bit == 0;
+    }
+
+    pub fn wait(self: *ForeignCallBarrier, io: std.Io) void {
+        self.gate.lockUncancelable(io);
+        defer self.gate.unlock(io);
+        while (self.state.load(.acquire) & active_mask != 0)
+            self.drained.waitUncancelable(io, &self.gate);
+    }
+};
+
+/// Per-direction serialization for one stream-shaped foreign connection.
+/// `ForeignCallBarrier` owns lifetime admission, not stream state: two reads
+/// share decoder/spill state and two writes share encoder/buffer state, while
+/// one read and one write are valid full-duplex operations. Keeping distinct
+/// gates makes that contract structural at every transport archive.
+pub const ConnDirectionGates = struct {
+    read: std.Io.Mutex = .init,
+    write: std.Io.Mutex = .init,
+};
+
+/// Modest caps on a stream-shaped transport connection's per-direction buffers.
 /// Neither buffer needs to hold a whole frame: `writeAll` streams a large
 /// outbound frame straight through the write buffer, and an inbound frame
 /// larger than the read buffer accumulates in the connection's bounded spill
 /// (`net.Spill`) while it is in flight. Steady per-connection memory is
 /// therefore these two buffers, not `max_frame_bytes`.
-pub const endpoint_read_buf_bytes: usize = 16 * 1024;
-pub const endpoint_write_buf_bytes: usize = 64 * 1024;
+pub const connection_read_buf_bytes: usize = 16 * 1024;
+pub const connection_write_buf_bytes: usize = 64 * 1024;
 
 /// The buffer/payload lifecycle every stream-shaped transport archive's
-/// connection handles share (tcp and inproc; iroh's loop connections carry no
-/// buffers). `Payload` declares `stream` (with `deinit`), `read_buf`,
-/// `write_buf`, and `allocator`. A comptime helper, not an `export fn`, so each
-/// archive compiles its own copy and the shared leaf stays symbol-free.
+/// connection handles share (tcp, inproc, and onion; iroh's loop connections
+/// carry no buffers). `Payload` declares `stream` (with `shutdown`/`deinit`),
+/// `operations`, `directions`, `read_buf`, `write_buf`, and `allocator`. A
+/// comptime helper,
+/// not an `export fn`, so each archive compiles its own copy and the shared leaf
+/// stays symbol-free.
 pub fn ConnLifecycle(comptime Payload: type) type {
     return struct {
         /// Allocate a connection payload and its buffers, leaving `.stream` for
         /// the caller to install once the connection is established. On any
         /// failure before install, release it with `abort`.
         pub fn begin(alloc: std.mem.Allocator, max_frame_bytes: usize) ?*Payload {
-            const read_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_read_buf_bytes)) catch return null;
-            const write_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_write_buf_bytes)) catch {
+            const read_buf = alloc.alloc(u8, @min(max_frame_bytes, connection_read_buf_bytes)) catch return null;
+            const write_buf = alloc.alloc(u8, @min(max_frame_bytes, connection_write_buf_bytes)) catch {
                 alloc.free(read_buf);
                 return null;
             };
@@ -885,6 +1079,8 @@ pub fn ConnLifecycle(comptime Payload: type) type {
             payload.read_buf = read_buf;
             payload.write_buf = write_buf;
             payload.allocator = alloc;
+            payload.operations = .{};
+            payload.directions = .{};
             return payload;
         }
 
@@ -896,9 +1092,20 @@ pub fn ConnLifecycle(comptime Payload: type) type {
             alloc.destroy(payload);
         }
 
-        /// Release an established payload: close the stream, then the buffers.
+        /// Seal new operations and interrupt those already blocked in transport
+        /// I/O without releasing storage.
+        pub fn shutdown(payload: *Payload) void {
+            if (payload.operations.beginShutdown(payload.stream.io)) {
+                payload.stream.shutdown();
+            }
+        }
+
+        /// Release an established payload: interrupt I/O, join every admitted C
+        /// call, then close the stream and free its buffers.
         pub fn destroy(payload: *Payload) void {
             const alloc = payload.allocator;
+            shutdown(payload);
+            payload.operations.wait(payload.stream.io);
             payload.stream.deinit();
             alloc.free(payload.read_buf);
             alloc.free(payload.write_buf);
@@ -921,6 +1128,10 @@ pub fn ConnFrameOps(comptime Payload: type) type {
             out_frame: *PancakeManagedFrame,
             comptime onConnectionLost: fn (*Payload) void,
         ) i32 {
+            if (!payload.operations.acquire(payload.stream.io)) return PANCAKE_ERR_CLOSED;
+            defer payload.operations.release(payload.stream.io);
+            payload.directions.read.lockUncancelable(payload.stream.io);
+            defer payload.directions.read.unlock(payload.stream.io);
             const f = payload.stream.readFrame() catch |err| return frameReadErrorToCode(payload, err, onConnectionLost);
 
             return wrapManagedInto(payload.allocator, f, out_frame, "conn_read_frame");
@@ -931,7 +1142,11 @@ pub fn ConnFrameOps(comptime Payload: type) type {
             frame_in: *const PancakeFrame,
             comptime onWriteErr: fn (*Payload, anyerror) void,
         ) i32 {
+            if (!payload.operations.acquire(payload.stream.io)) return PANCAKE_ERR_CLOSED;
+            defer payload.operations.release(payload.stream.io);
             const bytes_ptr = frame_in.bytes orelse return PANCAKE_ERR_NULL_POINTER;
+            payload.directions.write.lockUncancelable(payload.stream.io);
+            defer payload.directions.write.unlock(payload.stream.io);
 
             payload.stream.writeFrame(bytes_ptr[0..frame_in.len]) catch |err| {
                 onWriteErr(payload, err);

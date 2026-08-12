@@ -17,7 +17,8 @@ import {
 } from "../interactions/types.ts";
 import { documentHolds } from "../interactions/selection-store.ts";
 import { PANEL, SPACE } from "./tokens.ts";
-import { useEngineVersion } from "./useEngineVersion.ts";
+import { useClockSnapshot } from "./useClockSnapshot.ts";
+import { useDocVersion } from "./useDocVersion.ts";
 import { TrashGlyph } from "./glyphs.tsx";
 import { type EditorBindings, placeholder } from "./inspector/shared.tsx";
 import { PeerConnections, PeerFields } from "./inspector/PeerPanel.tsx";
@@ -146,7 +147,11 @@ export function EntityDetails(
         | undefined;
     },
 ) {
-  useEngineVersion(engine);
+  // Document + playhead only. Mid-drag bumps `version` without moving either,
+  // so this shell stays quiet while a pin is being dragged; per-kind field
+  // panels that follow live world position subscribe to `version` themselves.
+  useDocVersion(engine);
+  useClockSnapshot(engine);
   if (entitySelection && entitySelection.size > 1) {
     const selection = entitySelection;
     // What a group delete would take, which is not always the whole
@@ -283,7 +288,10 @@ export function EntityConnections(
     & SidebarBodyProps
     & { entitySelection?: ReadonlySet<EntityRefKey> | undefined },
 ) {
-  useEngineVersion(engine);
+  // Same split as Details: connections are document- and playhead-shaped.
+  // Mid-drag does not change who touches whom.
+  useDocVersion(engine);
+  useClockSnapshot(engine);
   const at = anchor;
   if (!at) {
     return (

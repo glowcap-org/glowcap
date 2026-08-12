@@ -63,9 +63,10 @@ What the browser still lacks is a transport, added in two milestones:
 
 ## Scope (what this does not decide)
 
-Milestone 1 has landed. `zig build wasm-driver` compiles the byte-fed Host
-(`libpancake_driver`, ADR-0072) and the shared `libpancake_ocapn` vocabulary to
-one freestanding `wasm32` module, `pancake_driver.wasm`;
+Milestone 1 has landed. `zig build wasm-driver` compiles the byte-fed
+`c_abi_host` root and the shared `c_abi` vocabulary into one freestanding
+`wasm32` module, `pancake_driver.wasm`; the native `libpancake_driver` loop
+archive (ADR-0112) is a separate socket-owning artifact and is not in wasm.
 `zig build wasm-driver-test` drives a keyed handshake between two Hosts over an
 in-memory byte pipe; and `@pancake/web` (`bindings/ts/web`) runs the full
 `@pancake/stack` surface over the module with a WebSocket byte channel,
@@ -75,16 +76,16 @@ ADR-0089's DataChannel and signaling portions of Milestone 2 have also landed.
 The browser and native arms establish direct channels after signaling, and a
 shared native endpoint reports peer events through one readiness descriptor.
 Generic Host adoption and three-party redeem over WebRTC ship with that ADR
-(`webrtc-loop`, `webrtc-bridge-redeem`); cross-relay cold dial and bare-locator
-dial without configured signaling remain documented boundaries in
-[`docs/roadmap.md`](../../roadmap.md) and
+(`webrtc-loop`, `webrtc-bridge-redeem`, `webrtc-driver-provider`). A bare
+WebRTC locator still needs configured signaling authority, as documented in
 [`docs/boundaries.md`](../../boundaries.md).
 
 The Decision above predates the byte-fed Host consolidation (ADR-0072,
-ADR-0079): the wasm target is now `libpancake_driver` rather than the
-`pancake_ocapn.wasm` it names, and a browser drives the `Host` / `Session`
-binding surface, not the retired `Peer` / `Node` shape. The seam it plugs into
-is unchanged — one FFI boundary swapped for a WebAssembly instance.
+ADR-0079): the wasm root now forces the `pancake_host_*` and `pancake_*`
+families into one module rather than exposing the `pancake_ocapn.wasm` it
+names, and a browser drives the `Host` / `Session` binding surface, not the
+retired `Peer` / `Node` shape. The seam it plugs into is unchanged: one
+byte-fed FFI boundary swapped for a WebAssembly instance.
 
 ## Alternatives Considered
 

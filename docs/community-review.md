@@ -11,6 +11,15 @@ with LLM agents, it also sends no unsolicited patches, issues, or comments to
 projects that may not want them. The policy is in
 [`PROVENANCE.md`](../PROVENANCE.md).
 
+## Vocabulary map
+
+| Goblins / CapTP / OCapN | pancake |
+| --- | --- |
+| `mycapn` | Two roles: the product is a `Host`; the sans-io handoff router is `engine.Node`. Never one type equation. |
+| CapTP session with one partner | Application-facing `Session`; the Host ABI's registered shell is `PancakeHostSession`. A byte stream is a `Connection` / transport `*Conn`, never the CapTP partner. |
+| Goblins vow / OCapN promise / answer position | A Goblins vow is a passable eventual reference. pancake's `Vow` is a local host/actor observation and send-result handle over an OCapN promise. `desc:answer` names the sender-chosen session slot used for pipelining. These are related projections, not one type. |
+| CapTP value-level sealer / unsealer | Not implemented as a pancake type. The unrelated `SealedChannel` is pancake's Noise-encrypted transport byte channel (ADR-0107). |
+
 Two findings may be useful upstream: the draft, suite, and Goblins disagree on
 the operand count for `op:listen`, and the draft's mapping-shaped locator hints
 do not match the pinned Goblins string-or-false constructor contract. The
@@ -50,7 +59,7 @@ implementations exercised today are the upstream suite and Racket Goblins.
   `direct-addresses`; the replacement snapshot applies to subsequent sessions
   and gifts. Goblins' full-value lookup remains worth an upstream report, but
   it is not a pancake architecture boundary.
-- Every CapTP connection uses a fresh session signing key. Durable provenance
+- Every CapTP session uses a fresh signing key. Durable provenance
   comes only from authenticated channel realization: iroh supplies its QUIC
   endpoint id and WebRTC supplies the identity authorized by signaling. Raw
   keyed TCP and keyed relay report `unauthenticated`; matching the dialed key
@@ -65,7 +74,10 @@ implementations exercised today are the upstream suite and Racket Goblins.
 - A live Goblins vat accepts pancake's one-way `tell` form. The check sends
   two answerless `op:deliver` frames and reads the changed state back through
   an answered call.
-- OCapN Null and live `op:untag` wait on upstream work.
+- OCapN Null waits on an upstream representation decision. `op:untag` ships
+  and has in-tree scenario coverage for `pancake-next`; the 1.0 profile
+  deliberately refuses it, and only a live external-peer exercise waits on
+  upstream support.
 
 [Known limitations](boundaries.md) explains the effect on users. The
 [roadmap](roadmap.md) says what would close each gap.

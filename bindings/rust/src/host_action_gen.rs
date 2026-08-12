@@ -23,6 +23,7 @@ pub const HOST_ACTION_NEED_GIFT_ID: c_uint = 2;
 pub const HOST_ACTION_SETTLE: c_uint = 3;
 pub const HOST_ACTION_FAIL: c_uint = 4;
 pub const HOST_ACTION_CLOSE: c_uint = 5;
+pub const HOST_ACTION_RESUME: c_uint = 6;
 
 /// One popped embedder action, every borrowed view lifted to owned
 /// Rust values (a SETTLE's `PancakeArgument` included) before the next
@@ -32,7 +33,7 @@ pub enum HostAction {
 		ticket: u64,
 	},
 	Flush {
-		conn: usize,
+		session: usize,
 	},
 	NeedGiftId {
 		ticket: u64,
@@ -46,8 +47,9 @@ pub enum HostAction {
 		message: String,
 	},
 	Close {
-		conn: usize,
+		session: usize,
 	},
+	Resume,
 }
 
 /// Decode a filled `PancakeHostAction` into an owned `HostAction`.
@@ -64,7 +66,7 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 	match raw.kind {
 		HOST_ACTION_DIAL => HostAction::Dial { ticket: raw.ticket },
 		HOST_ACTION_FLUSH => HostAction::Flush {
-			conn: raw.conn as usize,
+			session: raw.session as usize,
 		},
 		HOST_ACTION_NEED_GIFT_ID => HostAction::NeedGiftId { ticket: raw.ticket },
 		HOST_ACTION_SETTLE => HostAction::Settle {
@@ -76,14 +78,15 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 			message: view(raw.message, raw.message_len),
 		},
 		HOST_ACTION_CLOSE => HostAction::Close {
-			conn: raw.conn as usize,
+			session: raw.session as usize,
 		},
+		HOST_ACTION_RESUME => HostAction::Resume,
 		kind => unreachable!("unknown host action kind {kind}"),
 	}
 }
 
 /// Exhaustive dispatch over `HostAction`. Handlers expose one async fn
-/// per arm; a seventh kind fails to compile here.
+/// per arm; a new kind fails to compile here.
 pub async fn dispatch<H>(action: HostAction, handlers: &H) -> crate::Result<()>
 where
     H: HostActionHandlers,
@@ -95,6 +98,7 @@ where
         HostAction::Settle { .. } => handlers.settle(action).await,
         HostAction::Fail { .. } => handlers.fail(action).await,
         HostAction::Close { .. } => handlers.close(action).await,
+        HostAction::Resume => handlers.resume(action).await,
     }
 }
 
@@ -106,4 +110,5 @@ pub trait HostActionHandlers {
     fn settle(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn fail(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn close(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn resume(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
 }

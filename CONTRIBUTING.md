@@ -36,10 +36,12 @@ codec, netlayer, and layer boundaries need a decision record. Copy
 building against it.
 
 New authority models and I/O inside the synchronous core are out of scope.
-Native hosts use iroh when they need an encrypted transport; pancake does not
-add TLS to its TCP netlayer.
-[ADR-0055](docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md) records that
-choice.
+Encrypted channels between pancake peers use `noise-tcp` on a direct route, or
+iroh when discovery and NAT traversal matter; plain `tcp` stays cleartext and
+is not a TLS path.
+[ADR-0107](docs/decisions/adr/ADR-0107-sealed-byte-channel.md) and
+[ADR-0055](docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md) record those
+choices.
 
 ## Dev environment
 

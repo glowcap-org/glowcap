@@ -7,7 +7,7 @@ decision: "Host-facing enlivenment retains the complete sturdyref and refuses a 
 supersedes: []
 superseded_by: []
 amends: [ADR-0012]
-amended_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0098 Sturdyref peer authority
@@ -154,7 +154,7 @@ still available, rather than coupling two ABI changes into one landing.
 
 ## Migration standing
 
-All four steps ship. `HostSession` retains the actual connection
+All four steps ship. `HostSession` retains the actual
 transport, and `Host.enliven` accepts a complete `model.SturdyRef`. It compares
 transport and designator before cache lookup or bootstrap fetch. Key-designator
 sessions require the handshake proof; a dialed address session reports
@@ -179,7 +179,7 @@ proofs live in the
 [TypeScript smoke](../../../bindings/ts/dogfood/zig_smoke.ts),
 [Python smoke](../../../bindings/python/zig_smoke.py),
 [Racket smoke](../../../bindings/racket/zig-smoke.rkt), and
-[TypeScript Wasm handshake smoke](../../../bindings/ts/web/wasm_handshake_smoke.ts).
+[TypeScript Wasm handshake smoke](../../../bindings/ts/web/test/wasm_handshake_smoke.ts).
 
 Steps 3–4 ship the namespace split and the select-or-dial front door. The
 session core reserves the versioned durable prefix (`pancake-durable-1-` plus
@@ -188,7 +188,7 @@ session core reserves the versioned durable prefix (`pancake-durable-1-` plus
 namespace from caller-supplied entropy, checks the active table, and
 `removeDurable` reclaims the row. `driver.Server.publishDurable` draws the
 entropy at the adapter boundary and returns the complete sturdyref URI, and
-`driver.PollHost.enliven` selects a live matching session or dials the
+`driver.HostRuntime.enliven` selects a live matching session or dials the
 sturdyref peer before fetching. The C ABI carries the same verbs as
 `pancake_host_publish_durable` / `pancake_host_remove_durable`, wrapped by all
 four bindings; a C embedder composes select-or-dial from its own dial actions.
@@ -204,10 +204,11 @@ fetch, removal miss, and surviving-ref scenes over the C ABI.
 Retaining the transport adds no separate identity allocation: a dialed session
 stores transport and selected designator in the one block it already required;
 an accepted session owns one transport block. After the shared Vat moved out of
-the per-connection shell, the `HostSession` shell is 496 bytes at its ceiling:
+the per-session shell, the `HostSession` shell is 528 bytes at its ceiling:
 464 when this decision landed, plus 32 for ADR-0097's per-session signing
-seed. The 448-byte Vat and its 4,152-byte fixed queue chunk are now charged
-once per Host.
+seed, 8 for the session-minted outbound high-water, and 8 for ADR-0107's
+sealed-channel pointer. The 448-byte Vat and its
+4,152-byte fixed queue chunk are now charged once per Host.
 
 ## Scope (what this does not decide)
 

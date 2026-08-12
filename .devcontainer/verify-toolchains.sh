@@ -121,7 +121,16 @@ expect_contains "cargo" "${RUST_VERSION}" cargo --version
 expect_ok "rustfmt" rustfmt --version
 expect_ok "clippy" cargo clippy --version
 expect_contains "uv" "${UV_VERSION}" uv --version
+expect_contains "ocapn-conformance-python" "${OCAPN_CONFORMANCE_PYTHON}" \
+    uv python find "${OCAPN_CONFORMANCE_PYTHON}"
 expect_contains "serena" "${SERENA_AGENT_VERSION}" serena --version
+
+# Tor is presence-only like the other apt packages, and it is checked by running
+# the binary rather than testing the path: the Debian package installs it under
+# /usr/sbin, which is on the PATH for root and for a login shell but is easy to
+# lose, and a `tor` the onion checks cannot execute is the same as no tor.
+expect_on_path tor
+expect_ok "tor" tor --version
 
 expect_on_path gdb lldb strace valgrind perf hyperfine jq nc
 expect_ok "gdb" gdb --version

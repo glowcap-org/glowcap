@@ -23,6 +23,7 @@ pub const ScratchPool = struct {
         read_buffers: u16,
         read_buffer_bytes: u32,
     ) !ScratchPool {
+        if (read_buffer_bytes == 0) return error.InvalidReadBufferBytes;
         const cap: u16 = @max(read_buffers, 1);
         var items: std.ArrayList([]u8) = .empty;
         errdefer items.deinit(allocator);

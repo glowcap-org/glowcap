@@ -14,31 +14,34 @@
 // core never hard-depends on the iroh artifact. Application code never imports
 // that internal dial — it uses `connect(locator, reachability[, host])`.
 //
-//   const server = listenIroh({ reachability: Reachability.Direct });
+//   const server = await listenIroh({ reachability: Reachability.Direct });
 //   console.log(server.uri);              // hand this to a partner
 //   for await (const session of server) session.serve();
 //
 // The byte unit is identical to TCP's — the core's stream delimiter owns
 // framing — so the same byte-fed `Session` serve loop drives a session over
 // it; only the addressing differs (an endpoint id + direct-address hints, no
-// host:port). The sidecar's loop surface (ADR-0057) is the netlayer's one I/O
-// model: `IrohLoop` parks the event loop on the endpoint's single readiness fd
-// (a `node:net` socket over a dup of it) and drains the readiness records when
-// it signals, so one loop serves many connections with no per-connection task.
+// host:port). The native listener and high-level dial paths use the generic
+// driver archive's provider ABI. `IrohLoop` remains for explicit byte-channel
+// helpers such as relay bridging.
 
 import { Socket } from "node:net";
 import {
 	type Channel,
+	formatLocatorUri,
 	formatPeerUri,
 	HANDSHAKE_TIMEOUT_MS,
 	HINT_DIRECT_ADDRESSES,
 	Host,
+	type Locator,
 	PancakeError,
 	parseLocator,
 	Reachability,
 	Session,
+	stringHint,
 	TRANSPORT_IROH,
 } from "@pancake/stack";
+import { DriverListener, DriverLoop } from "@pancake/stack/driver_loop";
 
 // The `Reachability` posture type is owned by the core `@pancake/stack` (so its
 // `connect` and `Host` name it without depending on this optional package); the
@@ -54,21 +57,28 @@ import {
 	IROH_CONFIG_IDLE_TIMEOUT_MS_OFF,
 	IROH_CONFIG_REACHABILITY_OFF,
 	IROH_CONFIG_SIZE,
+	IROH_CONFIG_WORKER_THREADS_OFF,
 	IROH_EV_ACCEPT,
 	IROH_EV_CLOSED,
 	IROH_EV_CONNECT,
 	IROH_EV_READABLE,
 	IROH_EV_WRITABLE,
 	IROH_READY_EVENT_SIZE,
+	NativeDiagnostic,
 	NULL,
 	OK,
 	outPointer,
 	type Ptr,
 	readErrorSlot,
 	type Symbols,
+	TRANSPORT_PROVIDER_SIZE,
 	WOULD_BLOCK,
 } from "@pancake/stack/ffi";
-import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@pancake/abi";
+import {
+	DISCOVERY_DIAL_MAX_ATTEMPTS,
+	DISCOVERY_DIAL_RETRY_MS,
+	MAX_HANDSHAKE_CONCURRENCY,
+} from "@pancake/abi";
 import { irohS } from "./ffi.ts";
 
 // The calling thread's last error from the iroh transport, or null when there
@@ -106,26 +116,52 @@ const READ_CHUNK = 64 * 1024;
  * the caller's visible choice. `connectTimeoutMs` bounds getting a connection
  * up, `idleTimeoutMs` bounds keeping one. Set `idleTimeoutMs` if you read a
  * live session as presence, because it is what ends a connection whose peer was
- * killed rather than closed. */
+ * killed rather than closed. `workerThreads` sizes this endpoint's sidecar
+ * runtime; omit it for pancake's default. */
 export type IrohConfig = {
 	reachability: Reachability;
 	connectTimeoutMs?: number;
 	idleTimeoutMs?: number;
+	workerThreads?: number;
 };
+
+const adoptIrohConnection = Symbol("adoptIrohConnection");
+const forgetIrohConnection = Symbol("forgetIrohConnection");
 
 /** A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
  * sibling of the TCP `Netlayer`, but it is also its own listener (there is no
  * host:port to bind, so accepting lives here, on the readiness loop). Dial a
- * partner by endpoint id + direct-address hints. Release every `IrohConn` it
- * mints before releasing it. */
+ * partner by endpoint id + direct-address hints. It owns every `IrohConnection` it
+ * mints and releases remaining children before its native endpoint. */
 export class IrohNetlayer {
 	#raw: Ptr;
+	#closePromise: Promise<void> | null = null;
+	#releasePromise: Promise<void> | null = null;
+	#children = new Set<IrohConnection>();
+	#releaseRequested = false;
 
 	/** Bind an endpoint. `config` carries the endpoint's settings, mandatory
 	 * because `reachability` is (see `IrohConfig`). `secretSeed` is a 32-byte
 	 * Ed25519 secret key for a stable id, or omitted for a fresh random key. */
-	constructor(config: IrohConfig, secretSeed?: Uint8Array) {
-		const seed = secretSeed ?? new Uint8Array(0);
+	private constructor(raw: Ptr) {
+		this.#raw = raw;
+	}
+
+	static async open(
+		config: IrohConfig,
+		secretSeed?: Uint8Array,
+		signal?: AbortSignal,
+	): Promise<IrohNetlayer> {
+		if (signal?.aborted) {
+			throw new PancakeError(CLOSED, "host released while opening iroh endpoint");
+		}
+		if (!ffi.offloadsBlockingCalls()) {
+			throw new Error("iroh requires a runtime that offloads blocking FFI lifecycle calls");
+		}
+		// Construction runs off-thread and the sidecar borrows this pointer until
+		// that call returns. Take ownership before dispatch so caller mutation cannot
+		// change the endpoint identity while native code is reading it.
+		const seed = secretSeed?.slice() ?? new Uint8Array(0);
 		const out = new Uint8Array(8);
 		// The size and every offset come from the generated layout mirror rather
 		// than being counted here, so a field added to `PancakeIrohConfig`
@@ -135,29 +171,52 @@ export class IrohNetlayer {
 		const raw = new Uint8Array(IROH_CONFIG_SIZE);
 		const view = new DataView(raw.buffer);
 		view.setUint32(IROH_CONFIG_REACHABILITY_OFF, config.reachability, true);
-		if (config.connectTimeoutMs !== undefined) {
+		if (config.connectTimeoutMs != null) {
 			view.setBigUint64(
 				IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF,
 				BigInt(config.connectTimeoutMs),
 				true,
 			);
 		}
-		if (config.idleTimeoutMs !== undefined) {
+		if (config.idleTimeoutMs != null) {
 			view.setBigUint64(
 				IROH_CONFIG_IDLE_TIMEOUT_MS_OFF,
 				BigInt(config.idleTimeoutMs),
 				true,
 			);
 		}
-		irohCheck(
-			irohS().pancake_iroh_netlayer_new(
-				ab(seed),
-				BigInt(seed.length),
-				ab(raw),
-				out,
-			),
+		if (config.workerThreads != null) {
+			if (
+				!Number.isInteger(config.workerThreads) ||
+				config.workerThreads <= 0 ||
+				config.workerThreads > 0xffffffff
+			) {
+				throw new PancakeError(
+					INVALID_ARGUMENT,
+					"iroh workerThreads must be an integer between 1 and 4294967295",
+				);
+			}
+			view.setUint32(IROH_CONFIG_WORKER_THREADS_OFF, config.workerThreads, true);
+		}
+		await new NativeDiagnostic("iroh").check(
+			"open endpoint",
+			(error, cap, errorLen) =>
+				irohS().pancake_iroh_netlayer_new_with_diagnostic(
+					ab(seed),
+					BigInt(seed.length),
+					ab(raw),
+					out,
+					error,
+					cap,
+					errorLen,
+				),
 		);
-		this.#raw = outPointer(out);
+		const netlayer = new IrohNetlayer(outPointer(out));
+		if (signal?.aborted) {
+			await netlayer.release();
+			throw new PancakeError(CLOSED, "host released while opening iroh endpoint");
+		}
+		return netlayer;
 	}
 
 	/** This endpoint's id, its Ed25519 public key as lowercase hex, the dialable
@@ -194,7 +253,7 @@ export class IrohNetlayer {
 	// These back `IrohLoop`: the endpoint's one I/O model, serving many connections
 	// from one readiness fd the event loop parks on. The loop is armed when the
 	// netlayer is created, so these work immediately. The host (here `IrohLoop`)
-	// frames the raw bytes `IrohConn.tryReadInto` hands out, the same way the TCP
+	// frames the raw bytes `IrohConnection.tryReadInto` hands out, the same way the TCP
 	// pump frames its socket bytes.
 
 	/** This endpoint's single readiness fd, park on it (a `node:net` socket over
@@ -228,13 +287,42 @@ export class IrohNetlayer {
 		return Number(new DataView(out.buffer).getBigUint64(0, true));
 	}
 
+	/** Borrow this endpoint's archive-owned provider package. */
+	#transportProvider(): Uint8Array {
+		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
+		irohCheck(irohS().pancake_iroh_transport_provider(this.#raw, ab(packageBytes)));
+		return packageBytes;
+	}
+
+	/** Drop the construction reference after a driver has retained the provider.
+	 * The endpoint stays live under that native lease; this wrapper becomes dead
+	 * and therefore cannot outlive the driver and dereference a retired endpoint. */
+	async #relinquishProviderReference(): Promise<void> {
+		if (this.#raw === NULL || this.#releaseRequested || this.#children.size !== 0) {
+			throw new PancakeError(INVALID_ARGUMENT, "iroh endpoint is not transferable");
+		}
+		this.#releaseRequested = true;
+		const raw = this.#raw;
+		this.#raw = NULL;
+		this.#releasePromise = Promise.resolve(irohS().pancake_iroh_netlayer_release(raw));
+		await this.#releasePromise;
+	}
+
+	/** Register this endpoint while its construction reference is live, then
+	 * transfer callback lifetime to the driver's retained provider lease. */
+	async installProvider(loop: DriverLoop): Promise<void> {
+		const packageBytes = this.#transportProvider();
+		loop.installProvider((register) => register(packageBytes));
+		await this.#relinquishProviderReference();
+	}
+
 	/** Claim one accepted non-blocking connection, or null when none is pending. */
-	tryAccept(): IrohConn | null {
+	tryAccept(): IrohConnection | null {
 		const out = new Uint8Array(8);
 		const code = irohS().pancake_iroh_netlayer_try_accept(this.#raw, out);
 		if (code === WOULD_BLOCK) return null;
 		irohCheck(code);
-		return new IrohConn(outPointer(out));
+		return new IrohConnection(outPointer(out), this);
 	}
 
 	startConnect(requestId: bigint, nodeId: string, addrHints: string): void {
@@ -252,12 +340,12 @@ export class IrohNetlayer {
 		);
 	}
 
-	finishConnect(requestId: bigint): IrohConn {
+	finishConnect(requestId: bigint): IrohConnection {
 		const out = new Uint8Array(8);
 		irohCheck(
 			irohS().pancake_iroh_netlayer_finish_connect(this.#raw, requestId, out),
 		);
-		return new IrohConn(outPointer(out));
+		return new IrohConnection(outPointer(out), this);
 	}
 
 	cancelConnect(requestId: bigint): void {
@@ -267,29 +355,63 @@ export class IrohNetlayer {
 	/** Close the endpoint without freeing the handle: later dials fail and the
 	 * readiness loop winds down. Idempotent, the shutdown lever for a server or
 	 * dialer. */
-	close(): void {
-		if (this.#raw !== NULL) irohS().pancake_iroh_netlayer_close(this.#raw);
+	close(): Promise<void> {
+		if (this.#closePromise != null) return this.#closePromise;
+		if (this.#raw === NULL) return Promise.resolve();
+		this.#releaseRequested = true;
+		for (const child of [...this.#children]) child.release();
+		const raw = this.#raw;
+		this.#closePromise = Promise.resolve(irohS().pancake_iroh_netlayer_close(raw));
+		return this.#closePromise;
 	}
 
-	release(): void {
-		if (this.#raw !== NULL) {
-			irohS().pancake_iroh_netlayer_release(this.#raw);
-			this.#raw = NULL;
-		}
+	release(): Promise<void> {
+		if (this.#releasePromise != null) return this.#releasePromise;
+		if (this.#raw === NULL) return Promise.resolve();
+		this.#releaseRequested = true;
+		for (const child of [...this.#children]) child.release();
+		const raw = this.#raw;
+		const close = this.close();
+		this.#raw = NULL;
+		this.#releasePromise = (async () => {
+			try {
+				await close;
+			} finally {
+				await irohS().pancake_iroh_netlayer_release(raw);
+			}
+		})();
+		return this.#releasePromise;
 	}
 
-	[Symbol.dispose](): void {
-		this.release();
+	[adoptIrohConnection](conn: IrohConnection): boolean {
+		if (this.#releaseRequested) return false;
+		this.#children.add(conn);
+		return true;
+	}
+
+	[forgetIrohConnection](conn: IrohConnection): void {
+		this.#children.delete(conn);
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		await this.release();
 	}
 }
 
 /** One iroh QUIC connection carrying one OCapN session, the iroh sibling of the
- * TCP `Endpoint`. Driven by an `IrohLoop`: the raw bytes `tryReadInto` hands out
+ * TCP `Connection`. Driven by an `IrohLoop`: the raw bytes `tryReadInto` hands out
  * are framed above, and no call ever parks on the connection. */
-export class IrohConn {
+export class IrohConnection {
 	#raw: Ptr;
-	constructor(raw: Ptr) {
+	readonly #netlayer: IrohNetlayer;
+	constructor(raw: Ptr, netlayer: IrohNetlayer) {
 		this.#raw = raw;
+		this.#netlayer = netlayer;
+		if (!netlayer[adoptIrohConnection](this)) {
+			irohS().pancake_iroh_conn_release(raw);
+			this.#raw = NULL;
+			throw new Error("iroh netlayer is released");
+		}
 	}
 
 	/** This connection's stable readiness identity. */
@@ -303,7 +425,7 @@ export class IrohConn {
 	 *
 	 * This is the fact a session is otherwise missing. pancake cannot see it —
 	 * it did not open this connection — so whoever did passes it on with
-	 * `Session.bindVerifiedChannelKey`, which `acceptIroh` and `_connectIroh`
+	 * `Session.bindVerifiedChannelKey`, which `_connectIroh`
 	 * below do for every session this module establishes. */
 	remoteNodeId(): string | null {
 		const cap = 64;
@@ -340,9 +462,9 @@ export class IrohConn {
 		return Number(new DataView(out.buffer).getBigUint64(0, true));
 	}
 
-	/** Non-blocking write of `buf`'s raw bytes: the count written (the whole
-	 * slice), or `WOULD_BLOCK` when the outbound buffer is at its bound (retry the
-	 * same bytes after the next writable record). Throws on a fault. */
+	/** Non-blocking write of `buf`'s raw bytes: the count written (possibly a
+	 * prefix), or `WOULD_BLOCK` when the outbound buffer has no room. Throws on a
+	 * fault. */
 	tryWrite(buf: Uint8Array): number {
 		const out = new Uint8Array(8);
 		const rc = irohS().pancake_iroh_conn_try_write(
@@ -362,9 +484,13 @@ export class IrohConn {
 	}
 
 	release(): void {
-		if (this.#raw !== NULL) {
-			irohS().pancake_iroh_conn_release(this.#raw);
-			this.#raw = NULL;
+		if (this.#raw === NULL) return;
+		const raw = this.#raw;
+		this.#raw = NULL;
+		try {
+			irohS().pancake_iroh_conn_release(raw);
+		} finally {
+			this.#netlayer[forgetIrohConnection](this);
 		}
 	}
 
@@ -399,7 +525,7 @@ function dupFd(fd: number): number {
  * `*Pending` flag holds an edge that arrived before its waiter so no wakeup is
  * lost. */
 interface ConnWaiters {
-	conn: IrohConn;
+	conn: IrohConnection;
 	readable: (() => void) | null;
 	writable: (() => void) | null;
 	readablePending: boolean;
@@ -408,7 +534,7 @@ interface ConnWaiters {
 }
 
 interface DialWaiter {
-	resolve: (conn: IrohConn) => void;
+	resolve: (conn: IrohConnection) => void;
 	reject: (error: unknown) => void;
 }
 
@@ -448,12 +574,12 @@ class IrohLoop {
 		// wakeup byte, which is our cue to drain the record queue.
 		this.#socket = new Socket({ fd: dup, readable: true, writable: false });
 		this.#socket.on("data", () => this.#onReady());
-		this.#socket.on("error", () => this.#shutdownSocket()); // endpoint faulted
+		this.#socket.on("error", () => this.close()); // endpoint faulted
 		// Drain anything already queued before the first wakeup.
 		this.#onReady();
 	}
 
-	register(conn: IrohConn): void {
+	register(conn: IrohConnection): void {
 		this.#conns.set(conn.key(), {
 			conn,
 			readable: null,
@@ -464,9 +590,9 @@ class IrohLoop {
 		});
 	}
 
-	dial(nodeId: string, addrHints: string): Promise<IrohConn> {
+	dial(nodeId: string, addrHints: string): Promise<IrohConnection> {
 		const requestId = this.#nextRequest++;
-		return new Promise<IrohConn>((resolve, reject) => {
+		return new Promise<IrohConnection>((resolve, reject) => {
 			this.#dials.set(requestId, { resolve, reject });
 			try {
 				this.#netlayer.startConnect(requestId, nodeId, addrHints);
@@ -477,16 +603,16 @@ class IrohLoop {
 		});
 	}
 
-	unregister(conn: IrohConn): void {
+	unregister(conn: IrohConnection): void {
 		const w = this.#conns.get(conn.key());
-		if (w !== undefined) this.#wakeClosed(w);
+		if (w != null) this.#wakeClosed(w);
 		this.#conns.delete(conn.key());
 	}
 
 	/** Resolve true when this connection is readable; false if it closed. */
-	waitReadable(conn: IrohConn): Promise<boolean> {
+	waitReadable(conn: IrohConnection): Promise<boolean> {
 		const w = this.#conns.get(conn.key());
-		if (w === undefined || w.closed) return Promise.resolve(false);
+		if (w == null || w.closed) return Promise.resolve(false);
 		if (w.readablePending) {
 			w.readablePending = false;
 			return Promise.resolve(true);
@@ -497,9 +623,9 @@ class IrohLoop {
 	}
 
 	/** Resolve true when this connection is writable; false if it closed. */
-	waitWritable(conn: IrohConn): Promise<boolean> {
+	waitWritable(conn: IrohConnection): Promise<boolean> {
 		const w = this.#conns.get(conn.key());
-		if (w === undefined || w.closed) return Promise.resolve(false);
+		if (w == null || w.closed) return Promise.resolve(false);
 		if (w.writablePending) {
 			w.writablePending = false;
 			return Promise.resolve(true);
@@ -590,7 +716,7 @@ class IrohLoop {
 			try {
 				n = this.#netlayer.drainReady(this.#buf, DRAIN_READY_CAP);
 			} catch {
-				this.#shutdownSocket();
+				this.close();
 				return;
 			}
 			for (let i = 0; i < n; i++) {
@@ -617,7 +743,7 @@ class IrohLoop {
 			this.#dials.delete(subject);
 			try {
 				const conn = this.#netlayer.finishConnect(subject);
-				if (waiter === undefined) conn.release();
+				if (waiter == null) conn.release();
 				else waiter.resolve(conn);
 			} catch (error) {
 				waiter?.reject(error);
@@ -625,7 +751,7 @@ class IrohLoop {
 			return;
 		}
 		const w = this.#conns.get(subject);
-		if (w === undefined) return; // a record for an already-released connection
+		if (w == null) return; // a record for an already-released connection
 		if ((events & IROH_EV_CLOSED) !== 0) w.closed = true;
 		if ((events & (IROH_EV_READABLE | IROH_EV_CLOSED)) !== 0) {
 			if (w.readable !== null) {
@@ -648,7 +774,7 @@ class IrohLoop {
 	}
 }
 
-/** The iroh transport: a non-blocking `IrohConn` driven by an `IrohLoop`
+/** The iroh transport: a non-blocking `IrohConnection` driven by an `IrohLoop`
  * (ADR-0057), reshaped into the byte transport a `Session`'s serve loop
  * reads. `read` sources raw inbound bytes through the sidecar's non-blocking
  * `try_read` — the readiness loop, not a parked blocking read, decides when
@@ -663,14 +789,15 @@ class IrohLoop {
  * `close` cannot race a parked read — the teardown hazard a blocking pump
  * would have. */
 class IrohChannel implements Channel {
-	#conn: IrohConn;
+	#conn: IrohConnection;
 	#loop: IrohLoop;
 	#ownsLoop: boolean;
 	#ownedNetlayer: IrohNetlayer | null;
 	#readBuf = new Uint8Array(READ_CHUNK);
+	#closePromise: Promise<void> | null = null;
 
 	constructor(
-		conn: IrohConn,
+		conn: IrohConnection,
 		loop: IrohLoop,
 		ownedNetlayer: IrohNetlayer | null = null,
 		ownsLoop = false,
@@ -706,16 +833,21 @@ class IrohChannel implements Channel {
 	}
 
 	async write(data: Uint8Array): Promise<void> {
-		while (true) {
-			const n = this.#conn.tryWrite(data);
-			if (n !== WOULD_BLOCK) return; // the whole slice went (all-or-nothing)
+		let offset = 0;
+		while (offset < data.length) {
+			const n = this.#conn.tryWrite(data.subarray(offset));
+			if (n !== WOULD_BLOCK) {
+				offset += n;
+				continue;
+			}
 			if (!(await this.#loop.waitWritable(this.#conn))) {
 				throw new Error("iroh connection closed while writing");
 			}
 		}
 	}
 
-	close(): void {
+	close(): Promise<void> {
+		if (this.#closePromise != null) return this.#closePromise;
 		// Drop the routing entry first so no further readiness record resolves a
 		// waiter on this connection, then free the sidecar connection.
 		this.#loop.unregister(this.#conn);
@@ -725,8 +857,11 @@ class IrohChannel implements Channel {
 			// (destroying its readiness socket) before releasing the netlayer, so
 			// no callback is still touching the endpoint when it is freed.
 			this.#loop.close();
-			this.#ownedNetlayer?.release();
+			this.#closePromise = this.#ownedNetlayer?.release() ?? Promise.resolve();
+		} else {
+			this.#closePromise = Promise.resolve();
 		}
+		return this.#closePromise;
 	}
 }
 
@@ -765,7 +900,7 @@ async function dialResolving(
 	nodeId: string,
 	directAddresses: string,
 	reachability: Reachability,
-): Promise<IrohConn> {
+): Promise<IrohConnection> {
 	if (!settlesWhileResolving(reachability)) {
 		return loop.dial(nodeId, directAddresses);
 	}
@@ -780,6 +915,66 @@ async function dialResolving(
 			await new Promise<void>((r) => setTimeout(r, DISCOVERY_DIAL_RETRY_MS));
 		}
 	}
+}
+
+type AttachedProvider = {
+	readonly config: IrohConfig;
+	readonly endpoint: Promise<{ readonly nodeId: string }>;
+};
+
+// Iroh owns its endpoint configuration; the driver owns only provider
+// occupancy. This sidecar state prevents a later dial from silently changing
+// the reachability posture of the endpoint already attached to a loop.
+const attachedProviders = new WeakMap<DriverLoop, AttachedProvider>();
+
+function sameConfig(left: IrohConfig, right: IrohConfig): boolean {
+	return left.reachability === right.reachability &&
+		left.connectTimeoutMs === right.connectTimeoutMs &&
+		left.idleTimeoutMs === right.idleTimeoutMs &&
+		left.workerThreads === right.workerThreads;
+}
+
+/** Attach or reuse this package's resident on a generic driver loop. The loop
+ * retains and releases the endpoint; this package remains the sole authority
+ * for the endpoint's reachability and runtime configuration. */
+export async function _ensureIrohProvider(
+	loop: DriverLoop,
+	config: IrohConfig,
+	exactConfig = false,
+): Promise<{ readonly nodeId: string }> {
+	const existing = attachedProviders.get(loop);
+	if (existing != null) {
+		const compatible = exactConfig
+			? sameConfig(existing.config, config)
+			: existing.config.reachability === config.reachability;
+		if (!compatible) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"iroh endpoint already attached with different configuration",
+			);
+		}
+		return await existing.endpoint;
+	}
+
+	const retainedConfig = { ...config };
+	let state!: AttachedProvider;
+	const endpoint = (async (): Promise<{ readonly nodeId: string }> => {
+		const netlayer = await IrohNetlayer.open(retainedConfig, loop.wrapperHost().seed);
+		try {
+			const nodeId = netlayer.nodeId();
+			await netlayer.installProvider(loop);
+			return { nodeId };
+		} catch (error) {
+			await netlayer.release();
+			throw error;
+		}
+	})().catch((error) => {
+		if (attachedProviders.get(loop) === state) attachedProviders.delete(loop);
+		throw error;
+	});
+	state = { config: retainedConfig, endpoint };
+	attachedProviders.set(loop, state);
+	return await endpoint;
 }
 
 /** Binding-internal iroh dial behind the core's `connect(locator)`. Application
@@ -797,19 +992,39 @@ export async function _connectIroh(
 	reachability: Reachability,
 	host: Host = new Host(),
 	handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
+	signal?: AbortSignal,
 ): Promise<Session> {
-	const netlayer = new IrohNetlayer({ reachability });
+	if (signal?.aborted) throw new PancakeError(CLOSED, "host released while dialing");
+	const netlayer = await IrohNetlayer.open({ reachability }, undefined, signal);
+	if (signal?.aborted) {
+		await netlayer.release();
+		throw new PancakeError(CLOSED, "host released while dialing");
+	}
 	const loop = new IrohLoop(netlayer);
 	loop.start();
-	let conn: IrohConn;
+	let cancellation: Promise<void> | null = null;
+	const cancelPending = (): void => {
+		loop.close();
+		cancellation ??= netlayer.release();
+	};
+	signal?.addEventListener("abort", cancelPending, { once: true });
+	let conn: IrohConnection;
 	try {
 		conn = await dialResolving(loop, nodeId, directAddresses, reachability);
 	} catch (e) {
+		signal?.removeEventListener("abort", cancelPending);
 		loop.close();
-		netlayer.release();
+		await (cancellation ?? netlayer.release());
 		throw e;
 	}
+	if (signal?.aborted) {
+		signal.removeEventListener("abort", cancelPending);
+		loop.close();
+		await (cancellation ?? netlayer.release());
+		throw new PancakeError(CLOSED, "host released while dialing");
+	}
 	loop.register(conn);
+	signal?.removeEventListener("abort", cancelPending);
 	// The transport owns the dialer-minted connection, loop, and ephemeral
 	// netlayer (`ownsLoop`); on a handshake failure or an elapsed handshake
 	// bound `establishDialedLocator` abandons
@@ -820,18 +1035,28 @@ export async function _connectIroh(
 	// the host's live-session directory agrees — what a three-party handoff requires
 	// (ADR-0009/ADR-0056).
 	const transport = new IrohChannel(conn, loop, netlayer, true);
+	const cancelTransport = (): void => void transport.close();
+	if (signal?.aborted) {
+		cancelTransport();
+		throw new PancakeError(CLOSED, "host released while dialing");
+	}
+	signal?.addEventListener("abort", cancelTransport, { once: true });
 	// This module opened the connection, so it is the one place that can say
 	// what QUIC proved about the far end. Passing it here is what makes the
 	// session report `authenticated-transport` instead of resting on whatever
 	// the partner claims about itself.
-	return Session.establishDialedLocator(
-		host,
-		TRANSPORT_IROH,
-		nodeId,
-		transport,
-		handshakeTimeoutMs,
-		conn.remoteNodeId(),
-	);
+	try {
+		return await Session.establishDialedLocator(
+			host,
+			TRANSPORT_IROH,
+			nodeId,
+			transport,
+			handshakeTimeoutMs,
+			conn.remoteNodeId(),
+		);
+	} finally {
+		signal?.removeEventListener("abort", cancelTransport);
+	}
 }
 
 /** Dial an iroh locator and return a byte channel for relay/bridge use.
@@ -852,17 +1077,17 @@ export async function dialLocatorForRelay(
 	}
 
 	const nodeId = parsed.designator;
-	const directAddresses = parsed.hints.get(HINT_DIRECT_ADDRESSES) ?? "";
+	const directAddresses = stringHint(parsed, HINT_DIRECT_ADDRESSES) ?? "";
 
-	const netlayer = new IrohNetlayer({ reachability });
+	const netlayer = await IrohNetlayer.open({ reachability });
 	const loop = new IrohLoop(netlayer);
 	loop.start();
-	let conn: IrohConn;
+	let conn: IrohConnection;
 	try {
 		conn = await dialResolving(loop, nodeId, directAddresses, reachability);
 	} catch (e) {
 		loop.close();
-		netlayer.release();
+		await netlayer.release();
 		throw e;
 	}
 	loop.register(conn);
@@ -877,161 +1102,69 @@ export async function dialLocatorForRelay(
 	};
 }
 
-/** Complete the responder handshake over an accepted iroh connection, signing
- * the server's endpoint id as the locator designator and its direct addresses as
- * the dial hint (used by `IrohServer`). The accepted connection's loop and
- * netlayer belong to the server, not this connection.
- *
- * `directAddresses` is read per accept rather than once at listen, because an
- * endpoint learns and loses addresses while it runs, and the hello should say
- * where this peer is reachable *now*. Signing them matters for somebody who has
- * not arrived: a third party handed this locator in a handoff has to dial it, and
- * a node id alone leaves it a relay round trip away, or unreachable if this
- * endpoint has no relay. */
-function acceptIroh(
-	conn: IrohConn,
-	localNodeId: string,
-	loop: IrohLoop,
-	host: Host = new Host(),
-	directAddresses = "",
-): Promise<Session> {
-	// As `_connectIroh`: the connection is minted against the server's host, so
-	// its accepted sessions share one identity and live-session directory — what lets
-	// an exporter resolve a gift's deposit (on the gifter session) during withdraw
-	// (on the recipient session).
-	// As the dial side: this module accepted the connection, so it is the one
-	// place that can say what QUIC proved about the peer that reached it.
-	return Session.establishAccepted(
-		host,
-		TRANSPORT_IROH,
-		localNodeId,
-		new IrohChannel(conn, loop),
-		directAddresses,
-		undefined,
-		conn.remoteNodeId(),
-	);
-}
-
-/** A listening iroh endpoint. Iterate it for an accepted `Session` per
- * partner — `for await (const session of listenIroh()) { ... }` — and read `uri`
- * for the dialable address (endpoint id + direct-address hints) to hand a
- * client. The iroh sibling of the core's `Server`. */
+/** The iroh view over the binding's generic driver listener owner. The
+ * resident owns endpoint I/O and this class projects only iroh metadata. */
 export class IrohServer {
-	#netlayer: IrohNetlayer;
-	#loop: IrohLoop;
+	readonly #listener: DriverListener;
+	readonly #nodeId: string;
 	#closed = false;
-	#nodeId: string;
-	// One identity and one live-session directory for the whole host: every accepted
-	// session keys its handshake with this host's seed, and a withdraw resolves
-	// the still-open session that owns its gift. This is the exporter-host shape
-	// a handoff recipient relies on (ADR-0009/ADR-0100). The TCP `Server`'s iroh sibling.
-	readonly #host: Host;
-	#advertisedDirectAddresses: string | null = null;
 
-	constructor(netlayer: IrohNetlayer, host: Host) {
-		this.#netlayer = netlayer;
-		this.#nodeId = netlayer.nodeId();
-		// Caller supplies a Host built from the same seed as the netlayer —
-		// `listenIroh` draws one seed for both (ADR-0075).
-		this.#host = host;
-		this.#host.setSelfDesignator(this.#nodeId);
-		this.#refreshAdvertisedLocator();
-		// Serve every accepted connection from one readiness loop instead of a
-		// blocking accept and a blocking read parked per connection (ADR-0057).
-		this.#loop = new IrohLoop(netlayer);
+	constructor(listener: DriverListener, nodeId: string) {
+		this.#listener = listener;
+		this.#nodeId = nodeId;
 	}
 
-	/** This endpoint's id, the keyed locator designator and the URI host. */
 	get nodeId(): string {
 		return this.#nodeId;
 	}
 
-	/** The server's shared host, its retained identity and handoff router. An
-	 * exporter application reads it to originate gifts that recipients withdraw
-	 * across the host's sessions; the TCP `Server.host` sibling. */
 	get host(): Host {
-		return this.#host;
+		return this.#listener.host;
 	}
 
-	/** This endpoint's comma-separated direct-address hints. */
 	get directAddresses(): string {
-		return this.#refreshAdvertisedLocator();
+		return stringHint(this.#listenerLocator(), HINT_DIRECT_ADDRESSES) ?? "";
 	}
 
-	/** Keep the Host's peer-owned locator snapshot aligned with the endpoint.
-	 * Direct addresses can appear after bind, so every observation and accept
-	 * refreshes the snapshot before another session can advertise it. */
-	#refreshAdvertisedLocator(): string {
-		const directAddresses = this.#netlayer.directAddresses();
-		if (directAddresses !== this.#advertisedDirectAddresses) {
-			this.#host.setAdvertisedLocator(TRANSPORT_IROH, this.#nodeId, directAddresses);
-			this.#advertisedDirectAddresses = directAddresses;
-		}
-		return directAddresses;
-	}
-
-	/** The `ocapn://<nodeid>.iroh?direct-addresses=…` URI a partner dials. */
 	get uri(): string {
-		const hints = new Map<string, string>();
-		if (this.directAddresses.length > 0) {
-			hints.set(HINT_DIRECT_ADDRESSES, this.directAddresses);
-		}
-		return formatPeerUri(TRANSPORT_IROH, this.#nodeId, hints);
+		if (this.#closed) throw new PancakeError(CLOSED, "iroh server is closed");
+		return formatLocatorUri(this.#listener.locator());
+	}
+
+	#listenerLocator(): Locator {
+		if (this.#closed) throw new PancakeError(CLOSED, "iroh server is closed");
+		return this.#listener.locator();
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
-		this.#loop.start();
-		while (!this.#closed) {
-			// Wait for an accept record, then claim every connection now pending — a
-			// single wake may cover several near-simultaneous dials.
-			if (!(await this.#loop.nextAccept())) return;
+		try {
 			while (true) {
-				const conn = this.#netlayer.tryAccept();
-				if (conn === null) break; // nothing more pending right now
-				this.#loop.register(conn);
-				// A handshake failure belongs to that one connection (a partner that
-				// dialed and died), never the server — release it and keep accepting.
-				// The sidecar bounds only the QUIC stream open, so a partner that
-				// opens its stream and then says nothing is bounded by the establish
-				// spine's `HANDSHAKE_TIMEOUT_MS` instead, the same bound the core's
-				// accept loop and every dial ride; the unregister is what unparks
-				// its abandoned handshake read.
-				let connection: Session | null;
-				try {
-					connection = await acceptIroh(
-						conn,
-						this.#nodeId,
-						this.#loop,
-						this.#host,
-						this.directAddresses,
-					);
-				} catch {
-					connection = null;
-				}
-				if (connection === null) {
-					this.#loop.unregister(conn);
-					conn.release();
-					continue;
-				}
-				yield connection;
+				const session = await this.#listener.accept();
+				if (session == null) return;
+				yield session;
 			}
+		} finally {
+			await this.stopAdmission();
 		}
 	}
 
-	/** Stop accepting and release the endpoint. Closes the endpoint, then stops the
-	 * readiness loop — which releases every accepted connection still borrowing
-	 * this netlayer — and only then frees the netlayer, so no connection the C ABI
-	 * would route through it outlives it. */
 	close(): void {
 		if (this.#closed) return;
+		this.#listener.close();
 		this.#closed = true;
-		this.#netlayer.close();
-		this.#loop.close();
-		this.#netlayer.release();
+	}
+
+	stopAdmission(): Promise<void> {
+		try {
+			this.close();
+			return Promise.resolve();
+		} catch (error) {
+			return Promise.reject(error);
+		}
 	}
 
 	async [Symbol.asyncDispose](): Promise<void> {
-		await this.close();
+		await this.stopAdmission();
 	}
 }
 
@@ -1040,19 +1173,24 @@ export class IrohServer {
  * because `reachability` is (see `IrohConfig`). `secretSeed` is a 32-byte
  * Ed25519 secret key for a stable endpoint id, or omitted for a fresh random
  * one shared with the `Host`. Pass `host` only when it was built from the same
- * seed — one identity for netlayer and session (ADR-0075). Needs the iroh ABI
- * library (`zig build iroh-abi`).
+ * seed — one identity for netlayer and session (ADR-0075). The no-Host path
+ * registers the endpoint with the generic native loop. A supplied Host is
+ * transferred to that loop transactionally. Needs the iroh ABI library
+ * (`zig build iroh-abi`).
  *
  * A server that treats a live session as presence should set
  * `config.idleTimeoutMs`, because that is what ends a connection whose peer was
  * killed rather than closed and so lets `serve()` settle. */
-export function listenIroh(
+export async function listenIroh(
 	config: IrohConfig,
 	secretSeed?: Uint8Array,
 	host?: Host,
-): IrohServer {
+): Promise<IrohServer> {
 	const seed = secretSeed ?? host?.seed ?? crypto.getRandomValues(new Uint8Array(32));
-	if (secretSeed !== undefined && host !== undefined) {
+	if (secretSeed != null && secretSeed.length !== 32) {
+		throw new PancakeError(INVALID_ARGUMENT, "listenIroh: secretSeed must be 32 bytes");
+	}
+	if (secretSeed != null && host != null) {
 		if (secretSeed.length !== 32 || host.seed.length !== 32) {
 			throw new PancakeError(INVALID_ARGUMENT, "listenIroh: seed must be 32 bytes");
 		}
@@ -1065,6 +1203,21 @@ export function listenIroh(
 			}
 		}
 	}
-	const n = host ?? new Host(seed);
-	return new IrohServer(new IrohNetlayer(config, seed), n);
+	const existingLoop = host?.driverLoop;
+	const loop = existingLoop == null
+		? host == null ? DriverLoop.open({ seed }) : DriverLoop.takeHost(host)
+		: existingLoop as DriverLoop;
+	const createdLoop = existingLoop == null;
+	try {
+		const endpoint = await _ensureIrohProvider(loop, config, true);
+		const endpointNodeId = endpoint.nodeId;
+		const listener = DriverListener.open(loop, TRANSPORT_IROH, endpointNodeId);
+		listener.select();
+		const server = new IrohServer(listener, endpointNodeId);
+		loop.start();
+		return server;
+	} catch (error) {
+		if (createdLoop) await loop.close();
+		throw error;
+	}
 }

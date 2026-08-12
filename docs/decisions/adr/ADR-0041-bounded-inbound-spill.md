@@ -60,20 +60,21 @@ rule's load-bearing list; the fast path is unchanged and the `alloc_budget`
 floor still holds.
 
 **Buffer sizing follows.** The C-ABI endpoint allocates
-`min(max_frame_bytes, 16 KiB)` read buffers, the completion loop
-`min(frame_cap, 16 KiB)`, and `Connection.initStream` documents a few KiB as the
-production read-buffer shape. The write side already streamed large frames
-through a small buffer (`writeAll`), so per-connection steady memory is now two
-small buffers regardless of the negotiated cap.
+`min(max_frame_bytes, 16 KiB)` read buffers. The completion loop's shared pool
+defaults each buffer to 16 KiB through `BackendOptions.read_buffer_bytes`
+(ADR-0054), and `Connection.initStream` documents a few KiB as the production
+read-buffer shape. The write side already streamed large frames through a small
+buffer (`writeAll`), so per-connection steady memory is independent of the
+negotiated cap.
 
 ## Scope (what this does not decide)
 
 - **Full-duplex backpressure.** Unchanged from ADR-0030: a single fiber
   mid-`writeAll` to a slow reader can still head-of-line-block; split read/write
   fibers and a bounded outbound queue belong above `pump`.
-- **Shared read-buffer pools / io_uring buffer rings.** The 16 KiB steady
-  buffers are still per-connection; a provided-buffer ring that shares them
-  across idle connections is the completion loop's named follow-up.
+- **Shared read-buffer pools / io_uring buffer rings.** This decision leaves the
+  16 KiB steady buffers per connection; ADR-0054 closes that follow-up for the
+  completion loop.
 - **Codec semantics.** The one-parser contract and its verdicts are ADR-0029's;
   nothing here adds a second framer.
 
@@ -104,8 +105,9 @@ small buffers regardless of the negotiated cap.
   `readFrameFrom` take the caller's spill; `FrameStream.initStream` takes the allocator that
   owns its spill (and `readFrame` drops its allocator parameter so the two
   cannot diverge).
-- The C-ABI endpoint and the completion loop allocate 16 KiB steady read
-  buffers; `frame_cap` / `max_frame_bytes` cap a frame, not a buffer.
+- The C-ABI endpoint and the completion loop default to 16 KiB read buffers;
+  `max_frame_bytes` caps a frame, while the completion loop's
+  `read_buffer_bytes` sizes its shared pool.
 - Evidence: small-buffer assembly through the spill across both codecs
   (`test/net/frame_stream_test.zig`), pump-path spill carriage,
   truncation-while-spilling, and over-cap-while-spilling

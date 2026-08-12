@@ -17,6 +17,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const pancake = @import("pancake");
+const test_host = @import("../support/core_host.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -24,15 +25,11 @@ const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
 const tcp = net.tcp;
-const keyed_relay = net.keyed_relay;
-const crypto = pancake.foundation.crypto;
-const ws_relay = @import("../support/ws_relay.zig");
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
 const TcpBridge = driver.Bridge(net.TcpLoop);
 const wait = @import("../support/wait.zig");
-const ip = std.Io.net;
 
 const frame_cap = 4096;
 
@@ -63,14 +60,14 @@ const Shared = struct {
     /// Set by G's fetch-settle listener: the introducer holds the token and
     /// the exporter location is recorded, so R may now ask to be introduced.
     fetched: std.atomic.Value(bool) = .init(false),
-    /// Counts the bridge's `on_open` firings — once per connection whose
-    /// session opened, from the loop thread.
+    /// Counts the bridge's `on_open` firings — once per session, from the loop
+    /// thread.
     opened: std.atomic.Value(usize) = .init(0),
     /// CapTP done: every party’s `runUntil` closes and drains, then `deinit`.
     done: std.atomic.Value(bool) = .init(false),
 };
 
-/// The bridge's session-open edge: one firing per connection, top-level
+/// The bridge's session-open edge: one firing per session, top-level
 /// verbs legal (unused here — the fetch rides the `ready` poke, see the
 /// module header).
 fn onOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
@@ -80,14 +77,14 @@ fn onOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!
     _ = shared.opened.fetchAdd(1, .acq_rel);
 }
 
-/// G's loop-thread state: the shared introducer payload every per-connection
+/// G's loop-thread state: the shared introducer payload every per-session
 /// desk points at, and the fetch choreography flags. Touched only on the loop
 /// thread (the `fetched` event is the one cross-thread edge, set last).
 const GifterState = struct {
     host: *Host,
     shared: *Shared,
     widget: ?model.Reference = null,
-    exporter_conn: ?*HostSession = null,
+    exporter_session: ?*HostSession = null,
     want_fetch: bool = false,
     fetch_sent: bool = false,
 
@@ -109,7 +106,7 @@ const GifterState = struct {
     }
 };
 
-/// The per-connection desk G publishes at adoption: E pokes `ready` once its
+/// The per-session desk G publishes at adoption: E pokes `ready` once its
 /// widget is published, and R asks `introduce`, whose ordinary-looking reply
 /// (the E-homed token) the host core turns into a signed give.
 const Desk = struct {
@@ -135,7 +132,7 @@ fn publishDesk(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyer
 
 /// The loop's serve hook: the bridge's serve, then the top-level follow-up a
 /// desk poke asked for — the fetch of the exporter's widget, sent on the
-/// very connection the poke arrived on. Top-level host verbs are legal here
+/// very session the poke arrived on. Top-level host verbs are legal here
 /// (the bridge's serve released the latch), and the drain afterwards flushes
 /// what they queued.
 fn gifterServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
@@ -144,7 +141,7 @@ fn gifterServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) 
     const state: *GifterState = @ptrCast(@alignCast(shell.bridge.publish_ctx.?));
     if (state.want_fetch and !state.fetch_sent) {
         state.fetch_sent = true;
-        state.exporter_conn = shell.session;
+        state.exporter_session = shell.session;
         const vow = try state.host.fetch(shell.session, "target");
         try state.host.vowOn(vow, .{ .ctx = state, .func = GifterState.onFetched });
         try shell.bridge.drainActions();
@@ -195,7 +192,7 @@ fn drainLoopThread(io: std.Io, port: u16, loop_done: *const std.atomic.Value(boo
 const ExporterState = struct {
     host: *Host,
     bridge: *TcpBridge,
-    g_conn: ?*HostSession = null,
+    gifter_session: ?*HostSession = null,
 };
 
 fn publishExporterTarget(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
@@ -206,8 +203,8 @@ fn publishExporterTarget(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.
 fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
     const state: *ExporterState = @ptrCast(@alignCast(ctx.?));
     if (conn.leg != .app_dial or conn.session.role != .dialed) return;
-    if (state.g_conn != null) return;
-    state.g_conn = conn.session;
+    if (state.gifter_session != null) return;
+    state.gifter_session = conn.session;
     _ = try conn.session.served.publish(&conn.session.host.vat, "target", Widget, .{});
     const desk = try state.host.fetch(conn.session, "desk");
     try state.host.vowOn(desk, .{ .ctx = state, .func = onGifterDesk });
@@ -216,11 +213,11 @@ fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) a
 
 fn onGifterDesk(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const state: *ExporterState = @ptrCast(@alignCast(ctx.?));
-    const conn = state.g_conn orelse return;
+    const session = state.gifter_session orelse return;
     switch (resolution) {
         .fulfilled => |value| {
             if (value != .reference) return;
-            const vow = state.host.send(conn, value.reference, .{ .verb = "ready", .args = &.{} }) catch |err| {
+            const vow = state.host.send(session, value.reference, .{ .verb = "ready", .args = &.{} }) catch |err| {
                 std.debug.print("exporter ready send: {s}\n", .{@errorName(err)});
                 return;
             };
@@ -232,16 +229,12 @@ fn onGifterDesk(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     }
 }
 
-fn exporterServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
-    try TcpBridge.serve(conn_ctx, peer, event);
-}
-
 fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator: []const u8) anyerror!void {
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0e} ** 32, blk: {
+    var host = test_host.init(allocator, [_]u8{0x0e} ** 32, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -257,30 +250,29 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer bridge.deinit();
     state.bridge = &bridge;
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
-        .frame_cap = frame_cap,
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = exporterServe,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const bound = tcp.locator(&designator_buf, bound_addr).designator;
-    shared.exporter_port.store(loop.port.?, .release);
-    try bridge.attach(tcp.transport_name, bound, &.{});
+    shared.exporter_port.store(loop.port().?, .release);
+    try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
 
-    try bridge.dialOutbound(tcp.transport_name, gifter_designator, "");
+    try bridge.dialOutbound(.{
+        .transport = tcp.transport_name,
+        .designator = gifter_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
     var loop_future = try io.concurrent(runLoopUntilCapturing, .{ &loop, &shared.done, &loop_err, &loop_done });
     defer {
         shared.done.store(true, .release);
-        pokeListener(io, loop.port.?);
+        pokeListener(io, loop.port().?);
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("exporter loop: {s}\n", .{@errorName(err)});
     }
@@ -302,16 +294,16 @@ fn pokeListener(io: std.Io, port: u16) void {
 const FirstRecipientState = struct {
     host: *Host,
     poked: *std.atomic.Value(bool),
-    g_conn: ?*HostSession = null,
+    gifter_session: ?*HostSession = null,
     redeemed_ok: bool = false,
 
     fn onDesk(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *FirstRecipientState = @ptrCast(@alignCast(ctx.?));
-        const conn = self.g_conn orelse return;
+        const session = self.gifter_session orelse return;
         switch (resolution) {
             .fulfilled => |value| {
                 if (value != .reference) return;
-                const vow = self.host.send(conn, value.reference, .{ .verb = "introduce", .args = &.{} }) catch |err| {
+                const vow = self.host.send(session, value.reference, .{ .verb = "introduce", .args = &.{} }) catch |err| {
                     std.debug.print("introduce send: {s}\n", .{@errorName(err)});
                     return;
                 };
@@ -327,7 +319,7 @@ const FirstRecipientState = struct {
 
     fn onIntroduced(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *FirstRecipientState = @ptrCast(@alignCast(ctx.?));
-        const conn = self.g_conn orelse return;
+        const session = self.gifter_session orelse return;
         switch (resolution) {
             .fulfilled => |value| {
                 const widget = switch (value) {
@@ -336,7 +328,7 @@ const FirstRecipientState = struct {
                 };
                 if (widget == .far and widget.far.import_position.int() >= engine.Node.REDEEMED_TOKEN_BASE)
                     self.redeemed_ok = true;
-                const vow = self.host.send(conn, widget, .{ .verb = "poke", .args = &.{} }) catch |err| {
+                const vow = self.host.send(session, widget, .{ .verb = "poke", .args = &.{} }) catch |err| {
                     std.debug.print("poke send: {s}\n", .{@errorName(err)});
                     return;
                 };
@@ -366,8 +358,8 @@ const FirstRecipientState = struct {
 fn firstRecipientOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
     const state: *FirstRecipientState = @ptrCast(@alignCast(ctx.?));
     if (conn.leg != .app_dial or conn.session.role != .dialed) return;
-    if (state.g_conn != null) return;
-    state.g_conn = conn.session;
+    if (state.gifter_session != null) return;
+    state.gifter_session = conn.session;
     const vow = try state.host.fetch(conn.session, "desk");
     try state.host.vowOn(vow, .{ .ctx = state, .func = FirstRecipientState.onDesk });
     try bridge.drainActions();
@@ -389,7 +381,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     // this test thread; `std.testing.allocator` is not thread-safe. Teardown
     // still calls `Loop.deinit` after `runUntil` → `closeAndDrain`.
     const g_alloc = std.heap.page_allocator;
-    var gifter_host = Host.init(g_alloc, [_]u8{0x06} ** 32, .{
+    var gifter_host = test_host.init(g_alloc, [_]u8{0x06} ** 32, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = 64,
     });
@@ -404,27 +396,24 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     });
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(g_alloc, TcpBridge.makePeer, @ptrCast(&bridge), .{
-        .frame_cap = frame_cap,
+    var gifter_options = TcpBridge.hookOptions(net.completion.Options{
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = gifterServe,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
     });
+    gifter_options.serve = gifterServe;
+    loop = try net.TcpLoop.init(g_alloc, TcpBridge.makePeer, @ptrCast(&bridge), gifter_options);
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const gifter_designator = tcp.locator(&designator_buf, gifter_designator_addr).designator;
-    try bridge.attach(tcp.transport_name, gifter_designator, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), gifter_designator, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
     var loop_future = try io.concurrent(runLoopUntilCapturing, .{ &loop, &shared.done, &loop_err, &loop_done });
     defer {
         shared.done.store(true, .release);
-        pokeListener(io, loop.port.?);
+        pokeListener(io, loop.port().?);
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("gifter loop: {s}\n", .{@errorName(err)});
     }
@@ -439,7 +428,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     // R: Bridge+TcpLoop — dials G, introduces, redeems via Loop.dialLocator, pokes.
     var poked = std.atomic.Value(bool).init(false);
     const r_alloc = std.heap.page_allocator;
-    var recipient_host = Host.init(r_alloc, [_]u8{0x0c} ** 32, .{
+    var recipient_host = test_host.init(r_alloc, [_]u8{0x0c} ** 32, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = 64,
     });
@@ -451,28 +440,27 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
         .on_open_ctx = &r_state,
     });
     defer r_bridge.deinit();
-    r_loop = try net.TcpLoop.init(r_alloc, TcpBridge.makePeer, @ptrCast(&r_bridge), .{
-        .frame_cap = frame_cap,
+    r_loop = try net.TcpLoop.init(r_alloc, TcpBridge.makePeer, @ptrCast(&r_bridge), TcpBridge.hookOptions(.{
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer r_loop.deinit();
     var r_designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port.?);
+    const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port().?);
     const r_designator = tcp.locator(&r_designator_buf, r_designator_addr).designator;
-    try r_bridge.attach(tcp.transport_name, r_designator, &.{});
-    try r_bridge.dialOutbound(tcp.transport_name, gifter_designator, "");
+    try r_bridge.attach(model.transport.Known.tcp.metadata(), r_designator, &.{});
+    try r_bridge.dialOutbound(.{
+        .transport = tcp.transport_name,
+        .designator = gifter_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var r_loop_err: ?anyerror = null;
     var r_loop_done = std.atomic.Value(bool).init(false);
     var r_loop_future = try io.concurrent(runLoopUntilCapturing, .{ &r_loop, &shared.done, &r_loop_err, &r_loop_done });
     defer {
         shared.done.store(true, .release);
-        pokeListener(io, r_loop.port.?);
+        pokeListener(io, r_loop.port().?);
         r_loop_future.await(io);
         if (r_loop_err) |err| std.debug.print("recipient loop: {s}\n", .{@errorName(err)});
     }
@@ -487,8 +475,8 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     // Cross-thread `done`: wake each listening poll so `runUntil` observes the
     // flag, then `closeAndDrain` retires armed recvs before `deinit`.
     shared.done.store(true, .release);
-    pokeListener(io, loop.port.?);
-    pokeListener(io, r_loop.port.?);
+    pokeListener(io, loop.port().?);
+    pokeListener(io, r_loop.port().?);
     pokeListener(io, shared.exporter_port.load(.acquire));
 }
 
@@ -534,7 +522,7 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0b} ** 32, .{
+    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = runaway_budget,
     });
@@ -543,26 +531,21 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{ .publish = publishRunaway });
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
-        .frame_cap = frame_cap,
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const designator = tcp.locator(&designator_buf, designator_addr).designator;
-    try bridge.attach(tcp.transport_name, designator, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
     var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, 2), &loop_err, &loop_done });
     defer {
-        drainLoopThread(io, loop.port.?, &loop_done) catch |err| std.debug.print("drain loop: {s}\n", .{@errorName(err)});
+        drainLoopThread(io, loop.port().?, &loop_done) catch |err| std.debug.print("drain loop: {s}\n", .{@errorName(err)});
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("bridge loop: {s}\n", .{@errorName(err)});
     }
@@ -570,25 +553,25 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
     var resident = tcp.Resident{ .io = io };
 
     // The sibling connects first and stays healthy throughout.
-    const sibling_conn = try driver.connect(allocator, &.{resident.netlayer()}, .{
+    const sibling_session = try driver.connect(allocator, &.{resident.netlayer()}, .{
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     }, .ephemeral, dial_opts);
-    defer sibling_conn.deinit();
-    const echo = try sibling_conn.fetch("echo");
+    defer sibling_session.deinit();
+    const echo = try sibling_session.fetch("echo");
 
     // The flooder: its one call amplifies past the budget, so the host
     // condemns the connection and the bridge closes it — the answer breaks
     // with the typed abort's own words.
     {
-        const flood_conn = try driver.connect(allocator, &.{resident.netlayer()}, .{
+        const flood_session = try driver.connect(allocator, &.{resident.netlayer()}, .{
             .transport = tcp.transport_name,
             .designator = designator,
             .hints = model.Hints.emptyFalse(),
         }, .ephemeral, dial_opts);
-        defer flood_conn.deinit();
-        const flood = try flood_conn.fetch("flood");
+        defer flood_session.deinit();
+        const flood = try flood_session.fetch("flood");
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         // The flood's own answer may still fulfill: the reply resolves at
@@ -596,19 +579,19 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
         // after. What the budget guarantees is what follows — the connection
         // is condemned and closed with the typed abort. (The abort *kind* is
         // pinned hermetically in core_host_budget_test.zig.)
-        _ = flood_conn.call(flood, "flood", &.{}, arena.allocator()) catch {};
+        _ = flood_session.call(flood, "flood", &.{}, arena.allocator()) catch {};
         var polls: usize = 0;
-        while (flood_conn.abortReason() == null and polls < 500) : (polls += 1) {
-            _ = flood_conn.stepReadable(10) catch break;
+        while (flood_session.abortReason() == null and polls < 500) : (polls += 1) {
+            _ = flood_session.stepReadable(10) catch break;
         }
-        const reason = flood_conn.abortReason() orelse return error.NoBudgetAbort;
+        const reason = flood_session.abortReason() orelse return error.NoBudgetAbort;
         try std.testing.expect(std.mem.indexOf(u8, reason, "local turn budget") != null);
     }
 
     // The sibling still gets ordinary answers after the flooder was closed.
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const reply = try sibling_conn.call(echo, "hit", &.{}, arena.allocator());
+    const reply = try sibling_session.call(echo, "hit", &.{}, arena.allocator());
     switch (reply) {
         .fulfilled => |arg| try std.testing.expectEqual(@as(i64, 1), arg.integer),
         .broken => |reason| {
@@ -626,30 +609,43 @@ test "a second attach is refused" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{});
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
-        .frame_cap = frame_cap,
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .max_conns = 2,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const designator = tcp.locator(&designator_buf, designator_addr).designator;
-    try bridge.attach(tcp.transport_name, designator, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
     try std.testing.expectError(
         error.AlreadyAttached,
-        bridge.attach(tcp.transport_name, designator, &.{}),
+        bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{}),
     );
+}
+
+test "bridge retains an extension transport symbol without a private length ceiling" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+
+    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    var loop: net.TcpLoop = undefined;
+    var bridge = TcpBridge.init(allocator, &host, threaded.io(), &loop, .{});
+    defer bridge.deinit();
+
+    const transport = "application-defined-transport";
+    try bridge.attach(.{ .symbol = transport, .designator_scheme = .address }, "listener-address", &.{});
+    const advertised = host.advertisedLocator(transport) orelse
+        return error.MissingAdvertisedLocator;
+    try std.testing.expectEqualStrings(transport, advertised.transport);
 }
 
 test "closeAndDrain: one live accepted connection with an armed recv" {
@@ -659,7 +655,7 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0b} ** 32, blk: {
+    var host = test_host.init(allocator, [_]u8{0x0b} ** 32, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -669,20 +665,15 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{ .publish = publishRunaway });
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
-        .frame_cap = frame_cap,
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .max_conns = 4,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const designator = tcp.locator(&designator_buf, designator_addr).designator;
-    try bridge.attach(tcp.transport_name, designator, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
     var done = std.atomic.Value(bool).init(false);
     var loop_err: ?anyerror = null;
@@ -711,13 +702,13 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     _ = try client.fetch("echo");
 
     done.store(true, .release);
-    pokeListener(io, loop.port.?);
-    try drainLoopThread(io, loop.port.?, &loop_done);
+    pokeListener(io, loop.port().?);
+    try drainLoopThread(io, loop.port().?, &loop_done);
     loop_future.await(io);
     if (loop_err) |err| return err;
 }
 
-test "Bridge keyed-relay dial without attachRendezvous fails loud" {
+test "Bridge reports a keyed-relay dial to a TCP-only loop as unsupported" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -726,181 +717,57 @@ test "Bridge keyed-relay dial without attachRendezvous fails loud" {
 
     var seed: [32]u8 = undefined;
     @memset(&seed, 0x42);
-    var host = Host.init(allocator, seed, .{ .limits = .{ .max_frame_bytes = frame_cap } });
+    var host = test_host.init(allocator, seed, .{ .limits = .{ .max_frame_bytes = frame_cap } });
     defer host.deinit();
 
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{});
     defer bridge.deinit();
     loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     }));
     defer loop.deinit();
 
-    try bridge.attach(tcp.transport_name, "127.0.0.1:1", &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), "127.0.0.1:1", &.{});
 
     const key = pancake.foundation.crypto.SecretKey.fromSeed([_]u8{0xab} ** 32).publicKey().toDesignator();
     try std.testing.expectError(
-        error.NoRendezvousConfigured,
-        bridge.dialOutbound(model.transport.keyed_relay, key[0..], ""),
+        error.UnknownTransport,
+        bridge.dialOutbound(.{
+            .transport = model.transport.keyed_relay,
+            .designator = key[0..],
+            .hints = model.Hints.emptyFalse(),
+        }),
     );
 }
 
-const RendezvousThermostat = struct {
-    pub fn handle(self: *RendezvousThermostat, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        _ = self;
-        _ = turn;
-        _ = args;
-        if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
-        return .{ .string = "pong over rendezvous" };
-    }
-};
-
-fn bridgeRendezvousServer(server: *driver.Server, done: *const std.atomic.Value(bool)) anyerror!void {
-    try server.publishGiftable("thermostat", RendezvousThermostat, .{});
-    var accepted: ?*driver.Session = null;
-    defer if (accepted) |session| session.deinit();
-
-    while (!done.load(.acquire)) {
-        if (accepted == null) {
-            if (try server.waitAcceptable(20)) accepted = try server.accept();
-            continue;
-        }
-        _ = accepted.?.stepReadable(20) catch |err| switch (err) {
-            error.ConnectionClosed, error.ProtocolAbort => break,
-            else => |e| return e,
-        };
-    }
-}
-
-const BridgeRendezvousState = struct {
-    host: *Host,
-    bridge: ?*TcpBridge = null,
-    peer_id: ?engine.PeerId = null,
-    fetched: bool = false,
-    failed: bool = false,
-    close_on_fetch: bool = false,
-    closed_on_fetch: bool = false,
-
-    fn onFetched(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *BridgeRendezvousState = @ptrCast(@alignCast(ctx.?));
-        switch (resolution) {
-            .fulfilled => |value| {
-                self.fetched = value == .reference;
-                if (self.fetched and self.close_on_fetch) {
-                    const bridge = self.bridge orelse return;
-                    const peer_id = self.peer_id orelse return;
-                    bridge.closeConn(peer_id);
-                    self.closed_on_fetch = true;
-                }
-            },
-            .broken, .give => self.failed = true,
-        }
-    }
-};
-
-fn bridgeRendezvousOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, slot: *TcpBridge.Slot) anyerror!void {
-    const state: *BridgeRendezvousState = @ptrCast(@alignCast(ctx.?));
-    if (slot.leg != .app_dial or slot.origin != .rendezvous) return;
-    state.bridge = bridge;
-    state.peer_id = slot.session.peer_id;
-    const vow = try state.host.fetch(slot.session, "thermostat");
-    try state.host.vowOn(vow, .{ .ctx = state, .func = BridgeRendezvousState.onFetched });
-    try bridge.drainActions();
-}
-
-test "Bridge rendezvous attach is a one-time lifetime choice" {
-    const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
+test "Bridge application dial releases its owned request when admission allocation fails" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 2 });
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
-    const io = threaded.io();
-
-    var host = Host.init(allocator, [_]u8{0x74} ** 32, .{ .limits = .{ .max_frame_bytes = frame_cap } });
+    var host = test_host.init(std.testing.allocator, [_]u8{0x5a} ** 32, .{});
     defer host.deinit();
     var loop: net.TcpLoop = undefined;
-    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{});
+    var bridge = TcpBridge.init(failing.allocator(), &host, threaded.io(), &loop, .{});
     defer bridge.deinit();
 
-    var resident = tcp.Resident{ .io = io };
-    try bridge.attachRendezvous(resident.netlayer());
-    try std.testing.expectError(error.AlreadyAttached, bridge.attachRendezvous(resident.netlayer()));
-}
-
-test "Bridge keyed-relay rendezvous side wire opens, fetches, and closes from callback" {
-    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
-    const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    const relay_addr: ip.IpAddress = .{ .ip4 = ip.Ip4Address.loopback(0) };
-    var relay_server = try ip.IpAddress.listen(&relay_addr, io, .{ .reuse_address = true });
-    defer relay_server.deinit(io);
-    const relay_port = relay_server.socket.address.getPort();
-
-    const relay_host_port = try tcp.parseHostPort("127.0.0.1", relay_port);
-    var relay_designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const relay_designator = tcp.locator(&relay_designator_buf, relay_host_port).designator;
-    var relay_url_buf: [80]u8 = undefined;
-    const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://{s}/relay", .{relay_designator});
-    var register_url_buf: [80]u8 = undefined;
-    const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://{s}/register", .{relay_designator});
-
-    var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &relay_server, allocator });
-
-    const server_secret = crypto.SecretKey.fromSeed([_]u8{0x72} ** crypto.SEED_BYTES);
-    var registered = keyed_relay.Resident{
-        .io = io,
-        .relay_url = try keyed_relay.RelayUrl.parse(relay_url),
-        .register_url = try keyed_relay.RelayUrl.parse(register_url),
-        .public_key = server_secret.publicKey(),
-    };
-    var remote = try driver.listen(allocator, registered.netlayer(), .{ .designator = "" }, .{ .keyed = server_secret }, dial_opts);
-
-    var done = std.atomic.Value(bool).init(false);
-    var server_future = try io.concurrent(bridgeRendezvousServer, .{ &remote, &done });
-
-    var dialer = try keyed_relay.Resident.init(io, relay_url);
-    var host = Host.init(allocator, [_]u8{0x73} ** 32, .{ .limits = .{ .max_frame_bytes = frame_cap } });
-    var loop: net.TcpLoop = undefined;
-    var state = BridgeRendezvousState{ .host = &host, .close_on_fetch = true };
-    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{
-        .on_open = bridgeRendezvousOnOpen,
-        .on_open_ctx = &state,
-    });
-    try bridge.attachRendezvous(dialer.netlayer());
-
-    defer {
-        done.store(true, .release);
-        bridge.deinit();
-        host.deinit();
-        server_future.await(io) catch {};
-        remote.close() catch {};
-        relay_future.await(io) catch {};
-    }
-
-    const designator = server_secret.publicKey().toDesignator();
-    try bridge.dialOutbound(model.transport.keyed_relay, designator[0..], "");
-
-    var spins: usize = 0;
-    while (!state.fetched and !state.failed and spins < 500) : (spins += 1) {
-        bridge.pumpRendezvous();
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
-    }
-    try std.testing.expect(!state.failed);
-    try std.testing.expect(state.fetched);
-    try std.testing.expect(state.closed_on_fetch);
-    bridge.pumpRendezvous();
-    try std.testing.expectEqual(@as(usize, 0), bridge.rendezvous_wires.count());
+    // Two string copies succeed; reserving the pending-connect row fails.
+    // The dial request owns both copies before that reservation begins.
+    try std.testing.expectError(
+        error.OutOfMemory,
+        bridge.dialOutbound(.{
+            .transport = tcp.transport_name,
+            .designator = "127.0.0.1:1",
+            .hints = model.Hints.emptyFalse(),
+        }),
+    );
 }
 
 test "closeAndDrain: idle listener then deinit with the testing allocator" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
     var loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -916,7 +783,6 @@ test "runUntil: cross-thread done needs a listener poke, then deinit is honest" 
     const io = threaded.io();
 
     var loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -929,8 +795,8 @@ test "runUntil: cross-thread done needs a listener poke, then deinit is honest" 
 
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
     done.store(true, .release);
-    pokeListener(io, loop.port.?);
-    try drainLoopThread(io, loop.port.?, &loop_done);
+    pokeListener(io, loop.port().?);
+    try drainLoopThread(io, loop.port().?, &loop_done);
     loop_future.await(io);
     if (loop_err) |err| return err;
 }

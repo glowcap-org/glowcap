@@ -23,6 +23,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const test_host = @import("../support/core_host.zig");
 const host_pair = @import("../support/host_pair.zig");
 const promise_capture = @import("../support/capture.zig");
 
@@ -98,7 +99,7 @@ fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *std.
                     });
                     did_work = true;
                 },
-                .flush, .settled, .failed, .close => {},
+                .flush, .settled, .failed, .close, .resume_work => {},
             }
         }
     }
@@ -124,11 +125,11 @@ fn pumpToQuiescence(
 
 test "a recipient listens on a relayed promise and redeems the give it settles with" {
     const allocator = std.testing.allocator;
-    var exporter = Host.init(allocator, [_]u8{0x2e} ** 32, Host.Options.withFrameCap(frame_cap));
+    var exporter = test_host.init(allocator, [_]u8{0x2e} ** 32, Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var introducer_host = Host.init(allocator, [_]u8{0x26} ** 32, Host.Options.withFrameCap(frame_cap));
+    var introducer_host = test_host.init(allocator, [_]u8{0x26} ** 32, Host.Options.withFrameCap(frame_cap));
     defer introducer_host.deinit();
-    var recipient = Host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var recipient = test_host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &introducer_host, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;

@@ -24,15 +24,30 @@ installed under `zig-out/lib/`.
 | --- | --- | --- |
 | `libpancake_ocapn` | `pancake_ocapn.h` | Shared values, locators, frames, and URI helpers. |
 | `libpancake_host` | `pancake_host.h` | The byte-fed, multi-session CapTP host. |
-| `libpancake_net` | none | Common transport base; no public calls by itself. |
-| `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | TCP connections and listeners. |
+| `libpancake_driver` | `pancake_driver.h` | The native loop: it exports only `pancake_driver_*` and adopts an idle Host from `libpancake_host` through `pancake_driver_take_host`. |
+| `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | The complete TCP transport archive: `tcp`, `keyed-tcp`, and `noise-tcp` provider package plus low-level blocking framed connections for a byte-fed Host. |
 | `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | In-process connections for tests and local scenarios. |
+| `libpancake_net_transport_onion` | `pancake_net_transport_onion.h` | Tor onion services, through a Tor daemon you already run. The one transport the OCapN draft standardizes. |
 | `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | Optional encrypted QUIC transport. |
 | `libpancake_net_transport_webrtc` | `pancake_net_transport_webrtc.h` | Optional WebRTC DataChannel transport. |
+| `libpancake_net_transport_relay` | `pancake_net_transport_relay.h` | Native `keyed-relay` and end-to-end sealed `noise-relay` provider package. |
 
-Link `libpancake_host`, `libpancake_ocapn`, and the transport companions your
-program uses. The generated headers are checked against their Zig declarations
-on every build.
+The driver archive starts with zero transports. Install the TCP package by
+creating a `PancakeTcpNetlayer`, calling `pancake_tcp_transport_provider`, and
+passing the result to `pancake_driver_add_provider`. That one package owns
+`tcp`, `keyed-tcp`, and `noise-tcp`; the driver only consumes its common provider
+ABI. The same TCP archive exposes the low-level blocking framed connections for
+embedders that drive `libpancake_host` themselves. A key-addressed listener
+publishes one complete locator. Read it with
+`pancake_driver_listener_locator`, parse it through
+`pancake_uri_parse_peer`, and pass those fields to `pancake_driver_dial`
+unchanged.
+
+Link `libpancake_ocapn`, `libpancake_host`, and `libpancake_driver` when linking
+the native loop. Link only `libpancake_ocapn` and `libpancake_host` when the
+application owns the byte-fed loop. Add the TCP archive and any sidecar
+transport archives whose providers you install. The generated headers are
+checked against their Zig declarations on every build.
 
 ## Drive the byte-fed Host
 
@@ -46,7 +61,10 @@ it with a transport connection, and repeats three operations:
 
 `feed_bytes` accepts canonical Syrup byte strings (`length:body`) and owns split
 or coalesced input plus the bounded tail. Whole-frame `feed` and
-`take_outbound` stay bare for intrinsically message-framed transports.
+`take_outbound` stay bare for intrinsically message-framed transports. If
+`feed` or `feed_bytes` returns `PANCAKE_ERR_WOULD_BLOCK`, the session already
+has too many encoded outbound bytes queued; drain `take_outbound`, write those
+frames, then retry the feed.
 
 The pump hooks handle flushes, completed promises, handoff dials, and gift-id
 requests. Hosted behavior callbacks run synchronously while the Host is being
@@ -102,15 +120,30 @@ through the Host and usually have no unique exporter session.
 ## Locators and transports
 
 Use `pancake_uri_parse_peer`, `pancake_uri_format_peer`, and the sturdyref URI
-helpers instead of parsing `ocapn://` strings yourself. Use
-`pancake_locator_record_encode` when a Host verb needs the encoded
-`<ocapn-peer>` record.
+helpers instead of parsing `ocapn://` strings yourself. Host verbs take a
+borrowed `PancakeLocatorView`; owned locator handles project the same view with
+`pancake_locator_borrow_view`.
 
-The C transport archives today are TCP, in-process, iroh, and WebRTC. Each
-carries bytes for a Host session and does not own CapTP state. Keyed TCP and
-keyed relay are dialed through Host locator plans rather than dedicated C
-archives. iroh and WebRTC use Rust sidecars and therefore require Cargo when
+The C transport archives are TCP, relay, in-process, onion, iroh, and WebRTC.
+Each carries bytes for a Host session and does not own CapTP state. Keyed TCP
+and Noise TCP live in the TCP package; keyed and Noise relay live in the relay
+package. iroh and WebRTC use Rust sidecars and therefore require Cargo when
 those optional archives are built.
+
+TCP, in-process, and onion expose explicit blocking frame shuttles. Their
+listener readiness descriptors keep an embedder from entering `accept` before
+the operation can start, but readiness is advisory and a whole-frame read can
+still wait for the rest of a fragmented frame. Dispatch those calls away from
+an event-loop thread, or use a binding's runtime-native transport adapter.
+
+## Shutdown
+
+Stop new calls in the embedding, then call `*_shutdown`. Join the embedding's
+operation leases, then call `*_release`. Release must not race a thread that
+can still begin a call. Release children before their netlayer. The TCP and
+onion netlayers each own their `std.Io` backend and reserve one cancellation
+worker per netlayer so shutdown stays nonblocking. iroh and WebRTC use
+readiness plus non-blocking try-I/O instead of the blocking frame shuttle.
 
 ## Ownership
 
@@ -137,8 +170,24 @@ negative. Each archive has a thread-local diagnostic reader matching its
 family: `pancake_last_error`, `pancake_host_last_error`,
 `pancake_tcp_last_error`, and transport equivalents.
 
+Read that slot on the same thread that made the failing call. A foreign runtime
+that dispatches a blocking call to a worker must use the operation's
+`*_with_diagnostic` companion when one is provided; it copies that worker's
+detail into caller-owned storage before returning. In particular, use
+`pancake_iroh_netlayer_new_with_diagnostic` for off-thread endpoint
+construction, or its allocator-aware `_in` twin, rather than reading
+`pancake_iroh_last_error` later on the event-loop thread.
+
 Serialize calls on one Host behind one thread or lock. Distinct Hosts are
-independent.
+independent. A binding that exposes an event-loop owner should reject
+foreign-thread Host calls or marshal teardown back to the owning loop; the C
+Host itself is unsynchronized.
+
+Stream transport connections are full-duplex: one frame read and one frame
+write may run concurrently. The archive serializes calls within each direction
+because frame decoding and encoding carry connection-local state. Shutdown may
+interrupt either direction; release still requires the foreign owner to stop
+new calls and join its own call leases before freeing the opaque handle.
 
 ## Learn from a binding
 

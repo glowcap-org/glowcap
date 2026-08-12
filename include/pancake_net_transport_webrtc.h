@@ -133,6 +133,8 @@ int32_t pancake_webrtc_peer_new_in(PancakeContext *context, PancakeWebrtcNetlaye
    still writes the required length to out_len, so retry with a buffer that size.
    Offerer only. */
 int32_t pancake_webrtc_peer_create_offer(PancakeWebrtcPeer *peer, uint8_t *out, size_t cap, size_t *out_len);
+/* Bind the durable key authorized by the signaling authority before the channel opens. */
+int32_t pancake_webrtc_peer_authorize_remote(PancakeWebrtcPeer *peer, const uint8_t *designator, size_t designator_len);
 /* Produce the answerer's SDP answer into out (cap bytes), writing the SDP length
    to out_len and setting it as the local description. Answerer only, after
    pancake_webrtc_peer_set_remote_offer. PANCAKE_ERR_BUFFER_TOO_SMALL still writes
@@ -171,6 +173,8 @@ void pancake_webrtc_peer_close(PancakeWebrtcPeer *peer);
 /* Release the peer and close its channel. Release before its netlayer. NULL is a
    no-op. */
 void pancake_webrtc_peer_release(PancakeWebrtcPeer *peer);
+/* Fill the generic multiplexed provider package. Signaling establishes peers; the driver claims authorized open peers by stable subject. */
+int32_t pancake_webrtc_transport_provider(PancakeWebrtcNetlayer *netlayer, PancakeTransportProvider *out_provider);
 /* Copy the calling thread's last webrtc-transport error into out_buf, the webrtc
    sibling of pancake_last_error, reading libpancake_net_transport_webrtc's own
    per-thread slot. A pancake_webrtc_* call that returns PANCAKE_ERR_IO records its

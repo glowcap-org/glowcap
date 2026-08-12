@@ -5,7 +5,7 @@
 //! The pull-queue remains the normative C contract — these helpers *use*
 //! `pancake_host_next_action`; they do not replace it with a callback-vtable
 //! primary seam. The kind inventory is locked to `driver_core.HostAction` at
-//! comptime so a seventh Zig arm fails here the same way `action_drain` fails.
+//! comptime so a new Zig arm fails here until the C drain is updated.
 //!
 //! No `export fn` here. The C wrapper lives in `pump.zig`.
 
@@ -13,9 +13,9 @@ const std = @import("std");
 const driver_core = @import("driver_core");
 
 comptime {
-    // Keep the C drain arm count lockstep with Zig HostAction (six tags today).
+    // Keep the C drain arm count lockstep with Zig HostAction.
     const tags = @typeInfo(driver_core.HostAction).@"union".fields;
-    if (tags.len != 6) {
+    if (tags.len != 7) {
         @compileError("embedder_pump: HostAction tag count changed — update drainHost switch");
     }
 }
@@ -39,8 +39,16 @@ comptime {
 /// - `complete(host, action) !bool` — owns SETTLE / FAIL
 /// - `dial(host, action) !bool`
 ///
-/// Returns `true` when any arm reported progress.
-pub fn drainHost(comptime Driver: type, comptime Codes: type, host: ?*Driver.PancakeHost, exec: anytype) !bool {
+pub const DrainResult = struct {
+    acted: bool = false,
+    yielded: bool = false,
+};
+
+/// Returns whether any arm reported progress and whether the finite Host
+/// scheduler requested a new embedder turn. A yield is consumed but ends this
+/// call; asking the core for another slice here would defeat the scheduler
+/// boundary the action represents.
+pub fn drainHost(comptime Driver: type, comptime Codes: type, host: ?*Driver.PancakeHost, exec: anytype) !DrainResult {
     var acted = false;
     while (true) {
         var action: Driver.PancakeHostAction = undefined;
@@ -53,19 +61,21 @@ pub fn drainHost(comptime Driver: type, comptime Codes: type, host: ?*Driver.Pan
             Driver.PANCAKE_HOST_ACTION_NEED_GIFT_ID => try exec.needGiftId(host, &action),
             Driver.PANCAKE_HOST_ACTION_SETTLE, Driver.PANCAKE_HOST_ACTION_FAIL => try exec.complete(host, &action),
             Driver.PANCAKE_HOST_ACTION_DIAL => try exec.dial(host, &action),
+            Driver.PANCAKE_HOST_ACTION_RESUME => return .{ .acted = true, .yielded = true },
             else => return error.UnknownHostAction,
         };
         if (progressed) acted = true;
     }
-    return acted;
+    return .{ .acted = acted };
 }
 
-/// Drain every host in `hosts` through the same `exec`. Returns `true` when
-/// any arm reported progress.
-pub fn drainHosts(comptime Driver: type, comptime Codes: type, hosts: []const ?*Driver.PancakeHost, exec: anytype) !bool {
-    var acted = false;
+/// Give every host one drain turn through the same `exec`.
+pub fn drainHosts(comptime Driver: type, comptime Codes: type, hosts: []const ?*Driver.PancakeHost, exec: anytype) !DrainResult {
+    var result: DrainResult = .{};
     for (hosts) |host| {
-        if (try drainHost(Driver, Codes, host, exec)) acted = true;
+        const one = try drainHost(Driver, Codes, host, exec);
+        result.acted = result.acted or one.acted;
+        result.yielded = result.yielded or one.yielded;
     }
-    return acted;
+    return result;
 }

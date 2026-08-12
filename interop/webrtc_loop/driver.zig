@@ -52,21 +52,79 @@ const publishGreeter = harness.publisher("greeter", Greeter);
 const Hub = struct {
     mutex: pancake.net.sync.SpinLock = .{},
     allocator: std.mem.Allocator,
+    io: std.Io,
     backend: *webrtc.Backend,
     server_resident: *webrtc.Resident,
-    clients: std.AutoHashMap(i32, *webrtc.Peer),
+    clients: std.AutoHashMap(i32, *ClientRoute),
 
-    fn init(allocator: std.mem.Allocator, backend: *webrtc.Backend, server_resident: *webrtc.Resident) Hub {
+    const ClientRoute = struct {
+        mutex: std.Io.Mutex = .init,
+        drained: std.Io.Condition = .init,
+        peer: *webrtc.Peer,
+        in_flight: usize = 0,
+        closing: bool = false,
+        refs: usize = 1,
+        retired: bool = false,
+
+        fn send(self: *ClientRoute, io: std.Io, ice: []const u8) !void {
+            self.mutex.lockUncancelable(io);
+            if (self.closing) {
+                self.mutex.unlock(io);
+                return;
+            }
+            self.in_flight += 1;
+            const peer = self.peer;
+            self.mutex.unlock(io);
+
+            defer {
+                self.mutex.lockUncancelable(io);
+                self.in_flight -= 1;
+                if (self.closing and self.in_flight == 0) self.drained.signal(io);
+                self.mutex.unlock(io);
+            }
+            try peer.addRemoteCandidate(ice);
+        }
+
+        fn close(self: *ClientRoute, io: std.Io) void {
+            self.mutex.lockUncancelable(io);
+            self.closing = true;
+            while (self.in_flight != 0) self.drained.waitUncancelable(io, &self.mutex);
+            self.mutex.unlock(io);
+        }
+    };
+
+    fn init(allocator: std.mem.Allocator, io: std.Io, backend: *webrtc.Backend, server_resident: *webrtc.Resident) Hub {
         return .{
             .allocator = allocator,
+            .io = io,
             .backend = backend,
             .server_resident = server_resident,
-            .clients = std.AutoHashMap(i32, *webrtc.Peer).init(allocator),
+            .clients = std.AutoHashMap(i32, *ClientRoute).init(allocator),
         };
     }
 
     fn deinit(self: *Hub) void {
+        var it = self.clients.valueIterator();
+        while (it.next()) |route| self.allocator.destroy(route.*);
         self.clients.deinit();
+    }
+
+    fn retainRoute(self: *Hub, fd: i32) ?*ClientRoute {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        const route = self.clients.get(fd) orelse return null;
+        route.refs += 1;
+        return route;
+    }
+
+    fn releaseRoute(self: *Hub, route: *ClientRoute) void {
+        const destroy = blk: {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            route.refs -= 1;
+            break :blk route.retired and route.refs == 0;
+        };
+        if (destroy) self.allocator.destroy(route);
     }
 
     /// The backend never dials in this scenario; a dial reaching the authority
@@ -82,10 +140,9 @@ const Hub = struct {
     /// Route one server-side candidate to the client whose exchange `fd` names.
     fn sendCandidate(ctx: *anyopaque, fd: i32, ice: []const u8) anyerror!void {
         const hub: *Hub = @ptrCast(@alignCast(ctx));
-        hub.mutex.lock();
-        defer hub.mutex.unlock();
-        const client = hub.clients.get(fd) orelse return;
-        try client.addRemoteCandidate(ice);
+        const route = hub.retainRoute(fd) orelse return;
+        defer hub.releaseRoute(route);
+        try route.send(hub.io, ice);
     }
 
     fn authority(self: *Hub) webrtc.SignalingAuthority {
@@ -112,18 +169,27 @@ const Hub = struct {
         const answer = try answerer.createAnswer(answer_buf, &answer_len);
         answerer.authorizeRemote(client_key);
         const fd = try self.backend.adoptAnswerer(answerer);
+        const route = try self.allocator.create(ClientRoute);
+        route.* = .{ .peer = client_peer };
+        errdefer self.allocator.destroy(route);
         self.mutex.lock();
         defer self.mutex.unlock();
-        try self.clients.put(fd, client_peer);
+        try self.clients.put(fd, route);
         return .{ .fd = fd, .answer = answer };
     }
 
     /// Drop the return-candidate route once the client's channel is up (or its
     /// bring-up failed); the client peer's storage dies with its thread.
     fn forget(self: *Hub, fd: i32) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        _ = self.clients.remove(fd); // tolerant: a failed offer never filed one
+        const route = blk: {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            const kv = self.clients.fetchRemove(fd) orelse return;
+            kv.value.retired = true;
+            break :blk kv.value;
+        };
+        route.close(self.io);
+        self.releaseRoute(route);
     }
 };
 
@@ -182,7 +248,10 @@ fn clientOnce(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
     const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn);
+    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer vat.deinit();
 
     const designator = secret.publicKey().toDesignator();
@@ -225,7 +294,9 @@ pub fn main(init: std.process.Init) !void {
     var server_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
     defer server_resident.deinit();
 
-    var host = driver.core.Host.init(allocator, server_seed, .{
+    var session_root: [32]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
@@ -236,19 +307,18 @@ pub fn main(init: std.process.Init) !void {
 
     // The hub's backend pointer targets the loop's own copy: `initWithBackend`
     // moves the backend in by value, so the address is stable only there.
-    var hub = Hub.init(allocator, undefined, &server_resident);
+    var hub = Hub.init(allocator, io, undefined, &server_resident);
     defer hub.deinit();
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
     const backend = try webrtc.Backend.initBound(allocator, &server_resident, hub.authority(), 256, read_buffer_bytes);
     loop = try WebrtcLoop.initWithBackend(allocator, backend, WebrtcBridge.makePeer, @ptrCast(&bridge), WebrtcBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 64,
         .listen = 0,
     }));
     defer loop.deinit();
     hub.backend = &loop.backend;
-    try bridge.attach(webrtc.transport_name, server_designator, &.{});
+    try bridge.attach(model.transport.Known.webrtc.metadata(), server_designator, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, num_conns, &loop_err });

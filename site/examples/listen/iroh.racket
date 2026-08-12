@@ -1,0 +1,11 @@
+(require "pancake.rkt"
+         "pancake-iroh.rkt")
+
+;; Bind a key, not a place. Partners can dial this node id from anywhere.
+(define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
+(printf "ocapn://~a.iroh\n" (iroh-server-node-id server)) ; hand this locator to partners
+(define session (iroh-server-accept server))
+(session-publish session "greeter"
+                 (lambda (verb args)
+                   (format "hello, ~a" (car args))))
+(session-serve session)

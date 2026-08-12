@@ -56,6 +56,7 @@ import {
   valueText,
 } from "./shared.tsx";
 import { elideIdentifier, Identifier } from "../identifier.tsx";
+import { useEngineVersion } from "../useEngineVersion.ts";
 import {
   isInSelection,
   peerInfo,
@@ -64,6 +65,45 @@ import {
 } from "./entity-info.ts";
 import type { EntityRefKey } from "../../interactions/types.ts";
 
+/** Position row that follows mid-drag world coords. The PeerFields shell
+ *  stays on doc+clock so label/id/profile groups do not re-reconcile every
+ *  pointer step; this row alone wakes on `version`. */
+function PeerPositionLiveRow(
+  {
+    engine,
+    id,
+    editing,
+    editor,
+  }: {
+    engine: Engine;
+    id: string;
+    editing: boolean;
+    editor: EditorBindings | undefined;
+  },
+) {
+  useEngineVersion(engine);
+  // Read the pin from the live doc here — not from a shell prop.
+  // Mid-drag placement mutates `doc.entities` inside a transaction that
+  // leaves `docVersion` quiet, so a parent-computed `pinned` stays at the
+  // pre-drag point for the whole gesture.
+  const pinned = authoredPeerPosition(engine.doc, id);
+  const live = findPeer(engine.world, id);
+  const at = pinned ?? live?.position ?? null;
+  return (
+    <PositionRow
+      pinned={pinned}
+      at={at}
+      editing={editing}
+      onMove={editor && ((pos) => editor.onRepositionPeer(id, pos))}
+      onClear={editor && (() => editor.onUnpinPeer(id))}
+      onPinHere={editor && at
+        ? () => editor.onRepositionPeer(id, { x: at.x, y: at.y })
+        : undefined}
+      editSession={editor}
+    />
+  );
+}
+
 export function PeerFields(
   { engine, id, editor }: {
     engine: Engine;
@@ -71,6 +111,8 @@ export function PeerFields(
     editor?: EditorBindings | undefined;
   },
 ) {
+  // Shell wakes on doc + playhead via EntityDetails. Mid-drag pins are
+  // owned by `PeerPositionLiveRow` below.
   const live = findPeer(engine.world, id);
   const joinedEv = findPeerJoinedEvent(engine.doc, id);
   const def = engine.doc.entities?.peers?.[id];
@@ -122,10 +164,8 @@ export function PeerFields(
   const duration = engine.doc.duration;
   const moments = peerTrajectoryRows(engine.doc, id);
 
-  // Positioning: the authored position (the pin the force layout
-  // holds) has one lookup, shared with the engine's no-op guards.
-  const pinnedAt = authoredPeerPosition(engine.doc, id);
-  const at = pinnedAt ?? live?.position ?? null;
+  // Positioning: the authored pin is owned by `PeerPositionLiveRow`
+  // (world subscription + live doc read).
 
   return (
     <>
@@ -185,16 +225,11 @@ export function PeerFields(
                 : <Identifier value={designator ?? ""} />}
             </Field>
           )}
-          <PositionRow
-            pinned={pinnedAt}
-            at={at}
+          <PeerPositionLiveRow
+            engine={engine}
+            id={id}
             editing={editing}
-            onMove={editor && ((pos) => editor.onRepositionPeer(id, pos))}
-            onClear={editor && (() => editor.onUnpinPeer(id))}
-            onPinHere={editor && at
-              ? () => editor.onRepositionPeer(id, { x: at.x, y: at.y })
-              : undefined}
-            editSession={editor}
+            editor={editor}
           />
         </div>
       </FieldGroup>

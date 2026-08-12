@@ -83,6 +83,14 @@ pub const StoreTarget = outbound.StoreTarget;
 pub const sturdyref = @import("sturdyref.zig");
 pub const v1_0 = @import("v1_0.zig");
 
+/// A pending outbound item plus the one admission charge computed when it was
+/// staged. The charge is deliberately carried with the item: encoded-frame
+/// admission never walks a message tree a second time.
+pub const PendingOutbound = struct {
+    item: outbound.Outbound,
+    charge: usize,
+};
+
 pub const StepOutcome = events.StepOutcome;
 pub const EventKind = events.EventKind;
 pub const Event = events.Event;
@@ -196,9 +204,16 @@ pub const EngineError = error{
     /// ADR-0105). An address route makes no durable claim at all and is weighed
     /// by the channel realizer or trusted netlayer instead (ADR-0109).
     PartnerDesignatorMismatch,
+    /// The partner selected an extension transport whose designation semantics
+    /// are unknown to this node, so its durable locator claim cannot be weighed.
+    UnknownTransportSemantics,
     /// A streamed inbound frame exceeded `SessionLimits.max_frame_bytes`
     /// (`Peer.recvStreamPrefix`).
     FrameTooLarge,
+    /// The engine-owned staged-plus-encoded outbound budget is full. This is
+    /// local backpressure: no protocol state was discarded, and the caller
+    /// must drain frames before retrying the send.
+    OutboundBackpressure,
 };
 
 /// A FIFO with a drain cursor: `push` appends, `pop` advances a head index and
@@ -208,10 +223,11 @@ pub const EngineError = error{
 /// burst's capacity does not stay pinned for the peer's life. The four peer
 /// queues (inbound frames, pending sends, outbound frames, events) share this
 /// one shape instead of open-coding a parallel `_head` field.
-fn Queue(comptime T: type) type {
+fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) type {
     return struct {
         items: std.ArrayList(T) = .empty,
         head: usize = 0,
+        queued_weight: if (weightOf != null) usize else void = if (weightOf != null) 0 else {},
 
         const Self = @This();
 
@@ -220,6 +236,7 @@ fn Queue(comptime T: type) type {
         /// event; the queue type itself stays private to the engine.
         pub fn push(self: *Self, allocator: std.mem.Allocator, value: T) !void {
             try self.items.append(allocator, value);
+            self.addWeight(&value);
         }
 
         /// Reserve room for one more `push`, so a follow-up `pushAssumeCapacity`
@@ -239,6 +256,7 @@ fn Queue(comptime T: type) type {
 
         pub fn pushAssumeCapacity(self: *Self, value: T) void {
             self.items.appendAssumeCapacity(value);
+            self.addWeight(&value);
         }
 
         /// Dequeue the front element, or null when drained. The rewind, the
@@ -246,7 +264,9 @@ fn Queue(comptime T: type) type {
         /// with the engine's action queues so the two cannot drift.
         /// Pub so `outbound.zig` can drain encoded frames.
         pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
-            return fifo.popHead(T, &self.items, &self.head, allocator, steady_queue_bytes);
+            const value = fifo.popHead(T, &self.items, &self.head, allocator, steady_queue_bytes) orelse return null;
+            self.subtractWeight(&value);
+            return value;
         }
 
         /// Commit removal of the borrowed front row after its fallible use
@@ -265,7 +285,9 @@ fn Queue(comptime T: type) type {
         /// back an element the cursor already moved out.
         pub fn popBack(self: *Self) ?T {
             if (self.isEmpty()) return null;
-            return self.items.pop();
+            const value = self.items.pop().?;
+            self.subtractWeight(&value);
+            return value;
         }
 
         /// A mutable pointer to the most-recently pushed element, for a
@@ -301,10 +323,31 @@ fn Queue(comptime T: type) type {
             return self.items.items[self.head..];
         }
 
+        fn weight(self: *const Self) usize {
+            if (weightOf == null) @compileError("weight is available only on an accounted queue");
+            return self.queued_weight;
+        }
+
+        fn addWeight(self: *Self, value: *const T) void {
+            if (weightOf) |measure| {
+                self.queued_weight = std.math.add(usize, self.queued_weight, measure(value)) catch unreachable;
+            }
+        }
+
+        fn subtractWeight(self: *Self, value: *const T) void {
+            if (weightOf) |measure| {
+                self.queued_weight -= measure(value);
+            }
+        }
+
         fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.items.deinit(allocator);
         }
     };
+}
+
+fn frameByteLen(frame: *const foundation.Frame) usize {
+    return frame.bytes().len;
 }
 
 /// The typed cause of a locally-detected failure, kept readable on the peer so
@@ -357,10 +400,17 @@ pub const Peer = struct {
     /// host, the blocking pump, and the C ABI alike, and no consumer has to
     /// remember to keep one. Reset when a frame is consumed.
     stream_scan: codec.framing.StreamScan = .{},
-    inbound: Queue(foundation.Frame),
-    pending_send: Queue(outbound.Outbound),
-    outbound: Queue(foundation.Frame),
-    events: Queue(Event),
+    inbound: Queue(foundation.Frame, null),
+    pending_send: Queue(PendingOutbound, null),
+    /// Bytes charged to staged outbound rows. Each row stores its charge so
+    /// dequeueing is O(1) and cannot accidentally re-walk a message tree.
+    pending_send_bytes: usize = 0,
+    outbound: Queue(foundation.Frame, frameByteLen),
+    /// One shared ceiling for staged messages plus encoded frames. A standalone
+    /// Peer is deliberately unlimited; Hosts install their explicit high-water
+    /// at the negotiating seam.
+    outbound_budget: usize = std.math.maxInt(usize),
+    events: Queue(Event, null),
     /// This session's gift and handoff-count authority. A cross-session
     /// withdrawal reaches a sibling's deposits only through the live-session
     /// resolver; the Vat does not own protocol transcript state.
@@ -397,6 +447,11 @@ pub const Peer = struct {
     /// never handshakes), and the stub-key in-process fixtures opt out through
     /// `NegotiatingOptions` because their handshakes carry no real signature.
     verify_partner_handshake: bool = false,
+    /// Stored relayed settlements whose listener carriers could not be
+    /// prepared at the terminal commit. Nonzero makes `step` retry one row;
+    /// the imported-promise table itself is the authority, so row teardown can
+    /// leave this count conservatively high and the next scan repairs it.
+    pending_imported_fire_retries: u32 = 0,
     /// What this session knows about durable identity at the other end: the
     /// target a dial named and the byte channel's far end a realizer verified.
     /// Both are installed before any partner byte is fed. Both empty is every
@@ -457,6 +512,9 @@ pub const Peer = struct {
         /// On by default: a keyed handshake authenticates its partner. Only the
         /// stub-key in-process fixtures set this false.
         verify_partner_handshake: bool = true,
+        /// Shared staged-plus-encoded outbound ceiling. Null leaves a
+        /// standalone peer unlimited.
+        outbound_high_water_bytes: ?usize = null,
     };
 
     /// A peer that begins in the `negotiating` state on the v1.0 / Syrup
@@ -506,6 +564,7 @@ pub const Peer = struct {
         self.session_state.features = options.features;
         self.session_state.limits = options.limits;
         self.verify_partner_handshake = options.verify_partner_handshake;
+        self.outbound_budget = options.outbound_high_water_bytes orelse std.math.maxInt(usize);
     }
 
     /// Peer adopting a caller-built session; every `init*` shorthand
@@ -533,8 +592,8 @@ pub const Peer = struct {
         }
         self.inbound.deinit(self.allocator);
 
-        for (self.pending_send.pending()) |*item| {
-            item.deinit(self.allocator);
+        for (self.pending_send.pending()) |*pending| {
+            pending.item.deinit(self.allocator);
         }
         self.pending_send.deinit(self.allocator);
 
@@ -577,14 +636,19 @@ pub const Peer = struct {
         return self.pending_withdraws.capacity();
     }
 
-    /// Remove every scheduler dependency this peer registered with its Node,
-    /// then sever the borrowed services pointer. Node removal calls this before
-    /// its own tables move; standalone peers and repeated teardown are no-ops.
+    /// Retire every piece of session authority that depends on this peer's Node,
+    /// then sever the borrowed services pointer. In particular, local-target
+    /// gifts must release their captured actor roots while the Node's projection
+    /// callback is still valid; doing that after clearing `node_services` would
+    /// silently strand those roots. Node removal calls this before its own tables
+    /// move; standalone peers and repeated teardown are no-ops.
     pub fn detachNodeServices(self: *Peer) void {
         const services = self.node_services orelse return;
         var dependencies = self.pending_withdraws.keyIterator();
         while (dependencies.next()) |dependency| services.pendingWithdrawRemoved(dependency.*);
         self.pending_handoff_change = null;
+        self.gift_registry.deinit(self.allocator, services.localObjectProjection());
+        self.gift_registry = .{};
         self.node_services = null;
     }
 
@@ -610,10 +674,11 @@ pub const Peer = struct {
     /// key, so only code that can name a verified remote can make it: the iroh
     /// resident reading a QUIC connection's remote node id, the WebRTC
     /// resident under authorized signaling, `driver.Bridge` through
-    /// `net.completion.Loop.verifiedChannelKey`. A byte-fed Host has no
-    /// realizer in the library, so the realizer above it speaks this through
-    /// `pancake_host_session_bind_verified_channel_key`, and a Host whose
-    /// embedder says nothing asserts nothing.
+    /// `net.completion.Loop.verifiedChannelKey`, and the byte-fed Host itself
+    /// when a sealed session's Noise handshake completes (ADR-0107). An
+    /// unsealed Host has no in-library realizer, so the realizer above it
+    /// speaks this through `pancake_host_session_bind_verified_channel_key`,
+    /// and a Host whose embedder says nothing asserts nothing.
     ///
     /// The transport *symbol* proves nothing; the code that realized the
     /// connection does, which is why this names the remote rather than the
@@ -671,6 +736,181 @@ pub const Peer = struct {
         return .unauthenticated;
     }
 
+    /// Measure one staged outbound carrier once, at the admission boundary.
+    /// Store-backed carriers are POD; owned messages account for their retained
+    /// model bytes. The result is carried by `PendingOutbound` until dequeue.
+    pub fn pendingOutboundCharge(item: outbound.Outbound) !usize {
+        return switch (item) {
+            .message => |message| model.measureMessageOwnedBytes(message),
+            .next_answered => |pair| blk: {
+                const operation = try model.measureMessageOwnedBytes(pair.operation);
+                const listener = try model.measureMessageOwnedBytes(pair.listener);
+                break :blk std.math.add(usize, operation, listener) catch error.MalformedView;
+            },
+            .settled_answer, .listener_fire => @sizeOf(outbound.Outbound),
+        };
+    }
+
+    /// Reserve the shared outbound budget and queue capacity before a caller
+    /// commits session state. The high-water is a waterline: one producer may
+    /// cross it, and the next producer is refused. A single producer must fit
+    /// within the mark; otherwise "one may cross" would make the memory bound
+    /// arbitrary. The returned reservation must be committed with
+    /// `pushPendingAssume` or canceled on the same unwind path.
+    pub fn reservePending(self: *Peer, item: outbound.Outbound) !PendingReservation {
+        const charge = try pendingOutboundCharge(item);
+        const is_handshake = switch (item) {
+            .message => |message| message == .start_session,
+            else => false,
+        };
+        if (!is_handshake) {
+            // The waterline permits one ordinary producer to cross, but never
+            // permits one producer whose retained model is itself larger than
+            // the whole budget. That keeps overshoot bounded while allowing a
+            // normal atomic operation to finish.
+            if (charge > self.outbound_budget) return error.OutboundBackpressure;
+            try self.checkOutboundWaterline();
+        }
+        try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
+        self.pending_send_bytes = std.math.add(usize, self.pending_send_bytes, charge) catch
+            return error.OutboundBackpressure;
+        return .{ .charge = charge };
+    }
+
+    pub const PendingReservation = struct { charge: usize };
+
+    /// One authority transaction that may stage several outbound carriers.
+    /// The transaction is one producer for waterline purposes: admission is
+    /// checked before its first reservation, while its cumulative retained
+    /// model must still fit within the whole budget. Each returned reservation
+    /// remains independently cancelable by the caller's unwind path.
+    pub const PendingBatch = struct {
+        peer: *Peer,
+        charge: usize = 0,
+        admitted: bool = false,
+
+        pub fn reserve(self: *PendingBatch, item: outbound.Outbound) !PendingReservation {
+            const item_charge = try pendingOutboundCharge(item);
+            const batch_charge = std.math.add(usize, self.charge, item_charge) catch
+                return error.OutboundBackpressure;
+            if (batch_charge > self.peer.outbound_budget)
+                return error.OutboundBackpressure;
+            if (!self.admitted) {
+                try self.peer.checkOutboundWaterline();
+                self.admitted = true;
+            }
+            self.peer.pending_send_bytes = std.math.add(
+                usize,
+                self.peer.pending_send_bytes,
+                item_charge,
+            ) catch return error.OutboundBackpressure;
+            self.charge = batch_charge;
+            return .{ .charge = item_charge };
+        }
+    };
+
+    /// Reserve queue storage once for a multi-carrier authority transaction.
+    /// The first actual reservation performs admission, so an upper-bound
+    /// `max_items` that produces no carrier does not reject unrelated inbound
+    /// work merely because an older producer crossed the waterline.
+    pub fn beginPendingBatch(self: *Peer, max_items: usize) !PendingBatch {
+        try self.ensurePendingCapacity(max_items);
+        return .{ .peer = self };
+    }
+
+    /// Reserve queue storage for a group of staged carriers that will be
+    /// committed after one authority transaction. `reservePending` still
+    /// reserves the common one-row case; preparation code uses this seam when
+    /// several reservations must coexist before any row is appended. Without
+    /// the batch preflight, repeated `ensureUnusedCapacity(1)` calls all see
+    /// the same current length and can leave a later `pushAssumeCapacity`
+    /// without a slot.
+    pub fn ensurePendingCapacity(self: *Peer, count: usize) !void {
+        try self.pending_send.ensureUnusedCapacity(self.allocator, count);
+    }
+
+    /// Commit a previously reserved pending row. The reservation makes this
+    /// append infallible and avoids recording protocol state without a carrier.
+    pub fn pushPendingAssume(self: *Peer, reservation: PendingReservation, item: outbound.Outbound) void {
+        self.pending_send.pushAssumeCapacity(.{ .item = item, .charge = reservation.charge });
+    }
+
+    /// Cancel a reservation whose item was never committed.
+    pub fn cancelPendingReservation(self: *Peer, reservation: PendingReservation) void {
+        std.debug.assert(self.pending_send_bytes >= reservation.charge);
+        self.pending_send_bytes -= reservation.charge;
+    }
+
+    /// Dequeue a staged carrier and transfer its charge to the encoded queue's
+    /// accounting domain. The item is owned by the caller after this returns.
+    pub fn takePending(self: *Peer) PendingOutbound {
+        const pending = self.pending_send.consumeFront(self.allocator);
+        std.debug.assert(self.pending_send_bytes >= pending.charge);
+        self.pending_send_bytes -= pending.charge;
+        return pending;
+    }
+
+    /// Undo the most recent staged append on an error path.
+    pub fn popPendingBack(self: *Peer) ?PendingOutbound {
+        const pending = self.pending_send.popBack() orelse return null;
+        std.debug.assert(self.pending_send_bytes >= pending.charge);
+        self.pending_send_bytes -= pending.charge;
+        return pending;
+    }
+
+    /// Refuse a new producer once retained outbound work has reached the
+    /// waterline. The producer that crosses it remains admitted atomically;
+    /// its retained model bytes or encoded frame bytes are then charged by the
+    /// owning queue, so the next producer observes the pressure in O(1). The
+    /// initial retained charge must itself fit the budget; only later encoding
+    /// expansion may cross it, because that authority is already committed.
+    pub fn checkOutboundWaterline(self: *const Peer) !void {
+        const current = std.math.add(usize, self.pending_send_bytes, self.outbound.weight()) catch
+            return error.OutboundBackpressure;
+        if (current >= self.outbound_budget) return error.OutboundBackpressure;
+    }
+
+    /// Admit an encoded representation while its staged carrier is still in
+    /// the queue. The staged charge is replaced by the encoded charge in one
+    /// later infallible commit; checking against it here would double-charge
+    /// the same operation and reject a legitimate representation expansion.
+    pub fn checkOutboundTransferWaterline(self: *const Peer, staged_charge: usize) !void {
+        std.debug.assert(staged_charge <= self.pending_send_bytes);
+        const staged_other = self.pending_send_bytes - staged_charge;
+        const current = std.math.add(usize, staged_other, self.outbound.weight()) catch
+            return error.OutboundBackpressure;
+        if (current >= self.outbound_budget) return error.OutboundBackpressure;
+    }
+
+    /// Preflight the encoded queue before a staged carrier is consumed. After
+    /// this returns, `pushAssumeCapacity` plus `takePending` is the transfer
+    /// commit and cannot lose either the frame or its authority carrier.
+    pub fn ensureOutboundCapacity(self: *Peer, count: usize) !void {
+        try self.outbound.ensureUnusedCapacity(self.allocator, count);
+    }
+
+    /// A constant-time view of all outbound work retained by this peer: staged
+    /// carriers plus encoded frames. This is the one admission counter exposed
+    /// to Host and adapters; neither path walks queued payloads.
+    pub fn queuedOutboundBytes(self: *const Peer) usize {
+        return std.math.add(usize, self.pending_send_bytes, self.outbound.weight()) catch
+            std.math.maxInt(usize);
+    }
+
+    /// Whether an encoded outbound frame is queued (`takeOutbound` would
+    /// return one) — the cheap emptiness probe a drain loop reads without
+    /// popping.
+    pub fn hasOutbound(self: *const Peer) bool {
+        return !self.outbound.isEmpty();
+    }
+
+    /// Whether a decoded inbound event still awaits the caller's serve step.
+    /// Host fairness uses this probe to resume one session without draining a
+    /// sibling's queued events in a single turn.
+    pub fn hasEvent(self: *const Peer) bool {
+        return !self.events.isEmpty();
+    }
+
     /// Enqueue an owned `message` for outbound encode, taking ownership of its
     /// heap on every outcome. The canonical, copy-free path: a caller that
     /// built the message moves it in and never frees it. Most kinds are freed
@@ -711,9 +951,19 @@ pub const Peer = struct {
     pub fn sendPreparedFetch(self: *Peer, prepared: fetch.PreparedFetch) !void {
         if (prepared.resolver_export) |resolver_export| {
             self.session_state.installOutboundResolver(prepared.answer_position, resolver_export) catch |err| {
+                self.session_state.releaseUnsharedExport(resolver_export);
                 freeMessage(self.allocator, prepared.message);
                 return err;
             };
+            self.send(prepared.message) catch |err| {
+                // The resolver mention never reached recordSend, so it still
+                // has only prepareFetchSwissnum's reservation retain. Retire
+                // the link and export together; a retry prepares a fresh,
+                // self-consistent answer/resolver pair.
+                self.session_state.abandonResolverExport(resolver_export);
+                return err;
+            };
+            return;
         }
         try self.send(prepared.message);
     }
@@ -846,16 +1096,24 @@ pub const Peer = struct {
     }
 
     /// Queue a keyed `op:start-session` for an already-complete advertised
-    /// locator. The caller owns profile materialization; this function signs
-    /// and copies the value without changing it.
+    /// locator. The caller owns profile materialization. Transport wire rules
+    /// are still canonicalized here: onion has exactly one interoperable
+    /// spelling, with `#f` hints, so no entry point can sign an undialable
+    /// hinted onion location.
     pub fn sendKeyedStartSessionExact(
         self: *Peer,
         advertised: model.PeerLocator,
         session_secret: foundation.crypto.SecretKey,
     ) !void {
-        try validateExactAdvertisedProfile(advertised, self.session_state.preferred);
+        if (!codec.registry.contains(self.session_state.preferred.codec))
+            return error.UnknownCodec;
+        const canonical = canonicalAdvertisedLocator(advertised);
+        try validateExactAdvertisedProfile(
+            canonical,
+            advertisedPreference(canonical.transport, self.session_state.preferred),
+        );
         const session_pubkey = session_secret.publicKey();
-        const signed = try codec.signed.locationBytes(self.allocator, advertised);
+        const signed = try codec.signed.locationBytes(self.allocator, canonical);
         defer self.allocator.free(signed);
         const sig = foundation.crypto.sign(&session_secret, signed);
         try self.sendCopying(.{
@@ -864,7 +1122,7 @@ pub const Peer = struct {
                 // The caller's preference is in the hints this peer just stamped.
                 .captp_version = model.Preference.baseline.captp_version,
                 .session_pubkey = .{ .bytes = session_pubkey.asBytes() },
-                .acceptable_location = advertised,
+                .acceptable_location = canonical,
                 .acceptable_location_sig = .{ .bytes = sig.asBytes() },
             },
         });
@@ -920,125 +1178,37 @@ pub const Peer = struct {
         return out;
     }
 
-    /// Queue the recipient half of a three-party handoff: sign a
-    /// `desc:handoff-receive` over `give_bytes` keyed by `secret`, mint the
-    /// monotonic handoff-count from this session or its Node's V1 compatibility
-    /// issuer, and queue
-    /// `withdraw-gift` to the exporter's bootstrap object under `answer`. The
-    /// exporter session must be open — its partner key names the receive's
-    /// session — or this fails with `error.NoExporterKey`. This is the one
-    /// definition of the withdraw deliver shape; the `Node` redeem path and the
-    /// C ABI both drive it. `give_bytes` is borrowed for the call.
+    /// Queue the recipient half of a three-party handoff. Body lives in
+    /// `handoff_recipient.sendWithdrawGift` — the one withdraw deliver shape.
     pub fn sendWithdrawGift(
         self: *Peer,
         secret: foundation.crypto.SecretKey,
         give_bytes: []const u8,
         answer: model.AnswerPosition,
     ) !void {
-        const exporter_key = self.session_state.partnerSessionKey() orelse return error.NoExporterKey;
-        // Two different keys, deliberately (ADR-0097).
-        //
-        // `secret` signs, and it is the key of the session the *give arrived
-        // on*, because that is the identity the give named as its
-        // `recipient_key` and the exporter verifies this receive against that
-        // name. The side and session names below are this session's — the
-        // recipient–exporter one — because they name where the withdrawal is
-        // happening. Goblins draws the same distinction: its receive is signed
-        // by the coordinator that received the give while its names come from
-        // the exporter session's coordinator. Conflating them works only while
-        // one key serves every session.
-        const local_key = self.session_state.localSessionKey() orelse
-            return error.NoLocalSessionKey;
-        const our_side_key = foundation.crypto.PeerKey.fromSlice(local_key) catch
-            return error.NoLocalSessionKey;
-        const handoff_count = if (self.session_state.captp_version == .v1_0)
-            if (self.node_services) |services|
-                try services.nextV1EmittedHandoffCount()
-            else
-                try self.giftRegistry().nextEmittedCount()
-        else
-            try self.giftRegistry().nextEmittedCount();
-        const signed = try handoff_recipient.signedReceiveFromGiveBytes(
-            self.allocator,
-            handoff_count,
-            secret,
-            our_side_key,
-            exporter_key,
-            give_bytes,
-        );
-        defer signed.deinit(self.allocator);
-        // `signed.message()` borrows `signed`; both outlive `sendCopying`, which
-        // deep-copies the deliver before this returns.
-        var handoff = model.Handoff{ .receive = signed.message() };
-        try self.sendCopying(.{ .deliver = .{
-            .target = .{ .far = model.FarRef.object(BOOTSTRAP_POSITION) },
-            .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
-            .answer = answer,
-        } });
+        return handoff_recipient.sendWithdrawGift(self, secret, give_bytes, answer);
     }
 
-    /// Queue a `deposit-gift` to this (exporter) session's bootstrap object: a
-    /// fire-and-forget `op:deliver` carrying the gift id and the gifted
-    /// reference, so the exporter records the gift a later `withdraw-gift`
-    /// redeems. This is the one definition of the deposit deliver shape;
-    /// `Node.originateGive` and the C ABI both drive it. `gift_id` is borrowed
-    /// and `gifted` is borrowed; both are cloned into the outbound queue.
+    /// Queue a `deposit-gift` to this (exporter) session's bootstrap object.
     pub fn sendDepositGift(self: *Peer, gift_id: []const u8, gifted: model.Reference) !void {
-        try self.sendCopying(.{ .deliver = .{
-            .target = .{ .far = model.FarRef.object(BOOTSTRAP_POSITION) },
-            .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = gift_id }, .{ .reference = gifted } },
-            .answer = null,
-        } });
+        return handoff_gifter.sendDepositGift(self, gift_id, gifted);
     }
 
-    /// Resolve `answer` (a question a recipient asked this gifter) with a signed
-    /// `desc:handoff-give`: queue an `op:resolve` whose fulfill carries the give
-    /// `give_bytes` names. `give_bytes` is the Syrup-encoded
-    /// `<desc:sig-envelope …>` `handoff_gifter.buildSignedGive` (or a binding's
-    /// `pancake_build_handoff_give`) returns; this parses it into a typed
-    /// `model.HandoffGive` carrying both `raw_signed` (so a Syrup session still
-    /// emits the exact bytes the gifter signed) and the typed fields a Cap'n
-    /// Proto session encodes instead — a binding-originated give rides *this*
-    /// session's codec, not just Syrup's. This is the one definition of the
-    /// resolve-give shape; `Node.originateGive` and the C ABI both drive it.
-    /// `give_bytes` is borrowed for the call.
+    /// Resolve `answer` with a signed `desc:handoff-give`. Body lives in
+    /// `handoff_gifter.sendResolveHandoffGive`.
     pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerPosition, give_bytes: []const u8) !void {
-        const give = try codec.signed.decodeGiveOwned(self.allocator, give_bytes);
-        defer model.freeHandoffGive(self.allocator, give);
-        var handoff = model.Handoff{ .give = give };
-        try self.sendCopying(.{ .resolve = .{
-            .answer = answer,
-            .resolution = .{ .fulfill = .{ .handoff = &handoff } },
-        } });
+        return handoff_gifter.sendResolveHandoffGive(self, answer, give_bytes);
     }
 
     /// Store a signed `desc:handoff-give` as the relayed resolution of
-    /// `import_position`, the handoff sibling of `sendResolveHandoffGive`.
-    ///
-    /// A promise this node introduced to a third party can settle to a
-    /// capability the recipient has no way to name, and the answer to that is
-    /// a handoff rather than a break: the draft CapTP specification allows a
-    /// `desc:handoff-give` wherever a Passable value is allowed, and requires
-    /// a handoff when a message would carry a reference imported from another
-    /// session. The give is stored, not sent, because the recipient is waiting
-    /// on a promise the store fires — the same fan-out every relayed
-    /// resolution uses.
-    ///
-    /// `give_bytes` is borrowed. Ownership of the decoded handoff passes to
-    /// `applyRelayedResolution`, which consumes it on every outcome.
+    /// `import_position`. Body lives in `handoff_gifter.applyRelayedHandoffGive`.
     pub fn applyRelayedHandoffGive(
         self: *Peer,
         import_position: model.ImportPosition,
         row_id: u64,
         give_bytes: []const u8,
     ) !void {
-        const give = try codec.signed.decodeGiveOwned(self.allocator, give_bytes);
-        const boxed = self.allocator.create(model.Handoff) catch |err| {
-            model.freeHandoffGive(self.allocator, give);
-            return err;
-        };
-        boxed.* = .{ .give = give };
-        return self.applyRelayedResolution(import_position, row_id, .{ .fulfill = .{ .handoff = boxed } });
+        return handoff_gifter.applyRelayedHandoffGive(self, import_position, row_id, give_bytes);
     }
 
     /// Whether the session has completed the `op:start-session` handshake and is
@@ -1079,7 +1249,8 @@ pub const Peer = struct {
     }
 
     /// This peer's hello locator: the caller's plus the preference hints this
-    /// peer stamps.
+    /// peer stamps when the transport admits them. Onion stays hintless and
+    /// therefore advertises the baseline profile (ADR-0108).
     ///
     /// Every hello passes through here, and it has to be *before* the caller
     /// signs, because the hints are inside the signed location record. That is
@@ -1109,9 +1280,10 @@ pub const Peer = struct {
             self.* = .{};
         }
 
-        /// A locator's own hints plus this peer's preference. A peer that
-        /// prefers the baseline adds nothing, so it signs the byte-identical
-        /// hello it always did.
+        /// A locator's own hints plus this peer's transport-admissible
+        /// preference. A peer that prefers the baseline, or any peer
+        /// advertising onion, adds nothing and signs the byte-identical bare
+        /// locator.
         pub const Error = error{
             /// The caller's hint count cannot be extended without overflowing
             /// the address space.
@@ -1121,15 +1293,20 @@ pub const Peer = struct {
             /// Hints are a dictionary; signing duplicates produces a hello a
             /// conforming receiver must reject.
             DuplicateHintName,
+            /// The peer preference names an open wire id with no implementation
+            /// in this build; advertising it would promise a codec we cannot use.
+            UnknownCodec,
         } || std.mem.Allocator.Error;
 
         pub fn extend(
             self: *HelloHints,
             allocator: std.mem.Allocator,
-            locator: model.PeerLocator,
+            supplied: model.PeerLocator,
             preference: model.Preference,
         ) Error!model.PeerLocator {
             std.debug.assert(self.allocated_entries == null);
+            if (!codec.registry.contains(preference.codec)) return Error.UnknownCodec;
+            const locator = canonicalAdvertisedLocator(supplied);
             const carried = locator.hints.entries;
             // Every silent path out of here is a downgrade: a partner reads a
             // missing hint as "this peer wants the baseline" and is right to,
@@ -1157,13 +1334,19 @@ pub const Peer = struct {
                     if (std.mem.eql(u8, entry.name, reserved)) return Error.ReservedHintName;
                 }
             }
+            // Onion's standardized locator is deliberately hintless: the
+            // Goblins dialer accepts only the `#f`-hints shape, so profile
+            // negotiation over onion is the baseline even between two pancake
+            // peers (ADR-0108). Every other transport advertises the peer's
+            // configured preference.
+            const effective = advertisedPreference(locator.transport, preference);
             // Only a preference that differs from the baseline is worth
             // stating. `model.Preference.baseline` rather than literals, so
             // changing the baseline is one edit.
             const baseline = model.Preference.baseline;
-            const stamped_count = @as(usize, @intFromBool(preference.captp_version != baseline.captp_version)) +
-                @as(usize, @intFromBool(preference.codec != baseline.codec)) +
-                @as(usize, @intFromBool(!std.meta.eql(preference.features, baseline.features)));
+            const stamped_count = @as(usize, @intFromBool(effective.captp_version != baseline.captp_version)) +
+                @as(usize, @intFromBool(effective.codec != baseline.codec)) +
+                @as(usize, @intFromBool(!std.meta.eql(effective.features, baseline.features)));
             if (stamped_count == 0) return locator;
             const count = std.math.add(usize, carried.len, stamped_count) catch
                 return Error.TooManyHints;
@@ -1176,21 +1359,21 @@ pub const Peer = struct {
             };
             @memcpy(entries[0..carried.len], carried);
             var write = carried.len;
-            if (preference.captp_version != baseline.captp_version) {
+            if (effective.captp_version != baseline.captp_version) {
                 entries[write] = .{
                     .name = model.transport.hint_captp_version,
-                    .value = .{ .string = preference.captp_version.wireString() },
+                    .value = .{ .string = effective.captp_version.wireString() },
                 };
                 write += 1;
             }
-            if (preference.codec != baseline.codec) {
+            if (effective.codec != baseline.codec) {
                 // A `u16` in decimal fits five digits; the buffer holds eight.
-                const digits = std.fmt.bufPrint(&self.codec_digits, "{d}", .{@intFromEnum(preference.codec)}) catch unreachable;
+                const digits = std.fmt.bufPrint(&self.codec_digits, "{d}", .{@intFromEnum(effective.codec)}) catch unreachable;
                 entries[write] = .{ .name = model.transport.hint_codec, .value = .{ .string = digits } };
                 write += 1;
             }
-            if (!std.meta.eql(preference.features, baseline.features)) {
-                const text = preference.features.toWireString(&self.feature_bytes) catch unreachable;
+            if (!std.meta.eql(effective.features, baseline.features)) {
+                const text = effective.features.toWireString(&self.feature_bytes) catch unreachable;
                 entries[write] = .{ .name = model.transport.hint_features, .value = .{ .string = text } };
                 write += 1;
             }
@@ -1202,6 +1385,24 @@ pub const Peer = struct {
             };
         }
     };
+
+    fn advertisedPreference(
+        transport: []const u8,
+        configured: model.Preference,
+    ) model.Preference {
+        if (std.mem.eql(u8, transport, model.transport.onion))
+            return model.Preference.baseline;
+        return configured;
+    }
+
+    fn canonicalAdvertisedLocator(locator: model.PeerLocator) model.PeerLocator {
+        if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return locator;
+        return .{
+            .transport = locator.transport,
+            .designator = locator.designator,
+            .hints = model.Hints.emptyFalse(),
+        };
+    }
 
     /// The common locator has at most one routing hint plus the three profile
     /// entries this peer may stamp. Larger OCapN hint maps spill to exact-sized
@@ -1239,6 +1440,18 @@ pub const Peer = struct {
         return switch (self.session_state.state) {
             .negotiating => .syrup,
             .open, .closed => self.session_state.codec,
+        };
+    }
+
+    /// The CapTP profile that admits an arriving frame. Like the codec, the
+    /// handshake profile cannot be the result of its own negotiation: every
+    /// `op:start-session` is the baseline hello, with preferences in locator
+    /// hints. Retained events carry this exact value so later projection reads
+    /// the frame under the same profile that admitted it.
+    pub fn inboundProfile(self: *const Peer) model.CaptpVersion {
+        return switch (self.session_state.state) {
+            .negotiating => model.Preference.baseline.captp_version,
+            .open, .closed => self.session_state.captp_version,
         };
     }
 
@@ -1350,6 +1563,23 @@ pub const Peer = struct {
     /// "a relayed resolution carrying a routing token emits the wire import
     /// position, never the token".
     pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportPosition, row_id: u64, resolution_in: model.Resolution) !void {
+        return self.applyRelayedResolutionWithPolicy(import_position, row_id, resolution_in, false);
+    }
+
+    /// Terminal Node relay: the source fire has been consumed, so allocator or
+    /// outbound pressure may delay listener carriers but may not delay the
+    /// authoritative recipient store. `step` retries those carriers later.
+    pub fn applyRelayedResolutionGuaranteed(self: *Peer, import_position: model.ImportPosition, row_id: u64, resolution_in: model.Resolution) !void {
+        return self.applyRelayedResolutionWithPolicy(import_position, row_id, resolution_in, true);
+    }
+
+    fn applyRelayedResolutionWithPolicy(
+        self: *Peer,
+        import_position: model.ImportPosition,
+        row_id: u64,
+        resolution_in: model.Resolution,
+        commit_under_pressure: bool,
+    ) !void {
         var resolution = resolution_in;
         self.session_state.rewriteShortenedResolution(&resolution);
         if (self.node_services) |services| {
@@ -1367,12 +1597,62 @@ pub const Peer = struct {
             freeResolution(self.allocator, resolution);
             return err;
         };
+        const row = self.session_state.findImportedPromise(import_position) orelse {
+            freeResolution(self.allocator, resolution);
+            return session.Error.InvalidReference;
+        };
+        if (row.cell.row_id != row_id) {
+            freeResolution(self.allocator, resolution);
+            return;
+        }
+        if (row.cell.resolution != null) {
+            freeResolution(self.allocator, resolution);
+            return session.Error.UnexpectedMessage;
+        }
+
+        // Detach listeners reversibly and reserve every fire before the store
+        // moves `resolution`. From the store commit onward, listener accounting
+        // and carrier publication are allocation-free and cannot lose a
+        // subscriber under host pressure.
+        var prepared_fires = pipeline.prepareImportedPromiseFires(self, import_position, row_id, resolution) catch |err| {
+            if (commit_under_pressure and (err == error.OutOfMemory or err == error.OutboundBackpressure)) {
+                // Preparation restored the listener list before returning.
+                // Every row check above still holds on this single-owner peer,
+                // so recording from preowned bytes is now infallible.
+                const stored = self.session_state.recordRelayedResolution(import_position, row_id, resolution) catch unreachable;
+                std.debug.assert(stored);
+                std.debug.assert(self.pending_imported_fire_retries < std.math.maxInt(u32));
+                self.pending_imported_fire_retries += 1;
+                return;
+            }
+            freeResolution(self.allocator, resolution);
+            return err;
+        };
+        errdefer prepared_fires.abandon(self, import_position);
         // A `row_id` mismatch means the row this relay was queued against was
         // torn down and a different third-party promise re-registered at this
         // position; the stale relay is moot, so fire nothing — exactly as a
         // `listener_fire` carrier whose stamp misses drops at encode.
-        if (try self.session_state.recordRelayedResolution(import_position, row_id, resolution))
-            try pipeline.fireImportedPromiseListeners(self, import_position);
+        if (!(try self.session_state.recordRelayedResolution(import_position, row_id, resolution))) {
+            prepared_fires.abandon(self, import_position);
+            return;
+        }
+        const stored = self.session_state.importedPromiseResolution(import_position) orelse unreachable;
+        prepared_fires.commit(self, import_position, row_id, stored.*);
+    }
+
+    /// Retry one listener batch whose store committed under pressure. Returning
+    /// progress keeps `stepToIdle` on the row until every such store is clear;
+    /// an OOM leaves both the stored resolution and listener list untouched.
+    fn retryImportedPromiseFire(self: *Peer) !bool {
+        if (self.pending_imported_fire_retries == 0) return false;
+        const import_position = self.session_state.pendingImportedPromiseFire() orelse {
+            self.pending_imported_fire_retries = 0;
+            return false;
+        };
+        try pipeline.fireImportedPromiseListeners(self, import_position);
+        self.pending_imported_fire_retries -= 1;
+        return true;
     }
 
     /// Transfer an owned inbound frame into the peer for the next `step`
@@ -1392,17 +1672,14 @@ pub const Peer = struct {
     /// encode one pending outbound item onto `outbound`. A next-profile answered
     /// operation and its mandatory listener are one item and publish two frames
     /// atomically. Returns `.progress`
-    /// when it did either and `.idle` when both queues were empty. Any failure
-    /// fails closed, exactly like the inbound boundary: it is recorded as the
-    /// typed `lastAbort`, projected to an outbound `op:abort` when the
-    /// projection has one, and closes the session per the projection, before
-    /// the error propagates. Host-internal errors (out of memory, …) carry no
-    /// abort and leave the session as it was.
+    /// when it did either and `.idle` when both queues were empty. A queued
+    /// inbound frame that fails dispatch takes the same fail-closed path as
+    /// `recvBorrowed`: it records `lastAbort`, projects an outbound `op:abort`
+    /// when the error has wire meaning, and closes per that projection.
+    /// Allocation and outbound pressure from deferred or encode work propagate
+    /// without blaming the partner; their carriers remain queued for retry.
     pub fn step(self: *Peer) !StepOutcome {
-        return self.stepInner() catch |err| {
-            inbound.emitAbortForError(self, err);
-            return err;
-        };
+        return self.stepInner();
     }
 
     /// Project `err` to a typed outbound `op:abort` (and `lastAbort`) when a
@@ -1441,63 +1718,118 @@ pub const Peer = struct {
     }
 
     fn stepInner(self: *Peer) !StepOutcome {
+        if (self.retryImportedPromiseFire() catch |err| {
+            projectDeferredStepFailure(self, err);
+            return err;
+        }) return .progress;
         // A parked `withdraw-gift` settles once its deposit arrives on the live
         // Gifter–Exporter Peer. Node scheduling targets this receiver after
         // that sibling changes, and every step re-checks before other work. The
         // empty-list fast path costs one length read.
-        try self.settlePendingWithdraws();
+        self.settlePendingWithdraws() catch |err| {
+            projectDeferredStepFailure(self, err);
+            return err;
+        };
 
         // One unit of work per step: dispatch one inbound frame, else encode one
         // pending outbound item. `pop` transfers ownership into dispatch (on
         // success the frame moves into the surfaced event, zero copy; on error
         // dispatch frees it) and reclaims the backing once inbound is drained,
         // the consumed frames below the head were moved out, so reclaim never
-        // double-frees. The inner dispatch is used here (not `dispatchOwnedFrame`)
-        // because `step`'s own exit projects the abort for every failure; the
-        // wrapped form would emit it twice.
+        // double-frees. This arm alone owns inbound error projection. The
+        // deferred-work arms above and outbound arm below retain their
+        // carriers on pressure and therefore propagate without blaming the
+        // partner; classifying by error name cannot distinguish those phases.
         if (self.inbound.pop(self.allocator)) |frame| {
-            try inbound.dispatchOwnedFrameInner(self, frame);
+            try inbound.dispatchOwnedFrame(self, frame);
             return .progress;
         }
 
         if (self.pending_send.peek() != null) {
-            try outbound.stepPending(self);
+            outbound.stepPending(self) catch |err| {
+                projectDeferredStepFailure(self, err);
+                return err;
+            };
             return .progress;
         }
         return .idle;
     }
 
-    /// Encode a wire `message` for the session's codec and CapTP profile and push
-    /// the frame onto the outbound queue. The one encode-then-queue seam every
-    /// outbound path shares; the frame is freed on a push failure and owned by the
-    /// queue on success.
-    pub fn pushEncoded(self: *Peer, message: model.Message) !void {
-        // Keyed off the message, not the state: encoding is deferred to
-        // `step`, so a hello can still be queued after the partner's arrival
-        // opened the session. See `inboundCodec` for why Syrup at all.
-        const wire_codec: model.CodecId = switch (message) {
-            .start_session => .syrup,
-            else => self.session_state.codec,
+    /// Deferred work can expose a protocol violation (for example a queued
+    /// pipelined call forming a resolution cycle), but allocator and outbound
+    /// pressure leave its authority carrier available for retry. Classify at
+    /// this phase boundary instead of treating the same error name as inbound.
+    fn projectDeferredStepFailure(self: *Peer, err: anyerror) void {
+        switch (err) {
+            error.OutOfMemory, error.OutboundBackpressure => {},
+            else => inbound.emitAbortForError(self, err),
+        }
+    }
+
+    fn encodeOutbound(self: *Peer, message: model.Message) !foundation.Frame {
+        // A hello cannot use the profile it is negotiating, and deferred
+        // encoding means the session may already be open when its queued hello
+        // reaches this seam. A pre-open abort belongs to that same baseline
+        // envelope: the rejected partner has not settled another codec yet.
+        // After open, abort and ordinary traffic use the active session pair.
+        const active = model.Preference{
+            .captp_version = self.session_state.captp_version,
+            .codec = self.session_state.codec,
+            .features = self.session_state.features,
         };
-        var frame = try codec.dispatch.encodeMessageForProfile(
-            wire_codec,
+        const wire = switch (message) {
+            .start_session => model.Preference.baseline,
+            .abort => if (self.session_state.state == .negotiating)
+                model.Preference.baseline
+            else
+                active,
+            else => active,
+        };
+        return codec.dispatch.encodeMessageForProfile(
+            wire.codec,
             self.allocator,
-            self.session_state.captp_version,
+            wire.captp_version,
             message,
         );
+    }
+
+    /// Encode a wire `message` for the session's codec and CapTP profile and push
+    /// the frame onto the outbound queue. The one ordinary encode-then-queue seam;
+    /// the frame is freed on a push failure and owned by the queue on success.
+    pub fn pushEncoded(self: *Peer, message: model.Message) !void {
+        var frame = try self.encodeOutbound(message);
         errdefer frame.deinit();
+        try self.checkOutboundWaterline();
         try self.outbound.push(self.allocator, frame);
     }
 
-    /// Encode `op:abort` onto outbound, then close CapTP. The close follows the
-    /// successful queue push so the partner can still take the terminal frame.
-    /// Callers that must close even when encode/push fails do so in their
-    /// `catch` after calling this.
+    /// Encode one frame for the front staged carrier without removing that
+    /// carrier. Encoding, waterline admission, and outbound capacity are all
+    /// fallible while the staged row remains retryable. The caller consumes
+    /// the row only after this function succeeds.
+    pub fn pushEncodedFromPending(self: *Peer, staged_charge: usize, message: model.Message) !void {
+        var frame = try self.encodeOutbound(message);
+        errdefer frame.deinit();
+        try self.checkOutboundTransferWaterline(staged_charge);
+        try self.outbound.ensureUnusedCapacity(self.allocator, 1);
+        self.outbound.pushAssumeCapacity(frame);
+    }
+
+    /// Encode `op:abort` onto outbound, then close CapTP. A terminal frame is
+    /// admitted even when ordinary retained work has crossed its waterline:
+    /// suppressing the failure signal would leave the partner waiting on a
+    /// session this side has already condemned. The queue still charges the
+    /// frame, so the bounded exception is visible until the adapter drains it.
+    /// The close follows the successful push so the partner can still take the
+    /// terminal frame. Callers that must close even when encode/push fails do so
+    /// in their `catch` after calling this.
     pub fn commitAbortOutbound(
         self: *Peer,
         abort: model.AbortReason,
     ) !void {
-        try self.pushEncoded(.{ .abort = abort });
+        var frame = try self.encodeOutbound(.{ .abort = abort });
+        errdefer frame.deinit();
+        try self.outbound.push(self.allocator, frame);
         self.closeSession();
     }
 
@@ -1577,13 +1909,6 @@ pub const Peer = struct {
         return self.outbound.pop(self.allocator);
     }
 
-    /// Whether an encoded outbound frame is queued (`takeOutbound` would
-    /// return one) — the cheap emptiness probe a drain loop reads without
-    /// popping.
-    pub fn hasOutbound(self: *const Peer) bool {
-        return !self.outbound.isEmpty();
-    }
-
     /// Dispatch a borrowed inbound frame. The borrowed bytes are transient, so
     /// the engine copies them once into an owned frame to retain the event. This
     /// is the single intentional copy on the borrowed inbound path.
@@ -1631,6 +1956,7 @@ pub const Peer = struct {
     /// boundary does. `.incomplete` is not an error: no abort, no state change.
     pub fn recvStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
         const cap = self.session_state.limits.max_frame_bytes;
+        const wire_profile = self.inboundProfile();
         // A frame still arriving is asked about once per read, and the decoder
         // answers by walking from its first byte every time, so a frame
         // delivered in pieces is walked once per piece. The scan carries the
@@ -1640,7 +1966,7 @@ pub const Peer = struct {
         //
         const prefix = codec.dispatch.framePrefixForProfile(
             self.inboundCodec(),
-            self.session_state.captp_version,
+            wire_profile,
             buffer,
             &self.stream_scan,
             cap,
@@ -1672,7 +1998,7 @@ pub const Peer = struct {
                     self.recordFailure(err);
                     return err;
                 };
-                inbound.applyDecodedOwnedFrame(self, owned, decoded.body) catch |err| {
+                inbound.applyDecodedOwnedFrame(self, owned, decoded.body, wire_profile) catch |err| {
                     inbound.emitAbortForError(self, err);
                     return err;
                 };
@@ -1748,7 +2074,7 @@ pub const Peer = struct {
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it
 /// genuinely smaller. So no single number is the measurement on every target,
 /// and an equality here would fail the narrow ones.
-pub const peer_session_struct_budget_bytes = 1112;
+pub const peer_session_struct_budget_bytes = 1136;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget (docs/ladder.md step 2). " ++

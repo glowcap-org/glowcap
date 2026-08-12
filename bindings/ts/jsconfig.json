@@ -8,6 +8,7 @@
 		"paths": {
 			"@pancake/abi": ["./abi/constants.ts"],
 			"@pancake/stack": ["./stack/mod.ts"],
+			"@pancake/stack/driver_loop": ["./stack/driver_loop.ts"],
 			"@pancake/stack/transport/tcp": ["./stack/transport/tcp.ts"],
 			"@pancake/stack/transport/inproc": ["./stack/transport/inproc.ts"],
 			"@pancake/stack/ffi": ["./stack/ffi.ts"],

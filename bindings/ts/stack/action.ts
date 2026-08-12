@@ -10,11 +10,11 @@
 // exactly one callback seam (the behavior trampoline), so a hooks-buffer drain
 // could never run there.
 
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
 import { ab } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED, WOULD_BLOCK } from "@pancake/abi";
+import { CLOSED, HOST_ACTION_RESUME, WOULD_BLOCK } from "@pancake/abi";
 import { decodeHostAction, dispatchHostAction, type HostAction } from "./internal/host_action.ts";
 import { checkHost, PancakeError, VowBroken } from "./errors.ts";
 import type { Host } from "./host.ts";
@@ -37,20 +37,24 @@ export interface ActionHost {
  * WOULD_BLOCK); return them decoded, in queue order. A popped action's byte
  * views are host-owned and valid only until the next pop frees them, so
  * `decodeHostAction` copies each out before the loop continues. */
-export function parkActions(host: ActionHost): HostAction[] {
+export function parkActions(host: ActionHost): { actions: HostAction[]; yielded: boolean } {
 	const parked: HostAction[] = [];
 	const out = new Uint8Array(L.HOST_ACTION_SIZE);
 	while (true) {
-		const rc = driverS.pancake_host_next_action(host.raw, ab(out));
-		if (rc === WOULD_BLOCK) return parked;
+		const rc = hostS.pancake_host_next_action(host.raw, ab(out));
+		if (rc === WOULD_BLOCK) return { actions: parked, yielded: false };
 		checkHost(rc);
-		parked.push(decodeHostAction(new DataView(out.buffer)));
+		const action = decodeHostAction(new DataView(out.buffer));
+		if (action.kind === HOST_ACTION_RESUME) {
+			return { actions: parked, yielded: true };
+		}
+		parked.push(action);
 	}
 }
 
 /** The executor is deliberately dumb: every decision was already made in the
  * core; each arm is pure I/O or marshalling. The kind inventory lives in the
- * generated `dispatchHostAction` — a seventh kind fails generate/check. */
+ * generated `dispatchHostAction` — a new kind fails generate/check. */
 export async function runAction(host: Host, action: HostAction): Promise<void> {
 	await dispatchHostAction(action, {
 		dial: (a) => {
@@ -64,33 +68,38 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			// whenever it settles, and the follow-up kick drains what that
 			// report queued. (Lazy import: action ↔ dial would cycle through
 			// Host if required eagerly.)
-			void (async () => {
+			host.startDialTask(async (signal) => {
+				if (signal.aborted) return;
 				const { runDialTicket } = await import("./dial.ts");
-				await runDialTicket(host, a.ticket);
-				await host.kickActions();
-			})().catch(() => {});
+				await runDialTicket(host, a.ticket, signal);
+				if (!host.released) await host.kickActions();
+			});
 		},
 		flush: async (a) => {
-			await host.getSession(a.conn)?.flushOutbound();
+			await host.getSession(a.session)?.flushOutbound();
 		},
 		close: async (a) => {
-			const conn = host.getSession(a.conn);
-			if (conn === undefined) return;
+			const session = host.getSession(a.session);
+			if (session == null) return;
 			try {
-				await conn.flushOutbound();
+				await session.flushOutbound();
 			} catch {
 				// best-effort: the session is ending either way
 			}
-			conn.closeTransport();
+			session.closeTransport();
 		},
 		needGiftId: (a) => {
-			const id = crypto.getRandomValues(new Uint8Array(32));
-			checkHost(driverS.pancake_host_provide_gift_id(
-				host.raw,
-				a.ticket,
-				ab(id),
-				32n,
-			));
+			try {
+				const id = crypto.getRandomValues(new Uint8Array(32));
+				checkHost(hostS.pancake_host_provide_gift_id(
+					host.raw,
+					a.ticket,
+					ab(id),
+					32n,
+				));
+			} catch {
+				checkHost(hostS.pancake_host_gift_id_failed(host.raw, a.ticket));
+			}
 		},
 		settle: (a) => {
 			host.settleVow(a.ticket, { ok: a.value });
@@ -100,6 +109,10 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			host.settleVow(a.ticket, {
 				err: closing ? new PancakeError(CLOSED, a.message) : new VowBroken(a.message),
 			});
+		},
+		resume: (_a) => {
+			// parkActions normally consumes this as its `yielded` result; retain
+			// the exhaustive generated handler for direct runAction callers.
 		},
 	});
 }

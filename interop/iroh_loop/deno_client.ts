@@ -20,7 +20,7 @@
 // via `zig build deno-iroh-loop`.
 
 import { connect, formatPeerUri, type Session, TRANSPORT_IROH } from "@pancake/stack";
-import { listenIroh, Reachability } from "@pancake/iroh";
+import { dialLocatorForRelay, listenIroh, Reachability } from "@pancake/iroh";
 import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const GATE = "deno-iroh-loop";
@@ -43,10 +43,10 @@ function greeter(verb: string): string | null {
 /** Accept every dial, publish this connection's greeter, and serve it, all
  * from the server's one readiness loop. Ends when the server closes. */
 async function runAccepts(server: AsyncIterable<Session>, served: Session[]): Promise<void> {
-	for await (const conn of server) {
-		conn.publish("greeter", greeter);
-		conn.serve().catch(() => {});
-		served.push(conn);
+	for await (const session of server) {
+		session.publish("greeter", greeter);
+		session.serve().catch(() => {});
+		served.push(session);
 	}
 }
 
@@ -55,26 +55,43 @@ async function runAccepts(server: AsyncIterable<Session>, served: Session[]): Pr
  * `CALLS_PER_CONN` times, checking every reply. */
 async function clientOnce(serverId: string): Promise<void> {
 	const locator = formatPeerUri(TRANSPORT_IROH, serverId);
-	const conn = await connect(locator, Reachability.LocalDiscovery);
+	const session = await connect(locator, Reachability.LocalDiscovery);
 	try {
-		const greeterRef = await conn.fetch("greeter");
+		const greeterRef = await session.fetch("greeter");
 		for (let i = 0; i < CALLS_PER_CONN; i++) {
-			const reply = await conn.send(greeterRef, "greet", ["world"]);
+			const reply = await session.send(greeterRef, "greet", ["world"]);
 			if (reply !== GREETING) {
 				throw new Error(`wrong reply: ${JSON.stringify(reply)}`);
 			}
 		}
 	} finally {
-		conn.close();
+		session.close();
 	}
 }
 
-const server = listenIroh({ reachability: Reachability.LocalDiscovery });
+const server = await listenIroh({ reachability: Reachability.LocalDiscovery, workerThreads: 1 });
 const serverId = server.nodeId;
 console.log(`${GATE}: server endpoint id ${serverId}`);
 
 const served: Session[] = [];
 const acceptTask = runAccepts(server, served);
+
+// An accepted QUIC stream that sends no CapTP hello must consume one bounded
+// handshake seat, not serialize every later admission behind its timeout.
+const silent = await dialLocatorForRelay(
+	formatPeerUri(TRANSPORT_IROH, serverId),
+	Reachability.LocalDiscovery,
+);
+// QUIC streams are lazy: a valid but incomplete outer length prefix makes the
+// stream visible while leaving the CapTP frame delimiter waiting for its tail.
+await silent.write(new Uint8Array(["1".charCodeAt(0)]));
+await Promise.race([
+	clientOnce(serverId),
+	new Promise<never>((_, reject) =>
+		setTimeout(() => reject(new Error("silent peer serialized iroh admission")), 8_000)
+	),
+]);
+silent.close();
 
 // Fan out all clients at once: they share nothing, so the only thing that can
 // serve them all is the one server loop multiplexing.
@@ -84,7 +101,7 @@ const results = await Promise.allSettled(
 
 // Bring the server-side connections and the server down so the gate never
 // hangs and no fd reader outlives the endpoint it watches.
-for (const conn of served) conn.close();
+for (const session of served) session.close();
 server.close();
 await acceptTask;
 
@@ -93,6 +110,25 @@ if (errors.length > 0) {
 	const first = errors[0] as PromiseRejectedResult;
 	fail(GATE, `${errors.length}/${NUM_CONNS} client(s) failed; first: ${first.reason}`);
 }
+
+// Host teardown owns admission on every transport. Prove a waiter parked on
+// iroh's reactor wakes terminally rather than keeping the endpoint alive.
+const closing = await listenIroh({
+	reachability: Reachability.LocalDiscovery,
+	workerThreads: 1,
+});
+const iterator = closing[Symbol.asyncIterator]();
+const pendingAccept = iterator.next();
+await Promise.resolve();
+closing.host.release();
+const closedAccept = await Promise.race([
+	pendingAccept,
+	new Promise<never>((_, reject) =>
+		setTimeout(() => reject(new Error("Host release did not wake iroh accept")), 2_000)
+	),
+]);
+if (!closedAccept.done) fail(GATE, "a released Host admitted an iroh session");
+closing.close();
 
 console.log(
 	`${GATE}: OK, ${NUM_CONNS} concurrent iroh connections, ${CALLS_PER_CONN} calls each, ` +

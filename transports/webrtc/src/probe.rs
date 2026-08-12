@@ -30,19 +30,16 @@ use std::io::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
+use bytes::BytesMut;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, BufReader};
-
-use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::MediaEngine;
-use webrtc::api::setting_engine::SettingEngine;
-use webrtc::api::APIBuilder;
-use webrtc::data_channel::data_channel_message::DataChannelMessage;
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::interceptor::registry::Registry;
-use webrtc::peer_connection::configuration::RTCConfiguration;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::data_channel::{DataChannel, DataChannelEvent};
+use webrtc::peer_connection::{
+	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder,
+	PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit,
+	RTCPeerConnectionIceEvent, RTCSessionDescription, Registry, SettingEngine,
+};
+use webrtc::runtime::TokioRuntime;
 
 /// The message the browser sends first, and the reply this peer sends back. The
 /// harness asserts both, so both directions of the channel are proven.
@@ -57,6 +54,47 @@ fn emit(value: &serde_json::Value) {
 	let _ = out.flush();
 }
 
+#[derive(Clone)]
+struct ProbeHandler {
+	done_tx: tokio::sync::mpsc::Sender<bool>,
+}
+
+#[async_trait::async_trait]
+impl PeerConnectionEventHandler for ProbeHandler {
+	async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+		if let Ok(init) = event.candidate.to_json() {
+			if !init.candidate.is_empty() {
+				emit(&json!({ "type": "candidate", "candidate": init }));
+			}
+		}
+	}
+
+	async fn on_data_channel(&self, dc: Arc<dyn DataChannel>) {
+		let done_tx = self.done_tx.clone();
+		tokio::spawn(async move {
+			while let Some(event) = dc.poll().await {
+				match event {
+					DataChannelEvent::OnMessage(msg) => {
+						let text = String::from_utf8_lossy(&msg.data).to_string();
+						emit(&json!({ "type": "native_recv", "text": text }));
+						// Reply so the browser can prove the reverse direction. The
+						// reply names what we received, so a stray message cannot
+						// masquerade as the expected one.
+						let reply = format!("pong-from-native:{text}");
+						let ok = text == EXPECTED_FROM_BROWSER;
+						let _ = dc.send(BytesMut::from(reply.as_bytes())).await;
+						let _ = done_tx.send(ok).await;
+					}
+					DataChannelEvent::OnClose
+					| DataChannelEvent::OnClosing
+					| DataChannelEvent::OnError => break,
+					_ => {}
+				}
+			}
+		});
+	}
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// Loopback host candidates are the whole ICE path here: no STUN, no TURN, no
@@ -67,61 +105,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut setting_engine = SettingEngine::default();
 	setting_engine.set_include_loopback_candidate(true);
 
-	// The data-channel-only setup, mirroring the webrtc crate's own
-	// data-channels example: a default media engine with default interceptors.
-	let mut media_engine = MediaEngine::default();
-	media_engine.register_default_codecs()?;
-	let mut registry = Registry::new();
-	registry = register_default_interceptors(registry, &mut media_engine)?;
-
-	let api = APIBuilder::new()
-		.with_media_engine(media_engine)
-		.with_interceptor_registry(registry)
-		.with_setting_engine(setting_engine)
-		.build();
-
-	// No ICE servers: direct host candidates only, the relay-less path.
-	let config = RTCConfiguration::default();
-	let pc = Arc::new(api.new_peer_connection(config).await?);
-
-	// Trickle local ICE candidates to the browser as they gather.
-	pc.on_ice_candidate(Box::new(move |candidate| {
-		Box::pin(async move {
-			if let Some(candidate) = candidate {
-				if let Ok(init) = candidate.to_json() {
-					emit(&json!({ "type": "candidate", "candidate": init }));
-				}
-			}
-		})
-	}));
-
 	// Fires once the round-trip completes (browser message received and reply
 	// sent), so main can emit its verdict and exit after a grace window.
 	let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<bool>(1);
 
-	// The browser is the offerer and creates the channel; this peer accepts it.
-	let done_for_dc = done_tx.clone();
-	pc.on_data_channel(Box::new(move |dc| {
-		let done_tx = done_for_dc.clone();
-		Box::pin(async move {
-			let dc_send = dc.clone();
-			dc.on_message(Box::new(move |msg: DataChannelMessage| {
-				let dc = dc_send.clone();
-				let done_tx = done_tx.clone();
-				Box::pin(async move {
-					let text = String::from_utf8_lossy(&msg.data).to_string();
-					emit(&json!({ "type": "native_recv", "text": text }));
-					// Reply so the browser can prove the reverse direction. The
-					// reply names what we received, so a stray message cannot
-					// masquerade as the expected one.
-					let reply = format!("pong-from-native:{text}");
-					let ok = text == EXPECTED_FROM_BROWSER;
-					let _ = dc.send(&Bytes::from(reply.into_bytes())).await;
-					let _ = done_tx.send(ok).await;
-				})
-			}));
-		})
-	}));
+	// The data-channel-only setup, mirroring the webrtc crate's own
+	// data-channels example: a default media engine with default interceptors.
+	let mut media_engine = MediaEngine::default();
+	media_engine.register_default_codecs()?;
+	let registry = register_default_interceptors(Registry::new(), &mut media_engine)?;
+
+	let pc = PeerConnectionBuilder::new()
+		.with_configuration(RTCConfigurationBuilder::default().build())
+		.with_media_engine(media_engine)
+		.with_interceptor_registry(registry)
+		.with_setting_engine(setting_engine)
+		.with_handler(Arc::new(ProbeHandler { done_tx }))
+		.with_runtime(Arc::new(TokioRuntime))
+		.with_udp_addrs(vec!["127.0.0.1:0".to_string()])
+		.build()
+		.await?;
+	let pc: Arc<dyn PeerConnection> = Arc::new(pc);
 
 	// Read signaling from stdin: the browser's offer and its trickled candidates.
 	let pc_reader = pc.clone();

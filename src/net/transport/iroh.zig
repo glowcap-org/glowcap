@@ -40,7 +40,6 @@ const completion = net.completion;
 const ScratchPool = completion.ScratchPool;
 
 const crypto = foundation.crypto;
-const posix = std.posix;
 const Io = std.Io;
 const Connection = net.Connection;
 const Netlayer = net.netlayer.Netlayer;
@@ -49,7 +48,9 @@ const Buffers = net.netlayer.Buffers;
 
 /// The transport symbol this resident registers under and signs into
 /// `op:start-session`.
-pub const transport_name = model.transport.iroh;
+const known_transport = model.transport.Known.iroh;
+pub const transport_profile = known_transport.metadata();
+pub const transport_name = transport_profile.symbol;
 
 /// How an endpoint becomes reachable, chosen explicitly when the resident is
 /// created — there is no default, so enabling relays or a discovery service is
@@ -115,7 +116,6 @@ extern fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, confi
 extern fn pancake_iroh_sidecar_endpoint_node_id(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
 extern fn pancake_iroh_sidecar_endpoint_direct_addrs(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
 extern fn pancake_iroh_sidecar_connect_blocking(ep: *CEndpoint, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize, out_code: *i32) ?*CConn;
-extern fn pancake_iroh_sidecar_accept(ep: *CEndpoint) ?*CConn;
 extern fn pancake_iroh_sidecar_accept_timeout(ep: *CEndpoint, timeout_ms: i32) ?*CConn;
 extern fn pancake_iroh_sidecar_conn_remote_node_id(conn: *const CConn, out_key32: [*]u8) i32;
 extern fn pancake_iroh_sidecar_conn_read(conn: *CConn, buf: [*]u8, len: usize) isize;
@@ -154,11 +154,12 @@ const ev_closed: u32 = 4;
 const ev_accept: u32 = 8;
 const ev_connect: u32 = 16;
 
-/// One drained readiness record: the connection that became ready (its `*CConn`
-/// as an integer, or 0 for an `ev_accept` record) and the `ev_*` bitset. This is
-/// the `extern struct` counterpart of the sidecar's `PancakeIrohReadyEvent` and
-/// the header's `pancake_iroh_sidecar_ready_event`; the three layouts are kept
-/// in lockstep.
+/// One drained readiness record: the subject that became ready (the stable
+/// `loopConnId` identity for connection records, a caller request id for
+/// `ev_connect`, 0 for `ev_accept`) and the `ev_*` bitset. This is the
+/// `extern struct` counterpart of the sidecar's `PancakeIrohReadyEvent` and
+/// the header's `pancake_iroh_sidecar_ready_event`; the three layouts are
+/// kept in lockstep.
 pub const ReadyEvent = extern struct {
     subject: usize,
     events: u32,
@@ -291,9 +292,9 @@ pub const Resident = struct {
     /// returned `*CConn` is owned by the caller, freed with
     /// `pancake_iroh_sidecar_conn_free`.
     fn dialRawConn(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*CConn {
-        // Canonical node-id shape is owned by `DialResolver.resolve` (blocking
-        // `residentDial`, C-ABI `loopConnect`, `Loop.dialLocator`). Callers hand
-        // an already-admitted id; this path owns reachability hint policy.
+        // Canonical node-id shape is owned by `DialResolver.resolve` before the
+        // blocking `residentDial` reaches here. This path owns reachability
+        // hint policy.
         // A `direct` endpoint has no way to find a partner it was not handed an
         // address for, so a hint-less dial is a caller defect, refused before
         // the network. A discovery endpoint resolves the partner by id.
@@ -383,32 +384,9 @@ pub const Resident = struct {
         return conn;
     }
 
-    /// Dial a partner (blocking, like the netlayer dial) and hand back a
-    /// non-blocking connection handle for the loop surface, or the typed dial
-    /// error. The dial itself blocks the calling thread; only subsequent frame
-    /// I/O on the returned handle is non-blocking.
-    pub fn loopConnect(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*anyopaque {
-        // Admission for standalone / C-ABI callers that have not already gone
-        // through `DialResolver.resolve` (completion workers use `loopConnectResolved`).
-        const target = DialResolver.resolve(transport_name, designator, direct_addrs) catch return error.InvalidAddress;
-        return self.loopConnectResolved(target.id, target.hints);
-    }
-
-    /// Post-admission loop dial: `designator` / `direct_addrs` already passed
-    /// `DialResolver.resolve` (the `Loop.dialLocator` path). Sets the connection
-    /// non-blocking for the completion surface.
-    pub fn loopConnectResolved(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*anyopaque {
-        const conn = try self.dialRawConn(designator, direct_addrs);
-        if (pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, conn) != 0) {
-            pancake_iroh_sidecar_conn_free(conn);
-            return error.ConnectionLost;
-        }
-        return conn;
-    }
-
     /// Admit one evented dial under a caller-owned request id. Accepted starts
     /// produce exactly one `ev_connect`; rejected starts produce none.
-    pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!void {
+    pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) (net.netlayer.DialError || error{WouldBlock})!void {
         if (request_id == 0) return error.InvalidAddress;
         if (direct_addrs.len == 0 and !self.reachability.resolvesById()) return error.InvalidAddress;
         return switch (pancake_iroh_sidecar_endpoint_start_connect(
@@ -423,6 +401,7 @@ pub const Resident = struct {
             1 => error.InvalidAddress,
             2 => error.TimedOut,
             3 => error.NetworkUnreachable,
+            7 => error.WouldBlock,
             else => error.ConnectionLost,
         };
     }
@@ -466,7 +445,7 @@ pub const Resident = struct {
     }
 
     /// Non-blocking write of raw bytes to a loop connection: the count
-    /// written, `loop_would_block` when the outbound buffer is at its bound,
+    /// written, `loop_would_block` when the outbound buffer has no room,
     /// or negative on a fault. The caller treats a short write as ordinary
     /// (advance and resubmit the tail).
     pub fn loopTryWrite(self: *Resident, conn: *anyopaque, buf: []const u8) isize {
@@ -522,10 +501,7 @@ pub const loop_ev_connect: u32 = ev_connect;
 const resident_ctx = net.netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{
-    .transport_name = transport_name,
-    // The designator is the endpoint's Ed25519 key, so a driver dial pins the
-    // partner's session identity to it (`net.netlayer.DesignatorScheme`).
-    .designator_scheme = .key,
+    .profile = known_transport.metadata(),
     .dial = residentDial,
     .listen = residentListen,
     .io = resident_ctx.io,
@@ -539,10 +515,6 @@ fn isCanonicalNodeId(designator: []const u8) bool {
     return crypto.PeerKey.fromDesignator(designator) != null;
 }
 
-/// The locator's `hint_direct_addresses` string hint, or null when the hint is
-/// missing or carries a non-string value (`net.netlayer.directAddrHint`).
-const directAddrHint = net.netlayer.directAddrHint;
-
 fn residentDial(
     ctx: *anyopaque,
     peer: *engine.Peer,
@@ -553,8 +525,7 @@ fn residentDial(
     // Same admission as the completion loop: DialResolver.resolve owns transport +
     // canonical node-id; dialRawConn owns reachability hint policy (needs
     // resident posture).
-    const hints = directAddrHint(locator.hints) orelse "";
-    const target = DialResolver.resolve(locator.transport, locator.designator, hints) catch return error.InvalidAddress;
+    const target = resolveConnectTarget(locator) catch return error.InvalidAddress;
     const conn = try self.dialRawConn(target.id, target.hints);
     errdefer pancake_iroh_sidecar_conn_free(conn);
     // The dial half of the same proof the accept half makes (ADR-0105): QUIC
@@ -585,27 +556,51 @@ fn residentListen(
 }
 
 /// Iroh dial target: node id + optional direct-address hints. Module-level so
-/// `Locator` and `Backend` share one type without nesting the Locator on the Backend.
+/// `DialResolver` and `Backend` share one type without nesting the DialResolver on the Backend.
 const connect_target = struct {
     id: []const u8,
     hints: []const u8,
 };
 pub const ConnectTarget = connect_target;
 
+pub fn resolveConnectTarget(
+    locator: model.PeerLocator,
+) !ConnectTarget {
+    if (!std.mem.eql(u8, locator.transport, model.transport.iroh)) return error.UnknownTransport;
+    if (!isCanonicalNodeId(locator.designator)) return error.InvalidAddress;
+    return .{
+        .id = locator.designator,
+        .hints = net.netlayer.directAddrHint(locator.hints) orelse "",
+    };
+}
+
 /// OCapN locator mapped to an iroh `ConnectTarget` for `completion.Loop`.
 /// Canonical node-id shape is refused here so `dialLocator` / blocking dial
 /// fail before the network or sidecar admission is touched.
 pub const DialResolver = struct {
     pub fn resolve(
-        transport: []const u8,
-        designator: []const u8,
-        direct_addresses_hint: []const u8,
-    ) !ConnectTarget {
-        if (!std.mem.eql(u8, transport, model.transport.iroh)) return error.UnknownTransport;
-        if (!isCanonicalNodeId(designator)) return error.InvalidAddress;
-        return .{ .id = designator, .hints = direct_addresses_hint };
+        locator: model.PeerLocator,
+    ) !Backend.ConnectTarget {
+        return .{ .iroh = try resolveConnectTarget(locator) };
     }
 };
+
+/// Dial resolver for an iroh completion adapter whose wrapped backend also
+/// owns dialable transports. Iroh locators stay at this layer; every other
+/// symbol delegates without translating its target or importing that
+/// transport's policy here.
+pub fn CompositeDialResolver(comptime Platform: type, comptime Delegate: type) type {
+    return struct {
+        pub fn resolve(
+            locator: model.PeerLocator,
+        ) !CompletionBackend(Platform).ConnectTarget {
+            if (std.mem.eql(u8, locator.transport, model.transport.iroh)) {
+                return .{ .iroh = try resolveConnectTarget(locator) };
+            }
+            return .{ .platform = try Delegate.resolve(locator) };
+        }
+    };
+}
 
 /// A heap-pinned accept seat over the resident's one endpoint, freed by the
 /// contract listener's `close`. Closing the listener does not close the
@@ -615,35 +610,42 @@ const ListenerBox = struct {
     resident: *Resident,
     allocator: std.mem.Allocator,
     stashed: ?*CConn = null,
+    /// The sidecar's blocking accept has no per-call cancel handle. Serialize
+    /// it and poll in short bounded slices so close can join without freeing
+    /// this box under an active call.
+    operation_gate: std.Io.Mutex = .init,
+    stopping: std.atomic.Value(bool) = .init(false),
 };
+
+const accept_cancel_poll_ms: i32 = 50;
 
 const listener_vtable: Listener.VTable = .{
     .transport_name = transport_name,
     // Key scheme, like the netlayer: the responder's signed designator derives
-    // from its identity key, and `localDirectAddresses` publishes the endpoint's direct
-    // addresses so the signed locator is dialable by somebody who has not
-    // reached us yet. `listenerLocalDirectAddresses` states why a third party is the reason.
-    .designator_scheme = .key,
+    // from its identity key, and the complete locator publishes any direct
+    // addresses the endpoint knows.
+    .designator_scheme = known_transport.metadata().designator_scheme,
+    .sealed_channel = known_transport.metadata().sealed_channel,
     .accept = listenerAccept,
     .waitAcceptable = listenerWaitAcceptable,
-    .localDesignator = listenerLocalDesignator,
-    .localDirectAddresses = listenerLocalDirectAddresses,
+    .localLocator = listenerLocalLocator,
+    .canonicalizeLocator = listenerCanonicalizeLocator,
     .close = listenerClose,
 };
 
 fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptError!bool {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    if (box.stashed != null) return true;
-    // The blocking listener owns no endpoint-readiness records. Waiting through
-    // the sidecar's direct accept path avoids consuming accept, dial, or stream
-    // events that belong to an evented backend sharing this resident.
-    box.stashed = pancake_iroh_sidecar_accept_timeout(box.resident.endpoint, timeout_ms);
-    return box.stashed != null;
+    box.operation_gate.lockUncancelable(box.resident.io);
+    defer box.operation_gate.unlock(box.resident.io);
+    return waitForConnection(box, timeout_ms);
 }
 
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlayer.AcceptError!Connection {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    const conn = box.stashed orelse pancake_iroh_sidecar_accept(box.resident.endpoint) orelse return error.ConnectionLost;
+    box.operation_gate.lockUncancelable(box.resident.io);
+    defer box.operation_gate.unlock(box.resident.io);
+    if (box.stashed == null and !try waitForConnection(box, -1)) return error.ConnectionLost;
+    const conn = box.stashed orelse return error.ConnectionLost;
     box.stashed = null;
     errdefer pancake_iroh_sidecar_conn_free(conn);
     // The transport proof (ADR-0105): QUIC verified the remote endpoint key
@@ -657,6 +659,29 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlay
     return stream.intoConnection(box.resident.io, peer);
 }
 
+/// Wait on the sidecar's direct accept path without touching the evented
+/// backend's readiness queue. Bounded slices are the cancellation seam: a
+/// close flips `stopping`, then joins `operation_gate` within one slice.
+fn waitForConnection(box: *ListenerBox, timeout_ms: i32) net.netlayer.AcceptError!bool {
+    if (box.stashed != null) return true;
+    const started_at = if (timeout_ms > 0) net.clock.nowMs(box.resident.io) else 0;
+    while (true) {
+        if (box.stopping.load(.acquire)) return error.ConnectionLost;
+        const slice_ms: i32 = if (timeout_ms < 0)
+            accept_cancel_poll_ms
+        else if (timeout_ms == 0)
+            0
+        else blk: {
+            const elapsed = net.clock.nowMs(box.resident.io) - started_at;
+            if (elapsed >= timeout_ms) return false;
+            break :blk @intCast(@min(@as(i64, accept_cancel_poll_ms), @as(i64, timeout_ms) - elapsed));
+        };
+        box.stashed = pancake_iroh_sidecar_accept_timeout(box.resident.endpoint, slice_ms);
+        if (box.stashed != null) return true;
+        if (timeout_ms == 0) return false;
+    }
+}
+
 /// This endpoint's direct addresses, the `hint_direct_addresses` value a partner
 /// dials with, published in the hello the way `keyed-tcp` publishes its bound
 /// address.
@@ -668,444 +693,650 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlay
 /// Publishing what we know costs nothing: a dialer given addresses uses them,
 /// and one given none falls back to discovery.
 ///
-/// Empty when the endpoint has learned no address yet, which is `localDirectAddresses`'s
-/// ordinary empty case here rather than a defect: `iroh` is not in
-/// `driver_core.vocab.requiresDirectAddressesHint`, so an empty hint is a slower
-/// dial and not an impossible one.
-fn listenerLocalDirectAddresses(ctx: *anyopaque, out: []u8) error{OutputBufferTooSmall}![]const u8 {
+/// An empty direct-address set is ordinary for a discovery-capable endpoint:
+/// the locator remains complete and dials by endpoint id.
+fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netlayer.ListenError!model.PeerLocator {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    return box.resident.directAddrs(out);
+    var query: [1]u8 = undefined;
+    const direct_len = pancake_iroh_sidecar_endpoint_direct_addrs(box.resident.endpoint, &query, 0);
+    if (direct_len < 0) return error.BindFailed;
+    const direct = try allocator.alloc(u8, @intCast(direct_len));
+    defer allocator.free(direct);
+    if (pancake_iroh_sidecar_endpoint_direct_addrs(box.resident.endpoint, direct.ptr, direct.len) != direct_len)
+        return error.BindFailed;
+    var designator: [node_id_len]u8 = undefined;
+    _ = box.resident.nodeId(&designator);
+    var hint_storage: [1]model.HintEntry = undefined;
+    return model.clonePeerLocator(allocator, .{
+        .transport = transport_name,
+        .designator = &designator,
+        .hints = model.Hints.forDirectAddresses(direct, &hint_storage),
+    });
 }
 
-fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
+fn listenerCanonicalizeLocator(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    locator: model.PeerLocator,
+) net.netlayer.ListenError!model.PeerLocator {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    // Honors netlayer's no-truncation contract (`netlayer.writeDesignator`)
-    // inline: `nodeId` writes the id straight into `out`, so there is no stored
-    // slice to route through the helper, and an `out` too short yields the empty
-    // defect slice. The typed surface is `Resident.nodeId`, whose exactly-sized
-    // buffer cannot be short.
-    if (out.len < node_id_len) return out[0..0];
-    return box.resident.nodeId(out[0..node_id_len]);
+    var expected: [node_id_len]u8 = undefined;
+    _ = box.resident.nodeId(&expected);
+    try validateListenerLocator(&expected, locator);
+    return model.clonePeerLocator(allocator, locator);
+}
+
+/// Admit a replacement publication for one active iroh endpoint. The endpoint
+/// identity is immutable; direct-address hints may change as reachability does.
+pub fn validateListenerLocator(
+    expected_designator: []const u8,
+    locator: model.PeerLocator,
+) net.netlayer.ListenError!void {
+    model.validatePeerLocator(locator) catch return error.InvalidAddress;
+    if (!std.mem.eql(u8, locator.transport, transport_name) or
+        !std.mem.eql(u8, locator.designator, expected_designator))
+        return error.InvalidAddress;
+    _ = resolveConnectTarget(locator) catch return error.InvalidAddress;
 }
 
 fn listenerClose(ctx: *anyopaque) void {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    box.stopping.store(true, .release);
+    box.operation_gate.lockUncancelable(box.resident.io);
+    box.operation_gate.unlock(box.resident.io);
     if (box.stashed) |conn| pancake_iroh_sidecar_conn_free(conn);
     box.allocator.destroy(box);
 }
 
 // ── Completion backend: many iroh connections on one `completion.Loop` (ADR-0057) ─
 
-/// The iroh completion `Backend` for `net.completion.Loop`. Adapts the
-/// sidecar's one readiness fd + non-blocking try-I/O to the same
-/// completion-shaped interface the io_uring and kqueue backends provide, so
-/// CapTP fan-out rides `driver.Bridge` + `driver_core.Host` instead of a
-/// second, diverging loop (ADR-0076 convergence).
+/// An iroh completion adapter over `Platform`. The sidecar's one readiness fd
+/// and non-blocking try-I/O share the wrapped backend's wait primitive with
+/// delegated transports, so one `completion.Loop`, `driver.Bridge`, and Host
+/// action consumer can drive all of them (ADR-0076 convergence).
 ///
 /// Construct with `initBound` over a `Resident`'s endpoint, then
-/// `completion.Loop(Backend, DialResolver).initWithBackend`. Outbound dials
-/// resolve OCapN locator parts through `DialResolver.resolve` into `ConnectTarget`,
-/// then `startDial`, which admits the request to the sidecar runtime and returns
-/// immediately. Dial completion shares the endpoint readiness fd.
-pub const Backend = struct {
-    pub const Fd = i32;
-    pub const ConnectTarget = connect_target;
+/// `completion.Loop(Backend, DialResolver).initWithBackend`. `initBound` builds
+/// the ordinary platform backend; `initBoundWithPlatform` accepts a configured
+/// adapter such as keyed-relay. Iroh and stopper readiness are ordinary
+/// nonblocking recv operations on borrowed descriptors owned by the resident
+/// and wake channel respectively.
+pub fn CompletionBackend(comptime Platform: type) type {
+    return struct {
+        const Self = @This();
+        const Namespace = completion.AdapterNamespace(Platform);
+        pub const Fd = Platform.Fd;
+        pub const adapter_depth = Namespace.depth;
+        pub const ListenerAddress = void;
+        pub const ConnectTarget = union(enum) {
+            iroh: connect_target,
+            platform: Platform.ConnectTarget,
+        };
 
-    /// Sentinel listen handle: not an OS fd; `openListener` returns it after
-    /// arming non-blocking accept on the endpoint.
-    pub const listen_fd: Fd = 0;
+        /// Sentinel listen handle: not an OS fd; `openListener` returns it after
+        /// arming non-blocking accept on the endpoint.
+        pub const listen_fd: Fd = Namespace.fdFromId(0) catch unreachable;
 
-    const Pending = struct {
-        read_ud: ?u64 = null,
-        write_ud: ?u64 = null,
-        write_bytes: ?[]const u8 = null,
-        readable_hint: bool = false,
-        writable_hint: bool = false,
-    };
+        const Signal = enum(u1) { readiness, wake };
 
-    const ConnEntry = struct {
-        cconn: *CConn,
-        pending: Pending = .{},
-    };
+        const Pending = struct {
+            read_ud: ?u64 = null,
+            write_ud: ?u64 = null,
+            write_bytes: ?[]const u8 = null,
+            readable_hint: bool = false,
+            writable_hint: bool = false,
+        };
 
-    allocator: std.mem.Allocator,
-    /// Borrowed; must outlive the backend.
-    resident: *Resident,
-    endpoint: *CEndpoint,
-    readiness_fd: i32 = -1,
-    /// Completions that need no further readiness (closes, immediate accepts
-    /// from the stash, hint-satisfied recv/send, drained dials), drained before blocking.
-    ready: completion.ReadyQueue = .{},
-    /// Accepted connections waiting for a `submitAccept` to claim them — edge-
-    /// triggered accept can queue several before the loop re-arms.
-    accept_stash: std.ArrayList(*CConn) = .empty,
-    accept_ud: ?u64 = null,
-    /// Synthetic fd to sidecar connection. Fd 0 is the listen sentinel.
-    conns: std.AutoHashMap(Fd, ConnEntry),
-    /// Sidecar stable connection identity to synthetic fd, for readiness records.
-    by_id: std.AutoHashMap(usize, Fd),
-    /// Reserved synthetic fd to connect completion user data. The fd is also the
-    /// sidecar request id, making cancellation and retirement addressable.
-    pending_dials: std.AutoHashMap(Fd, u64),
-    next_fd: Fd = 1,
-    scratch_pool: ScratchPool,
-    poll_timeout_ms: i32 = 200,
+        const ConnEntry = struct {
+            cconn: *CConn,
+            pending: Pending = .{},
+        };
 
-    /// Bind a backend to `resident`'s endpoint. The resident must outlive the
-    /// loop and be driven by no other consumer for accept/connection I/O.
-    pub fn initBound(
+        const max_accept_stash = 128;
+
         allocator: std.mem.Allocator,
+        platform: Platform,
+        /// Borrowed; must outlive the backend.
         resident: *Resident,
-        queue_entries: u16,
-        read_buffers: u16,
-        read_buffer_bytes: u32,
-    ) !Backend {
-        _ = queue_entries;
-        var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
-        errdefer scratch_pool.deinit();
+        endpoint: *CEndpoint,
+        readiness_fd: Fd,
+        accept_enabled: bool = false,
+        readiness_armed: bool = false,
+        /// Completions that need no further readiness (closes, immediate accepts
+        /// from the stash, hint-satisfied recv/send, drained dials), drained before blocking.
+        ready: completion.ReadyQueue = .{},
+        /// Queue seats owned by admitted iroh operations that have not completed
+        /// yet. Capacity is not a reservation: two pending operations both
+        /// calling ensureUnusedCapacity(1) can claim the same last slot. This
+        /// count makes admission cumulative and lets completion stay infallible
+        /// after sidecar bytes or an event have been consumed.
+        ready_reserved: usize = 0,
+        /// Accepted connections waiting for a `submitAccept` to claim them — edge-
+        /// triggered accept can queue several before the loop re-arms.
+        accept_stash: std.ArrayList(*CConn) = .empty,
+        accept_ud: ?u64 = null,
+        /// Synthetic fd to sidecar connection. Fd 0 is the listen sentinel.
+        conns: std.AutoHashMap(Fd, ConnEntry),
+        /// Sidecar stable connection identity to synthetic fd, for readiness records.
+        by_id: std.AutoHashMap(usize, Fd),
+        /// Reserved synthetic fd to connect completion user data. The fd is also the
+        /// sidecar request id, making cancellation and retirement addressable.
+        pending_dials: std.AutoHashMap(Fd, u64),
+        /// Stopper wake polled beside the sidecar readiness fd. Iroh readiness is
+        /// owned by the sidecar; loop-owner cancellation is a separate userspace
+        /// event and should not ride a timeout-polled side channel. The adapter
+        /// drains this channel itself after the platform reports readability, so
+        /// coalesced nudges cost one owner turn rather than one completion each.
+        wake_channel: net.wake_channel.WakeChannel,
+        wake_fd: Fd,
+        wake_armed: bool = false,
+        next_id: u32 = 1,
+        scratch_pool: ScratchPool,
 
-        return .{
-            .allocator = allocator,
-            .resident = resident,
-            .endpoint = resident.endpoint,
-            .conns = std.AutoHashMap(Fd, ConnEntry).init(allocator),
-            .by_id = std.AutoHashMap(usize, Fd).init(allocator),
-            .pending_dials = std.AutoHashMap(Fd, u64).init(allocator),
-            .scratch_pool = scratch_pool,
-        };
-    }
-
-    pub fn deinit(self: *Backend) void {
-        var pending_it = self.pending_dials.keyIterator();
-        while (pending_it.next()) |fd| self.resident.loopCancelConnect(@intCast(fd.*));
-        self.pending_dials.deinit();
-
-        var it = self.conns.iterator();
-        while (it.next()) |entry| {
-            pancake_iroh_sidecar_conn_free(entry.value_ptr.cconn);
+        /// Bind a backend to `resident`'s endpoint. The resident must outlive the
+        /// loop and be driven by no other consumer for accept/connection I/O.
+        pub fn initBound(
+            allocator: std.mem.Allocator,
+            resident: *Resident,
+            queue_entries: u16,
+            read_buffers: u16,
+            read_buffer_bytes: u32,
+        ) !Self {
+            const platform = try Platform.init(allocator, queue_entries, read_buffers, read_buffer_bytes);
+            return initBoundWithPlatform(allocator, resident, platform, read_buffers, read_buffer_bytes);
         }
-        self.conns.deinit();
-        self.by_id.deinit();
-        for (self.accept_stash.items) |cconn| pancake_iroh_sidecar_conn_free(cconn);
-        self.accept_stash.deinit(self.allocator);
-        self.ready.deinit(self.allocator);
-        self.scratch_pool.deinit();
-    }
 
-    pub fn openListener(self: *Backend, port: u16) !Fd {
-        _ = port;
-        if (pancake_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) != 0)
-            return error.ListenFailed;
-        const fd = pancake_iroh_sidecar_endpoint_readiness_fd(self.endpoint);
-        if (fd < 0) return error.ListenFailed;
-        self.readiness_fd = fd;
-        return listen_fd;
-    }
+        /// Bind iroh over an already-configured platform adapter. Ownership of
+        /// `platform` transfers on entry, including every error path.
+        pub fn initBoundWithPlatform(
+            allocator: std.mem.Allocator,
+            resident: *Resident,
+            platform: Platform,
+            read_buffers: u16,
+            read_buffer_bytes: u32,
+        ) !Self {
+            var owned_platform = platform;
+            errdefer owned_platform.deinit();
+            const wake_channel = try net.wake_channel.WakeChannel.open();
+            errdefer wake_channel.deinit();
+            var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
+            errdefer scratch_pool.deinit();
+            const readiness_source = pancake_iroh_sidecar_endpoint_readiness_fd(resident.endpoint);
+            if (readiness_source < 0) return error.ListenFailed;
 
-    /// Start an outbound iroh dial and reserve its final synthetic fd. The same
-    /// value is the sidecar request id and remains valid through cancellation.
-    pub fn startDial(self: *Backend, user_data: u64, target: connect_target) !Fd {
-        const fd = try self.reserveFd();
-        try self.pending_dials.put(fd, user_data);
-        errdefer std.debug.assert(self.pending_dials.remove(fd));
-        try self.resident.loopStartConnectResolved(@intCast(fd), target.id, target.hints);
-        return fd;
-    }
-
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
-        return 0;
-    }
-
-    pub fn closeFd(self: *Backend, fd: Fd) void {
-        if (fd == listen_fd) return;
-        if (self.pending_dials.contains(fd)) {
-            self.resident.loopCancelConnect(@intCast(fd));
-            return;
-        }
-        const entry = self.conns.fetchRemove(fd) orelse return;
-        std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.value.cconn)));
-        pancake_iroh_sidecar_conn_free(entry.value.cconn);
-    }
-
-    /// Required Backend contract; iroh has no OS recv to unblock.
-    pub fn shutdownFd(self: *Backend, fd: Fd) void {
-        _ = self;
-        _ = fd;
-    }
-
-    pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
-        self.scratch_pool.release(@intCast(comp.recv_token));
-    }
-
-    fn reserveFd(self: *Backend) !Fd {
-        const fd = self.next_fd;
-        if (fd == std.math.maxInt(Fd)) return error.OutOfFds;
-        self.next_fd += 1;
-        return fd;
-    }
-
-    fn bindFd(self: *Backend, fd: Fd, cconn: *CConn) !void {
-        // Fresh connections are writable; seed the hint so the first hello
-        // send is not stranded if a writable edge fired before by_id
-        // registration (edge-triggered readiness drops unknown conns).
-        try self.conns.put(fd, .{ .cconn = cconn, .pending = .{ .writable_hint = true } });
-        errdefer std.debug.assert(self.conns.remove(fd));
-        const conn_id = self.resident.loopConnId(cconn);
-        if (conn_id == 0) return error.InvalidConnId;
-        try self.by_id.put(conn_id, fd);
-    }
-
-    fn allocFd(self: *Backend, cconn: *CConn) !Fd {
-        const fd = try self.reserveFd();
-        try self.bindFd(fd, cconn);
-        return fd;
-    }
-
-    fn takeAccept(self: *Backend) !void {
-        const ud = self.accept_ud orelse return;
-        if (self.accept_stash.items.len == 0) return;
-        const cconn = self.accept_stash.orderedRemove(0);
-        const fd = self.allocFd(cconn) catch {
-            pancake_iroh_sidecar_conn_free(cconn);
-            try self.ready.append(self.allocator, .{ .user_data = ud, .result = -1 });
-            self.accept_ud = null;
-            return;
-        };
-        try self.ready.append(self.allocator, .{ .user_data = ud, .result = fd });
-        self.accept_ud = null;
-    }
-
-    fn stashAccepts(self: *Backend) void {
-        while (pancake_iroh_sidecar_endpoint_try_accept(self.endpoint)) |cconn| {
-            if (pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, cconn) != 0) {
-                pancake_iroh_sidecar_conn_free(cconn);
-                continue;
-            }
-            self.accept_stash.append(self.allocator, cconn) catch {
-                pancake_iroh_sidecar_conn_free(cconn);
-                continue;
+            return .{
+                .allocator = allocator,
+                .platform = owned_platform,
+                .resident = resident,
+                .endpoint = resident.endpoint,
+                .readiness_fd = readiness_source,
+                .conns = std.AutoHashMap(Fd, ConnEntry).init(allocator),
+                .by_id = std.AutoHashMap(usize, Fd).init(allocator),
+                .pending_dials = std.AutoHashMap(Fd, u64).init(allocator),
+                .wake_channel = wake_channel,
+                .wake_fd = wake_channel.read,
+                .scratch_pool = scratch_pool,
             };
         }
-    }
 
-    /// The QUIC-authenticated remote endpoint key for `fd`'s connection, or
-    /// null when the connection is gone or the proof cannot be read. This is
-    /// the evidence `completion.Loop.verifiedChannelKey` forwards to the bridge,
-    /// which asserts it to the engine before the connection's first byte feeds
-    /// (ADR-0105). Socket backends have no such decl and the loop answers null
-    /// for them.
-    pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
-        const entry = self.conns.getPtr(fd) orelse return null;
-        const key = connRemoteKey(entry.cconn) orelse return null;
-        return key.bytes;
-    }
+        pub fn deinit(self: *Self) void {
+            var pending_it = self.pending_dials.keyIterator();
+            while (pending_it.next()) |fd| self.cancelDial(Namespace.fdId(fd.*));
+            self.pending_dials.deinit();
 
-    pub fn submitAccept(self: *Backend, user_data: u64, listen: Fd) !void {
-        if (listen != listen_fd) return error.InvalidListenFd;
-        self.accept_ud = user_data;
-        self.stashAccepts();
-        try self.takeAccept();
-    }
+            var it = self.conns.iterator();
+            while (it.next()) |entry| {
+                pancake_iroh_sidecar_conn_free(entry.value_ptr.cconn);
+            }
+            self.conns.deinit();
+            self.by_id.deinit();
+            for (self.accept_stash.items) |cconn| pancake_iroh_sidecar_conn_free(cconn);
+            self.accept_stash.deinit(self.allocator);
+            self.platform.deinit();
+            self.wake_channel.deinit();
+            self.ready.deinit(self.allocator);
+            self.scratch_pool.deinit();
+        }
 
-    fn entryPtr(self: *Backend, fd: Fd) !*ConnEntry {
-        return self.conns.getPtr(fd) orelse error.InvalidFd;
-    }
+        /// Wake a parked `poll` so owner-thread stop or teardown state can be
+        /// observed without timeout polling. Carries no authority and records no
+        /// transport readiness; the next harvest drains the nudge and then observes
+        /// the state the caller already changed.
+        pub fn wake(self: *Self) void {
+            self.wake_channel.nudge();
+        }
 
-    fn completeRecv(self: *Backend, fd: Fd, entry: *ConnEntry) !void {
-        const ud = entry.pending.read_ud orelse return;
-        var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
-        if (self.scratch_pool.acquire()) |idx| {
-            const buf = self.scratch_pool.buffer(idx);
-            const n = pancake_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
+        pub fn openListener(self: *Self, port: u16) !Fd {
+            _ = port;
+            if (pancake_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) != 0)
+                return error.ListenFailed;
+            self.accept_enabled = true;
+            return listen_fd;
+        }
+
+        /// Start an outbound dial in the layer that resolved it. Iroh reserves a
+        /// synthetic handle immediately; delegated targets retain the wrapped
+        /// backend's handle and completion semantics unchanged.
+        pub fn startDial(self: *Self, user_data: u64, target: Self.ConnectTarget) !Fd {
+            return switch (target) {
+                .platform => |platform_target| self.platform.startDial(user_data, platform_target),
+                .iroh => |iroh_target| blk: {
+                    try self.reserveReady(1);
+                    errdefer self.releaseReady(1);
+                    const fd = try self.reserveFd();
+                    try self.pending_dials.put(fd, user_data);
+                    errdefer std.debug.assert(self.pending_dials.remove(fd));
+                    try self.resident.loopStartConnectResolved(Namespace.fdId(fd), iroh_target.id, iroh_target.hints);
+                    break :blk fd;
+                },
+            };
+        }
+
+        pub fn listenerAddress(_: *Self, fd: Fd) !ListenerAddress {
+            if (fd != listen_fd) return error.InvalidListener;
+        }
+
+        pub fn listenerPort(_: ListenerAddress) ?u16 {
+            return null;
+        }
+
+        pub fn closeFd(self: *Self, fd: Fd) void {
+            if (!Namespace.ownsFd(fd)) return self.platform.closeFd(fd);
+            if (fd == listen_fd) return;
+            if (self.pending_dials.fetchRemove(fd) != null) {
+                self.cancelDial(Namespace.fdId(fd));
+                self.releaseReady(1);
+                return;
+            }
+            const entry = self.conns.fetchRemove(fd) orelse return;
+            std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.value.cconn)));
+            pancake_iroh_sidecar_conn_free(entry.value.cconn);
+        }
+
+        pub fn shutdownFd(self: *Self, fd: Fd) void {
+            if (!Namespace.ownsFd(fd)) self.platform.shutdownFd(fd);
+        }
+
+        pub fn recycleRecv(self: *Self, comp: completion.Completion) void {
+            if (Namespace.ownsRecvToken(comp.recv_token)) {
+                self.scratch_pool.release(@intCast(Namespace.recvTokenPayload(comp.recv_token)));
+            } else {
+                self.platform.recycleRecv(comp);
+            }
+        }
+
+        fn reserveFd(self: *Self) !Fd {
+            if (self.next_id == 0 or self.next_id > Namespace.max_fd_id) return error.OutOfFds;
+            const id = self.next_id;
+            self.next_id += 1;
+            return Namespace.fdFromId(id);
+        }
+
+        fn reserveReady(self: *Self, count: usize) !void {
+            const total = std.math.add(usize, self.ready_reserved, count) catch return error.OutOfMemory;
+            try self.ready.ensureUnusedCapacity(self.allocator, total);
+            self.ready_reserved = total;
+        }
+
+        fn ensureTransientReady(self: *Self, count: usize) !void {
+            const total = std.math.add(usize, self.ready_reserved, count) catch return error.OutOfMemory;
+            try self.ready.ensureUnusedCapacity(self.allocator, total);
+        }
+
+        fn releaseReady(self: *Self, count: usize) void {
+            std.debug.assert(self.ready_reserved >= count);
+            self.ready_reserved -= count;
+        }
+
+        fn appendReserved(self: *Self, item: completion.Completion) void {
+            self.releaseReady(1);
+            self.ready.appendAssumeCapacity(item);
+        }
+
+        /// Cancellation publishes a terminal sidecar dial record. Consume it
+        /// immediately: the adapter has already turned the cancellation into
+        /// the Loop's user completion, so leaving the sidecar record around
+        /// would retain one entry per canceled dial until endpoint teardown.
+        fn cancelDial(self: *Self, request_id: usize) void {
+            self.resident.loopCancelConnect(request_id);
+            _ = self.resident.loopFinishConnect(request_id) catch {};
+        }
+
+        fn bindFd(self: *Self, fd: Fd, cconn: *CConn) !void {
+            // Fresh connections are writable; seed the hint so the first hello
+            // send is not stranded if a writable edge fired before by_id
+            // registration (edge-triggered readiness drops unknown conns).
+            try self.conns.put(fd, .{ .cconn = cconn, .pending = .{ .writable_hint = true } });
+            errdefer std.debug.assert(self.conns.remove(fd));
+            const conn_id = self.resident.loopConnId(cconn);
+            if (conn_id == 0) return error.InvalidConnId;
+            try self.by_id.put(conn_id, fd);
+        }
+
+        fn allocFd(self: *Self, cconn: *CConn) !Fd {
+            const fd = try self.reserveFd();
+            try self.bindFd(fd, cconn);
+            return fd;
+        }
+
+        fn takeAccept(self: *Self) void {
+            if (!self.accept_enabled) return;
+            const ud = self.accept_ud orelse return;
+            if (self.accept_stash.items.len == 0) return;
+            const cconn = self.accept_stash.orderedRemove(0);
+            const fd = self.allocFd(cconn) catch {
+                pancake_iroh_sidecar_conn_free(cconn);
+                self.appendReserved(.{ .user_data = ud, .result = -1 });
+                self.accept_ud = null;
+                return;
+            };
+            self.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
+            self.accept_ud = null;
+        }
+
+        fn stashAccepts(self: *Self) void {
+            while (pancake_iroh_sidecar_endpoint_try_accept(self.endpoint)) |cconn| {
+                if (!self.accept_enabled) {
+                    pancake_iroh_sidecar_conn_free(cconn);
+                    continue;
+                }
+                if (self.accept_stash.items.len >= max_accept_stash) {
+                    // Overload policy: the Zig-side stash is the admission boundary
+                    // for accepted loop connections. Drop excess accepts and keep
+                    // the backend live; sidecar producer queues are bounded too.
+                    pancake_iroh_sidecar_conn_free(cconn);
+                    continue;
+                }
+                if (pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, cconn) != 0) {
+                    pancake_iroh_sidecar_conn_free(cconn);
+                    continue;
+                }
+                self.accept_stash.append(self.allocator, cconn) catch {
+                    pancake_iroh_sidecar_conn_free(cconn);
+                    continue;
+                };
+            }
+        }
+
+        /// The QUIC-authenticated remote endpoint key for `fd`'s connection, or
+        /// null when the connection is gone or the proof cannot be read. This is
+        /// the evidence `completion.Loop.verifiedChannelKey` forwards to the bridge,
+        /// which asserts it to the engine before the connection's first byte feeds
+        /// (ADR-0105). Socket backends have no such decl and the loop answers null
+        /// for them.
+        pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+            if (!Namespace.ownsFd(fd)) return self.platform.verifiedChannelKey(fd);
+            const entry = self.conns.getPtr(fd) orelse return null;
+            const key = connRemoteKey(entry.cconn) orelse return null;
+            return key.bytes;
+        }
+
+        pub fn submitAccept(self: *Self, user_data: u64, listen: Fd) !void {
+            if (!Namespace.ownsFd(listen)) return self.platform.submitAccept(user_data, listen);
+            if (listen != listen_fd) return error.InvalidListenFd;
+            if (!self.accept_enabled) return error.ListenerClosed;
+            if (self.accept_ud != null) return error.AlreadyAccepting;
+            try self.reserveReady(1);
+            self.accept_ud = user_data;
+            self.stashAccepts();
+            self.takeAccept();
+        }
+
+        fn entryPtr(self: *Self, fd: Fd) !*ConnEntry {
+            return self.conns.getPtr(fd) orelse error.InvalidFd;
+        }
+
+        fn completeRecv(self: *Self, fd: Fd, entry: *ConnEntry) void {
+            const ud = entry.pending.read_ud orelse return;
+            var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
+            if (self.scratch_pool.acquire()) |idx| {
+                const buf = self.scratch_pool.buffer(idx);
+                const n = pancake_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
+                if (n == would_block) {
+                    // Edge spent without bytes: keep the pending recv; a later
+                    // readable (or a left-over hint) will retry.
+                    self.scratch_pool.release(idx);
+                    entry.pending.readable_hint = false;
+                    return;
+                }
+                if (n > 0) {
+                    comp.result = @intCast(n);
+                    comp.recv_bytes = buf[0..@intCast(n)];
+                    comp.recv_token = Namespace.recvToken(idx);
+                    // More may still be buffered: leave the hint so the next
+                    // submitRecv completes without waiting for another edge.
+                    entry.pending.readable_hint = true;
+                } else {
+                    // 0 = clean EOF, negative = fault.
+                    comp.result = if (n == 0) 0 else -1;
+                    self.scratch_pool.release(idx);
+                    entry.pending.readable_hint = false;
+                }
+            } else {
+                comp.recv_no_buffer = true;
+                // Keep the hint: the loop re-arms once a buffer recycles.
+            }
+            entry.pending.read_ud = null;
+            self.appendReserved(comp);
+            _ = fd;
+        }
+
+        fn completeSend(self: *Self, entry: *ConnEntry) void {
+            const ud = entry.pending.write_ud orelse return;
+            const bytes = entry.pending.write_bytes orelse return;
+            const n = pancake_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
+            var result: i32 = -1;
             if (n == would_block) {
-                // Edge spent without bytes: keep the pending recv; a later
-                // readable (or a left-over hint) will retry.
-                self.scratch_pool.release(idx);
-                entry.pending.readable_hint = false;
+                entry.pending.writable_hint = false;
                 return;
             }
             if (n > 0) {
-                comp.result = @intCast(n);
-                comp.recv_bytes = buf[0..@intCast(n)];
-                comp.recv_token = idx;
-                // More may still be buffered: leave the hint so the next
-                // submitRecv completes without waiting for another edge.
-                entry.pending.readable_hint = true;
+                result = @intCast(n);
+                entry.pending.writable_hint = true;
             } else {
-                // 0 = clean EOF, negative = fault.
-                comp.result = if (n == 0) 0 else -1;
-                self.scratch_pool.release(idx);
-                entry.pending.readable_hint = false;
+                entry.pending.writable_hint = false;
             }
-        } else {
-            comp.recv_no_buffer = true;
-            // Keep the hint: the loop re-arms once a buffer recycles.
+            entry.pending.write_ud = null;
+            entry.pending.write_bytes = null;
+            self.appendReserved(.{ .user_data = ud, .result = result });
         }
-        entry.pending.read_ud = null;
-        try self.ready.append(self.allocator, comp);
-        _ = fd;
-    }
 
-    fn completeSend(self: *Backend, entry: *ConnEntry) !void {
-        const ud = entry.pending.write_ud orelse return;
-        const bytes = entry.pending.write_bytes orelse return;
-        const n = pancake_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
-        var result: i32 = -1;
-        if (n == would_block) {
-            entry.pending.writable_hint = false;
-            return;
+        pub fn submitRecv(self: *Self, user_data: u64, fd: Fd) !void {
+            if (!Namespace.ownsFd(fd)) return self.platform.submitRecv(user_data, fd);
+            const entry = try self.entryPtr(fd);
+            if (entry.pending.read_ud != null) return error.AlreadyReading;
+            try self.reserveReady(1);
+            entry.pending.read_ud = user_data;
+            if (entry.pending.readable_hint) self.completeRecv(fd, entry);
         }
-        if (n > 0) {
-            result = @intCast(n);
-            entry.pending.writable_hint = true;
-        } else {
-            entry.pending.writable_hint = false;
+
+        pub fn submitSend(self: *Self, user_data: u64, fd: Fd, bytes: []const u8) !void {
+            if (!Namespace.ownsFd(fd)) return self.platform.submitSend(user_data, fd, bytes);
+            const entry = try self.entryPtr(fd);
+            if (entry.pending.write_ud != null) return error.AlreadyWriting;
+            try self.reserveReady(1);
+            entry.pending.write_ud = user_data;
+            entry.pending.write_bytes = bytes;
+            // Always attempt once: a seeded writable_hint or a live edge may
+            // already allow the write; would_block parks until the next edge.
+            self.completeSend(entry);
         }
-        entry.pending.write_ud = null;
-        entry.pending.write_bytes = null;
-        try self.ready.append(self.allocator, .{ .user_data = ud, .result = result });
-    }
 
-    pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
-        const entry = try self.entryPtr(fd);
-        entry.pending.read_ud = user_data;
-        if (entry.pending.readable_hint) try self.completeRecv(fd, entry);
-    }
-
-    pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
-        const entry = try self.entryPtr(fd);
-        entry.pending.write_ud = user_data;
-        entry.pending.write_bytes = bytes;
-        // Always attempt once: a seeded writable_hint or a live edge may
-        // already allow the write; would_block parks until the next edge.
-        try self.completeSend(entry);
-    }
-
-    pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
-        try self.ready.ensureUnusedCapacity(self.allocator, 3);
-        if (fd == listen_fd) {
-            // Cancel a pending accept so Loop.closeAndDrain cannot hang on an
-            // idle acceptor; the listen sentinel is not a real conn entry.
-            if (self.accept_ud) |ud| {
-                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-                self.accept_ud = null;
+        pub fn submitCancel(
+            self: *Self,
+            cancel_user_data: u64,
+            target_user_data: u64,
+            fd: Fd,
+        ) !void {
+            if (!Namespace.ownsFd(fd))
+                return self.platform.submitCancel(cancel_user_data, target_user_data, fd);
+            const entry = try self.entryPtr(fd);
+            if (entry.pending.read_ud) |ud| {
+                if (ud != target_user_data) return error.InvalidCancelTarget;
+                // The recv already owns its reserved publication seat.
+                try self.reserveReady(1);
+                entry.pending.read_ud = null;
+                self.appendReserved(.{ .user_data = target_user_data, .result = -1 });
+            } else {
+                // A synchronous try-read may already have queued the target
+                // completion before the Loop can request cancellation.
+                try self.reserveReady(1);
             }
-            for (self.accept_stash.items) |cconn| pancake_iroh_sidecar_conn_free(cconn);
-            self.accept_stash.clearRetainingCapacity();
-            self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
-            return;
+            self.appendReserved(.{ .user_data = cancel_user_data, .result = 0 });
         }
-        if (self.pending_dials.contains(fd)) {
-            self.resident.loopCancelConnect(@intCast(fd));
-            self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
-            return;
-        }
-        if (self.conns.getPtr(fd)) |entry| {
-            if (entry.pending.read_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-            if (entry.pending.write_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-            entry.pending = .{};
-            std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.cconn)));
-            pancake_iroh_sidecar_conn_free(entry.cconn);
-            std.debug.assert(self.conns.remove(fd));
-        }
-        self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
-    }
 
-    fn dispatchReady(self: *Backend, ev: ReadyEvent) !void {
-        if (ev.events & ev_accept != 0) {
-            self.stashAccepts();
-            try self.takeAccept();
-            return;
-        }
-        if (ev.events & ev_connect != 0) {
-            const fd: Fd = std.math.cast(Fd, ev.subject) orelse return;
-            const done = self.pending_dials.fetchRemove(fd) orelse return;
-            const opaque_conn = self.resident.loopFinishConnect(ev.subject) catch {
-                try self.ready.append(self.allocator, .{ .user_data = done.value, .result = -1 });
+        pub fn submitClose(self: *Self, user_data: u64, fd: Fd) !void {
+            if (!Namespace.ownsFd(fd)) return self.platform.submitClose(user_data, fd);
+            // Every pending accept, dial, read, or write already owns one seat
+            // in ready_reserved from its admission. Closing publishes those
+            // cancellation records against their existing seats; reserve only
+            // the one additional record introduced by this close operation.
+            try self.reserveReady(1);
+            if (fd == listen_fd) {
+                // Cancel a pending accept so Loop.closeAndDrain cannot hang on an
+                // idle acceptor; the listen sentinel is not a real conn entry.
+                self.accept_enabled = false;
+                if (self.accept_ud) |ud| {
+                    self.appendReserved(.{ .user_data = ud, .result = -1 });
+                    self.accept_ud = null;
+                }
+                for (self.accept_stash.items) |cconn| pancake_iroh_sidecar_conn_free(cconn);
+                self.accept_stash.clearRetainingCapacity();
+                self.stashAccepts();
+                self.appendReserved(.{ .user_data = user_data, .result = 0 });
                 return;
-            };
-            const cconn: *CConn = @ptrCast(opaque_conn);
-            self.bindFd(fd, cconn) catch {
-                pancake_iroh_sidecar_conn_free(cconn);
-                try self.ready.append(self.allocator, .{ .user_data = done.value, .result = -1 });
+            }
+            if (self.pending_dials.fetchRemove(fd)) |done| {
+                self.cancelDial(Namespace.fdId(fd));
+                self.appendReserved(.{ .user_data = done.value, .result = -1 });
+                self.appendReserved(.{ .user_data = user_data, .result = 0 });
                 return;
-            };
-            try self.ready.append(self.allocator, .{ .user_data = done.value, .result = 0 });
-            return;
+            }
+            if (self.conns.getPtr(fd)) |entry| {
+                if (entry.pending.read_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
+                if (entry.pending.write_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
+                entry.pending = .{};
+                std.debug.assert(self.by_id.remove(self.resident.loopConnId(entry.cconn)));
+                pancake_iroh_sidecar_conn_free(entry.cconn);
+                std.debug.assert(self.conns.remove(fd));
+            }
+            self.appendReserved(.{ .user_data = user_data, .result = 0 });
         }
-        const fd = self.by_id.get(ev.subject) orelse return;
-        const entry = self.conns.getPtr(fd) orelse return;
-        if (ev.events & (ev_readable | ev_closed) != 0) {
-            entry.pending.readable_hint = true;
-            if (entry.pending.read_ud != null)
-                try self.completeRecv(fd, entry);
+
+        fn dispatchReady(self: *Self, ev: ReadyEvent) void {
+            if (ev.events & ev_accept != 0) {
+                self.stashAccepts();
+                self.takeAccept();
+                return;
+            }
+            if (ev.events & ev_connect != 0) {
+                const request_id = std.math.cast(u32, ev.subject) orelse return;
+                const fd = Namespace.fdFromId(request_id) catch return;
+                const done = self.pending_dials.fetchRemove(fd) orelse return;
+                const opaque_conn = self.resident.loopFinishConnect(ev.subject) catch {
+                    self.appendReserved(.{ .user_data = done.value, .result = -1 });
+                    return;
+                };
+                const cconn: *CConn = @ptrCast(opaque_conn);
+                self.bindFd(fd, cconn) catch {
+                    pancake_iroh_sidecar_conn_free(cconn);
+                    self.appendReserved(.{ .user_data = done.value, .result = -1 });
+                    return;
+                };
+                self.appendReserved(.{ .user_data = done.value, .result = 0 });
+                return;
+            }
+            const fd = self.by_id.get(ev.subject) orelse return;
+            const entry = self.conns.getPtr(fd) orelse return;
+            if (ev.events & (ev_readable | ev_closed) != 0) {
+                entry.pending.readable_hint = true;
+                if (entry.pending.read_ud != null)
+                    self.completeRecv(fd, entry);
+            }
+            if (ev.events & (ev_writable | ev_closed) != 0) {
+                entry.pending.writable_hint = true;
+                if (entry.pending.write_ud != null) self.completeSend(entry);
+            }
         }
-        if (ev.events & ev_writable != 0) {
-            entry.pending.writable_hint = true;
-            if (entry.pending.write_ud != null) try self.completeSend(entry);
+
+        fn takeReady(self: *Self, out: []completion.Completion) usize {
+            return self.ready.drain(out);
         }
-    }
 
-    fn takeReady(self: *Backend, out: []completion.Completion) usize {
-        return self.ready.drain(out);
-    }
+        fn signalUserData(signal: Signal) u64 {
+            return Namespace.userData(@intFromEnum(signal));
+        }
 
-    /// Non-blocking harvest of sidecar readiness. Must run
-    /// even when `ready` already has send/recv completions — otherwise an
-    /// accept that arrived during a busy G-to-E exchange stays invisible until
-    /// the queue drains, and a redeem dialer's CapTP hello is never answered.
-    fn harvestReadiness(self: *Backend) !void {
-        if (self.readiness_fd < 0) return;
+        fn armSignals(self: *Self) !void {
+            if (!self.readiness_armed) {
+                try self.platform.submitRecv(signalUserData(.readiness), self.readiness_fd);
+                self.readiness_armed = true;
+            }
+            if (!self.wake_armed) {
+                try self.platform.submitRecv(signalUserData(.wake), self.wake_fd);
+                self.wake_armed = true;
+            }
+        }
 
-        var pfds = [_]posix.pollfd{.{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 }};
-        _ = posix.poll(&pfds, 0) catch 0;
-
-        if (pfds[0].revents & (posix.POLL.IN | posix.POLL.ERR | posix.POLL.HUP) != 0) {
+        /// Drain one bounded sidecar batch made observable by one readiness byte.
+        /// The sidecar re-nudges its descriptor for remaining records. Limiting
+        /// this projection to one batch gives delegated platform completions a
+        /// turn even while the iroh queue stays continuously hot.
+        fn harvestSidecar(self: *Self) !void {
             var events_buf: [256]ReadyEvent = undefined;
-            // One readiness record can complete both a pending read and write.
-            // Reserve before consuming the wakeup or any sidecar record: once
-            // finish_connect transfers a terminal result, there is no second
-            // event from which to reconstruct a completion after allocation
-            // failure.
-            try self.ready.ensureUnusedCapacity(self.allocator, events_buf.len * 2);
-            while (true) {
-                const n = self.resident.drainReady(&events_buf);
-                if (n < 0) return error.SidecarDrainFailed;
-                if (n == 0) break;
-                const count: usize = @intCast(n);
-                for (events_buf[0..count]) |ev| try self.dispatchReady(ev);
-                if (count < events_buf.len) break;
-                // A full drain means another batch may follow. The sidecar has
-                // re-nudged the fd for any backlog, so an allocation failure
-                // here leaves the unconsumed records observable on retry.
-                try self.ready.ensureUnusedCapacity(self.allocator, events_buf.len * 2);
+            const n = self.resident.drainReady(&events_buf);
+            if (n < 0) return error.SidecarDrainFailed;
+            const count: usize = @intCast(n);
+            for (events_buf[0..count]) |ev| self.dispatchReady(ev);
+        }
+
+        fn dispatchPlatform(self: *Self, comp: completion.Completion) !void {
+            if (!Namespace.ownsUserData(comp.user_data)) {
+                self.ready.appendAssumeCapacity(comp);
+                return;
+            }
+
+            if (comp.recv_bytes != null) self.platform.recycleRecv(comp);
+            const signal: Signal = @enumFromInt(@as(u1, @truncate(Namespace.userDataPayload(comp.user_data))));
+            switch (signal) {
+                .readiness => self.readiness_armed = false,
+                .wake => self.wake_armed = false,
+            }
+            // A pool-starved recv still proves descriptor readiness. Both
+            // signal sources own stack-buffered drain APIs, so progress must not
+            // depend on a general transport buffer becoming available.
+            if (!comp.recv_no_buffer and comp.result <= 0)
+                return error.SignalReadFailed;
+            switch (signal) {
+                .readiness => try self.harvestSidecar(),
+                .wake => {
+                    self.wake_channel.drain();
+                },
             }
         }
-    }
 
-    pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
-        try self.harvestReadiness();
-        {
-            const n = self.takeReady(out);
-            if (n > 0) return n;
+        pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
+            try self.armSignals();
+
+            var platform_completions: [256]completion.Completion = undefined;
+            // Wrapped-platform completions have no iroh admission reservation,
+            // so make room for the whole batch without spending the seats each
+            // pending iroh operation already owns.
+            try self.ensureTransientReady(platform_completions.len);
+            const wait_ms: i32 = if (self.ready.len() > 0) 0 else timeout_ms;
+            const count = try self.platform.poll(&platform_completions, wait_ms);
+            for (platform_completions[0..count]) |comp| {
+                try self.dispatchPlatform(comp);
+            }
+
+            const ready_count = self.takeReady(out);
+            if (ready_count > 0) return ready_count;
+            // A stopper wake carries no transport completion. Returning zero lets
+            // `runUntil` observe the state the waking thread changed.
+            return 0;
         }
+    };
+}
 
-        if (self.readiness_fd < 0) return error.NotListening;
-        var pfds = [_]posix.pollfd{.{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 }};
-        const poll_ms: i32 = if (timeout_ms < 0) self.poll_timeout_ms else timeout_ms;
-        _ = posix.poll(&pfds, poll_ms) catch 0;
-
-        // Same harvest body as the non-blocking path — no duplicated drain.
-        try self.harvestReadiness();
-        {
-            const n = self.takeReady(out);
-            if (n > 0) return n;
-        }
-
-        // Timeout with nothing ready: return 0 so the loop can re-check Stop.
-        // `completion.Loop.run` treats an empty poll as continue; a zero return
-        // is valid.
-        return 0;
-    }
-};
+/// Iroh over the host platform's native completion backend.
+pub const Backend = CompletionBackend(net.Backend);

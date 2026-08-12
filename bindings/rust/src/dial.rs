@@ -20,16 +20,19 @@ use tokio::net::TcpStream;
 use crate::host::{check_host, Host, HostShared};
 use crate::session::{io_err, Session, HANDSHAKE_TIMEOUT};
 use crate::sys::host as ffi;
+use crate::uri::{Locator, OwnedLocator};
 use crate::{sys, Error, Result};
 
 /// A resolved dial from `pancake_host_plan_dial`: language sum over the C
 /// shape flag (mirrors Zig `DialPlan`). Views are decoded into owned strings
-/// before the input buffers die.
-enum DialPlan {
+/// before the input buffers die. Crate-visible so the loop route
+/// ([`crate::driver_loop`]) reads the same plan the byte-fed dial does.
+pub(crate) enum DialPlan {
 	HostPort {
 		host: String,
 		port: u16,
 	},
+	#[cfg_attr(not(feature = "iroh"), allow(dead_code))]
 	PeerId {
 		addresses: String,
 		reach_kind: u32,
@@ -44,15 +47,6 @@ enum DialPlan {
 	/// the dialer opens the relay rendezvous leg its host is configured for
 	/// (ADR-0088).
 	Rendezvous,
-}
-
-/// Host-owned pending-dial views (not input-buffer aliases).
-fn view_string(ptr: *const u8, len: usize) -> String {
-	if ptr.is_null() || len == 0 {
-		String::new()
-	} else {
-		String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, len) }).into_owned()
-	}
 }
 
 /// Decode a plan view that aliases one of the UTF-8 input buffers (one OS
@@ -78,7 +72,7 @@ fn decode_plan_view(sources: &[&[u8]], ptr: *const u8, len: usize) -> Result<Str
 /// Resolve a dial in the core: the host:port grammar, the hint rule, the
 /// peer-id posture, and the error cases all decided by `pancake_host_plan_dial`.
 /// Plan views alias the input UTF-8 buffers; decode those subslices only.
-fn plan_dial(
+pub(crate) fn plan_dial(
 	transport: &str,
 	designator: &str,
 	direct_addresses_hint: &str,
@@ -156,20 +150,145 @@ impl Reachability {
 const _: () =
 	assert!(Reachability::REDEEM_DEFAULT as u32 == crate::abi_constants::IROH_REACH_REDEEM_DEFAULT);
 
+async fn configure_loop_provider(
+	lp: &Rc<crate::driver_loop::LoopShared>,
+	plan: &DialPlan,
+	_locator: &Locator,
+) -> Result<()> {
+	match plan {
+		DialPlan::HostPort { .. } => {
+			#[cfg(feature = "tcp")]
+			crate::tcp::ensure_loop_provider(lp)?;
+			#[cfg(not(feature = "tcp"))]
+			return Err(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"host-port transport support requires the tcp archive".to_string(),
+			));
+			Ok(())
+		}
+		#[cfg(feature = "iroh")]
+		DialPlan::PeerId {
+			reach_kind,
+			reach_value,
+			..
+		} => {
+			let host = lp.wrapper_host()?;
+			crate::iroh::ensure_loop_provider(
+				&host,
+				lp,
+				crate::iroh::IrohConfig::new(crate::iroh::reachability_from_plan(
+					*reach_kind,
+					*reach_value,
+				)),
+			)
+			.await?;
+			Ok(())
+		}
+		#[cfg(feature = "relay")]
+		DialPlan::Rendezvous => {
+			let route = crate::relay_route::from_locator(_locator)?.ok_or_else(|| {
+				Error::with_detail(
+					sys::ERR_INVALID_ARGUMENT,
+					"native relay provider requires a rendezvous-relay locator hint".to_string(),
+				)
+			})?;
+			crate::relay::ensure_loop_provider(lp, route)
+		}
+		_ => Err(Error::with_detail(
+			sys::ERR_INVALID_ARGUMENT,
+			"the native loop has no provider for this dial shape".to_string(),
+		)),
+	}
+}
+
+async fn dial_via_loop(plan: DialPlan, locator: &Locator, handshake_ms: u32) -> Result<Session> {
+	let lp = crate::driver_loop::LoopShared::open(
+		handshake_ms,
+		crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u32,
+	)?;
+	let opened = async {
+		configure_loop_provider(&lp, &plan, locator).await?;
+		lp.start()?;
+		let session = lp.dial_locator(locator).await?;
+		crate::driver_loop::loop_session(&lp, session, true)
+	}
+	.await;
+	if opened.is_err() {
+		lp.close();
+	}
+	opened
+}
+
+async fn dial_shared_loop(
+	lp: Rc<crate::driver_loop::LoopShared>,
+	plan: DialPlan,
+	locator: &Locator,
+) -> Result<Session> {
+	configure_loop_provider(&lp, &plan, locator).await?;
+	let session = lp.dial_locator(locator).await?;
+	crate::driver_loop::loop_session(&lp, session, false)
+}
+
 /// The one dial path for [`connect`] and handoff redeem alike: no dispatch, no
 /// grammar, no posture — the core resolves all of that in `pancake_host_plan_dial`,
 /// and this opens the byte channel the plan names. Every dial through here
 /// carries `handshake_timeout`: a peer that accepts the connection and never
 /// finishes the OCapN handshake costs one dial, not the caller.
+///
+/// The driver archive (ADR-0112) is the public dial route for registered
+/// provider packages: a bare bounded dial mints one loop per connection, and a
+/// dial on a loop-owned Host stages through that existing loop.
+/// An externally supplied channel (currently keyed-relay) stays on the
+/// byte-fed adapter. A redeem reaches that adapter only when its Host already
+/// owns byte-fed sessions; a loop-owned Host redeems inside its own steps.
 pub(crate) async fn dial_parsed_locator(
-	transport: &str,
-	designator: &str,
-	direct_addresses_hint: &str,
+	locator: &Locator,
 	host: Option<Host>,
 	redeem: bool,
 	reachability: Option<Reachability>,
 	handshake_timeout: Option<Duration>,
 ) -> Result<Session> {
+	let transport = locator.transport.as_str();
+	let designator = locator.designator.as_str();
+	let direct_addresses_hint = locator
+		.string_hint(crate::abi_constants::HINT_DIRECT_ADDRESSES)?
+		.unwrap_or("");
+	let (policy, value): (u32, u32) = if redeem {
+		(sys::DIAL_POSTURE_REDEEM, 0)
+	} else if let Some(r) = reachability {
+		(sys::DIAL_POSTURE_EXPLICIT, r as u32)
+	} else {
+		(sys::DIAL_POSTURE_EXPLICIT_NONE, 0)
+	};
+	let plan = plan_dial(transport, designator, direct_addresses_hint, policy, value)?;
+	#[cfg(any(feature = "relay", feature = "rendezvous"))]
+	let relay_route = crate::relay_route::from_locator(locator)?;
+	if !redeem {
+		let driver_plan = match &plan {
+			DialPlan::HostPort { .. } => true,
+			#[cfg(feature = "iroh")]
+			DialPlan::PeerId { .. } => true,
+			#[cfg(feature = "relay")]
+			DialPlan::Rendezvous => relay_route.is_some(),
+			_ => false,
+		};
+		let bounded_ms = handshake_timeout
+			.filter(|budget| !budget.is_zero())
+			.map(|budget| u32::try_from(budget.as_millis()).unwrap_or(u32::MAX).max(1));
+		if driver_plan {
+			if let Some(handshake_ms) = bounded_ms {
+				if let Some(shared_host) = &host {
+					let shared = shared_host.shared();
+					let lp = shared.ensure_driver_loop(
+						handshake_ms,
+						crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u32,
+					)?;
+					return dial_shared_loop(lp, plan, locator).await;
+				}
+				return dial_via_loop(plan, locator, handshake_ms).await;
+			}
+		}
+	}
 	let owns_host = !redeem && host.is_none();
 	let dial_host = if redeem {
 		host.ok_or_else(|| {
@@ -182,14 +301,6 @@ pub(crate) async fn dial_parsed_locator(
 		host.unwrap_or_else(Host::new_host)
 	};
 	let shared = dial_host.shared();
-	let (policy, value): (u32, u32) = if redeem {
-		(sys::DIAL_POSTURE_REDEEM, 0)
-	} else if let Some(r) = reachability {
-		(sys::DIAL_POSTURE_EXPLICIT, r as u32)
-	} else {
-		(sys::DIAL_POSTURE_EXPLICIT_NONE, 0)
-	};
-	let plan = plan_dial(transport, designator, direct_addresses_hint, policy, value)?;
 	let mut session = match plan {
 		DialPlan::PeerId {
 			addresses,
@@ -258,13 +369,16 @@ pub(crate) async fn dial_parsed_locator(
 			// host, exactly like the redeem reachability posture beside it.
 			#[cfg(feature = "rendezvous")]
 			{
-				let url = shared.rendezvous_url_of(designator).ok_or_else(|| {
-					Error::with_detail(
-						sys::ERR_INVALID_ARGUMENT,
-						"keyed-relay dial: no rendezvous relay configured; call Host::set_rendezvous_url first"
-							.to_string(),
-					)
-				})?;
+				let url = match relay_route {
+					Some(route) => crate::relay_route::dial_url(route, designator)?,
+					None => shared.rendezvous_url_of(designator).ok_or_else(|| {
+						Error::with_detail(
+							sys::ERR_INVALID_ARGUMENT,
+							"relay dial: locator has no rendezvous-relay hint and the Host has no rendezvous mapping"
+								.to_string(),
+						)
+					})?,
+				};
 				let stream = crate::ws_stream::connect_websocket(&url).await?;
 				Session::establish_dialed_locator(
 					shared,
@@ -304,16 +418,9 @@ pub(crate) async fn dial_parsed_locator(
 /// alike. An exporter that never finishes the handshake breaks the redeem on
 /// [`HANDSHAKE_TIMEOUT`] rather than stalling the drain. Binding-internal: the
 /// host's action drain calls this to redeem a give.
-pub(crate) async fn dial_exporter(
-	transport: &str,
-	designator: &str,
-	direct_addresses_hint: &str,
-	host: Rc<HostShared>,
-) -> Result<Session> {
+pub(crate) async fn dial_exporter(locator: &Locator, host: Rc<HostShared>) -> Result<Session> {
 	dial_parsed_locator(
-		transport,
-		designator,
-		direct_addresses_hint,
+		locator,
 		Some(Host::from_shared(host)),
 		true,
 		None,
@@ -322,38 +429,59 @@ pub(crate) async fn dial_exporter(
 	.await
 }
 
-/// Ticket-only DIAL arm: borrow parsed parts (no URI re-parse), dial, report.
+/// Ticket-only DIAL arm: clone the complete locator, dial, and report.
 pub(crate) async fn run_dial_ticket(host: &Rc<HostShared>, ticket: u64) -> Result<()> {
 	use crate::host::{check_host, try_spawn_local};
 	use crate::sys::host as ffi;
 
-	let mut view: ffi::PancakePendingDial = unsafe { core::mem::zeroed() };
-	let result = async {
-		check_host(unsafe { ffi::pancake_host_pending_dial(host.raw(), ticket, &mut view) })?;
-		let transport = view_string(view.transport, view.transport_len);
-		let designator = view_string(view.designator, view.designator_len);
-		let hint = view_string(view.hint, view.hint_len);
+	let mut opened: Option<Session> = None;
+	let result: Result<()> = async {
+		let mut hints = vec![unsafe { core::mem::zeroed::<sys::PancakeLocatorHintView>() }; 8];
+		let mut view = unsafe { core::mem::zeroed::<sys::PancakeLocatorView>() };
+		let mut hint_count = 0usize;
+		loop {
+			let rc = unsafe {
+				ffi::pancake_host_pending_dial(
+					host.raw(),
+					ticket,
+					hints.as_mut_ptr(),
+					hints.len(),
+					&mut view,
+					&mut hint_count,
+				)
+			};
+			if rc != sys::ERR_BUFFER_TOO_SMALL {
+				check_host(rc)?;
+				break;
+			}
+			hints.resize(hint_count, unsafe { core::mem::zeroed() });
+		}
+		let locator = OwnedLocator::clone_view(&view)?.value()?;
 		// Boxed to break the async recursion cycle: the dial's establish
 		// runs its own reentrant drain (its start-session FLUSH).
-		let session = Box::pin(dial_exporter(
-			&transport,
-			&designator,
-			&hint,
-			Rc::clone(host),
-		))
-		.await?;
-		let raw_conn = session.raw_conn();
+		let session = Box::pin(dial_exporter(&locator, Rc::clone(host))).await?;
+		host.guard_open()?;
+		let raw_session = session.raw_session();
+		opened = Some(session);
+		check_host(unsafe { ffi::pancake_host_dialed(host.raw(), ticket, raw_session) })?;
+		let session = opened.take().expect("reported session remains owned");
 		let serving = session.serve();
-		try_spawn_local(async move {
+		let _ = try_spawn_local(async move {
 			serving.await;
 			drop(session);
 		});
-		check_host(unsafe { ffi::pancake_host_dialed(host.raw(), ticket, raw_conn) })
+		Ok(())
 	}
 	.await;
 	match result {
 		Ok(()) => Ok(()),
 		Err(error) => {
+			if let Some(session) = opened.take() {
+				session.close();
+			}
+			if host.closing() {
+				return Ok(());
+			}
 			let reason = error.to_string();
 			check_host(unsafe {
 				ffi::pancake_host_dial_failed(host.raw(), ticket, reason.as_ptr(), reason.len())
@@ -403,19 +531,5 @@ pub async fn connect_with_timeout(
 	handshake_timeout: Option<Duration>,
 ) -> Result<Session> {
 	let loc = crate::uri::parse_locator(uri)?;
-	let hint = loc
-		.hints
-		.get(crate::abi_constants::HINT_DIRECT_ADDRESSES)
-		.map(String::as_str)
-		.unwrap_or("");
-	dial_parsed_locator(
-		&loc.transport,
-		&loc.designator,
-		hint,
-		host,
-		false,
-		reachability,
-		handshake_timeout,
-	)
-	.await
+	dial_parsed_locator(&loc, host, false, reachability, handshake_timeout).await
 }

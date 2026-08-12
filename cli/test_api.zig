@@ -37,6 +37,7 @@ pub const repl_history = @import("repl/history.zig");
 pub const repl_await_queue = @import("repl/await_queue.zig");
 pub const repl_select = @import("repl/select.zig");
 pub const repl_flash = @import("repl/flash.zig");
+const iroh_sidecar_stub = @import("iroh_sidecar_stub");
 
 comptime {
     // The `cli/` sources carry unit tests, and Zig only collects tests from
@@ -50,4 +51,8 @@ comptime {
     _ = repl_links;
     _ = repl_select;
     _ = repl_ecs;
+    // CLI tests cover registry and orchestration without opening iroh. Link the
+    // trap-on-use sidecar test double so this hermetic root needs no Cargo
+    // cache; any accidental live iroh call fails at its exact boundary.
+    _ = iroh_sidecar_stub;
 }

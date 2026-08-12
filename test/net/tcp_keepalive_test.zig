@@ -11,7 +11,7 @@ test "keepalive apply is a no-crash setsockopt on a connected stream" {
     const io = threaded.io();
 
     const addr = try std.Io.net.IpAddress.parse("127.0.0.1", 0);
-    var listener = try net.tcp.Listener.bind(io, addr);
+    var listener = try net.tcp.plain.Listener.bind(io, addr);
     defer listener.deinit();
     const bound = listener.localAddress();
 
@@ -24,7 +24,7 @@ test "keepalive apply is a no-crash setsockopt on a connected stream" {
 }
 
 test "StreamOptions default leaves keepalive null" {
-    const opts: net.tcp.StreamOptions = .{};
+    const opts: net.tcp.plain.StreamOptions = .{};
     try std.testing.expect(opts.keepalive == null);
 }
 

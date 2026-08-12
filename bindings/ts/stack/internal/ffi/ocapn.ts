@@ -11,7 +11,7 @@
 // binding still speaks directly: the ABI version, the core last-error slot, the
 // allocation context, managed-frame release, the exporter-locator encoder, and
 // the OCapN URI grammar. The peer itself is driven through the byte-fed host
-// archive (`driver.ts`, `libpancake_host`, ADR-0072), never through raw
+// archive (`host.ts`, `libpancake_host`, ADR-0072), never through raw
 // raw per-session engine calls. Each transport archive has its own sibling loader
 // here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
 //
@@ -36,31 +36,42 @@ export const ocapnS = lazySymbols(() => libPath("pancake_ocapn"), {
 	pancake_context_new_with_allocator: { parameters: [B, B], result: I, outBuffers: [1] },
 	pancake_context_release: { parameters: [P], result: V },
 	pancake_managed_frame_release: { parameters: [B], result: V, outBuffers: [] },
-	pancake_locator_record_encode: {
-		parameters: [B, U, B, U, B, U, B, B],
-		result: I,
-		outBuffers: [6, 7],
-	},
+	pancake_locator_record_encode: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
 	pancake_locator_record_bytes_release: { parameters: [P, U], result: V },
 	// OCapN locator URIs — core vocabulary in libpancake_ocapn, so a consumer
 	// reaches them without any transport archive. The one grammar every binding
 	// shares.
 	pancake_uri_parse_peer: { parameters: [B, U, B], result: I, outBuffers: [2] },
+	pancake_uri_parse_peer_in: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_uri_parse_sturdyref: { parameters: [B, U, B], result: I, outBuffers: [2] },
+	pancake_uri_parse_sturdyref_in: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_uri_format_peer: {
 		parameters: [B, U, B, U, B, B, B, B, U, B, U, B],
 		result: I,
 		outBuffers: [9, 11],
 	},
+	pancake_uri_format_sturdyref: {
+		parameters: [B, U, B, U, B, U, B, B, B, B, U, B, U, B],
+		result: I,
+		outBuffers: [11, 13],
+	},
+	pancake_locator_new: { parameters: [B, U, B, U, "u32", B], result: I, outBuffers: [5] },
+	pancake_locator_new_in: { parameters: [P, B, U, B, U, "u32", B], result: I, outBuffers: [6] },
+	pancake_locator_clone: { parameters: [B, B], result: I, outBuffers: [1] },
+	pancake_locator_clone_in: { parameters: [P, B, B], result: I, outBuffers: [2] },
+	pancake_locator_borrow_view: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_sturdyref_borrow_locator: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_sturdyref_swissnum: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
+	pancake_sturdyref_release: { parameters: [P], result: V },
+	pancake_locator_add_string: { parameters: [P, B, U, B, U], result: I, outBuffers: [] },
+	pancake_locator_add_bytes: { parameters: [P, B, U, B, U], result: I, outBuffers: [] },
+	pancake_locator_add_boolean: { parameters: [P, B, U, "u8"], result: I, outBuffers: [] },
+	pancake_locator_add_integer: { parameters: [P, B, U, "i64"], result: I, outBuffers: [] },
 	pancake_locator_transport: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
 	pancake_locator_designator: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
 	pancake_designator_host_port: { parameters: [B, U, B, B, B], result: I, outBuffers: [2, 3, 4] },
-	pancake_locator_swissnum: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
 	pancake_locator_hint_count: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_locator_hint_at: {
-		parameters: [P, U, B, B, B, B],
-		result: I,
-		outBuffers: [2, 3, 4, 5],
-	},
+	pancake_locator_hint_at: { parameters: [P, U, B], result: I, outBuffers: [2] },
+	pancake_locator_hint_wire_form: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_locator_release: { parameters: [P], result: V },
 });

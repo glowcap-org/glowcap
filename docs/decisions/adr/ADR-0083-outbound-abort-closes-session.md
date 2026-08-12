@@ -32,6 +32,11 @@ wrong, and boring C ABI surface: one CapTP commit path, one thin export.
 2. On a successful push, `Peer.closeSession()`, which closes CapTP and retires that Peer's gifts,
    replay counters, and parked-withdraw scheduler dependencies (ADR-0100).
 
+The terminal push bypasses the ordinary outbound waterline. That waterline
+refuses new work; it cannot suppress the one bounded failure signal for work
+already refused. The outbound queue still charges the abort's encoded bytes,
+so the exception remains visible to accounting until the adapter drains it.
+
 App-queued aborts call it from `emitOutboundMessage` (after `recordSend`, on
 `step`). Failure projection (`emitAbortForError`) uses the same terminal path,
 including `CaptpVersionMismatch`, `InvalidStartSessionSignature`, and

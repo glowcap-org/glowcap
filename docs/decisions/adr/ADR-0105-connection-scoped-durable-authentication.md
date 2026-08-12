@@ -7,7 +7,7 @@ decision: "Durable authentication is a property of the realized connection, not 
 supersedes: []
 superseded_by: []
 amends: [ADR-0097]
-amended_by: [ADR-0109]
+amended_by: [ADR-0109, ADR-0113]
 ---
 
 # ADR-0105 Connection-scoped durable authentication
@@ -54,7 +54,7 @@ this a class rather than a browser bug.
 
 - The blocking face derives the pin basis from the resident's declaration
   (`driver.blocking_session.connectVia` reading `nl.authentication()`), while the
-  owning `driver.PollHost` face installs only `.dial_expectation` and the iroh
+  owning `driver.HostRuntime` face installs only `.dial_expectation` and the iroh
   resident's own `residentDial` never upgrades it. The same iroh dial to the same
   node reports `.authenticated_transport` through one driver face and
   `.unauthenticated` through another.
@@ -105,11 +105,11 @@ send, so omitting it is a compile error, and `engine.keyedHelloHints` goes away.
 
 Advertising a key designator that is not this Host's durable key is refused,
 at the same seam and for the same reason: nothing there could sign for it.
-`driver_core.Host.setSelfDesignator` refuses it too, so a caller that sets an
-unheld designator learns at the setter rather than on some later dial. A peer
-cannot advertise an identity it cannot prove. In-tree keyed transports already unify the endpoint seed with the
-Host seed under ADR-0075, so the refusal states an invariant the tree holds and
-turns a future drift into a loud failure at the advertising side.
+`driver_core.Host.setAdvertisedLocator` therefore refuses an unheld key before
+retaining the route. A peer cannot advertise an identity it cannot prove.
+In-tree keyed transports already unify the endpoint seed with the Host seed
+under ADR-0075, so the refusal states an invariant the tree holds and turns a
+future drift into a loud failure at the advertising side.
 
 A byte-fed Host on a key-scheme transport also *derives* the designator it
 advertises, rather than taking one (`driver_core.sessions.advertisedDesignator`).
@@ -119,8 +119,10 @@ listener had nothing to set, so it advertised the unreachable-client
 placeholder: a `tcp` address, on a transport whose designator grammar is a key.
 That hello is ungrammatical, and its partner could attribute the session to
 nobody, which is what a browser member's direct message ran into. Deriving is
-what makes the wrong value unrepresentable. The address arm is unchanged; a
-bound address or the placeholder is genuinely the answer there.
+what makes the wrong value unrepresentable. Address transports have two honest
+states instead: a reachable adapter publishes its complete locator, while a
+dial-only Host uses the unreachable-client placeholder. There is no separate
+mutable designator beside the advertised-locator registry.
 
 Deriving is available at this tier because a `Host` always holds a durable key,
 its node secret, so it always has something true to say. It is not available at
@@ -368,7 +370,7 @@ Each item below names what carries it, or says plainly that nothing does yet.
 3. A native iroh dial reports `.authenticated_transport`. Held byte-fed against
    a bound remote key in `core_host_test.zig`, and live by
    `zig build goblins-interop`'s iroh driver, which fails the run unless the
-   partner reports that provenance. The blocking, owning `PollHost`, and
+   partner reports that provenance. The blocking, owning `HostRuntime`, and
    completion `Bridge` faces are not each asserted separately.
 4. A WebRTC leg whose signaling named no peer identity refuses a key-designator
    claim that carries no credential. The engine half is held by "a key-designator

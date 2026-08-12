@@ -1,17 +1,17 @@
 // Two browser tabs direct-message each other by cold-dial rendezvous, end to
 // end (ADR-0088 capability 5). Neither tab opens a listening socket, so neither
-// can be dialed the ordinary way. Instead each registers its keyed identity and
-// a held inbound socket at the relay serve.ts runs, and advertises a `keyed-relay`
+// can be dialed the ordinary way. Instead each registers its durable identity and
+// a held inbound socket at the relay serve.ts runs, and advertises a `noise-relay`
 // locator to the room. When Alice direct-messages Bob, the room introduces her,
 // her Host redeems the handoff give by *cold-dialing* Bob's identity through the
-// relay's rendezvous leg, and the keyed OCapN session opens end to end between
+// relay's rendezvous leg, and the Noise-sealed OCapN session opens end to end between
 // the two tabs through two byte-transparent relay legs — the room out of the
 // message path, the relay blind to both. Bob answers over that same arriving
 // connection (`currentSession`), so a tab that never listens still replies.
 //
 // This is the browser-to-browser cold-dial on a shared relay. Its native
-// sibling is `web_dm_native_dial_test.ts`, where the dialer is a plain Deno
-// peer. Either way the `keyed-relay` locator names the identity, not the
+// sibling is `web_dm_native_dial_test.ts`, where the dialer is a native Deno
+// peer. Either way the `noise-relay` locator names the identity, not the
 // relay, so the redeemer reaches it only through the relay its host is
 // configured for (`Host.setRendezvousUrl`). That honest scope is ADR-0088's.
 //
@@ -70,7 +70,7 @@ async function waitForHttp(port: number): Promise<void> {
 
 // Open a fresh, isolated tab (its own storage, so the two peers never share a
 // nick or room in localStorage), join `ROOM` as `nick`, and wait until the
-// composer is live — the signal that the keyed session to the room is up.
+// composer is live: the room session is up and the tab can register its inbox.
 async function joinAs(browser: Browser, port: number, nick: string): Promise<{
 	context: BrowserContext;
 	tab: Page;
@@ -96,7 +96,7 @@ async function joinAs(browser: Browser, port: number, nick: string): Promise<{
 
 // Open a direct line to `peer` from `tab` by clicking their direct-line button
 // in the members list. It is there only once `peer` is both in the room roster
-// and advertised as DM-able (their `keyed-relay` registration landed).
+// and advertised as DM-able (their `noise-relay` registration landed).
 async function openDmTo(tab: Page, peer: string): Promise<void> {
 	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
 	await button.waitFor({ state: "visible", timeout: 60_000 });
@@ -153,13 +153,13 @@ try {
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	// Alice joins first and opens the room; Bob joins it. Both register their
-	// keyed identity at the relay and advertise a `keyed-relay` locator, so each
+	// durable identity at the relay and advertise a `noise-relay` locator, so each
 	// appears in the other's DM-able roster.
 	const alice = await joinAs(browser, httpPort, "web-alice");
 	const bob = await joinAs(browser, httpPort, "web-bob");
 
 	// Alice cold-dials Bob: opening the DM redeems the room's introduction and
-	// dials Bob's identity through the relay's rendezvous, off-room. The keyed
+	// dials Bob's identity through the relay's rendezvous, off-room. The sealed
 	// session opens tab-to-tab, and her line lands on Bob's giftable `dm`.
 	await openDmTo(alice.tab, "web-bob");
 	await send(alice.tab, DM_TEXT);
@@ -215,7 +215,7 @@ try {
 	console.log(
 		"PASS: two browser tabs direct-messaged each other by cold-dial rendezvous — one " +
 			"registered its identity at the relay, the other redeemed a room introduction by " +
-			"cold-dialing it, the keyed session opened tab-to-tab through the relay off-room, and " +
+			"cold-dialing it, the Noise-sealed session opened tab-to-tab through the relay off-room, and " +
 			"the reply rode back over the same arriving connection to a tab that never listens; " +
 			"then closing the conversation left the member reachable in the list and a second " +
 			"line to the same person opened, carried a message, and carried a reply back",

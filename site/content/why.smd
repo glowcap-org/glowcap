@@ -211,30 +211,26 @@ capabilities.
 </figure>
 ```
 
-## Why the reference is not just another token
+## Why a reference is not a bearer token
 
-If you are skeptical, one objection has probably formed already. The
-reference must cross the network as bytes, and stolen bytes are how tokens
-leak. Why is this any different?
-
-It is different because the bytes are not the permission. When two programs
-meet, each proves a key it holds, and a session opens between them. Inside
-that session, each side keeps a private table of the objects it has chosen to
-share. When your album reference crosses the wire, what actually travels is a
+The reference must cross the network as bytes, and stolen bytes are how tokens
+leak. The difference is that the bytes are not the permission. When two
+programs meet, each proves a key it holds, and a session opens between them.
+Inside that session, each side keeps a private table of the objects it has
+chosen to share. When your album reference crosses the wire, what travels is a
 position in that table. Call it slot 3. Slot 3 means your album only inside
-this one session; on any other connection it means nothing, or it names
-something else entirely. And this table is bookkeeping, not the permission
-table returning: it holds no identities and no rights, only which object each
-position means.
+this one session; in any other session it means nothing, or it names
+something else. The table is bookkeeping, not the permission table returning:
+it holds no identities and no rights, only which object each position means.
 
 A bearer token is a portable string, and it works for whoever presents it,
-anywhere. A capability reference is a row in a ledger that exactly two
-parties keep. Record the traffic and you hold a row number for a conversation
-you cannot join. Guessing does no better, because the table contains only
-what one side deliberately put there. The pipe itself is protected the way
-your token traffic is protected today, by the transport underneath. What
-changes is the cost of a leak: a leaked token is authority, and a leaked
-table position is a number with no ledger behind it.
+anywhere. A capability reference is a row in a ledger that exactly two parties
+keep. Record the traffic and you hold a row number for a conversation you
+cannot join. Guessing does no better, because the table contains only what one
+side put there. The pipe itself is protected the way your token traffic is
+protected today, by the transport underneath. What changes is the cost of a
+leak: a leaked token is authority, and a leaked table position is a number with
+no ledger behind it.
 
 ```=html
 <figure class="tokref">

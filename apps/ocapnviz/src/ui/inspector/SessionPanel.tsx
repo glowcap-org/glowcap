@@ -256,6 +256,8 @@ export function SessionFields(
     editor?: EditorBindings | undefined;
   },
 ) {
+  // No world pin to follow: shell `useDocVersion` + `useClockSnapshot` is
+  // enough for playhead-shaped lifecycle and end placement.
   const live = findSession(engine.world, id);
   const openedEv = findSessionOpenedEvent(engine.doc, id);
   const closedEv = findSessionClosedEvent(engine.doc, id);

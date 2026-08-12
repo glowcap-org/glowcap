@@ -26,6 +26,7 @@ pub const loopbackIp4 = socket_tcp.loopbackIp4;
 pub const openSocket = socket_tcp.openSocket;
 pub const openListener = socket_tcp.openListener;
 pub const setNonblocking = socket_tcp.setNonblocking;
+pub const sendNonblocking = socket_tcp.sendNonblocking;
 
 /// Opt-in TCP keepalive. `Keepalive{idle_sec,interval_sec,count}` is required in
 /// full when set (no silent OS default); `applyKeepalive` writes the sockopts.

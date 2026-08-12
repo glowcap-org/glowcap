@@ -28,6 +28,9 @@ import { Directory, readPresence } from "../../lib/room_client.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { NOTIFY, POST, SUBSCRIBE } from "../../lib/protocol.ts";
 import { dial } from "../../lib/locator.ts";
+import type { Session } from "@pancake/stack";
+
+export type RoomsDial = (locator: string) => Promise<Session>;
 
 /** Run one client session: enter the room, wait for every roster member to be
  * present, post `line`, and collect the chat line each roster member sends.
@@ -40,8 +43,9 @@ export async function runClient(
 	line: string,
 	roster: string[] = [nick],
 	timeoutMs = 10000,
+	dialer: RoomsDial = dial,
 ): Promise<string[]> {
-	const dir = await Directory.connect(locator, dial);
+	const dir = await Directory.connect(locator, dialer);
 	const session = dir.session;
 	// Discovery: show the rooms that already have people in them, then follow the
 	// live list, both the snapshot (`list`) and the change feed (`watch`).
@@ -109,7 +113,7 @@ export async function runClient(
 		await Promise.race([done, timeout]);
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);
-		session.close();
+		await session.close();
 	}
 
 	if (seen.size < roster.length) {

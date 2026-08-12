@@ -31,6 +31,30 @@ test "owned argument measurement matches the clone payload shape" {
     try std.testing.expectEqual(expected, try model.measureArgumentSliceOwnedBytes(&args));
 }
 
+test "owned message measurement counts only heap-carrying listener fields" {
+    const message: model.Message = .{ .listen = .{
+        .target = .{ .broken = .{ .message = "target" } },
+        .listener = .{ .broken = .{ .message = "listener" } },
+        .mode = .settling_only,
+    } };
+    try std.testing.expectEqual(
+        @sizeOf(model.Message) + "target".len + "listener".len,
+        try model.measureMessageOwnedBytes(message),
+    );
+}
+
+test "owned message measurement counts a big integer index payload" {
+    const message: model.Message = .{ .index = .{
+        .receiver = .{ .near = model.NearRef.object(7) },
+        .index = .{ .big_integer = .{ .negative = false, .digits = "12345678901234567890" } },
+        .answer = .from(11),
+    } };
+    try std.testing.expectEqual(
+        @sizeOf(model.Message) + "12345678901234567890".len,
+        try model.measureMessageOwnedBytes(message),
+    );
+}
+
 test "CapTP versions parse and render wire strings" {
     try std.testing.expectEqualStrings("1.0", model.CaptpVersion.v1_0.wireString());
     try std.testing.expectEqualStrings("pancake-next", model.CaptpVersion.next.wireString());

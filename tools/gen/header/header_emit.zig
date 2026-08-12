@@ -11,7 +11,9 @@
 //! A `Spec` provides `c` (the reflected module), `emitted_fns` (the prototype
 //! table), and optionally `const_docs` (curated `#define` comments) and
 //! `special` (a hook mapping a Zig type to a C typedef name the base spelling
-//! does not know). The `gen-header-*-check` gates verify the emitted bytes,
+//! does not know), and `specialField` when ABI-identical callback aliases need
+//! distinct semantic names on individual struct fields. The
+//! `gen-header-*-check` gates verify the emitted bytes,
 //! so a drift in this module fails loudly at the header it breaks.
 
 const std = @import("std");
@@ -118,6 +120,13 @@ pub fn Emit(comptime Spec: type) type {
             return cType(FieldT);
         }
 
+        fn fieldType(comptime Owner: type, comptime field: std.builtin.Type.StructField, comptime name: []const u8) []const u8 {
+            if (@hasDecl(Spec, "specialField")) {
+                if (Spec.specialField(Owner, field.name)) |s| return s;
+            }
+            return selfRef(Owner, field.type, name);
+        }
+
         /// Coverage guard, both directions: every `pub fn <prefix>*` in the module
         /// must be in `emitted_fns`, and every table entry must name a real
         /// function. Call from a top-level `comptime` block. `module_name` names
@@ -178,7 +187,23 @@ pub fn Emit(comptime Spec: type) type {
             comptime name: []const u8,
             comptime docs: []const []const u8,
         ) !void {
-            try emitStructBody(b, gpa, T, name, docs, true);
+            try emitStructBody(b, gpa, T, name, docs, null, true);
+        }
+
+        /// Emit a struct while naming selected C field types explicitly.
+        /// Zig function-pointer aliases are structural, so two semantically
+        /// distinct callbacks with the same signature otherwise reflect to
+        /// whichever typedef the generator encounters first. Empty entries
+        /// retain ordinary reflected typing.
+        pub fn emitStructWithTypes(
+            b: *Buf,
+            gpa: std.mem.Allocator,
+            comptime T: type,
+            comptime name: []const u8,
+            comptime docs: []const []const u8,
+            comptime type_names: []const []const u8,
+        ) !void {
+            try emitStructBody(b, gpa, T, name, docs, type_names, true);
         }
 
         /// `emitStruct` without the typedef wrapper, for a struct whose typedef was
@@ -190,7 +215,7 @@ pub fn Emit(comptime Spec: type) type {
             comptime name: []const u8,
             comptime docs: []const []const u8,
         ) !void {
-            try emitStructBody(b, gpa, T, name, docs, false);
+            try emitStructBody(b, gpa, T, name, docs, null, false);
         }
 
         fn emitStructBody(
@@ -199,18 +224,27 @@ pub fn Emit(comptime Spec: type) type {
             comptime T: type,
             comptime name: []const u8,
             comptime docs: []const []const u8,
+            comptime type_names: ?[]const []const u8,
             comptime use_typedef: bool,
         ) !void {
             const fields = @typeInfo(T).@"struct".fields;
             if (docs.len != fields.len) @compileError("field doc count mismatch for " ++ name);
+            if (type_names) |names| if (names.len != fields.len)
+                @compileError("field type count mismatch for " ++ name);
             if (use_typedef) {
                 try line(b, gpa, "typedef struct {s} {{", .{name});
             } else {
                 try line(b, gpa, "struct {s} {{", .{name});
             }
-            inline for (fields, docs) |f, doc| {
+            inline for (fields, docs, 0..) |f, doc, i| {
                 if (doc.len != 0) try line(b, gpa, "    /* {s} */", .{doc});
-                const ty = comptime selfRef(T, f.type, name);
+                const ty = comptime if (type_names) |names|
+                    if (names[i].len != 0)
+                        names[i]
+                    else
+                        fieldType(T, f, name)
+                else
+                    fieldType(T, f, name);
                 const space = if (ty.len > 0 and ty[ty.len - 1] == '*') "" else " ";
                 const suffix = comptime arraySuffix(f.type);
                 try line(b, gpa, "    {s}{s}{s}{s};", .{ ty, space, f.name, suffix });

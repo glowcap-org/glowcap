@@ -41,25 +41,25 @@ def greeter(verb: str, args: list):
 
 
 async def serve_once(server) -> None:
-    async for conn in server:
-        conn.publish("greeter", greeter)
-        conn.serve()
+    async for session in server:
+        session.publish("greeter", greeter)
+        session.serve()
         return
 
 
 async def call_greeter(uri: str, expected: str) -> None:
-    conn = await connect(uri)
+    session = await connect(uri)
     try:
         # Keyed TCP carries a key-shaped designator. The verified session hello
         # must claim the dial target, but the cleartext channel does not prove
         # control of that durable key.
-        proved = conn.partner_identity()
+        proved = session.partner_identity()
         if proved.designator != expected:
             fail("keyed-tcp-restart", f"partner claimed {proved.designator}, not the dialed {expected}")
-        # Every connection signs with a fresh session key (ADR-0097), distinct
+        # Every session signs with a fresh key (ADR-0097), distinct
         # from the claimed durable designator.
         if proved.session_key.hex() == expected:
-            fail("keyed-tcp-restart", "session key still equals the durable designator; sessions are not keyed per connection")
+            fail("keyed-tcp-restart", "session key still equals the durable designator; sessions are not independently keyed")
         # Raw keyed TCP carries the stable key-shaped locator but does not prove
         # that whoever answered controls it.
         if proved.provenance is not DurableProvenance.UNAUTHENTICATED:
@@ -69,12 +69,12 @@ async def call_greeter(uri: str, expected: str) -> None:
             )
         if proved.durable_identity_authenticated():
             fail("keyed-tcp-restart", "raw keyed-tcp authenticated an unproved locator claim")
-        greeter_ref = await conn.fetch("greeter")
-        reply = await conn.send(greeter_ref, "greet", [])
+        greeter_ref = await session.fetch("greeter")
+        reply = await session.send(greeter_ref, "greet", [])
         if reply != GREETING:
             fail("keyed-tcp-restart", f"unexpected greeting: {reply!r}")
     finally:
-        await conn.close()
+        await session.close()
 
 
 async def scene_happy() -> None:

@@ -1,8 +1,8 @@
 // A native peer direct-messages a browser member by cold-dial rendezvous, end
 // to end (ADR-0088 capability 5, the native-dialer row). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
-// its keyed identity and a held inbound socket at the relay serve.ts runs, and
-// advertises a `keyed-relay` locator to the room. The native peer — a plain
+// its durable identity and a held inbound socket at the relay serve.ts runs, and
+// advertises a `noise-relay` locator to the room. The native peer — a plain
 // Deno process on the dlopen stack, no browser anywhere near its side — joins
 // the same room, redeems the room's introduction, and its Host cold-dials the
 // browser's identity through the relay's rendezvous leg, configured with
@@ -13,7 +13,7 @@
 //
 // This is the general-stranger half `rooms-web-dm-tabs` leaves open: the
 // dialer is not a browser, so nothing browser-shaped carries the rendezvous —
-// the `keyed-relay` intercept in the shared stack opens the WebSocket channel
+// the generic rendezvous plan in the shared stack opens the WebSocket channel
 // the dialing Host was configured for, on any runtime. The remaining honest
 // scope is unchanged: the locator names the identity, not the relay, so the
 // dialer reaches it only through a relay it is already configured for.
@@ -75,7 +75,7 @@ async function until(ready: () => boolean, what: string, ms = 30_000): Promise<v
 }
 
 // Join `ROOM` as `nick` in a fresh tab and wait until the composer is live —
-// the signal that the keyed session to the room is up and the tab has begun
+// the signal that the room session is up and the tab has begun
 // advertising its rendezvous identity.
 async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
 	const tab = await (await browser.newContext()).newPage();
@@ -151,8 +151,8 @@ try {
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
-	// The browser member joins first. Joining registers its keyed identity at
-	// the relay's rendezvous and advertises a `keyed-relay` locator to the room,
+	// The browser member joins first. Joining registers its durable identity at
+	// the relay's rendezvous and advertises a `noise-relay` locator to the room,
 	// so it appears in the DM-able roster.
 	const bob = await joinAs(browser, httpPort, "web-bob");
 
@@ -183,7 +183,7 @@ try {
 
 	// Cold-dial: opening the DM redeems the room's introduction, and the Host
 	// dials web-bob's identity through the relay rendezvous, off-room. The
-	// keyed session opens native-to-tab; her line lands on the tab's giftable.
+	// Noise-sealed session opens native-to-tab; her line lands on the tab's giftable.
 	const replies: string[] = [];
 	const line = await DirectMessage.open(carol, "web-bob", (text) => replies.push(text));
 	await line.say(DM_TEXT);
@@ -201,8 +201,8 @@ try {
 
 	console.log(
 		"PASS: a native peer cold-dialed a browser member by relay rendezvous — the tab " +
-			"registered its keyed identity, the native Host redeemed a room introduction and " +
-			"bridged onto the held socket through its configured rendezvous mapping, the keyed " +
+			"registered its durable identity, the native Host redeemed a room introduction and " +
+			"bridged onto the held socket through its configured rendezvous mapping, the Noise-sealed " +
 			"session opened native-to-tab off-room, and the reply rode back over the same " +
 			"arriving connection to a sender that never listens",
 	);

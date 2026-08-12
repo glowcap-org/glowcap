@@ -1,0 +1,16 @@
+use pancake::{connect, tcp_locator, Argument};
+
+// Plain TCP uses a cleartext host and port.
+let partner = tcp_locator("127.0.0.1", 9099);
+
+let session = connect(&partner, None, None).await?;
+let greeter = session.fetch("greeter").await?; // a capability, by name
+match session
+    .send(&greeter, "greet", &[Argument::String("world".into())])
+    .await
+{
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+session.close();

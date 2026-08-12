@@ -31,6 +31,7 @@ const HostSession = driver.core.HostSession;
 const TcpBridge = driver.Bridge(net.TcpLoop);
 
 const frame_cap = 4096;
+const read_buffer_bytes = 4096;
 const deadline_ms: u64 = 15_000;
 
 const Widget = struct {
@@ -129,7 +130,9 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0e} ** 32, blk: {
+    var session_root: [32]u8 = undefined;
+    try io.randomSecure(&session_root);
+    var host = Host.init(allocator, [_]u8{0x0e} ** 32, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -145,25 +148,30 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer bridge.deinit();
     state.bridge = &bridge;
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
+    loop = try net.TcpLoop.initWithBackendOptions(allocator, .{
+        .read_buffer_bytes = read_buffer_bytes,
+    }, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .max_conns = 8,
         .listen = 0,
     }));
     defer loop.deinit();
     var buf: [tcp.designator_buf_len]u8 = undefined;
-    const address = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const address = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const loc = tcp.locator(&buf, address);
-    shared.exporter_port.store(loop.port.?, .release);
-    try bridge.attach(tcp.transport_name, loc.designator, &.{});
-    try bridge.dialOutbound(tcp.transport_name, gifter_designator, "");
+    shared.exporter_port.store(loop.port().?, .release);
+    try bridge.attach(model.transport.Known.tcp.metadata(), loc.designator, &.{});
+    try bridge.dialOutbound(.{
+        .transport = tcp.transport_name,
+        .designator = gifter_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
     var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done, &loop_err, &loop_done });
     defer {
         shared.done.store(true, .release);
-        pokeListener(io, loop.port.?);
+        pokeListener(io, loop.port().?);
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("02: exporter loop: {s}\n", .{@errorName(err)});
     }
@@ -293,7 +301,9 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     var shared = Shared{};
-    var gifter_host = Host.init(allocator, [_]u8{0x06} ** 32, blk: {
+    var gifter_session_root: [32]u8 = undefined;
+    try io.randomSecure(&gifter_session_root);
+    var gifter_host = Host.init(allocator, [_]u8{0x06} ** 32, gifter_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -310,24 +320,29 @@ pub fn main(init: std.process.Init) !void {
     // The gifter interposes its own `serve` (it watches the introduce
     // settle), so it overrides the bridge's spliced hook after `hookOptions`.
     var gifter_options = TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
     });
     gifter_options.serve = gifterServe;
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), gifter_options);
+    loop = try net.TcpLoop.initWithBackendOptions(
+        allocator,
+        .{ .read_buffer_bytes = read_buffer_bytes },
+        TcpBridge.makePeer,
+        @ptrCast(&bridge),
+        gifter_options,
+    );
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const gifter_designator = tcp.locator(&designator_buf, gifter_designator_addr).designator;
-    try bridge.attach(tcp.transport_name, gifter_designator, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), gifter_designator, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
     var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done, &loop_err, &loop_done });
     defer {
         shared.done.store(true, .release);
-        pokeListener(io, loop.port.?);
+        pokeListener(io, loop.port().?);
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("02: gifter loop: {s}\n", .{@errorName(err)});
     }
@@ -337,7 +352,9 @@ pub fn main(init: std.process.Init) !void {
     try waitFlag(io, &shared.fetched);
 
     var poked = std.atomic.Value(bool).init(false);
-    var recipient_host = Host.init(allocator, [_]u8{0x0c} ** 32, blk: {
+    var recipient_session_root: [32]u8 = undefined;
+    try io.randomSecure(&recipient_session_root);
+    var recipient_host = Host.init(allocator, [_]u8{0x0c} ** 32, recipient_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -350,24 +367,29 @@ pub fn main(init: std.process.Init) !void {
         .on_open_ctx = &r_state,
     });
     defer r_bridge.deinit();
-    r_loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&r_bridge), TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
+    r_loop = try net.TcpLoop.initWithBackendOptions(allocator, .{
+        .read_buffer_bytes = read_buffer_bytes,
+    }, TcpBridge.makePeer, @ptrCast(&r_bridge), TcpBridge.hookOptions(.{
         .max_conns = 8,
         .listen = 0,
     }));
     defer r_loop.deinit();
     var r_buf: [tcp.designator_buf_len]u8 = undefined;
-    const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port.?);
+    const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port().?);
     const r_designator = tcp.locator(&r_buf, r_designator_addr).designator;
-    try r_bridge.attach(tcp.transport_name, r_designator, &.{});
-    try r_bridge.dialOutbound(tcp.transport_name, gifter_designator, "");
+    try r_bridge.attach(model.transport.Known.tcp.metadata(), r_designator, &.{});
+    try r_bridge.dialOutbound(.{
+        .transport = tcp.transport_name,
+        .designator = gifter_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var r_err: ?anyerror = null;
     var r_done = std.atomic.Value(bool).init(false);
     var r_future = try io.concurrent(runLoopUntil, .{ &r_loop, &shared.done, &r_err, &r_done });
     defer {
         shared.done.store(true, .release);
-        pokeListener(io, r_loop.port.?);
+        pokeListener(io, r_loop.port().?);
         r_future.await(io);
         if (r_err) |err| std.debug.print("02: recipient loop: {s}\n", .{@errorName(err)});
     }
@@ -375,8 +397,8 @@ pub fn main(init: std.process.Init) !void {
     try waitFlag(io, &poked);
 
     shared.done.store(true, .release);
-    pokeListener(io, loop.port.?);
-    pokeListener(io, r_loop.port.?);
+    pokeListener(io, loop.port().?);
+    pokeListener(io, r_loop.port().?);
     pokeListener(io, shared.exporter_port.load(.acquire));
     std.debug.print("02: introduce and redeem OK\n", .{});
 }

@@ -8,7 +8,7 @@
 //
 // Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
 // loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
-// the inproc or iroh archives. The TCP family is symbol-disjoint from the core
+// the inproc or iroh archives. The TCP archive is symbol-disjoint from the core
 // (it shares the frame/context types by layout, not by symbol), so it loads
 // alongside `libpancake_ocapn` rather than instead of it, and carries its own
 // thread-local last-error read through `pancake_tcp_last_error`.
@@ -25,13 +25,38 @@ const P = "pointer",
 export const tcpS = lazySymbols(() => libPath("pancake_net_transport_tcp"), {
 	pancake_tcp_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 	pancake_tcp_netlayer_new: { parameters: [B], result: I, outBuffers: [0] },
-	pancake_tcp_netlayer_release: { parameters: [P], result: V },
-	pancake_tcp_connect: { parameters: [P, B, U, "u16", "u32", U, B], result: I, outBuffers: [6] },
+	pancake_tcp_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_tcp_netlayer_shutdown: { parameters: [P], result: V },
+	pancake_tcp_netlayer_release: { parameters: [P], result: V, nonblocking: true },
+	pancake_tcp_connect_with_diagnostic: {
+		parameters: [P, B, U, "u16", "u32", U, B, B, U, B],
+		result: I,
+		outBuffers: [6, 7, 9],
+		nonblocking: true,
+	},
 	pancake_tcp_listen: { parameters: [P, B, U, "u16", B], result: I, outBuffers: [4] },
 	pancake_tcp_listener_port: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_tcp_accept: { parameters: [P, "u32", U, B], result: I, outBuffers: [3] },
-	pancake_tcp_conn_read_frame: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_tcp_conn_write_frame: { parameters: [P, B], result: I, outBuffers: [] },
-	pancake_tcp_conn_release: { parameters: [P], result: V },
-	pancake_tcp_listener_release: { parameters: [P], result: V },
+	pancake_tcp_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_tcp_accept_with_diagnostic: {
+		parameters: [P, "u32", U, B, B, U, B],
+		result: I,
+		outBuffers: [3, 4, 6],
+		nonblocking: true,
+	},
+	pancake_tcp_conn_read_frame_with_diagnostic: {
+		parameters: [P, B, B, U, B],
+		result: I,
+		outBuffers: [1, 2, 4],
+		nonblocking: true,
+	},
+	pancake_tcp_conn_write_frame_with_diagnostic: {
+		parameters: [P, B, B, U, B],
+		result: I,
+		outBuffers: [2, 4],
+		nonblocking: true,
+	},
+	pancake_tcp_conn_shutdown: { parameters: [P], result: V },
+	pancake_tcp_conn_release: { parameters: [P], result: V, nonblocking: true },
+	pancake_tcp_listener_shutdown: { parameters: [P], result: V },
+	pancake_tcp_listener_release: { parameters: [P], result: V, nonblocking: true },
 });

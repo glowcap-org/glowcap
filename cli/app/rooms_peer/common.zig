@@ -12,10 +12,21 @@ pub const net = pancake.net;
 
 pub const Host = driver.core.Host;
 pub const HostSession = driver.core.HostSession;
-pub const IrohLoop = net.completion.Loop(iroh.Backend, iroh.DialResolver);
-pub const IrohBridge = driver.Bridge(IrohLoop);
+pub const RoomsBackend = iroh.CompletionBackend(net.KeyedRelayBackend);
+pub const RoomsDialResolver = iroh.CompositeDialResolver(net.KeyedRelayBackend, net.keyed_relay.DialResolver);
+pub const RoomsLoop = net.completion.Loop(RoomsBackend, RoomsDialResolver);
+pub const RoomsBridge = driver.Bridge(RoomsLoop);
 
 pub const frame_cap: usize = 1 << 16;
+/// One room leg plus direct iroh/keyed-relay legs, all admitted by one Loop.
+pub const max_sessions: usize = 32;
+/// One slot belongs exclusively to the room-control dial. Direct accepts and
+/// handoff dials cannot consume it, so room recovery remains possible at the
+/// ordinary-session ceiling.
+pub const reserved_room_sessions: usize = 1;
+/// One read per admitted session plus iroh's readiness and stopper channels.
+pub const read_buffers: u16 = max_sessions + 2;
+pub const completion_queue_entries: u16 = 256;
 pub const timer_ms: u64 = 150;
 pub const redial_cooldown_wakes: u32 = 13;
 /// Join-window deadline in maintain wakes: about 15 s at `timer_ms` = 150.

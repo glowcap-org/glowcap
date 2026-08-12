@@ -16,6 +16,42 @@ const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllo
 
 const Node = engine.Node;
 
+const ReleaseProjection = struct {
+    releases: usize = 0,
+    last_target: ?u64 = null,
+
+    fn seam(self: *@This()) engine.bootstrap.LocalObjectProjection {
+        return .{
+            .ctx = self,
+            .resolve_name = resolveName,
+            .capture = capture,
+            .project = project,
+            .rollback = rollback,
+            .release_target = releaseTarget,
+        };
+    }
+
+    fn resolveName(_: ?*anyopaque, _: engine.PeerId, _: []const u8) !?model.ExportPosition {
+        return null;
+    }
+
+    fn capture(_: ?*anyopaque, _: engine.PeerId, _: model.ExportPosition) ?u64 {
+        return null;
+    }
+
+    fn project(_: ?*anyopaque, _: engine.PeerId, _: u64) !engine.bootstrap.ProjectedLocalTarget {
+        return error.NotProjectable;
+    }
+
+    fn rollback(_: ?*anyopaque, _: engine.PeerId, _: u64, _: engine.bootstrap.ProjectedLocalTarget) void {}
+
+    fn releaseTarget(ctx: ?*anyopaque, target: u64) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx.?));
+        self.releases += 1;
+        self.last_target = target;
+    }
+};
+
 test "ActionFifo preserves order across compaction, and a drain keeps its reservation" {
     const allocator = std.testing.allocator;
     var fifo = engine.ActionFifo(u64){};
@@ -101,6 +137,55 @@ test "registerPeerOver adopts a peer the embedder owns without freeing it" {
     defer adopted2.deinit();
     _ = try node.registerPeerOver(&adopted2);
     node.deinit();
+}
+
+test "detaching borrowed peers releases Node-projected gift roots exactly once" {
+    const allocator = std.testing.allocator;
+
+    {
+        var projection: ReleaseProjection = .{};
+        var node = Node.init(allocator, [_]u8{0x19} ** crypto.SEED_BYTES);
+        defer node.deinit();
+        node.setLocalObjectProjection(projection.seam());
+        var adopted = engine.Peer.initNegotiating(allocator);
+        defer adopted.deinit();
+        const id = try node.registerPeerOver(&adopted);
+        try adopted.giftRegistry().depositLocalTarget(
+            allocator,
+            adopted.session_state.limits,
+            node.localObjectProjection(),
+            "removed",
+            0xfeed,
+        );
+
+        node.removePeer(id);
+        try std.testing.expectEqual(@as(usize, 1), projection.releases);
+        try std.testing.expectEqual(@as(?u64, 0xfeed), projection.last_target);
+        try std.testing.expect(!adopted.giftRegistry().giftLive("removed"));
+        try std.testing.expect(adopted.node_services == null);
+    }
+
+    {
+        var projection: ReleaseProjection = .{};
+        var node = Node.init(allocator, [_]u8{0x1a} ** crypto.SEED_BYTES);
+        node.setLocalObjectProjection(projection.seam());
+        var adopted = engine.Peer.initNegotiating(allocator);
+        defer adopted.deinit();
+        _ = try node.registerPeerOver(&adopted);
+        try adopted.giftRegistry().depositLocalTarget(
+            allocator,
+            adopted.session_state.limits,
+            node.localObjectProjection(),
+            "node-deinit",
+            0xcafe,
+        );
+
+        node.deinit();
+        try std.testing.expectEqual(@as(usize, 1), projection.releases);
+        try std.testing.expectEqual(@as(?u64, 0xcafe), projection.last_target);
+        try std.testing.expect(!adopted.giftRegistry().giftLive("node-deinit"));
+        try std.testing.expect(adopted.node_services == null);
+    }
 }
 
 test "failed adopted registration severs the borrowed Node services link" {
@@ -397,6 +482,30 @@ fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerId) u64 {
     const key = it.next().?.*;
     std.testing.expectEqual(exporter, key.peer_id) catch unreachable;
     return key.answer;
+}
+
+fn peerUri(allocator: std.mem.Allocator, designator: []const u8) ![]u8 {
+    return model.uri.writePeer(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    });
+}
+
+fn peerUriWithAlternatives(
+    allocator: std.mem.Allocator,
+    designator: []const u8,
+    alternatives: []const u8,
+) ![]u8 {
+    var entries = [_]model.HintEntry{.{
+        .name = model.transport.hint_alt_locators,
+        .value = .{ .string = alternatives },
+    }};
+    return model.uri.writePeer(allocator, .{
+        .transport = model.transport.tcp,
+        .designator = designator,
+        .hints = .{ .entries = &entries },
+    });
 }
 
 fn takeWithdrawCount(peer: *engine.Peer) !u64 {
@@ -1033,6 +1142,182 @@ test "origination fails closed when the gift's home connection is gone" {
     try std.testing.expect(std.mem.startsWith(u8, action.fail.reason.bytes(), "handoff origination failed:"));
 }
 
+test "recipient admission failure publishes no orphan deposit" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x6a} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
+    var recipient_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        node.peer(recipient).?,
+        [_]u8{0x6b} ** crypto.SEED_BYTES,
+    );
+    defer recipient_counterpart.deinit();
+    var exporter_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        node.peer(exporter).?,
+        [_]u8{0x6c} ** crypto.SEED_BYTES,
+    );
+    defer exporter_counterpart.deinit();
+
+    const answer = model.AnswerPosition.from(62);
+    try node.peer(recipient).?.session_state.installInboundAnswer(answer);
+    try node.peer(exporter).?.session_state.registerImport(.from(4));
+    const gift = try node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    try std.testing.expect(try node.interceptFulfilledRef(recipient, answer.int(), gift.far.import_position.int()));
+    const ask = node.nextAction().?;
+
+    // The exporter can prepare its deposit, but the recipient cannot admit the
+    // give. Origination must publish neither half; the old deposit-first order
+    // left a real deposit queued here with no give that could ever name it.
+    node.peer(recipient).?.outbound_budget = 1;
+    const gift_id = [_]u8{0x6d} ** model.HANDOFF_GIFT_ID_BYTES;
+    try node.provideGiftId(ask.need_gift_id.ticket, &gift_id);
+    const failed = node.nextAction().?;
+    try std.testing.expectEqual(recipient, failed.fail.peer_id);
+    try std.testing.expect(node.peer(recipient).?.session_state.peekResolution(answer) == null);
+    try std.testing.expectEqual(engine.StepOutcome.idle, try node.peer(exporter).?.step());
+    try std.testing.expect(node.peer(exporter).?.takeOutbound() == null);
+}
+
+test "gift-id entropy failure settles the claimed handoff instead of stranding its ticket" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{6} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
+    try node.peer(exporter).?.session_state.registerImport(.from(4));
+    const gift = try node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    try std.testing.expect(try node.interceptFulfilledRef(recipient, 62, gift.far.import_position.int()));
+    const ask = node.nextAction().?;
+
+    try node.giftIdFailed(ask.need_gift_id.ticket);
+    const failed = node.nextAction().?;
+    try std.testing.expectEqual(recipient, failed.fail.peer_id);
+    try std.testing.expectEqual(@as(u64, 62), failed.fail.answer);
+    try std.testing.expectEqualStrings(
+        "handoff origination failed: gift-id entropy unavailable",
+        failed.fail.reason.bytes(),
+    );
+
+    // Completion reports are idempotent across racing teardown/retry.
+    try node.giftIdFailed(ask.need_gift_id.ticket);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "relayed gift-id failure spends no allocation after the home fire" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var node = Node.init(allocator, [_]u8{0x76} ** crypto.SEED_BYTES);
+    defer node.deinit();
+    defer failing.fail_index = std.math.maxInt(usize);
+
+    const home = try node.registerPeer(.{});
+    const recipient = try node.registerPeer(.{});
+    var home_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        node.peer(home).?,
+        [_]u8{0x77} ** crypto.SEED_BYTES,
+    );
+    defer home_counterpart.deinit();
+
+    try node.peer(home).?.session_state.registerImport(.from(4));
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.promise(4) });
+    const rewritten = (try node.proxyForeignPromiseFulfill(recipient, token.far.import_position.int())).?;
+    const import_pos = rewritten.near.export_position.int();
+    try std.testing.expectEqual(home, node.nextAction().?.flush);
+    try node.peer(recipient).?.session_state.registerImport(.from(12));
+    try node.peer(recipient).?.session_state.installImportedPromiseListener(.from(import_pos), .{
+        .listener = .{ .import_position = .from(12) },
+        .mode = .settling_only,
+    });
+
+    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
+    const listener = blk: {
+        var frame = node.peer(home).?.takeOutbound().?;
+        defer frame.deinit();
+        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        break :blk view.listen.listener.far.import_position.int();
+    };
+
+    try node.peer(home).?.session_state.registerImport(.from(9));
+    try std.testing.expect(try node.consumeProxyListenerFire(home, listener, .{
+        .fulfill = .{ .reference = .{ .far = model.FarRef.object(9) } },
+    }));
+    const ask = node.nextAction().?;
+    try std.testing.expect(ask == .need_gift_id);
+
+    // The source fire and its only retry opportunity are gone. Admission
+    // reserved the terminal resolution, so reporting entropy failure must
+    // settle even when the allocator refuses every request from here onward.
+    failing.fail_index = failing.alloc_index;
+    try node.giftIdFailed(ask.need_gift_id.ticket);
+    const settled = node.peer(recipient).?.session_state.importedPromiseResolution(.from(import_pos)).?;
+    try std.testing.expect(settled.* == .@"break");
+    try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);
+
+    // The admission-time scheduler reservation becomes a recipient flush even
+    // though no carrier could be allocated yet. Once pressure clears, `step`
+    // retries the stored settlement and emits the listener fire exactly once.
+    try std.testing.expectEqual(recipient, node.nextAction().?.flush);
+    failing.fail_index = std.math.maxInt(usize);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
+    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
+    var fire = node.peer(recipient).?.takeOutbound().?;
+    fire.deinit();
+    try std.testing.expectEqual(engine.StepOutcome.idle, try node.peer(recipient).?.step());
+}
+
+test "a non-giftable relayed value breaks from admission escrow under allocation failure" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var node = Node.init(allocator, [_]u8{0x78} ** crypto.SEED_BYTES);
+    defer node.deinit();
+    defer failing.fail_index = std.math.maxInt(usize);
+
+    const home = try node.registerPeer(.{});
+    const recipient = try node.registerPeer(.{});
+    var home_counterpart = try openKeyedSessionWithCounterpart(
+        allocator,
+        &node,
+        node.peer(home).?,
+        [_]u8{0x79} ** crypto.SEED_BYTES,
+    );
+    defer home_counterpart.deinit();
+
+    try node.peer(home).?.session_state.registerImport(.from(4));
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.promise(4) });
+    const rewritten = (try node.proxyForeignPromiseFulfill(recipient, token.far.import_position.int())).?;
+    const import_pos = rewritten.near.export_position.int();
+    try std.testing.expectEqual(home, node.nextAction().?.flush);
+
+    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
+    const listener = blk: {
+        var frame = node.peer(home).?.takeOutbound().?;
+        defer frame.deinit();
+        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        break :blk view.listen.listener.far.import_position.int();
+    };
+
+    // A promise cannot be deposited as a one-shot handoff capability. The
+    // break is still mandatory after consuming the source fire and therefore
+    // must use the escrow rather than attempting a best-effort allocation.
+    try node.peer(home).?.session_state.registerImport(.from(10));
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expect(try node.consumeProxyListenerFire(home, listener, .{
+        .fulfill = .{ .reference = .{ .far = model.FarRef.promise(10) } },
+    }));
+    const settled = node.peer(recipient).?.session_state.importedPromiseResolution(.from(import_pos)).?;
+    try std.testing.expect(settled.* == .@"break");
+    try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);
+}
+
 // ── The serve step: the sans-io redeem state machine ─────────────────────────
 //
 // These prove the *decisions* the serve step owns — interception, the exporter
@@ -1074,7 +1359,7 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     try std.testing.expect(node.nextAction() == null);
 
     // The dial failing breaks both waiting answers, in order.
-    try node.dialFailed(action.dial.pending, "connection refused");
+    _ = try node.dialFailed(action.dial.pending, "connection refused");
     const first = node.nextAction().?;
     try std.testing.expectEqual(@as(u64, 11), first.fail.answer);
     try std.testing.expectEqualStrings("handoff redeem failed: connection refused", first.fail.reason.bytes());
@@ -1083,7 +1368,7 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     try std.testing.expect(node.nextAction() == null);
 
     // The settled ticket is retired: reporting it again is a no-op.
-    try node.dialFailed(action.dial.pending, "late");
+    _ = try node.dialFailed(action.dial.pending, "late");
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -1102,7 +1387,7 @@ test "dial failure settles every waiter when diagnostics cannot allocate" {
     // The action FIFO already has room for both consequences. Fail the first
     // diagnostic allocation and prove the dial row still settles as a batch.
     failing.fail_index = failing.alloc_index;
-    try node.dialFailed(dial.dial.pending, "connection refused");
+    _ = try node.dialFailed(dial.dial.pending, "connection refused");
     const first = node.nextAction().?;
     const second = node.nextAction().?;
     try std.testing.expectEqual(@as(u64, 11), first.fail.answer);
@@ -1125,9 +1410,155 @@ test "acceptGive materializes dial view once for pendingDial" {
     const view = node.pendingDial(action.dial.pending).?;
     try std.testing.expectEqualStrings("tcp", view.transport);
     try std.testing.expectEqualStrings("127.0.0.1:9049", view.designator);
-    try std.testing.expectEqualStrings("10.0.0.1:1", view.direct_addresses_hint);
-    try node.dialFailed(action.dial.pending, "stop");
+    try std.testing.expectEqualStrings(model.transport.hint_direct_addresses, view.hints.entries[0].name);
+    try std.testing.expectEqualStrings("10.0.0.1:1", view.hints.entries[0].value.string);
+    _ = try node.dialFailed(action.dial.pending, "stop");
     _ = node.nextAction();
+}
+
+test "alternative locators retry in order on one ticket and a later path succeeds" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x2a} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const first_alt = try peerUri(allocator, "127.0.0.1:9050");
+    defer allocator.free(first_alt);
+    const second_alt = try peerUri(allocator, "127.0.0.1:9051");
+    defer allocator.free(second_alt);
+    const alternatives = try std.fmt.allocPrint(allocator, "{s},{s}", .{ first_alt, second_alt });
+    defer allocator.free(alternatives);
+    const primary = try peerUriWithAlternatives(allocator, "127.0.0.1:9049", alternatives);
+    defer allocator.free(primary);
+
+    const staged = try node.stageDial(primary);
+    const ticket = staged.pending;
+    const first = node.nextAction().?;
+    try std.testing.expect(first == .dial);
+    try std.testing.expectEqual(ticket, first.dial.pending);
+    try std.testing.expectEqualStrings("127.0.0.1:9049", node.pendingDial(ticket).?.designator);
+
+    // The primary is unreachable. The next action is the same logical dial,
+    // and only its active parsed path changes.
+    _ = try node.dialFailed(ticket, "primary unreachable");
+    const retry_one = node.nextAction().?;
+    try std.testing.expect(retry_one == .dial);
+    try std.testing.expectEqual(ticket, retry_one.dial.pending);
+    try std.testing.expectEqualStrings("127.0.0.1:9050", node.pendingDial(ticket).?.designator);
+
+    _ = try node.dialFailed(ticket, "first alternative unreachable");
+    const retry_two = node.nextAction().?;
+    try std.testing.expect(retry_two == .dial);
+    try std.testing.expectEqual(ticket, retry_two.dial.pending);
+    try std.testing.expectEqualStrings("127.0.0.1:9051", node.pendingDial(ticket).?.designator);
+
+    // The embedder reports the final path as opened. The ticket is consumed,
+    // with no retry or failure action left behind.
+    const exporter = try node.registerPeer(.{});
+    try node.exporterDialed(ticket, exporter);
+    try std.testing.expect(node.pendingDial(ticket) == null);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "alternative locator staging refuses malformed and oversized hints" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x2b} ** crypto.SEED_BYTES);
+    defer node.deinit();
+    const recipient = try node.registerPeer(.{});
+
+    const malformed = "ocapn://127.0.0.1%3A9049.tcp?alt-locators=not-a-peer-uri";
+    try node.acceptGive(recipient, 31, "give-malformed", malformed);
+    const malformed_action = node.nextAction().?;
+    try std.testing.expect(malformed_action == .fail);
+    try std.testing.expectEqual(@as(u64, 31), malformed_action.fail.answer);
+    try std.testing.expect(node.pendingDial(0) == null);
+
+    var oversized_hint: [Node.max_alt_locator_bytes + 1]u8 = undefined;
+    @memset(&oversized_hint, 'x');
+    const oversized = try std.fmt.allocPrint(
+        allocator,
+        "ocapn://127.0.0.1%3A9050.tcp?alt-locators={s}",
+        .{oversized_hint},
+    );
+    defer allocator.free(oversized);
+    try node.acceptGive(recipient, 32, "give-oversized", oversized);
+    const oversized_action = node.nextAction().?;
+    try std.testing.expect(oversized_action == .fail);
+    try std.testing.expectEqual(@as(u64, 32), oversized_action.fail.answer);
+
+    var too_many = std.ArrayList(u8).empty;
+    defer too_many.deinit(allocator);
+    for (0..Node.max_alt_locator_count + 1) |index| {
+        if (index != 0) try too_many.append(allocator, ',');
+        try too_many.appendSlice(allocator, "ocapn://127.0.0.1%3A9051.tcp");
+    }
+    const count_limited = try peerUriWithAlternatives(allocator, "127.0.0.1:9050", too_many.items);
+    defer allocator.free(count_limited);
+    try node.acceptGive(recipient, 33, "give-too-many", count_limited);
+    const count_action = node.nextAction().?;
+    try std.testing.expect(count_action == .fail);
+    try std.testing.expectEqual(@as(u64, 33), count_action.fail.answer);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "alternative locator retry exhaustion breaks waiters only after the last path" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x2c} ** crypto.SEED_BYTES);
+    defer node.deinit();
+    const recipient = try node.registerPeer(.{});
+    const alternative = try peerUri(allocator, "127.0.0.1:9052");
+    defer allocator.free(alternative);
+    const primary = try peerUriWithAlternatives(allocator, "127.0.0.1:9049", alternative);
+    defer allocator.free(primary);
+
+    try node.acceptGive(recipient, 41, "give-retry", primary);
+    const first = node.nextAction().?;
+    const ticket = first.dial.pending;
+    _ = try node.dialFailed(ticket, "primary down");
+    const second = node.nextAction().?;
+    try std.testing.expectEqual(ticket, second.dial.pending);
+    try std.testing.expect(node.pendingDial(ticket) != null);
+
+    _ = try node.dialFailed(ticket, "alternative down");
+    const failed = node.nextAction().?;
+    try std.testing.expect(failed == .fail);
+    try std.testing.expectEqual(@as(u64, 41), failed.fail.answer);
+    try std.testing.expectEqualStrings("handoff redeem failed: alternative down", failed.fail.reason.bytes());
+    try std.testing.expect(node.pendingDial(ticket) == null);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "ordinary primary dial success keeps the existing pending ticket contract" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x2d} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const staged = try node.stageDial("ocapn://127.0.0.1%3A9053.tcp");
+    const ticket = staged.pending;
+    const action = node.nextAction().?;
+    try std.testing.expectEqual(ticket, action.dial.pending);
+    try std.testing.expectEqualStrings("127.0.0.1:9053", node.pendingDial(ticket).?.designator);
+    const exporter = try node.registerPeer(.{});
+    try node.exporterDialed(ticket, exporter);
+    try std.testing.expect(node.pendingDial(ticket) == null);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "pending alternative paths are released when the node tears down" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x2e} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const alternative = try peerUri(allocator, "127.0.0.1:9054");
+    defer allocator.free(alternative);
+    const primary = try peerUriWithAlternatives(allocator, "127.0.0.1:9049", alternative);
+    defer allocator.free(primary);
+    const recipient = try node.registerPeer(.{});
+    try node.acceptGive(recipient, 51, "give-teardown", primary);
+    const action = node.nextAction().?;
+    try std.testing.expect(node.pendingDial(action.dial.pending) != null);
+    // `deinit` owns both the queued action and every parsed path in the
+    // pending row. The testing allocator turns either missed owner into a
+    // failure without a separate production-only hook.
 }
 
 test "acceptGive fails closed on unparseable exporter locator" {
@@ -1157,7 +1588,7 @@ test "exporterDialed frees empty hint sentinel without leaking" {
     try node.acceptGive(recipient, 4, "give-bytes", locator);
     const action = node.nextAction().?;
     const view = node.pendingDial(action.dial.pending).?;
-    try std.testing.expectEqual(@as(usize, 0), view.direct_addresses_hint.len);
+    try std.testing.expectEqual(@as(usize, 0), view.hints.entries.len);
     try node.exporterDialed(action.dial.pending, exporter);
     // Withdraw flush against the exporter; drain so deinit is clean.
     while (node.nextAction()) |_| {}
@@ -1183,7 +1614,7 @@ test "acceptGive joins pending dials on peer identity, not URI representation" {
     try std.testing.expectEqualStrings("127.0.0.1:9050", identity_view.designator);
     try std.testing.expect(node.nextAction() == null);
 
-    try node.dialFailed(action.dial.pending, "connection refused");
+    _ = try node.dialFailed(action.dial.pending, "connection refused");
     try std.testing.expectEqual(@as(u64, 11), node.nextAction().?.fail.answer);
     try std.testing.expectEqual(@as(u64, 12), node.nextAction().?.fail.answer);
     try std.testing.expect(node.nextAction() == null);
@@ -1341,6 +1772,11 @@ test "Node V1 withdrawal counts span sessions while next counts remain session-l
         [_]u8{0x54} ** crypto.SEED_BYTES,
     );
     defer counterpart_a.deinit();
+    try std.testing.expectError(
+        codec.syrup.Error.MalformedFrame,
+        node.peer(exporter_a).?.sendWithdrawGift(node.secretKey(), "not a signed give", .from(99)),
+    );
+    try std.testing.expectEqual(@as(u64, 0), node.next_v1_emitted_handoff_count);
 
     const recipient_b = try node.registerPeer(.{});
     const exporter_b = try node.registerPeer(.{});
@@ -2241,7 +2677,7 @@ test "a relayed promise still breaks, because a handoff introduces a capability"
         .fulfill = .{ .reference = .{ .far = model.FarRef.promise(chained) } },
     }));
 
-    try std.testing.expect(node.nextAction() == null);
+    try std.testing.expectEqual(recipient, node.nextAction().?.flush);
     const settled = node.peer(recipient).?.session_state.importedPromiseResolution(.from(import_pos)).?;
     try std.testing.expect(settled.* == .@"break");
     try std.testing.expect(node.peer(home).?.sessionIsOpen());

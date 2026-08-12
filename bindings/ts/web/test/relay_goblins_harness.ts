@@ -80,15 +80,15 @@ try {
 	// reaching the next line means Goblins accepted our signed hello through
 	// the relay and we accepted its.
 	const locator = stack.tcpLocator("127.0.0.1", goblinsPort);
-	const conn = await stack.connect(locator);
-	conn.serve().catch(() => {}); // the partner hanging up ends the serve loop
+	const session = await stack.connect(locator);
+	session.serve().catch(() => {}); // the partner hanging up ends the serve loop
 
 	// 5. Enliven the echo cap and prove the round-trip content survives. The
 	// echo actor is `(lambda args args)`, so assert the bytes, not mere
 	// settlement. Goblins invokes a cap positionally, hence verb "".
 	const sturdyref = `${locator}/s/${sturdyrefPath}`;
-	const echo = await conn.enliven(sturdyref);
-	const reply = await conn.send(echo, "", [new TextEncoder().encode("relay-ping")]);
+	const echo = await session.enliven(sturdyref);
+	const reply = await session.send(echo, "", [new TextEncoder().encode("relay-ping")]);
 	if (!Array.isArray(reply) || reply.length !== 1 || !(reply[0] instanceof Uint8Array)) {
 		throw new Error(`echo reply is not a one-bytes list: ${JSON.stringify(reply)}`);
 	}
@@ -100,7 +100,7 @@ try {
 	// 6. A repeat enliven of the same sturdyref returns the same far import
 	// (the ADR-0012 dedup cache), exercising a second frame shape through the
 	// relay.
-	const again = await conn.enliven(sturdyref);
+	const again = await session.enliven(sturdyref);
 	if (
 		echo.id !== again.id
 	) {
@@ -108,7 +108,7 @@ try {
 	}
 
 	console.log("OK: browser peer held a keyed session with live Goblins through the relay");
-	conn.close();
+	session.close();
 } catch (err) {
 	failure = `Goblins relay scenario failed: ${err instanceof Error ? err.message : String(err)}`;
 } finally {

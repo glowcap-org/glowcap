@@ -17,10 +17,10 @@ The whole protocol rests on the ordinary object reference. Code that holds a
 reference to an object can call it. Code that was never handed one cannot,
 and there is no way to manufacture one from bytes.
 [CapTP](http://erights.org/elib/distrib/captp/) is the protocol that keeps
-this true between two programs on a network,
-[OCapN](https://github.com/ocapn/ocapn) is its standardization, and
+this true between two programs on a network.
+[OCapN](https://github.com/ocapn/ocapn) is its standardization.
 [Spritely Goblins](https://spritely.institute/goblins/) is the implementation
-that ships it today.
+most readers already know, and the peer pancake checks against.
 
 Most things you would normally build permission infrastructure for turn out
 to be ways of passing references around. Hand one along and you have
@@ -77,7 +77,8 @@ process-local.
 
 The
 [sturdyref diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
-go deeper, and [Transports]($link.page('transports')) covers the netlayers a
+go deeper, and [Transports]($link.page('transports')) explains what a netlayer
+is. [Choosing a transport]($link.page('transports/choosing')) lists the ones a
 locator can name.
 
 ## Promise pipelining
@@ -112,8 +113,8 @@ In pancake you never see the gift bytes. A call that answers with an
 introduction settles as the introduced capability, inside the wait you were
 already in, so there is no redeem step to write. That holds on every surface:
 native Zig, the completion loop, and all four bindings.
-In the rooms chat this is the _Message_ button. Your code asked the room for a
-member, and what came back was the member.
+In the rooms chat, the _Message_ button is that introduction: the room hands
+you a live reference to the other member.
 
 Chapter 02,
 [introduce and redeem](https://github.com/jimisaacs/pancake/blob/main/examples/zig/02_introduce_and_redeem.zig),

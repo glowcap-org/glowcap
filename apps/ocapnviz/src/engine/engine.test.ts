@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { TimelineDocument } from "./timeline.ts";
+import { TimelineDocument, type TimelineEvent } from "./timeline.ts";
 import { Engine } from "./engine.ts";
 import { findEndpoint, findPeer } from "./world.ts";
 import { attachedEndpoint, unattributedEndpoint } from "../schema/topology.ts";
@@ -8,6 +8,12 @@ import {
   primaryObservations,
 } from "./temporal/recording-access.ts";
 import { peerEffective, sessionEffective } from "./temporal/doc-resolver.ts";
+import {
+  claimTargets,
+  computeMessageTimeBundles,
+  computeSessionBundles,
+  EMPTY_FRAME_GEOMETRY,
+} from "./session-geometry.ts";
 
 // d3-force (used by KeyframeLayoutSystem at engine construction)
 // schedules a d3-timer via setTimeout under Deno (no
@@ -2021,6 +2027,60 @@ engineTest(
     assert(
       e.docVersion > docBefore,
       "closing the drag left the document version behind",
+    );
+  },
+);
+
+engineTest(
+  "retiming a moment inside a transaction wakes version without rematerializing yet",
+  () => {
+    // Timeline pills and scrub fields follow the live doc mid-gesture.
+    // Layout/seek still coalesce to endTransaction (Unpin-all / multi-
+    // delete), but a silent authoring seek left diamonds and span edges
+    // visually frozen until release.
+    const e = new Engine(structuredClone(doc));
+    const stateEv = observationsOf(e.doc).find(
+      (ev) => ev.kind === "session-state-changed",
+    );
+    assert(stateEv, "fixture needs a state-change moment to retime");
+    const fromT = stateEv.t;
+    e.beginTransaction("Move keyframe");
+    const docBefore = e.docVersion;
+    const versionBefore = e.version;
+    let recomputes = 0;
+    const origRecompute = e.layout.recompute.bind(e.layout);
+    e.layout.recompute = () => {
+      recomputes += 1;
+      origRecompute();
+    };
+    e.dispatch({
+      kind: "move-event",
+      move: {
+        kind: "translate",
+        eventId: stateEv.id,
+        newT: fromT + 50,
+      },
+    });
+    assertEquals(
+      observationsOf(e.doc).find((ev) => ev.id === stateEv.id)?.t,
+      fromT + 50,
+      "the observation must move on the live doc mid-gesture",
+    );
+    assertEquals(
+      e.docVersion,
+      docBefore,
+      "mid-gesture retime bumped the document version",
+    );
+    assert(
+      e.version > versionBefore,
+      "mid-gesture retime woke nobody — timeline paint stays frozen",
+    );
+    assertEquals(recomputes, 0, "layout must stay deferred inside the txn");
+    e.endTransaction();
+    assertEquals(recomputes, 1, "the gesture must anneal once at close");
+    assert(
+      e.docVersion > docBefore,
+      "closing the retime left the document version behind",
     );
   },
 );
@@ -4343,3 +4403,119 @@ engineTest("a live observation moves the document version", () => {
     "a peer that arrived live never moved the document version",
   );
 });
+
+// ──────── Frame geometry shared once per stage update ────────
+//
+// Flight and the Stage projection used to each call `claimTargets` /
+// `computeSessionBundles`, and flight rebuilt time bundles every tick
+// even though those are observation-stable. The engine now owns one
+// `frameGeometry` per stage pass. Validated by injection: rebuilding
+// time bundles every `#runStageSystems` fails the identity test; leaving
+// Stage to compute its own session bundles would not fail these, but the
+// render path takes `engine.frameGeometry` by construction.
+
+engineTest(
+  "frameGeometry matches an independent claim/bundle resolution",
+  () => {
+    const e = new Engine(structuredClone(doc));
+    e.seekTo(1000);
+    const g = e.frameGeometry;
+    const toward = claimTargets(e.world, e.claims);
+    assertEquals([...g.claimsToward.entries()], [...toward.entries()]);
+    assertEquals(
+      [...g.sessionBundles.entries()],
+      [...computeSessionBundles(e.world, toward).entries()],
+    );
+  },
+);
+
+engineTest(
+  "message time bundles keep identity across playback ticks",
+  () => {
+    const e = new Engine(structuredClone(doc));
+    e.clock.play();
+    e.tick(50);
+    const first = e.frameGeometry.timeBundles;
+    for (let i = 0; i < 20; i++) e.tick(50);
+    assert(
+      e.frameGeometry.timeBundles === first,
+      "playback rebuilt time bundles every tick",
+    );
+    // The cached map is still the right answer, not a stale empty.
+    assertEquals(
+      [...first.entries()],
+      [
+        ...computeMessageTimeBundles(
+          observationsOf(e.doc) as readonly TimelineEvent[],
+        ).entries(),
+      ],
+    );
+  },
+);
+
+engineTest(
+  "pair tables keep identity across playback ticks without topology change",
+  () => {
+    // Between t=0 and the first message at t=1000 the standing set is
+    // stable, so claim/bundle maps must not be rebuilt every frame.
+    const e = new Engine(structuredClone(doc));
+    e.clock.play();
+    e.tick(50);
+    const claims = e.frameGeometry.claimsToward;
+    const bundles = e.frameGeometry.sessionBundles;
+    for (let i = 0; i < 10; i++) e.tick(50);
+    assert(
+      e.frameGeometry.claimsToward === claims,
+      "playback rebuilt claim targets while membership was stable",
+    );
+    assert(
+      e.frameGeometry.sessionBundles === bundles,
+      "playback rebuilt session bundles while membership was stable",
+    );
+    // Curves depend on positions and are rebuilt every stage pass.
+    assert(
+      e.frameGeometry.sessionCurves !== EMPTY_FRAME_GEOMETRY.sessionCurves,
+      "session curves were never built",
+    );
+  },
+);
+
+engineTest(
+  "seek after a document edit rebuilds message time bundles",
+  () => {
+    const e = new Engine(structuredClone(doc));
+    const before = e.frameGeometry.timeBundles;
+    e.dispatch({
+      kind: "reposition-peer",
+      peerId: "a",
+      position: { x: 7, y: 7 },
+    });
+    // Seek is the path that must not trust a pre-edit table: authoring
+    // rewrites observations in place and then seeks.
+    e.seekTo(e.clock.t);
+    assert(
+      e.frameGeometry.timeBundles !== before,
+      "a seek after an edit kept the previous time-bundle map",
+    );
+  },
+);
+
+engineTest(
+  "retiming a message updates time-bundle contents after seek",
+  () => {
+    // Authoring rewrites observations in place and seeks. `#doSeek`
+    // always allocates a new map; this pins that the new map reflects
+    // the rewritten observation. Injection: keep computing time bundles
+    // from a cloned pre-move event list and this fails.
+    const e = new Engine(structuredClone(doc));
+    e.dispatch({
+      kind: "move-event",
+      move: { kind: "resize-end", eventId: "e4", newArrivalT: 2200 },
+    });
+    const rebuilt = e.frameGeometry.timeBundles;
+    const expected = computeMessageTimeBundles(
+      observationsOf(e.doc) as readonly TimelineEvent[],
+    );
+    assertEquals([...rebuilt.entries()], [...expected.entries()]);
+  },
+);

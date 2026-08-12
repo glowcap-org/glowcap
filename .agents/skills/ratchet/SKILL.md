@@ -41,8 +41,10 @@ not yet written; when the check lands, the sentence shrinks to a pointer.
   `project_shape.zig` (build steps, layer and test placement),
   `bans.zig` (substring claims over a scope), `zig_docs.zig` (doc-comment
   symbol claims), `fuzz.zig` (fuzz targets, seeds, the vendored runner),
-  `namespaces.zig` (bare keyed tables), `ui.zig` and `rooms_ui.zig` (the
-  shared UI core and the rooms page), and the C ABI, binding, and CapTP
+  `namespaces.zig` (bare keyed tables), `signing_domain.zig` (durable-key
+  signing sites and the Ed25519-to-X25519 bridge), `ui.zig` and
+  `rooms_ui.zig` (the shared UI core and the rooms page), and the C ABI,
+  binding, and CapTP
   spines: `c_abi.zig`, `binding_spine.zig`, `binding_runtime_proof.zig`,
   `captp_io_spine.zig`, `captp_product.zig`. The driver
   [`meta_check.zig`](../../../tools/check/meta_check.zig) wires every check,

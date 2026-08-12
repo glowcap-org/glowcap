@@ -3,7 +3,7 @@ id: ADR-0054
 status: accepted
 date: 2026-06-11
 tags: [net, runtime, memory, performance, resilience]
-decision: "Completion-loop connections hold no per-connection read buffer. The backend owns one shared pool of `Options.read_buffers` buffers (io_uring: a kernel provided-buffer ring; kqueue: a poll-time scratch pool), a recv completion lends the loop a borrowed view of the selected buffer, and the loop recycles it exactly once after consuming: whole frames apply zero-copy from the view, a partial tail absorbs into the bounded spill (ADR-0041). A recv that finds the pool empty parks the connection buffer-starved and resumes on recycle; it is never dropped. Idle read-buffer memory no longer scales with connection count."
+decision: "Completion-loop connections hold no per-connection read buffer. The backend owns one shared pool of `BackendOptions.read_buffers` buffers (io_uring: a kernel provided-buffer ring; kqueue: a poll-time scratch pool), a recv completion lends the loop a borrowed view of the selected buffer, and the loop recycles it exactly once after consuming: whole frames apply zero-copy from the view, a partial tail absorbs into the bounded spill (ADR-0041). A recv that finds the pool empty parks the connection buffer-starved and resumes on recycle; it is never dropped. Idle read-buffer memory no longer scales with connection count."
 supersedes: []
 superseded_by: []
 ---
@@ -28,9 +28,10 @@ intentional, or measured.
 **The backend owns one shared read-buffer pool; a connection borrows a buffer
 per completion.** `submitRecv` no longer carries a caller buffer. The backend
 (`src/net/completion/uring.zig`, `src/net/completion/kqueue.zig`) selects a
-buffer from its pool of `Options.read_buffers` buffers (default 256, each 16 KiB
-capped by `frame_cap`) when data actually arrives, and the completion lends the
-loop a borrowed view of it (`Completion.recv_bytes`). The loop
+buffer from its pool of `BackendOptions.read_buffers` buffers (default 256), each
+exactly `BackendOptions.read_buffer_bytes` bytes (default 16 KiB), when data
+actually arrives, and the completion lends the loop a borrowed view of it
+(`Completion.recv_bytes`). The loop
 (`src/net/completion/loop.zig`) consumes the bytes and hands the buffer back
 with `recycleRecv`, exactly once per completion that carried one. On io_uring
 the pool is a kernel provided-buffer ring registered at init, with buffer-select
@@ -70,9 +71,9 @@ spill always assumed.
 - **Multishot recv.** Each recv is still armed per completion. io_uring's
   multishot recv over the same buffer group would cut submission syscalls; it is
   not implemented.
-- **Pool sizing policy.** `read_buffers` is a static option. Growing or
-  shrinking the pool under observed contention is host policy that does not
-  exist yet.
+- **Pool sizing policy.** `BackendOptions.read_buffers` and
+  `BackendOptions.read_buffer_bytes` are static. Growing or shrinking the pool
+  under observed contention is host policy that does not exist yet.
 - **The blocking paths.** `pumpOver`, `FrameStream`, and the C-ABI endpoint keep
   their caller-owned read buffers; only the completion loop shares.
 
@@ -99,6 +100,13 @@ spill always assumed.
   `recv_bytes`/`recv_token`/`recv_no_buffer`, and `recycleRecv` joins the
   contract. The interface doc in `src/net/completion/loop.zig` is the authority;
   the scripted test backends implement the same contract.
+- `BackendOptions.read_buffer_bytes` names exact shared-pool buffer sizing. It
+  neither limits frames nor supplies the outbound high-water mark;
+  `max_frame_bytes` owns admission and ADR-0042 owns backpressure.
+- Backend construction controls live only in `BackendOptions`.
+  `initWithBackendOptions` applies them while constructing a backend;
+  `initWithBackend` accepts only loop runtime policy because its supplied
+  backend already owns the pool.
 - `Conn` loses its `read_buf` and compaction state and gains the starved flag
   and intrusive starved-list link; the loop no longer allocates anything per
   accepted connection beyond the peer itself.

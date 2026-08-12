@@ -260,7 +260,9 @@ fn run(
     // ── The pancake gifter ──────────────────────────────────────────────────
     var gifter_seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&gifter_seed) catch return error.HandshakeEntropyFailed;
-    var gifter = Host.init(allocator, gifter_seed, nativeOptions());
+    var gifter_session_root: [crypto.SEED_BYTES]u8 = undefined;
+    io.randomSecure(&gifter_session_root) catch return error.HandshakeEntropyFailed;
+    var gifter = Host.init(allocator, gifter_seed, gifter_session_root, nativeOptions());
     defer gifter.deinit();
 
     var fetched = std.atomic.Value(bool).init(false);
@@ -276,16 +278,15 @@ fn run(
     gifter_state = .{ .host = &gifter, .bridge = &gifter_bridge, .fetched = &fetched };
 
     gifter_loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&gifter_bridge), TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
     }));
     defer gifter_loop.deinit();
-    const gifter_port = gifter_loop.port.?;
+    const gifter_port = gifter_loop.port().?;
     var gifter_bound_buf: [tcp.designator_buf_len]u8 = undefined;
     const gifter_addr = try tcp.parseHostPort(host_addr, gifter_port);
     const gifter_bound = tcp.locator(&gifter_bound_buf, gifter_addr).designator;
-    try gifter_bridge.attach(tcp.transport_name, gifter_bound, &.{});
+    try gifter_bridge.attach(model.transport.Known.tcp.metadata(), gifter_bound, &.{});
 
     // Queue the dial before the loop thread starts. The bridge and its host
     // belong to whichever thread drives the loop, so reaching in from here
@@ -293,7 +294,11 @@ fn run(
     // does open arrives as an accept, whose leg this driver's `on_open`
     // correctly ignores — leaving the fetch never issued and the run parked
     // on a vow nobody will settle.
-    try gifter_bridge.dialOutbound(tcp.transport_name, exporter_bound, "");
+    try gifter_bridge.dialOutbound(.{
+        .transport = tcp.transport_name,
+        .designator = exporter_bound,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var gifter_done = std.atomic.Value(bool).init(false);
     var gifter_err: ?anyerror = null;

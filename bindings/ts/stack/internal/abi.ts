@@ -94,15 +94,6 @@ export const ACCEPT_PLAN_DESIGNATOR_LEN_OFF = 8;
 export const ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF = 16;
 export const ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF = 24;
 
-// PancakePendingDial (libpancake_host, pancake_host_pending_dial)
-export const PENDING_DIAL_SIZE = 48;
-export const PENDING_DIAL_TRANSPORT_OFF = 0;
-export const PENDING_DIAL_TRANSPORT_LEN_OFF = 8;
-export const PENDING_DIAL_DESIGNATOR_OFF = 16;
-export const PENDING_DIAL_DESIGNATOR_LEN_OFF = 24;
-export const PENDING_DIAL_HINT_OFF = 32;
-export const PENDING_DIAL_HINT_LEN_OFF = 40;
-
 // PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)
 export const PARTNER_IDENTITY_SIZE = 56;
 export const PARTNER_IDENTITY_SESSION_KEY_OFF = 0;
@@ -134,6 +125,56 @@ export const TRACE_EVENT_FRAME_LEN_OFF = 104;
 export const TRACE_EVENT_FRAME_TOTAL_LEN_OFF = 112;
 export const TRACE_EVENT_DROPPED_OFF = 120;
 export const TRACE_EVENT_DIGEST_OFF = 128;
+
+// PancakeDriverOptions (libpancake_driver, pancake_driver_take_host)
+export const DRIVER_OPTIONS_SIZE = 40;
+export const DRIVER_OPTIONS_ABI_VERSION_OFF = 0;
+export const DRIVER_OPTIONS_STRUCT_SIZE_OFF = 8;
+export const DRIVER_OPTIONS_WIRE_BUFFER_BYTES_OFF = 16;
+export const DRIVER_OPTIONS_MAX_PENDING_OPENS_OFF = 24;
+export const DRIVER_OPTIONS_HANDSHAKE_MS_OFF = 32;
+export const DRIVER_OPTIONS_SETTLE_MS_OFF = 36;
+
+// PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)
+export const DRIVER_EVENT_SIZE = 144;
+export const DRIVER_EVENT_KIND_OFF = 0;
+export const DRIVER_EVENT_TICKET_OFF = 8;
+export const DRIVER_EVENT_SESSION_OFF = 16;
+export const DRIVER_EVENT_ACTION_OFF = 24;
+export const DRIVER_EVENT_MESSAGE_OFF = 128;
+export const DRIVER_EVENT_MESSAGE_LEN_OFF = 136;
+
+// PancakeLocatorHintView (pancake_transport_provider.h)
+export const LOCATOR_HINT_VIEW_SIZE = 56;
+export const LOCATOR_HINT_VIEW_NAME_OFF = 0;
+export const LOCATOR_HINT_VIEW_NAME_LEN_OFF = 8;
+export const LOCATOR_HINT_VIEW_KIND_OFF = 16;
+export const LOCATOR_HINT_VIEW_BYTES_OFF = 24;
+export const LOCATOR_HINT_VIEW_BYTES_LEN_OFF = 32;
+export const LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF = 40;
+export const LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF = 48;
+
+// PancakeLocatorView (pancake_transport_provider.h)
+export const LOCATOR_VIEW_SIZE = 72;
+export const LOCATOR_VIEW_ABI_VERSION_OFF = 0;
+export const LOCATOR_VIEW_STRUCT_SIZE_OFF = 8;
+export const LOCATOR_VIEW_TRANSPORT_OFF = 16;
+export const LOCATOR_VIEW_TRANSPORT_LEN_OFF = 24;
+export const LOCATOR_VIEW_DESIGNATOR_OFF = 32;
+export const LOCATOR_VIEW_DESIGNATOR_LEN_OFF = 40;
+export const LOCATOR_VIEW_HINTS_OFF = 48;
+export const LOCATOR_VIEW_HINT_COUNT_OFF = 56;
+export const LOCATOR_VIEW_HINT_WIRE_FORM_OFF = 64;
+
+// PancakeTransportProvider (pancake_transport_provider.h, pancake_driver_add_provider)
+export const TRANSPORT_PROVIDER_SIZE = 56;
+export const TRANSPORT_PROVIDER_ABI_VERSION_OFF = 0;
+export const TRANSPORT_PROVIDER_STRUCT_SIZE_OFF = 8;
+export const TRANSPORT_PROVIDER_ENTRIES_OFF = 16;
+export const TRANSPORT_PROVIDER_ENTRY_COUNT_OFF = 24;
+export const TRANSPORT_PROVIDER_LEASE_CTX_OFF = 32;
+export const TRANSPORT_PROVIDER_RETAIN_OFF = 40;
+export const TRANSPORT_PROVIDER_RELEASE_OFF = 48;
 
 // PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;

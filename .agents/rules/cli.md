@@ -21,13 +21,13 @@ green log is not a failure verdict.
 
 `check` needs no network, no submodules, and no live peer, and is the step to run
 while iterating; its cost is that a green `check` proves only that pancake agrees
-with pancake. It is not Zig-only. Three members need a program on PATH — `cargo`
-for the CLI tests' sidecar link, and `deno`, `python3`, and `tar` reached through
-two bash harnesses — so **run `check` in the devcontainer**; a host missing one
-of them cannot run the gate at all. `check_runtimes` in `build.zig` declares that
-set with the reason for each, and `zig build toolchain-check` refuses a member
-that reaches for anything else, so requiring a fourth runtime is a reviewed edit
-rather than a silent one.
+with pancake. It is not Zig-only: Cargo links the CLI tests' iroh sidecar, and
+two Bash harnesses make `tar` part of the hard floor. Deno and Python extend
+those harnesses when present and report explicit skips otherwise. **Run `check`
+in the devcontainer**, where the complete declared toolchain is pinned.
+`check_runtimes` in `build.zig` names every program visible in the build graph
+and the scripts allowed to hide host-tool calls, so raising the hard floor is a
+reviewed edit rather than a silent one.
 
 `check-external` is the other half, every check whose authority is outside
 pancake, and `ci/gates.sh` runs the same set on every push to the mirror. Run it

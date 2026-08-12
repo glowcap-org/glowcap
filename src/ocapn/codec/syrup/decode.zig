@@ -16,6 +16,7 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
+const codec_order = @import("codec_order");
 const framing = @import("framing");
 
 const shared = @import("shared.zig");
@@ -378,7 +379,7 @@ fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize
         _ = try readNeutralArgument(bytes, cursor, depth, limit);
         const element = bytes[element_start..cursor.*];
         if (previous_element) |previous| {
-            if (std.mem.order(u8, previous, element) != .lt) return Error.MalformedFrame;
+            if (!codec_order.byteSliceBefore(previous, element)) return Error.MalformedFrame;
         }
         previous_element = element;
     }
@@ -415,7 +416,7 @@ fn sliceStructNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: us
         _ = try readStringLimited(bytes, cursor, limit);
         const key_encoded = bytes[key_start..cursor.*];
         if (previous_key_encoded) |previous| {
-            if (std.mem.order(u8, previous, key_encoded) != .lt) return Error.MalformedFrame;
+            if (!codec_order.byteSliceBefore(previous, key_encoded)) return Error.MalformedFrame;
         }
         previous_key_encoded = key_encoded;
         _ = try readNeutralArgument(bytes, cursor, depth, limit);
@@ -628,7 +629,6 @@ pub fn framePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Boundary {
 /// inside `limit` bytes no matter how many more arrive; every other error means
 /// the bytes are structurally invalid regardless of how many more arrive.
 fn decodeBodyAt(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
-    const message_start = cursor.*;
     try readByte(bytes, cursor, '<');
     const op = try readSymbolLimited(bytes, cursor, limit);
 
@@ -638,7 +638,7 @@ fn decodeBodyAt(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit
     // `std.meta.Tag(model.Message)` — a new kind cannot compile without a wire
     // op *and* a decoder, and this table picks it up automatically.
     if (messageOpDecoder(op)) |decode| {
-        return decode(posture, bytes, cursor, limit, message_start);
+        return decode(posture, bytes, cursor, limit);
     }
     return Error.UnsupportedMessage;
 }
@@ -685,9 +685,8 @@ fn messageOpDecoderForLen(comptime len: usize, op: []const u8) ?OpDecoder {
 }
 
 /// One decoder reads one message body from just past its op symbol, advancing
-/// `cursor` to the byte after the closing `>`. `message_start` is retained in
-/// the uniform function-pointer signature for the dispatch table.
-const OpDecoder = *const fn (DecodePosture, []const u8, *usize, usize, usize) Error!model.view.Body;
+/// `cursor` to the byte after the closing `>`.
+const OpDecoder = *const fn (DecodePosture, []const u8, *usize, usize) Error!model.view.Body;
 
 fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
     return switch (kind) {
@@ -704,17 +703,15 @@ fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
     };
 }
 
-fn decodeAbortBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeAbortBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     _ = posture;
-    _ = message_start;
     const message = try readStringLimited(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
     const abort = parseAbortWireString(message);
     return .{ .abort = .{ .kind = abort.kind, .message = abort.message } };
 }
 
-fn decodeDeliverBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
-    _ = message_start;
+fn decodeDeliverBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     const target = try readReference(bytes, cursor, limit);
     const args_body = try sliceArgumentListNeutral(bytes, cursor, 0, limit);
     const answer = try readOptionalPositiveInt(bytes, cursor);
@@ -735,18 +732,16 @@ fn decodeDeliverBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, 
     } };
 }
 
-fn decodeResolveBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeResolveBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     if (posture == .next) return Error.UnsupportedMessage;
-    _ = message_start;
     const answer = try readPositiveInt(bytes, cursor);
     const resolution = try readNeutralResolution(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
     return .{ .resolve = .{ .answer = model.AnswerPosition.from(answer), .resolution = resolution } };
 }
 
-fn decodeGcExportBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeGcExportBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     _ = posture;
-    _ = message_start;
     const positions = try readPositionList(bytes, cursor, limit);
     const deltas = try readPositionList(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
@@ -756,17 +751,15 @@ fn decodeGcExportBody(posture: DecodePosture, bytes: []const u8, cursor: *usize,
     } };
 }
 
-fn decodeGcAnswerBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeGcAnswerBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     _ = posture;
-    _ = message_start;
     const positions = try readPositionList(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
     return .{ .gc_answer = .{ .positions = neutralPositions(positions) } };
 }
 
-fn decodeGetBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeGetBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     _ = posture;
-    _ = message_start;
     const receiver = try readReference(bytes, cursor, limit);
     // A String per the spec (and what Goblins sends); see the encoder.
     const field = try readStringLimited(bytes, cursor, limit);
@@ -775,9 +768,8 @@ fn decodeGetBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limi
     return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeIndexBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeIndexBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     _ = posture;
-    _ = message_start;
     const receiver = try readReference(bytes, cursor, limit);
     const index = try readIntegerValue(bytes, cursor);
     const answer = try readPositiveInt(bytes, cursor);
@@ -785,9 +777,8 @@ fn decodeIndexBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, li
     return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeUntagBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeUntagBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     _ = posture;
-    _ = message_start;
     const receiver = try readReference(bytes, cursor, limit);
     // A String per the spec; see the encoder.
     const tag = try readStringLimited(bytes, cursor, limit);
@@ -796,8 +787,7 @@ fn decodeUntagBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, li
     return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeListenBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
-    _ = message_start;
+fn decodeListenBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     const target = try readReference(bytes, cursor, limit);
     const listener = try readReference(bytes, cursor, limit);
     const mode: model.ListenMode = switch (posture) {
@@ -821,9 +811,8 @@ fn decodeListenBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, l
     } };
 }
 
-fn decodeStartSessionBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+fn decodeStartSessionBody(posture: DecodePosture, bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Body {
     _ = posture;
-    _ = message_start;
     const version_wire = try readStringLimited(bytes, cursor, limit);
     // A token this build does not know decodes as null; `session.validate` is
     // what refuses it, and refuses it as a version mismatch.
@@ -1160,7 +1149,7 @@ fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?mo
     const bytes = hl.bytes;
     var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
     while (cursor < bytes.len and bytes[cursor] != '}') {
-        const step = nextSyrupHintStep(bytes, &cursor) catch return error.MalformedView;
+        const step = nextSyrupHintStep(bytes, &cursor, no_limit) catch return error.MalformedView;
         switch (step) {
             .known => |entry| if (std.mem.eql(u8, entry.name, name)) return entry.value,
             .skipped => |skipped| if (std.mem.eql(u8, skipped.name, name)) return error.MalformedView,
@@ -1169,31 +1158,20 @@ fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?mo
     return null;
 }
 
-fn syrupHasHintNameBefore(bytes: []const u8, end: usize, name: []const u8) Error!bool {
-    var cursor: usize = 1;
-    while (cursor < end) {
-        const step = try nextSyrupHintStep(bytes, &cursor);
-        switch (step) {
-            .known => |entry| if (std.mem.eql(u8, entry.name, name)) return true,
-            .skipped => |skipped| if (std.mem.eql(u8, skipped.name, name)) return true,
-        }
-    }
-    return false;
-}
-
 fn syrupValidateHintNamesUnique(hl: model.view.HintList) model.view.ProjectError!void {
     const bytes = hl.bytes;
     var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
+    var previous_key: ?[]const u8 = null;
+    var entries: usize = 0;
     while (cursor < bytes.len and bytes[cursor] != '}') {
-        const entry_start = cursor;
-        const step = nextSyrupHintStep(bytes, &cursor) catch return error.MalformedView;
-        const name = switch (step) {
-            .known => |entry| entry.name,
-            .skipped => |skipped| skipped.name,
-        };
-        if (syrupHasHintNameBefore(bytes, entry_start, name) catch return error.MalformedView) {
-            return error.MalformedView;
+        entries += 1;
+        if (entries > max_collection_elements) return error.MalformedView;
+        const key = readSyrupHintKeyLimited(bytes, &cursor, no_limit) catch return error.MalformedView;
+        if (previous_key) |previous| {
+            if (!codec_order.byteSliceBefore(previous, key.encoded)) return error.MalformedView;
         }
+        previous_key = key.encoded;
+        skipSyrupValueLimited(bytes, &cursor, no_limit) catch return error.MalformedView;
     }
 }
 
@@ -1224,17 +1202,28 @@ const SyrupHintStep = union(enum) {
     skipped: struct { name: []const u8 },
 };
 
-/// Shared walk for owned materialize: read name, then keep a known
-/// HintValueKind or skipSyrupValue past an exotic. One place owns the
-/// tolerate-and-skip rule.
-fn nextSyrupHintStep(bytes: []const u8, cursor: *usize) Error!SyrupHintStep {
-    const name = try readStringOrSymbol(bytes, cursor);
-    if (readHintValueBorrowed(bytes, cursor)) |value| {
-        return .{ .known = .{ .name = name, .value = value } };
-    } else |_| {
-        try skipSyrupValue(bytes, cursor);
-        return .{ .skipped = .{ .name = name } };
+/// Shared lazy walk: read a name, then keep a known HintValueKind or skip an
+/// exotic Syrup value. Classification happens before parsing so malformed
+/// known values remain malformed instead of being reinterpreted as advisory.
+fn nextSyrupHintStep(bytes: []const u8, cursor: *usize, limit: usize) Error!SyrupHintStep {
+    const key = try readSyrupHintKeyLimited(bytes, cursor, limit);
+    if (try isKnownHintValue(bytes, cursor.*)) {
+        const value = try readHintValueBorrowedLimited(bytes, cursor, limit);
+        return .{ .known = .{ .name = key.name, .value = value } };
     }
+    try skipSyrupValueLimited(bytes, cursor, limit);
+    return .{ .skipped = .{ .name = key.name } };
+}
+
+const SyrupHintKey = struct {
+    name: []const u8,
+    encoded: []const u8,
+};
+
+fn readSyrupHintKeyLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!SyrupHintKey {
+    const start = cursor.*;
+    const name = try readStringOrSymbolLimited(bytes, cursor, limit);
+    return .{ .name = name, .encoded = bytes[start..cursor.*] };
 }
 
 fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.BorrowedHints {
@@ -1249,11 +1238,28 @@ fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vi
             cursor.* += 2;
             return .{ .empty = .map };
         }
-        // Non-empty hints: keep the balanced dict span so borrowed views and
-        // `toOwned` expose entries (Cap'n Proto parity). Start-session still
-        // captures `acceptable_location_raw` for the signing domain.
+        // Validate width and canonical key order now, while the frame limit is
+        // available. Strict order makes duplicate detection linear and gives a
+        // signed locator one stable spelling across codec forwarding.
         const start = cursor.*;
-        _ = try readBalancedLimited(bytes, cursor, '{', '}', limit);
+        try readByte(bytes, cursor, '{');
+        var previous_key: ?[]const u8 = null;
+        var entries: usize = 0;
+        while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
+            entries += 1;
+            if (entries > max_collection_elements) return Error.MalformedFrame;
+            const key = try readSyrupHintKeyLimited(bytes, cursor, limit);
+            if (previous_key) |previous| {
+                if (!codec_order.byteSliceBefore(previous, key.encoded)) return Error.MalformedFrame;
+            }
+            previous_key = key.encoded;
+            if (try isKnownHintValue(bytes, cursor.*)) {
+                _ = try readHintValueBorrowedLimited(bytes, cursor, limit);
+            } else {
+                try skipSyrupValueLimited(bytes, cursor, limit);
+            }
+        }
+        try readByte(bytes, cursor, '}');
         const span = bytes[start..cursor.*];
         return .{
             .lazy = .{
@@ -1286,32 +1292,30 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
         }
         cursor.* += 1;
         var entries: std.ArrayList(model.HintEntry) = .empty;
+        var previous_key: ?[]const u8 = null;
+        var entry_count: usize = 0;
         errdefer {
             for (entries.items) |entry| model.freeHintEntry(allocator, entry);
             entries.deinit(allocator);
         }
         while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
-            // Known HintValueKind only; exotic Syrup shapes skip via nextSyrupHintStep.
-            switch (try nextSyrupHintStep(bytes, cursor)) {
-                .skipped => |skipped| {
-                    if (model.transport.isProfileHintName(skipped.name)) return Error.MalformedFrame;
-                    continue;
-                },
-                .known => |borrowed| {
-                    // Hints are a dictionary, so a repeated name is malformed.
-                    // Refusing here is what makes the encoder's assumption
-                    // true: it emits entries in model order without a
-                    // uniqueness pass, so a duplicate that got this far would
-                    // come back out as a dict pancake's own decoder rejects.
-                    for (entries.items) |seen| {
-                        if (std.mem.eql(u8, seen.name, borrowed.name)) return Error.MalformedFrame;
-                    }
-                    const name = try allocator.dupe(u8, borrowed.name);
-                    errdefer allocator.free(name);
-                    const value = try model.cloneHintValue(allocator, borrowed.value);
-                    errdefer model.freeHintValue(allocator, value);
-                    try entries.append(allocator, .{ .name = name, .value = value });
-                },
+            entry_count += 1;
+            if (entry_count > max_collection_elements) return Error.MalformedFrame;
+            const key = try readSyrupHintKeyLimited(bytes, cursor, no_limit);
+            if (previous_key) |previous| {
+                if (!codec_order.byteSliceBefore(previous, key.encoded)) return Error.MalformedFrame;
+            }
+            previous_key = key.encoded;
+            if (try isKnownHintValue(bytes, cursor.*)) {
+                const value = try readHintValueBorrowedLimited(bytes, cursor, no_limit);
+                const name = try allocator.dupe(u8, key.name);
+                errdefer allocator.free(name);
+                const cloned = try model.cloneHintValue(allocator, value);
+                errdefer model.freeHintValue(allocator, cloned);
+                try entries.append(allocator, .{ .name = name, .value = cloned });
+            } else {
+                try skipSyrupValueLimited(bytes, cursor, no_limit);
+                if (model.transport.isProfileHintName(key.name)) return Error.MalformedFrame;
             }
         }
         try readByte(bytes, cursor, '}');
@@ -1365,26 +1369,42 @@ pub fn decodeSignedHandoffGiveOwned(allocator: std.mem.Allocator, bytes: []const
     };
 }
 
-fn readStringOrSymbol(bytes: []const u8, cursor: *usize) Error![]const u8 {
+fn readStringOrSymbolLimited(bytes: []const u8, cursor: *usize, limit: usize) Error![]const u8 {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     const start = cursor.* + countDigits(bytes[cursor.*..]);
     if (start >= bytes.len) return Error.Incomplete;
     return switch (bytes[start]) {
-        '"' => readString(bytes, cursor),
-        '\'' => readSymbol(bytes, cursor),
+        '"' => readStringLimited(bytes, cursor, limit),
+        '\'' => readSymbolLimited(bytes, cursor, limit),
         else => Error.MalformedFrame,
     };
 }
 
-fn readHintValueBorrowed(bytes: []const u8, cursor: *usize) Error!model.HintValue {
+fn isKnownHintValue(bytes: []const u8, cursor: usize) Error!bool {
+    if (cursor >= bytes.len) return Error.Incomplete;
+    return switch (bytes[cursor]) {
+        't', 'f' => true,
+        '0'...'9' => blk: {
+            const marker_index = cursor + countDigits(bytes[cursor..]);
+            if (marker_index >= bytes.len) return Error.Incomplete;
+            break :blk switch (bytes[marker_index]) {
+                '"', ':', '+', '-' => true,
+                else => false,
+            };
+        },
+        else => false,
+    };
+}
+
+fn readHintValueBorrowedLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!model.HintValue {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     return switch (bytes[cursor.*]) {
         '0'...'9' => blk: {
             const marker_index = cursor.* + countDigits(bytes[cursor.*..]);
             if (marker_index >= bytes.len) return Error.Incomplete;
             break :blk switch (bytes[marker_index]) {
-                '"' => .{ .string = try readString(bytes, cursor) },
-                ':' => .{ .bytes = try readBytes(bytes, cursor) },
+                '"' => .{ .string = try readStringLimited(bytes, cursor, limit) },
+                ':' => .{ .bytes = try readBytesLimited(bytes, cursor, limit) },
                 '+', '-' => .{ .integer = try readInteger(bytes, cursor) },
                 else => Error.MalformedFrame,
             };
@@ -1634,18 +1654,22 @@ fn readBalancedLimited(bytes: []const u8, cursor: *usize, open: u8, close: u8, l
 }
 
 fn skipSyrupValue(bytes: []const u8, cursor: *usize) Error!void {
+    return skipSyrupValueLimited(bytes, cursor, no_limit);
+}
+
+fn skipSyrupValueLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!void {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     switch (bytes[cursor.*]) {
-        '<' => _ = try readBalanced(bytes, cursor, '<', '>'),
-        '[' => _ = try readBalanced(bytes, cursor, '[', ']'),
-        '{' => _ = try readBalanced(bytes, cursor, '{', '}'),
+        '<' => _ = try readBalancedLimited(bytes, cursor, '<', '>', limit),
+        '[' => _ = try readBalancedLimited(bytes, cursor, '[', ']', limit),
+        '{' => _ = try readBalancedLimited(bytes, cursor, '{', '}', limit),
         't', 'f' => cursor.* += 1,
         // A `D`-tagged binary64: the marker plus 8 raw IEEE-754 payload bytes.
         'D' => {
             if (bytes.len - cursor.* < 9) return Error.Incomplete;
             cursor.* += 9;
         },
-        '0'...'9' => try skipByteStringLike(bytes, cursor, no_limit),
+        '0'...'9' => try skipByteStringLike(bytes, cursor, limit),
         else => return Error.MalformedFrame,
     }
 }

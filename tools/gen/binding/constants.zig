@@ -17,17 +17,18 @@
 //! the few whose established spelling is not the mechanical casing of `stem`,
 //! and those ride an optional column, not a per-language table.
 //!
-//! Scope: integer and big-integer families reflected from the C ABI. The
-//! `TRANSPORT_*` / `HINT_*` string symbols mirror `model.transport` (a
-//! different authority) and stay hand-kept in each binding's constant module,
-//! guarded by `meta-check` name-presence; this generator does not emit them.
+//! The numeric families reflect the C ABI. Transport and locator-hint strings
+//! reflect `model.transport` directly. Both are generated here: a binding is a
+//! projection of those authorities, never another place that states them.
 
 const std = @import("std");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
+const cdr = @import("c_abi_driver");
 const cw = @import("c_abi_net_transport_webrtc");
+const model = @import("model");
 
 const Output = @import("output").Output;
 
@@ -152,6 +153,8 @@ const constants = [_]Const{
     con("DIAL_POSTURE_REDEEM", cd.PANCAKE_DIAL_POSTURE_REDEEM, .uint, null),
     con("DIAL_POSTURE_EXPLICIT", cd.PANCAKE_DIAL_POSTURE_EXPLICIT, .uint, null),
     con("DIAL_POSTURE_EXPLICIT_NONE", cd.PANCAKE_DIAL_POSTURE_EXPLICIT_NONE, .uint, null),
+    con("DESIGNATOR_SCHEME_ADDRESS", cd.PANCAKE_DESIGNATOR_SCHEME_ADDRESS, .uint, null),
+    con("DESIGNATOR_SCHEME_KEY", cd.PANCAKE_DESIGNATOR_SCHEME_KEY, .uint, null),
     // PancakePartnerIdentity.provenance: how the partner's advertised durable
     // identity was authenticated (ADR-0097).
     con("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", cd.PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, .uint, null),
@@ -161,12 +164,35 @@ const constants = [_]Const{
     con("DEFAULT_FRAME_CAP", cd.PANCAKE_DEFAULT_FRAME_CAP, .usize, null),
     con("MAX_LOCAL_FORWARD_HOPS", cd.PANCAKE_MAX_LOCAL_FORWARD_HOPS, .usize, null),
     con("HANDSHAKE_TIMEOUT_MS", cd.PANCAKE_HANDSHAKE_TIMEOUT_MS, .usize, null),
+    con("HOST_OUTBOUND_PREFIX_CAP", cd.PANCAKE_HOST_OUTBOUND_PREFIX_CAP, .usize, null),
+    con("DEFAULT_PENDING_ACCEPTS", cd.PANCAKE_DEFAULT_PENDING_ACCEPTS, .usize, null),
+    con("DEFAULT_HANDSHAKE_CONCURRENCY", cd.PANCAKE_DEFAULT_HANDSHAKE_CONCURRENCY, .usize, null),
+    con("MAX_HANDSHAKE_CONCURRENCY", cd.PANCAKE_MAX_HANDSHAKE_CONCURRENCY, .usize, null),
     con("DISCOVERY_DIAL_RETRY_MS", cd.PANCAKE_DISCOVERY_DIAL_RETRY_MS, .usize, null),
     con("DISCOVERY_DIAL_MAX_ATTEMPTS", cd.PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS, .usize, null),
     // Iroh reachability postures and the redeem knob's starting value (c_uint,
     // libpancake_net_transport_iroh, reflected through the sidecar stub so this
     // stays cargo-free). Each binding's `Reachability` surface and its
     // hint-less-redeem default read these instead of hand-typing the numbers.
+    // PancakeDriverEvent.kind values the driver archive's event queue carries.
+    con("DRIVER_OPTIONS_ABI_VERSION", cdr.PANCAKE_DRIVER_OPTIONS_ABI_VERSION, .uint, null),
+    con("DRIVER_MAX_WAIT_MS", cdr.PANCAKE_DRIVER_MAX_WAIT_MS, .uint, null),
+    con("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", cdr.PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES, .usize, null),
+    con("DRIVER_DEFAULT_MAX_PENDING_OPENS", cdr.PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS, .usize, null),
+    con("DRIVER_DEFAULT_HANDSHAKE_MS", cdr.PANCAKE_DRIVER_DEFAULT_HANDSHAKE_MS, .uint, null),
+    con("DRIVER_DEFAULT_SETTLE_MS", cdr.PANCAKE_DRIVER_DEFAULT_SETTLE_MS, .uint, null),
+    con("DRIVER_EVENT_OPENED", cdr.PANCAKE_DRIVER_EVENT_OPENED, .uint, null),
+    con("DRIVER_EVENT_OPEN_FAILED", cdr.PANCAKE_DRIVER_EVENT_OPEN_FAILED, .uint, null),
+    con("DRIVER_EVENT_ACCEPTED", cdr.PANCAKE_DRIVER_EVENT_ACCEPTED, .uint, null),
+    con("DRIVER_EVENT_SESSION_CLOSED", cdr.PANCAKE_DRIVER_EVENT_SESSION_CLOSED, .uint, null),
+    con("DRIVER_EVENT_COMPLETION", cdr.PANCAKE_DRIVER_EVENT_COMPLETION, .uint, null),
+    con("LOCATOR_VIEW_ABI_VERSION", cdr.PANCAKE_LOCATOR_VIEW_ABI_VERSION, .uint, null),
+    con("HINT_STRING", cdr.PANCAKE_HINT_STRING, .uint, null),
+    con("HINT_BYTES", cdr.PANCAKE_HINT_BYTES, .uint, null),
+    con("HINT_BOOLEAN", cdr.PANCAKE_HINT_BOOLEAN, .uint, null),
+    con("HINT_INTEGER", cdr.PANCAKE_HINT_INTEGER, .uint, null),
+    con("HINTS_MAP", cdr.PANCAKE_HINTS_MAP, .uint, null),
+    con("HINTS_BOOLEAN_FALSE", cdr.PANCAKE_HINTS_BOOLEAN_FALSE, .uint, null),
     con("IROH_REACH_DIRECT", ci.PANCAKE_IROH_REACH_DIRECT, .uint, null),
     con("IROH_REACH_DISCOVERY", ci.PANCAKE_IROH_REACH_DISCOVERY, .uint, null),
     con("IROH_REACH_DISCOVERY_NO_RELAY", ci.PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY, .uint, null),
@@ -186,17 +212,20 @@ const constants = [_]Const{
     con("WEBRTC_EV_CLOSED", cw.PANCAKE_WEBRTC_EV_CLOSED, .uint, null),
 };
 
-/// One reflected constant wider than the languages' native integer range.
-const BigConst = struct {
-    stem: []const u8,
-    value: u64,
-    rkt: ?[]const u8 = null,
-};
-
-const big_constants = [_]BigConst{};
-
 fn writeKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
     for (name) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
+}
+
+fn writeTransportName(
+    out: *std.ArrayList(u8),
+    gpa: std.mem.Allocator,
+    known: model.transport.Known,
+    separator: u8,
+) !void {
+    try out.appendSlice(gpa, if (separator == '_') "TRANSPORT_" else "TRANSPORT-");
+    for (@tagName(known)) |ch| {
+        try out.append(gpa, if (ch == '_') separator else std.ascii.toUpper(ch));
+    }
 }
 
 fn generateRust(gpa: std.mem.Allocator) ![]u8 {
@@ -208,8 +237,8 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
         \\//! `zig build gen-binding-constants-check` (part of `check`) fails when
         \\//! this is stale.
         \\//!
-        \\//! The reflected integer ABI constants for the Rust binding, re-exported
-        \\//! through `abi_constants` (which adds the hand-kept transport strings).
+        \\//! The reflected ABI constants and model-owned transport vocabulary for
+        \\//! the Rust binding, re-exported through `abi_constants`.
         \\
         \\#![allow(dead_code)]
         \\
@@ -220,8 +249,11 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     for (constants) |k| {
         try out.print(gpa, "pub const {s}: {s} = {d};\n", .{ k.stem, k.rust_ty.spelling(), k.value });
     }
-    for (big_constants) |k| {
-        try out.print(gpa, "pub const {s}: u64 = {d};\n", .{ k.stem, k.value });
+    try out.print(gpa, "pub const HINT_DIRECT_ADDRESSES: &str = \"{s}\";\n", .{model.transport.hint_direct_addresses});
+    inline for (std.enums.values(model.transport.Known)) |known| {
+        try out.appendSlice(gpa, "pub const ");
+        try writeTransportName(&out, gpa, known, '_');
+        try out.print(gpa, ": &str = \"{s}\";\n", .{known.metadata().symbol});
     }
     return out.toOwnedSlice(gpa);
 }
@@ -235,16 +267,18 @@ fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\# `zig build gen-binding-constants-check` (part of `check`) fails when
         \\# this is stale.
         \\#
-        \\# The reflected integer ABI constants for the Python binding, re-exported
-        \\# through `_constants` (which adds the hand-kept transport strings).
+        \\# The reflected ABI constants and model-owned transport vocabulary for
+        \\# the Python binding, re-exported through `_constants`.
         \\
         \\
     );
     for (constants) |k| {
         try out.print(gpa, "{s} = {d}\n", .{ k.stem, k.value });
     }
-    for (big_constants) |k| {
-        try out.print(gpa, "{s} = {d}\n", .{ k.stem, k.value });
+    try out.print(gpa, "HINT_DIRECT_ADDRESSES = \"{s}\"\n", .{model.transport.hint_direct_addresses});
+    inline for (std.enums.values(model.transport.Known)) |known| {
+        try writeTransportName(&out, gpa, known, '_');
+        try out.print(gpa, " = \"{s}\"\n", .{known.metadata().symbol});
     }
     return out.toOwnedSlice(gpa);
 }
@@ -259,8 +293,8 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\;; `zig build gen-binding-constants-check` (part of `check`) fails when
         \\;; this is stale.
         \\;;
-        \\;; The reflected integer ABI constants for the Racket binding, required
-        \\;; and re-provided by `constants.rkt` (which adds the transport strings).
+        \\;; The reflected ABI constants and model-owned transport vocabulary for
+        \\;; the Racket binding, required and re-provided by `constants.rkt`.
         \\
         \\(provide
         \\
@@ -274,9 +308,10 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         }
         try out.append(gpa, '\n');
     }
-    for (big_constants) |k| {
+    try out.appendSlice(gpa, "  HINT-DIRECT-ADDRESSES\n");
+    inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "  ");
-        if (k.rkt) |name| try out.appendSlice(gpa, name) else try writeKebab(&out, gpa, k.stem);
+        try writeTransportName(&out, gpa, known, '-');
         try out.append(gpa, '\n');
     }
     try out.appendSlice(gpa, ")\n\n");
@@ -285,10 +320,11 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         if (k.rkt) |name| try out.appendSlice(gpa, name) else try writeKebab(&out, gpa, k.stem);
         try out.print(gpa, " {d})\n", .{k.value});
     }
-    for (big_constants) |k| {
+    try out.print(gpa, "(define HINT-DIRECT-ADDRESSES \"{s}\")\n", .{model.transport.hint_direct_addresses});
+    inline for (std.enums.values(model.transport.Known)) |known| {
         try out.appendSlice(gpa, "(define ");
-        if (k.rkt) |name| try out.appendSlice(gpa, name) else try writeKebab(&out, gpa, k.stem);
-        try out.print(gpa, " {d})\n", .{k.value});
+        try writeTransportName(&out, gpa, known, '-');
+        try out.print(gpa, " \"{s}\")\n", .{known.metadata().symbol});
     }
     return out.toOwnedSlice(gpa);
 }

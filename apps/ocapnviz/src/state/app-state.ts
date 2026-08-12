@@ -3,7 +3,7 @@
  * the engine owns timeline / world state via its own observers.
  *
  * Selection lives in the selection-store (interactions/selection-store.ts),
- * NOT here. This reducer owns mode / tool / pane sizes / live-feed URL.
+ * NOT here. This reducer owns mode / tool / pane sizes / the live trace sturdyref.
  * The store's `anchor` slot is the single source of truth for the
  * "Inspector follow" entity; consumers that previously read
  * `state.selection` now read `storeSelection.anchor`.
@@ -62,7 +62,7 @@ export type BufferSourceInfo =
 export type AppState = {
   scenarioId: string;
   /** Persists across modes; only consumed in Live. */
-  liveUrl: string;
+  liveSturdyref: string;
   mode: AppMode;
   tool: BuilderTool;
   /** Two-click tools (open-session, send-message) park the first stage NODE
@@ -80,7 +80,7 @@ export type AppState = {
 
 export type AppAction =
   | { type: "select-scenario"; id: string }
-  | { type: "set-live-url"; url: string }
+  | { type: "set-live-sturdyref"; sturdyref: string }
   | { type: "set-mode"; mode: AppMode }
   | { type: "set-tool"; tool: BuilderTool }
   | { type: "set-first-pick"; nodeId: string | null }
@@ -94,8 +94,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         scenarioId: action.id,
         firstPickNodeId: null,
       };
-    case "set-live-url":
-      return { ...state, liveUrl: action.url };
+    case "set-live-sturdyref":
+      return { ...state, liveSturdyref: action.sturdyref };
     case "set-mode":
       // A tool the new mode doesn't offer resets to Select; the
       // observation tools (Select / Hand) survive the transition.
@@ -250,18 +250,21 @@ export function savePersistedTimelineView(v: PersistedTimelineView): void {
   }
 }
 
-export const DEFAULT_LIVE_URL = "ws://127.0.0.1:9000/";
+/** Live mode accepts the durable trace capability announced by rooms. */
+export const DEFAULT_LIVE_STURDYREF = "";
 
-/** Honor `?live=<ws-url>` (or empty `?live=` for the default URL)
+/** Honor `?live=<sturdyref>` (or empty `?live=` for no selected capability)
  * so deep links / headless browsers jump straight into Live mode.
  * Returns null when the query didn't request Live, or when we're
  * in a non-browser environment without `location` (Deno tests). */
-export function readLiveOverride(): { liveUrl: string } | null {
+export function readLiveOverride(): { liveSturdyref: string } | null {
   const loc = (globalThis as { location?: { search?: string } }).location;
   if (!loc?.search) return null;
   const params = new URLSearchParams(loc.search);
   if (!params.has("live")) return null;
-  return { liveUrl: params.get("live") || DEFAULT_LIVE_URL };
+  return {
+    liveSturdyref: params.get("live") || DEFAULT_LIVE_STURDYREF,
+  };
 }
 
 /** Read persisted `AppState`. Returns `null` on missing or
@@ -282,7 +285,7 @@ export function loadPersistedAppState(): Partial<AppState> | null {
 
 /**
  * Compose the initial reducer state. Precedence (highest first):
- *   1. `?live=<url>` query string ⇒ Live mode + URL (intent is a
+ *   1. `?live=<sturdyref>` query string ⇒ Live mode + capability (intent is a
  *      one-shot deep link; persisted state shouldn't override).
  *   2. localStorage-persisted previous session (with one-time
  *      migration of legacy `liveMode: boolean` → `mode: "live"`).
@@ -310,7 +313,9 @@ export function makeInitialAppState(): AppState {
     scenarioId: persisted?.scenarioId ?? scenarios[0]?.id ?? "",
     mode: initialMode,
     tool: persisted?.tool ?? "select",
-    liveUrl: live?.liveUrl ?? persisted?.liveUrl ?? DEFAULT_LIVE_URL,
+    liveSturdyref: live?.liveSturdyref ??
+      persisted?.liveSturdyref ??
+      DEFAULT_LIVE_STURDYREF,
     // Don't restore in-flight two-click state across reloads —
     // tools are stateless across sessions.
     firstPickNodeId: null,

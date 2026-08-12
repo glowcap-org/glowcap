@@ -1,5 +1,5 @@
 //! The owning, one-call driver surface: `Session` and `Server`, views over the
-//! owning host face (`driver.PollHost`, ADR-0090).
+//! owning host face (`driver.HostRuntime`, ADR-0090).
 //!
 //! `connect`, `connectUriOwned`, and `listen` hand back owning bundles so a
 //! native Zig app connects (or accepts) in one call. Underneath, every session
@@ -21,7 +21,7 @@ const actors = @import("actors");
 const net = @import("net");
 const driver_core = @import("driver_core");
 
-const host_mod = @import("host.zig");
+const host_runtime = @import("host_runtime.zig");
 
 const driver = @import("mod.zig");
 const Settled = driver.Settled;
@@ -32,69 +32,73 @@ const Identity = driver.Identity;
 const Budget = driver.Budget;
 const Error = driver.Error;
 
-/// Options for `connect` and `listen` (see `driver.PollHost.Options`, the owning
+/// Options for `connect` and `listen` (see `driver.HostRuntime.Options`, the owning
 /// face these views ride).
-pub const SessionOptions = host_mod.PollHost.Options;
+pub const SessionOptions = host_runtime.HostRuntime.Options;
 
-/// An owning connection, the one object a native Zig application holds — a
-/// view onto a session of a `driver.PollHost`. `connect` builds a single-session
-/// host underneath and hands back its one view (`deinit` tears the whole
-/// bundle down); `Server.accept` views borrow the server's shared host
-/// (`deinit` releases that one session and leaves the siblings serving).
-/// Heap-pinned: the pointer is stable for the connection's life.
+/// An application-facing session, the object a native Zig application holds:
+/// a view onto one session of a `driver.HostRuntime`. `connect` builds a
+/// private runtime and core Host underneath and hands back its one view
+/// (`deinit` tears the whole bundle down); `Server.accept` views borrow the
+/// server's shared runtime (`deinit` releases that one session and leaves the
+/// siblings serving).
+/// Heap-pinned: the pointer is stable for the session view's life.
 ///
-/// Because a host is underneath, a reply that introduces a capability on a
-/// third machine settles as a live reference inside the wait: the redeem dial
-/// runs in the pump, under the handshake budget. `Settled.give` never
-/// surfaces here.
+/// Because the core Host routes every session, a reply that introduces a
+/// capability on a third machine settles as a live reference inside the wait:
+/// the redeem dial runs in the runtime pump, under the handshake budget.
+/// `Settled.give` never surfaces here.
 pub const Session = struct {
-    host: *host_mod.PollHost,
+    runtime: *host_runtime.HostRuntime,
     hs: *driver_core.HostSession,
     /// What this view owns, and therefore what its `deinit` reclaims.
     owner: Owner,
     allocator: std.mem.Allocator,
 
     /// A session view is one of three things, and a two-state flag could name
-    /// only two of them. The third — a view onto a host the caller owns — was
+    /// only two of them. The third — a view onto a runtime the caller owns — was
     /// the one that had no spelling, so callers wrote a struct literal for it
     /// and `deinit` treated it as an accepted view: it decremented a counter
     /// no constructor had incremented, then freed a pointer that was usually
     /// on the stack. Naming the third state is what makes that unrepresentable
     /// rather than merely documented.
     pub const Owner = enum {
-        /// `PollHost.view`: borrowed. The caller owns the host and released
+        /// `Session.view`: borrowed. The caller owns the runtime and releases
         /// the session, so `deinit` reclaims nothing and is safe on a value
         /// that was never heap-allocated.
         borrowed,
-        /// `Server.accept`: one session of the server's shared host.
+        /// `Server.accept`: one session of the server's shared runtime.
         accepted,
-        /// `driver.connect`: the whole private bundle, host included.
-        private_host,
+        /// `driver.connect`: the whole private bundle, runtime included.
+        private_runtime,
     };
 
-    /// A borrowed view onto a session a caller-owned `PollHost` already holds.
+    /// A borrowed view onto a session a caller-owned `HostRuntime` already holds.
     ///
     /// By value, and owning nothing: releasing the session stays the caller's
-    /// job through `PollHost.releaseWire`, and tearing down the host stays its
+    /// job through `HostRuntime.releaseWire`, and tearing down the runtime stays its
     /// own `deinit`. This exists so that shape has a constructor at all.
     /// Without one, every caller wrote the struct literal, and a literal is
     /// where the owner gets guessed.
-    pub fn view(host: *host_mod.PollHost, hs: *driver_core.HostSession) Session {
-        return .{ .host = host, .hs = hs, .owner = .borrowed, .allocator = host.allocator };
+    pub fn view(runtime: *host_runtime.HostRuntime, hs: *driver_core.HostSession) Error!Session {
+        if (hs.host != runtime.core) return Error.SessionNotOwned;
+        const wire = runtime.wires.get(hs.peer_id) orelse return Error.SessionNotOwned;
+        if (wire.session != hs) return Error.SessionNotOwned;
+        return .{ .runtime = runtime, .hs = hs, .owner = .borrowed, .allocator = runtime.allocator };
     }
 
     /// Reclaim what this view owns. A borrowed view owns nothing, so this is
-    /// a no-op there; the host it points at is the caller's to tear down.
+    /// a no-op there; the runtime it points at is the caller's to tear down.
     pub fn deinit(self: *Session) void {
         switch (self.owner) {
             .borrowed => return,
-            .private_host => {
-                self.host.deinit();
-                self.allocator.destroy(self.host);
+            .private_runtime => {
+                self.runtime.deinit();
+                self.allocator.destroy(self.runtime);
             },
             .accepted => {
-                self.host.releaseWire(self.hs);
-                self.host.accepted_views -= 1;
+                self.runtime.releaseWire(self.hs);
+                self.runtime.accepted_views -= 1;
             },
         }
         self.allocator.destroy(self);
@@ -103,8 +107,10 @@ pub const Session = struct {
     /// Begin the bootstrap fetch for `name`, returning its vow without
     /// blocking (see `driver_core.Served.beginFetch`).
     pub fn beginFetch(self: *Session, name: []const u8) !actors.Vow {
-        const vow = try self.hs.served.sendBootstrapFetch(&self.host.core.vat, name);
-        try self.host.core.flushSession(self.hs);
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        const vow = try self.hs.served.sendBootstrapFetch(&self.runtime.core.vat, name);
+        try self.runtime.core.flushSession(self.hs);
         return vow;
     }
 
@@ -113,25 +119,31 @@ pub const Session = struct {
     /// of the lowered message, so the caller's slices are borrowed for this
     /// call only.
     pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
-        try self.hs.served.beginSendNamed(&self.host.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
-        try self.host.core.flushSession(self.hs);
+        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
+        try self.hs.served.beginSendNamed(&self.runtime.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
+        try self.runtime.core.flushSession(self.hs);
     }
 
     /// Chain fetch-then-tell without blocking (see `Served.beginTellNamed`).
     pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
-        try self.hs.served.beginTellNamed(&self.host.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
-        try self.host.core.flushSession(self.hs);
+        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
+        try self.hs.served.beginTellNamed(&self.runtime.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
+        try self.runtime.core.flushSession(self.hs);
     }
 
     /// Break every far vow still awaiting a partner answer (cancel / timeout /
     /// teardown). Stable `message` bytes are what listeners observe.
     pub fn breakFarVows(self: *Session, message: []const u8) void {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         self.hs.served.port.breakFarVows(message);
     }
 
@@ -150,7 +162,9 @@ pub const Session = struct {
     /// with a key yet; `HostError.PartnerUnverified` means this session does not
     /// verify its partner, so there is no proved identity to report.
     pub fn partnerIdentity(self: *Session) !driver_core.PartnerIdentity {
-        return self.host.core.partnerIdentity(self.hs);
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        return self.runtime.core.partnerIdentity(self.hs);
     }
 
     /// Fetch a partner's published capability by `name`, returning its opaque
@@ -161,11 +175,13 @@ pub const Session = struct {
     /// `Error.FetchBroken`; any other fulfill returns
     /// `Error.FetchNotACapability`.
     pub fn fetch(self: *Session, name: []const u8) !Capability {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var capture = driver.FetchCapture{};
-        const id = try self.host.core.fetch(self.hs, name);
+        const id = try self.runtime.core.fetch(self.hs, name);
         try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.FetchCapture.record });
         return switch (capture.outcome orelse return Error.ConnectionClosed) {
-            .capability => |far_ref| self.host.core.liftCapability(self.hs, .{ .far = far_ref }),
+            .capability => |far_ref| self.runtime.core.liftCapability(self.hs, .{ .far = far_ref }),
             .broken => Error.FetchBroken,
             .not_a_capability => Error.FetchNotACapability,
         };
@@ -174,8 +190,10 @@ pub const Session = struct {
     /// The reason-bearing fetch: the partner's settlement whole, lifted and
     /// materialized into `arena` (reset the arena to reclaim it).
     pub fn fetchSettled(self: *Session, name: []const u8, arena: std.mem.Allocator) !Reply {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var capture = driver.SettleCapture{ .arena = arena };
-        const id = try self.host.core.fetch(self.hs, name);
+        const id = try self.runtime.core.fetch(self.hs, name);
         try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
         return self.replyFromSettled(self.hs, arena, try capture.finish());
     }
@@ -188,6 +206,8 @@ pub const Session = struct {
     /// (`ForeignArgument`). Returns `ConnectionClosed` if the partner leaves
     /// before the reply settles.
     pub fn call(self: *Session, target: Capability, verb: []const u8, args: []const Value, arena: std.mem.Allocator) !Reply {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
         const routed = try self.routedSend(target, verb, args, &scratch);
@@ -198,6 +218,8 @@ pub const Session = struct {
     /// settle it with `settleVow` or observe it with `on`. Args are borrowed
     /// for this call: the actor layer owns its clone before this returns.
     pub fn send(self: *Session, target: Capability, verb: []const u8, args: []const Value) !actors.Vow {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
         const routed = try self.routedSend(target, verb, args, &scratch);
@@ -211,15 +233,15 @@ pub const Session = struct {
     const RoutedDelivery = struct { session: *driver_core.HostSession, target: actors.Ref, args: []const model.Argument };
 
     fn routeDelivery(self: *Session, target: Capability, args: []const Value, scratch: *std.heap.ArenaAllocator) !RoutedDelivery {
-        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
+        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
         // A local capability sends as its Vat actor directly: a same-side
         // call needs no wire position, so no export is minted and no binding
         // root is taken (ADR-0101).
-        if (self.host.core.localActorFor(target)) |local| {
+        if (self.runtime.core.localActorFor(target)) |local| {
             return .{ .session = self.hs, .target = local, .args = lowered };
         }
         const target_ref = try self.targetForSend(target);
-        const routed = try self.host.core.routeSend(self.hs, target_ref, lowered);
+        const routed = try self.runtime.core.routeSend(self.hs, target_ref, lowered);
         return .{ .session = routed.session, .target = routed.target, .args = lowered };
     }
 
@@ -230,8 +252,8 @@ pub const Session = struct {
     /// (the borrowing tier's contract exactly).
     fn routedSend(self: *Session, target: Capability, verb: []const u8, args: []const Value, scratch: *std.heap.ArenaAllocator) !struct { session: *driver_core.HostSession, vow: actors.Vow } {
         const routed = try self.routeDelivery(target, args, scratch);
-        const vow = try routed.session.served.send(&self.host.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
-        if (routed.target == .far) try self.host.core.flushSession(routed.session);
+        const vow = try routed.session.served.send(&self.runtime.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
+        if (routed.target == .far) try self.runtime.core.flushSession(routed.session);
         return .{ .session = routed.session, .vow = vow };
     }
 
@@ -245,12 +267,16 @@ pub const Session = struct {
     /// a call's reply is. No object-kind gate here: a listen's usual target
     /// is a promise capability.
     pub fn listenTo(self: *Session, target: Capability) !actors.Vow {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         return (try self.listenToRouted(target)).vow;
     }
 
     /// Listen on the promise `target` names and block until it settles,
     /// lifting the outcome into `arena`.
     pub fn listenSettled(self: *Session, target: Capability, arena: std.mem.Allocator) !Reply {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         const routed = try self.listenToRouted(target);
         // Drive the session the listen actually rides, which for a routed
         // capability is the exporter's, not this view's.
@@ -258,12 +284,12 @@ pub const Session = struct {
     }
 
     fn listenToRouted(self: *Session, target: Capability) !struct { session: *driver_core.HostSession, vow: actors.Vow } {
-        const target_ref = try self.host.core.lowerCapability(self.hs, target);
+        const target_ref = try self.runtime.core.lowerCapability(self.hs, target);
         if (target_ref == .far) {
-            const routed = try self.host.core.routeSend(self.hs, target_ref, &.{});
+            const routed = try self.runtime.core.routeSend(self.hs, target_ref, &.{});
             const vow = try routed.session.served.listenTo(.{ .far = routed.target.far });
             // The `op:listen` owes the wire its encode now, like a far send's.
-            try self.host.core.flushSession(routed.session);
+            try self.runtime.core.flushSession(routed.session);
             return .{ .session = routed.session, .vow = vow };
         }
         // A near capability is local; the engine verb refuses the non-promise
@@ -274,16 +300,20 @@ pub const Session = struct {
 
     /// Promise pipelining against a far `vow` (see `Served.sendToAnswer`).
     pub fn sendToAnswer(self: *Session, vow: actors.Vow, verb: []const u8, args: []const Value) !actors.Vow {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const lowered = try self.host.core.lowerValues(self.hs, scratch.allocator(), args);
-        const next = try self.hs.served.sendToAnswer(&self.host.core.vat, vow, .{ .verb = verb, .args = lowered });
-        try self.host.core.flushSession(self.hs);
+        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
+        const next = try self.hs.served.sendToAnswer(&self.runtime.core.vat, vow, .{ .verb = verb, .args = lowered });
+        try self.runtime.core.flushSession(self.hs);
         return next;
     }
 
     /// Block until `vow` settles, lifting the outcome into `arena`.
     pub fn settleVow(self: *Session, vow: actors.Vow, arena: std.mem.Allocator) !Reply {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         return self.replyVowOn(self.hs, vow, arena);
     }
 
@@ -303,12 +333,14 @@ pub const Session = struct {
     /// `Reply` (the REPL's cooperative queue captures first and renders
     /// later; ordinary blocking verbs never need this).
     pub fn liftSettled(self: *Session, settled: Settled, arena: std.mem.Allocator) !Reply {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         return self.replyFromSettled(self.hs, arena, settled);
     }
 
     fn replyFromSettled(self: *Session, hs: *driver_core.HostSession, arena: std.mem.Allocator, settled: Settled) !Reply {
         return switch (settled) {
-            .fulfilled => |arg| .{ .fulfilled = try self.host.core.liftValue(hs, arena, arg) },
+            .fulfilled => |arg| .{ .fulfilled = try self.runtime.core.liftValue(hs, arena, arg) },
             .broken => |reason| .{ .broken = reason },
             // The owning tier redeems a give inside the wait it settles under;
             // one that still surfaces is a broken introduction, not a value.
@@ -321,7 +353,7 @@ pub const Session = struct {
     /// (`listenTo`) or pipelined through its answer vow (`sendToAnswer`),
     /// never sent to directly.
     fn targetForSend(self: *Session, target: Capability) !model.Reference {
-        const target_ref = try self.host.core.lowerCapability(self.hs, target);
+        const target_ref = try self.runtime.core.lowerCapability(self.hs, target);
         const object = switch (target_ref) {
             .near => |near| near.kind == .object,
             .far => |far| far.kind == .object,
@@ -338,7 +370,7 @@ pub const Session = struct {
     /// pump their own send before returning the id.
     fn awaitVowId(self: *Session, id: u64, listener: actors.Listener) !void {
         var flag = driver.SettleFlag{ .inner = listener };
-        try self.host.core.vowOn(id, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
+        try self.runtime.core.vowOn(id, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
         try self.pumpWait(self.hs, &flag.done);
     }
 
@@ -349,7 +381,7 @@ pub const Session = struct {
     fn awaitVow(self: *Session, hs: *driver_core.HostSession, vow: actors.Vow, listener: actors.Listener) !void {
         var flag = driver.SettleFlag{ .inner = listener };
         try hs.served.port.on(&hs.host.vat, vow, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
-        try self.host.core.flushSession(hs);
+        try self.runtime.core.flushSession(hs);
         try self.pumpWait(hs, &flag.done);
     }
 
@@ -359,7 +391,7 @@ pub const Session = struct {
     /// alive — a later break firing it into a dead frame is the memory bug,
     /// not the timeout (the same contract `BlockingSession`'s waits hold).
     fn pumpWait(self: *Session, hs: *driver_core.HostSession, flag: *const bool) !void {
-        self.host.pumpUntilFlag(hs, flag, self.host.opts.settle) catch |err| {
+        self.runtime.pumpUntilFlag(hs, flag, self.runtime.opts.settle) catch |err| {
             hs.served.port.breakFarVows(hs.served.closeReason("wait failed"));
             return err;
         };
@@ -368,17 +400,21 @@ pub const Session = struct {
     /// Fire-and-forget eventual-send (see `Served.tell`), routed exactly as
     /// `call` routes.
     pub fn tell(self: *Session, target: Capability, verb: []const u8, args: []const Value) !void {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
         const routed = try self.routeDelivery(target, args, &scratch);
-        try routed.session.served.tell(&self.host.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
-        try self.host.core.flushSession(routed.session);
+        try routed.session.served.tell(&self.runtime.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
+        try self.runtime.core.flushSession(routed.session);
     }
 
     /// Observe `vow` with a caller listener (see `Vat.on`). The listener fires
     /// during a later pump on this session.
     pub fn on(self: *Session, vow: actors.Vow, listener: actors.Listener) !void {
-        return self.hs.served.port.on(&self.host.core.vat, vow, listener);
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        return self.hs.served.port.on(&self.runtime.core.vat, vow, listener);
     }
 
     /// Spawn a local actor and return its opaque capability. `Behavior` is
@@ -386,19 +422,23 @@ pub const Session = struct {
     /// `Value` args and answers with a `Value`, so hosting code speaks opaque
     /// capabilities end to end.
     pub fn spawn(self: *Session, comptime Behavior: type, initial: Behavior) !Capability {
-        const ref = try self.host.core.vat.spawn(driver_core.Hosting(Behavior), .{ .inner = initial });
-        errdefer self.host.core.vat.discardFreshActor(ref);
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        const ref = try self.runtime.core.vat.spawn(driver_core.Hosting(Behavior), .{ .inner = initial });
+        errdefer self.runtime.core.vat.discardFreshActor(ref);
         // The capability slot adopts the spawn root (ADR-0101); wire
         // positions mint lazily at first marshal, so releasing the last
         // handle of a never-passed spawn reclaims the actor.
-        return self.host.core.liftLocalActor(ref);
+        return self.runtime.core.liftLocalActor(ref);
     }
 
     /// Publish an actor a partner can `fetch` by `name`. `Behavior` is
     /// Value-shaped like `spawn`'s.
     pub fn publish(self: *Session, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
-        const exported = try self.hs.served.publish(&self.host.core.vat, name, driver_core.Hosting(Behavior), .{ .inner = initial });
-        return self.host.core.liftCapability(self.hs, exported.nearRef());
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        const exported = try self.hs.served.publish(&self.runtime.core.vat, name, driver_core.Hosting(Behavior), .{ .inner = initial });
+        return self.runtime.core.liftCapability(self.hs, exported.nearRef());
     }
 
     /// Enliven a complete sturdyref by Host-level select-or-dial (ADR-0098
@@ -407,11 +447,15 @@ pub const Session = struct {
     /// the peer named in the sturdyref does. The settled capability arrives
     /// lifted, like every owning-tier reference.
     pub fn enliven(self: *Session, sturdy: model.SturdyRef) !Capability {
-        return self.host.enliven(sturdy);
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        return self.runtime.enliven(sturdy);
     }
 
     /// `enliven` from an `ocapn://…/s/…` sturdyref URI string.
     pub fn enlivenUri(self: *Session, uri_str: []const u8) !Capability {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         const sturdy = try model.uri.parseSturdyrefForProfile(
             self.allocator,
             self.hs.served.port.peer.session_state.captp_version,
@@ -425,20 +469,22 @@ pub const Session = struct {
     /// opaque identity — a later use fails closed — and, for a remote
     /// capability, queues its exact wire GC release.
     pub fn release(self: *Session, cap: Capability) !void {
-        try self.host.core.releaseCapability(cap, 1);
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        try self.runtime.core.releaseCapability(cap, 1);
     }
 
     /// One blocking pump cycle across the host: drain actions, wait for any
     /// live session's readable progress, feed it. Returns this session's
     /// `Progress` so a caller's loop can act on `.closed`.
     pub fn step(self: *Session) !net.Progress {
-        return (try self.host.stepSession(self.hs, -1)) orelse .idle;
+        return (try self.runtime.stepSession(self.hs, -1)) orelse .idle;
     }
 
     /// Poll-guarded `step`: wait up to `timeout_ms` for readable progress, or
     /// null on timeout. The multiplexing convenience over `step`.
     pub fn stepReadable(self: *Session, timeout_ms: i32) !?net.Progress {
-        return self.host.stepSession(self.hs, timeout_ms);
+        return self.runtime.stepSession(self.hs, timeout_ms);
     }
 
     /// Serve this session until the partner leaves: run `step` until it
@@ -446,7 +492,7 @@ pub const Session = struct {
     /// pump's release, exactly as on the borrowing tier.
     pub fn serve(self: *Session) !void {
         while (true) {
-            const progress = (try self.host.stepSession(self.hs, -1)) orelse continue;
+            const progress = (try self.runtime.stepSession(self.hs, -1)) orelse continue;
             if (progress == .closed) return;
         }
     }
@@ -460,11 +506,15 @@ pub const Session = struct {
 
     /// The partner's retained abort, or null (see `Served.partnerAbort`).
     pub fn partnerAbort(self: *const Session) ?driver.Served.PartnerAbortView {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         return self.hs.served.partnerAbort();
     }
 
     /// The partner's retained abort diagnostic, or null.
     pub fn abortReason(self: *const Session) ?[]const u8 {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         return self.hs.served.abortReason();
     }
 };
@@ -482,7 +532,7 @@ pub const Session = struct {
 /// `Error.TransportNotPollable`: the face multiplexes its blocking waits with
 /// poll. A caller that wants to own the peer and buffers directly uses the
 /// borrowing `connectVia` / `connectUri`; a caller that wants many sessions
-/// under one identity builds a `driver.PollHost` and a `Server` explicitly.
+/// under one identity builds a `driver.HostRuntime` and a `Server` explicitly.
 pub fn connect(
     allocator: std.mem.Allocator,
     netlayers: []const net.netlayer.Netlayer,
@@ -493,15 +543,15 @@ pub fn connect(
     const nl = net.netlayer.resolve(netlayers, locator.transport) orelse return Error.UnknownTransport;
     const io = nl.io() orelse return Error.TransportNotPollable;
 
-    const host = try allocator.create(host_mod.PollHost);
-    errdefer allocator.destroy(host);
-    host.* = try host_mod.PollHost.init(allocator, io, netlayers, identity, opts);
-    errdefer host.deinit();
+    const runtime = try allocator.create(host_runtime.HostRuntime);
+    errdefer allocator.destroy(runtime);
+    runtime.* = try host_runtime.HostRuntime.init(allocator, io, netlayers, identity, opts);
+    errdefer runtime.deinit();
 
-    const hs = try host.connectLocator(locator);
+    const hs = try runtime.connectLocator(locator);
 
     const session = try allocator.create(Session);
-    session.* = .{ .host = host, .hs = hs, .owner = .private_host, .allocator = allocator };
+    session.* = .{ .runtime = runtime, .hs = hs, .owner = .private_runtime, .allocator = allocator };
     return session;
 }
 
@@ -527,7 +577,7 @@ pub fn connectUriOwned(
 /// `*Session` view freed by `Session.deinit`; release every accepted view
 /// before `close`, which tears down the listener and the shared host.
 pub const Server = struct {
-    host: *host_mod.PollHost,
+    runtime: *host_runtime.HostRuntime,
     listener: net.netlayer.Listener,
     allocator: std.mem.Allocator,
 
@@ -538,9 +588,10 @@ pub const Server = struct {
     /// caller signs from, and an empty designator published as a locator is a
     /// locator nobody can dial.
     pub fn localDesignator(self: *const Server, out: []u8) driver.Error![]const u8 {
-        const designator = self.listener.localDesignator(out);
-        if (designator.len == 0) return driver.Error.DesignatorUnavailable;
-        return designator;
+        const designator = self.advertisedLocator().designator;
+        if (designator.len == 0 or designator.len > out.len) return driver.Error.DesignatorUnavailable;
+        @memcpy(out[0..designator.len], designator);
+        return out[0..designator.len];
     }
 
     /// Replace the complete locator this server advertises on subsequent
@@ -549,15 +600,19 @@ pub const Server = struct {
     /// externally mapped address, or another adapter-owned route instead.
     /// Already-open sessions retain the snapshot their hello signed.
     pub fn setAdvertisedLocator(self: *Server, locator: model.PeerLocator) !void {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         if (!std.mem.eql(u8, locator.transport, self.listener.transportName()))
             return error.TransportMismatch;
-        try self.host.core.setAdvertisedLocator(locator);
+        try self.runtime.core.setAdvertisedLocator(locator);
     }
 
     /// Borrow the currently advertised locator. The view remains valid until
     /// `setAdvertisedLocator`, removal through the lower host tier, or close.
     pub fn advertisedLocator(self: *const Server) model.PeerLocator {
-        return self.host.core.advertisedLocator(self.listener.transportName()).?;
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        return self.runtime.core.advertisedLocator(self.listener.transportName()).?;
     }
 
     /// Accept one partner into its own `*Session` view of the shared host.
@@ -567,15 +622,15 @@ pub const Server = struct {
     /// it lazily; exact gifts retain that actor independently of later name
     /// changes.
     pub fn publishGiftable(self: *Server, name: []const u8, comptime Behavior: type, initial: Behavior) !void {
-        return self.host.publishGiftable(name, Behavior, initial);
+        return self.runtime.publishGiftable(name, Behavior, initial);
     }
 
-    /// Remove the host-wide alias `name` (see `PollHost.unpublish`): a later
+    /// Remove the Host-wide alias `name` (see `HostRuntime.unpublish`): a later
     /// fetch misses on every accepted session, while issued capabilities and
     /// deposited gifts keep the exact actor. A minted durable name is refused
     /// here; it leaves through `removeDurable` (ADR-0098).
     pub fn unpublish(self: *Server, name: []const u8) error{ UnknownPublication, ReservedDurableNamespace }!void {
-        return self.host.unpublish(name);
+        return self.runtime.unpublish(name);
     }
 
     /// Publish `initial` under a freshly minted durable swiss name and return
@@ -586,12 +641,14 @@ pub const Server = struct {
     /// sans-io core only ever sees the bytes. `Behavior` is Value-shaped like
     /// every owning-tier behavior.
     pub fn publishDurable(self: *Server, allocator: std.mem.Allocator, comptime Behavior: type, initial: Behavior) ![]u8 {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
         var entropy: [engine.durable_swiss_entropy_len]u8 = undefined;
-        self.host.io.randomSecure(&entropy) catch return driver.Error.MintEntropyFailed;
-        const swiss = try self.host.core.publishDurable(entropy, driver_core.Hosting(Behavior), .{ .inner = initial });
-        const advertised = self.host.core.acceptableLocator() orelse
+        self.runtime.io.randomSecure(&entropy) catch return driver.Error.MintEntropyFailed;
+        const swiss = try self.runtime.core.publishDurable(entropy, driver_core.Hosting(Behavior), .{ .inner = initial });
+        const advertised = self.runtime.core.acceptableLocator() orelse
             return error.MissingAdvertisedLocator;
-        return model.uri.writeSturdyrefForProfile(allocator, self.host.opts.captp_version, .{
+        return model.uri.writeSturdyrefForProfile(allocator, self.runtime.opts.captp_version, .{
             .peer = advertised,
             .swissnum = swiss.slice(),
         });
@@ -601,15 +658,17 @@ pub const Server = struct {
     /// the old sturdyref misses from now on, while issued capabilities and
     /// deposited gifts keep the exact actor.
     pub fn removeDurable(self: *Server, swiss: []const u8) error{ UnknownPublication, NotDurableName }!void {
-        return self.host.core.removeDurable(swiss);
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        return self.runtime.core.removeDurable(swiss);
     }
 
     pub fn accept(self: *Server) !*Session {
-        const hs = try self.host.acceptWire(self.listener, self.listener.transportName());
+        const hs = try self.runtime.acceptWire(self.listener, self.listener.transportName());
         const session = try self.allocator.create(Session);
         errdefer self.allocator.destroy(session);
-        session.* = .{ .host = self.host, .hs = hs, .owner = .accepted, .allocator = self.allocator };
-        self.host.accepted_views += 1;
+        session.* = .{ .runtime = self.runtime, .hs = hs, .owner = .accepted, .allocator = self.allocator };
+        self.runtime.accepted_views += 1;
         return session;
     }
 
@@ -627,10 +686,10 @@ pub const Server = struct {
     /// compiles out in ReleaseFast and would turn a caller's ordering mistake
     /// into a silent dangle in exactly the build they ship.
     pub fn close(self: *Server) Error!void {
-        if (self.host.accepted_views != 0) return Error.SessionsStillOpen;
+        if (self.runtime.accepted_views != 0) return Error.SessionsStillOpen;
         self.listener.close();
-        self.host.deinit();
-        self.allocator.destroy(self.host);
+        self.runtime.deinit();
+        self.allocator.destroy(self.runtime);
     }
 };
 
@@ -649,31 +708,53 @@ pub fn listen(
     // A transport with no pollable fd cannot back a multiplexed blocking wait;
     // refuse it by its own name rather than as an entropy failure.
     const io = netlayer.io() orelse return Error.TransportNotPollable;
-    const host = try allocator.create(host_mod.PollHost);
-    errdefer allocator.destroy(host);
-    host.* = try host_mod.PollHost.init(allocator, io, &.{}, acceptToIdentity(identity), opts);
-    // The server's own transport is its dial table: an accepted session that
-    // receives a give naming a third peer redeems it by dialing there, the
-    // same contract the connect half and every binding carry.
-    host.adoptOwnNetlayer(netlayer);
-    errdefer host.deinit();
+    const runtime = try allocator.create(host_runtime.HostRuntime);
+    errdefer allocator.destroy(runtime);
+    // The server's own transport is its immutable dial table: an accepted
+    // session that receives a give naming a third peer redeems it there.
+    try host_runtime.HostRuntime.initWithOwnNetlayer(
+        runtime,
+        allocator,
+        io,
+        netlayer,
+        acceptToIdentity(identity),
+        opts,
+    );
+    errdefer runtime.deinit();
 
-    var listener = try netlayer.listen(allocator, config);
+    var listen_config = config;
+    listen_config.identity = switch (identity) {
+        .ephemeral => null,
+        .keyed => |secret| secret.publicKey(),
+    };
+    if (netlayer.designatorScheme() == .key and listen_config.identity == null)
+        return Error.EphemeralIdentityOnKeyedTransport;
+    var listener = try netlayer.listen(allocator, listen_config);
     errdefer listener.close();
 
-    var designator_buf: [128]u8 = undefined;
-    const bound = listener.localDesignator(&designator_buf);
-    const direct_buf = try allocator.alloc(u8, opts.frame_cap);
-    defer allocator.free(direct_buf);
-    const direct = try listener.localDirectAddresses(direct_buf);
-    var hint_entries: [1]model.HintEntry = undefined;
-    try host.core.setAdvertisedLocator(.{
-        .transport = listener.transportName(),
-        .designator = bound,
-        .hints = model.Hints.forDirectAddresses(direct, &hint_entries),
-    });
+    // A rendezvous listener may own network registration in a cancellable
+    // background task. Do not sign or publish its locator until that task has
+    // made the locator reachable. Ordinary bound listeners are ready already.
+    const ready_timeout: i32 = switch (opts.handshake) {
+        .unbounded => -1,
+        .ms => |milliseconds| @max(milliseconds, 0),
+    };
+    if (!try listener.waitReady(ready_timeout)) return Error.HandshakeTimedOut;
 
-    return .{ .host = host, .listener = listener, .allocator = allocator };
+    const bound_locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, bound_locator);
+    if (!std.mem.eql(u8, bound_locator.transport, listener.transportName()))
+        return error.ProviderContract;
+    if (listen_config.identity) |expected| {
+        if (listener.designatorScheme() == .key) {
+            const expected_designator = expected.toDesignator();
+            if (!std.mem.eql(u8, bound_locator.designator, &expected_designator))
+                return Error.UnheldIdentity;
+        }
+    }
+    try runtime.core.setAdvertisedLocator(bound_locator);
+
+    return .{ .runtime = runtime, .listener = listener, .allocator = allocator };
 }
 
 /// Map the responder signing posture onto the dialer-shaped `Identity` the

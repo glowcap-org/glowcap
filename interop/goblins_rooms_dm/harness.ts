@@ -168,7 +168,7 @@ async function startNativeMember() {
 	const { listenIroh, Reachability } = await import("@pancake/iroh");
 	const seed = crypto.getRandomValues(new Uint8Array(32));
 	const host = roomsHost(seed);
-	const listener = listenIroh({ reachability: Reachability.Direct }, seed, host);
+	const listener = await listenIroh({ reachability: Reachability.Direct }, seed, host);
 	await until(
 		() => listener.directAddresses.length > 0,
 		"the native member's iroh direct addresses",

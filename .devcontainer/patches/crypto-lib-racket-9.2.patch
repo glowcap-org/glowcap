@@ -1,0 +1,77 @@
+--- a/crypto-lib/private/libcrypto3/ffi.rkt
++++ b/crypto-lib/private/libcrypto3/ffi.rkt
+@@ -4,7 +4,6 @@
+ #lang racket/base
+ (require (for-syntax racket/base)
+          racket/match
+-         scramble/inject-syntax
+          ffi/unsafe
+          ffi/unsafe/alloc
+          ffi/unsafe/define
+@@ -22,13 +21,6 @@
+ (define-ffi-definer define-crypto libcrypto
+   #:default-make-fail make-not-available)
+ 
+-(begin/inject-syntax
+-  (if (identifier-binding #'start-uninterruptible)
+-      #'(begin)
+-      #'(begin
+-          (define start-uninterruptible start-atomic)
+-          (define end-uninterruptible end-atomic))))
+-
+ ;; ----------------------------------------
+ ;; Version
+ 
+@@ -98,10 +90,10 @@
+   (syntax-rules ()
+     [(NOERR expr)
+      (let ()
+-       (start-uninterruptible)
++       (start-atomic)
+        (begin0 expr
+          (clear-error-queue)
+-         (end-uninterruptible)))]))
++         (end-atomic)))]))
+ 
+ (define-syntax HANDLE
+   ;; Unconditionally check error state.
+@@ -110,12 +102,12 @@
+      (HANDLE expr #:op (try-car 'expr))]
+     [(HANDLE expr #:op op-expr)
+      (let ()
+-       (start-uninterruptible)
++       (start-atomic)
+        (begin0 expr
+          (cond [(zero? (ERR_peek_error))
+-                (end-uninterruptible)]
++                (end-atomic)]
+                [else
+-                (end-uninterruptible/handle op-expr 'check)])))]))
++                (end-atomic/handle op-expr 'check)])))]))
+ 
+ (define-syntax HANDLEp
+   ;; Only check for error if pointer result is #f (NULL).
+@@ -138,19 +130,19 @@
+      (HANDLEp* expr #:op op-expr #:or `(err . ,message-expr))]
+     [(HANDLEp* expr #:op op-expr #:or handler)
+      (let ()
+-       (start-uninterruptible)
++       (start-atomic)
+        (let ([r expr])
+-         (cond [r (begin (end-uninterruptible) r)]
+-               [else (end-uninterruptible/handle op-expr handler)])))]))
++         (cond [r (begin (end-atomic) r)]
++               [else (end-atomic/handle op-expr handler)])))]))
+ 
+ (define (ok-result? n) (> n 0))
+ 
+ (define (try-car v) (if (pair? v) (car v) #f))
+ 
+-(define (end-uninterruptible/handle op handler)
++(define (end-atomic/handle op handler)
+   (define-values (errcode detail) (ERR_get_error_all))
+   (clear-error-queue)
+-  (end-uninterruptible)
++  (end-atomic)
+   (cond [(and (zero? errcode) (eq? handler 'check)) #f]
+         [else (call-handler handler op errcode detail)]))

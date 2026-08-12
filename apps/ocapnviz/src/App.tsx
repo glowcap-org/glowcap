@@ -307,21 +307,15 @@ export function App() {
     BOTTOM_PANE_MIN,
   );
   const bottomPaneMin = Math.max(BOTTOM_PANE_MIN, timelineMinHeight);
-  // The floor a DRAG may reach, which is the height the panel fits itself to.
-  //
-  // `scrubberHeight` calls itself the floor for whoever sizes the panel, and
-  // the fit button and Reset Layout both honour it; the drag handle used to
-  // clamp at the chrome-only minimum instead, so a hand could put the panel
-  // below the height its own content needs. What that produced was the rows
-  // the panel could not show being clipped rather than absent, which is the
-  // half-drawn bottom edge read from the other direction: fitting had been
-  // taught to land on a row boundary, and dragging had not been taught
-  // anything.
-  //
-  // A reader who wants a shorter panel has the remedy the rows answer to:
-  // collapse a category, or toggle a lane off. Both change what the content is
-  // rather than hiding part of it.
-  const bottomPaneFloor = Math.max(bottomPaneMin, timelineIntrinsic);
+  // Bumped on Reset Layout so TimelinePanel remounts with a fresh
+  // view (expansions / gutter) after storage is cleared — otherwise
+  // only the next reload would see the reset.
+  const [timelineLayoutResetKey, setTimelineLayoutResetKey] = useState(0);
+  // `timelineMinHeight` is the collapsed-fit height TimelinePanel
+  // publishes (chrome + every category collapsed). That is the drag
+  // floor. Fit / auto-size use `timelineIntrinsic` (live expansion)
+  // separately — do not fold it into the drag clamp, or an expanded
+  // panel refuses every downward drag.
 
   // Selection-store (interaction-model § 6). Single source of truth
   // for time-range, anchor (Inspector follow), and multi-selection.
@@ -429,12 +423,12 @@ export function App() {
     );
     resetVisibility();
     dispatch({ type: "set-auto-size-timeline", value: true });
-    // Persisted timeline view (expansions / gutter width) is a
-    // layout pref like sizes and visibility — Reset Layout drops
-    // it too, so a reload starts fresh. The in-memory view stays
-    // until next mount; clearing storage is what makes "reset"
-    // actually reset across sessions.
+    // Timeline view (expansions / gutter) is a layout pref like sizes
+    // and visibility. Clear the store first, then remount the panel
+    // so its initializer reloads defaults in this session — not only
+    // on the next page load.
     globalThis.localStorage?.removeItem(TIMELINE_VIEW_STORAGE_KEY);
+    setTimelineLayoutResetKey((k) => k + 1);
   }, [resetSizes, resetVisibility, timelineIntrinsic, bottomPaneMin, dispatch]);
 
   // Sources that can populate the buffer engine, in precedence
@@ -561,7 +555,7 @@ export function App() {
     connected: liveConnected,
     captureEngine,
   } = useLiveConnection({
-    url: state.mode === "live" ? state.liveUrl : "",
+    sturdyref: state.mode === "live" ? state.liveSturdyref : "",
     recording,
   });
 
@@ -782,6 +776,7 @@ export function App() {
             onFitPanelHeight={fitPanelHeightToContent}
             onResize={setSizes}
             onResetLayout={resetUi}
+            timelineLayoutResetKey={timelineLayoutResetKey}
             visibility={visibility}
             spaceHeld={spaceHeld}
             shortcuts={shortcuts}
@@ -790,7 +785,7 @@ export function App() {
             onOpen={handleOpen}
             onTimelineIntrinsicChange={setTimelineIntrinsic}
             onTimelineMinHeightChange={setTimelineMinHeight}
-            timelineMinHeight={bottomPaneFloor}
+            timelineMinHeight={bottomPaneMin}
             selection={storeSelection.selection}
             anchor={storeSelection.anchor}
             dispatchSelection={dispatchSelection}
@@ -840,6 +835,7 @@ function AppView({
   onFitPanelHeight,
   onResize,
   onResetLayout,
+  timelineLayoutResetKey,
   visibility,
   onTimelineIntrinsicChange,
   onTimelineMinHeightChange,
@@ -896,6 +892,9 @@ function AppView({
     updater: Partial<LayoutSizes> | ((s: LayoutSizes) => LayoutSizes),
   ) => void;
   onResetLayout: () => void;
+  /** Remount key for TimelinePanel — bumped by Reset Layout after
+   *  clearing timeline-view storage so expansions/gutter re-init. */
+  timelineLayoutResetKey: number;
   visibility: StageVisibility;
   /** The `space-pan` claim: the key is down. Reads that speak
    *  about the key take this — the tip, the gesture context the
@@ -914,13 +913,13 @@ function AppView({
   onNew: () => void;
   onOpen: () => void;
   onTimelineIntrinsicChange: (px: number) => void;
-  /** TimelinePanel publishes its dynamic minimum height (chrome
-   *  + Overview + ruler band) here so the drag clamp tracks the
-   *  measured control-row height instead of the hardcoded
-   *  `BOTTOM_PANE_MIN`. */
+  /** TimelinePanel publishes its collapsed-fit height here (chrome
+   *  + every category collapsed) so the drag clamp tracks that
+   *  floor rather than the live expansion. */
   onTimelineMinHeightChange: (px: number) => void;
-  /** Resolved floor used by the drag clamp — max of
-   *  `BOTTOM_PANE_MIN` and the published dynamic min. */
+  /** Floor used by the drag clamp — the collapsed-fit panel
+   *  height TimelinePanel publishes (`onMinHeightChange`). Fit /
+   *  auto-size use the live intrinsic separately. */
   timelineMinHeight: number;
   /** THE selection — the set of entities (peers, sessions,
    * messages) the user has selected. Single source of truth
@@ -1689,11 +1688,12 @@ function AppView({
             scenarioId={state.scenarioId}
             source={sourceInfo}
             engine={engine}
-            liveUrl={state.liveUrl}
+            liveSturdyref={state.liveSturdyref}
             liveConnected={liveConnected}
             liveRecording={liveRecording}
             onScenarioChange={handleScenarioChange}
-            onLiveUrlChange={(url) => dispatch({ type: "set-live-url", url })}
+            onLiveSturdyrefChange={(sturdyref) =>
+              dispatch({ type: "set-live-sturdyref", sturdyref })}
             editor={state.mode === "build" ? builderEditor : undefined}
           />
         </Section>
@@ -1897,8 +1897,10 @@ function AppView({
               // going down, so subtract). Drag DOWN shrinks the
               // pane; when intrinsic > pane the lanes region
               // overflows with internal scroll (handled in the
-              // Scrubber). Hard floor at `BOTTOM_PANE_MIN`
-              // keeps control row + ruler always visible.
+              // Scrubber). Hard floor is the collapsed-fit height
+              // TimelinePanel publishes — expand a category and
+              // you can drag between that and the live intrinsic;
+              // you cannot drag below collapsed-fit.
               onResize((s) => ({
                 ...s,
                 bottomPaneHeight: Math.max(
@@ -1909,6 +1911,7 @@ function AppView({
             }}
           />
           <TimelinePanel
+            key={timelineLayoutResetKey}
             engine={engine}
             onPlayPause={handlePlayPause}
             onRestart={handleRestart}

@@ -90,8 +90,8 @@ async def run() -> None:
         gifter = await listen(HOST, 0)
 
         async def accept_loop() -> None:
-            async for conn in gifter:
-                conn.serve()
+            async for session in gifter:
+                session.serve()
 
         accept_task = asyncio.ensure_future(accept_loop())
         gifter_port = gifter.port

@@ -11,7 +11,12 @@
 // prints `REGISTERED-PEER-READY <designator>` once the first registration is
 // in flight.
 
-import { Host, serveRendezvous } from "@pancake/stack";
+import {
+	formatLocatorUri,
+	Host,
+	serveRendezvous,
+	TRANSPORT_KEYED_RELAY,
+} from "@pancake/stack";
 
 const relayPort = Number(Deno.args[0]);
 if (!Number.isInteger(relayPort) || relayPort <= 0) {
@@ -26,10 +31,15 @@ host.publishGiftable("greeter", (verb, args) => {
 	return `hello ${who}, cold-dialed by rendezvous`;
 });
 
-serveRendezvous(
+const rendezvous = serveRendezvous(
 	host,
-	(id) => `ws://127.0.0.1:${relayPort}/register?id=${encodeURIComponent(id)}`,
+	TRANSPORT_KEYED_RELAY,
+	{
+		registerUrl: (id) =>
+			`ws://127.0.0.1:${relayPort}/register?id=${encodeURIComponent(id)}`,
+		relayUrl: `ws://127.0.0.1:${relayPort}/relay`,
+	},
 	{ onError: (err) => console.error("registered peer: rendezvous error:", err) },
 );
 
-console.log(`REGISTERED-PEER-READY ${host.designator()}`);
+console.log(`REGISTERED-PEER-READY ${formatLocatorUri(rendezvous.locator)}`);

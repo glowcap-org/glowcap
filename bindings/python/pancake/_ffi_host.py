@@ -1,12 +1,9 @@
-"""Internal: the raw ``ctypes`` mirror of ``libpancake_host``, the byte-fed
-host archive (ADR-0072).
+"""Internal: the raw ``ctypes`` mirror of the ``pancake_host_*`` byte-fed
+host family (ADR-0072), loaded from ``libpancake_host``.
 
-Nothing here is public. The archive is a companion of ``libpancake_ocapn``: it
-exports only the ``pancake_host_*`` family and shares the frame, argument,
-reference, and last-abort layouts declared in :mod:`pancake._ffi_ocapn` by
-*layout*, so this loader opens ONLY ``libpancake_host`` and declares no core
-symbol, exactly as :mod:`pancake._ffi_tcp` does. The host surface over it lives
-in :mod:`pancake._host` and :mod:`pancake._session`.
+Nothing here is public. The driver is a separate archive and exports only
+``pancake_driver_*``; it adopts a Host created through this family. The Host
+surface lives in :mod:`pancake._host` and :mod:`pancake._session`.
 
 Callback discipline: the ONE native callback in the whole binding — the shared
 behavior trampoline (:mod:`pancake._trampoline`) — fires synchronously on the
@@ -29,6 +26,8 @@ from ._ffi_ocapn import (
     _Argument,
     _bind,
     _LastAbort,
+    _LocatorHintView,
+    _LocatorView,
     _Lib,
     _ManagedFrame,
     _Reference,
@@ -55,7 +54,7 @@ class _HostAction(ctypes.Structure):
     _fields_ = [
         ("kind", ctypes.c_uint32),
         ("ticket", ctypes.c_uint64),
-        ("conn", ctypes.c_void_p),
+        ("session", ctypes.c_void_p),
         ("value", _Argument),
         ("message", ctypes.c_void_p),
         ("message_len", ctypes.c_size_t),
@@ -88,18 +87,6 @@ class _AcceptPlan(ctypes.Structure):
     ]
 
 
-class _PendingDial(ctypes.Structure):
-    # PancakePendingDial (pancake_host.h) — borrowed pending dial view.
-    _fields_ = [
-        ("transport", ctypes.c_void_p),
-        ("transport_len", ctypes.c_size_t),
-        ("designator", ctypes.c_void_p),
-        ("designator_len", ctypes.c_size_t),
-        ("hint", ctypes.c_void_p),
-        ("hint_len", ctypes.c_size_t),
-    ]
-
-
 class _PartnerIdentity(ctypes.Structure):
     # PancakePartnerIdentity (pancake_host.h) — the verified partner identity
     # pancake_host_session_partner_identity borrows out. Every view is
@@ -123,10 +110,9 @@ class _PartnerIdentity(ctypes.Structure):
 # _HostPumpHooks are declared further down (they need callback types stated
 # first) and are pinned at their own declarations, so no mirror here sits
 # outside the gate.
-pin_struct(_HostAction, "PANCAKE_HOST_ACTION", aliases={"session": "conn"})
+pin_struct(_HostAction, "PANCAKE_HOST_ACTION")
 pin_struct(_DialPlan, "PANCAKE_DIAL_PLAN")
 pin_struct(_AcceptPlan, "PANCAKE_ACCEPT_PLAN")
-pin_struct(_PendingDial, "PANCAKE_PENDING_DIAL")
 pin_struct(_PartnerIdentity, "PANCAKE_PARTNER_IDENTITY")
 
 
@@ -213,22 +199,13 @@ def _load():
         _LastAbort,
         _DialPlan,
         _AcceptPlan,
-        _PendingDial,
         _HostPumpHooks,
+        _LocatorHintView,
+        _LocatorView,
         _HostBehavior,
         _PartnerIdentity,
         _TraceCallback,
     )
-    # The generated table covers the archive inventory; the handwritten loader
-    # binds the locator-state exports that are outside that inventory.
-    P = ctypes.c_void_p
-    size = ctypes.c_size_t
-    i32 = ctypes.c_int32
-    sigs.update({
-        "pancake_host_set_advertised_locator": ([P, P, size], i32),
-        "pancake_host_ensure_advertised_locator": ([P, P, size], i32),
-        "pancake_host_remove_advertised_locator": ([P, P, size], i32),
-    })
     lib = ctypes.CDLL(str(_lib_path("pancake_host")))
     facade = _Lib(lib)
     _bind(facade, lib, sigs)

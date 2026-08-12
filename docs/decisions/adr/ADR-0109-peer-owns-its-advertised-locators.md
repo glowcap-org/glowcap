@@ -7,7 +7,7 @@ decision: "A peer owns complete advertised locator snapshots and selects one acc
 supersedes: []
 superseded_by: []
 amends: [ADR-0079, ADR-0093, ADR-0097, ADR-0105]
-amended_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0109 A peer owns its advertised locators
@@ -82,8 +82,8 @@ session's signed hello.
 ### Hints contain no session credential
 
 `session-key-attestation` is removed from the model, codec, engine, public ABI,
-bindings, fixtures, and documentation. Every CapTP connection still uses a
-fresh session signing key, and the ordinary `acceptable-location` signature
+bindings, fixtures, and documentation. Every CapTP session still uses a fresh
+signing key, and the ordinary `acceptable-location` signature
 still verifies the session signer and the integrity of its locator claim. It
 does not authenticate durable ownership of the claimed designator. What is
 removed is the second signature where a durable key authorized that fresh
@@ -180,7 +180,7 @@ the peer did not publish.
 
 ## Notes
 
-This record keeps ADR-0097's fresh per-connection session keys and amends away
+This record keeps ADR-0097's fresh per-session signing keys and amends away
 its durable-key credential. It keeps ADR-0105's connection-scoped provenance
 and removes the credential branch. ADR-0107's Noise design provides the channel
 proof this record requires and therefore makes the retired credential moot.

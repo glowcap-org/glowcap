@@ -45,23 +45,23 @@ static int32_t on_flush(void *ctx, PancakeHost *host,
     }
     for (;;) {
         PancakeManagedFrame frame;
-        int32_t rc = pancake_host_session_take_outbound(f->session, &frame);
+        uint8_t prefix[PANCAKE_HOST_OUTBOUND_PREFIX_CAP];
+        size_t prefix_len = 0;
+        int32_t rc = pancake_host_session_take_outbound(
+            f->session, &frame, prefix, sizeof prefix, &prefix_len);
         if (rc == PANCAKE_ERR_WOULD_BLOCK) {
             break;
         }
         if (rc != PANCAKE_OK) {
             return rc;
         }
-        char prefix[32];
-        int prefix_len = snprintf(prefix, sizeof prefix, "%zu:", frame.len);
-        if (prefix_len < 0 || (size_t)prefix_len >= sizeof prefix ||
-            f->pipe->len + (size_t)prefix_len + frame.len > sizeof f->pipe->buf) {
+        if (f->pipe->len + prefix_len + frame.len > sizeof f->pipe->buf) {
             pancake_managed_frame_release(&frame);
             fprintf(stderr, "host_embedder_pump: pipe overflow\n");
             return PANCAKE_ERR_INVALID_ARGUMENT;
         }
-        memcpy(f->pipe->buf + f->pipe->len, prefix, (size_t)prefix_len);
-        f->pipe->len += (size_t)prefix_len;
+        memcpy(f->pipe->buf + f->pipe->len, prefix, prefix_len);
+        f->pipe->len += prefix_len;
         memcpy(f->pipe->buf + f->pipe->len, frame.bytes, frame.len);
         f->pipe->len += frame.len;
         pancake_managed_frame_release(&frame);
@@ -79,7 +79,8 @@ static int drain_actions(PancakeHost *host, BytePipe *pipe, PancakeHostSession *
         .complete = NULL,
         .dial = NULL,
     };
-    return pancake_host_pump_drain(host, &hooks, NULL);
+    uint32_t yielded = 0;
+    return pancake_host_pump_drain(host, &hooks, NULL, &yielded);
 }
 
 static int feed_pipe(PancakeHostSession *to, BytePipe *pipe) {
@@ -116,8 +117,11 @@ static int shuttle(PancakeHost *ha, PancakeHostSession *a, BytePipe *ab,
 }
 
 static PancakeHost *new_host(uint8_t fill, size_t frame_cap) {
-    uint8_t seed[32];
-    memset(seed, fill, sizeof seed);
+    uint8_t seed[64];
+    /* Durable identity followed by a distinct per-process session-key root.
+       A real embedder draws the second half afresh on each process start. */
+    memset(seed, fill, 32);
+    memset(seed + 32, fill ^ 0xa5, 32);
     PancakeHost *host = NULL;
     if (pancake_host_new(seed, sizeof seed, frame_cap, 1, PANCAKE_CODEC_SYRUP,
                          PANCAKE_CAPTP_V1_0, PANCAKE_FEATURE_FULL, 0, &host) != PANCAKE_OK) {
@@ -127,22 +131,37 @@ static PancakeHost *new_host(uint8_t fill, size_t frame_cap) {
 }
 
 static int32_t set_tcp_locator(PancakeHost *host, const char *designator) {
-    uint8_t *encoded = NULL;
-    size_t encoded_len = 0;
-    int32_t rc = pancake_locator_record_encode(
-        (const uint8_t *)"tcp", 3,
-        (const uint8_t *)designator, strlen(designator),
-        NULL, 0, &encoded, &encoded_len);
-    if (rc == PANCAKE_OK) {
-        rc = pancake_host_set_advertised_locator(host, encoded, encoded_len);
-    }
-    pancake_locator_record_bytes_release(encoded, encoded_len);
-    return rc;
+    const PancakeLocatorView locator = {
+        .abi_version = PANCAKE_LOCATOR_VIEW_ABI_VERSION,
+        .struct_size = sizeof(PancakeLocatorView),
+        .transport = (const uint8_t *)"tcp",
+        .transport_len = 3,
+        .designator = (const uint8_t *)designator,
+        .designator_len = strlen(designator),
+        .hints = NULL,
+        .hint_count = 0,
+        .hint_wire_form = PANCAKE_HINTS_BOOLEAN_FALSE,
+    };
+    return pancake_host_set_advertised_locator(host, &locator);
 }
 
 static int32_t ensure_tcp_locator(PancakeHost *host) {
     return pancake_host_ensure_advertised_locator(
         host, (const uint8_t *)"tcp", 3);
+}
+
+static int32_t open_accepted(
+        PancakeHost *host, const char *transport, PancakeHostSession **out_session) {
+    return pancake_host_session_open_accepted(
+        host, (const uint8_t *)transport, strlen(transport), out_session);
+}
+
+static int32_t open_dialed(
+        PancakeHost *host, const char *transport, const char *designator,
+        PancakeHostSession **out_session) {
+    return pancake_host_session_open_dialed_locator(
+        host, (const uint8_t *)transport, strlen(transport),
+        (const uint8_t *)designator, strlen(designator), out_session);
 }
 
 int main(void) {
@@ -160,12 +179,10 @@ int main(void) {
         ensure_tcp_locator(client) != PANCAKE_OK) {
         return fail("publish locators");
     }
-    if (pancake_host_session_open_accepted(
-            server, (const uint8_t *)"tcp", 3, &accepted) != PANCAKE_OK) {
+    if (open_accepted(server, "tcp", &accepted) != PANCAKE_OK) {
         return fail("open_accepted");
     }
-    if (pancake_host_session_open_dialed_locator(client, (const uint8_t *)"tcp", 3,
-            (const uint8_t *)designator, strlen(designator), &dialed) != PANCAKE_OK) {
+    if (open_dialed(client, "tcp", designator, &dialed) != PANCAKE_OK) {
         return fail("open_dialed");
     }
 
@@ -203,12 +220,10 @@ int main(void) {
         ensure_tcp_locator(peer) != PANCAKE_OK) {
         return fail("publish refusal locators");
     }
-    if (pancake_host_session_open_accepted(
-            tiny, (const uint8_t *)"tcp", 3, &tiny_acc) != PANCAKE_OK) {
+    if (open_accepted(tiny, "tcp", &tiny_acc) != PANCAKE_OK) {
         return fail("open_accepted tiny");
     }
-    if (pancake_host_session_open_dialed_locator(peer, (const uint8_t *)"tcp", 3,
-            (const uint8_t *)d2, strlen(d2), &peer_dial) != PANCAKE_OK) {
+    if (open_dialed(peer, "tcp", d2, &peer_dial) != PANCAKE_OK) {
         return fail("open_dialed peer");
     }
 
@@ -249,8 +264,7 @@ int main(void) {
     if (set_tcp_locator(h, d3) != PANCAKE_OK) {
         return fail("publish eof locator");
     }
-    if (pancake_host_session_open_accepted(
-            h, (const uint8_t *)"tcp", 3, &c) != PANCAKE_OK) {
+    if (open_accepted(h, "tcp", &c) != PANCAKE_OK) {
         return fail("open_accepted eof");
     }
     const char msg[] = "connection closed";

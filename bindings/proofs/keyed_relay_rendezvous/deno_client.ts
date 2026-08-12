@@ -2,10 +2,10 @@
 // cold-dials a non-listening peer by its key designator through the reference
 // relay's rendezvous bridge (ADR-0088). The core classifies the locator as
 // the `rendezvous` dial shape; the stack opens the WebSocket leg the host's
-// `setRendezvousUrl` mapping names and runs the keyed handshake end to end.
+// advertised locator names while the Host's fallback is deliberately dead.
 //
 // Run via `zig build deno-keyed-relay-rendezvous` (the harness passes
-// `<relay-port> <designator>`).
+// `<locator>`).
 
 import { connect, Host } from "@pancake/stack";
 
@@ -14,14 +14,12 @@ function fail(message: string): never {
 	Deno.exit(1);
 }
 
-if (Deno.args.length < 2) fail("usage: deno_client.ts <relay-port> <designator>");
-// The harness appends the two; a pinned -Dport flag may sit before them.
-const relayPort = Number(Deno.args[Deno.args.length - 2]);
-const designator = Deno.args[Deno.args.length - 1];
+if (Deno.args.length < 1) fail("usage: deno_client.ts <locator>");
+const locator = Deno.args[Deno.args.length - 1];
 
 const host = new Host();
-host.setRendezvousUrl((id) => `ws://127.0.0.1:${relayPort}/relay?rendezvous=${id}`);
-const session = await connect(`ocapn://${designator}.keyed-relay`, undefined, host);
+host.setRendezvousUrl((id) => `ws://127.0.0.1:1/relay?rendezvous=${id}`);
+const session = await connect(locator, undefined, host);
 session.serve().catch(() => {});
 try {
 	const greeter = await session.fetch("greeter");
@@ -33,7 +31,7 @@ try {
 }
 console.log(
 	"PASS: the Deno binding cold-dialed a registered peer by rendezvous — the core " +
-		"classified the keyed-relay locator, the host's configured relay mapping opened " +
-		"the bridge, and the keyed session answered",
+		"used the locator's rendezvous-relay route instead of the dead Host fallback, " +
+		"and the keyed session answered",
 );
 Deno.exit(0);

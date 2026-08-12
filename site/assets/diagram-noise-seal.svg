@@ -1,0 +1,281 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 760 420"
+  width="760"
+  height="420"
+  role="img"
+  aria-label="Three key-addressed paths: keyed-tcp is cleartext on the wire, noise-tcp seals the same sockets with Noise_XK, and noise-relay runs that sealed channel through a relay that only forwards ciphertext."
+>
+  <style>
+    text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); paint-order: stroke; stroke: var(--paper, #fff3df); stroke-width: 3.5px; stroke-linejoin: round; }
+    .title { font-size: 14px; font-weight: 700; fill: var(--ink, #3a3027); }
+    .sub { font-size: 12px; fill: var(--ink-soft, #6b5d4d); }
+    .chip { font-size: 12.5px; font-weight: 700; fill: var(--ink, #3a3027); }
+    .warn { font-size: 12px; font-weight: 600; fill: var(--accent-deep, #a4560c); }
+    .ok { font-size: 12px; font-weight: 600; fill: var(--teal-deep, #1b5f66); }
+    .lab { font-size: 12.5px; font-weight: 700; }
+
+    /* Motion: one 14s loop. keyed-tcp draws cleartext, noise-tcp seals the
+       same path, then noise-relay hops sealed bytes through a relay.
+       Base styles are the finished static diagram. */
+    .dot { visibility: hidden; }
+    @supports (offset-path: path("M0 0 L1 1")) {
+      .dot { visibility: visible; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .dot { visibility: hidden !important; }
+    }
+
+    .row1 { animation: nr-row1 14s ease-in-out infinite; }
+    .row2 { animation: nr-row2 14s ease-in-out infinite; }
+    .row3 { animation: nr-row3 14s ease-in-out infinite; }
+    @keyframes nr-row1 {
+      0%, 2% { opacity: 0.32; }
+      6%, 28% { opacity: 1; }
+      34%, 100% { opacity: 0.32; }
+    }
+    @keyframes nr-row2 {
+      0%, 32% { opacity: 0.32; }
+      36%, 62% { opacity: 1; }
+      68%, 100% { opacity: 0.32; }
+    }
+    @keyframes nr-row3 {
+      0%, 66% { opacity: 0.32; }
+      70%, 96% { opacity: 1; }
+      100% { opacity: 0.32; }
+    }
+
+    .w1 {
+      stroke-dasharray: 160;
+      stroke-dashoffset: 0;
+      animation: nr-w1 14s ease-in-out infinite;
+    }
+    @keyframes nr-w1 {
+      0%, 4% { stroke-dashoffset: 160; opacity: 0; }
+      5% { opacity: 1; }
+      14% { stroke-dashoffset: 0; }
+      28% { opacity: 1; }
+      34%, 100% { stroke-dashoffset: 0; opacity: 0.35; }
+    }
+    .w2 {
+      stroke-dasharray: 160;
+      stroke-dashoffset: 0;
+      animation: nr-w2 14s ease-in-out infinite;
+    }
+    @keyframes nr-w2 {
+      0%, 34% { stroke-dashoffset: 160; opacity: 0; }
+      35% { opacity: 1; }
+      44% { stroke-dashoffset: 0; }
+      62% { opacity: 1; }
+      68%, 100% { stroke-dashoffset: 0; opacity: 0.35; }
+    }
+    .w3a, .w3b {
+      stroke-dasharray: 110;
+      stroke-dashoffset: 0;
+      animation: nr-w3a 14s ease-in-out infinite;
+    }
+    .w3b { animation-name: nr-w3b; }
+    @keyframes nr-w3a {
+      0%, 68% { stroke-dashoffset: 110; opacity: 0; }
+      69% { opacity: 1; }
+      76% { stroke-dashoffset: 0; }
+      96% { opacity: 1; }
+      100% { stroke-dashoffset: 0; opacity: 0.35; }
+    }
+    @keyframes nr-w3b {
+      0%, 74% { stroke-dashoffset: 110; opacity: 0; }
+      75% { opacity: 1; }
+      82% { stroke-dashoffset: 0; }
+      96% { opacity: 1; }
+      100% { stroke-dashoffset: 0; opacity: 0.35; }
+    }
+
+    .h1 { animation: nr-h1 14s ease-out infinite; }
+    .h2 { animation: nr-h2 14s ease-out infinite; }
+    .h3a { animation: nr-h3a 14s ease-out infinite; }
+    .h3b { animation: nr-h3b 14s ease-out infinite; }
+    @keyframes nr-h1 {
+      0%, 12% { opacity: 0; }
+      15% { opacity: 1; }
+      28% { opacity: 1; }
+      34%, 100% { opacity: 0; }
+    }
+    @keyframes nr-h2 {
+      0%, 42% { opacity: 0; }
+      45% { opacity: 1; }
+      62% { opacity: 1; }
+      68%, 100% { opacity: 0; }
+    }
+    @keyframes nr-h3a {
+      0%, 74% { opacity: 0; }
+      77% { opacity: 1; }
+      96% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    @keyframes nr-h3b {
+      0%, 80% { opacity: 0; }
+      83% { opacity: 1; }
+      96% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
+    .lab1 { animation: nr-lab1 14s ease-in-out infinite; }
+    .lab2 { animation: nr-lab2 14s ease-in-out infinite; }
+    .lab3 { animation: nr-lab3 14s ease-in-out infinite; }
+    @keyframes nr-lab1 {
+      0%, 4% { opacity: 0.2; }
+      10% { opacity: 1; }
+      28% { opacity: 1; }
+      34%, 100% { opacity: 0.2; }
+    }
+    @keyframes nr-lab2 {
+      0%, 34% { opacity: 0.2; }
+      40% { opacity: 1; }
+      62% { opacity: 1; }
+      68%, 100% { opacity: 0.2; }
+    }
+    @keyframes nr-lab3 {
+      0%, 68% { opacity: 0.2; }
+      74% { opacity: 1; }
+      96% { opacity: 1; }
+      100% { opacity: 0.2; }
+    }
+
+    .box-relay { animation: nr-relay 14s ease-in-out infinite; }
+    @keyframes nr-relay {
+      0%, 76% { stroke-width: 1; }
+      79% { stroke-width: 2.6; }
+      84%, 100% { stroke-width: 1; }
+    }
+
+    .seal {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: nr-seal 14s ease-out infinite;
+    }
+    @keyframes nr-seal {
+      0%, 42% { transform: scale(0.45); opacity: 0; }
+      46% { opacity: 0.55; }
+      56%, 100% { transform: scale(1.7); opacity: 0; }
+    }
+
+    .dot1 {
+      offset-path: path("M140 78 H 300");
+      animation: nr-dot1 14s ease-in-out infinite;
+    }
+    @keyframes nr-dot1 {
+      0%, 8% { offset-distance: 0%; opacity: 0; }
+      10% { opacity: 1; }
+      20% { opacity: 1; }
+      22%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .dot2 {
+      offset-path: path("M140 198 H 300");
+      animation: nr-dot2 14s ease-in-out infinite;
+    }
+    @keyframes nr-dot2 {
+      0%, 44% { offset-distance: 0%; opacity: 0; }
+      46% { opacity: 1; }
+      56% { opacity: 1; }
+      58%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .dot3a {
+      offset-path: path("M140 318 H 250");
+      animation: nr-dot3a 14s ease-in-out infinite;
+    }
+    @keyframes nr-dot3a {
+      0%, 76% { offset-distance: 0%; opacity: 0; }
+      78% { opacity: 1; }
+      84% { opacity: 1; }
+      86%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+    .dot3b {
+      offset-path: path("M376 318 H 486");
+      animation: nr-dot3b 14s ease-in-out infinite;
+    }
+    @keyframes nr-dot3b {
+      0%, 84% { offset-distance: 0%; opacity: 0; }
+      86% { opacity: 1; }
+      92% { opacity: 1; }
+      94%, 100% { offset-distance: 100%; opacity: 0; }
+    }
+
+    .foot { animation: nr-foot 14s ease-in-out infinite; }
+    @keyframes nr-foot {
+      0%, 68% { opacity: 0; }
+      76% { opacity: 1; }
+      96% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+  </style>
+
+  <defs>
+    <marker id="nr-arr-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--teal, #257f88)"/>
+    </marker>
+    <marker id="nr-arr-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--accent, #c76f18)"/>
+    </marker>
+  </defs>
+
+  <!-- Row 1: keyed-tcp -->
+  <g class="row1">
+    <text x="24" y="34" class="title">keyed-tcp</text>
+    <text x="120" y="34" class="warn lab1">cleartext</text>
+    <rect x="24" y="52" width="110" height="52" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
+    <text x="79" y="82" text-anchor="middle" class="chip">you</text>
+    <path class="w1" d="M140 78 H 300" fill="none" stroke="var(--accent, #c76f18)" stroke-width="2.4"/>
+    <g class="h1" transform="translate(300 78)">
+      <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--accent, #c76f18)"/>
+    </g>
+    <circle class="dot dot1" r="4.5" fill="var(--accent, #c76f18)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+    <text x="220" y="68" text-anchor="middle" class="lab lab1" fill="var(--accent-deep, #a4560c)">frames in the clear</text>
+    <rect x="310" y="52" width="110" height="52" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-warm-rule, #ead9bb)"/>
+    <text x="365" y="82" text-anchor="middle" class="chip">peer</text>
+    <text x="450" y="78" class="sub lab1">same sockets; the key is only a dial target</text>
+  </g>
+
+  <!-- Row 2: noise-tcp -->
+  <g class="row2">
+    <text x="24" y="154" class="title">noise-tcp</text>
+    <text x="120" y="154" class="ok lab2">Noise_XK sealed</text>
+    <rect x="24" y="172" width="110" height="52" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="79" y="202" text-anchor="middle" class="chip">you</text>
+    <circle class="seal" cx="220" cy="198" r="18" fill="none" stroke="var(--teal, #257f88)" stroke-width="2"/>
+    <path class="w2" d="M140 198 H 300" fill="none" stroke="var(--teal, #257f88)" stroke-width="2.4"/>
+    <g class="h2" transform="translate(300 198)">
+      <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--teal, #257f88)"/>
+    </g>
+    <circle class="dot dot2" r="4.5" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+    <text x="220" y="188" text-anchor="middle" class="lab lab2" fill="var(--teal-deep, #1b5f66)">ciphertext end to end</text>
+    <rect x="310" y="172" width="110" height="52" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="365" y="202" text-anchor="middle" class="chip">peer</text>
+    <text x="450" y="198" class="sub lab2">handshake proves the dialed key</text>
+  </g>
+
+  <!-- Row 3: noise-relay -->
+  <g class="row3">
+    <text x="24" y="274" class="title">noise-relay</text>
+    <text x="130" y="274" class="ok lab3">sealed through a relay</text>
+    <rect x="24" y="292" width="110" height="52" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="79" y="322" text-anchor="middle" class="chip">you</text>
+    <path class="w3a" d="M140 318 H 250" fill="none" stroke="var(--teal, #257f88)" stroke-width="2.4"/>
+    <g class="h3a" transform="translate(250 318)">
+      <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--teal, #257f88)"/>
+    </g>
+    <circle class="dot dot3a" r="4.5" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+    <rect class="box-relay" x="260" y="292" width="110" height="52" rx="12" fill="var(--dia-warm-fill, #fdf4e3)" stroke="var(--dia-muted, #8a7862)"/>
+    <text x="315" y="315" text-anchor="middle" class="chip">relay</text>
+    <text x="315" y="332" text-anchor="middle" class="sub">forwards only</text>
+    <path class="w3b" d="M376 318 H 486" fill="none" stroke="var(--teal, #257f88)" stroke-width="2.4"/>
+    <g class="h3b" transform="translate(486 318)">
+      <path d="M-7.5 -5 L2.5 0 L-7.5 5 z" fill="var(--teal, #257f88)"/>
+    </g>
+    <circle class="dot dot3b" r="4.5" fill="var(--teal-deep, #1b5f66)" stroke="var(--paper, #fff3df)" stroke-width="2"/>
+    <rect x="496" y="292" width="110" height="52" rx="12" fill="var(--dia-cool-fill, #edf5f3)" stroke="var(--dia-cool-strong, #cfe4e1)"/>
+    <text x="551" y="322" text-anchor="middle" class="chip">peer</text>
+  </g>
+
+  <text x="24" y="390" class="sub foot">The relay never sees CapTP plaintext. The Noise handshake still runs peer to peer.</text>
+</svg>

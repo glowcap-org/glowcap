@@ -1,21 +1,23 @@
 //! The per-session verbs for `libpancake_host`: open a dialed or accepted
 //! CapTP session, the byte pump (`feed` / `feed_bytes` / `take_outbound`),
 //! publish / spawn / fetch / enliven, the send / tell / vow-projection
-//! messaging surface, breaking a gone connection's far vows, the exporter
+//! messaging surface, breaking a gone session's far vows, the exporter
 //! location override, and the local / partner abort diagnostics. Host
 //! lifecycle lives in `host.zig`, turn-time verbs in `turn.zig`.
 
 const std = @import("std");
 
+const crypto = @import("foundation").crypto;
 const model = @import("model");
 const engine = @import("engine");
+const driver_core = @import("driver_core");
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
 const common = @import("common.zig");
 
 const instanceFrom = common.instanceFrom;
-const connFrom = common.connFrom;
+const sessionFrom = common.sessionFrom;
 const instOf = common.instOf;
 const errToCode = common.errToCode;
 const setView = common.setView;
@@ -32,13 +34,16 @@ const PancakeManagedFrame = shared.PancakeManagedFrame;
 const PANCAKE_OK = shared.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
+const PANCAKE_ERR_INTERNAL = shared.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 
-// ── Connection lifecycle ─────────────────────────────────────────────────────
+// ── Session lifecycle ────────────────────────────────────────────────────────
 
 /// Mint the dialing half from an already-parsed locator (`transport` +
 /// `designator`). A DIAL action carries only `ticket` — borrow the pending view
-/// with `pancake_host_pending_dial` and pass its transport/designator here.
+/// with `pancake_host_pending_dial`; the byte-fed session mint consumes its
+/// transport/designator after the embedder has used the complete locator to
+/// open the channel.
 /// The keyed `op:start-session` is signed under the host identity and encoded
 /// before this returns, so drain `take_outbound` (a FLUSH action is queued) and
 /// drive the handshake byte-fed. Host-wide aliases remain lazily discoverable
@@ -46,8 +51,10 @@ const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 /// (`pancake_uri_parse_peer`) and passes the pieces — there is no parallel
 /// URI-string mint entry. The dialed hello does not consume a direct-addresses
 /// hint (that hint is the connect-side dial executor's concern, and
-/// accept-side signing's). `*out_session` is host-owned; release with
-/// `pancake_host_session_release`.
+/// accept-side signing's). Sealed sessions derive their Noise ephemeral from
+/// the Host's unique per-session seed under a separate KDF domain; callers do
+/// not branch on transport policy or supply per-open entropy.
+/// `*out_session` is host-owned; release with `pancake_host_session_release`.
 pub export fn pancake_host_session_open_dialed_locator(
     host: ?*PancakeHost,
     transport: ?[*]const u8,
@@ -57,6 +64,7 @@ pub export fn pancake_host_session_open_dialed_locator(
     out_session: ?*?*PancakeHostSession,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "session_open_dialed_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
     const transport_bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     const designator_bytes = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
@@ -70,9 +78,10 @@ pub export fn pancake_host_session_open_dialed_locator(
     return PANCAKE_OK;
 }
 
-/// Mint the accepting half of a connection the embedder's listener produced.
+/// Mint the accepting half of a session over the connection the embedder's listener produced.
 /// The Host must already have a selected acceptable location; this session
-/// signs that snapshot even when it names another transport.
+/// signs that snapshot even when it names another transport. Sealed-channel
+/// entropy follows the dialed half's Host-owned derivation.
 pub export fn pancake_host_session_open_accepted(
     host: ?*PancakeHost,
     transport: ?[*]const u8,
@@ -80,6 +89,7 @@ pub export fn pancake_host_session_open_accepted(
     out_session: ?*?*PancakeHostSession,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "session_open_accepted")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
     const transport_bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     const session = inst.core.openAcceptedAdvertised(transport_bytes) catch |err| return errToCode(err);
@@ -96,10 +106,11 @@ pub export fn pancake_host_session_open_accepted(
 /// another cleanup failure condemns surviving sessions because retrying this
 /// consumed handle would be invalid.
 pub export fn pancake_host_session_release(raw: ?*PancakeHostSession) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_OK;
+    const session = sessionFrom(raw) orelse return PANCAKE_OK;
     const inst = instOf(session.host);
+    if (!common.embedderOwnsRuntime(inst, "session_release")) return PANCAKE_ERR_INVALID_ARGUMENT;
     inst.core.releaseSession(session) catch |err| {
-        shared.setLastError("host: conn_release: {s}", .{@errorName(err)});
+        shared.setLastError("host: session_release: {s}", .{@errorName(err)});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
     return PANCAKE_OK;
@@ -107,7 +118,7 @@ pub export fn pancake_host_session_release(raw: ?*PancakeHostSession) i32 {
 
 /// Nonzero once the keyed handshake has completed and the session is open.
 pub export fn pancake_host_session_is_open(raw: ?*PancakeHostSession) i32 {
-    const session = connFrom(raw) orelse return 0;
+    const session = sessionFrom(raw) orelse return 0;
     return if (session.sessionOpen()) 1 else 0;
 }
 
@@ -118,7 +129,7 @@ pub export fn pancake_host_session_trace_id(
     raw: ?*PancakeHostSession,
     out_id: ?*u64,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
     const out = out_id orelse return PANCAKE_ERR_INVALID_ARGUMENT;
     out.* = session.peer_id.int();
     return PANCAKE_OK;
@@ -129,12 +140,17 @@ pub export fn pancake_host_session_trace_id(
 /// Feed one inbound frame the embedder read from its own transport (borrowed
 /// for the call): behavior callbacks fire and vow completions queue inside,
 /// then the node actions the dispatch queued pump and every touched
-/// connection's outbound encodes. A failure classifies through the shared taxonomy
-/// (`PANCAKE_ERR_CODEC` / `_SESSION` / `_INTERNAL`); after any failure still
-/// drain `take_outbound` — the peer projected a typed `op:abort` for the
-/// partner — then read `pancake_host_session_last_abort` for the typed cause.
+/// session's outbound encodes. `PANCAKE_ERR_WOULD_BLOCK` is the preflight
+/// high-water refusal: the frame was not consumed, so drain `take_outbound`,
+/// write those frames, and retry it. A non-WOULD_BLOCK failure classifies
+/// through the shared taxonomy (`PANCAKE_ERR_CODEC` / `_SESSION` /
+/// `_INTERNAL`). When `pancake_host_session_last_abort` succeeds, the frame was
+/// consumed and the session is closing; drain its typed `op:abort` and release
+/// it. `PANCAKE_ERR_INTERNAL` with no last-abort is allocation failure before
+/// frame admission, so the same borrowed frame remains retryable.
 pub export fn pancake_host_session_feed(raw: ?*PancakeHostSession, frame_in: ?*const PancakeFrame) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(instOf(session.host), "session_feed")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
     const bytes_ptr = borrowed.bytes orelse return PANCAKE_ERR_NULL_POINTER;
     const shape = shared.frameShapeFromC(borrowed.shape) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
@@ -155,16 +171,21 @@ pub export fn pancake_host_session_feed(raw: ?*PancakeHostSession, frame_in: ?*c
 /// fetch), and the next call — an empty chunk (`len` 0, `bytes` may be NULL)
 /// works — feeds them. A declared body exceeding the session's frame cap is
 /// refused `PANCAKE_ERR_FRAME_TOO_LARGE`; malformed or non-canonical outer
-/// syntax is refused as a codec error; any other failure classifies as
-/// `pancake_host_session_feed`'s do. After any failure the session is
-/// closing: drain `take_outbound` (a typed `op:abort` is queued for the
-/// partner) and release the session.
+/// syntax is refused as a codec error; any other failure follows
+/// `pancake_host_session_feed`'s classification. `PANCAKE_ERR_WOULD_BLOCK` is
+/// the preflight high-water refusal and consumes no bytes from this call.
+/// Internal pressure after any prefix commits is retained in the session tail
+/// and returns success; therefore `PANCAKE_ERR_INTERNAL` with no last-abort
+/// means the first direct frame was not admitted and the same chunk is
+/// retryable. A recorded last-abort means the input was consumed and the
+/// session is closing; drain the typed abort and release it.
 pub export fn pancake_host_session_feed_bytes(
     raw: ?*PancakeHostSession,
     bytes: ?[*]const u8,
     len: usize,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(instOf(session.host), "session_feed_bytes")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const chunk: []const u8 = if (len == 0) &.{} else blk: {
         const buf = bytes orelse return PANCAKE_ERR_NULL_POINTER;
         break :blk buf[0..len];
@@ -179,22 +200,50 @@ pub export fn pancake_host_session_feed_bytes(
     return PANCAKE_OK;
 }
 
-/// Drain one bare encoded outbound frame as an *owned* managed frame. A
-/// byte-stream caller writes its canonical `length:` prefix and then these
-/// bytes; an intrinsically message-framed caller sends these bytes directly.
-/// Free through `pancake_managed_frame_release`.
+/// Drain one transport-ready byte-stream vector. Write `out_prefix[0..out_prefix_len]`
+/// and then the owned `out_frame` bytes. Clear sessions return their canonical
+/// outer Syrup prefix; sealed sessions return an empty prefix because their
+/// payload is already wire-ready ciphertext. Free `out_frame` through
+/// `pancake_managed_frame_release`.
 /// Returns `PANCAKE_OK` with `out_frame` set, or `PANCAKE_ERR_WOULD_BLOCK`
-/// (with `out_frame` untouched) when the queue is empty. Refused inside a
-/// callback.
-pub export fn pancake_host_session_take_outbound(raw: ?*PancakeHostSession, out_frame: ?*PancakeManagedFrame) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+/// (with outputs untouched) when the queue is empty. `prefix_cap` must be at
+/// least `PANCAKE_HOST_OUTBOUND_PREFIX_CAP`; undersizing is refused before the
+/// payload leaves the queue. Refused inside a callback.
+pub export fn pancake_host_session_take_outbound(
+    raw: ?*PancakeHostSession,
+    out_frame: ?*PancakeManagedFrame,
+    out_prefix: ?[*]u8,
+    prefix_cap: usize,
+    out_prefix_len: ?*usize,
+) i32 {
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(instOf(session.host), "session_take_outbound")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
+    const prefix = out_prefix orelse return PANCAKE_ERR_NULL_POINTER;
+    const prefix_len = out_prefix_len orelse return PANCAKE_ERR_NULL_POINTER;
+    if (prefix_cap < c.PANCAKE_HOST_OUTBOUND_PREFIX_CAP) {
+        prefix_len.* = c.PANCAKE_HOST_OUTBOUND_PREFIX_CAP;
+        return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
+    }
     const inst = instOf(session.host);
+    const reservation = shared.reserveManagedFrame(inst.allocator) catch {
+        shared.setLastError("take_outbound: frame wrap allocation failed", .{});
+        return shared.PANCAKE_ERR_INTERNAL;
+    };
     // The core drain carries the reentry refusal (`ReenteredHost` maps to
     // INVALID_ARGUMENT), so the two tiers cannot disagree on the latch.
-    const popped = session.takeOutbound() catch |err| return errToCode(err);
-    const frame = popped orelse return PANCAKE_ERR_WOULD_BLOCK;
-    return shared.wrapManagedInto(inst.allocator, frame, slot, "take_outbound");
+    const popped = session.takeStreamOutbound() catch |err| {
+        reservation.cancel();
+        return errToCode(err);
+    };
+    const outbound = popped orelse {
+        reservation.cancel();
+        return PANCAKE_ERR_WOULD_BLOCK;
+    };
+    @memcpy(prefix[0..outbound.prefix_len], outbound.prefixBytes());
+    prefix_len.* = outbound.prefix_len;
+    slot.* = reservation.commit(outbound.payload);
+    return PANCAKE_OK;
 }
 
 // ── Publish and spawn ────────────────────────────────────────────────────────
@@ -216,7 +265,7 @@ pub export fn pancake_host_session_publish(
     free: ?c.PancakeHostCtxFree,
     out_ref: ?*shared.PancakeReference,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const b = behavior orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_ref orelse return PANCAKE_ERR_NULL_POINTER;
     const name_bytes = shared.sliceFromC(name, name_len) catch |err| return shared.marshalErrorToCode(err);
@@ -241,7 +290,7 @@ pub export fn pancake_host_session_spawn(
     free: ?c.PancakeHostCtxFree,
     out_ref: ?*shared.PancakeReference,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const b = behavior orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_ref orelse return PANCAKE_ERR_NULL_POINTER;
     const inst = instOf(session.host);
@@ -275,7 +324,7 @@ pub export fn pancake_host_session_fetch(
     name_len: usize,
     out_vow: ?*u64,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const name_bytes = shared.sliceFromC(name, name_len) catch |err| return shared.marshalErrorToCode(err);
     const inst = instOf(session.host);
@@ -295,7 +344,7 @@ pub export fn pancake_host_session_enliven(
     sturdyref_uri_len: usize,
     out_vow: ?*u64,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const inst = instOf(session.host);
     const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err| return shared.marshalErrorToCode(err);
@@ -323,7 +372,7 @@ pub export fn pancake_host_session_listen(
     target: ?*const shared.PancakeReference,
     out_vow: ?*u64,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const inst = instOf(session.host);
@@ -337,8 +386,8 @@ pub export fn pancake_host_session_listen(
 /// Eventual-send to `target` and mint a host vow for the answer; the outcome
 /// arrives as that vow's SETTLE or FAIL action. A NEAR target (an export
 /// this host bound) runs in-process; a FAR target routes through the node,
-/// so a redeemed or fetched token rides its exporter connection
-/// transparently. A far argument foreign to the routed connection is refused
+/// so a redeemed or fetched token rides its exporter session
+/// transparently. A far argument foreign to the routed session is refused
 /// whole (`PANCAKE_ERR_INVALID_ARGUMENT`) rather than mis-encoded; a retired
 /// token reports `PANCAKE_ERR_NOT_FOUND`. `verb`/`args` are borrowed; the
 /// host copies what it queues. An empty verb — including `(NULL, 0)`, which
@@ -354,7 +403,7 @@ pub export fn pancake_host_session_send(
     args_len: usize,
     out_vow: ?*u64,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const inst = instOf(session.host);
@@ -374,7 +423,7 @@ pub export fn pancake_host_session_tell(
     args: ?[*]const shared.PancakeArgument,
     args_len: usize,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const inst = instOf(session.host);
     const msg = msgFromC(inst, session, verb, verb_len, args, args_len) catch |err| return errToCode(err);
@@ -452,7 +501,7 @@ pub export fn pancake_host_session_published_ref(
     name_len: usize,
     out_ref: ?*shared.PancakeReference,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_ref orelse return PANCAKE_ERR_NULL_POINTER;
     const name_bytes = shared.sliceFromC(name, name_len) catch |err| return shared.marshalErrorToCode(err);
     const inst = instOf(session.host);
@@ -465,46 +514,39 @@ pub export fn pancake_host_session_published_ref(
 }
 
 pub export fn pancake_host_session_break_far_vows(raw: ?*PancakeHostSession, message: ?[*]const u8, message_len: usize) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const msg = shared.sliceFromC(message, message_len) catch |err| return shared.marshalErrorToCode(err);
     session.host.breakFarVows(session, msg) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
 /// Record the exporter locator to embed in gives whose exporter is `session`,
-/// overriding the session record; empty clears the override. `locator` is
-/// borrowed: it must be a Syrup `<ocapn-peer …>` record (the same bytes
-/// `pancake_locator_record_encode` returns). A URI or other non-record spelling
-/// fails with `PANCAKE_ERR_INVALID_ARGUMENT` — the node encodes the parsed
-/// locator to canonical record bytes, so misuse cannot reach a signed give.
-pub export fn pancake_host_session_set_exporter_location(raw: ?*PancakeHostSession, locator: ?[*]const u8, locator_len: usize) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const bytes = shared.sliceFromC(locator, locator_len) catch |err| return shared.marshalErrorToCode(err);
-    if (bytes.len == 0) {
+/// overriding the session record. Null clears the override. The node owns a
+/// validated clone, so the borrowed C view may die when this call returns.
+pub export fn pancake_host_session_set_exporter_location(raw: ?*PancakeHostSession, locator: ?*const shared.PancakeLocatorView) i32 {
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const view = locator orelse {
         session.host.setExporterLocation(session, null) catch |err| return errToCode(err);
         return PANCAKE_OK;
-    }
-    var cursor: usize = 0;
-    const parsed = engine.readLocatorOwned(session.host.allocator, bytes, &cursor) catch {
-        shared.setLastError("host: set_exporter_location expects a Syrup ocapn-peer record, not a URI or other bytes", .{});
+    };
+    var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
+    var borrowed = shared.locator_adapter.BorrowedLocator.init(session.host.allocator, view, &hint_stack) catch |err| {
+        if (err == error.OutOfMemory) return PANCAKE_ERR_INTERNAL;
+        shared.setLastError("host: set_exporter_location received an invalid locator view", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
-    defer model.freePeerLocator(session.host.allocator, parsed);
-    if (cursor != bytes.len) {
-        shared.setLastError("host: set_exporter_location locator record has trailing bytes", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    }
-    session.host.setExporterLocation(session, parsed) catch |err| return errToCode(err);
+    defer borrowed.deinit(session.host.allocator);
+    session.host.setExporterLocation(session, borrowed.value) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
-/// Read the typed cause of this connection's most recent *local* dispatch
+/// Read the typed cause of this session's most recent *local* dispatch
 /// failure into `out` (the shared `PancakeLastAbort` layout, byte views
 /// process-static). Returns `PANCAKE_OK` when a failure has been recorded, or
 /// `PANCAKE_ERR_WOULD_BLOCK` when none has. The flat per-feed return code
 /// names the failure family; this names the member.
 pub export fn pancake_host_session_last_abort(raw: ?*PancakeHostSession, out: ?*shared.PancakeLastAbort) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
     const info = session.served.port.peer.lastAbort() orelse return PANCAKE_ERR_WOULD_BLOCK;
     slot.* = shared.lastAbortToC(info);
@@ -529,7 +571,7 @@ pub export fn pancake_host_session_partner_identity(
     raw: ?*PancakeHostSession,
     out: ?*c.PancakePartnerIdentity,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
     const identity = session.host.partnerIdentity(session) catch |err| return errToCode(err);
     slot.* = .{
@@ -567,7 +609,8 @@ pub export fn pancake_host_session_bind_verified_channel_key(
     designator: ?[*]const u8,
     designator_len: usize,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(instOf(session.host), "session_bind_verified_channel_key")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const designator_bytes = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
     session.host.bindVerifiedChannelKey(session, designator_bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
@@ -587,7 +630,7 @@ pub export fn pancake_host_session_partner_abort(
     cap: usize,
     out_len: ?*usize,
 ) i32 {
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const served = &session.served;
     const info = if (served.last_abort) |*retained| retained else return PANCAKE_ERR_WOULD_BLOCK;
     const kind_name = info.kind.wireName();

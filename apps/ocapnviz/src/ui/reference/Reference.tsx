@@ -284,7 +284,7 @@ function TransportBody() {
           rel="noreferrer"
           style={{ width: "fit-content", textDecoration: "none" }}
         >
-          Transports page
+          Choosing a transport
         </a>
       </div>
     </>
@@ -516,13 +516,18 @@ const wordCell = {
   paddingRight: SPACE.lg,
 } satisfies React.CSSProperties;
 
-// One line tall, so the chip sits centered against the sentence's first line
-// rather than riding high against a cell stretched to the whole row.
+// One line tall and pinned to the row's start, so the chip sits against the
+// sentence's first line rather than riding the middle of a wrapped row.
+// `flex-start` plus the half-leading of that line (not geometric center): an
+// uppercase chip centered in the line box reads a step above the sentence.
 const badgeCell = {
   display: "flex",
-  alignItems: "center",
+  alignItems: "flex-start",
+  alignSelf: "start",
   height: `${LINE}em`,
+  paddingTop: `${(LINE - 1) / 2}em`,
   paddingRight: SPACE.lg,
+  boxSizing: "border-box",
 } satisfies React.CSSProperties;
 
 const saysText = {

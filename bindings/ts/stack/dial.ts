@@ -14,15 +14,27 @@
 
 import { HANDSHAKE_TIMEOUT_MS, Session } from "./session.ts";
 import { Host } from "./host.ts";
-import { driverS } from "./internal/ffi/host.ts";
+import { DriverLoop, loopTierAvailable } from "./driver_loop.ts";
+import { installProvider as installTcpProvider } from "./transport/tcp.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { ensureRuntimeReady, ffi, net } from "./internal/ffi/runtime.ts";
-import { ab, readBytes } from "./internal/seam.ts";
+import { ab } from "./internal/seam.ts";
 import { openWebSocketChannel } from "./ws_channel.ts";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Codec, Reachability } from "./value.ts";
-import { HINT_DIRECT_ADDRESSES, parseLocator, TRANSPORT_TCP } from "./locator.ts";
-import { L } from "./internal/layout.ts";
 import {
+	HINT_DIRECT_ADDRESSES,
+	type Locator,
+	OwnedLocator,
+	parseLocator,
+	stringHint,
+	TRANSPORT_TCP,
+} from "./locator.ts";
+import { L } from "./internal/layout.ts";
+import { SignalingSendOwner } from "./signaling.ts";
+import {
+	BUFFER_TOO_SMALL,
+	CLOSED,
 	DIAL_POSTURE_EXPLICIT,
 	DIAL_POSTURE_EXPLICIT_NONE,
 	DIAL_POSTURE_REDEEM,
@@ -38,15 +50,77 @@ import {
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
+function dialCancelled(): PancakeError {
+	return new PancakeError(CLOSED, "host released while dialing");
+}
+
+function abortError(signal: AbortSignal): unknown {
+	const reason = signal.reason;
+	return reason instanceof Error && reason.name !== "AbortError" ? reason : dialCancelled();
+}
+
+function throwIfCancelled(signal?: AbortSignal): void {
+	if (signal?.aborted) throw dialCancelled();
+}
+
+/** Reject promptly on cancellation while still taking responsibility for a
+ * resource an uncancellable host promise may produce later. */
+async function abortable<T>(
+	pending: Promise<T>,
+	signal?: AbortSignal,
+	onLateValue?: (value: T) => void,
+): Promise<T> {
+	if (signal == null) return await pending;
+	if (signal.aborted) {
+		void pending.then((value) => onLateValue?.(value), () => {});
+		throw abortError(signal);
+	}
+	return await new Promise<T>((resolve, reject) => {
+		let settled = false;
+		const onAbort = (): void => {
+			if (settled) return;
+			settled = true;
+			reject(abortError(signal));
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+		void pending.then(
+			(value) => {
+				if (settled) {
+					onLateValue?.(value);
+					return;
+				}
+				settled = true;
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error) => {
+				if (settled) return;
+				settled = true;
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			},
+		);
+	});
+}
+
+/** Deliver a remote ICE candidate without allowing a late/invalid candidate to
+ * escape the signaling callback or resurrect a closed peer. */
+export function acceptRemoteCandidate(
+	peer: { addRemoteCandidate(candidate: RTCIceCandidateInit): Promise<void> },
+	ice: string,
+): void {
+	try {
+		void Promise.resolve(peer.addRemoteCandidate(JSON.parse(ice))).catch(() => {});
+	} catch {
+		// A candidate arriving after cleanup, or malformed signaling data, is harmless.
+	}
+}
+
 /** The parsed locator plus the caller's context, everything the core needs to
  * resolve a dial. `connect` and handoff-redeem both fill it. */
 export interface DialRequest {
-	/** The locator's parsed transport scheme (tcp, keyed-tcp, iroh, ...). */
-	readonly transport: string;
-	/** The locator's designator (a tcp host:port, an iroh node id, ...). */
-	readonly designator: string;
-	/** The locator's `direct-addresses` hint, empty when absent. */
-	readonly directAddresses: string;
+	/** The complete typed locator retained by the caller or pending Host row. */
+	readonly locator: Locator;
 	/** True when this dial redeems a three-party handoff give. */
 	readonly redeem: boolean;
 	/** The caller's iroh reachability posture on a `connect` (undefined on redeem). */
@@ -56,6 +130,8 @@ export interface DialRequest {
 	/** How long the OCapN handshake may take once the byte channel is open;
 	 * `0` or `null` waits unbounded. */
 	readonly handshakeTimeoutMs: number | null;
+	/** Present only for a detached Host DIAL action. */
+	readonly signal?: AbortSignal;
 }
 
 /** A resolved dial from `pancake_host_plan_dial`: language sum over the C
@@ -88,8 +164,9 @@ function decodePlanView(sources: Uint8Array[], ptr: bigint, len: bigint): string
 
 /** Resolve a dial in the core: the grammar, the hint rule, the posture, and the
  * error cases all decided by `pancake_host_plan_dial`. Plan views alias the
- * input UTF-8 buffers; decode those subslices only. */
-function planDial(
+ * input UTF-8 buffers; decode those subslices only. Exported for the loop
+ * route (`driver_loop.ts`), which classifies the same way before admission. */
+export function planDial(
 	transport: string,
 	designator: string,
 	directAddresses: string,
@@ -100,7 +177,7 @@ function planDial(
 	const d = utf8Encoder.encode(designator);
 	const h = utf8Encoder.encode(directAddresses);
 	const out = new Uint8Array(L.DIAL_PLAN_SIZE);
-	checkHost(driverS.pancake_host_plan_dial(
+	checkHost(hostS.pancake_host_plan_dial(
 		ab(t),
 		BigInt(t.length),
 		ab(d),
@@ -164,7 +241,7 @@ export function classifyRelayTarget(locator: string): RelayTarget {
 			return {
 				transport: loc.transport,
 				designator: loc.designator,
-				hint: loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "",
+				hint: stringHint(loc, HINT_DIRECT_ADDRESSES) ?? "",
 			};
 		})()
 		: { transport: TRANSPORT_TCP, designator: locator, hint: "" };
@@ -208,36 +285,52 @@ function reachOf(
  * connection and never finishes the OCapN handshake costs one dial, not the
  * caller. */
 export async function dialResolved(host: Host, req: DialRequest): Promise<Session> {
+	throwIfCancelled(req.signal);
+	const { locator } = req;
+	const directAddresses = stringHint(locator, HINT_DIRECT_ADDRESSES) ?? "";
 	const [policy, value] = req.redeem
 		? [DIAL_POSTURE_REDEEM, 0]
 		: req.reachability != null
 		? [DIAL_POSTURE_EXPLICIT, req.reachability]
 		: [DIAL_POSTURE_EXPLICIT_NONE, 0];
-	const plan = planDial(req.transport, req.designator, req.directAddresses, policy, value);
+	const plan = planDial(locator.transport, locator.designator, directAddresses, policy, value);
 	switch (plan.tag) {
 		case "peer_id": {
-			const iroh = await import("@pancake/iroh/internal");
+			const iroh = await abortable(import("@pancake/iroh/internal"), req.signal);
 			return iroh._connectIroh(
-				req.designator,
+				locator.designator,
 				plan.addresses,
 				reachOf(plan, req.redeemReachability),
 				host,
 				req.handshakeTimeoutMs,
+				req.signal,
 			);
 		}
 		case "host_port": {
-			const tcp = await net.connect(plan.hostname, plan.port);
+			const tcp = await abortable(
+				net.connect(plan.hostname, plan.port),
+				req.signal,
+				(conn) => conn.close(),
+			);
+			const cancel = (): void => tcp.close();
+			req.signal?.addEventListener("abort", cancel, { once: true });
 			try {
-				return await Session.establishDialedLocator(
-					host,
-					req.transport,
-					req.designator,
-					tcp,
-					req.handshakeTimeoutMs,
+				return await abortable(
+					Session.establishDialedLocator(
+						host,
+						locator.transport,
+						locator.designator,
+						tcp,
+						req.handshakeTimeoutMs,
+					),
+					req.signal,
+					(session) => session.closeTransport(),
 				);
 			} catch (err) {
 				tcp.close();
 				throw err;
+			} finally {
+				req.signal?.removeEventListener("abort", cancel);
 			}
 		}
 		case "rendezvous": {
@@ -246,25 +339,43 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 			// mapping is deployment configuration, exactly like the redeem
 			// reachability posture beside it on `Host`; without one the dial
 			// refuses loud.
+			const relay = await abortable(import("./transport/relay.ts"), req.signal);
+			const route = relay.routeFromLocator(locator);
 			const rendezvousUrl = host.rendezvousUrl;
-			if (rendezvousUrl === null) {
+			if (route === null && rendezvousUrl === null) {
 				throw new PancakeError(
 					INVALID_ARGUMENT,
-					"keyed-relay dial: no rendezvous relay configured; call Host.setRendezvousUrl first",
+					"relay dial: locator has no rendezvous-relay hint and the Host has no rendezvous mapping",
 				);
 			}
-			const channel = await openWebSocketChannel(rendezvousUrl(req.designator));
+			const channel = await abortable(
+				openWebSocketChannel(
+					route === null
+						? rendezvousUrl!(locator.designator)
+						: relay.dialUrl(route, locator.designator),
+				),
+				req.signal,
+				(late) => late.close(),
+			);
+			const cancel = (): void => channel.close();
+			req.signal?.addEventListener("abort", cancel, { once: true });
 			try {
-				return await Session.establishDialedLocator(
-					host,
-					req.transport,
-					req.designator,
-					channel,
-					req.handshakeTimeoutMs,
+				return await abortable(
+					Session.establishDialedLocator(
+						host,
+						locator.transport,
+						locator.designator,
+						channel,
+						req.handshakeTimeoutMs,
+					),
+					req.signal,
+					(session) => session.closeTransport(),
 				);
 			} catch (err) {
 				channel.close();
 				throw err;
+			} finally {
+				req.signal?.removeEventListener("abort", cancel);
 			}
 		}
 		case "signaling": {
@@ -280,51 +391,111 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 					"webrtc dial: no signaling authority configured; call Host.setSignaling first",
 				);
 			}
-			const { RtcPeer } = await import("@pancake/webrtc");
+			const { RtcPeer } = await abortable(import("@pancake/webrtc"), req.signal);
 			const peer = new RtcPeer({ offerer: true });
-			// The far peer's candidates can trickle from the moment it holds our
-			// offer, so the sink is registered before the offer is sent.
-			const stopCandidates = signaling.onCandidate(req.designator, (ice) => {
-				peer.addRemoteCandidate(JSON.parse(ice)).catch(() => {
-					// A late or duplicate candidate is harmless.
-				});
-			});
+			const bringup = new AbortController();
+			const forwardAbort = (): void => {
+				if (!bringup.signal.aborted) bringup.abort();
+			};
+			if (req.signal?.aborted) forwardAbort();
+			else req.signal?.addEventListener("abort", forwardAbort, { once: true });
+			let disposeCandidates: (() => void) | null = null;
+			let candidatesStopped = false;
+			const stopCandidates = (): void => {
+				if (candidatesStopped) return;
+				candidatesStopped = true;
+				disposeCandidates?.();
+			};
+			const candidateSends = new SignalingSendOwner(
+				"webrtc dial",
+				(error) => bringup.abort(error),
+			);
+			let peerClosed = false;
+			let session: Session | null = null;
+			const closePeer = (): void => {
+				if (peerClosed) return;
+				peerClosed = true;
+				peer.close();
+			};
+			const cancel = (): void => {
+				candidateSends.stopAdmission();
+				stopCandidates();
+				closePeer();
+			};
+			bringup.signal.addEventListener("abort", cancel, { once: true });
+			if (bringup.signal.aborted) cancel();
 			try {
+				// The far peer's candidates can trickle from the moment it holds our
+				// offer, so the sink is registered before the offer is sent.
+				disposeCandidates = signaling.onCandidate(locator.designator, (ice) => {
+					acceptRemoteCandidate(peer, ice);
+				});
 				peer.onLocalCandidate((candidate) =>
-					void signaling.candidate(req.designator, JSON.stringify(candidate))
+					candidateSends.admit(() =>
+						signaling.candidate(locator.designator, JSON.stringify(candidate))
+					)
 				);
-				const answer = await signaling.offer(req.designator, await peer.createOffer());
-				await peer.setRemoteAnswer(answer);
-				await peer.waitOpen();
-				return await Session.establishDialedLocator(
-					host,
-					req.transport,
-					req.designator,
-					peer.channel(),
-					req.handshakeTimeoutMs,
+				const offer = await abortable(peer.createOffer(), bringup.signal);
+				const answer = await abortable(
+					signaling.offer(locator.designator, offer),
+					bringup.signal,
+				);
+				await abortable(peer.setRemoteAnswer(answer), bringup.signal);
+				await abortable(peer.waitOpen(), bringup.signal);
+				session = await abortable(
+					Session.establishDialedLocator(
+						host,
+						locator.transport,
+						locator.designator,
+						peer.channel(),
+						req.handshakeTimeoutMs,
+					),
+					bringup.signal,
+					(session) => session.closeTransport(),
 				);
 			} catch (err) {
-				peer.close();
+				closePeer();
 				throw err;
 			} finally {
-				stopCandidates();
+				candidateSends.stopAdmission();
+				try {
+					stopCandidates();
+				} finally {
+					if (bringup.signal.aborted) closePeer();
+					try {
+						await candidateSends.join();
+					} finally {
+						bringup.signal.removeEventListener("abort", cancel);
+						req.signal?.removeEventListener("abort", forwardAbort);
+					}
+				}
 			}
+			if (candidateSends.failure != null) {
+				session?.closeTransport();
+				throw candidateSends.failure;
+			}
+			return session!;
 		}
 	}
 }
 
 /** The dial entry for `connect` and handoff redeem alike: no dispatch, no
- * grammar, no posture — the core resolves all of that in `dialResolved`. */
+ * grammar, no posture — the core resolves all of that in `dialResolved`.
+ *
+ * The driver archive (ADR-0112) owns TCP, keyed-TCP, noise-TCP, and iroh:
+ * a bare bounded dial gets a new loop, while a supplied Host is transferred
+ * before its first native dial. Keyed-relay and WebRTC remain explicit
+ * byte-channel integrations because they have no driver resident. Handoff
+ * redeem remains on the byte-fed Host action path. */
 export async function dialParsedLocator(
-	transport: string,
-	designator: string,
-	directAddressesHint: string,
+	locator: Locator,
 	host: Host | undefined,
 	opts: {
 		reachability?: Reachability;
 		redeem?: boolean;
 		codec?: Codec;
 		handshakeTimeoutMs?: number | null;
+		signal?: AbortSignal;
 	} = {},
 ): Promise<Session> {
 	const redeem = opts.redeem ?? false;
@@ -339,22 +510,87 @@ export async function dialParsedLocator(
 		}
 		dialHost = host;
 	} else {
+		const loop = host?.driverLoop;
+		const boundedMs = opts.handshakeTimeoutMs == null
+			? HANDSHAKE_TIMEOUT_MS
+			: opts.handshakeTimeoutMs;
+		const plan = planDial(
+			locator.transport,
+			locator.designator,
+			stringHint(locator, HINT_DIRECT_ADDRESSES) ?? "",
+			opts.reachability != null ? DIAL_POSTURE_EXPLICIT : DIAL_POSTURE_EXPLICIT_NONE,
+			opts.reachability ?? 0,
+		);
+		const relayPackage = plan.tag === "rendezvous"
+			? await abortable(import("./transport/relay.ts"), opts.signal)
+			: null;
+		const relayRoute = relayPackage?.routeFromLocator(locator) ?? null;
+		const nativeShape = plan.tag === "host_port" || plan.tag === "peer_id" ||
+			(plan.tag === "rendezvous" && relayRoute != null);
+		if (nativeShape && loopTierAvailable()) {
+			if (!boundedMs) {
+				throw new PancakeError(
+					INVALID_ARGUMENT,
+					"native driver dials require a positive handshake timeout",
+				);
+			}
+			let driverLoop: DriverLoop;
+			let startsLoop = false;
+			if (loop != null) {
+				driverLoop = loop as DriverLoop;
+			} else if (host != null) {
+				driverLoop = DriverLoop.takeHost(host, { handshakeMs: boundedMs });
+				startsLoop = true;
+			} else {
+				driverLoop = DriverLoop.open({ codec: opts.codec, handshakeMs: boundedMs });
+				startsLoop = true;
+			}
+			try {
+				if (plan.tag === "peer_id") {
+					const iroh = await abortable(import("@pancake/iroh/internal"), opts.signal);
+					await abortable(
+						iroh._ensureIrohProvider(driverLoop, {
+							reachability: reachOf(
+								plan,
+								opts.reachability ?? Reachability.Direct,
+							),
+						}),
+						opts.signal,
+					);
+				} else if (plan.tag === "host_port") {
+					installTcpProvider(driverLoop);
+				} else {
+					relayPackage!.installProvider(driverLoop, { relayUrl: relayRoute! });
+				}
+				if (startsLoop) driverLoop.start();
+				const session = await driverLoop.connectSession(locator);
+				session.ownsHost = host == null;
+				return session;
+			} catch (error) {
+				if (startsLoop) await driverLoop.close();
+				throw error;
+			}
+		}
 		dialHost = host ?? new Host(undefined, { codec: opts.codec });
 		ownsHost = host == null;
 	}
-	const session = await dialResolved(dialHost, {
-		transport,
-		designator,
-		directAddresses: directAddressesHint,
-		redeem,
-		reachability: opts.reachability,
-		redeemReachability: dialHost.redeemReachability,
-		handshakeTimeoutMs: opts.handshakeTimeoutMs === undefined
-			? HANDSHAKE_TIMEOUT_MS
-			: opts.handshakeTimeoutMs,
-	});
-	session.ownsHost = ownsHost;
-	return session;
+	try {
+		const session = await dialResolved(dialHost, {
+			locator,
+			redeem,
+			reachability: opts.reachability,
+			redeemReachability: dialHost.redeemReachability,
+			handshakeTimeoutMs: opts.handshakeTimeoutMs == null
+				? HANDSHAKE_TIMEOUT_MS
+				: opts.handshakeTimeoutMs,
+			signal: opts.signal,
+		});
+		session.ownsHost = ownsHost;
+		return session;
+	} catch (err) {
+		if (ownsHost) dialHost.release();
+		throw err;
+	}
 }
 
 /** Dial an exporter a DIAL action names, keyed with `host`'s retained
@@ -364,45 +600,72 @@ export async function dialParsedLocator(
  * redeem on `HANDSHAKE_TIMEOUT_MS` rather than stalling the drain.
  * Binding-internal: the host's action drain calls this. */
 export async function dialExporter(
-	transport: string,
-	designator: string,
-	directAddressesHint: string,
+	locator: Locator,
 	host: Host,
+	signal?: AbortSignal,
 ): Promise<Session> {
 	return await dialParsedLocator(
-		transport,
-		designator,
-		directAddressesHint,
+		locator,
 		host,
-		{ redeem: true },
+		{ redeem: true, signal },
 	);
 }
 
-/** Ticket-only DIAL arm: borrow parsed parts (no URI re-parse), dial, report.
+/** Ticket-only DIAL arm: clone the complete locator, dial, and report.
  * Binding-internal: the action drain calls this. */
-export async function runDialTicket(host: Host, ticket: bigint): Promise<void> {
-	const out = new Uint8Array(L.PENDING_DIAL_SIZE);
+export async function runDialTicket(
+	host: Host,
+	ticket: bigint,
+	signal?: AbortSignal,
+): Promise<void> {
+	let session: Session | null = null;
 	try {
-		checkHost(driverS.pancake_host_pending_dial(host.raw, ticket, ab(out)));
-		const dv = new DataView(out.buffer);
-		const str = (off: number, lenOff: number): string => {
-			const len = L.getUsize(dv, lenOff);
-			return len === 0n ? "" : utf8Decoder.decode(readBytes(L.getPtr(dv, off), len));
-		};
-		const transport = str(L.PENDING_DIAL_TRANSPORT_OFF, L.PENDING_DIAL_TRANSPORT_LEN_OFF);
-		const designator = str(L.PENDING_DIAL_DESIGNATOR_OFF, L.PENDING_DIAL_DESIGNATOR_LEN_OFF);
-		const hint = str(L.PENDING_DIAL_HINT_OFF, L.PENDING_DIAL_HINT_LEN_OFF);
-		const session = await dialExporter(transport, designator, hint, host);
+		if (host.released || signal?.aborted) return;
+		let capacity = 4;
+		let locator: Locator;
+		for (;;) {
+			const hints = new Uint8Array(L.LOCATOR_HINT_VIEW_SIZE * capacity);
+			const view = new Uint8Array(L.LOCATOR_VIEW_SIZE);
+			const count = new Uint8Array(L.ptrSize);
+			const rc = hostS.pancake_host_pending_dial(
+				host.raw,
+				ticket,
+				ab(hints),
+				BigInt(capacity),
+				ab(view),
+				ab(count),
+			);
+			if (rc === BUFFER_TOO_SMALL) {
+				capacity = Number(L.getUsize(new DataView(count.buffer), 0));
+				continue;
+			}
+			checkHost(rc);
+			const owned = OwnedLocator.cloneView(view);
+			try {
+				locator = owned.value();
+			} finally {
+				owned.release();
+			}
+			break;
+		}
+		session = await dialExporter(locator!, host, signal);
+		if (host.released || signal?.aborted) {
+			session.closeTransport();
+			return;
+		}
 		// The session self-registers in the host's session table (its constructor),
 		// so `Session.sendRedeeming` resolves it deterministically from the reply's
 		// route via `Host.exporterFor` (ADR-0088) — no capture window to feed here.
+		checkHost(hostS.pancake_host_dialed(host.raw, ticket, session.raw));
 		session.serve().catch(() => {});
-		checkHost(driverS.pancake_host_dialed(host.raw, ticket, session.raw));
+		session = null; // the Host registry now owns terminal teardown
 	} catch (err) {
+		session?.closeTransport();
+		if (host.released || signal?.aborted) return;
 		const reason = utf8Encoder.encode(
 			err instanceof Error ? err.message : String(err),
 		);
-		checkHost(driverS.pancake_host_dial_failed(
+		checkHost(hostS.pancake_host_dial_failed(
 			host.raw,
 			ticket,
 			ab(reason),
@@ -413,13 +676,23 @@ export async function runDialTicket(host: Host, ticket: bigint): Promise<void> {
 
 /** Dial a partner from its `ocapn://` locator — the one public dialer.
  *
+ * A `tcp` or `iroh` dial runs on the driver archive (ADR-0112): the
+ * session rides one stepping native loop that owns the socket, the pumping,
+ * and — for a session opened with no shared `host` — the whole stack, so
+ * closing the session closes it all. A `keyed-tcp`, `keyed-relay`, or
+ * `webrtc` dial, a dial sharing a byte-fed `Host`, an unbounded handshake
+ * opt-in, and a runtime whose FFI cannot park a loop (Bun, the browser) still
+ * open a byte channel the binding pumps itself.
+ *
  * `handshakeTimeoutMs` bounds the OCapN handshake once the byte channel is
  * open, at `HANDSHAKE_TIMEOUT_MS` by default. A peer that accepts the
  * connection and then says nothing rejects with `PancakeError` carrying
- * `TIMEOUT` instead of parking the caller; pass `0` or `null` to wait without a
- * bound. It does not cover opening the channel itself: a TCP connect keeps the
- * runtime's own timeout, and an iroh dial-by-id keeps its discovery retry
- * budget (ADR-0082) before the handshake starts. */
+ * `TIMEOUT` instead of parking the caller; pass `0` to wait without a bound,
+ * which also selects the byte-fed dial, because a native loop requires a
+ * positive handshake budget by construction. The bound does not cover opening
+ * the channel itself: a TCP connect keeps the runtime's own timeout, and an
+ * iroh dial-by-id keeps its discovery retry budget (ADR-0082) before the
+ * handshake starts. */
 export async function connect(
 	uri: string,
 	reachability?: Reachability,
@@ -435,11 +708,8 @@ export async function connect(
 			`codec "${codec}" conflicts with the shared host's "${host.codec}"`,
 		);
 	}
-	const directHint = loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "";
 	return await dialParsedLocator(
-		loc.transport,
-		loc.designator,
-		directHint,
+		loc,
 		host,
 		{ reachability, codec, handshakeTimeoutMs },
 	);

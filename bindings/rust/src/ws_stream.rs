@@ -10,8 +10,9 @@
 //! A WebSocket is message-framed while the session reads a byte stream, so
 //! `poll_read` buffers the unconsumed tail of the last binary message across
 //! calls — the impedance match `IrohStream` models for the sidecar's chunked
-//! reads. `poll_write` sends each chunk as one binary message; the host's
-//! stream delimiter owns framing above, exactly as over TCP.
+//! reads. `poll_write` accepts a bounded prefix as one binary message and
+//! reports that partial write; the host's stream delimiter owns framing above,
+//! exactly as over TCP.
 
 use std::io;
 use std::pin::Pin;
@@ -41,11 +42,16 @@ use crate::{sys, Error, Result};
 /// 16 KiB per direction matches `steady_outbound_bytes` on the Zig side, so the
 /// binding and the sessions it carries answer to one number.
 const WS_BUFFER_BYTES: usize = 16 * 1024;
+/// A WebSocket message is a transport chunk and may contain several CapTP
+/// frames, so this is intentionally independent from the CapTP frame cap.
+const WS_MESSAGE_BYTES: usize = 1 << 20;
 
 pub(crate) async fn connect_websocket(url: &str) -> Result<WsStream> {
 	let config = WebSocketConfig::default()
 		.read_buffer_size(WS_BUFFER_BYTES)
-		.write_buffer_size(WS_BUFFER_BYTES);
+		.write_buffer_size(WS_BUFFER_BYTES)
+		.max_message_size(Some(WS_MESSAGE_BYTES))
+		.max_frame_size(Some(WS_MESSAGE_BYTES));
 	let (inner, _response) = connect_async_with_config(url, Some(config), false)
 		.await
 		.map_err(|e| {
@@ -98,9 +104,11 @@ impl AsyncRead for WsStream {
 					this.read_buf = bytes.into();
 					this.read_pos = 0;
 				}
-				Poll::Ready(Some(Ok(Message::Text(text)))) => {
-					this.read_buf = text.as_bytes().to_vec();
-					this.read_pos = 0;
+				Poll::Ready(Some(Ok(Message::Text(_)))) => {
+					return Poll::Ready(Err(io::Error::new(
+						io::ErrorKind::InvalidData,
+						"keyed-relay WebSocket received a text message",
+					)));
 				}
 				// Control frames carry no session bytes; tungstenite answers a
 				// ping itself on the next flush.
@@ -126,8 +134,9 @@ impl AsyncWrite for WsStream {
 			Poll::Ready(Err(e)) => return Poll::Ready(Err(ws_io_err(e))),
 			Poll::Pending => return Poll::Pending,
 		}
-		match Pin::new(&mut this.inner).start_send(Message::binary(buf.to_vec())) {
-			Ok(()) => Poll::Ready(Ok(buf.len())),
+		let written = buf.len().min(WS_MESSAGE_BYTES);
+		match Pin::new(&mut this.inner).start_send(Message::binary(buf[..written].to_vec())) {
+			Ok(()) => Poll::Ready(Ok(written)),
 			Err(e) => Poll::Ready(Err(ws_io_err(e))),
 		}
 	}

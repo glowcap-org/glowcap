@@ -73,6 +73,32 @@ class _ManagedFrame(ctypes.Structure):
     ]
 
 
+class _LocatorHintView(ctypes.Structure):
+    _fields_ = [
+        ("name", ctypes.c_void_p),
+        ("name_len", ctypes.c_size_t),
+        ("kind", ctypes.c_uint32),
+        ("bytes", ctypes.c_void_p),
+        ("bytes_len", ctypes.c_size_t),
+        ("boolean_value", ctypes.c_uint8),
+        ("integer_value", ctypes.c_int64),
+    ]
+
+
+class _LocatorView(ctypes.Structure):
+    _fields_ = [
+        ("abi_version", ctypes.c_uint32),
+        ("struct_size", ctypes.c_size_t),
+        ("transport", ctypes.c_void_p),
+        ("transport_len", ctypes.c_size_t),
+        ("designator", ctypes.c_void_p),
+        ("designator_len", ctypes.c_size_t),
+        ("hints", ctypes.POINTER(_LocatorHintView)),
+        ("hint_count", ctypes.c_size_t),
+        ("hint_wire_form", ctypes.c_uint32),
+    ]
+
+
 # Host allocator callbacks:
 #   void *(*alloc)(void *user_data, size_t size, size_t alignment);
 #   void  (*free )(void *user_data, void *ptr, size_t size, size_t alignment);
@@ -103,6 +129,8 @@ pin_struct(_Reference, "PANCAKE_REFERENCE")
 pin_struct(_Argument, "PANCAKE_ARGUMENT")
 pin_struct(_Frame, "PANCAKE_FRAME")
 pin_struct(_ManagedFrame, "PANCAKE_MANAGED_FRAME")
+pin_struct(_LocatorHintView, "PANCAKE_LOCATOR_HINT_VIEW")
+pin_struct(_LocatorView, "PANCAKE_LOCATOR_VIEW")
 pin_struct(_Allocator, "PANCAKE_ALLOCATOR")
 pin_struct(_LastAbort, "PANCAKE_LAST_ABORT")
 
@@ -164,8 +192,16 @@ def _byte_buf(data: bytes):
 def _load():
     ocapn = ctypes.CDLL(str(_lib_path("pancake_ocapn")))
     facade = _Lib(ocapn)
-    _bind(facade, ocapn, ocapn_sigs(_Allocator, _ManagedFrame))
+    _bind(facade, ocapn, ocapn_sigs(_Allocator, _ManagedFrame, _LocatorHintView, _LocatorView))
     return facade
 
 
 _lib = _load()
+
+
+def _copy_managed_frame(frame: _ManagedFrame) -> bytes:
+    """Copy one C-owned managed frame and release it on every Python outcome."""
+    try:
+        return ctypes.string_at(frame.bytes, frame.len) if frame.bytes else b""
+    finally:
+        _lib.pancake_managed_frame_release(ctypes.byref(frame))

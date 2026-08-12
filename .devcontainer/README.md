@@ -29,11 +29,19 @@ in [`checksums.sh`](checksums.sh).
 | Group | Tools | Installer |
 | --- | --- | --- |
 | Zig | Zig and ZLS at matching versions | `install-zig.sh`, `install-zls.sh` |
-| Conformance | Racket and Goblins | `install-racket-goblins.sh` |
+| Conformance | Python, Racket, and Goblins | `install-python.sh`, `install-racket-goblins.sh` |
 | Bindings | Rust, Deno, Node, npm, and Bun | `install-rust.sh`, `install-js-toolchains.sh` |
 | Browsers | Playwright's Chromium and the libraries it needs | `install-playwright.sh` |
-| Agents | uv, Serena, Claude Code, and opencode | their `install-*.sh` scripts |
+| Agents | Serena, Claude Code, and opencode | their `install-*.sh` scripts |
 | Debugging | gdb, lldb, strace, valgrind, perf, hyperfine | `Dockerfile` |
+| Tor | the `tor` daemon the `onion` netlayer's live checks talk to | `Dockerfile` |
+
+No Tor is running when the container opens, and that is deliberate: pancake
+reaches an onion service through a daemon whoever deployed it started, so the
+library never starts, supervises, or configures one. The image installs the
+binary and stops there. A check that needs a live daemon starts its own with its
+own configuration and shuts it down again; the in-tree onion checks talk to a
+fake daemon instead and need no Tor at all.
 
 To update a tool:
 

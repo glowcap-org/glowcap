@@ -7,7 +7,7 @@ decision: "Traces from several peers converge on one endpoint without their traf
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0106]
 ---
 
 # ADR-0104 Live trace convergence

@@ -51,13 +51,35 @@ pub const Error = error{
     WaitTimedOut,
     /// A locator named a transport no registered netlayer hosts.
     UnknownTransport,
+    /// Two providers registered the same transport symbol with different
+    /// designator semantics. A Host admits one meaning per symbol for its
+    /// lifetime; composition is refused before either provider can open a
+    /// session under an ambiguous locator.
+    TransportSemanticsConflict,
+    /// A second provider attempted to own a transport symbol already present
+    /// in this Host's dispatch table.
+    TransportAlreadyRegistered,
+    /// A provider supplied an empty transport symbol.
+    InvalidTransportName,
     /// `Server.close` was called while accepted views still hold sessions of
     /// the host it would free. Release every `*Session` from `accept` first.
     SessionsStillOpen,
+    /// `Session.view` was asked to combine a `HostRuntime` with a session
+    /// minted by another runtime's core Host. A view borrows one existing
+    /// runtime/session relationship; it cannot establish or transfer it.
+    SessionNotOwned,
+    /// `HostRuntime.Options` supplied a zero frame admission cap or wire
+    /// buffer size, or no capacity for pending session opens. Every bound must
+    /// be positive.
+    InvalidBufferConfiguration,
+    /// This host already has `Options.max_pending_opens` transport connects or
+    /// CapTP handshakes in flight. Let one settle before admitting another.
+    PendingOpenLimitReached,
     /// The owning host face was asked to bind a session over a transport that
     /// reports no pollable fd (inproc by design, a userspace stream). A
     /// blocking multiplex cannot wait on a stream with no readiness signal;
-    /// the completion loop is the tier that serves those transports.
+    /// the transport must supply a multiplexed resident or use another driver
+    /// whose readiness contract it can satisfy.
     TransportNotPollable,
     /// `callReference` was given a target that is not an eventual-send target:
     /// a `sturdy`, `broken`, or bare `promise` reference. Only a near (local
@@ -80,6 +102,13 @@ pub const Error = error{
     /// `driver_core.HostError.UnheldIdentity`, which the byte-fed tier raises
     /// for the same condition.
     UnheldIdentity,
+    /// A sealed-channel locator (`noise-*`, ADR-0107) reached the borrowing
+    /// blocking tier. The core Host runs the sealed channel, and
+    /// `BlockingSession` does not stand on one, so nothing here would seal
+    /// the wire; the open is refused rather than speaking cleartext CapTP
+    /// under a sealed name. Dial these through `driver.connect` /
+    /// `driver.listen` or any core-Host embedding.
+    SealedChannelRequiresHost,
 };
 
 /// How long a CapTP wait may take. It lives here beside `HandshakeTimedOut`
@@ -110,34 +139,14 @@ pub const Budget = union(enum) {
 };
 
 /// What a transport's locator designator means. The model vocabulary owns the
-/// type and symbol table; netlayer vtables declare the same fact for runtime
-/// residents, and `meta-check` keeps those declarations aligned.
+/// type and exhaustive metadata; runtime residents derive their declarations
+/// from it.
 pub const DesignatorScheme = model.transport.DesignatorScheme;
-
-/// The designator scheme for a transport symbol (see `DesignatorScheme`).
-pub fn designatorSchemeForTransport(transport: []const u8) DesignatorScheme {
-    return model.transport.designatorScheme(transport);
-}
-
-/// `keyed-tcp` requires a non-empty direct-addresses hint on accept; other
-/// key-designator transports (iroh) may omit it (discovery can resolve by
-/// node id alone). Kept next to `designatorSchemeForTransport` so sans-io
-/// transport-string policy lives in one table.
-///
-/// This is the *refusal* question, not the publish question: an empty hint here
-/// is a locator nothing could ever dial, so the open fails closed. What a hello
-/// publishes when it does know its addresses is the netlayer's own answer, noted
-/// below.
-pub fn requiresDirectAddressesHint(transport: []const u8) bool {
-    return std.mem.eql(u8, transport, model.transport.keyed_tcp);
-}
 
 /// Which hints a locator carries is the netlayer's own business, so there is
 /// deliberately no table here saying who publishes dial addresses. The netlayer
-/// answers that by what it writes: `net.netlayer.Listener.localDirectAddresses` returns the
-/// bound address for `keyed-tcp` and the endpoint's direct addresses for `iroh`,
-/// and nothing at all where a designator already says where to dial. On the
-/// byte-fed path the embedder owns the transport and answers the same question.
+/// answers that by materializing its complete listener locator. On the byte-fed
+/// path the embedder owns the transport and answers the same question.
 /// `dial_plan.planAccept` passes that answer through rather than second-guessing
 /// it; a table here would be a second authority for one fact, free to drift from
 /// the vtable that produces the value.
@@ -270,7 +279,7 @@ pub const DurableProvenance = engine.DurableProvenance;
 /// dialer's `Identity` there is no designator to carry. `ephemeral` supplies no
 /// durable key. `keyed` supplies the caller-held endpoint key from which a
 /// key-scheme listener derives its stable designator. Both draw a separate
-/// session signing key per accepted connection.
+/// signing key per accepted session.
 pub const AcceptIdentity = union(enum) {
     ephemeral,
     keyed: crypto.SecretKey,

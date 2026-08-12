@@ -1,0 +1,8 @@
+from pancake.iroh import IrohConfig, Reachability, listen_iroh
+
+# Bind a key, not a place. Partners can dial this node id from anywhere.
+server = await listen_iroh(IrohConfig(Reachability.DISCOVERY))
+print(server.uri)  # hand this locator to partners
+async for session in server:
+    session.publish("greeter", lambda _verb, args: f"hello, {args[0]}")
+    session.serve()

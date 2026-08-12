@@ -13,7 +13,13 @@
  * EntityChips) also need, and it lives in `./types.ts` where they read it.
  */
 
-import { Container, type FederatedPointerEvent, Graphics, Text } from "pixi.js";
+import {
+  Container,
+  type FederatedPointerEvent,
+  Graphics,
+  Rectangle,
+  Text,
+} from "pixi.js";
 import { captpVersionLabel } from "../schema/topology.ts";
 import { entityKey, type EntityRefKey } from "../interactions/types.ts";
 import type { Engine } from "../engine/engine.ts";
@@ -23,11 +29,7 @@ import type {
   PeerEntity,
   SessionEntity,
 } from "../engine/world.ts";
-import {
-  computeSessionBundles,
-  drawnSessionCurve,
-  type SessionCurve,
-} from "../engine/session-geometry.ts";
+import { type SessionCurve } from "../engine/session-geometry.ts";
 import {
   drawLooseEndBody,
   drawNodeActivity,
@@ -37,15 +39,13 @@ import {
   NODE_RADIUS,
   positionEdgeLabel,
   strokeCurve,
-  strokeDashedCurve,
 } from "./draw-helpers.ts";
-import { CLAIM_LEAN } from "../engine/systems/keyframe-layout-system.ts";
+import { curveBoundsArea, curveHitArea } from "./curve-hit-area.ts";
+import type { EdgeStrokeBatch } from "./edge-stroke-batch.ts";
 import {
   CAPTP_VERSION_COLORS,
   type CodecLineStyle,
   colorForProfile,
-  DASH_PATTERN,
-  DOT_PATTERN,
   lineStyleForCodec,
   PROFILE_FALLBACK_COLOR,
   SESSION_STATE_WIDTH,
@@ -160,7 +160,7 @@ export type EndpointSprite = {
 export type EdgeSprite = {
   hitArea: Container;
   haloGfx: Graphics;
-  line: Graphics;
+  /** Wire pixels live on `edgeStrokeBatch`, not a per-edge Graphics. */
   label: Container;
   labelBg: Graphics;
   labelText: Text;
@@ -202,6 +202,9 @@ export type MessageSprite = {
    *  moves. Without it the compensation is inert: a stage's world geometry does
    *  not change when you zoom, so nothing else here would ever trip. */
   lastScale: number;
+  /** True after `"body"` vis mode cleared the dot Graphics. Forces one body
+   *  redraw on unhide without making `lastColors` lie to the label path. */
+  lastBodyCleared: boolean;
 };
 
 import type { PeerActivity } from "./types.ts";
@@ -236,6 +239,8 @@ export type RenderFrameArgs = {
    *  with a peer id, so the two node maps stay disjoint by construction. */
   endpointSprites: Map<string, EndpointSprite>;
   edgeSprites: Map<string, EdgeSprite>;
+  /** One Graphics for every session wire — see `edge-stroke-batch.ts`. */
+  edgeStrokeBatch: EdgeStrokeBatch;
   messageSprites: Map<string, MessageSprite>;
   onSelect:
     | ((
@@ -281,12 +286,15 @@ export type RenderFrameArgs = {
    * kind rides along because the id alone cannot say which table holds
    * that position. */
   startNodeDrag: StartNodeDrag;
-  /** Which ends this frame draws as claims, and the peer each names — the
-   * frame's one claim resolution (`claimTargets` over `engine.claims`).
-   * Passed in rather than derived here because the Stage's own overlays ask
-   * the same question of the same frame, and two answers would size a ring
-   * differently from the body it rings. */
+  /** Which ends this frame draws as claims, and the peer each names —
+   * `engine.frameGeometry.claimsToward`. Passed in rather than derived
+   * here because the Stage's own overlays ask the same question of the
+   * same frame, and two answers would size a ring differently from the
+   * body it rings. */
   claimsToward: ReadonlyMap<string, string>;
+  /** Per-session curves from the same `frameGeometry` flight used —
+   * rebuild here and a wire and its dots disagree. */
+  sessionCurves: ReadonlyMap<string, SessionCurve>;
   /** Per-frame scratch buffers — owned by the Stage closure and
    * cleared at the top of each `renderFrame` so the hot path
    * doesn't allocate fresh `Map`/`Set` instances each tick. */
@@ -312,6 +320,7 @@ export function renderFrame(args: RenderFrameArgs): void {
     peerSprites,
     endpointSprites,
     edgeSprites,
+    edgeStrokeBatch,
     messageSprites,
     onSelect,
     hover,
@@ -349,14 +358,9 @@ export function renderFrame(args: RenderFrameArgs): void {
   // run a `resolveMode` closure). The local copy was structurally
   // identical to the engine version, so any cascade-bug fix in the
   // engine wouldn't reach the Stage. Delegating keeps a single
-  // source of truth.
-  // Message labels are HIDDEN BY DEFAULT — they only render on
-  // hover / selection (tooltip pattern). The user reasoning: the
-  // stage can hold a lot of message dots at once, and labeling
-  // every one would make the canvas illegible. The visibility
-  // cycle still works: `rowLabelHidden` suppresses the label even
-  // on hover; `rowBodyHidden` removes the dot (and therefore the
-  // hover target) entirely.
+  // source of truth. Mode `"body"` keeps the label and drops the
+  // mark; sync* clears stroked Graphics so hidden bodies do not
+  // retain tessellated GPU buffers.
 
   // Per-entity z-order falls out of iteration order: the engine's
   // `orderedPeers / orderedSessions / orderedMessages` return
@@ -394,6 +398,7 @@ export function renderFrame(args: RenderFrameArgs): void {
       enterHover,
       leaveHover,
       startNodeDrag,
+      peerMode !== "body",
     );
     const sprite = peerSprites.get(e.peer.id);
     if (sprite) {
@@ -453,6 +458,7 @@ export function renderFrame(args: RenderFrameArgs): void {
       enterHover,
       leaveHover,
       startNodeDrag,
+      endpointMode !== "body",
     );
     const sprite = endpointSprites.get(e.endpoint.id);
     if (sprite) {
@@ -470,29 +476,18 @@ export function renderFrame(args: RenderFrameArgs): void {
 
   const liveSessions = args.scratchSessionIds;
   liveSessions.clear();
-  // Bundle indices stable for the frame — compute once and look up
-  // per session, over the claim resolution this frame already made, so an
-  // edge is drawn in the lane it was given. Edge-rendering and
-  // `MessageFlightSystem` derive their curves from the same source so dot and
-  // line track.
-  const bundles = computeSessionBundles(engine.world, claimsToward);
+  // Curves from the frame geometry flight already used — edge
+  // rendering and `MessageFlightSystem` share one table so a dot and
+  // its wire track.
+  const curves = args.sessionCurves;
   const sessions = engine.orderedSessions();
   const lastSessionIdx = sessions.length - 1;
+  const strokeOrder: string[] = [];
   for (let i = 0; i < sessions.length; i++) {
     const e = sessions[i]!;
     const sessionMode = engine.effectiveRowVisMode("sessions", e.session.id);
     if (sessionMode === "both") continue;
-    const bundle = bundles.get(e.session.id);
-    const curve = bundle
-      ? drawnSessionCurve(
-        engine.world,
-        e.endpoints.a,
-        e.endpoints.b,
-        bundle,
-        claimsToward,
-        CLAIM_LEAN,
-      )
-      : null;
+    const curve = curves.get(e.session.id);
     // A session with no curve has nowhere to be drawn: an end of it names a
     // peer this moment does not hold, which an end that changed hands reaches
     // whenever the occupant it left is gone before the session is. So it is
@@ -503,10 +498,12 @@ export function renderFrame(args: RenderFrameArgs): void {
     if (!curve) continue;
     liveSessions.add(e.session.id);
     const sessionKey = entityKey({ kind: "session", id: e.session.id });
+    const drawBody = sessionMode !== "body";
     syncEdgeSprite(
       e,
       curve,
       edgeSprites,
+      edgeStrokeBatch,
       edgeLayer,
       sessionLabelLayer,
       onSelect,
@@ -517,7 +514,9 @@ export function renderFrame(args: RenderFrameArgs): void {
       scale,
       enterHover,
       leaveHover,
+      drawBody,
     );
+    if (drawBody) strokeOrder.push(e.session.id);
     const sprite = edgeSprites.get(e.session.id);
     if (sprite) {
       const z = lastSessionIdx - i;
@@ -529,11 +528,18 @@ export function renderFrame(args: RenderFrameArgs): void {
   }
   for (const [id, sprite] of edgeSprites) {
     if (!liveSessions.has(id)) {
+      edgeStrokeBatch.remove(id);
       sprite.hitArea.destroy({ children: true });
       sprite.label.destroy({ children: true });
       edgeSprites.delete(id);
     }
   }
+  // Later strokes paint on top — reverse so high session z (drawn
+  // first in `orderedSessions`) wins at crossings, matching hitArea
+  // zIndex (`lastSessionIdx - i`).
+  strokeOrder.reverse();
+  edgeStrokeBatch.setOrder(strokeOrder);
+  edgeStrokeBatch.flush();
 
   const liveMessages = args.scratchMessageIds;
   liveMessages.clear();
@@ -562,6 +568,7 @@ export function renderFrame(args: RenderFrameArgs): void {
       scale,
       enterHover,
       leaveHover,
+      messageMode !== "body",
     );
     const sprite = messageSprites.get(e.messageInFlight.id);
     if (sprite) {
@@ -571,9 +578,7 @@ export function renderFrame(args: RenderFrameArgs): void {
       // Per-axis visibility from the cascaded `messageMode` —
       // same semantic as peers / sessions: `body` drops the
       // dot but keeps the label; `label` keeps the dot but
-      // hides the floating name. No hover gating — message
-      // labels are first-class siblings of peer / session
-      // labels, not tooltips.
+      // hides the floating name.
       sprite.container.visible = messageMode !== "body";
       sprite.label.visible = messageMode !== "label";
     }
@@ -623,6 +628,10 @@ function syncPeerSprite(
   enterHover: (h: StageHover) => void,
   leaveHover: (kind: NonNullable<StageHover>["kind"], id: string) => void,
   startNodeDrag: StartNodeDrag,
+  /** When false the node body is hidden (`body` vis mode): keep the
+   *  label moving, skip body/halo rebuild, clear Graphics, and
+   *  invalidate dirty keys so unhiding forces a redraw. */
+  drawBody: boolean,
 ): void {
   // The caption this peer wears, shortened when it is too long to draw.
   // `peerLabelText` owns that decision because the layout reserves room for
@@ -719,55 +728,68 @@ function syncPeerSprite(
   const color = colorForProfile(e.peer.profile);
   const colorsDirty = sprite.lastColors !== colors;
   const labelDirty = colorsDirty || sprite.lastLabelText !== labelTextValue;
-  // The mark and the body answer to different questions, and the camera is why
-  // that now matters: a zoom changes the mark's world geometry and nothing about
-  // the body, so one flag for both would re-stroke every body on every frame of
-  // a zoom gesture. Tier and hover never reached the body anyway.
-  const haloDirty =
-    marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
-    (colorsDirty ||
-      sprite.lastHalo !== tier ||
-      sprite.lastHovered !== hovered ||
-      sprite.lastScale !== scale);
-  const bodyDirty = colorsDirty ||
-    sprite.lastActivity !== activity ||
-    sprite.lastColor !== color;
 
-  // Skip the body Graphics rebuild when nothing about it changed —
-  // the dominant per-frame cost for static peers.
-  if (haloDirty) {
-    sprite.lastHalo = tier;
-    sprite.lastHovered = hovered;
-    sprite.lastScale = scale;
-    // Painted into the non-interactive `haloGfx` sibling so the ring
-    // doesn't extend the body's clickable region. `drawNodeHalo` owns the
-    // geometry; a peer's ring lands ≈43 out, just past its diagonal corners
-    // and brushing the activity badge.
-    drawNodeHalo(
-      sprite.haloGfx,
-      NODE_RADIUS,
-      tier,
-      hovered,
-      colors.accent,
-      scale,
-    );
-  }
-
-  if (bodyDirty) {
-    sprite.lastActivity = activity;
-    sprite.lastColor = color;
+  if (!drawBody) {
     sprite.bodyGfx.clear();
-    sprite.bodyGfx
-      .roundRect(
-        -NODE_RADIUS,
-        -NODE_RADIUS,
-        NODE_RADIUS * 2,
-        NODE_RADIUS * 2,
-        5,
-      )
-      .fill({ color })
-      .stroke({ color: colors.peerStroke, width: 2 });
-    drawNodeActivity(sprite.bodyGfx, NODE_RADIUS, activity, colors);
+    sprite.haloGfx.clear();
+    // Invalidate so the next visible frame cannot keep a stale
+    // early-out from before the hide.
+    sprite.lastColor = -1;
+    sprite.lastActivity = "idle";
+    sprite.lastHalo = "none";
+    sprite.lastHovered = false;
+    sprite.lastScale = Number.NaN;
+  } else {
+    // The mark and the body answer to different questions, and the camera is why
+    // that now matters: a zoom changes the mark's world geometry and nothing about
+    // the body, so one flag for both would re-stroke every body on every frame of
+    // a zoom gesture. Tier and hover never reached the body anyway.
+    const haloDirty =
+      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+      (colorsDirty ||
+        sprite.lastHalo !== tier ||
+        sprite.lastHovered !== hovered ||
+        sprite.lastScale !== scale);
+    const bodyDirty = colorsDirty ||
+      sprite.lastActivity !== activity ||
+      sprite.lastColor !== color;
+
+    // Skip the body Graphics rebuild when nothing about it changed —
+    // the dominant per-frame cost for static peers.
+    if (haloDirty) {
+      sprite.lastHalo = tier;
+      sprite.lastHovered = hovered;
+      sprite.lastScale = scale;
+      // Painted into the non-interactive `haloGfx` sibling so the ring
+      // doesn't extend the body's clickable region. `drawNodeHalo` owns the
+      // geometry; a peer's ring lands ≈43 out, just past its diagonal corners
+      // and brushing the activity badge.
+      drawNodeHalo(
+        sprite.haloGfx,
+        NODE_RADIUS,
+        tier,
+        hovered,
+        colors.accent,
+        scale,
+      );
+    }
+
+    if (bodyDirty) {
+      sprite.lastActivity = activity;
+      sprite.lastColor = color;
+      sprite.bodyGfx.clear();
+      sprite.bodyGfx
+        .roundRect(
+          -NODE_RADIUS,
+          -NODE_RADIUS,
+          NODE_RADIUS * 2,
+          NODE_RADIUS * 2,
+          5,
+        )
+        .fill({ color })
+        .stroke({ color: colors.peerStroke, width: 2 });
+      drawNodeActivity(sprite.bodyGfx, NODE_RADIUS, activity, colors);
+    }
   }
 
   // Label text + pill rebuild only when text or theme changes.
@@ -843,6 +865,10 @@ function syncEndpointSprite(
   enterHover: (h: StageHover) => void,
   leaveHover: (kind: NonNullable<StageHover>["kind"], id: string) => void,
   startNodeDrag: StartNodeDrag,
+  /** When false the end body is hidden (`body` vis mode): keep the
+   *  label moving, skip body/halo rebuild, clear Graphics, and
+   *  invalidate dirty keys so unhiding forces a redraw. */
+  drawBody: boolean,
 ): void {
   // What the end claims to be, or a plain word for having no claim at all,
   // shortened the way every long identifier is. `endpointLabelText` owns that
@@ -935,47 +961,58 @@ function syncEndpointSprite(
   const style = looseEndStyle(claiming);
   const colorsDirty = sprite.lastColors !== colors;
   const labelDirty = colorsDirty || sprite.lastLabelText !== labelTextValue;
-  // Split for the reason a peer's is: the camera reaches the ring and not the
-  // body. `claiming` reaches both, because it sets this body's half-width and
-  // the ring is sized off that.
-  const haloDirty =
-    marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
-    (colorsDirty || sprite.lastHalo !== tier ||
-      sprite.lastHovered !== hovered || sprite.lastClaiming !== claiming ||
-      sprite.lastScale !== scale);
-  const bodyDirty = colorsDirty || sprite.lastClaiming !== claiming ||
-    sprite.lastActivity !== activity;
 
-  if (haloDirty) {
-    sprite.lastHalo = tier;
-    sprite.lastHovered = hovered;
-    sprite.lastScale = scale;
-    // The same ring a peer gets, from the same place, so selecting an end and
-    // selecting a peer look like one act. It takes this body's own radius, so
-    // on a claim it hugs the half-sized square rather than a peer's.
-    drawNodeHalo(
-      sprite.haloGfx,
-      style.radius,
-      tier,
-      hovered,
-      colors.accent,
-      scale,
-    );
-  }
-
-  if (bodyDirty) {
-    sprite.lastClaiming = claiming;
-    sprite.lastActivity = activity;
+  if (!drawBody) {
     sprite.bodyGfx.clear();
-    drawLooseEndBody(
-      sprite.bodyGfx,
-      style,
-      PROFILE_FALLBACK_COLOR,
-      colors.textSubtle,
-    );
-    // Off this body's own half-width, so a claim's mark rides its smaller
-    // corner instead of floating out where a peer's would be.
-    drawNodeActivity(sprite.bodyGfx, style.radius, activity, colors);
+    sprite.haloGfx.clear();
+    sprite.lastClaiming = !claiming;
+    sprite.lastActivity = "idle";
+    sprite.lastHalo = "none";
+    sprite.lastHovered = false;
+    sprite.lastScale = Number.NaN;
+  } else {
+    // Split for the reason a peer's is: the camera reaches the ring and not the
+    // body. `claiming` reaches both, because it sets this body's half-width and
+    // the ring is sized off that.
+    const haloDirty =
+      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+      (colorsDirty || sprite.lastHalo !== tier ||
+        sprite.lastHovered !== hovered || sprite.lastClaiming !== claiming ||
+        sprite.lastScale !== scale);
+    const bodyDirty = colorsDirty || sprite.lastClaiming !== claiming ||
+      sprite.lastActivity !== activity;
+
+    if (haloDirty) {
+      sprite.lastHalo = tier;
+      sprite.lastHovered = hovered;
+      sprite.lastScale = scale;
+      // The same ring a peer gets, from the same place, so selecting an end and
+      // selecting a peer look like one act. It takes this body's own radius, so
+      // on a claim it hugs the half-sized square rather than a peer's.
+      drawNodeHalo(
+        sprite.haloGfx,
+        style.radius,
+        tier,
+        hovered,
+        colors.accent,
+        scale,
+      );
+    }
+
+    if (bodyDirty) {
+      sprite.lastClaiming = claiming;
+      sprite.lastActivity = activity;
+      sprite.bodyGfx.clear();
+      drawLooseEndBody(
+        sprite.bodyGfx,
+        style,
+        PROFILE_FALLBACK_COLOR,
+        colors.textSubtle,
+      );
+      // Off this body's own half-width, so a claim's mark rides its smaller
+      // corner instead of floating out where a peer's would be.
+      drawNodeActivity(sprite.bodyGfx, style.radius, activity, colors);
+    }
   }
 
   if (labelDirty) {
@@ -1001,6 +1038,7 @@ function syncEdgeSprite(
   e: SessionEntity,
   curve: SessionCurve,
   sprites: Map<string, EdgeSprite>,
+  strokeBatch: EdgeStrokeBatch,
   edgeLayer: Container,
   labelLayer: Container,
   onSelect:
@@ -1013,6 +1051,10 @@ function syncEdgeSprite(
   scale: number,
   enterHover: (h: StageHover) => void,
   leaveHover: (kind: NonNullable<StageHover>["kind"], id: string) => void,
+  /** When false the wire is hidden (`body` vis mode): keep the label
+   *  moving, drop the batch entry, and invalidate the dirty keys so
+   *  unhiding forces a redraw. */
+  drawBody: boolean,
 ): void {
   const labelText = `${e.session.codec} · ${
     captpVersionLabel(e.session.captpVersion)
@@ -1025,13 +1067,11 @@ function syncEdgeSprite(
     hitArea.cullable = true;
     // Halo (hover / focus glow) is a separate non-interactive
     // Graphics so its wider stroke doesn't make the edge clickable
-    // outside the actual line. Added FIRST so it draws behind the
-    // line (z = child index).
+    // outside the actual line. The wire itself is painted into the
+    // shared stroke batch, not as a child here.
     const haloGfx = new Graphics();
     haloGfx.eventMode = "none";
     hitArea.addChild(haloGfx);
-    const line = new Graphics();
-    hitArea.addChild(line);
 
     const label = new Container();
     label.cullable = true;
@@ -1073,7 +1113,6 @@ function syncEdgeSprite(
     sprite = {
       hitArea,
       haloGfx,
-      line,
       label,
       labelBg,
       labelText: labelTextNode,
@@ -1104,92 +1143,102 @@ function syncEdgeSprite(
 
   const colorsDirty = sprite.lastColors !== colors;
   const labelDirty = colorsDirty || sprite.lastLabelText !== labelText;
-  const curveMoved = sprite.lastAx !== curve.ax ||
-    sprite.lastAy !== curve.ay ||
-    sprite.lastBx !== curve.bx ||
-    sprite.lastBy !== curve.by ||
-    sprite.lastCx !== curve.cx ||
-    sprite.lastCy !== curve.cy;
-  // The wire is world geometry and the mark around it is not, so a zoom repaints
-  // the mark and leaves the wire alone — which matters here more than on a node,
-  // because a dashed wire is walked over 24 samples every time it is stroked.
-  // The mark reads `width` too: its spread is measured out from the wire's edge.
-  const haloDirty =
-    marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
-    (colorsDirty || curveMoved ||
-      sprite.lastHalo !== tier ||
-      sprite.lastHovered !== hovered ||
-      sprite.lastWidth !== width ||
-      sprite.lastScale !== scale);
-  const lineDirty = colorsDirty || curveMoved ||
-    sprite.lastColor !== color ||
-    sprite.lastWidth !== width ||
-    sprite.lastLineStyle !== lineStyle;
 
-  if (haloDirty || lineDirty) {
-    // Committed before either pass draws, because the two flags are already
-    // decided and both read the same curve.
-    sprite.lastAx = curve.ax;
-    sprite.lastAy = curve.ay;
-    sprite.lastBx = curve.bx;
-    sprite.lastBy = curve.by;
-    sprite.lastCx = curve.cx;
-    sprite.lastCy = curve.cy;
-    sprite.lastHalo = tier;
-    sprite.lastHovered = hovered;
-    sprite.lastColor = color;
-    sprite.lastWidth = width;
-    sprite.lastLineStyle = lineStyle;
-    sprite.lastScale = scale;
-  }
-
-  if (haloDirty) {
+  if (!drawBody) {
+    // Hidden wire: drop the batch entry (one shared clear at flush)
+    // and invalidate the curve keys so the next visible frame cannot
+    // early-out on a stale stroke.
+    strokeBatch.remove(e.session.id);
     sprite.haloGfx.clear();
-    // Halo under the line — wider, semi-transparent accent that
-    // follows the same Bezier so the glow reads as the same edge.
-    // Painted into the non-interactive `haloGfx` so the wider
-    // stroke doesn't enlarge the edge's clickable region. Anchor
-    // adds a thin solid second pass on top of the halo (see
-    // `HaloTier`) so the edge the Inspector follows reads
-    // brighter under multi-select.
-    if (tier !== "none") {
-      strokeCurve(sprite.haloGfx, curve, {
-        color: colors.accent,
-        width: width + EDGE_HALO_SPREAD_PX / scale,
-        alpha: 0.28,
-      });
-      if (tier === "anchor") {
+    sprite.hitArea.hitArea = null;
+    // Zero box: the proxy is `visible = false` for body-hidden, so the
+    // culler never keeps it alive from this AABB.
+    sprite.hitArea.boundsArea = new Rectangle(0, 0, 0, 0);
+    sprite.lastAx = NaN;
+    sprite.lastAy = NaN;
+    sprite.lastBx = NaN;
+    sprite.lastBy = NaN;
+    sprite.lastCx = NaN;
+    sprite.lastCy = NaN;
+  } else {
+    const curveMoved = sprite.lastAx !== curve.ax ||
+      sprite.lastAy !== curve.ay ||
+      sprite.lastBx !== curve.bx ||
+      sprite.lastBy !== curve.by ||
+      sprite.lastCx !== curve.cx ||
+      sprite.lastCy !== curve.cy;
+    // The wire is world geometry and the mark around it is not, so a zoom
+    // repaints the mark and leaves the wire alone — which matters here more
+    // than on a node, because a dashed wire is walked over
+    // `CURVE_STROKE_SAMPLES` every time it is stroked. The mark reads
+    // `width` too: its spread is measured out from the wire's edge.
+    const haloDirty =
+      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+      (colorsDirty || curveMoved ||
+        sprite.lastHalo !== tier ||
+        sprite.lastHovered !== hovered ||
+        sprite.lastWidth !== width ||
+        sprite.lastScale !== scale);
+    // Theme colors feed the chip and halo, not the CapTP wire ink.
+    const lineDirty = curveMoved ||
+      sprite.lastColor !== color ||
+      sprite.lastWidth !== width ||
+      sprite.lastLineStyle !== lineStyle;
+
+    if (haloDirty || lineDirty) {
+      // Committed before either pass draws, because the two flags are already
+      // decided and both read the same curve.
+      sprite.lastAx = curve.ax;
+      sprite.lastAy = curve.ay;
+      sprite.lastBx = curve.bx;
+      sprite.lastBy = curve.by;
+      sprite.lastCx = curve.cx;
+      sprite.lastCy = curve.cy;
+      sprite.lastHalo = tier;
+      sprite.lastHovered = hovered;
+      sprite.lastColor = color;
+      sprite.lastWidth = width;
+      sprite.lastLineStyle = lineStyle;
+      sprite.lastScale = scale;
+    }
+
+    if (haloDirty) {
+      sprite.haloGfx.clear();
+      // Halo above the shared wire batch — wider, semi-transparent
+      // accent that follows the same Bezier so the glow reads as the
+      // same edge. Painted into the non-interactive `haloGfx` so the
+      // wider stroke doesn't enlarge the edge's clickable region.
+      // Anchor adds a thin solid second pass on top of the halo (see
+      // `HaloTier`) so the edge the Inspector follows reads brighter
+      // under multi-select.
+      if (tier !== "none") {
         strokeCurve(sprite.haloGfx, curve, {
           color: colors.accent,
-          width: width + EDGE_HALO_INNER_SPREAD_PX / scale,
-          alpha: 0.55,
+          width: width + EDGE_HALO_SPREAD_PX / scale,
+          alpha: 0.28,
+        });
+        if (tier === "anchor") {
+          strokeCurve(sprite.haloGfx, curve, {
+            color: colors.accent,
+            width: width + EDGE_HALO_INNER_SPREAD_PX / scale,
+            alpha: 0.55,
+          });
+        }
+      } else if (hovered) {
+        strokeCurve(sprite.haloGfx, curve, {
+          color: colors.accent,
+          width: width + EDGE_HOVER_SPREAD_PX / scale,
+          alpha: 0.18,
         });
       }
-    } else if (hovered) {
-      strokeCurve(sprite.haloGfx, curve, {
-        color: colors.accent,
-        width: width + EDGE_HOVER_SPREAD_PX / scale,
-        alpha: 0.18,
-      });
     }
-  }
 
-  if (lineDirty) {
-    sprite.line.clear();
-    if (lineStyle === "dashed") {
-      strokeDashedCurve(sprite.line, curve, DASH_PATTERN, {
-        color,
-        width,
-        alpha: 1,
-      });
-    } else if (lineStyle === "dotted") {
-      strokeDashedCurve(sprite.line, curve, DOT_PATTERN, {
-        color,
-        width,
-        alpha: 1,
-      });
-    } else {
-      strokeCurve(sprite.line, curve, { color, width, alpha: 1 });
+    if (lineDirty) {
+      strokeBatch.upsert(e.session.id, { curve, color, width, lineStyle });
+      // Picking footprint + cull AABB without a per-edge Graphics.
+      const half = width / 2;
+      sprite.hitArea.hitArea = curveHitArea(curve, half);
+      sprite.hitArea.boundsArea = curveBoundsArea(curve, half);
     }
   }
 
@@ -1226,6 +1275,10 @@ function syncMessageSprite(
   scale: number,
   enterHover: (h: StageHover) => void,
   leaveHover: (kind: NonNullable<StageHover>["kind"], id: string) => void,
+  /** When false the dot is hidden (`body` vis mode): keep the label
+   *  moving, skip body/halo rebuild, clear Graphics, and invalidate
+   *  dirty keys so unhiding forces a redraw. */
+  drawBody: boolean,
 ): void {
   // Label text source: `messageInFlight.label` (human-friendly
   // payload preview) when present, falling back to the message id
@@ -1276,7 +1329,7 @@ function syncMessageSprite(
       style: {
         // Smaller than a node's caption because messages cluster
         // and tile across the stage; a smaller label keeps the
-        // tooltip-on-hover from dominating its host dot. Sans for
+        // name from dominating its host dot. Sans for
         // content-type consistency with the peer label (both are
         // display text, not wire identifiers).
         fontFamily: FONT.sans,
@@ -1301,70 +1354,82 @@ function syncMessageSprite(
       lastColors: null,
       lastLabelText: "",
       lastScale: Number.NaN,
+      lastBodyCleared: false,
     };
     sprites.set(e.messageInFlight.id, sprite);
   }
 
   const colorsDirty = sprite.lastColors !== colors;
-  // Split for the reason a peer's is: the camera reaches the ring and not the
-  // dot. `MESSAGE_RADIUS` is world units and nothing the dot draws reads the
-  // scale, so one flag for both re-stroked every message in flight on every
-  // frame of a zoom — and messages are the things that are moving.
-  const haloDirty =
-    marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
-    (sprite.lastHalo !== tier ||
-      sprite.lastHovered !== hovered ||
-      sprite.lastScale !== scale ||
-      colorsDirty);
-  if (haloDirty) {
-    sprite.lastHalo = tier;
-    sprite.lastHovered = hovered;
-    sprite.lastScale = scale;
-    // Halo lives in the non-interactive sibling — hit-test only
-    // sees the dot. Body draws on top of the halo (drawn after,
-    // higher child index). Anchor adds an inner ring inside the
-    // halo (see `HaloTier`) so the message the Inspector
-    // follows reads distinct from sibling-selected messages
-    // under multi-select.
+  const labelDirty = colorsDirty || sprite.lastLabelText !== labelTextValue;
+
+  if (!drawBody) {
+    sprite.body.clear();
     sprite.haloGfx.clear();
-    if (tier !== "none") {
-      const ring = MESSAGE_RADIUS + MESSAGE_HALO_GAP_PX / scale;
-      sprite.haloGfx
-        .circle(0, 0, ring)
-        .stroke({
-          color: colors.accent,
-          width: MESSAGE_HALO_WIDTH_PX / scale,
-          alpha: 0.95,
-        });
-      if (tier === "anchor") {
+    sprite.lastHalo = "none";
+    sprite.lastHovered = false;
+    sprite.lastScale = Number.NaN;
+    sprite.lastBodyCleared = true;
+  } else {
+    // Split for the reason a peer's is: the camera reaches the ring and not the
+    // dot. `MESSAGE_RADIUS` is world units and nothing the dot draws reads the
+    // scale, so one flag for both re-stroked every message in flight on every
+    // frame of a zoom — and messages are the things that are moving.
+    const haloDirty =
+      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+      (sprite.lastHalo !== tier ||
+        sprite.lastHovered !== hovered ||
+        sprite.lastScale !== scale ||
+        colorsDirty);
+    if (haloDirty) {
+      sprite.lastHalo = tier;
+      sprite.lastHovered = hovered;
+      sprite.lastScale = scale;
+      // Halo lives in the non-interactive sibling — hit-test only
+      // sees the dot. Body draws on top of the halo (drawn after,
+      // higher child index). Anchor adds an inner ring inside the
+      // halo (see `HaloTier`) so the message the Inspector
+      // follows reads distinct from sibling-selected messages
+      // under multi-select.
+      sprite.haloGfx.clear();
+      if (tier !== "none") {
+        const ring = MESSAGE_RADIUS + MESSAGE_HALO_GAP_PX / scale;
         sprite.haloGfx
-          .circle(0, 0, ring - MESSAGE_HALO_INNER_GAP_PX / scale)
+          .circle(0, 0, ring)
           .stroke({
             color: colors.accent,
-            width: MESSAGE_HALO_INNER_WIDTH_PX / scale,
-            alpha: 0.85,
+            width: MESSAGE_HALO_WIDTH_PX / scale,
+            alpha: 0.95,
+          });
+        if (tier === "anchor") {
+          sprite.haloGfx
+            .circle(0, 0, ring - MESSAGE_HALO_INNER_GAP_PX / scale)
+            .stroke({
+              color: colors.accent,
+              width: MESSAGE_HALO_INNER_WIDTH_PX / scale,
+              alpha: 0.85,
+            });
+        }
+      } else if (hovered) {
+        sprite.haloGfx
+          .circle(0, 0, MESSAGE_RADIUS + MESSAGE_HOVER_GAP_PX / scale)
+          .stroke({
+            color: colors.accent,
+            width: MESSAGE_HOVER_WIDTH_PX / scale,
+            alpha: 0.5,
           });
       }
-    } else if (hovered) {
-      sprite.haloGfx
-        .circle(0, 0, MESSAGE_RADIUS + MESSAGE_HOVER_GAP_PX / scale)
-        .stroke({
-          color: colors.accent,
-          width: MESSAGE_HOVER_WIDTH_PX / scale,
-          alpha: 0.5,
-        });
     }
+    if (colorsDirty || sprite.lastBodyCleared) {
+      sprite.body.clear();
+      sprite.body
+        .circle(0, 0, MESSAGE_RADIUS)
+        .fill({ color: colors.messageInFlight })
+        .stroke({ color: colors.peerStroke, width: 1.5 });
+      sprite.lastBodyCleared = false;
+    }
+    sprite.lastColors = colors;
   }
-  if (colorsDirty) {
-    sprite.body.clear();
-    sprite.body
-      .circle(0, 0, MESSAGE_RADIUS)
-      .fill({ color: colors.messageInFlight })
-      .stroke({ color: colors.peerStroke, width: 1.5 });
-  }
-  sprite.lastColors = colors;
 
-  const labelDirty = colorsDirty || sprite.lastLabelText !== labelTextValue;
   if (labelDirty) {
     sprite.lastLabelText = labelTextValue;
     if (sprite.labelText.text !== labelTextValue) {
@@ -1377,6 +1442,9 @@ function syncMessageSprite(
       colors,
       MESSAGE_LABEL,
     );
+    // Theme tracked for the label even while the body is cleared, so a
+    // body-hidden message does not re-layout its pill every frame.
+    sprite.lastColors = colors;
   }
 
   sprite.container.position.set(e.position.x, e.position.y);

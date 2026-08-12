@@ -1,0 +1,10 @@
+import os
+from pancake import listen_keyed_tcp
+
+# Key designator, cleartext CapTP. Persist the 32-byte seed to keep the same key.
+seed = os.urandom(32)
+server = await listen_keyed_tcp("127.0.0.1", 9099, seed=seed)
+print(server.uri)  # hand this locator to partners
+async for session in server:
+    session.publish("greeter", lambda _verb, args: f"hello, {args[0]}")
+    session.serve()

@@ -29,7 +29,6 @@
 
 import {
 	connect,
-	encodePeerLocator,
 	formatPeerUri,
 	HINT_DIRECT_ADDRESSES,
 	Ref,
@@ -62,12 +61,12 @@ async function dialable(server: IrohServer): Promise<[string, string]> {
 	fail(GATE, "timed out waiting for an endpoint's direct addresses");
 }
 
-/** Serve every connection the server accepts for the life of the run, and
+/** Serve every session the server accepts for the life of the run, and
  * remember it so teardown can close it. Ends when the server closes. */
 async function acceptLoopWithServed(server: IrohServer, served: Session[]): Promise<void> {
-	for await (const conn of server) {
-		conn.serve().catch(() => {});
-		served.push(conn);
+	for await (const session of server) {
+		session.serve().catch(() => {});
+		served.push(session);
 	}
 }
 
@@ -78,7 +77,7 @@ function greeter(verb: string, args: unknown[]): string | null {
 }
 
 // ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-const exporter = listenIroh({ reachability: Reachability.Direct });
+const exporter = await listenIroh({ reachability: Reachability.Direct });
 exporter.host.publishGiftable("greeter", greeter);
 const [exporterId, exporterAddrs] = await dialable(exporter);
 const exporterServed: Session[] = [];
@@ -86,7 +85,7 @@ const exporterAccept = acceptLoopWithServed(exporter, exporterServed);
 console.log(`${GATE}: exporter published greeter on ${exporterId}`);
 
 // ── Gifter: dials the exporter under one identity, re-gifts the greeter ─────
-const gifter = listenIroh({ reachability: Reachability.Direct });
+const gifter = await listenIroh({ reachability: Reachability.Direct });
 const [gifterId, gifterAddrs] = await dialable(gifter);
 const exporterUri = formatPeerUri(
 	TRANSPORT_IROH,
@@ -99,11 +98,12 @@ const greeterRef = await toExporter.fetch("greeter");
 // dialable under the relay-less Direct posture — so record its full dialable
 // location (id + direct-addresses) as the give's exporter location.
 toExporter.setExporterLocator(
-	encodePeerLocator({
+	{
 		transport: "iroh",
 		designator: exporterId,
-		directAddresses: exporterAddrs,
-	}),
+		hints: new Map([[HINT_DIRECT_ADDRESSES, exporterAddrs]]),
+		hintWireForm: "map",
+	},
 );
 gifter.host.publishGiftable("introducer", (verb) => {
 	if (verb !== "get-greeter") return null;
@@ -143,7 +143,7 @@ console.log(
 // no readiness fd reader outlives the endpoint it watches.
 recipient.close();
 toExporter.close();
-for (const conn of [...exporterServed, ...gifterServed]) conn.close();
+for (const session of [...exporterServed, ...gifterServed]) session.close();
 exporter.close();
 gifter.close();
 await Promise.allSettled([exporterAccept, gifterAccept]);

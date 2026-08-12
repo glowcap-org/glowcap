@@ -96,7 +96,10 @@ fn exporterHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.acceptTcp(allocator, &sig_peer, listener, read_buf, write_buf, handshake_budget);
+        var sig = try driver.acceptTcp(allocator, &sig_peer, listener, read_buf, write_buf, .{
+            .handshake = handshake_budget,
+            .settle = handshake_budget,
+        });
         defer sig.deinit();
         _ = try sig.publish("signaling", SignalingInbox, .{ .peer = peer });
         try sig.serve();
@@ -115,7 +118,10 @@ fn exporterHalf(
     defer allocator.free(write_buf);
 
     const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn);
+    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer vat.deinit();
 
     const designator = secret.publicKey().toDesignator();
@@ -152,7 +158,10 @@ fn recipientHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.connectTcp(allocator, io, &sig_peer, address, read_buf, write_buf, handshake_budget);
+        var sig = try driver.connectTcp(allocator, io, &sig_peer, address, read_buf, write_buf, .{
+            .handshake = handshake_budget,
+            .settle = handshake_budget,
+        });
         defer sig.deinit();
         const inbox = try sig.fetch("signaling");
         try bringUpViaCapTP(&sig, inbox, resident, offerer, allocator);
@@ -177,7 +186,10 @@ fn recipientHalf(
     defer allocator.free(write_buf);
 
     const conn = try offerer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn);
+    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer vat.deinit();
 
     const designator = secret.publicKey().toDesignator();

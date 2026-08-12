@@ -21,12 +21,42 @@ pub struct PancakeContext {
 	_private: [u8; 0],
 }
 
-/// A parsed OCapN locator, one opaque handle carrying a peer or a sturdyref,
-/// minted by `pancake_uri_parse_*` and read by the `pancake_locator_*`
-/// accessors.
+/// An owned OCapN peer locator.
 #[repr(C)]
 pub struct PancakeLocator {
 	_private: [u8; 0],
+}
+
+/// An owned OCapN sturdyref: an embedded peer locator plus its swissnum.
+#[repr(C)]
+pub struct PancakeSturdyRef {
+	_private: [u8; 0],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeLocatorHintView {
+	pub name: *const c_uchar,
+	pub name_len: usize,
+	pub kind: c_uint,
+	pub bytes: *const c_uchar,
+	pub bytes_len: usize,
+	pub boolean_value: u8,
+	pub integer_value: i64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeLocatorView {
+	pub abi_version: c_uint,
+	pub struct_size: usize,
+	pub transport: *const c_uchar,
+	pub transport_len: usize,
+	pub designator: *const c_uchar,
+	pub designator_len: usize,
+	pub hints: *const PancakeLocatorHintView,
+	pub hint_count: usize,
+	pub hint_wire_form: c_uint,
 }
 
 pub type PancakeAllocFn =
@@ -144,6 +174,40 @@ const _: () = {
 	assert!(offset_of!(PancakeLastAbort, message_len) == PANCAKE_LAST_ABORT_MESSAGE_LEN_OFF);
 	assert!(offset_of!(PancakeLastAbort, error_name) == PANCAKE_LAST_ABORT_ERROR_NAME_OFF);
 	assert!(offset_of!(PancakeLastAbort, error_name_len) == PANCAKE_LAST_ABORT_ERROR_NAME_LEN_OFF);
+
+	assert!(size_of::<PancakeLocatorHintView>() == PANCAKE_LOCATOR_HINT_VIEW_SIZE);
+	assert!(offset_of!(PancakeLocatorHintView, name) == PANCAKE_LOCATOR_HINT_VIEW_NAME_OFF);
+	assert!(offset_of!(PancakeLocatorHintView, name_len) == PANCAKE_LOCATOR_HINT_VIEW_NAME_LEN_OFF);
+	assert!(offset_of!(PancakeLocatorHintView, kind) == PANCAKE_LOCATOR_HINT_VIEW_KIND_OFF);
+	assert!(offset_of!(PancakeLocatorHintView, bytes) == PANCAKE_LOCATOR_HINT_VIEW_BYTES_OFF);
+	assert!(
+		offset_of!(PancakeLocatorHintView, bytes_len) == PANCAKE_LOCATOR_HINT_VIEW_BYTES_LEN_OFF
+	);
+	assert!(
+		offset_of!(PancakeLocatorHintView, boolean_value)
+			== PANCAKE_LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF
+	);
+	assert!(
+		offset_of!(PancakeLocatorHintView, integer_value)
+			== PANCAKE_LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF
+	);
+
+	assert!(size_of::<PancakeLocatorView>() == PANCAKE_LOCATOR_VIEW_SIZE);
+	assert!(offset_of!(PancakeLocatorView, abi_version) == PANCAKE_LOCATOR_VIEW_ABI_VERSION_OFF);
+	assert!(offset_of!(PancakeLocatorView, struct_size) == PANCAKE_LOCATOR_VIEW_STRUCT_SIZE_OFF);
+	assert!(offset_of!(PancakeLocatorView, transport) == PANCAKE_LOCATOR_VIEW_TRANSPORT_OFF);
+	assert!(
+		offset_of!(PancakeLocatorView, transport_len) == PANCAKE_LOCATOR_VIEW_TRANSPORT_LEN_OFF
+	);
+	assert!(offset_of!(PancakeLocatorView, designator) == PANCAKE_LOCATOR_VIEW_DESIGNATOR_OFF);
+	assert!(
+		offset_of!(PancakeLocatorView, designator_len) == PANCAKE_LOCATOR_VIEW_DESIGNATOR_LEN_OFF
+	);
+	assert!(offset_of!(PancakeLocatorView, hints) == PANCAKE_LOCATOR_VIEW_HINTS_OFF);
+	assert!(offset_of!(PancakeLocatorView, hint_count) == PANCAKE_LOCATOR_VIEW_HINT_COUNT_OFF);
+	assert!(
+		offset_of!(PancakeLocatorView, hint_wire_form) == PANCAKE_LOCATOR_VIEW_HINT_WIRE_FORM_OFF
+	);
 };
 
 // The raw extern block is generated (`ocapn_fns_gen.rs`, `zig build

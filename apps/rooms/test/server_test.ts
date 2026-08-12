@@ -7,9 +7,18 @@ import {
 	LIST,
 	NOTIFY,
 	OFFER_INBOX,
+	OFFER_SIGNALING,
 	OPEN,
 	POST,
 	REGISTER,
+	SIG_ACCEPTED,
+	SIG_ANSWER,
+	SIG_CANDIDATE,
+	SIG_OFFER,
+	SIG_REJECT,
+	SIGNAL_ANSWER,
+	SIGNAL_DONE,
+	SIGNAL_OFFER,
 	SUBSCRIBE,
 	WATCH,
 } from "../lib/protocol.ts";
@@ -24,7 +33,7 @@ import {
 	type RoomErrorCode,
 	roomErrorOf,
 } from "../lib/errors.ts";
-import { MAX_NICK } from "../lib/limits.ts";
+import { MAX_NICK, MAX_SIGNAL_EXCHANGES } from "../lib/limits.ts";
 import { inboxOfferer } from "../lib/dm_inbox.ts";
 import { Directory } from "../lib/room_client.ts";
 import { dial, loopbackTcpDesignator, roomsHost } from "../lib/locator.ts";
@@ -365,6 +374,18 @@ async function waitForLine(lines: string[], pattern: RegExp): Promise<string> {
 		await delay(25);
 	}
 	throw new Error(`expected ${JSON.stringify(lines)} to contain ${pattern}`);
+}
+
+async function until(
+	condition: () => boolean,
+	message: string,
+	timeoutMs = 3_000,
+): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!condition()) {
+		if (Date.now() >= deadline) throw new Error(message);
+		await delay(10);
+	}
 }
 
 Deno.test("rooms directory opens a room and rejects opening it twice", async () => {
@@ -1158,6 +1179,203 @@ Deno.test("rooms directory refuses a nick another live connection holds", async 
 
 		second.close();
 		await second.serve().catch(() => {});
+	});
+});
+
+Deno.test("rooms signaling admits an offer before early ICE and rejects a second active dial", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const targetDesignator = "11".repeat(32);
+		const targetLocator = `ocapn://${targetDesignator}.webrtc`;
+		const origin = await Directory.connect(locator, (address) => dial(address));
+		const target = await Directory.connect(locator, (address) => dial(address));
+		try {
+			await origin.register("signal-origin", locator);
+			await target.register("signal-target", targetLocator);
+
+			const targetEvents: string[] = [];
+			const signalingInbox = target.session.spawn((verb, args) => {
+				const id = typeof args[0] === "string" ? args[0] : "";
+				if (verb === SIG_OFFER) {
+					targetEvents.push(`offer:${id}`);
+					void target.signalAnswer(id, "answer-sdp");
+				} else if (verb === SIG_CANDIDATE) {
+					targetEvents.push(`candidate:${id}:${String(args[1] ?? "")}`);
+				}
+				return null;
+			});
+			await target.offerSignaling(signalingInbox);
+
+			const dispose = origin.onSignalCandidate(targetDesignator, () => {});
+			let earlySettled = false;
+			const early = origin.signalCandidate(targetDesignator, "early-ice").then(() => {
+				earlySettled = true;
+			});
+			await delay(25);
+			assert(!earlySettled, "an ICE candidate crossed before its exchange was admitted");
+
+			assert(
+				await origin.signalOffer(targetDesignator, "offer-sdp") === "answer-sdp",
+				"the admitted signaling offer should receive its answer",
+			);
+			await early;
+			await until(
+				() => targetEvents.some((event) => event.endsWith(":early-ice")),
+				"the early ICE candidate never reached the admitted exchange",
+			);
+			assert(
+				targetEvents[0]?.startsWith("offer:"),
+				`candidate arrived before offer: ${JSON.stringify(targetEvents)}`,
+			);
+
+			let duplicate = "";
+			try {
+				await origin.signalOffer(targetDesignator, "second-offer");
+			} catch (error) {
+				duplicate = error instanceof Error ? error.message : String(error);
+			}
+			assertMatch(duplicate, /already active/);
+			dispose();
+		} finally {
+			await Promise.allSettled([origin.close(), target.close()]);
+		}
+	});
+});
+
+Deno.test("rooms signaling rejects a replaced exchange and stale retirement cannot close its successor", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const targetDesignator = "22".repeat(32);
+		const targetLocator = `ocapn://${targetDesignator}.webrtc`;
+		const origin = await dial(locator);
+		const target = await dial(locator);
+		origin.serve().catch(() => {});
+		target.serve().catch(() => {});
+		try {
+			const originDirectory = await origin.fetch(DIRECTORY);
+			const targetDirectory = await target.fetch(DIRECTORY);
+			await registerAndWatch(origin, originDirectory, "raw-origin", locator);
+			await registerAndWatch(target, targetDirectory, "raw-target", targetLocator);
+
+			const offers: string[] = [];
+			const signalingInbox = target.spawn((verb, args) => {
+				if (verb === SIG_OFFER && typeof args[0] === "string") offers.push(args[0]);
+				return null;
+			});
+			await target.send(targetDirectory, OFFER_SIGNALING, [signalingInbox]);
+
+			const firstAccepted: string[] = [];
+			const firstRejected: string[] = [];
+			const firstReply = origin.spawn((verb, args) => {
+				if (verb === SIG_ACCEPTED && typeof args[0] === "string") {
+					firstAccepted.push(args[0]);
+				}
+				if (verb === SIG_REJECT) firstRejected.push(String(args[0] ?? ""));
+				return null;
+			});
+			await origin.send(originDirectory, SIGNAL_OFFER, [
+				targetDesignator,
+				"first-offer",
+				firstReply,
+			]);
+			await until(() => firstAccepted.length === 1, "first exchange was not admitted");
+
+			const secondAccepted: string[] = [];
+			const secondAnswers: string[] = [];
+			const secondReply = origin.spawn((verb, args) => {
+				if (verb === SIG_ACCEPTED && typeof args[0] === "string") {
+					secondAccepted.push(args[0]);
+				}
+				if (verb === SIG_ANSWER && typeof args[0] === "string") secondAnswers.push(args[0]);
+				return null;
+			});
+			await origin.send(originDirectory, SIGNAL_OFFER, [
+				targetDesignator,
+				"second-offer",
+				secondReply,
+			]);
+			await until(() => secondAccepted.length === 1, "replacement exchange was not admitted");
+			await until(
+				() => firstRejected.length === 1,
+				"replaced exchange did not reject its caller",
+			);
+			assertMatch(firstRejected[0], /replaced/);
+
+			const firstId = firstAccepted[0];
+			const secondId = secondAccepted[0];
+			assert(firstId !== secondId, "replacement reused an exchange identity");
+			await origin.tell(originDirectory, SIGNAL_DONE, [firstId]);
+			await target.tell(targetDirectory, SIGNAL_ANSWER, [secondId, "second-answer"]);
+			await until(
+				() => secondAnswers[0] === "second-answer",
+				"stale retirement closed the replacement exchange",
+			);
+			await origin.tell(originDirectory, SIGNAL_DONE, [secondId]);
+			assert(
+				offers.includes(firstId) && offers.includes(secondId),
+				"target did not receive both offers",
+			);
+		} finally {
+			origin.close();
+			target.close();
+			await Promise.allSettled([
+				origin.serve().catch(() => {}),
+				target.serve().catch(() => {}),
+			]);
+		}
+	});
+});
+
+Deno.test("rooms signaling evicts the oldest bounded exchange and rejects its caller", async () => {
+	await withServer(async (port) => {
+		const locator = loopbackTcpDesignator(port);
+		const origin = await dial(locator);
+		const originServed = origin.serve().catch(() => {});
+		const targets: { session: Session; served: Promise<void>; designator: string }[] = [];
+		try {
+			const originDirectory = await origin.fetch(DIRECTORY);
+			await registerAndWatch(origin, originDirectory, "eviction-origin", locator);
+
+			const setupTargets = Array.from(
+				{ length: MAX_SIGNAL_EXCHANGES + 1 },
+				async (_, index) => {
+					const session = await dial(locator);
+					const served = session.serve().catch(() => {});
+					const directory = await session.fetch(DIRECTORY);
+					const designator = (index + 1).toString(16).padStart(64, "0");
+					await registerAndWatch(
+						session,
+						directory,
+						`eviction-target-${index}`,
+						`ocapn://${designator}.webrtc`,
+					);
+					await session.send(directory, OFFER_SIGNALING, [session.spawn(() => null)]);
+					return { session, served, designator };
+				},
+			);
+			targets.push(...await Promise.all(setupTargets));
+
+			const firstRejected: string[] = [];
+			for (const [index, target] of targets.entries()) {
+				const reply = origin.spawn((verb, args) => {
+					if (index === 0 && verb === SIG_REJECT) {
+						firstRejected.push(String(args[0] ?? ""));
+					}
+					return null;
+				});
+				await origin.send(originDirectory, SIGNAL_OFFER, [
+					target.designator,
+					`offer-${index}`,
+					reply,
+				]);
+			}
+			await until(() => firstRejected.length === 1, "oldest exchange was not evicted");
+			assertMatch(firstRejected[0], /evicted/);
+		} finally {
+			origin.close();
+			for (const target of targets) target.session.close();
+			await Promise.allSettled([originServed, ...targets.map((target) => target.served)]);
+		}
 	});
 });
 

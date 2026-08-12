@@ -19,7 +19,7 @@
 //!      identifiers derived from the two connections' `session_pubkey`s — ours
 //!      on the outbound, the partner's on the inbound.
 //!
-//! These values do not coincide: each connection has a fresh session key, while
+//! These values do not coincide: each session has a fresh signing key, while
 //! a locator designator names the dial target. A single conflated key would
 //! silently perform the wrong operation. The field names here keep the two axes
 //! visible at each call site.
@@ -48,7 +48,7 @@ pub const CrossedHellos = struct {
         /// is trying to reach. Authentication is a separate Host fact.
         target: DialTarget,
         /// The ordering axis: the OCapN session identifier derived from *this
-        /// outbound connection's* own session key.
+        /// outbound session attempt's* own key.
         our_session_id: foundation.PeerId,
     };
 

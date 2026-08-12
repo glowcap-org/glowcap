@@ -39,17 +39,21 @@ npm-compat layer and keep holding the port. A vite process showing `PPID 1` in
 
 ## Live mode
 
-Switch the top-bar mode to **Live** and point the left pane's URL field at any
-websocket streaming the timeline schema. The rooms server is one: start it with
-`ROOMS_VIZ_PORT=9300` and use the printed `ROOMS-VIZ-LISTENING` address (see
-[rooms developing](../rooms/developing.md)). Other peers publish their own
-traces to the same endpoint, so sessions that server never carries still appear.
+Switch the top-bar mode to **Live** and give the left pane the trace sturdyref
+printed as `ROOMS-VIZ-LISTENING`. The rooms server publishes one when started
+with `ROOMS_VIZ_PORT=9300` (see
+[rooms developing](../rooms/developing.md)). ocapnviz lazily loads its wasm
+Host, enlivens that read capability, and grants the endpoint an inbox. Other
+peers publish their own traces to the convergence endpoint, so sessions the
+room server never carries still appear.
 
-Live connects as soon as you enter it, and the dot under the URL turns green
-when a feed is there. Being connected is not recording. Press **Record** to
+Live connects as soon as you enter it, and the dot under the sturdyref turns
+green when the CapTP session is open. Being connected is not recording. Press **Record** to
 start a capture, and from that moment every session and message the room carries
-draws as it happens. The feed replays the sessions already open, so the picture
-is complete rather than filling in as traffic happens to mention each one.
+draws as it happens. The capability replays the sessions already open, so the
+picture is complete rather than filling in as traffic happens to mention each
+one. A disconnected or backpressured viewer reconnects and receives a fresh
+authoritative replay.
 **Stop** hands the capture to Play, where it replays like any other recording.
 
 Each `op:start-session` animates from its observed depart timestamp to its

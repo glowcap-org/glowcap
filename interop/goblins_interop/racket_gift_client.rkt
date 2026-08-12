@@ -89,10 +89,10 @@
   (thread
    (lambda ()
      (let loop ()
-       (define conn
+       (define session
          (with-handlers ([(lambda (_) #t) (lambda (_) #f)]) (accept gifter)))
-       (when conn
-         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve conn))))
+       (when session
+         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve session))))
          (loop)))))
 
   ;; Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The

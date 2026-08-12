@@ -7,7 +7,7 @@ decision: "The cross-connection handoff router is sunk into a sans-io `engine.No
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0079, ADR-0100]
+amended_by: [ADR-0079, ADR-0100, ADR-0113]
 ---
 
 # ADR-0066 The cross-connection handoff router is a sans-io node
@@ -20,12 +20,12 @@ amended_by: [ADR-0079, ADR-0100]
 
 > **C-projection amendment.** The Zig `engine.Node` router and its semantics
 > remain accepted. The former pancake_node_* C projection in libpancake_ocapn
-> was deleted: CapTP multi-connection product work uses `pancake_host_*` only.
+> was deleted: CapTP multi-session product work uses `pancake_host_*` only.
 > Historical Consequences text below that names that C family describes the
 > shape at acceptance time, not the current public C surface.
 >
 > **Vocabulary amendment (ADR-0079).** Living guidance no longer equates
-> binding `Node` with `engine.Node`. The multi-conn product is `Host` /
+> binding `Node` with `engine.Node`. The multi-session product is `Host` /
 > `PancakeHost` / binding `Host`; `engine.Node` is the router Host owns. Binding
 > CapTP partner is `Session`. Read historical “binding Node” / `driver.Node`
 > re-export text below as the shape at acceptance time. The Follow-on section’s

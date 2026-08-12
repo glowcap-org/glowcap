@@ -1,0 +1,16 @@
+use pancake::{connect, keyed_tcp_locator, Argument};
+
+// Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+let partner = keyed_tcp_locator("<64 hex chars>", "127.0.0.1", 9099);
+
+let session = connect(&partner, None, None).await?;
+let greeter = session.fetch("greeter").await?; // a capability, by name
+match session
+    .send(&greeter, "greet", &[Argument::String("world".into())])
+    .await
+{
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+session.close();

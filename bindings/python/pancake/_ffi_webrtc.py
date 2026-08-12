@@ -5,8 +5,8 @@ optional -- built only with cargo (``zig build webrtc-abi``) -- so it loads
 lazily on first ``_webrtc()`` use and names how to produce it when absent rather
 than failing at import. It carries the ``pancake_webrtc_*`` family plus its own
 thread-local last-error (``pancake_webrtc_last_error``), symbol-disjoint from the
-core. It declares no structs (a peer is an opaque handle), so there is no layout
-to pin. Nothing here is public; a higher-level surface would sit over it, the
+core. The endpoint config and readiness record are pinned to generated ABI
+layouts; peers remain opaque handles. Nothing here is public; a higher-level surface would sit over it, the
 same way :mod:`pancake.iroh` sits over :mod:`pancake._ffi_iroh`.
 """
 
@@ -23,6 +23,7 @@ from ._lib_resolve import _lib_file, _lib_path
 # than the core ``pancake_last_error``.
 from ._sigs_gen import webrtc_sigs
 from ._pin import pin_struct
+from ._ffi_driver import _TransportProvider
 
 _WEBRTC_LIB_PATH = _lib_path("pancake_net_transport_webrtc")
 _WEBRTC_LIB_FILE = _lib_file("pancake_net_transport_webrtc")
@@ -55,7 +56,9 @@ pin_struct(_WebrtcConfig, "PANCAKE_WEBRTC_CONFIG")
 
 def _load_webrtc():
     lib = ctypes.CDLL(str(_WEBRTC_LIB_PATH))
-    for name, (argtypes, restype) in webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig).items():
+    for name, (argtypes, restype) in webrtc_sigs(
+        _WebrtcReadyEvent, _WebrtcConfig, _TransportProvider
+    ).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes
         fn.restype = restype

@@ -47,20 +47,57 @@
 ;; states a different word and must keep stating it.
 (define self-profile "pancake")
 (define t0 (box 0))
-;; Every live host's raw pointer paired with its cookie and its own key
-;; designator. The cookie is the small integer passed as the callback ctx so a
-;; record can carry which host it came from: a core session id is host-scoped
-;; (the Names rule: a bare id needs its namespace named), so two hosts in one
-;; process would otherwise collide on the same session row.
-(define hosts (box '())) ; list of (ptr cookie . designator)
+;; Every live Host is held weakly beside its cookie, designator, and
+;; binding-owned installer. The weak owner keeps this registry from
+;; extending a Host's lifetime; taking a strong owner snapshot keeps its
+;; finalizer out while an installer serializes against explicit release on the
+;; Host's own lock. A raw pointer is never called through directly from this
+;; registry.
+(struct trace-host (owner cookie designator install!) #:transparent)
+(define hosts (box '()))
+(define registry-gate (make-semaphore 1))
+(define trace-generation (box 0))
 (define next-cookie (box 1))
-;; The one native callback closure, boxed for the process's life so the
-;; collector never reclaims a pointer the core still holds.
+;; The one C-callable callback object, boxed for the process's life so the
+;; collector never reclaims executable memory the core still holds.
 (define native-cb (box #f))
 ;; Payload bytes forwarded per message (whole frame under the cap, head +
 ;; true length above it). The TypeScript veneer exposes this as an
 ;; `enableTrace` option; make it configurable here when a consumer asks.
 (define PAYLOAD-CAP 4096)
+
+(define (with-registry thunk)
+  (call-with-semaphore registry-gate thunk))
+
+;; Return strong owner/row pairs and prune wrappers the collector has already
+;; retired. The strong owner lasts through the caller's native installation.
+(define (live-hosts)
+  (with-registry
+   (lambda ()
+     (define live
+       (for/list ([row (in-list (unbox hosts))]
+                  #:do [(define owner (weak-box-value (trace-host-owner row)))]
+                  #:when owner)
+         (cons owner row)))
+     (set-box! hosts (map cdr live))
+     live)))
+
+(define (current-trace-generation)
+  (with-registry (lambda () (unbox trace-generation))))
+
+;; Apply the latest process trace configuration to one Host. Configuration may
+;; change while the Host installer waits for that Host's lock; retrying by
+;; generation ensures an older install cannot win after a newer uninstall.
+(define (apply-current-trace! owner row)
+  (let loop ()
+    (define-values (generation enabled?)
+      (with-registry
+       (lambda () (values (unbox trace-generation) (and (unbox sink) #t)))))
+    ((trace-host-install! row)
+     owner
+     (and enabled? (callback!))
+     (and enabled? (cookie->ctx (trace-host-cookie row))))
+    (unless (= generation (current-trace-generation)) (loop))))
 
 (define (now-ns)
   (inexact->exact
@@ -80,22 +117,38 @@
 
 (define (emit! ev)
   (define s (unbox sink))
-  (when s (s ev)))
+  ;; Trace observation cannot become protocol control flow, and no Racket
+  ;; exception may cross the native callback frame.
+  (when s
+    (with-handlers ([exn? (lambda (_) (void))])
+      (s ev))))
 
 (define (view->string ptr len)
   (if (and ptr (> len 0))
       (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)
       #f))
 
-(define (on-native-event ctx ev)
+(define (on-native-event ctx borrowed-event)
   (when (unbox sink)
+    ;; Racket's FFI array-field view does not safely index an inline C array
+    ;; through a callback's borrowed cstruct wrapper. Snapshot the fixed event
+    ;; while every pointer field is still borrowed, then read the digest from
+    ;; stable Racket-owned storage. Payload views are still copied below before
+    ;; this callback returns.
+    (define event-storage (malloc _PancakeTraceEvent 'atomic-interior))
+    (memcpy event-storage borrowed-event (ctype-sizeof _PancakeTraceEvent))
+    (define ev (ptr-ref event-storage _PancakeTraceEvent))
     (define cookie (if ctx (cast ctx _pointer _intptr) 0))
     (define session-id
       (format "live-h~a-s~a" cookie (PancakeTraceEvent-session ev)))
     (define kind (PancakeTraceEvent-kind ev))
     (define (endpoint-a)
-      (let ([row (findf (lambda (r) (= (cadr r) cookie)) (unbox hosts))])
-        (if row (cddr row) "")))
+      (with-registry
+       (lambda ()
+         (define row
+           (findf (lambda (candidate) (= (trace-host-cookie candidate) cookie))
+                  (unbox hosts)))
+         (if row (trace-host-designator row) ""))))
     (cond
       [(= kind TRACE-SESSION-OPEN)
        ;; The OCapN Session ID, the one name both ends of this session
@@ -177,24 +230,30 @@
                       'session session-id))])))
 
 ;; The SET half of the annotation channel: an application states which
-;; partner a session carries, named for the same session row the tap
-;; names. A claim, never identity. Raw pointers because this module
-;; sits below the session structs (host.rkt requires it); the
-;; session-level verb wraps the accessors. No sink, or a host the
-;; trace never attached: silently nothing, like every trace emit.
-(define (trace-annotate-session! hptr conn-ptr label)
+;; partner a session carries, named for the same session row the tap names. A
+;; claim, never identity. This module sits below the session structs
+;; (host.rkt requires it), so the session-level verb passes its owner and native
+;; session handle. No sink, or a host the trace never attached: silently
+;; nothing, like every trace emit.
+(define (trace-annotate-session! owner session-ptr label)
   (when (unbox sink)
-    (define row (assq hptr (unbox hosts)))
+    (define row
+      (with-registry
+       (lambda ()
+         (findf (lambda (candidate)
+                  (eq? owner (weak-box-value (trace-host-owner candidate))))
+                (unbox hosts)))))
     (when row
-      (define-values (rc id) (pancake_host_session_trace_id conn-ptr))
+      (define-values (rc id) (pancake_host_session_trace_id session-ptr))
       (when (zero? rc)
         (emit! (hasheq 'v 1 'sim_t_ns (now-ns)
                        'kind "ocapn.session-meta"
-                       'session (format "live-h~a-s~a" (cadr row) id)
+                       'session (format "live-h~a-s~a" (trace-host-cookie row) id)
                        'meta (hasheq 'label label)))))))
 
 (define (callback!)
-  (unless (unbox native-cb) (set-box! native-cb on-native-event))
+  (unless (unbox native-cb)
+    (set-box! native-cb (function-ptr on-native-event _PancakeTraceCallback)))
   (unbox native-cb))
 
 (define (cookie->ctx cookie) (cast cookie _intptr _pointer))
@@ -203,29 +262,50 @@
 ;; the native tap on every live host (a host minted later registers itself).
 ;; Returns an uninstall thunk that also clears the native tap.
 (define (enable-trace! next #:self-label [label #f])
-  (set-box! sink next)
-  (set-box! self-label label)
-  (set-box! t0 (current-inexact-monotonic-milliseconds))
-  (for ([row (in-list (unbox hosts))])
-    (pancake_host_set_trace (car row) (callback!) (cookie->ctx (cadr row))))
+  (with-registry
+   (lambda ()
+     (set-box! sink next)
+     (set-box! self-label label)
+     (set-box! t0 (current-inexact-monotonic-milliseconds))
+     (set-box! trace-generation (add1 (unbox trace-generation)))))
+  (for ([entry (in-list (live-hosts))])
+    (apply-current-trace! (car entry) (cdr entry)))
   (lambda ()
-    (when (eq? (unbox sink) next)
-      (set-box! sink #f)
-      (for ([row (in-list (unbox hosts))])
-        (pancake_host_set_trace (car row) #f #f)))))
+    (define changed?
+      (with-registry
+       (lambda ()
+         (cond
+           [(eq? (unbox sink) next)
+            (set-box! sink #f)
+            (set-box! trace-generation (add1 (unbox trace-generation)))
+            #t]
+           [else #f]))))
+    (when changed?
+      (for ([entry (in-list (live-hosts))])
+        (apply-current-trace! (car entry) (cdr entry))))))
 
-;; Binding-internal: a host reports its raw pointer and its own key designator
-;; at mint so an installed trace covers it, and a trace installed later finds
-;; it.
-(define (trace-attach-host! ptr [designator ""])
-  (define cookie (unbox next-cookie))
-  (set-box! next-cookie (add1 cookie))
-  (set-box! hosts (cons (list* ptr cookie designator) (unbox hosts)))
-  (when (unbox sink)
-    (pancake_host_set_trace ptr (callback!) (cookie->ctx cookie))))
+;; Binding-internal: a host reports its owner, serialized installer, and own key
+;; designator at mint so an installed trace covers it, and a trace installed
+;; later finds it without retaining it.
+(define (trace-attach-host! owner install! [designator ""])
+  (define row
+    (with-registry
+     (lambda ()
+       (define cookie (unbox next-cookie))
+       (set-box! next-cookie (add1 cookie))
+       (define fresh (trace-host (make-weak-box owner) cookie designator install!))
+       (set-box! hosts (cons fresh (unbox hosts)))
+       fresh)))
+  (apply-current-trace! owner row))
 
 ;; Binding-internal: a released host leaves the registry. The core dropped
 ;; its own sink row with the host, so no native call is needed.
-(define (trace-detach-host! ptr)
-  (set-box! hosts (filter (lambda (row) (not (eq? (car row) ptr)))
-                          (unbox hosts))))
+(define (trace-detach-host! owner)
+  (with-registry
+   (lambda ()
+     (set-box!
+      hosts
+      (filter (lambda (row)
+                (define candidate (weak-box-value (trace-host-owner row)))
+                (and candidate (not (eq? candidate owner))))
+              (unbox hosts))))))

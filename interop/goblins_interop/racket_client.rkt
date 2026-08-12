@@ -36,14 +36,14 @@
   (printf "racket-goblins-interop: goblins published its echo sturdyref path on ~a:~a\n" HOST PORT)
 
   (define locator (tcp-locator HOST PORT))
-  (define conn (connect locator))
+  (define session (connect locator))
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 
   ;; A sturdyref names a peer, and the enliven checks that peer against the
   ;; session it rides (ADR-0098). Build it from the very locator this session
   ;; dialed, so the two cannot drift apart.
   (define sturdyref (string-append locator "/s/" sturdyref-path))
-  (define echo (session-enliven conn sturdyref))
+  (define echo (session-enliven session sturdyref))
   (printf "racket-goblins-interop: enlivened goblins echo cap, calling it\n")
 
   ;; The echo actor is `(lambda args args)`: it returns its argument list, so
@@ -52,15 +52,15 @@
     (unless (equal? reply (list expected))
       (error 'racket-goblins-interop
              "echo returned ~v, expected ~v" reply (list expected))))
-  (assert-echoed (session-send conn echo (string->symbol "") #"pancake-ping")
+  (assert-echoed (session-send session echo (string->symbol "") #"pancake-ping")
                  #"pancake-ping")
 
-  (define again (session-enliven conn sturdyref))
+  (define again (session-enliven session sturdyref))
   (unless (and (ref? echo) (ref? again)
                (= (ref-id echo) (ref-id again)))
     (error 'racket-goblins-interop
            "repeat enliven did not return the same Host identity (dedup miss)"))
-  (assert-echoed (session-send conn again (string->symbol "") #"pancake-ping-again")
+  (assert-echoed (session-send session again (string->symbol "") #"pancake-ping-again")
                  #"pancake-ping-again")
   (printf "racket-goblins-interop: repeat enliven same Host identity (dedup), second call resolved\n")
 
@@ -71,12 +71,12 @@
   ;; back. Both projections are minted before either is awaited, so each rides
   ;; the unsettled call answer and the two differing values pin which field was
   ;; asked for.
-  (define record (session-fetch conn RECORD-SWISS))
-  (define made (session-send-promise conn record (string->symbol "") "pancake-get"))
-  (define name-vow (session-get conn made "name"))
-  (define kind-vow (session-get conn made "kind"))
+  (define record (session-fetch session RECORD-SWISS))
+  (define made (session-send-promise session record (string->symbol "") "pancake-get"))
+  (define name-vow (session-get session made "name"))
+  (define kind-vow (session-get session made "kind"))
   (define (assert-projected vow field expected)
-    (define got (session-await conn vow))
+    (define got (session-await session vow))
     (unless (equal? got expected)
       (error 'racket-goblins-interop
              "op:get on ~v projected ~v, expected ~v" field got expected)))
@@ -85,5 +85,5 @@
   (printf "racket-goblins-interop: op:get projected name and kind out of goblins' Struct reply\n")
 
   (printf "racket-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins\n")
-  (session-close! conn)
+  (session-close! session)
   (subprocess-kill proc #t))

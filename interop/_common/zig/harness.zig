@@ -236,7 +236,10 @@ pub fn AcceptServeOne(
         ) anyerror!void {
             var scaffold = try PeerScaffold.init(allocator, frame_cap);
             defer scaffold.deinit();
-            var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, .unbounded);
+            var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, .{
+                .handshake = .unbounded,
+                .settle = .unbounded,
+            });
             defer cv.deinit();
             if (banner) |line| std.debug.print("{s}\n", .{line});
             _ = try cv.publish(swiss, Actor, .{});
@@ -270,3 +273,7 @@ pub fn LoopRunner(comptime Loop: type) type {
         }
     };
 }
+
+/// A Tor daemon a driver starts and owns, for the live onion checks. It lives in
+/// its own file because it is a process bracket rather than a CapTP helper.
+pub const Tor = @import("tor.zig").Tor;

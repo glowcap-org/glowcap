@@ -25,16 +25,16 @@
 
 import type { Host } from "./host.ts";
 import { Session } from "./session.ts";
-import { TRANSPORT_KEYED_RELAY } from "./locator.ts";
+import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "./locator.ts";
 import { webSocketChannel } from "./ws_channel.ts";
+import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 
-// The keyed transport the rendezvous handshake runs under: the identity is a key
-// designator (`Host.designator`, 64 hex), there is no dialable address, and the
-// byte channel is the relay WebSocket. The keyed handshake authenticates the
-// designator; the dialing side reaches it through the host's configured
-// rendezvous mapping on the same symbol, so both ends must name the one source
-// of truth for it — the locator parsed into the core's rendezvous plan names it.
-const RENDEZVOUS_TRANSPORT = TRANSPORT_KEYED_RELAY;
+/** The two wire profiles the relay rendezvous can carry. Required at the API
+ * boundary so registration, the Host's advertised locator, and accepted
+ * sessions cannot silently disagree about whether the byte pipe is sealed. */
+export type RendezvousTransport =
+	| typeof TRANSPORT_KEYED_RELAY
+	| typeof TRANSPORT_NOISE_RELAY;
 
 // How many inbound sockets to hold ready at once, so a burst of cold-dials does
 // not race a window where none is registered. A bridge consumes one; the pool
@@ -49,7 +49,16 @@ const REPLENISH_BACKOFF_MS = 1_000;
 /** A running rendezvous registration. `stop` ends it and closes every held
  * socket. */
 export interface RendezvousHandle {
+	/** The complete locator installed on the Host and advertised to peers. */
+	readonly locator: Locator;
 	stop(): void;
+}
+
+/** The two URLs a rendezvous owner must distinguish: registration is the
+ * local socket it opens; relay is the route peers must receive in its locator. */
+export interface RendezvousRoute {
+	registerUrl(designator: string): string;
+	relayUrl: string;
 }
 
 /**
@@ -61,10 +70,24 @@ export interface RendezvousHandle {
  */
 export function serveRendezvous(
 	host: Host,
-	registerUrl: (designator: string) => string,
+	transport: RendezvousTransport,
+	route: RendezvousRoute,
 	opts: { pool?: number; onError?: (err: unknown) => void } = {},
 ): RendezvousHandle {
+	if (transport !== TRANSPORT_KEYED_RELAY && transport !== TRANSPORT_NOISE_RELAY) {
+		throw new TypeError(`unsupported rendezvous transport ${transport}`);
+	}
 	const designator = host.designator();
+	// The registration is the reachability owner, so it publishes the same
+	// complete locator its accepted sessions use. Callers cannot set one symbol
+	// and accidentally accept on the other.
+	const locator: Locator = {
+		transport,
+		designator,
+		hints: new Map([["rendezvous-relay", route.relayUrl]]),
+		hintWireForm: "map",
+	};
+	host.setAdvertisedLocator(locator);
 	const pool = opts.pool ?? DEFAULT_POOL;
 	const onError = opts.onError ?? (() => {});
 	let stopped = false;
@@ -74,7 +97,7 @@ export function serveRendezvous(
 		if (stopped) return;
 		let ws: WebSocket;
 		try {
-			ws = new WebSocket(registerUrl(designator));
+			ws = new WebSocket(route.registerUrl(designator));
 		} catch (err) {
 			onError(err);
 			if (!stopped) setTimeout(registerOne, REPLENISH_BACKOFF_MS);
@@ -106,10 +129,12 @@ export function serveRendezvous(
 			// a hang.
 			Session.establishAccepted(
 				host,
-				RENDEZVOUS_TRANSPORT,
-				designator,
-				webSocketChannel(ws),
-				"",
+				{
+					transport,
+					designatorScheme: DESIGNATOR_SCHEME_KEY,
+					serverDesignator: designator,
+					channel: webSocketChannel(ws),
+				},
 				0,
 			)
 				.then((session) => {
@@ -130,6 +155,7 @@ export function serveRendezvous(
 
 	for (let i = 0; i < pool; i++) registerOne();
 	return {
+		locator,
 		stop() {
 			stopped = true;
 			for (const ws of held) {

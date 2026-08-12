@@ -22,8 +22,8 @@
  *
  * Cases, in priority order:
  *
- *   1. Armed two-click — "Open session — click a second peer (from alice)"
- *   2. Pre-armed two-click — "Open session — click the first peer"
+ *   1. Armed two-click — "Open session — click a second node (from alice)"
+ *   2. Pre-armed two-click — "Open session — click the first node"
  *   3. Add peer — "Add peer — click empty canvas"
  *   4. Select / others — null (no banner)
  */
@@ -34,8 +34,8 @@ import { c, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 export function ToolHint(
   { tool, armedNodeLabel, spaceHeld }: {
     tool: BuilderTool;
-    /** Display label of the armed peer (label ?? id) when in the
-     *  two-click ARMED state for open-session / send-message;
+    /** Display label of the armed node (peer or loose end) when in
+     *  the two-click ARMED state for open-session / send-message;
      *  null when unarmed or when the tool has no two-click flow. */
     armedNodeLabel: string | null;
     /** Whether the spacebar is currently held — overrides the
@@ -49,10 +49,10 @@ export function ToolHint(
   let message: React.ReactNode = null;
   if (tool === "open-session") {
     message = armedNodeLabel === null
-      ? "Open session — click the first peer"
+      ? "Open session — click the first node"
       : (
         <>
-          Open session — click a second peer{" "}
+          Open session — click a second node{" "}
           <span style={accent}>(from {armedNodeLabel})</span>
         </>
       );

@@ -53,118 +53,6 @@ pub fn checkTransportVocabulary(
     }
 }
 
-/// The model's designator-scheme policy must agree with each transport
-/// resident's `designator_scheme`; the driver wrapper must delegate to that
-/// policy rather than restating it.
-pub fn checkDesignatorSchemeSync(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const Transport = struct {
-        name: []const u8,
-        path: []const u8,
-    };
-    const transports = [_]Transport{
-        .{ .name = "tcp", .path = "src/net/transport/tcp.zig" },
-        .{ .name = "keyed-tcp", .path = "src/net/transport/tcp_keyed.zig" },
-        .{ .name = "inproc", .path = "src/net/transport/inproc.zig" },
-        .{ .name = "iroh", .path = "src/net/transport/iroh.zig" },
-        .{ .name = "webrtc", .path = "src/net/transport/webrtc.zig" },
-        .{ .name = "keyed-relay", .path = "src/net/transport/keyed_relay.zig" },
-    };
-
-    const vocab_path = "src/driver/core/vocab.zig";
-    const vocab = root.readFileAlloc(io, vocab_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for designator-scheme sync with {s}", .{ vocab_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(vocab);
-
-    const vocab_body = fnBody(vocab, "pub fn designatorSchemeForTransport") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `pub fn designatorSchemeForTransport`", .{vocab_path});
-        return;
-    };
-    if (std.mem.indexOf(u8, vocab_body, "return model.transport.designatorScheme(transport);") == null) {
-        try appendViolation(gpa, violations, "{s}: designatorSchemeForTransport must delegate to model.transport.designatorScheme", .{vocab_path});
-    }
-
-    const policy_path = "src/ocapn/model/transport.zig";
-    const policy = root.readFileAlloc(io, policy_path, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read designator-scheme policy with {s}", .{ policy_path, @errorName(err) });
-        return;
-    };
-    defer gpa.free(policy);
-    const fn_body = fnBody(policy, "pub fn designatorScheme") orelse {
-        try appendViolation(gpa, violations, "{s}: missing `pub fn designatorScheme`", .{policy_path});
-        return;
-    };
-
-    for (transports) |t| {
-        const policy_scheme = designatorSchemeFromPolicyBody(fn_body, t.name);
-        const resident = root.readFileAlloc(io, t.path, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for designator-scheme sync with {s}", .{ t.path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(resident);
-
-        const resident_scheme = designatorSchemeFromResident(resident);
-        if (!std.mem.eql(u8, policy_scheme, resident_scheme)) {
-            try appendViolation(
-                gpa,
-                violations,
-                "designator-scheme mismatch for `{s}`: model.transport.designatorScheme → .{s}, but {s} resident declaration → .{s}",
-                .{ t.name, policy_scheme, t.path, resident_scheme },
-            );
-        }
-    }
-
-    // Every explicit policy arm must name a shipped transport.
-    var search: usize = 0;
-    while (std.mem.indexOfPos(u8, fn_body, search, "transport, ")) |at| {
-        const after = fn_body[at + "transport, ".len ..];
-        const end = std.mem.indexOfScalar(u8, after, ')') orelse break;
-        const field = std.mem.trim(u8, after[0..end], " \t\r\n");
-        const name = transportNameFromField(field) orelse {
-            try appendViolation(gpa, violations, "{s}: designatorScheme names unknown transport constant `{s}`", .{ policy_path, field });
-            search = at + 1;
-            continue;
-        };
-        var known = false;
-        for (transports) |t| {
-            if (std.mem.eql(u8, t.name, name)) {
-                known = true;
-                break;
-            }
-        }
-        if (!known) {
-            try appendViolation(
-                gpa,
-                violations,
-                "{s}: designatorScheme names unknown transport `{s}` — add a netlayer resident or drop the arm",
-                .{ policy_path, name },
-            );
-        }
-        search = at + 1;
-    }
-
-    // Residents must alias `transport_name` to `model.transport.*` (one symbol table).
-    for (transports) |t| {
-        const resident = root.readFileAlloc(io, t.path, gpa, .limited(1 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for transport_name alias check with {s}", .{ t.path, @errorName(err) });
-            continue;
-        };
-        defer gpa.free(resident);
-        const field = transportSymbolField(t.name);
-        var alias_buf: [96]u8 = undefined;
-        const alias = std.fmt.bufPrint(&alias_buf, "model.transport.{s}", .{field}) catch continue;
-        if (std.mem.indexOf(u8, resident, alias) == null) {
-            try appendViolation(gpa, violations, "{s}: `transport_name` must alias `{s}` — one model.transport symbol table", .{ t.path, alias });
-        }
-    }
-}
-
 /// A dial target and an authenticated far end are separate facts. Only code
 /// that realized the connection may state the latter (ADR-0105, ADR-0109).
 ///
@@ -251,6 +139,7 @@ pub fn checkDurablePinWriters(
                 "src/net/transport/iroh.zig",
                 "src/net/transport/webrtc.zig",
                 "src/driver/bridge.zig",
+                "src/driver/host_runtime.zig",
                 "src/driver/core/host.zig",
                 "src/c_abi/host/session.zig",
             },
@@ -489,93 +378,6 @@ pub fn checkHostErrorCodeMap(
             .{declaring},
         );
     }
-}
-
-fn fnBody(source: []const u8, decl: []const u8) ?[]const u8 {
-    const fn_start = std.mem.indexOf(u8, source, decl) orelse return null;
-    const after_fn = source[fn_start..];
-    const body_open = std.mem.indexOfScalar(u8, after_fn, '{') orelse return null;
-    const body = after_fn[body_open..];
-    const body_close = std.mem.indexOfScalar(u8, body, '}') orelse return null;
-    return body[0 .. body_close + 1];
-}
-
-fn transportNameFromField(field: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, field, "tcp")) return "tcp";
-    if (std.mem.eql(u8, field, "keyed_tcp")) return "keyed-tcp";
-    if (std.mem.eql(u8, field, "inproc")) return "inproc";
-    if (std.mem.eql(u8, field, "iroh")) return "iroh";
-    if (std.mem.eql(u8, field, "webrtc")) return "webrtc";
-    if (std.mem.eql(u8, field, "keyed_relay")) return "keyed-relay";
-    return null;
-}
-
-fn designatorSchemeFromPolicyBody(fn_body: []const u8, transport: []const u8) []const u8 {
-    // Match the model policy's `transport, NAME)` arms, plus the former driver
-    // forms so this diagnostic remains useful while a move is incomplete.
-    var buf: [128]u8 = undefined;
-    const policy_needle = std.fmt.bufPrint(&buf, "transport, {s})", .{transportSymbolField(transport)}) catch return "address";
-    if (schemeReturnAfterNeedle(fn_body, policy_needle)) |scheme| return scheme;
-    const model_needle = std.fmt.bufPrint(&buf, "transport, model.transport.{s})", .{transportSymbolField(transport)}) catch return "address";
-    if (schemeReturnAfterNeedle(fn_body, model_needle)) |scheme| return scheme;
-    const lit_needle = std.fmt.bufPrint(&buf, "transport, \"{s}\")", .{transport}) catch return "address";
-    if (schemeReturnAfterNeedle(fn_body, lit_needle)) |scheme| return scheme;
-    return "address";
-}
-
-fn transportSymbolField(transport: []const u8) []const u8 {
-    if (std.mem.eql(u8, transport, "tcp")) return "tcp";
-    if (std.mem.eql(u8, transport, "keyed-tcp")) return "keyed_tcp";
-    if (std.mem.eql(u8, transport, "inproc")) return "inproc";
-    if (std.mem.eql(u8, transport, "iroh")) return "iroh";
-    if (std.mem.eql(u8, transport, "keyed-relay")) return "keyed_relay";
-    return transport;
-}
-
-fn schemeReturnAfterNeedle(fn_body: []const u8, needle: []const u8) ?[]const u8 {
-    const at = std.mem.indexOf(u8, fn_body, needle) orelse return null;
-    const after = fn_body[at + needle.len ..];
-    if (std.mem.indexOf(u8, after, "return .key")) |k| {
-        if (std.mem.indexOf(u8, after, "return .address")) |a| {
-            if (a < k) return "address";
-        }
-        if (std.mem.indexOf(u8, after, "\nif ")) |next_if| {
-            if (k < next_if) return "key";
-        } else return "key";
-    }
-    if (std.mem.indexOf(u8, after, "return .address")) |_| return "address";
-    return null;
-}
-
-/// Read a resident's explicit `designator_scheme`, preferring the Netlayer
-/// vtable and accepting a direct declaration for a signaling-only resident.
-/// Absence means the VTable default (`.address`).
-fn designatorSchemeFromResident(source: []const u8) []const u8 {
-    // Prefer the first Netlayer.VTable literal; keyed-tcp/iroh set `.key`
-    // there. Listener vtables may repeat the same field and must not confuse
-    // an address-scheme resident.
-    const markers = [_][]const u8{
-        "const resident_vtable: Netlayer.VTable",
-        "const resident_vtable: net.netlayer.Netlayer.VTable",
-        "const netlayer_vtable = Netlayer.VTable",
-        "const netlayer_vtable: Netlayer.VTable",
-    };
-    var vtable_region: ?[]const u8 = null;
-    for (markers) |marker| {
-        if (std.mem.indexOf(u8, source, marker)) |at| {
-            const rest = source[at..];
-            const open = std.mem.indexOfScalar(u8, rest, '{') orelse continue;
-            const close = std.mem.indexOfScalar(u8, rest[open..], '}') orelse continue;
-            vtable_region = rest[open .. open + close + 1];
-            break;
-        }
-    }
-    const region = vtable_region orelse source;
-    if (std.mem.indexOf(u8, region, ".designator_scheme = .key") != null) return "key";
-    if (std.mem.indexOf(u8, region, ".designator_scheme = .address") != null) return "address";
-    if (std.mem.indexOf(u8, source, "pub const designator_scheme: net.netlayer.DesignatorScheme = .key") != null) return "key";
-    if (std.mem.indexOf(u8, source, "pub const designator_scheme: net.netlayer.DesignatorScheme = .address") != null) return "address";
-    return "address";
 }
 
 /// The reference relays (the Deno, Python, and Racket rows of the
@@ -1104,7 +906,9 @@ pub fn checkCaptpVocabulary(
     // Resurrected symbols / exports — not prose.
     const SymbolBan = struct { path: []const u8, needle: []const u8, reason: []const u8 };
     const symbol_bans = [_]SymbolBan{
-        .{ .path = "src/driver/core/host.zig", .needle = "pub fn hasSelfDesignator", .reason = "unused; callers use setSelfDesignator + selfDesignator" },
+        .{ .path = "src/driver/core/host.zig", .needle = "pub fn setSelfDesignator", .reason = "advertised locators are the sole route authority; no parallel designator setter" },
+        .{ .path = "src/driver/core/host.zig", .needle = "self_designator:", .reason = "advertised locators are the sole route authority; no parallel designator storage" },
+        .{ .path = "src/c_abi/host/host.zig", .needle = "pancake_host_set_self_designator", .reason = "the C ABI publishes complete locators; no parallel designator setter" },
         .{ .path = "src/driver/core/host.zig", .needle = "pub fn vowConn", .reason = "unused; C ABI / bindings use vowConnClosing path, not ConnId lookup" },
         .{ .path = "src/driver/core/host_pump.zig", .needle = "pub fn execNodeAction", .reason = "host_pump-private; only called inside host_pump" },
         .{ .path = "src/driver/core/host_pump.zig", .needle = "pub fn dialActionFields", .reason = "host_pump-private; only called inside host_pump" },
@@ -1114,7 +918,6 @@ pub fn checkCaptpVocabulary(
         .{ .path = "src/driver/core/host_pump.zig", .needle = "pub fn drainWork", .reason = "host_pump-private; only called from finishVerb" },
         .{ .path = "src/net/mod.zig", .needle = "pub const FrameError = frame_stream.FrameError", .reason = "frame_stream-internal; not a net barrel export" },
         .{ .path = "src/net/mod.zig", .needle = "pub const drainWholeFrames = frame_stream.drainWholeFrames", .reason = "frame_stream-internal; not a net barrel export" },
-        .{ .path = "src/driver/core/mod.zig", .needle = "pub const requiresDirectAddressesHint = vocab.requiresDirectAddressesHint", .reason = "use vocab.requiresDirectAddressesHint; not a driver_core barrel export" },
         .{ .path = "src/driver/core/mod.zig", .needle = "pub const DialPlanError = dial_plan.Error", .reason = "unused barrel export; dial_plan.Error stays module-local" },
         .{ .path = "src/driver/core/mod.zig", .needle = "pub const DialReach = dial_plan.Reach", .reason = "unused barrel export; dial_plan.Reach stays module-local" },
         .{ .path = "test/support/wait.zig", .needle = "pub const Signal = struct", .reason = "unused; use untilFlag" },
@@ -1409,34 +1212,6 @@ fn initializedPositive(file: []const u8, args: []const u8, field: []const u8) bo
     return false;
 }
 
-/// Whether the last argument of `args` is a positive value.
-///
-/// The buffer-explicit constructors take their handshake budget positionally,
-/// not as a field, so the field-shaped test above cannot see them at all. They
-/// are the openers that most need seeing: `acceptTcp` does not choose who
-/// connects to it, so an unbounded budget there is a stranger holding the
-/// accept for as long as it likes.
-fn lastArgumentPositive(file: []const u8, args: []const u8) bool {
-    // `zig fmt` requires a trailing comma once an argument list wraps, so the
-    // last comma of a multi-line call is followed by nothing. Trim it, or the
-    // check reports a violation the moment an example is reformatted.
-    const list = std.mem.trimEnd(u8, args, " \t\r\n,");
-    // The last top-level comma, so a nested call's arguments do not split this
-    // one.
-    var depth: usize = 0;
-    var last: ?usize = null;
-    for (list, 0..) |ch, i| switch (ch) {
-        '(', '[', '{' => depth += 1,
-        ')', ']', '}' => depth -|= 1,
-        ',' => if (depth == 0) {
-            last = i;
-        },
-        else => {},
-    };
-    const at = last orelse return false;
-    return valuePositive(file, list[at + 1 ..], true);
-}
-
 /// The argument list of a call whose opener ends at `at`, found by matching
 /// parens. Skips string and character literals, because a `(` inside a locator
 /// string would otherwise unbalance the walk and silently widen the result to
@@ -1480,11 +1255,7 @@ pub fn checkExampleCaptpDeadlines(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    // Two shapes, because the surface has two. The owning constructors take a
-    // `SessionOptions` with both budgets as fields; the buffer-explicit ones
-    // take the handshake budget positionally, and their settle budget is set on
-    // the returned session afterwards.
-    const positional_openers = [_][]const u8{ "driver.connectTcp(", "driver.acceptTcp(", "driver.connectUri(" };
+    const explicit_openers = [_][]const u8{ "driver.connectTcp(", "driver.acceptTcp(", "driver.connectUri(" };
     var dir = root.openDir(io, "examples/zig", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "examples/zig: failed to open for CapTP-deadline check with {s}", .{@errorName(err)});
         return;
@@ -1517,32 +1288,18 @@ pub fn checkExampleCaptpDeadlines(
                 }
             }
         }
-        for (positional_openers) |opener| {
+        for (explicit_openers) |opener| {
             var at: usize = 0;
             while (std.mem.indexOfPos(u8, contents, at, opener)) |hit| {
                 at = hit + opener.len;
                 const args = callArguments(contents, at);
-                if (lastArgumentPositive(contents, args)) continue;
                 const line_no = std.mem.count(u8, contents[0..hit], "\n") + 1;
-                try appendViolation(gpa, violations, "{s}:{d}: `{s}` opens a session without a bounded handshake budget in its last argument — `.unbounded` waits forever, and a reader copies this line", .{ path, line_no, opener });
-            }
-            // The settle budget is not an argument of these: it is a field
-            // that defaults to `.unbounded` on the session they return, so the
-            // compiler forces nothing and an example that never sets it
-            // teaches the unbounded wait silently. This is file-scoped on
-            // purpose and the message says so — binding an assignment to the
-            // session a particular call returned means tracking the binding it
-            // was stored in, which is more Zig parsing than a scaffolding
-            // check should pretend to do. What it holds is that the file names
-            // one at all. `initializedPositive` alone: a field assignment on a
-            // session (`session.settle = .{ .ms = 10_000 };`) has the same
-            // leading dot as a struct initializer, so it matches, and the
-            // value grammar still refuses `.unbounded` and a non-positive
-            // `.ms`.
-            if (std.mem.indexOf(u8, contents, opener) != null and
-                !initializedPositive(contents, contents, "settle"))
-            {
-                try appendViolation(gpa, violations, "{s}: uses `{s}` and nowhere in the file sets a bounded `settle` budget, so every wait after the handshake waits forever", .{ path, opener });
+                if (!initializedPositive(contents, args, "handshake")) {
+                    try appendViolation(gpa, violations, "{s}:{d}: `{s}` opens a session without a bounded `.handshake` option; a silent peer can park the call", .{ path, line_no, opener });
+                }
+                if (!initializedPositive(contents, args, "settle")) {
+                    try appendViolation(gpa, violations, "{s}:{d}: `{s}` opens a session without a bounded `.settle` option; a silent peer can park a later wait", .{ path, line_no, opener });
+                }
             }
         }
     }
@@ -1652,7 +1409,7 @@ pub fn checkCaptpLabUxHonesty(
     });
     try expectFileContains(io, gpa, root, violations, "cli/app/rooms_peer/peer.zig", &.{
         "registerWithDirectory",
-        "startIntroduce",
+        "startIntroduce(state, parsed.peer);",
         "offerInboxFor",
     });
 }
@@ -1725,8 +1482,9 @@ test "mentionsVerbInCode matches bare, call, and receiver-method phrasings" {
 /// Every other re-export in that root (`Served`, `Error`, `Settled`,
 /// `Identity`, `Capability`) forwards the core's type, so a reader learns the
 /// rule "driver.X is driver_core.X" and then meets one that is not. The
-/// owning face was `driver.Host` shadowing `driver_core.Host` until ADR-0090's
-/// follow-up renamed it `PollHost`; nothing but this check stops the next one.
+/// owning face was `driver.Host` shadowing `driver_core.Host` until the
+/// ownership-vocabulary pass renamed it `HostRuntime`; nothing but this check
+/// stops the next one.
 /// Textual on purpose: the two roots are separate modules, so a reflection
 /// check would have to import both into the scaffolding build.
 pub fn checkDriverRootShadow(
@@ -1766,7 +1524,7 @@ pub fn checkDriverRootShadow(
         var want_buf: [160]u8 = undefined;
         const want = std.fmt.bufPrint(&want_buf, "driver_core.{s}", .{name}) catch continue;
         if (std.mem.eql(u8, value, want)) continue;
-        try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` shadows `driver_core.{s}` with `{s}`; every other re-export in this root forwards the core's type, so a name that does not must not reuse the core's spelling (ADR-0090 renamed the owning face `PollHost` for this reason)", .{ line_no, name, name, value });
+        try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` shadows `driver_core.{s}` with `{s}`; every other re-export in this root forwards the core's type, so a name that does not must not reuse the core's spelling (ADR-0113 names the owning face `HostRuntime` for this reason)", .{ line_no, name, name, value });
     }
 }
 
@@ -1828,18 +1586,15 @@ test "initializedPositive accepts only a bounded budget that closes its own init
     try std.testing.expect(!initializedPositive("", ".{ .handshake_hint = .{ .ms = 10_000 } }", "handshake"));
 }
 
-test "lastArgumentPositive survives the trailing comma zig fmt requires" {
-    try std.testing.expect(lastArgumentPositive("", "a, b, .{ .ms = 10_000 }"));
-    // The same call, wrapped, which is how every real one is written.
-    try std.testing.expect(lastArgumentPositive("", "\n    a,\n    b,\n    .{ .ms = 10_000 },\n"));
-    try std.testing.expect(!lastArgumentPositive("", "\n    a,\n    b,\n    .unbounded,\n"));
-    try std.testing.expect(!lastArgumentPositive("", "\n    a,\n    b,\n    .{ .ms = 0 },\n"));
-    // A named budget resolved against the file's own constants, the form an
-    // example should teach.
-    const file = "const handshake_budget: driver.Budget = .{ .ms = 10_000 };";
-    try std.testing.expect(lastArgumentPositive(file, "a, b, handshake_budget"));
-    const unbounded_file = "const handshake_budget: driver.Budget = .unbounded;";
-    try std.testing.expect(!lastArgumentPositive(unbounded_file, "a, b, handshake_budget"));
+test "buffer-explicit session options require both bounded waits" {
+    const file =
+        "const handshake_budget: driver.Budget = .{ .ms = 9 };\n" ++
+        "const settle_budget: driver.Budget = .{ .ms = 10 };";
+    const bounded = "a, b, .{ .handshake = handshake_budget, .settle = settle_budget }";
+    try std.testing.expect(initializedPositive(file, bounded, "handshake"));
+    try std.testing.expect(initializedPositive(file, bounded, "settle"));
+    const unbounded = "a, b, .{ .handshake = .unbounded, .settle = .{ .ms = 10 } }";
+    try std.testing.expect(!initializedPositive(file, unbounded, "handshake"));
 }
 
 test "callArguments fails closed on an unbalanced call" {
@@ -1850,13 +1605,6 @@ test "callArguments fails closed on an unbalanced call" {
     try std.testing.expectEqual(@as(usize, 0), callArguments(src, 9).len);
     const closed = "x = open(a, .handshake = .{ .ms = 5 })";
     try std.testing.expect(callArguments(closed, 9).len > 0);
-}
-
-test "a settle budget assigned on the session is read, and an unbounded one refused" {
-    const positive = "var s = driver.connectTcp(a, b, .{ .ms = 9 });\ns.settle = .{ .ms = 10_000 };";
-    try std.testing.expect(initializedPositive(positive, positive, "settle"));
-    const unbounded = "var s = driver.connectTcp(a, b, .{ .ms = 9 });\ns.settle = .unbounded;";
-    try std.testing.expect(!initializedPositive(unbounded, unbounded, "settle"));
 }
 
 test "blankComments erases comments without mistaking a locator for one" {

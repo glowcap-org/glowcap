@@ -19,23 +19,23 @@ function greeter(verb: string, _args: unknown[]): string | null {
 }
 
 async function serveOnce(server: KeyedTcpServer): Promise<void> {
-	for await (const conn of server) {
-		conn.publish("greeter", greeter);
-		conn.serve();
+	for await (const session of server) {
+		session.publish("greeter", greeter);
+		session.serve();
 		return;
 	}
 }
 
 async function callGreeter(uri: string): Promise<void> {
-	const conn = await connect(uri);
+	const session = await connect(uri);
 	try {
-		const ref = await conn.fetch("greeter");
-		const reply = await conn.send(ref, "greet", []);
+		const ref = await session.fetch("greeter");
+		const reply = await session.send(ref, "greet", []);
 		if (reply !== GREETING) {
 			throw new Error(`unexpected greeting: ${JSON.stringify(reply)}`);
 		}
 	} finally {
-		conn.close();
+		session.close();
 	}
 }
 

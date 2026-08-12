@@ -13,9 +13,16 @@
  * document-shaped state and subscribes there re-renders sixty times a second
  * to paint the same words.
  *
- * `useEngineVersion` for anything that follows the world — the entities on
- * stage, a message in flight, a session's current state. `useClockSnapshot`
- * for playhead-shaped state specifically.
+ * Inspector split (HUD vs live rows):
+ *
+ * - Section shells (`EntityDetails` / `EntityConnections`) use this plus
+ *   `useClockSnapshot` — document edits and playhead, not mid-drag pins.
+ * - Rows that track a pin or other mid-drag world coords use
+ *   `useEngineVersion` locally (`PositionRow` wrappers). Session and message
+ *   field panels do not: they have no pin to follow, and the shell's clock
+ *   already covers playhead-shaped lifecycle.
+ * - Do not put a whole Peer/Endpoint panel on `useEngineVersion` — that
+ *   re-reconciles every field group on every drag step.
  */
 
 import { useCallback, useSyncExternalStore } from "react";

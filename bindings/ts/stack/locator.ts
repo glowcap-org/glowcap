@@ -7,24 +7,39 @@ import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { L } from "./internal/layout.ts";
 import { ab, outPointer, outUsize, readBytes } from "./internal/seam.ts";
-import { BUFFER_TOO_SMALL, INVALID_ARGUMENT, OK } from "@pancake/abi";
+import {
+	BUFFER_TOO_SMALL,
+	HINT_BOOLEAN,
+	HINT_BYTES,
+	HINT_DIRECT_ADDRESSES,
+	HINT_INTEGER,
+	HINT_STRING,
+	HINTS_BOOLEAN_FALSE,
+	HINTS_MAP,
+	INVALID_ARGUMENT,
+	OK,
+	TRANSPORT_INPROC,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
+} from "@pancake/abi";
 import { check, PancakeError } from "./errors.ts";
 
-export const HINT_DIRECT_ADDRESSES = "direct-addresses";
-
-/** OCapN transport symbols; mirrors `model.transport.*`. */
-export const TRANSPORT_TCP = "tcp";
-export const TRANSPORT_KEYED_TCP = "keyed-tcp";
-export const TRANSPORT_INPROC = "inproc";
-export const TRANSPORT_IROH = "iroh";
-/** A peer named by key alone, reached through a relay rendezvous rather than a
- * dialable address (ADR-0088 cold-dial): a browser holds an inbound socket at a
- * relay under this key and a dialer is bridged onto it. */
-export const TRANSPORT_KEYED_RELAY = "keyed-relay";
-/** A peer named by key alone, reached over a WebRTC DataChannel opened through
- * a signaling exchange (ADR-0089): the dialing host's configured
- * `SignalingAuthority` carries the offer, answer, and candidates. */
-export const TRANSPORT_WEBRTC = "webrtc";
+export {
+	HINT_DIRECT_ADDRESSES,
+	TRANSPORT_INPROC,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY,
+	TRANSPORT_NOISE_TCP,
+	TRANSPORT_TCP,
+	TRANSPORT_WEBRTC,
+};
 
 //
 // The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN
@@ -33,13 +48,213 @@ export const TRANSPORT_WEBRTC = "webrtc";
 // FFI: parse copies every borrowed view into JS strings before releasing the
 // handle, and format renders through the same grammar.
 
-/** A parsed OCapN locator: the structured fields a `pancake_uri_parse_*` yields. */
+export type HintValue = string | Uint8Array<ArrayBuffer> | boolean | bigint;
+export type HintWireForm = "map" | "boolean-false";
+
+/** A complete OCapN locator. URI parsing yields string-valued hints; the
+ * driver/provider seam preserves every typed hint arm. */
 export interface Locator {
 	transport: string;
 	designator: string;
-	/** Empty for a peer URI; the swiss bytes for a sturdyref. */
-	swissnum: string;
-	hints: Map<string, string>;
+	hints: Map<string, HintValue>;
+	hintWireForm: HintWireForm;
+}
+
+/** A peer locator paired with its opaque authority-bearing swissnum. */
+export interface SturdyRef {
+	locator: Locator;
+	swissnum: Uint8Array<ArrayBuffer>;
+}
+
+/** Internal owner for the opaque locator handle exported by
+ * `libpancake_ocapn`. Driver and provider calls borrow only its POD view. */
+export class OwnedLocator {
+	#raw: Ptr;
+
+	private constructor(raw: Ptr) {
+		if (raw === NULL) {
+			throw new PancakeError(INVALID_ARGUMENT, "OCapN returned a null locator handle");
+		}
+		this.#raw = raw;
+	}
+
+	static create(locator: Locator): OwnedLocator {
+		const transport = new TextEncoder().encode(locator.transport);
+		const designator = new TextEncoder().encode(locator.designator);
+		const out = new Uint8Array(L.ptrSize);
+		check(s.pancake_locator_new(
+			ab(transport),
+			BigInt(transport.length),
+			ab(designator),
+			BigInt(designator.length),
+			locator.hintWireForm === "map" ? HINTS_MAP : HINTS_BOOLEAN_FALSE,
+			ab(out),
+		));
+		const owned = new OwnedLocator(outPointer(out));
+		try {
+			for (const [name, value] of locator.hints) {
+				const nameBytes = new TextEncoder().encode(name);
+				let rc: number;
+				if (typeof value === "string") {
+					const bytes = new TextEncoder().encode(value);
+					rc = s.pancake_locator_add_string(
+						owned.#raw,
+						ab(nameBytes),
+						BigInt(nameBytes.length),
+						ab(bytes),
+						BigInt(bytes.length),
+					);
+				} else if (value instanceof Uint8Array) {
+					rc = s.pancake_locator_add_bytes(
+						owned.#raw,
+						ab(nameBytes),
+						BigInt(nameBytes.length),
+						ab(value),
+						BigInt(value.length),
+					);
+				} else if (typeof value === "boolean") {
+					rc = s.pancake_locator_add_boolean(
+						owned.#raw,
+						ab(nameBytes),
+						BigInt(nameBytes.length),
+						value ? 1 : 0,
+					);
+				} else {
+					rc = s.pancake_locator_add_integer(
+						owned.#raw,
+						ab(nameBytes),
+						BigInt(nameBytes.length),
+						value,
+					);
+				}
+				check(rc);
+			}
+			return owned;
+		} catch (error) {
+			owned.release();
+			throw error;
+		}
+	}
+
+	static adopt(raw: Ptr): OwnedLocator {
+		return new OwnedLocator(raw);
+	}
+
+	static cloneView(view: Uint8Array<ArrayBuffer>): OwnedLocator {
+		const out = new Uint8Array(L.ptrSize);
+		check(s.pancake_locator_clone(ab(view), ab(out)));
+		return new OwnedLocator(outPointer(out));
+	}
+
+	borrowView(): Ptr {
+		if (this.#raw === NULL) {
+			throw new PancakeError(INVALID_ARGUMENT, "locator handle is released");
+		}
+		const out = new Uint8Array(L.ptrSize);
+		check(s.pancake_locator_borrow_view(this.#raw, ab(out)));
+		return outPointer(out);
+	}
+
+	release(): void {
+		if (this.#raw === NULL) return;
+		s.pancake_locator_release(this.#raw);
+		this.#raw = NULL;
+	}
+
+	value(): Locator {
+		if (this.#raw === NULL) {
+			throw new PancakeError(INVALID_ARGUMENT, "locator handle is released");
+		}
+		const countOut = new Uint8Array(L.ptrSize);
+		check(s.pancake_locator_hint_count(this.#raw, ab(countOut)));
+		const hints = new Map<string, HintValue>();
+		for (let index = 0; index < Number(outUsize(countOut)); index++) {
+			const bytes = new Uint8Array(L.LOCATOR_HINT_VIEW_SIZE);
+			check(s.pancake_locator_hint_at(this.#raw, BigInt(index), ab(bytes)));
+			const hint = new DataView(bytes.buffer);
+			const name = new TextDecoder().decode(readBytes(
+				L.getPtr(hint, L.LOCATOR_HINT_VIEW_NAME_OFF),
+				L.getUsize(hint, L.LOCATOR_HINT_VIEW_NAME_LEN_OFF),
+			));
+			const kind = hint.getUint32(L.LOCATOR_HINT_VIEW_KIND_OFF, true);
+			let value: HintValue;
+			if (kind === HINT_STRING) {
+				value = new TextDecoder().decode(readBytes(
+					L.getPtr(hint, L.LOCATOR_HINT_VIEW_BYTES_OFF),
+					L.getUsize(hint, L.LOCATOR_HINT_VIEW_BYTES_LEN_OFF),
+				));
+			} else if (kind === HINT_BYTES) {
+				value = new Uint8Array(readBytes(
+					L.getPtr(hint, L.LOCATOR_HINT_VIEW_BYTES_OFF),
+					L.getUsize(hint, L.LOCATOR_HINT_VIEW_BYTES_LEN_OFF),
+				));
+			} else if (kind === HINT_BOOLEAN) {
+				const raw = hint.getUint8(L.LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF);
+				if (raw > 1) {
+					throw new PancakeError(
+						INVALID_ARGUMENT,
+						"OCapN returned an invalid boolean hint",
+					);
+				}
+				value = raw !== 0;
+			} else if (kind === HINT_INTEGER) {
+				value = hint.getBigInt64(L.LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF, true);
+			} else {
+				throw new PancakeError(
+					INVALID_ARGUMENT,
+					`OCapN returned locator hint kind ${kind}, outside the typed hint ABI`,
+				);
+			}
+			hints.set(name, value);
+		}
+
+		const wireOut = new Uint8Array(4);
+		check(s.pancake_locator_hint_wire_form(this.#raw, ab(wireOut)));
+		const wire = new DataView(wireOut.buffer).getUint32(0, true);
+		if (wire !== HINTS_MAP && wire !== HINTS_BOOLEAN_FALSE) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"OCapN returned an unknown locator hint wire form",
+			);
+		}
+
+		return {
+			transport: readLocatorField(s.pancake_locator_transport, this.#raw),
+			designator: readLocatorField(s.pancake_locator_designator, this.#raw),
+			hints,
+			hintWireForm: wire === HINTS_MAP ? "map" : "boolean-false",
+		};
+	}
+}
+
+export function withOwnedLocator<T>(locator: Locator, use: (owned: OwnedLocator) => T): T {
+	const owned = OwnedLocator.create(locator);
+	try {
+		return use(owned);
+	} finally {
+		owned.release();
+	}
+}
+
+export function stringHint(locator: Locator, name: string): string | undefined {
+	const value = locator.hints.get(name);
+	return typeof value === "string" ? value : undefined;
+}
+
+/** Render a typed peer locator only when every hint has a lossless URI
+ * spelling. URI syntax cannot represent bytes, booleans, or integers. */
+export function formatLocatorUri(locator: Locator): string {
+	const hints = new Map<string, string>();
+	for (const [name, value] of locator.hints) {
+		if (typeof value !== "string") {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				`locator hint ${JSON.stringify(name)} has no lossless URI spelling`,
+			);
+		}
+		hints.set(name, value);
+	}
+	return formatPeerUri(locator.transport, locator.designator, hints);
 }
 
 // Read a (pointer, length) view pair the locator accessors fill, decoding the
@@ -68,61 +283,61 @@ function readLocatorField(
 	return readLocatorView(ptrBuf, lenBuf);
 }
 
-/** Parse an `ocapn://` URI into its structured locator fields. `sturdyref`
- * selects the `/s/<swiss>` grammar; the default reads a peer URI (empty
- * swissnum). Throws `PancakeError` for a malformed URI. */
-export function parseLocator(uri: string, sturdyref = false): Locator {
+/** Parse an `ocapn://` peer URI through the core grammar. */
+export function parseLocator(uri: string): Locator {
 	const uriBytes = new TextEncoder().encode(uri);
 	const outLoc = new Uint8Array(8);
-	const rc = sturdyref
-		? s.pancake_uri_parse_sturdyref(
-			ab(uriBytes),
-			BigInt(uriBytes.length),
-			ab(outLoc),
-		)
-		: s.pancake_uri_parse_peer(
-			ab(uriBytes),
-			BigInt(uriBytes.length),
-			ab(outLoc),
-		);
-	check(rc);
-	const loc = outPointer(outLoc);
-	if (loc === NULL) {
-		throw new PancakeError(
-			INVALID_ARGUMENT,
-			`uri parse returned no locator: ${uri}`,
-		);
-	}
+	check(s.pancake_uri_parse_peer(
+		ab(uriBytes),
+		BigInt(uriBytes.length),
+		ab(outLoc),
+	));
+	const owned = OwnedLocator.adopt(outPointer(outLoc));
 	try {
-		const hints = new Map<string, string>();
-		const countBuf = new Uint8Array(8);
-		check(s.pancake_locator_hint_count(loc, ab(countBuf)));
-		const count = Number(outUsize(countBuf));
-		for (let i = 0; i < count; i++) {
-			const kPtr = new Uint8Array(8),
-				kLen = new Uint8Array(8),
-				vPtr = new Uint8Array(8),
-				vLen = new Uint8Array(8);
-			check(
-				s.pancake_locator_hint_at(
-					loc,
-					BigInt(i),
-					ab(kPtr),
-					ab(kLen),
-					ab(vPtr),
-					ab(vLen),
-				),
-			);
-			hints.set(readLocatorView(kPtr, kLen), readLocatorView(vPtr, vLen));
+		return owned.value();
+	} finally {
+		owned.release();
+	}
+}
+
+/** Parse an `ocapn://.../s/<swiss>` sturdyref without losing authority. */
+export function parseSturdyRef(uri: string): SturdyRef {
+	const uriBytes = new TextEncoder().encode(uri);
+	const out = new Uint8Array(L.ptrSize);
+	check(s.pancake_uri_parse_sturdyref(
+		ab(uriBytes),
+		BigInt(uriBytes.length),
+		ab(out),
+	));
+	const raw = outPointer(out);
+	try {
+		const viewOut = new Uint8Array(L.ptrSize);
+		check(s.pancake_sturdyref_borrow_locator(raw, ab(viewOut)));
+		const view = outPointer(viewOut);
+		if (view === NULL) {
+			throw new PancakeError(INVALID_ARGUMENT, "OCapN returned a null sturdyref locator");
 		}
+		const ownedLocator = OwnedLocator.cloneView(
+			new Uint8Array(ffi.readMemory(view, L.LOCATOR_VIEW_SIZE)),
+		);
+		let locator: Locator;
+		try {
+			locator = ownedLocator.value();
+		} finally {
+			ownedLocator.release();
+		}
+
+		const ptrOut = new Uint8Array(L.ptrSize);
+		const lenOut = new Uint8Array(L.ptrSize);
+		check(s.pancake_sturdyref_swissnum(raw, ab(ptrOut), ab(lenOut)));
 		return {
-			transport: readLocatorField(s.pancake_locator_transport, loc),
-			designator: readLocatorField(s.pancake_locator_designator, loc),
-			swissnum: readLocatorField(s.pancake_locator_swissnum, loc),
-			hints,
+			locator,
+			// `readBytes` owns an ArrayBuffer-backed copy; state that fact at the
+			// public sturdyref boundary for Deno's strict typed-array generic.
+			swissnum: readBytes(outPointer(ptrOut), outUsize(lenOut)) as Uint8Array<ArrayBuffer>,
 		};
 	} finally {
-		s.pancake_locator_release(loc);
+		s.pancake_sturdyref_release(raw);
 	}
 }
 
@@ -132,6 +347,47 @@ export function formatPeerUri(
 	transport: string,
 	designator: string,
 	hints: Map<string, string> = new Map(),
+): string {
+	return formatUri(transport, designator, null, hints, "formatPeerUri");
+}
+
+/** Format a peer locator plus opaque swissnum as a sturdyref through the same
+ * core grammar that parses it. Taking the peer URI keeps transport-specific
+ * locator construction at its owning helper (`keyedTcpLocator`, etc.); this
+ * function adds authority without interpreting or splicing URI syntax. */
+export function formatSturdyRef(
+	locatorUri: string,
+	swissnum: string | Uint8Array,
+): string {
+	const locator = parseLocator(locatorUri);
+	const hints = new Map<string, string>();
+	for (const [name, value] of locator.hints) {
+		if (typeof value !== "string") {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				`formatSturdyRef: hint "${name}" is not string-valued`,
+			);
+		}
+		hints.set(name, value);
+	}
+	const bytes = typeof swissnum === "string"
+		? new TextEncoder().encode(swissnum)
+		: new Uint8Array(swissnum);
+	return formatUri(
+		locator.transport,
+		locator.designator,
+		bytes,
+		hints,
+		"formatSturdyRef",
+	);
+}
+
+function formatUri(
+	transport: string,
+	designator: string,
+	swissnum: Uint8Array<ArrayBuffer> | null,
+	hints: Map<string, string>,
+	operation: string,
 ): string {
 	const enc = new TextEncoder();
 	const t = enc.encode(transport), d = enc.encode(designator);
@@ -152,20 +408,37 @@ export function formatPeerUri(
 		const keyPtrs = pointerArray(keys), keyLens = lengthArray(keys);
 		const valPtrs = pointerArray(vals), valLens = lengthArray(vals);
 		const out = new Uint8Array(cap), outLen = new Uint8Array(8);
-		const rc = s.pancake_uri_format_peer(
-			ab(t),
-			BigInt(t.length),
-			ab(d),
-			BigInt(d.length),
-			keyPtrs,
-			keyLens,
-			valPtrs,
-			valLens,
-			BigInt(keys.length),
-			ab(out),
-			BigInt(cap),
-			ab(outLen),
-		);
+		const rc = swissnum === null
+			? s.pancake_uri_format_peer(
+				ab(t),
+				BigInt(t.length),
+				ab(d),
+				BigInt(d.length),
+				keyPtrs,
+				keyLens,
+				valPtrs,
+				valLens,
+				BigInt(keys.length),
+				ab(out),
+				BigInt(cap),
+				ab(outLen),
+			)
+			: s.pancake_uri_format_sturdyref(
+				ab(t),
+				BigInt(t.length),
+				ab(d),
+				BigInt(d.length),
+				ab(swissnum),
+				BigInt(swissnum.length),
+				keyPtrs,
+				keyLens,
+				valPtrs,
+				valLens,
+				BigInt(keys.length),
+				ab(out),
+				BigInt(cap),
+				ab(outLen),
+			);
 		const need = Number(outUsize(outLen));
 		if (rc === OK) return new TextDecoder().decode(out.subarray(0, need));
 		if (rc === BUFFER_TOO_SMALL && need > cap) {
@@ -176,7 +449,7 @@ export function formatPeerUri(
 	}
 	throw new PancakeError(
 		INVALID_ARGUMENT,
-		`formatPeerUri: could not size buffer for ${transport}/${designator}`,
+		`${operation}: could not size buffer for ${transport}/${designator}`,
 	);
 }
 
@@ -249,36 +522,24 @@ export function keyedTcpLocator(designator: string, hostname: string, port: numb
 	);
 }
 
-/** Build the verbatim exporter location-record bytes to record on the host
- * when the exporter is reachable only by a dial hint (ADR-0009), for an
- * exporter whose own session record carries no hint. `transport`/`designator`
- * name the exporter; a non-empty `directAddresses` adds the exporter's
- * comma-separated socket addresses as a `direct-addresses` hint, so a
- * cross-process recipient dials it directly with no discovery service (an iroh
- * exporter reachable only by address). An empty `directAddresses` yields a
- * hint-less location identical to the exporter's own signed session record.
- * The bytes are in the handoff codec (Syrup, as a give is); the result feeds
- * `Session.setExporterLocator`. */
-export function encodePeerLocator(opts: {
-	transport: string;
-	designator: string;
-	directAddresses?: string;
-}): Uint8Array {
-	const utf8 = new TextEncoder();
-	const transport = utf8.encode(opts.transport);
-	const designator = utf8.encode(opts.designator);
-	const addrs = utf8.encode(opts.directAddresses ?? "");
+/** Build a `noise-tcp` locator from the listener's durable key and bound
+ * address. The key is the designator; the socket is a direct-addresses hint. */
+export function noiseTcpLocator(designator: string, hostname: string, port: number): string {
+	return formatPeerUri(
+		TRANSPORT_NOISE_TCP,
+		designator,
+		new Map([[HINT_DIRECT_ADDRESSES, socketAddrDesignator(hostname, port)]]),
+	);
+}
+
+/** Encode a complete typed locator as the canonical signed handoff record. */
+export function encodePeerLocator(locator: Locator): Uint8Array {
 	const outLoc = new Uint8Array(8), outLen = new Uint8Array(8);
-	check(s.pancake_locator_record_encode(
-		ab(transport),
-		BigInt(transport.length),
-		ab(designator),
-		BigInt(designator.length),
-		ab(addrs),
-		BigInt(addrs.length),
-		ab(outLoc),
-		ab(outLen),
-	));
+	withOwnedLocator(
+		locator,
+		(owned) =>
+			check(s.pancake_locator_record_encode(owned.borrowView(), ab(outLoc), ab(outLen))),
+	);
 	const ptr = outPointer(outLoc);
 	const len = outUsize(outLen);
 	try {

@@ -10,11 +10,13 @@ superseded_by: []
 
 # ADR-0087 Alternative locators ride exporter-advertised hints
 
-> **Status:** accepted as the direction. The producer half — an exporter
-> advertising the hint on its own locator, which a handoff give already carries
-> verbatim — needs no code change. The recipient half (parsing the hint at
-> redeem staging) and its C-ABI surface are proposed, not yet implemented; the
-> Scope section marks what does not exist today.
+> **Status:** accepted and complete.
+> The producer half — an exporter advertising the hint on its own locator, which
+> a handoff give already carries verbatim — remains unchanged. The recipient
+> Node stages the primary and bounded alternatives once, and Host/Node retry the
+> same pending ticket in order. The existing C pending-dial view exposes the
+> active parsed path, so bindings do not parse or own fallback policy. Focused
+> Node and Host scenarios hold ordering, refusal, retry, and teardown.
 
 ## Context
 
@@ -62,16 +64,18 @@ every binding; a binding never invents its own fallback order.
 
 ## Scope (what this does not decide)
 
-- Recipient-side ranked-path staging and the C ABI exposure of alternatives
-  are not implemented. When they land, the C ABI rows must be extern structs
-  materialized by the C ABI layer, not layout casts of engine types.
-- No browser-native transport (WebRTC) exists; `alt-locators` only names
-  transports that already have residents.
+- The C ABI does not expose the complete alternative list. It exposes the
+  active parsed path through the existing pending-dial row; the Node advances
+  that row and emits the same ticket again after a failed attempt. No binding
+  parses or ranks the hint.
+- Alternatives must still name transports available to the recipient; the
+  hint does not install providers or grant signaling authority.
 - Per-binding producer conveniences beyond ordinary locator construction are
   not specified.
-- Goblins' tolerance of the unknown hint key inside a give's locator is
-  asserted by the locator grammar but not yet pinned by a live scenario; a
-  wire-compatibility claim requires that evidence first.
+- Goblins' tolerance of the unknown hint key remains an external
+  interoperability check. It does not alter this implementation: the hint is
+  carried by the existing signed locator bytes and is ignored by peers that do
+  not implement recipient fallback.
 
 ## Alternatives Considered
 
@@ -88,12 +92,12 @@ every binding; a binding never invents its own fallback order.
 
 ## Consequences
 
-- `src/ocapn/model/transport.zig` grows the `alt-locators` hint name beside
-  `direct-addresses` when the consumer lands.
-- The recipient work concentrates in `engine.Node` staging and the dial plan;
-  codecs and session stay untouched.
-- Evidence obligations for the implementation change: a pancake-only
-  two-transport scenario where the primary path is unreachable and an
-  alternative succeeds; corpus fixtures only ever regenerated through
-  `test/oracle/generate.rkt`; a live Goblins run covering a give whose
-  exporter locator carries the unknown hint.
+- `src/ocapn/model/transport.zig` owns the `alt-locators` hint name beside
+  `direct-addresses`.
+- The recipient work lives in `engine.Node` staging and the Host action seam;
+  codecs, session, generic driver loops, and bindings stay untouched.
+- Evidence for shipment is the focused Node/Host scenario:
+  an unreachable primary advances one ticket to a working alternative, with
+  ordering, malformed/oversized refusal, ordinary dialing, and teardown
+  ownership covered. The hint is locator advice and does not change the signed
+  handoff record or its codec corpus.

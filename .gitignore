@@ -28,10 +28,8 @@ transports/webrtc/target/
 # binding consumer caches
 **/__pycache__/
 **/*.pyc
-# `bindings-fmt-check` runs ruff and mypy through `uv`, which resolves the
-# binding's own dependencies into a lock and an editable-install stub. Both are
-# generated, never committed.
-bindings/python/uv.lock
+# The Python binding lock is committed: relay and rendezvous proofs run its
+# optional WebSocket dependency with `uv --locked`.
 bindings/python/pancake_python.egg-info/
 bindings/ts/node_modules/
 # Deno resolves npm/jsr specifiers (e.g. the rooms app's zod) into a deno.lock. The

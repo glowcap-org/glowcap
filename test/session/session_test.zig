@@ -258,6 +258,56 @@ test "an inbound set carrying two Equal elements is refused on both walk shapes"
     } });
 }
 
+test "a Cap'n Proto set with duplicate elements is refused on the session inbound spine" {
+    // Cap'n Proto decode admits sets without uniqueness (unlike Syrup). The
+    // session walk is the codec-neutral backstop. Craft the hostile frame by
+    // encoding a list of two Equal integers (legal), then flipping that
+    // argument's ArgKind discriminant to set — the same patch pattern as the
+    // duplicate-key struct cases in `test/codec/capnp_test.zig`.
+    const allocator = std.testing.allocator;
+    const ArgKind = capnp.shared.ArgKind;
+
+    const dup = [_]model.Argument{ .{ .integer = 4 }, .{ .integer = 4 } };
+    const list_args = [_]model.Argument{.{ .list = &dup }};
+    var list_frame = try capnp.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &list_args,
+        .answer = null,
+        .resolve_me_desc = null,
+    } });
+    defer list_frame.deinit();
+
+    const buf = try allocator.dupe(u8, list_frame.bytes());
+    defer allocator.free(buf);
+    const words = std.mem.bytesAsSlice(u64, buf);
+    // One bare list ArgKind on this frame: the outer deliver argument's data
+    // word (no flag bits). Cap'n Proto list *pointers* can also put 8 in the
+    // truncated low 16 bits, so match the whole word.
+    var flipped: usize = 0;
+    for (words) |*w| {
+        if (w.* == @intFromEnum(ArgKind.list)) {
+            w.* = @intFromEnum(ArgKind.set);
+            flipped += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), flipped);
+    const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
+
+    // Decode admits the set (no uniqueness at Cap'n Proto parse).
+    const body = try capnp.decodeBody(view);
+    try std.testing.expect(body == .deliver);
+    const arg0 = try body.deliver.args.at(0);
+    try std.testing.expect(arg0 == .set);
+    try std.testing.expectEqual(@as(usize, 2), try arg0.set.len());
+
+    // Session refuse on the same borrowed path Peer.recvBorrowed uses after
+    // decode — DuplicateSetElement, not a codec MalformedFrame.
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(7));
+    try std.testing.expectError(session.Error.DuplicateSetElement, s.recordRecvView(body));
+}
+
 test "a wide equal-hashed set pair is refused by the comparison bound, not ground through" {
     const allocator = std.testing.allocator;
 
@@ -1317,6 +1367,33 @@ test "sending a projection op naming a near receiver retains its wire-delta" {
     try std.testing.expect(s.hasExport(.from(7)));
 }
 
+test "answered-send OOM publishes neither answer nor export retain" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var s = session.Session.init(failing.allocator());
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        s.deinit();
+    }
+    try s.registerImport(.from(1));
+    try s.registerExport(.from(7));
+    const baseline = s.exportRefcount(.from(7));
+    const args = [_]model.Argument{.{ .reference = .{
+        .near = .{ .export_position = .from(7) },
+    } }};
+
+    // The outbound-answer table is the only allocation this send needs. It
+    // must be acquired before the near argument takes a wire-delta retain.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &args,
+        .answer = .from(42),
+    } }));
+
+    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
+    try std.testing.expect(s.outboundAnswer(.from(42)) == null);
+}
+
 test "session rejects a malformed nested handoff give" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -1784,6 +1861,32 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
     defer allocator.free(listeners);
     try std.testing.expectEqual(@as(usize, 1), listeners.len);
     try std.testing.expectEqual(@as(usize, 0), (try s.takeImportedPromiseListeners(.from(5))).len);
+}
+
+test "third-party import installation is atomic across allocation failure" {
+    var reached_success = false;
+    for (0..16) |fail_index| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{
+            .fail_index = fail_index,
+        });
+        var s = session.Session.init(failing.allocator());
+        defer {
+            failing.fail_index = std.math.maxInt(usize);
+            s.deinit();
+        }
+
+        s.installThirdPartyImport(.from(5), "home") catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            try std.testing.expectEqual(@as(u64, 0), s.importRefcount(.from(5)));
+            try std.testing.expect(!s.isThirdPartyImport(.from(5)));
+            continue;
+        };
+        reached_success = true;
+        try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(5)));
+        try std.testing.expect(s.isThirdPartyImport(.from(5)));
+        break;
+    }
+    try std.testing.expect(reached_success);
 }
 
 test "imported-promise listener cap fails loud" {

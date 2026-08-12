@@ -17,7 +17,7 @@
 // composes in process, a far target defers the answer onto the forwarded
 // send's vow.
 
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64, readBytes } from "./internal/seam.ts";
 import { MAX_LOCAL_FORWARD_HOPS, OK } from "@pancake/abi";
@@ -43,17 +43,19 @@ export interface BehaviorEntry {
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
-// The registry is process-global, but every entry is owned by one Host. The C
-// callback has free = NULL, so Host.release sweeps its ordinary actors and
-// giftables. Forgetting that sweep would leak rows for the process's life.
-const registry = new Map<bigint, BehaviorEntry>();
+// The process-global callback lookup is weak. Each live Host strongly owns its
+// entries, so a behavior that closes over that Host remains a collectable
+// Host-local cycle instead of becoming a process-global root. The C callback
+// has free = NULL; Host.release removes rows deterministically when teardown
+// begins, before native storage waits for admitted workers to stop.
+const registry = new Map<bigint, WeakRef<BehaviorEntry>>();
 let nextId = 1n;
 
 /** Register a hosted object's behavior, returning the ctx id to pass as the
  * trampoline's ctx pointer. */
 export function registerBehavior(entry: BehaviorEntry): bigint {
 	const id = nextId++;
-	registry.set(id, entry);
+	registry.set(id, new WeakRef(entry));
 	return id;
 }
 
@@ -64,7 +66,9 @@ export function unregisterBehavior(id: bigint): void {
 
 /** The entry behind a ctx id, for in-process `Forward` composition. */
 export function entryFor(id: bigint): BehaviorEntry | undefined {
-	return registry.get(id);
+	const entry = registry.get(id)?.deref();
+	if (entry === undefined) registry.delete(id);
+	return entry;
 }
 
 // Chase a behavior's result through the locally hosted `Forward` prefix:
@@ -120,7 +124,7 @@ export function runHosted(
 	args: Argument[],
 	turn: Ptr | null = null,
 ): { result: BehaviorResult } | undefined {
-	const entry = registry.get(id);
+	const entry = entryFor(id);
 	if (entry === undefined) return undefined;
 	if (turn === null) {
 		return { result: chaseLocalForwards(entry, entry.run(verb, args)) };
@@ -205,7 +209,7 @@ export async function tellLocal(
 	}
 }
 
-/** Far tell mint: encode args, enqueue `conn_tell`, kick the drain. Local
+/** Far tell mint: encode args, call `pancake_host_session_tell`, kick the drain. Local
  * targets stay behind `dispatchTell` / `tellLocal`. */
 export async function tellFar(
 	h: { ptr: Ptr; kickActions(): Promise<void> },
@@ -216,7 +220,7 @@ export async function tellFar(
 	const verbBytes = utf8Encoder.encode(verb);
 	const keep: Uint8Array[] = [];
 	const argsBuf = encodeArgs(args, keep);
-	checkHost(driverS.pancake_host_session_tell(
+	checkHost(hostS.pancake_host_session_tell(
 		h.ptr,
 		ab(refStruct(target)),
 		ab(verbBytes),
@@ -337,7 +341,7 @@ void lastReplyKeep; // held for its liveness, never read
 // the trampoline hands back (OK: the break already settled the answer).
 function turnBreak(turn: Ptr, message: string): number {
 	const msg = utf8Encoder.encode(message);
-	const rc = driverS.pancake_host_turn_break(turn, ab(msg), BigInt(msg.length));
+	const rc = hostS.pancake_host_turn_break(turn, ab(msg), BigInt(msg.length));
 	return rc === OK ? OK : rc;
 }
 
@@ -377,7 +381,7 @@ function settleReply(
 		const keep: Uint8Array[] = [];
 		const verbBytes = utf8Encoder.encode(result.verb);
 		const argsBuf = encodeArgs(result.args, keep);
-		const rc = driverS.pancake_host_turn_forward(
+		const rc = hostS.pancake_host_turn_forward(
 			turn,
 			ab(refStruct(result.target)),
 			ab(verbBytes),
@@ -490,6 +494,8 @@ export interface HostingHandle {
 	guardOpen(): void;
 	readonly ptr: Ptr;
 	readonly hosted: Map<bigint, bigint>;
+	registerBehavior(entry: BehaviorEntry): bigint;
+	unregisterBehavior(id: bigint): void;
 	/** Host identity used to select turn-time spawn on whichever Port arrived. */
 	readonly hostOwner: object;
 }
@@ -506,7 +512,7 @@ function registerActor(h: HostingHandle, behavior: Behavior): bigint {
 			return id === undefined ? undefined : entryFor(id);
 		},
 	};
-	return registerBehavior(entry);
+	return h.registerBehavior(entry);
 }
 
 /** Register + mint a top-level or turn-time spawn; records the Host identity in
@@ -523,7 +529,7 @@ export function spawnHosted(h: HostingHandle, behavior: Behavior): Ref {
 			refId = turnSpawn(turn, ctx);
 		} else {
 			const out = new Uint8Array(8);
-			checkHost(driverS.pancake_host_session_spawn(
+			checkHost(hostS.pancake_host_session_spawn(
 				h.ptr,
 				trampolinePointer(),
 				ctx,
@@ -533,7 +539,7 @@ export function spawnHosted(h: HostingHandle, behavior: Behavior): Ref {
 			refId = outU64(out);
 		}
 	} catch (err) {
-		unregisterBehavior(ctx);
+		h.unregisterBehavior(ctx);
 		throw err;
 	}
 	h.hosted.set(refId, ctx);
@@ -553,7 +559,7 @@ export function publishHosted(
 	// free = NULL: the host never owns the row, so a refused publish must
 	// unregister it here or it pins the behavior for the process's life.
 	try {
-		checkHost(driverS.pancake_host_session_publish(
+		checkHost(hostS.pancake_host_session_publish(
 			h.ptr,
 			ab(swiss),
 			BigInt(swiss.length),
@@ -563,7 +569,7 @@ export function publishHosted(
 			ab(out),
 		));
 	} catch (err) {
-		unregisterBehavior(ctx);
+		h.unregisterBehavior(ctx);
 		throw err;
 	}
 	const refId = outU64(out);
@@ -575,6 +581,6 @@ export function publishHosted(
  * allows where the top-level spawn is refused. Returns its opaque Host id. */
 export function turnSpawn(turn: Ptr, ctxId: bigint): bigint {
 	const out = new Uint8Array(8);
-	checkHost(driverS.pancake_host_turn_spawn(turn, trampolinePointer(), ctxId, NULL, ab(out)));
+	checkHost(hostS.pancake_host_turn_spawn(turn, trampolinePointer(), ctxId, NULL, ab(out)));
 	return outU64(out);
 }

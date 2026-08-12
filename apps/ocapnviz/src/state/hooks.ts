@@ -406,27 +406,31 @@ export function bufferSourceTracker(): BufferSourceTracker {
  * and started blind, with edges appearing only as traffic happened to
  * mention them.
  *
- * Passing `url = ""` dials nothing (the hook stays unconditionally
+ * Passing `sturdyref = ""` dials nothing (the hook stays unconditionally
  * called for React rules-of-hooks; the body early-returns).
  */
-export function useLiveConnection(input: { url: string; recording: boolean }): {
-  /** A feed is open at the URL. Says nothing about recording. */
+export function useLiveConnection(input: {
+  sturdyref: string;
+  recording: boolean;
+}): {
+  /** The trace capability is subscribed. Says nothing about recording. */
   connected: boolean;
   /** The engine capturing arriving events, or null when nothing is
    * recording. Its document is what Stop claims as the buffer. */
   captureEngine: Engine | null;
 } {
-  const { url, recording } = input;
+  const { sturdyref, recording } = input;
   const [captureEngine, setCaptureEngine] = useState<Engine | null>(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    if (!url) {
+    if (!sturdyref) {
       setCaptureEngine(null);
       setConnected(false);
       return;
     }
-    // A URL no socket can be opened at is the user's typo, and it
+    // A sturdyref that cannot be parsed, dialed, or enlivened is the user's
+    // typo or a stale capability, and it
     // belongs on the error bus beside every other thing the user can
     // get wrong. Left to throw out of this effect body it would reach
     // `AppErrorBoundary` instead and replace the running app.
@@ -435,8 +439,8 @@ export function useLiveConnection(input: { url: string; recording: boolean }): {
     // One dial, two things built on it. Recording adds the document and the
     // appender folding arrivals into it (`startLiveMode`); idle is the dial
     // and nothing else (`dialLiveFeed`). They differ in what they hand back,
-    // never in how they open the socket, so the socket is spelled once.
-    const dial = { url, onConnectionChange: setConnected, onError };
+    // never in how they subscribe, so the capability act is spelled once.
+    const dial = { sturdyref, onConnectionChange: setConnected, onError };
     const handle: {
       engine: Engine | null;
       feed: LiveFeed;
@@ -450,11 +454,11 @@ export function useLiveConnection(input: { url: string; recording: boolean }): {
       setCaptureEngine(null);
       setConnected(false);
     };
-    // Deps: the URL, because a different URL is a different feed, and
+    // Deps: the sturdyref, because a different capability is a different feed, and
     // `recording`, because starting and stopping a capture each re-dial
     // — see the replay contract above. Nothing else may re-dial: every
     // one of them throws a running capture away.
-  }, [url, recording]);
+  }, [sturdyref, recording]);
 
   return { connected, captureEngine };
 }

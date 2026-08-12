@@ -38,10 +38,13 @@ import {
 	OPEN,
 	POST,
 	REGISTER,
+	SIG_ACCEPTED,
 	SIG_ANSWER,
 	SIG_CANDIDATE,
+	SIG_REJECT,
 	SIGNAL_ANSWER,
 	SIGNAL_CANDIDATE,
+	SIGNAL_DONE,
 	SIGNAL_OFFER,
 	SUBSCRIBE,
 	TYPING,
@@ -57,6 +60,21 @@ const REGISTER_ACK_TIMEOUT_MS = 10_000;
 // How long `introduceVia` waits for the peer to offer an inbox for us after the
 // directory has asked them for one. Bounded, because the peer may never answer.
 const INTRODUCIBLE_TIMEOUT_MS = 10_000;
+const SIGNALING_ANSWER_TIMEOUT_MS = 30_000;
+
+interface SignalRow {
+	reply: Ref;
+	offerReady: Promise<string>;
+	resolveOfferReady: (id: string) => void;
+	rejectOfferReady: (reason?: unknown) => void;
+	offerStarted: boolean;
+	answer: {
+		resolve: (sdp: string) => void;
+		reject: (reason?: unknown) => void;
+		timer: ReturnType<typeof setTimeout>;
+	} | null;
+	sink: ((ice: string) => void) | null;
+}
 
 /** One live room in the directory: its name and how many people are in it. */
 export interface RoomInfo {
@@ -324,30 +342,47 @@ export class Directory {
 	}
 
 	// ── WebRTC signaling carried by the directory (ADR-0089) ────────────────
-	// One row per target designator: the reply capability the answer and the
-	// far peer's candidates ride back on, plus whoever is waiting on each.
-	readonly #signals = new Map<
-		string,
-		{
-			reply: Ref;
-			onAnswer: ((sdp: string) => void) | null;
-			sink: ((ice: string) => void) | null;
-		}
-	>();
+	// One row per active dial. `onSignalCandidate` creates it before ICE
+	// gathering starts, so early local candidates can wait on `offerReady`
+	// instead of racing the directory's exchange admission.
+	readonly #signals = new Map<string, SignalRow>();
 
-	#signalRow(designator: string) {
+	#signalRow(designator: string): SignalRow {
 		let row = this.#signals.get(designator);
 		if (row === undefined) {
-			const fresh = {
+			let resolveOfferReady!: (id: string) => void;
+			let rejectOfferReady!: (reason?: unknown) => void;
+			const offerReady = new Promise<string>((resolve, reject) => {
+				resolveOfferReady = resolve;
+				rejectOfferReady = reject;
+			});
+			void offerReady.catch(() => {});
+			const fresh: SignalRow = {
 				reply: null as unknown as Ref,
-				onAnswer: null as ((sdp: string) => void) | null,
+				offerReady,
+				resolveOfferReady,
+				rejectOfferReady,
+				offerStarted: false,
+				answer: null,
 				sink: null as ((ice: string) => void) | null,
 			};
 			fresh.reply = this.session.spawn((verb, args) => {
-				if (verb === SIG_ANSWER) {
-					fresh.onAnswer?.(typeof args[0] === "string" ? args[0] : "");
+				if (verb === SIG_ACCEPTED) {
+					const id = typeof args[0] === "string" ? args[0] : "";
+					if (id.length > 0) fresh.resolveOfferReady(id);
+				} else if (verb === SIG_ANSWER) {
+					const sdp = typeof args[0] === "string" ? args[0] : "";
+					if (sdp.length > 0) fresh.answer?.resolve(sdp);
 				} else if (verb === SIG_CANDIDATE) {
-					fresh.sink?.(typeof args[0] === "string" ? args[0] : "");
+					const ice = typeof args[0] === "string" ? args[0] : "";
+					if (ice.length > 0) fresh.sink?.(ice);
+				} else if (verb === SIG_REJECT) {
+					const reason = typeof args[0] === "string"
+						? args[0]
+						: "signaling exchange failed";
+					const error = new Error(`rooms: ${reason}`);
+					fresh.rejectOfferReady(error);
+					fresh.answer?.reject(error);
 				}
 				return null;
 			});
@@ -370,30 +405,73 @@ export class Directory {
 	 * eventual send). */
 	async signalOffer(designator: string, sdp: string): Promise<string> {
 		const row = this.#signalRow(designator);
-		const answer = new Promise<string>((resolve) => (row.onAnswer = resolve));
-		await this.session.send(this.#directory, SIGNAL_OFFER, [designator, sdp, row.reply]);
-		return answer;
+		if (row.offerStarted) {
+			throw new Error(`rooms: a signaling exchange for ${designator} is already active`);
+		}
+		row.offerStarted = true;
+		const answer = new Promise<string>((resolve, reject) => {
+			const timer = setTimeout(
+				() => row.answer?.reject(new Error("rooms: signaling answer timed out")),
+				SIGNALING_ANSWER_TIMEOUT_MS,
+			);
+			const settle =
+				<T extends unknown[]>(finish: (...args: T) => void) => (...args: T): void => {
+					if (row.answer == null) return;
+					clearTimeout(timer);
+					row.answer = null;
+					finish(...args);
+				};
+			row.answer = {
+				resolve: settle(resolve),
+				reject: settle(reject),
+				timer,
+			};
+		});
+		void answer.catch(() => {});
+		try {
+			await this.session.send(this.#directory, SIGNAL_OFFER, [designator, sdp, row.reply]);
+		} catch (error) {
+			row.rejectOfferReady(error);
+			row.answer?.reject(error);
+		}
+		await row.offerReady;
+		return await answer;
 	}
 
 	/** Answer exchange `id` with this member's SDP answer (the answering half). */
-	signalAnswer(id: string, sdp: string): void {
-		this.session.tell(this.#directory, SIGNAL_ANSWER, [id, sdp]).catch(() => {});
+	signalAnswer(id: string, sdp: string): Promise<void> {
+		return this.session.tell(this.#directory, SIGNAL_ANSWER, [id, sdp]);
 	}
 
-	/** Trickle one ICE candidate. `key` is the target's designator on the
-	 * offering side, or the exchange id on the answering side; the directory
-	 * resolves which from the calling session. */
-	signalCandidate(key: string, ice: string): void {
-		this.session.tell(this.#directory, SIGNAL_CANDIDATE, [key, ice]).catch(() => {});
+	/** Trickle one ICE candidate. The offering side supplies its designator key
+	 * and waits for admission to resolve it to an exchange id; the answering
+	 * side already supplies the id it received with the offer. */
+	async signalCandidate(key: string, ice: string): Promise<void> {
+		const row = this.#signals.get(key);
+		const id = row === undefined ? key : await row.offerReady;
+		await this.session.tell(this.#directory, SIGNAL_CANDIDATE, [id, ice]);
 	}
 
 	/** Register the sink for candidates the far peer of `designator`'s exchange
 	 * trickles back. Returns a disposer. */
 	onSignalCandidate(designator: string, sink: (ice: string) => void): () => void {
 		const row = this.#signalRow(designator);
+		if (row.sink != null) {
+			throw new Error(`rooms: a signaling exchange for ${designator} is already active`);
+		}
 		row.sink = sink;
 		return () => {
-			if (row.sink === sink) row.sink = null;
+			if (row.sink !== sink) return;
+			row.sink = null;
+			if (this.#signals.get(designator) === row) this.#signals.delete(designator);
+			const stopped = new Error("rooms: signaling exchange stopped");
+			row.rejectOfferReady(stopped);
+			row.answer?.reject(stopped);
+			if (!row.offerStarted) return;
+			void row.offerReady.then(
+				(id) => this.session.tell(this.#directory, SIGNAL_DONE, [id]),
+				() => {},
+			).catch(() => {});
 		};
 	}
 

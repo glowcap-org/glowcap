@@ -7,6 +7,7 @@
     "dev": "deno run -A npm:vite",
     "build": "deno run -A npm:vite build",
     "preview": "deno run -A npm:vite preview",
+    "test:live-browser": "deno task build && deno run -A browser/live-mode-production-test.ts",
     "typecheck": "deno check src/main.tsx",
     "test": "deno test -A",
     "fmt": "deno fmt",
@@ -31,6 +32,16 @@
     "vite": "npm:vite@^8.2.0",
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.5",
     "@deno/vite-plugin": "npm:@deno/vite-plugin@^2.0.3",
+    "@pancake/abi": "../../bindings/ts/abi/constants.ts",
+    "@pancake/stack": "../../bindings/ts/stack/mod.ts",
+    "@pancake/stack/ffi": "../../bindings/ts/stack/ffi.ts",
+    "@pancake/stack/websocket": "../../bindings/ts/stack/ws_channel.ts",
+    "@pancake/stack/transport/inproc": "../../bindings/ts/stack/transport/inproc.ts",
+    "@pancake/web": "../../bindings/ts/web/mod.ts",
+    "@pancake/iroh": "../../bindings/ts/web/browser_iroh_stub.ts",
+    "@pancake/iroh/internal": "../../bindings/ts/web/browser_iroh_stub.ts",
+    "@pancake/webrtc": "../../bindings/ts/webrtc/mod.ts",
+    "@pancake/webrtc/channel": "../../bindings/ts/webrtc/channel.ts",
     "@std/assert": "jsr:@std/assert@^1.0.19",
     // The one place this scope's Playwright version is written, for every
     // script under scripts/. Pinned exactly rather than by range: Playwright
@@ -59,11 +70,11 @@
     "indentWidth": 2,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["src/", "vite.config.ts", "deno.json"],
+    "include": ["src/", "browser/", "vite.config.ts", "deno.json"],
     "exclude": ["dist/", "node_modules/", ".pixi/"]
   },
   "lint": {
-    "include": ["src/", "vite.config.ts"],
+    "include": ["src/", "browser/", "vite.config.ts"],
     "exclude": ["dist/", "node_modules/", ".pixi/"],
     "rules": {
       // `react` alongside the baseline, because this is a React app

@@ -1,0 +1,9 @@
+(require "pancake.rkt")
+
+;; Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+(define partner (keyed-tcp-locator "<64 hex chars>" "127.0.0.1" 9099))
+
+(define session (connect partner))
+(define greeter (session-fetch session "greeter")) ; a capability, by name
+(printf "~a\n" (session-send session greeter 'greet "world"))
+(session-close! session)

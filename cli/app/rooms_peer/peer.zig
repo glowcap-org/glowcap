@@ -23,8 +23,9 @@ const Hosting = driver.core.Hosting;
 const HostTurn = driver.core.HostTurn;
 const Value = driver.core.Value;
 const Capability = driver.core.Capability;
-const IrohLoop = common.IrohLoop;
-const IrohBridge = common.IrohBridge;
+const RoomsBackend = common.RoomsBackend;
+const RoomsLoop = common.RoomsLoop;
+const RoomsBridge = common.RoomsBridge;
 const frame_cap = common.frame_cap;
 const timer_ms = common.timer_ms;
 const redial_cooldown_wakes = common.redial_cooldown_wakes;
@@ -51,24 +52,23 @@ const advanceInboxWatermark = harness.advanceInboxWatermark;
 
 // These outlive an iroh-stack rebuild: the supervisor tears the per-attempt
 // stack (and its PeerState) down on a fatal loop error and builds a fresh one, so
-// the wake flag, the outbox drain offset, and the "did we ever join this attempt"
-// signal live at process scope.
-pub var g_wake = std.atomic.Value(bool).init(false);
+// the outbox drain offset and the "did we ever join this attempt" signal live at
+// process scope.
 pub var g_offset: usize = 0;
 pub var g_ever_joined: bool = false;
 
 // --- the peer daemon --------------------------------------------------------
 
-/// Everything the loop thread, the timer future, and the inbox actor share. The
+/// Everything the loop thread and the inbox actor share. The
 /// wire-facing fields are touched only on the loop-owner thread — inside a
 /// serve/vow callback or between two `runUntil` returns — so they need no
-/// synchronization. The cross-thread stop latch lives in `operability/signals`
-/// (SIGINT/SIGTERM + supervisor teardown); the loop and timer both read it.
+/// synchronization. The stop latch lives in `operability/signals`; a bounded
+/// loop deadline observes it without a helper thread.
 const PeerState = struct {
     io: Io,
     gpa: Allocator,
     host: *Host,
-    bridge: *IrohBridge,
+    bridge: *RoomsBridge,
 
     dir: []const u8,
     nick: []const u8,
@@ -76,9 +76,7 @@ const PeerState = struct {
     locator_str: []const u8,
     /// This peer's dialable `ocapn://…iroh` URI for directory `register`.
     member_locator: []const u8,
-    transport: []const u8,
-    designator: []const u8,
-    hint: []const u8,
+    room_locator: model.PeerLocator,
 
     /// Room-session lifecycle (`phase.zig`): exactly one arm live at a time,
     /// carrying that arm's payload (session, directory/room refs, countdowns).
@@ -93,7 +91,7 @@ const PeerState = struct {
     /// Cleared when the room wire drops — introductions are room-scoped.
     dm_caps: std.StringHashMapUnmanaged(model.Reference) = .{},
     /// ADR-0088 reply back-channels: opaque Host capabilities from an inbound
-    /// `dm(text, reply)`. These ride the partner's direct connection, not the
+    /// `dm(text, reply)`. These ride the partner's direct session, not the
     /// room wire, so they survive a room reconnect. Released on process exit
     /// or when a tell finds them dead.
     dm_back: std.StringHashMapUnmanaged(Capability) = .{},
@@ -130,6 +128,15 @@ const PeerState = struct {
     /// `max_dm_inboxes` bounds the count and `max_nick` the length;
     /// `inboxNameFor` refuses past either.
     dm_inbox_names: std.StringHashMapUnmanaged([]const u8) = .{},
+    /// Nicks whose `mintInboxFor` arrived under the host callback latch.
+    /// `publishGiftable` and `tell` both refuse `ReenteredHost`, so the offer
+    /// cannot run inside `RegInbox.handle`; `maintain` drains this set outside
+    /// the latch. Owned keys; cleared with the other room-scoped DM tables.
+    pending_inbox_offers: std.StringHashMapUnmanaged(void) = .{},
+    /// One Host-vat registration callback, projected canonically onto each
+    /// room Port. Registration retries resend this actor instead of minting an
+    /// unbounded callback actor every time a directory stays silent.
+    reg_inbox_actor: ?actors.Ref = null,
 
     fn stopRequested() bool {
         return signals.stopRequested();
@@ -161,7 +168,10 @@ const PeerState = struct {
         var fail_it = self.failed_introduces.keyIterator();
         while (fail_it.next()) |k| self.gpa.free(k.*);
         self.failed_introduces.clearRetainingCapacity();
-        // dm_back intentionally kept: room wire loss is not partner-connection loss.
+        var offer_it = self.pending_inbox_offers.keyIterator();
+        while (offer_it.next()) |k| self.gpa.free(k.*);
+        self.pending_inbox_offers.clearRetainingCapacity();
+        // dm_back intentionally kept: room wire loss is not partner-session loss.
     }
 
     fn clearBackChannels(self: *PeerState) void {
@@ -171,7 +181,6 @@ const PeerState = struct {
             _ = self.host.capabilities.release(e.value_ptr.*, 1) catch {};
         }
         self.dm_back.clearRetainingCapacity();
-        harness.persistDmBackchannels(self.io, self.gpa, self.dir, &.{});
     }
 
     fn clearRoomWire(self: *PeerState) void {
@@ -195,6 +204,7 @@ const PeerState = struct {
         self.dm_back.deinit(self.gpa);
         self.pending_introduces.deinit(self.gpa);
         self.failed_introduces.deinit(self.gpa);
+        self.pending_inbox_offers.deinit(self.gpa);
     }
 };
 
@@ -301,7 +311,6 @@ fn rememberDmBack(state: *PeerState, peer: []const u8, reply: Capability) void {
         _ = state.host.capabilities.release(held.*, 1) catch {};
         held.* = reply;
         if (state.failed_introduces.fetchRemove(peer)) |kv| state.gpa.free(kv.key);
-        persistDmBackchannelsFile(state);
         return;
     }
     const key = state.gpa.dupe(u8, peer) catch {
@@ -314,38 +323,35 @@ fn rememberDmBack(state: *PeerState, peer: []const u8, reply: Capability) void {
         return;
     };
     if (state.failed_introduces.fetchRemove(peer)) |kv| state.gpa.free(kv.key);
-    persistDmBackchannelsFile(state);
 }
 
-/// Mirror `dm_back` keys into DIR/dm_backchannels.json so `reply --dm` can
-/// fail closed without talking to the peer process.
-fn persistDmBackchannelsFile(state: *PeerState) void {
-    var names: std.ArrayList([]const u8) = .empty;
-    defer names.deinit(state.gpa);
-    var it = state.dm_back.keyIterator();
-    while (it.next()) |key_ptr| {
-        names.append(state.gpa, key_ptr.*) catch return;
-    }
-    harness.persistDmBackchannels(state.io, state.gpa, state.dir, names.items);
+/// Queue a directory inbox offer for `peer`. Safe under the host callback
+/// latch: `publishGiftable` and `tell` refuse `ReenteredHost`, so the real
+/// work runs from `drainPendingInboxOffers` in `maintain`.
+fn scheduleInboxOffer(state: *PeerState, peer: []const u8) void {
+    if (peer.len > max_nick) return;
+    phase_mod.schedulePendingOffer(state.gpa, &state.pending_inbox_offers, peer, max_dm_inboxes);
 }
 
 /// Offer the directory an inbox for `peer`, the answer to its `mintInboxFor`.
 ///
-/// `tell`, so nothing waits on an answer the directory does not send. A refusal
-/// is therefore invisible here, and the cost of one is that the peer stays
-/// unreachable until the directory asks again. It does ask again on their next
-/// `introduce`, since it only asks when it has no inbox filed.
-fn offerInboxFor(state: *PeerState, peer: []const u8) void {
-    if (state.phase != .joined) return;
+/// Call only outside the host callback latch. This uses `tell`, so nothing
+/// waits on an answer the directory does not send. A refusal is therefore
+/// invisible here, and the cost of one is that the peer stays unreachable
+/// until the directory asks again. It does ask again on their next `introduce`,
+/// since it only asks when it has no inbox filed. Returns whether the offer was
+/// admitted to the Host.
+fn offerInboxFor(state: *PeerState, peer: []const u8) bool {
+    if (state.phase != .joined) return false;
     const session = state.phase.joined.session;
     const directory = state.phase.joined.directory;
-    const swiss = inboxNameFor(state, peer) orelse return;
+    const swiss = inboxNameFor(state, peer) orelse return false;
     const position = state.host.publishedPosition(session, swiss) catch |err| {
         log.err(state.io, "reading the dm inbox position failed: {s}", .{@errorName(err)});
-        return;
+        return false;
     } orelse {
         log.err(state.io, "the dm inbox for \"{s}\" holds no position on the room session", .{peer});
-        return;
+        return false;
     };
     state.host.tell(session, directory, .{
         .verb = "offerInbox",
@@ -355,9 +361,16 @@ fn offerInboxFor(state: *PeerState, peer: []const u8) void {
         },
     }) catch |err| {
         log.err(state.io, "offerInbox for \"{s}\" failed: {s}", .{ peer, @errorName(err) });
-        return;
+        return false;
     };
     _ = flushBridge(state, .host);
+    return true;
+}
+
+/// Drain `pending_inbox_offers` outside the callback latch. Keeps a nick until
+/// `offerInboxFor` succeeds so a transient tell failure retries next wake.
+fn drainPendingInboxOffers(state: *PeerState) void {
+    phase_mod.drainPendingOffers(state.gpa, &state.pending_inbox_offers, state, offerInboxFor);
 }
 
 /// The directory's channel to this member: `notify("registered", nick)` once the
@@ -379,7 +392,8 @@ const RegInbox = struct {
                 self.state.writeStateNow("joined");
             }
         } else if (std.mem.eql(u8, kind, "mintInboxFor") and peer.len > 0) {
-            offerInboxFor(self.state, peer);
+            // Queue only: publishGiftable/tell refuse ReenteredHost under this latch.
+            scheduleInboxOffer(self.state, peer);
         } else if (std.mem.eql(u8, kind, "introducible") and peer.len > 0) {
             // Our introduce to them was refused because they had minted us no
             // inbox; they have now. Drop the refusal cooldown so the next wake
@@ -402,7 +416,7 @@ fn refOf(resolution: actors.Resolution) ?model.Reference {
 /// through here too and must not fetch "directory" or touch the phase. Fetch
 /// the directory; the enter/open/subscribe chain runs from the settle
 /// callbacks.
-fn onOpen(ctx: ?*anyopaque, bridge: *IrohBridge, slot: *IrohBridge.Slot) anyerror!void {
+fn onOpen(ctx: ?*anyopaque, bridge: *RoomsBridge, slot: *RoomsBridge.Slot) anyerror!void {
     _ = bridge;
     const state: *PeerState = @ptrCast(@alignCast(ctx.?));
     if (state.phase != .dialing or slot.leg != .app_dial) return;
@@ -534,8 +548,16 @@ fn registerWithDirectory(state: *PeerState) void {
     if (joined.reg != .pending or state.member_locator.len == 0) return;
     const session = joined.session;
     const directory = joined.directory;
-    const inbox = session.served.spawn(&session.host.vat, RegInbox, .{ .state = state }) catch |err| {
-        log.err(state.io, "register inbox spawn failed: {s}", .{@errorName(err)});
+    const actor = state.reg_inbox_actor orelse actor: {
+        const fresh = state.host.vat.spawn(RegInbox, .{ .state = state }) catch |err| {
+            log.err(state.io, "register inbox spawn failed: {s}", .{@errorName(err)});
+            return;
+        };
+        state.reg_inbox_actor = fresh;
+        break :actor fresh;
+    };
+    const inbox = session.served.port.projectActor(&state.host.vat, actor) catch |err| {
+        log.err(state.io, "register inbox projection failed: {s}", .{@errorName(err)});
         return;
     };
     _ = state.host.send(session, directory, .{
@@ -543,7 +565,7 @@ fn registerWithDirectory(state: *PeerState) void {
         .args = &.{
             .{ .string = state.nick },
             .{ .string = state.member_locator },
-            inbox.arg(),
+            .{ .reference = .{ .near = inbox } },
         },
     }) catch |err| {
         log.err(state.io, "register failed: {s}", .{@errorName(err)});
@@ -556,11 +578,12 @@ fn registerWithDirectory(state: *PeerState) void {
 /// the room session itself drops (accepted DM redeem sessions must not tear
 /// presence down).
 fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: net.completion.CloseReason) void {
-    IrohBridge.onClose(ctx, slot, conn_ctx, opened, reason);
-    const bridge: *IrohBridge = @ptrCast(@alignCast(ctx.?));
+    const bridge: *RoomsBridge = @ptrCast(@alignCast(ctx.?));
+    const pending_app_dial = conn_ctx == null and bridge.pendingAppDial(slot);
+    RoomsBridge.onClose(ctx, slot, conn_ctx, opened, reason);
     const state: *PeerState = @ptrCast(@alignCast(bridge.on_open_ctx.?));
     if (conn_ctx) |raw| {
-        const shell: *IrohBridge.Slot = @ptrCast(@alignCast(raw));
+        const shell: *RoomsBridge.Slot = @ptrCast(@alignCast(raw));
         if (state.phaseSession()) |room_session| {
             // `.abandoning` is covered too: a remote close racing the abandon
             // tick lands `.down` cleanly instead of stranding the phase.
@@ -575,7 +598,7 @@ fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, r
     }
     // Refused connect (no shell was ever built): resume redial pacing with the
     // countdown carried, `.dialing{cd}` becoming `.down{cd}`.
-    if (!opened) phase_mod.connectRefused(&state.phase);
+    if (!opened or pending_app_dial) phase_mod.connectRefused(&state.phase);
 }
 
 // --- outbox -----------------------------------------------------------------
@@ -725,7 +748,6 @@ fn evictDmBack(state: *PeerState, peer: []const u8) void {
     if (state.dm_back.fetchRemove(peer)) |kv| {
         state.gpa.free(kv.key);
         _ = state.host.capabilities.release(kv.value, 1) catch {};
-        persistDmBackchannelsFile(state);
     }
 }
 
@@ -811,17 +833,11 @@ fn drainOutbox(state: *PeerState) void {
                     // Do not advance: dropping the line would make the DM
                     // vanish. The refusal ages out on its own, so this stops
                     // for a cooldown rather than until the room session drops.
-                    log.err(state.io, "dm outbox blocked: introduce failed for {s} (retry after reconnect)", .{parsed.peer});
+                    log.err(state.io, "dm outbox blocked: introduce failed for {s} (retry after cooldown)", .{parsed.peer});
                     break;
                 }
-                // No reply-cap and no settled introduce: refuse rather than
-                // start introduce-and-look-sent (browser false-sent class).
-                // `reply --dm` should have failed closed already; drop stale
-                // outbox lines without recording "sent".
-                log.err(state.io, "dm outbox refused: no reply-cap for {s} (peer must DM first)", .{parsed.peer});
-                pos = next;
-                commitOutboxOffset(state, pos);
-                continue;
+                startIntroduce(state, parsed.peer);
+                break;
             }
             state.host.tell(session, room, .{ .verb = "post", .args = &.{.{ .string = parsed.text }} }) catch |err| {
                 log.err(state.io, "post failed: {s}", .{@errorName(err)});
@@ -916,7 +932,7 @@ fn maintain(state: *PeerState) void {
         .down => |*down| {
             if (!phase_mod.tickCooldown(&down.cooldown)) return;
             if (PeerState.stopRequested()) return;
-            state.bridge.dialOutbound(state.transport, state.designator, state.hint) catch |err| {
+            state.bridge.dialOutboundReserved(state.room_locator) catch |err| {
                 log.err(state.io, "redial failed: {s}", .{@errorName(err)});
                 state.writeStateNow("reconnecting");
                 state.phase = .{ .down = .{ .cooldown = redial_cooldown_wakes } };
@@ -926,11 +942,10 @@ fn maintain(state: *PeerState) void {
             state.phase = .{ .dialing = .{ .cooldown = redial_cooldown_wakes } };
         },
         // Connect in flight: keep the countdown running so a refused connect
-        // resumes pacing in `.down` (onClose carries it over). Redeem legs can
-        // already be on the Host (on_open ignores them); pump their side wires.
+        // resumes pacing in `.down` (onClose carries it over). Direct legs
+        // share this completion loop and need no second pump.
         .dialing => |*dialing| {
             _ = phase_mod.tickCooldown(&dialing.cooldown);
-            state.bridge.pumpRendezvous();
         },
         .joining => |*joining| {
             if (phase_mod.joinDeadlineFires(joining, common.join_deadline_wakes)) {
@@ -940,7 +955,6 @@ fn maintain(state: *PeerState) void {
             }
             // Always flush outside the callback latch so join-path
             // ReenteredHost deferrals (subscribe/register) still armOutbound.
-            state.bridge.pumpRendezvous();
             _ = flushBridge(state, .maintain);
         },
         .joined => |*joined| {
@@ -960,17 +974,10 @@ fn maintain(state: *PeerState) void {
             }
             tickPendingIntroduces(state);
             tickFailedIntroduces(state);
+            drainPendingInboxOffers(state);
             drainOutbox(state);
-            state.bridge.pumpRendezvous();
             _ = flushBridge(state, .maintain);
         },
-    }
-}
-
-fn wakePacer(io: Io) void {
-    while (!PeerState.stopRequested()) {
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(timer_ms), .real) catch {};
-        g_wake.store(true, .release);
     }
 }
 
@@ -1023,14 +1030,6 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
     defer gpa.free(outbox_bytes);
     g_offset = clampOutboxOffset(loadOutboxOffset(io, gpa, flags.dir), outbox_bytes.len);
 
-    // The wake pacer runs for the whole daemon life, flipping g_wake so each
-    // stack's loop hands control back on its own cadence.
-    var pacer = try io.concurrent(wakePacer, .{io});
-    defer {
-        signals.requestStop();
-        pacer.await(io);
-    }
-
     // Supervisor. Keep a functional iroh stack up until a stop signal. A
     // connection drop is recovered inside runStack (maintain redials in place); a
     // fatal loop error — the endpoint or backend itself failing — returns out of
@@ -1040,6 +1039,7 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
     // broken, and snap back to a fast retry once a stack has actually joined.
     // Only a stop signal ends the daemon.
     var backoff_ms: i64 = 500;
+    defer signals.requestStop();
     while (!PeerState.stopRequested()) {
         g_ever_joined = false;
         const dial_target = common.resolveLocator(io, gpa, flags.locator) catch |err| {
@@ -1069,7 +1069,7 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
             return err;
         };
         defer if (rendezvous_url) |u| gpa.free(u);
-        runStack(io, gpa, flags, loc, hint, reachability, dial_target, rendezvous_url) catch |err| {
+        runStack(io, gpa, flags, loc, reachability, dial_target, rendezvous_url) catch |err| {
             log.err(io, "iroh stack failed: {s}; rebuilding", .{@errorName(err)});
         };
         if (PeerState.stopRequested()) break;
@@ -1120,7 +1120,6 @@ fn runStack(
     gpa: Allocator,
     flags: Flags,
     loc: model.PeerLocator,
-    hint: []const u8,
     reachability: iroh.Reachability,
     dial_target: []const u8,
     rendezvous_url: ?[]const u8,
@@ -1167,7 +1166,9 @@ fn runStack(
 
     // The room's profile, not the interop floor: this peer only ever talks to
     // other pancake peers, and the directory it dials offers the same pair.
-    var host = Host.init(gpa, seed, .{
+    var session_root: [32]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = Host.init(gpa, seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
         .codec = rooms_profile.codec,
@@ -1175,17 +1176,7 @@ fn runStack(
     });
     defer host.deinit();
 
-    // keyed-relay redeem (browser DM): Bridge has no Loop Backend for it, so
-    // attach the blocking resident and let Bridge.dialRendezvous answer those
-    // dials. URL string is borrowed for the resident's life.
-    var rendezvous_resident: net.keyed_relay.Resident = undefined;
-    const have_rendezvous = rendezvous_url != null;
-    if (rendezvous_url) |url| {
-        // Already validated by resolveRendezvousUrl; init only re-parses.
-        rendezvous_resident = try net.keyed_relay.Resident.init(io, url);
-    }
-
-    var loop: IrohLoop = undefined;
+    var loop: RoomsLoop = undefined;
     var state = PeerState{
         .io = io,
         .gpa = gpa,
@@ -1196,37 +1187,49 @@ fn runStack(
         .room_name = flags.room,
         .locator_str = dial_target,
         .member_locator = member_locator,
-        .transport = loc.transport,
-        .designator = loc.designator,
-        .hint = hint,
+        .room_locator = loc,
     };
     defer state.deinitTables();
     // No per-session publish hook: an inbox belongs to one named peer, and the
     // host's giftable registry already puts each on every connection, including
     // the ones a redeem opens later.
-    var bridge = IrohBridge.init(gpa, &host, io, &loop, .{
+    var bridge = RoomsBridge.init(gpa, &host, io, &loop, .{
         .on_open = onOpen,
         .on_open_ctx = &state,
     });
     defer bridge.deinit();
     state.bridge = &bridge;
-    if (have_rendezvous) {
-        try bridge.attachRendezvous(rendezvous_resident.netlayer());
-    } else {
+    if (rendezvous_url == null) {
         log.err(io, "no keyed-relay rendezvous configured (set PANCAKE_RENDEZVOUS or pass an http://host:port/locator); browser DM introduce will fail", .{});
     }
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
-    const backend = try iroh.Backend.initBound(gpa, &resident, 256, 256, read_buffer_bytes);
+    const platform = if (rendezvous_url) |url| blk: {
+        var entropy_seed: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
+        try io.randomSecure(&entropy_seed);
+        break :blk try net.KeyedRelayBackend.initWithRelay(
+            gpa,
+            common.completion_queue_entries,
+            common.read_buffers,
+            read_buffer_bytes,
+            .{ .url = url, .entropy_seed = entropy_seed },
+        );
+    } else try net.KeyedRelayBackend.init(
+        gpa,
+        common.completion_queue_entries,
+        common.read_buffers,
+        read_buffer_bytes,
+    );
+    const backend = try RoomsBackend.initBoundWithPlatform(gpa, &resident, platform, common.read_buffers, read_buffer_bytes);
     // This peer interposes its own close hook (DM lifecycle bookkeeping), so
     // it overrides the bridge's spliced `on_close` after `hookOptions`.
-    var loop_options = IrohBridge.hookOptions(.{
-        .frame_cap = frame_cap,
-        .max_conns = 32,
+    var loop_options = RoomsBridge.hookOptions(.{
+        .max_conns = common.max_sessions,
+        .reserved_dial_conns = common.reserved_room_sessions,
         .listen = 0,
     });
     loop_options.on_close = onClose;
-    loop = try IrohLoop.initWithBackend(gpa, backend, IrohBridge.makePeer, @ptrCast(&bridge), loop_options);
+    loop = try RoomsLoop.initWithBackend(gpa, backend, RoomsBridge.makePeer, @ptrCast(&bridge), loop_options);
     defer loop.deinit();
 
     // Advertise the same locator hellos will claim. After ADR-0109, introduce
@@ -1235,27 +1238,26 @@ fn runStack(
     // (InvalidAddress / iroh DNS spam) even when `member_locator` already
     // carried direct-addresses. Discovery posture leaves `addrs` empty on
     // purpose; Direct must publish the addrs already collected above.
-    try bridge.attach(iroh.transport_name, node_id, addrs);
+    try bridge.attach(model.transport.Known.iroh.metadata(), node_id, addrs);
 
     state.phase = .{ .dialing = .{ .cooldown = 0 } };
-    bridge.dialOutbound(loc.transport, loc.designator, hint) catch |err| {
+    bridge.dialOutboundReserved(loc) catch |err| {
         log.err(io, "dial failed: {s}", .{@errorName(err)});
         state.phase = .{ .down = .{ .cooldown = 0 } };
     };
 
+    // The flag deliberately remains false: `runUntil`'s wall-clock deadline is
+    // the maintenance timer. One bounded reactor wait replaces the former
+    // sleep task, which set a flag but could not wake this poll.
+    var maintain_due = std.atomic.Value(bool).init(false);
     while (!PeerState.stopRequested()) {
-        // Bounded poll, not `0`. A zero deadline polls forever, and the pacer
-        // sets `g_wake` from another thread without waking this loop's poll, so
-        // a quiet room would never re-read the stop flag and the daemon would
-        // sit through its SIGTERM grace. A timeout is an ordinary tick.
-        loop.runUntil(&g_wake, timer_ms) catch |err| switch (err) {
+        loop.runUntil(&maintain_due, timer_ms) catch |err| switch (err) {
             error.Timeout => {},
             else => {
                 loop.closeAndDrain() catch {};
                 return err;
             },
         };
-        g_wake.store(false, .release);
         maintain(&state);
     }
     loop.closeAndDrain() catch {};

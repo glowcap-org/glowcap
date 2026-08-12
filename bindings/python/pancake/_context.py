@@ -17,9 +17,9 @@ from ._ffi_ocapn import _AllocFn, _Allocator, _FreeFn, _lib
 
 class Context:
     """An allocation scope. Hosts and netlayers created *in* a context route
-    every allocation through it. The context must outlive every handle created
-    in it: release the handles first, then the context. Released on
-    :meth:`close` / context exit / GC.
+    every allocation through it. :meth:`close` immediately refuses new handles
+    and releases the native context after every existing handle family has
+    finished with it. Released on :meth:`close` / context exit / GC.
 
     :meth:`Context.with_allocator` takes two callables backing the context:
 
@@ -34,6 +34,8 @@ class Context:
         out = ctypes.c_void_p()
         _check(_lib.pancake_context_new(ctypes.byref(out)))
         self._raw = out
+        self._handle_count = 0
+        self._release_requested = False
         # No callbacks for the default-allocator path.
         self._callbacks: tuple = ()
 
@@ -49,6 +51,8 @@ class Context:
         failure); ``free(ptr, size, alignment)`` releases one."""
         self = cls.__new__(cls)
         self._raw = None
+        self._handle_count = 0
+        self._release_requested = False
 
         def _alloc(_user_data, size, alignment):
             return alloc(size, alignment) or 0
@@ -75,8 +79,30 @@ class Context:
         self.close()
 
     def close(self) -> None:
-        # Release the context first — it frees its tables through the allocator
-        # — then drop the callbacks the trampolines borrowed.
+        if self._release_requested:
+            return
+        self._release_requested = True
+        if self._handle_count == 0:
+            self._release_now()
+
+    def _acquire_handle(self):
+        """Borrow the allocation policy for one native handle family."""
+        if self._release_requested or not self._raw:
+            raise RuntimeError("pancake Context is released")
+        self._handle_count += 1
+        return self._raw
+
+    def _release_handle(self) -> None:
+        """End one native handle family's borrow."""
+        if self._handle_count == 0:
+            raise RuntimeError("pancake Context ownership underflow")
+        self._handle_count -= 1
+        if self._handle_count == 0 and self._release_requested:
+            self._release_now()
+
+    def _release_now(self) -> None:
+        # Release the context first — it frees its own storage through the
+        # allocator — then drop the callback trampolines that policy borrowed.
         if self._raw:
             _lib.pancake_context_release(self._raw)
             self._raw = None

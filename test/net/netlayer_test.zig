@@ -106,12 +106,12 @@ test "netlayer contract loopback: dial + accept through the vtable, handshake + 
     var listener = try nl.listen(allocator, .{ .designator = "127.0.0.1:0", .hints = model.Hints.emptyFalse() });
     defer listener.close();
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = listener.localDesignator(&designator_buf);
+    const locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, locator);
 
     var server_future = try io.concurrent(serveOnce, .{ &listener, allocator });
 
-    const client_result = fetchOnce(nl, designator, allocator);
+    const client_result = fetchOnce(nl, locator.designator, allocator);
     const server_result = server_future.await(io);
 
     try client_result;

@@ -19,15 +19,23 @@ runDmHandoff({
 		"Bob accepted 1 iroh connection: Carol's direct dial by id; nobody dialed Carol",
 		"the DM arrived on the inbox Bob minted for Carol, so it named no sender",
 	],
-	startMember(who) {
+	async startMember(who) {
 		const host = roomsHost();
-		const member = listenIroh({ reachability: Reachability.Discovery }, undefined, host);
+		const member = await listenIroh(
+			{ reachability: Reachability.Discovery },
+			undefined,
+			host,
+		);
 		const locator = formatPeerUri("iroh", member.nodeId);
 		console.log(`rooms-dm-iroh-discovery: ${who} published ${locator} (id only)`);
 		return { host, sessions: member, locator, close: () => member.close() };
 	},
-	startRoom() {
-		const room = listenIroh({ reachability: Reachability.Discovery }, undefined, roomsHost());
+	async startRoom() {
+		const room = await listenIroh(
+			{ reachability: Reachability.Discovery },
+			undefined,
+			roomsHost(),
+		);
 		const locator = formatPeerUri("iroh", room.nodeId);
 		console.log(`rooms-dm-iroh-discovery: Room published ${locator} (id only)`);
 		return { listener: room, locator, close: () => room.close() };

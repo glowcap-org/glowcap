@@ -39,9 +39,21 @@ engine. Adapters may use `std.Io`, transports, callbacks, and host scheduling,
 but **they never add CapTP semantics the core lacks.**
 
 CapTP is transport-agnostic and never names a transport. A netlayer is a locator
-transport symbol (`tcp`, `keyed-tcp`, `keyed-relay`, `inproc`, `iroh`,
-`webrtc`), and socket and stream code lives in transport residents.
-`keyed-tcp` is its own symbol reusing `tcp` sockets, not a second CapTP stack.
+transport symbol (`tcp`, `keyed-tcp`, `noise-tcp`, `keyed-relay`, `inproc`,
+`iroh`, `webrtc`, `onion`), and socket and stream code lives in transport
+residents. `keyed-tcp` and `noise-tcp` are their own symbols reusing `tcp`
+sockets, not second CapTP stacks; `noise-tcp`'s sealed channel (ADR-0107) is
+run by the core Host that owns the session, never by the resident, which is
+why the blocking tier refuses the symbol. The channel itself is
+`foundation.sealed.SealedChannel`, homed like `foundation.Spill` because both
+stream tiers run it: the byte-fed Host boxes one per sealed session, and the
+completion-loop tier composes the same machine in the sealing backend adapter
+(`net.noise_completion`), which finishes the handshake before the loop sees
+the dial connected and answers `verifiedChannelKey` — the same realizer seam
+iroh uses. `noise-relay` is that adapter over the keyed-relay pipe
+(`net.NoiseRelayLoop`) on the completion dial side. Registered accepts use the
+keyed-relay resident's sealed profile and the byte-fed Host; browser wasm peers
+use the same Host channel through their WebSocket bridge.
 
 ## Not every shipped netlayer is deployable
 
@@ -53,9 +65,28 @@ The split is not obvious from the code. The human page is
 | `tcp` | none; the designator is an address | cleartext | testing and Goblins interop only |
 | `inproc` | none, and nothing to prove | in-process pipes | tests only |
 | `keyed-tcp` | none; key designator is a dial target only | cleartext | trusted network only |
+| `noise-tcp` | Noise_XK between the CapTP peers; completing it proves the exact durable key in both directions (ADR-0107) | end-to-end encrypted records | production through the native Host tiers, C driver loop, and native bindings; `BlockingSession` refuses it |
 | `keyed-relay` | none; key designator is a dial target only | cleartext `ws://` | trusted relay and network only |
+| `noise-relay` | Noise_XK between the CapTP peers, over the relay pipe; the relay forwards ciphertext (ADR-0107) | end-to-end encrypted records | production through the relay provider package, generic C driver, native bindings, and browser wasm rendezvous |
+| `onion` | Tor's rendezvous handshake on the dialing side, nothing on the accepting side | encrypted, anonymized Tor circuit | proven live against Goblins in both directions and the complete portable upstream suite; blocking resident, provider package, native Zig completion loop, and every native binding ship |
 | `webrtc` | identity authorized by signaling | DTLS DataChannel | production |
 | `iroh` | QUIC remote node id, the one realizer proof in the tree | encrypted QUIC | production |
+
+**`onion` is the only symbol here the OCapN draft standardizes**, and the only
+one upstream Goblins ships, so it is where a pancake peer and a Goblins vat meet
+on ground neither invented. Its designator stays an address: the service id names
+the rendezvous service, not the CapTP peer, and an onion locator carries no hints
+because the pinned Goblins refuses a hinted one (ADR-0108). `zig build
+goblins-onion` is the meeting the symbol exists for, both directions over real
+circuits. `zig build ocapn-conformance-onion` passes all portable upstream
+modules plus the strict abort probe through the upstream onion netlayer. That
+netlayer returns from `ADD_ONION` before descriptor publication, so the dedicated
+harness self-dials through its upstream SOCKS client and consumes the accepted
+probe before exposing the locator; the barrier establishes readiness without
+replacing upstream connect, accept, or CapTP behavior. `driver.HostRuntime` polls an onion
+connection like any other socket, the onion archive installs into the generic C
+driver, and `net.OnionLoop` composes the platform completion backend without
+adding transport knowledge to the loop.
 
 **`tcp` is not an ordinary default.** The OCapN draft requires a netlayer to
 keep a session insertable only by its participants, upstream Goblins ships no
@@ -133,7 +164,7 @@ directions.
 - `driver`: the native application surface above `driver_core`, `actors`, and
   `net`, composing the sans-io core with I/O. `BlockingSession` is the
   no-router single-connection tier; `driver.Session` and `driver.Server` are
-  views onto an owning `driver.PollHost` (ADR-0090), so the front door redeems
+  views onto an owning `driver.HostRuntime` (ADR-0090), so the front door redeems
   handoffs; `driver.Bridge` plus `completion.Loop` is the scale embedding of the
   same core (ADR-0068, ADR-0072, ADR-0076). Language bindings drive
   `driver_core.Host` through `libpancake_host` rather than rebuilding a Zig Host
@@ -146,10 +177,11 @@ directions.
   `pancake_<family>_*` family. Signatures and constants are reflected from Zig
   while header prose lives in `tools/gen/header/*.zig`, so a C-contract change
   edits both and then runs the `gen-*` step.
-  - `c_abi/shared` (`c_abi_shared`): the shared C-ABI vocabulary leaf: C-visible
-    frame and context types, return and codec codes, allocation policy, managed
-    frames, and the per-thread last-error slot. **Declares no `export fn`**, so
-    every archive reuses it without inheriting another's exports.
+  - `c_abi/shared` (`c_abi_shared`): archive-neutral C layouts and mechanics.
+    `locator.zig` is POD vocabulary only; `locator_adapter.zig` projects the
+    OCapN model without turning provider archives into OCapN symbol consumers.
+    **Declares no `export fn`**, so every archive reuses it without inheriting
+    another's exports.
   - `c_abi/ocapn` (`c_abi`): `libpancake_ocapn`, C-shaped only. Every handle
     frees through exactly one `pancake_*_release`; a `*_close` is a shutdown
     lever and never frees, which `meta-check` holds in the generated headers.
@@ -158,16 +190,35 @@ directions.
     full multi-session CapTP Host with bytes, and the host's own effects surface
     as actions, so publish, fetch, send, vows, projections, and the full
     three-party handoff run from C with no socket.
+  - `c_abi/driver` (`c_abi_driver`): `libpancake_driver`, the native loop
+    archive (ADR-0112). Exports only the `pancake_driver_*` family and adopts a
+    quiescent Host from `libpancake_host` through
+    `pancake_driver_take_host`: a stepping `driver.HostRuntime` behind one
+    readiness descriptor and one event queue, with the standalone provider ABI
+    as the transport seam. A new loop starts with zero transports; one thread
+    drives one loop; dial and accept handshakes advance across steps
+    (`HostRuntime.startConnectLocator`, `HostRuntime.startAcceptWire`), so loops
+    on one thread can dial each other and a stalled connector cannot park
+    the step.
+    `ProviderRegistry` alone validates and adapts stream/multiplexed tables and
+    holds package leases. Listener locator projection and canonicalization use
+    one callback ABI across both execution models; their incompatible I/O
+    ownership stays separate. `meta-check` holds this split.
+    Generic driver and binding loop modules name no concrete transport. Product
+    composition loads provider archives; each archive owns every profile it
+    advertises, its realization policy, and its lifecycle.
   - `c_abi/wasm` (`c_abi_wasm`): the browser binding's freestanding `wasm32`
     entry root (ADR-0070). Forces the `pancake_*` and `pancake_host_*` families
     into one loadable module and adds the two JS-to-wasm linear-memory
     primitives. Adds no CapTP surface; sits outside the layer DAG.
-  - `c_abi/net_transport`: the grouping directory for the transport archives,
-    holding no source of its own. Each child is its own `.graph = false` layer,
-    outside the layer DAG because it links a sidecar or an injected resident,
-    neither expressible as a DAG edge.
-    - `c_abi/net_transport/tcp` (`c_abi_net_transport_tcp`): the TCP archive,
-      exporting only `pancake_tcp_*`.
+  - `c_abi/net_transport/tcp` (`c_abi_net_transport_tcp`): the TCP transport
+    archive, exporting only `pancake_tcp_*`. It owns the complete `tcp`,
+    `keyed-tcp`, and `noise-tcp` provider package together with the low-level
+    framed connection API; the provider lease is the native lifetime authority.
+  - `c_abi/net_transport`: the grouping directory for transport sidecars and
+    injected residents, holding no source of its own. Each child is its own
+    `.graph = false` layer outside the layer DAG because its artifact boundary
+    is not expressible as a DAG edge.
     - `c_abi/net_transport/inproc` (`c_abi_net_transport_inproc`): the
       in-process archive, exporting only `pancake_inproc_*`.
     - `c_abi/net_transport/iroh` (`c_abi_net_transport_iroh`): the iroh archive,
@@ -194,10 +245,10 @@ Kept here, not in human first-read docs.
 | `Host` / `PancakeHost` / binding `Host` | multi-session CapTP product; owns `engine.Node` |
 | `engine.Node` | sans-io handoff router |
 | binding `Session` | one-partner app object, a view onto a `driver_core.HostSession` under a Host |
-| `driver.Session` | the same contract natively, a view onto an owning `driver.PollHost` (ADR-0090) |
-| `driver.BlockingSession` | the no-router single-connection tier, the one place `Settled.give` surfaces, and the only tier a transport with no pollable descriptor can ride — so it does not collapse into `PollHost` |
-| Goblins `mycapn` | endpoint, roughly Host plus router tables, roughly `engine.Node` |
+| `driver.Session` | the same contract natively, a view onto an owning `driver.HostRuntime` (ADR-0090) |
+| `driver.BlockingSession` | the no-router single-connection tier, the one place `Settled.give` surfaces, and the only tier a transport with no pollable descriptor can ride — so it does not collapse into `HostRuntime` |
+| Goblins `mycapn` | two roles: product maps to Host; router tables map to `engine.Node` |
 
-Binding `Node` and `Connection` are deleted, and `net.Connection` is the byte
+Application-level binding `Node` and `Connection` are deleted, and `net.Connection` is the byte
 stream only. There is no multi-session "node" alias for `PancakeHost` and no
 `driver.Connection`.

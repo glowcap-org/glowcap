@@ -16,7 +16,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * publish traces of the same OCapN Session ID.
  * Both peers run pancake, so this session settles on Cap'n Proto over
  * pancake-next. That is the pairing a pancake fleet configures
- * (`Host.Options.codec` / `.captp_version` in `src/driver/host.zig`); the
+ * (`HostRuntime.Options.codec` / `.captp_version` in `src/driver/host_runtime.zig`); the
  * Syrup / OCapN 1.0 baseline is what a session settles on the moment a peer
  * at either end cannot follow.
  */

@@ -10,7 +10,7 @@ more ways to reach a peer.
 | 2. Performance at scale | In progress. Memory and latency budgets run on every push; 500,000 live socket sessions have not been measured. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
 | 4. C ABI and bindings | Met. Four bindings consume the generated C ABI and talk to Goblins. |
-| 5. Transport reachability | In progress. Six transports exist; platform and cold-dial work remains. |
+| 5. Transport reachability | In progress. The first-party provider seams and routed relay cold dial ship; Windows support and macOS runtime evidence remain. |
 
 [The vision](vision.md) defines the destination. [What ships](shipped.md) is
 the current inventory, and the [roadmap](roadmap.md) lists the unfinished work.
@@ -50,16 +50,18 @@ roles stay TCP-only. Null and live `op:untag` also wait on upstream support.
 The goal is 500,000 live sessions on one node. That is a target, not a current
 claim.
 
-The build checks these connection and Host costs; Host-wide rows say so
+The build checks these session and Host costs; Host-wide rows say so
 explicitly:
 
 | Cost | Checked limit |
 | --- | --- |
-| `engine.Peer` inline state | at most 1112 bytes |
+| `engine.Peer` inline state | at most 1136 bytes |
 | Warm protocol state | at most 2 KiB |
 | Completion-loop slot beyond its embedded peer | exactly 128 bytes |
-| Host session shell | at most 496 bytes |
-| Host connection identity | one owned transport/designator block per session |
+| Completion-backed keyed-relay adapter state | exactly 264 bytes per relay leg |
+| Sealing completion-adapter state (`noise-relay`) | exactly 936 bytes per sealed leg, on top of the leg it wraps |
+| Host session shell | at most 528 bytes |
+| Host session locator identity | one owned transport/designator block per session |
 | Warm local Vat queue batch | zero general-purpose allocations |
 | Retained queue spare in the Host-owned Vat | one 4,152-byte chunk per Host with at most 4 KiB of payload arena |
 | Steady delivery to a live export | one owned-frame allocation |
@@ -103,11 +105,13 @@ Goblins currently dials only the TypeScript binding in CI.
 
 ## 5. Transport reachability
 
-The transport contract supports plain TCP, keyed TCP, keyed relay, in-process
-pipes, iroh, and WebRTC. TCP, iroh, and WebRTC have Host completion-loop
-integrations. The WebRTC one adopts signaled peers and dials through a
-configured signaling authority (`zig build webrtc-loop`). Native three-party
-redeem over a bare `webrtc` give is proved by `zig build webrtc-bridge-redeem`.
+The transport contract supports plain TCP, keyed TCP, noise TCP and noise
+relay (ADR-0107's sealed channel), keyed relay, in-process pipes, iroh,
+WebRTC, and onion (the standardized Tor netlayer). TCP, iroh, WebRTC, and
+outbound keyed-relay have Host completion-loop integrations. The WebRTC one
+adopts signaled peers and dials through a configured signaling authority
+(`zig build webrtc-loop`). Native three-party redeem over a bare `webrtc`
+give is proved by `zig build webrtc-bridge-redeem`.
 
 The remaining work is about reach and operating systems rather than another
 protocol core:

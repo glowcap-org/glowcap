@@ -4,7 +4,7 @@
 //! in `completion.Loop` (`loop.zig`): it provides the platform completion
 //! primitive (io_uring) and the loopback socket primitives, and nothing else. All
 //! the portable connection orchestration lives in `completion.Loop`, which is
-//! generic over this backend. The kqueue (macOS/BSD) sibling is a separate file
+//! generic over this backend. The kqueue (Darwin) sibling is a separate file
 //! implementing the same interface (a Windows IOCP backend is not implemented);
 //! the portable server does not change when a backend is added.
 //!
@@ -26,6 +26,7 @@ const linux = std.os.linux;
 const IoUring = linux.IoUring;
 
 const completion = @import("loop.zig");
+const poll_wait = @import("../poll.zig");
 const socket_tcp = @import("socket_tcp.zig");
 
 comptime {
@@ -36,9 +37,11 @@ const tcp_os = socket_tcp.Os.linux;
 
 pub const Backend = struct {
     pub const Fd = linux.fd_t;
+    pub const adapter_depth = 0;
     /// Platform dial target: a resolved `IpAddress`. OCapN locator resolve
     /// lives on `tcp.DialResolver`, not on this platform Backend.
     pub const ConnectTarget = std.Io.net.IpAddress;
+    pub const ListenerAddress = u16;
 
     /// The one buffer group registered on the ring; group ids only need to be
     /// unique per ring.
@@ -53,11 +56,24 @@ pub const Backend = struct {
     buffers: []u8,
     buf_bytes: u32,
     buf_count: u16,
-    /// Backing for the poll timeout SQE. Owned here rather than by `poll`,
-    /// because a submit that fails leaves the SQE published with this pointer
-    /// still in it while `poll`'s frame goes away. One per loop, not per
-    /// connection.
-    poll_ts: linux.kernel_timespec = .{ .sec = 0, .nsec = 0 },
+    /// The one listener and accept request this backend may own. A listening
+    /// socket cannot rely on `shutdown(2)` to cancel an io_uring accept, so
+    /// listener close targets the request by its exact user_data instead.
+    listener_fd: ?Fd = null,
+    listener_accept_ud: ?u64 = null,
+    listener_cancel: ?struct {
+        fd: Fd,
+        close_ud: u64,
+        phase: enum { cancel_pending, waiting_target } = .cancel_pending,
+    } = null,
+    /// A synthetic listener-close completion that did not fit beside the
+    /// accept CQE which made an `-EALREADY` cancellation safe to finish.
+    listener_close_ready: ?u64 = null,
+
+    /// Backend-private completion identity. Loop user_data always has a valid
+    /// three-bit `Op` tag (0...5), so an all-one value cannot be emitted by the
+    /// Loop or by an adapter preserving that payload.
+    const listener_cancel_ud = std.math.maxInt(u64);
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -65,6 +81,7 @@ pub const Backend = struct {
         read_buffers: u16,
         read_buffer_bytes: u32,
     ) !Backend {
+        if (read_buffer_bytes == 0) return error.InvalidReadBufferBytes;
         var ring = try IoUring.init(queue_entries, 0);
         errdefer ring.deinit();
 
@@ -94,6 +111,8 @@ pub const Backend = struct {
     }
 
     pub fn deinit(self: *Backend) void {
+        std.debug.assert(self.listener_cancel == null);
+        std.debug.assert(self.listener_close_ready == null);
         IoUring.free_buf_ring(self.ring.fd, self.buf_ring, self.buf_count, buf_group_id);
         self.allocator.free(self.buffers);
         self.ring.deinit();
@@ -114,9 +133,12 @@ pub const Backend = struct {
     }
 
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
+        std.debug.assert(self.listener_fd == listen_fd);
+        std.debug.assert(self.listener_accept_ud == null);
         const sqe = try self.getSqe();
         sqe.prep_accept(listen_fd, null, null, 0);
         sqe.user_data = user_data;
+        self.listener_accept_ud = user_data;
     }
 
     /// Start an outbound TCP connect: open a socket, submit connect, return the
@@ -156,7 +178,29 @@ pub const Backend = struct {
         sqe.user_data = user_data;
     }
 
+    pub fn submitCancel(
+        self: *Backend,
+        cancel_user_data: u64,
+        target_user_data: u64,
+        fd: Fd,
+    ) !void {
+        _ = fd; // io_uring cancellation identifies the exact request by user_data.
+        const sqe = try self.getSqe();
+        sqe.prep_cancel(target_user_data, 0);
+        sqe.user_data = cancel_user_data;
+    }
+
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
+        if (self.listener_fd == fd) {
+            if (self.listener_accept_ud) |accept_ud| {
+                std.debug.assert(self.listener_cancel == null);
+                const sqe = try self.getSqe();
+                sqe.prep_cancel(accept_ud, 0);
+                sqe.user_data = listener_cancel_ud;
+                self.listener_cancel = .{ .fd = fd, .close_ud = user_data };
+                return;
+            }
+        }
         const sqe = try self.getSqe();
         sqe.prep_close(fd);
         sqe.user_data = user_data;
@@ -190,41 +234,60 @@ pub const Backend = struct {
     /// completion; a non-negative value waits at most that many milliseconds and
     /// returns 0 when nothing completes in time.
     pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
-        const poll_timeout_sentinel: u64 = std.math.maxInt(u64);
-
-        // The SQE holds a pointer to the timespec, and the kernel does not read
-        // it until `submit_and_wait` below, so the storage has to outlive this
-        // call — the same rule `submitConnect` obeys for its sockaddr, but a
-        // stack local cannot serve here: a submit that fails returns from
-        // `poll` with the entry published.
-        if (timeout_ms >= 0) {
-            self.poll_ts = .{
-                .sec = @divTrunc(timeout_ms, 1000),
-                .nsec = @as(i64, @mod(timeout_ms, 1000)) * std.time.ns_per_ms,
-            };
-            // Through `getSqe`, not `ring.timeout`, so a full submission queue
-            // is drained and retried like every other op here. Failing instead
-            // would take down the loop, and with it every connection on it.
-            const sqe = try self.getSqe();
-            sqe.prep_timeout(&self.poll_ts, 1, 0);
-            sqe.user_data = poll_timeout_sentinel;
+        if (self.listener_close_ready) |user_data| {
+            if (out.len == 0) return 0;
+            self.listener_close_ready = null;
+            out[0] = .{ .user_data = user_data, .result = 0 };
+            return 1;
         }
-        _ = self.ring.submit_and_wait(1) catch |err| switch (err) {
-            error.SignalInterrupt => return 0,
-            else => return err,
-        };
+        if (timeout_ms >= 0) {
+            _ = self.ring.submit() catch |err| switch (err) {
+                error.SignalInterrupt => return 0,
+                else => return err,
+            };
+            if (try self.drainCompletions(out)) |n| return n;
+            var fds = [_]std.posix.pollfd{.{
+                .fd = self.ring.fd,
+                .events = std.posix.POLL.IN,
+                .revents = 0,
+            }};
+            const ready = poll_wait.wait(&fds, timeout_ms) catch |err| return err;
+            if (ready == 0) return 0;
+        } else {
+            _ = self.ring.submit_and_wait(1) catch |err| switch (err) {
+                error.SignalInterrupt => return 0,
+                else => return err,
+            };
+        }
+        return (try self.drainCompletions(out)) orelse 0;
+    }
+
+    fn drainCompletions(self: *Backend, out: []completion.Completion) !?usize {
         var cqes: [256]linux.io_uring_cqe = undefined;
         const want = @min(out.len, cqes.len);
         const n = try self.ring.copy_cqes(cqes[0..want], 0);
+        if (n == 0) return null;
         var produced: usize = 0;
         for (cqes[0..n]) |cqe| {
-            // Only the poll timeout itself is dropped, identified by its
-            // sentinel. Dropping every `-ETIME` completion would also swallow a
-            // real op's, and the loop counts an op as in flight until its
-            // completion arrives. One swallowed completion leaves that count
-            // permanently non-zero, which hangs `closeAndDrain` and trips the
-            // in-flight assertion at teardown.
-            if (cqe.user_data == poll_timeout_sentinel) continue;
+            if (cqe.user_data == listener_cancel_ud) {
+                const disposition = classifyListenerCancel(cqe.res);
+                switch (disposition) {
+                    .resolved => self.finishListenerClose(out, &produced),
+                    .wait_for_target => {
+                        const pending = &(self.listener_cancel orelse unreachable);
+                        pending.phase = .waiting_target;
+                        // The accept CQE may have won the race and appeared
+                        // earlier in this same batch. In that order both halves
+                        // are now retired, so finish without another poll.
+                        if (self.listener_accept_ud == null)
+                            self.finishListenerClose(out, &produced);
+                    },
+                }
+                continue;
+            }
+            const listener_accept = self.listener_accept_ud == cqe.user_data;
+            if (listener_accept)
+                self.listener_accept_ud = null;
             var comp: completion.Completion = .{ .user_data = cqe.user_data, .result = cqe.res };
             if (cqe.flags & linux.IORING_CQE_F_BUFFER != 0) {
                 // A recv that selected a pool buffer (possibly zero bytes on
@@ -242,8 +305,28 @@ pub const Backend = struct {
             }
             out[produced] = comp;
             produced += 1;
+            if (listener_accept) {
+                if (self.listener_cancel) |pending| {
+                    if (pending.phase == .waiting_target)
+                        self.finishListenerClose(out, &produced);
+                }
+            }
         }
         return produced;
+    }
+
+    fn finishListenerClose(self: *Backend, out: []completion.Completion, produced: *usize) void {
+        const pending = self.listener_cancel orelse unreachable;
+        self.listener_cancel = null;
+        _ = linux.close(pending.fd);
+        self.listener_fd = null;
+        if (produced.* < out.len) {
+            out[produced.*] = .{ .user_data = pending.close_ud, .result = 0 };
+            produced.* += 1;
+        } else {
+            std.debug.assert(self.listener_close_ready == null);
+            self.listener_close_ready = pending.close_ud;
+        }
     }
 
     fn bufferSlice(self: *Backend, buffer_id: u16) []u8 {
@@ -254,23 +337,29 @@ pub const Backend = struct {
     const enobufs_res: i32 = -@as(i32, @intFromEnum(linux.E.NOBUFS));
 
     pub fn openListener(self: *Backend, port: u16) !Fd {
-        _ = self;
-        return socket_tcp.openListener(tcp_os, port);
+        std.debug.assert(self.listener_fd == null);
+        const fd = try socket_tcp.openListener(tcp_os, port);
+        self.listener_fd = fd;
+        return fd;
     }
 
     pub fn openSocket() !Fd {
         return socket_tcp.openSocket(tcp_os);
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
+    pub fn listenerAddress(_: *Backend, fd: Fd) !ListenerAddress {
         var addr: linux.sockaddr.in = .{ .port = 0, .addr = 0 };
         var len: linux.socklen_t = @sizeOf(linux.sockaddr.in);
         try check(linux.getsockname(fd, @ptrCast(&addr), &len));
         return std.mem.bigToNative(u16, addr.port);
     }
 
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
+    }
+
     pub fn closeFd(self: *Backend, fd: Fd) void {
-        _ = self;
+        if (self.listener_fd == fd) self.listener_fd = null;
         _ = linux.close(fd);
     }
 
@@ -280,6 +369,27 @@ pub const Backend = struct {
         _ = linux.shutdown(fd, linux.SHUT.RDWR);
     }
 };
+
+const ListenerCancelDisposition = enum { resolved, wait_for_target };
+
+/// An exact async-cancel either retires the target, finds it already retired,
+/// or loses a race to an operation already proceeding toward its CQE. Only the
+/// first two make descriptor close immediately safe. Any other result says
+/// nothing about whether the target will complete, so the backend conservatively
+/// keeps draining rather than freeing beneath a live accept.
+fn classifyListenerCancel(result: i32) ListenerCancelDisposition {
+    const not_found = -@as(i32, @intFromEnum(linux.E.NOENT));
+    if (result >= 0 or result == not_found) return .resolved;
+    return .wait_for_target;
+}
+
+/// Narrow test seam for the listener-cancel race classifier. Empty in every
+/// production build so platform internals do not become library surface.
+pub const white_box = if (builtin.is_test) struct {
+    pub fn cancelResolved(result: i32) bool {
+        return classifyListenerCancel(result) == .resolved;
+    }
+} else struct {};
 
 // `openListener`/`openSocket` delegate their socket/bind/listen naming to
 // `socket_tcp`, so the one syscall this backend checks itself is `getsockname`

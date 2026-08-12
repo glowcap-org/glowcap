@@ -5,9 +5,9 @@
 // and vows stay on `Session`; this module owns the conn byte path
 // (handshake, serve loop, feed, flush, feed-refusal, EOF / `break_far_vows`).
 
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, readBytes, releaseManagedFrame } from "./internal/seam.ts";
+import { ab, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts";
 import { enterDeliver, exitDeliver } from "./trampoline.ts";
 import {
 	type AbortDetail,
@@ -17,7 +17,7 @@ import {
 	PancakeError,
 } from "./errors.ts";
 import { L } from "./internal/layout.ts";
-import { CLOSED, OK, WOULD_BLOCK } from "@pancake/abi";
+import { CLOSED, HOST_OUTBOUND_PREFIX_CAP, OK, WOULD_BLOCK } from "@pancake/abi";
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -44,7 +44,7 @@ export interface PumpHandle {
 	write(data: Uint8Array): Promise<void>;
 	drainParkedReleases(): void;
 	kickActions(): Promise<void>;
-	closeTransport(): void;
+	closeTransport(): void | Promise<void>;
 }
 
 /** Drive a freshly opened connection's keyed handshake to an open session.
@@ -96,7 +96,7 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 			h.closingFlag = true;
 			const msg = utf8Encoder.encode("connection closed");
 			try {
-				checkHost(driverS.pancake_host_session_break_far_vows(
+				checkHost(hostS.pancake_host_session_break_far_vows(
 					h.ptr,
 					ab(msg),
 					BigInt(msg.length),
@@ -119,30 +119,37 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
  * borrowed call moves the whole chunk; an empty chunk resumes frames the
  * session held behind its handshake open. */
 export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
-	if (h.released) return;
-	// Behaviors fire synchronously inside this call, so name the arriving Port for
-	// the trampoline across it. Saved and restored (not cleared) to mirror the
-	// trampoline's currentTurn idiom and stay correct if feed were ever entered
-	// re-entrantly; at this sole synchronous entry prev is null, so the restore
-	// is equivalent to clearing. A redeem dial's own handshake feed is not
-	// nested inside this bracket: the action drain that runs it (kickActions)
-	// fires after exitDeliver, as a separate top-level feed.
-	const prevDeliver = enterDeliver(h.deliverOwner, h.deliverHost);
-	let rc: number;
-	try {
-		rc = driverS.pancake_host_session_feed_bytes(
-			h.ptr,
-			ab(chunk),
-			BigInt(chunk.length),
-		);
-	} finally {
-		exitDeliver(prevDeliver);
+	while (true) {
+		if (h.released) return;
+		// Behaviors fire synchronously inside this call, so name the arriving Port for
+		// the trampoline across it. Saved and restored (not cleared) to mirror the
+		// trampoline's currentTurn idiom and stay correct if feed were ever entered
+		// re-entrantly; at this sole synchronous entry prev is null, so the restore
+		// is equivalent to clearing. A redeem dial's own handshake feed is not
+		// nested inside this bracket: the action drain that runs it (kickActions)
+		// fires after exitDeliver, as a separate top-level feed.
+		const prevDeliver = enterDeliver(h.deliverOwner, h.deliverHost);
+		let rc: number;
+		try {
+			rc = hostS.pancake_host_session_feed_bytes(
+				h.ptr,
+				ab(chunk),
+				BigInt(chunk.length),
+			);
+		} finally {
+			exitDeliver(prevDeliver);
+		}
+		// Parked releases drain before the refusal check, matching the Python
+		// and Rust pumps, so a mid-feed close's C release never waits behind a
+		// refused feed's raise.
+		h.drainParkedReleases();
+		if (rc === OK) break;
+		if (rc === WOULD_BLOCK) {
+			await h.kickActions();
+			continue;
+		}
+		await raiseFeedRefusal(h, rc);
 	}
-	// Parked releases drain before the refusal check, matching the Python
-	// and Rust pumps, so a mid-feed close's C release never waits behind a
-	// refused feed's raise.
-	h.drainParkedReleases();
-	if (rc !== OK) await raiseFeedRefusal(h, rc);
 	await h.kickActions();
 }
 
@@ -152,7 +159,7 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 export function lastAbort(h: PumpHandle): AbortDetail | null {
 	if (h.released) return null;
 	const buf = new Uint8Array(L.LAST_ABORT_SIZE);
-	const rc = driverS.pancake_host_session_last_abort(h.ptr, ab(buf));
+	const rc = hostS.pancake_host_session_last_abort(h.ptr, ab(buf));
 	if (rc === WOULD_BLOCK) return null;
 	checkHost(rc);
 	const dv = new DataView(buf.buffer);
@@ -198,20 +205,35 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 	h.writing = new Promise<void>((r) => (release = r));
 	try {
 		await prior;
-		while (true) {
-			if (h.released) return;
-			const mf = new Uint8Array(L.MANAGED_FRAME_SIZE);
-			const rc = driverS.pancake_host_session_take_outbound(h.ptr, ab(mf));
-			if (rc === WOULD_BLOCK) return;
-			checkHost(rc);
-			const dv = new DataView(mf.buffer);
-			const frame = readBytes(
-				L.getPtr(dv, L.MANAGED_FRAME_BYTES_OFF),
-				L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
-			);
-			releaseManagedFrame(mf);
-			await h.write(utf8Encoder.encode(`${frame.length}:`));
-			await h.write(frame);
+		try {
+			while (true) {
+				if (h.released) return;
+				const mf = new Uint8Array(L.MANAGED_FRAME_SIZE);
+				const prefix = new Uint8Array(HOST_OUTBOUND_PREFIX_CAP);
+				const prefixLen = new Uint8Array(8);
+				const rc = hostS.pancake_host_session_take_outbound(
+					h.ptr,
+					ab(mf),
+					ab(prefix),
+					BigInt(prefix.length),
+					ab(prefixLen),
+				);
+				if (rc === WOULD_BLOCK) return;
+				checkHost(rc);
+				const dv = new DataView(mf.buffer);
+				const frame = readBytes(
+					L.getPtr(dv, L.MANAGED_FRAME_BYTES_OFF),
+					L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
+				);
+				releaseManagedFrame(mf);
+				await h.write(prefix.subarray(0, Number(outUsize(prefixLen))));
+				await h.write(frame);
+			}
+		} catch (err) {
+			// The transferred frame cannot be replayed, and cancellation may
+			// have left a prefix on the stream. End this session and settle vows.
+			h.closeTransport();
+			throw err;
 		}
 	} finally {
 		release();

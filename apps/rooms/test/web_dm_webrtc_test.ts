@@ -14,7 +14,7 @@
 // exporter locator names a `webrtc` designator, redeemed end to end. The
 // locator carries no signaling route; the dialing host's authority is the
 // directory it already reaches (`Host.setSignaling`), the same configured
-// posture the keyed-relay cold dial holds.
+// posture the rendezvous cold dial holds.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's room server is native), and a Playwright Chromium

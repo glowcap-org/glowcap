@@ -130,15 +130,25 @@ pub const PANCAKE_ABORT_DOMAIN_CODEC = abi.PANCAKE_ABORT_DOMAIN_CODEC;
 pub const PANCAKE_ABORT_DOMAIN_SESSION = abi.PANCAKE_ABORT_DOMAIN_SESSION;
 pub const PANCAKE_ABORT_DOMAIN_FOREIGN = abi.PANCAKE_ABORT_DOMAIN_FOREIGN;
 pub const PancakeLastAbort = abi.PancakeLastAbort;
+pub const PancakeLocatorHintView = abi.PancakeLocatorHintView;
+pub const PancakeLocatorView = abi.PancakeLocatorView;
+pub const PANCAKE_LOCATOR_VIEW_ABI_VERSION = abi.PANCAKE_LOCATOR_VIEW_ABI_VERSION;
+pub const PANCAKE_HINT_STRING = abi.PANCAKE_HINT_STRING;
+pub const PANCAKE_HINT_BYTES = abi.PANCAKE_HINT_BYTES;
+pub const PANCAKE_HINT_BOOLEAN = abi.PANCAKE_HINT_BOOLEAN;
+pub const PANCAKE_HINT_INTEGER = abi.PANCAKE_HINT_INTEGER;
+pub const PANCAKE_HINTS_MAP = abi.PANCAKE_HINTS_MAP;
+pub const PANCAKE_HINTS_BOOLEAN_FALSE = abi.PANCAKE_HINTS_BOOLEAN_FALSE;
 
 // ── OCapN locator handle ─────────────────────────────────────────────────────
 
-/// A parsed OCapN locator: the value a `pancake_uri_parse_*` returns, read
-/// through the `pancake_locator_*` accessors and freed with
-/// `pancake_locator_release`. One handle carries both a peer and a sturdyref (a
-/// sturdyref is a peer locator plus a swissnum), so a parsed peer reports a
-/// zero-length swissnum.
+/// An owned OCapN peer locator, read through `pancake_locator_*` and released
+/// with `pancake_locator_release`.
 pub const PancakeLocator = opaque {};
+
+/// An owned OCapN sturdyref. Its embedded peer locator and authority-bearing
+/// swissnum remain distinct and are released together.
+pub const PancakeSturdyRef = opaque {};
 
 // ── Shared error projection ──────────────────────────────────────────────────
 
@@ -181,17 +191,31 @@ pub const pancake_context_release = context.pancake_context_release;
 pub const pancake_managed_frame_release = frame.pancake_managed_frame_release;
 
 pub const pancake_uri_parse_peer = uri.pancake_uri_parse_peer;
+pub const pancake_uri_parse_peer_in = uri.pancake_uri_parse_peer_in;
 pub const pancake_uri_parse_sturdyref = uri.pancake_uri_parse_sturdyref;
+pub const pancake_uri_parse_sturdyref_in = uri.pancake_uri_parse_sturdyref_in;
 pub const pancake_uri_format_peer = uri.pancake_uri_format_peer;
 pub const pancake_uri_format_sturdyref = uri.pancake_uri_format_sturdyref;
+pub const pancake_locator_new = uri.pancake_locator_new;
+pub const pancake_locator_new_in = uri.pancake_locator_new_in;
+pub const pancake_locator_clone = uri.pancake_locator_clone;
+pub const pancake_locator_clone_in = uri.pancake_locator_clone_in;
+pub const pancake_locator_borrow_view = uri.pancake_locator_borrow_view;
+pub const pancake_sturdyref_borrow_locator = uri.pancake_sturdyref_borrow_locator;
+pub const pancake_sturdyref_swissnum = uri.pancake_sturdyref_swissnum;
+pub const pancake_sturdyref_release = uri.pancake_sturdyref_release;
+pub const pancake_locator_add_string = uri.pancake_locator_add_string;
+pub const pancake_locator_add_bytes = uri.pancake_locator_add_bytes;
+pub const pancake_locator_add_boolean = uri.pancake_locator_add_boolean;
+pub const pancake_locator_add_integer = uri.pancake_locator_add_integer;
 pub const pancake_locator_transport = uri.pancake_locator_transport;
 pub const pancake_locator_designator = uri.pancake_locator_designator;
 pub const pancake_locator_host_port = uri.pancake_locator_host_port;
 pub const pancake_designator_host_port = uri.pancake_designator_host_port;
-pub const pancake_locator_swissnum = uri.pancake_locator_swissnum;
 pub const pancake_locator_hint = uri.pancake_locator_hint;
 pub const pancake_locator_hint_count = uri.pancake_locator_hint_count;
 pub const pancake_locator_hint_at = uri.pancake_locator_hint_at;
+pub const pancake_locator_hint_wire_form = uri.pancake_locator_hint_wire_form;
 pub const pancake_locator_release = uri.pancake_locator_release;
 pub const pancake_locator_record_encode = uri.pancake_locator_record_encode;
 pub const pancake_locator_record_bytes_release = uri.pancake_locator_record_bytes_release;

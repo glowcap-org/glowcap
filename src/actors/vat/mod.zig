@@ -157,6 +157,18 @@ pub const Vow = union(enum) {
     far: model.AnswerPosition,
 };
 
+/// Which settlement namespace a freshly minted vow will occupy. Exposed so
+/// adapters can reserve the matching one-shot listener slot before they commit
+/// the send that creates the vow; the reservation makes listener installation
+/// infallible after that semantic commit.
+pub const VowLocation = std.meta.Tag(Vow);
+
+/// Capacity for one future listener in exactly one settlement namespace.
+/// Obtained from `Port.reserveListener` and consumed by `Port.onReserved`.
+pub const ListenerReservation = struct {
+    location: VowLocation,
+};
+
 /// A resolver pair (ADR-0102): the vow is the read side, the resolver id is
 /// the settle authority, and neither confers the other. The resolver id lives
 /// in the minting vat's namespace and dies with it.
@@ -164,6 +176,11 @@ pub const ResolverPair = struct {
     vow: Vow,
     resolver: u64,
 };
+
+/// Capacity for one resolver pair in both Vat indexes. The pair does not exist
+/// until `spawnReservedVow` consumes this reservation, so an adapter can reserve
+/// its own rows first and make the cross-layer commit allocation-free.
+pub const ResolverPairReservation = struct {};
 
 /// A message to an actor: a verb (method selector) and its arguments. From the
 /// handler's side the verb and args are borrowed for the duration of the turn:
@@ -393,6 +410,9 @@ pub const Error = error{
     /// would silently orphan the first, the same rule `bindExport` applies to
     /// export positions.
     AlreadyListening,
+    /// A turn already handed its answer to another outcome. Re-forwarding it
+    /// would run a second effect whose result has nowhere coherent to settle.
+    AlreadyForwarded,
     /// The bound peer refused an outbound far `send` for a session or protocol
     /// reason: an invalid reference, an unnegotiated feature, a closed
     /// session, a resource cap, or an encode failure. Distinct from
@@ -533,6 +553,43 @@ pub const Port = struct {
                 const gop = try self.far_listeners.getOrPut(self.allocator, answer);
                 if (gop.found_existing) return Error.AlreadyListening;
                 gop.value_ptr.* = listener;
+            },
+        }
+    }
+
+    /// Reserve the exact listener table a not-yet-committed send will use.
+    /// Keeping this at the Port seam prevents Host and other adapters from
+    /// reaching into Vat or per-session listener maps independently.
+    pub fn reserveListener(self: *Port, vat: *Vat, location: VowLocation) Error!ListenerReservation {
+        switch (location) {
+            .local => try vat.listeners.ensureUnusedCapacity(vat.allocator, 1),
+            .far => try self.far_listeners.ensureUnusedCapacity(self.allocator, 1),
+        }
+        return .{ .location = location };
+    }
+
+    /// Install into capacity reserved before the vow-producing operation.
+    /// Fresh vows cannot already be listened on or settled until their caller
+    /// drives the Vat/Port, so violating either assertion is an adapter bug.
+    pub fn onReserved(
+        self: *Port,
+        vat: *Vat,
+        reservation: ListenerReservation,
+        vow: Vow,
+        listener: Listener,
+    ) void {
+        switch (vow) {
+            .local => |id| {
+                std.debug.assert(reservation.location == .local);
+                std.debug.assert(vat.pending_local_vows.contains(.{ .id = id }));
+                std.debug.assert(!vat.listeners.contains(id));
+                vat.listeners.putAssumeCapacity(id, listener);
+            },
+            .far => |answer| {
+                std.debug.assert(reservation.location == .far);
+                std.debug.assert(!self.served_dropped_far.contains(answer));
+                std.debug.assert(!self.far_listeners.contains(answer));
+                self.far_listeners.putAssumeCapacity(answer, listener);
             },
         }
     }
@@ -1152,8 +1209,18 @@ pub const Vat = struct {
     /// `breakVow`; both are top-level verbs, so the settle re-enters as its
     /// own event, never inside the minting turn.
     pub fn spawnVow(self: *Vat) Error!ResolverPair {
+        const reservation = try self.reserveResolverPair();
+        return self.spawnReservedVow(reservation);
+    }
+
+    pub fn reserveResolverPair(self: *Vat) Error!ResolverPairReservation {
         try self.pending_local_vows.ensureUnusedCapacity(self.allocator, 1);
         try self.resolver_vows.ensureUnusedCapacity(self.allocator, 1);
+        return .{};
+    }
+
+    pub fn spawnReservedVow(self: *Vat, reservation: ResolverPairReservation) ResolverPair {
+        _ = reservation;
         const vow = self.next_vow;
         self.next_vow += 1;
         self.pending_local_vows.putAssumeCapacity(.{ .id = vow }, {});
@@ -1165,11 +1232,9 @@ pub const Vat = struct {
 
     /// Settle a resolver vow fulfilled (ADR-0102). Top-level like `drive` —
     /// the vow's listener may open a nested drive, so a settle from inside a
-    /// turn refuses (`SettleInTurn`) and re-enters later instead. One
-    /// attempt: the resolver is consumed up front, so a second settle and an
-    /// unknown resolver refuse alike (`AlreadySettled`), and an allocation
-    /// failure mid-settle leaves the vow permanently unsettled rather than
-    /// retryable — the same posture a queued turn's settle already has.
+    /// turn refuses (`SettleInTurn`) and re-enters later instead. Fulfillment
+    /// prepares the listener's owned value before consuming the resolver, so
+    /// allocation failure is retryable with the same settle authority.
     /// `value` is borrowed for the call; the settle spine clones what a
     /// listener may outlive.
     pub fn fulfillVow(self: *Vat, resolver: u64, value: model.Argument) Error!void {
@@ -1185,13 +1250,36 @@ pub const Vat = struct {
 
     fn settleResolver(self: *Vat, resolver: u64, resolution: Resolution) Error!void {
         if (self.turn_depth != 0) return Error.SettleInTurn;
-        const entry = self.resolver_vows.fetchRemove(resolver) orelse return Error.AlreadySettled;
+        const vow = self.resolver_vows.get(resolver) orelse return Error.AlreadySettled;
         // The settle runs listeners under the drive discipline `settleLocal`
         // requires: a listener may open a nested drive or far settle, and the
         // settle arena's depth guard covers both.
         self.drive_depth += 1;
         defer self.drive_depth -= 1;
-        try self.settleLocal(entry.value, resolution);
+        switch (resolution) {
+            .fulfilled => |value| {
+                if (self.listeners.contains(vow)) {
+                    const arena = self.beginSettle();
+                    defer self.endSettle();
+                    const owned = try model.cloneArgument(arena, value);
+                    std.debug.assert(self.resolver_vows.remove(resolver));
+                    self.settleLocalPrepared(vow, .{ .fulfilled = owned });
+                    return;
+                }
+            },
+            .broken => {},
+            .give => unreachable,
+        }
+        std.debug.assert(self.resolver_vows.remove(resolver));
+        try self.settleLocal(vow, resolution);
+    }
+
+    /// Settle with a resolution whose lifetime is already safe for the
+    /// listener call. No allocation remains after the resolver is consumed.
+    fn settleLocalPrepared(self: *Vat, vow_id: u64, resolution: Resolution) void {
+        std.debug.assert(self.pending_local_vows.remove(.{ .id = vow_id }));
+        const listener = self.listeners.fetchRemove(vow_id) orelse return;
+        listener.value.func(listener.value.ctx, resolution);
     }
 
     /// Register a one-shot listener for `vow`. A local vow fires during

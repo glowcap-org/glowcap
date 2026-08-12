@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "pancake_locator.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,33 +22,33 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 /* A required pointer argument was NULL. */
 #define PANCAKE_ERR_NULL_POINTER (-1)
 /* An argument was outside its accepted range or grammar. */
-#define PANCAKE_ERR_INVALID_ARGUMENT (-3)
+#define PANCAKE_ERR_INVALID_ARGUMENT (-2)
 /* The CapTP session refused the operation. */
-#define PANCAKE_ERR_SESSION (-4)
+#define PANCAKE_ERR_SESSION (-3)
 /* A frame could not be decoded or encoded. */
-#define PANCAKE_ERR_CODEC (-5)
+#define PANCAKE_ERR_CODEC (-4)
 /* Allocation or another host-internal operation failed. */
-#define PANCAKE_ERR_INTERNAL (-6)
+#define PANCAKE_ERR_INTERNAL (-5)
 /* No result is ready. */
-#define PANCAKE_ERR_WOULD_BLOCK (-7)
+#define PANCAKE_ERR_WOULD_BLOCK (-6)
 /* The peer closed cleanly. */
-#define PANCAKE_ERR_CLOSED (-8)
+#define PANCAKE_ERR_CLOSED (-7)
 /* Transport I/O failed; read the matching archive's last-error slot. */
-#define PANCAKE_ERR_IO (-9)
+#define PANCAKE_ERR_IO (-8)
 /* Input bytes were malformed. */
-#define PANCAKE_ERR_MALFORMED (-10)
+#define PANCAKE_ERR_MALFORMED (-9)
 /* A frame exceeded its configured limit. */
-#define PANCAKE_ERR_FRAME_TOO_LARGE (-11)
+#define PANCAKE_ERR_FRAME_TOO_LARGE (-10)
 /* The C value algebra cannot represent the supplied value. */
-#define PANCAKE_ERR_UNSUPPORTED_VALUE (-13)
+#define PANCAKE_ERR_UNSUPPORTED_VALUE (-11)
 /* A remote promise broke. */
-#define PANCAKE_ERR_BROKEN (-14)
+#define PANCAKE_ERR_BROKEN (-12)
 /* The requested locator field or hint is absent. */
-#define PANCAKE_ERR_NOT_FOUND (-15)
+#define PANCAKE_ERR_NOT_FOUND (-13)
 /* The caller-provided output buffer is too small. */
-#define PANCAKE_ERR_BUFFER_TOO_SMALL (-16)
+#define PANCAKE_ERR_BUFFER_TOO_SMALL (-14)
 /* The configured time budget expired. */
-#define PANCAKE_ERR_TIMEOUT (-17)
+#define PANCAKE_ERR_TIMEOUT (-15)
 
 /* ── Shared discriminants ── */
 #define PANCAKE_CODEC_UNKNOWN 0
@@ -182,15 +183,43 @@ void pancake_clear_last_error(void);
 
 /* ── OCapN locators ── */
 typedef struct PancakeLocator PancakeLocator;
-
+typedef struct PancakeSturdyRef PancakeSturdyRef;
 /* Parse an ocapn:// peer URI into an owned locator. */
 int32_t pancake_uri_parse_peer(const uint8_t *uri, size_t uri_len, PancakeLocator **out_locator);
-/* Parse an ocapn:// sturdyref URI into an owned locator. */
-int32_t pancake_uri_parse_sturdyref(const uint8_t *uri, size_t uri_len, PancakeLocator **out_locator);
+/* Parse a peer URI into a locator allocated through context. */
+int32_t pancake_uri_parse_peer_in(PancakeContext *context, const uint8_t *uri, size_t uri_len, PancakeLocator **out_locator);
+/* Parse an ocapn:// sturdyref URI into an owned sturdyref. */
+int32_t pancake_uri_parse_sturdyref(const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
+/* Parse a sturdyref URI through context. */
+int32_t pancake_uri_parse_sturdyref_in(PancakeContext *context, const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
 /* Format a peer locator into a caller-owned buffer. */
 int32_t pancake_uri_format_peer(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
 /* Format a sturdyref into a caller-owned buffer. */
 int32_t pancake_uri_format_sturdyref(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *swissnum, size_t swissnum_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
+/* Construct an owned OCapN peer locator. */
+int32_t pancake_locator_new(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, uint32_t hint_wire_form, PancakeLocator **out_locator);
+/* Construct an OCapN peer locator allocated through context. */
+int32_t pancake_locator_new_in(PancakeContext *context, const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, uint32_t hint_wire_form, PancakeLocator **out_locator);
+/* Clone a borrowed locator view into an owned OCapN locator. */
+int32_t pancake_locator_clone(const PancakeLocatorView *view, PancakeLocator **out_locator);
+/* Clone a borrowed locator view through context. */
+int32_t pancake_locator_clone_in(PancakeContext *context, const PancakeLocatorView *view, PancakeLocator **out_locator);
+/* Borrow the complete locator view until mutation or release. */
+int32_t pancake_locator_borrow_view(const PancakeLocator *loc, const PancakeLocatorView **out_view);
+/* Borrow the sturdyref's embedded peer locator view. */
+int32_t pancake_sturdyref_borrow_locator(const PancakeSturdyRef *sturdyref, const PancakeLocatorView **out_view);
+/* Borrow the sturdyref's authority-bearing swissnum. */
+int32_t pancake_sturdyref_swissnum(PancakeSturdyRef *sturdyref, const uint8_t **out_ptr, size_t *out_len);
+/* Release an owned sturdyref. */
+void pancake_sturdyref_release(PancakeSturdyRef *sturdyref);
+/* Add one owned string hint. */
+int32_t pancake_locator_add_string(PancakeLocator *loc, const uint8_t *name, size_t name_len, const uint8_t *value, size_t value_len);
+/* Add one owned byte-string hint. */
+int32_t pancake_locator_add_bytes(PancakeLocator *loc, const uint8_t *name, size_t name_len, const uint8_t *value, size_t value_len);
+/* Add one owned boolean hint. */
+int32_t pancake_locator_add_boolean(PancakeLocator *loc, const uint8_t *name, size_t name_len, uint8_t value);
+/* Add one owned integer hint. */
+int32_t pancake_locator_add_integer(PancakeLocator *loc, const uint8_t *name, size_t name_len, int64_t value);
 /* Borrow the locator transport. */
 int32_t pancake_locator_transport(PancakeLocator *loc, const uint8_t **out_ptr, size_t *out_len);
 /* Borrow the locator designator. */
@@ -199,18 +228,18 @@ int32_t pancake_locator_designator(PancakeLocator *loc, const uint8_t **out_ptr,
 int32_t pancake_locator_host_port(PancakeLocator *loc, const uint8_t **out_host, size_t *out_host_len, uint16_t *out_port);
 /* Split a borrowed designator as host:port. */
 int32_t pancake_designator_host_port(const uint8_t *designator, size_t designator_len, const uint8_t **out_host, size_t *out_host_len, uint16_t *out_port);
-/* Borrow the sturdyref swissnum, or an empty view for a peer locator. */
-int32_t pancake_locator_swissnum(PancakeLocator *loc, const uint8_t **out_ptr, size_t *out_len);
-/* Borrow one locator hint by key. */
-int32_t pancake_locator_hint(PancakeLocator *loc, const uint8_t *key, size_t key_len, const uint8_t **out_ptr, size_t *out_len);
+/* Borrow one typed locator hint by key. */
+int32_t pancake_locator_hint(PancakeLocator *loc, const uint8_t *key, size_t key_len, PancakeLocatorHintView *out_hint);
 /* Read the number of locator hints. */
 int32_t pancake_locator_hint_count(PancakeLocator *loc, size_t *out_count);
-/* Borrow one locator hint by index. */
-int32_t pancake_locator_hint_at(PancakeLocator *loc, size_t idx, const uint8_t **out_key, size_t *out_key_len, const uint8_t **out_val, size_t *out_val_len);
+/* Borrow one typed locator hint by index. */
+int32_t pancake_locator_hint_at(PancakeLocator *loc, size_t idx, PancakeLocatorHintView *out_hint);
+/* Read the locator hint container's wire spelling. */
+int32_t pancake_locator_hint_wire_form(PancakeLocator *loc, uint32_t *out_wire_form);
 /* Release an owned locator. */
 void pancake_locator_release(PancakeLocator *loc);
 /* Encode an owned Syrup <ocapn-peer> record for a signed handoff locator. */
-int32_t pancake_locator_record_encode(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *direct_addresses, size_t direct_addresses_len, uint8_t **out, size_t *out_len);
+int32_t pancake_locator_record_encode(const PancakeLocatorView *locator, uint8_t **out, size_t *out_len);
 /* Release bytes returned by pancake_locator_record_encode. */
 void pancake_locator_record_bytes_release(uint8_t *bytes, size_t len);
 

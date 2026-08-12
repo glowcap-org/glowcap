@@ -2,7 +2,7 @@
 //!
 //! OCapN V1.0 has no wire `op:resolve`; a promise settles through a *resolver
 //! capability* instead. The round trip lives in this one file. On the way out,
-//! `installResolverForOutboundDeliver` augments an answered `op:deliver` with a
+//! `prepareOutboundDeliver` augments an answered `op:deliver` with a
 //! synthesized resolver export advertised as `resolve_me_desc`, committing the
 //! answer-to-export link in the session. On the way back,
 //! `registerPartnerResolver` installs the partner's own advertised resolver as
@@ -21,6 +21,21 @@ const session_mod = @import("session");
 const engine = @import("mod.zig");
 const Peer = engine.Peer;
 
+/// A V1.0 wire message whose synthesized resolver mention has been installed
+/// in authoritative session state but has not reached the outbound queue yet.
+/// The encode owner must call `rollback` on every failure before publication;
+/// once the frame is queued, the partner owns the mention and the preparation
+/// is committed by doing nothing.
+pub const PreparedMessage = struct {
+    message: model.Message,
+    resolver_export: ?model.ExportPosition = null,
+
+    pub fn rollback(self: PreparedMessage, peer: *Peer) void {
+        if (self.resolver_export) |resolver_export|
+            peer.session_state.abandonMentionedResolverExport(resolver_export);
+    }
+};
+
 /// Augment an outbound answered `op:deliver` with a synthesized V1.0 resolver
 /// export, *committing session authority*: the resolver export is minted, the
 /// answer-to-export link is installed, and the export takes the wire-delta
@@ -29,25 +44,28 @@ const Peer = engine.Peer;
 /// message borrows `deliver`'s heap; the caller's ownership of the original
 /// message is unchanged. V1.0 sessions only, the caller gates on
 /// `Session.needsV1_0Translation`.
-pub fn installResolverForOutboundDeliver(peer: *Peer, deliver: model.Deliver) !model.Message {
+pub fn prepareOutboundDeliver(peer: *Peer, deliver: model.Deliver) !PreparedMessage {
     if (deliver.answer == null or deliver.resolve_me_desc != null) {
-        return .{ .deliver = deliver };
+        return .{ .message = .{ .deliver = deliver } };
     }
-    // Synthesize a promise-shaped resolver export and commit the
+    // Synthesize the resolver object V1.0 requires and commit the
     // answer→export link (plus the wire-delta retain its on-wire mention
     // needs) through the session's single accounting seam, so the partner's
     // subsequent resolver-callback deliver translates back into a semantic
     // `Resolve`.
     const resolver_export = try peer.session_state.mintOutboundResolver(deliver.answer.?);
     return .{
-        .deliver = .{
-            .target = deliver.target,
-            .args = deliver.args,
-            .answer = deliver.answer,
-            // Project the mention from the authoritative slot (the resolver was
-            // minted `local_unresolved`), never a hand-typed kind (ADR-0080).
-            .resolve_me_desc = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
+        .message = .{
+            .deliver = .{
+                .target = deliver.target,
+                .args = deliver.args,
+                .answer = deliver.answer,
+                // Project the mention from the authoritative slot (the resolver was
+                // minted as a local object), never a hand-typed kind (ADR-0080).
+                .resolve_me_desc = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
+            },
         },
+        .resolver_export = resolver_export,
     };
 }
 
@@ -64,20 +82,22 @@ pub fn installResolverForOutboundDeliver(peer: *Peer, deliver: model.Deliver) !m
 /// `op:listen` must reach the wire *after* the projection that opened the
 /// answer; the caller orders the two pushes. V1.0 sessions only — the caller
 /// gates on `Session.needsV1_0Translation`.
-pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model.AnswerPosition) !void {
+pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosition) !PreparedMessage {
     // Mint the resolver export and commit its answer link and wire-delta retain
     // through the session's single accounting seam (see
-    // `installResolverForOutboundDeliver`), then carry the mention on `op:listen`.
+    // `prepareOutboundDeliver`), then carry the mention on `op:listen`.
     const resolver_export = try peer.session_state.mintOutboundResolver(projected_answer);
-    const wire: model.Message = .{
-        .listen = .{
-            .target = .{ .promise = .{ .answer_position = projected_answer } },
-            // Project from the authoritative slot, never a hand-typed kind (ADR-0080).
-            .listener = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
-            .mode = .settling_only,
+    return .{
+        .message = .{
+            .listen = .{
+                .target = .{ .promise = .{ .answer_position = projected_answer } },
+                // Project from the authoritative slot, never a hand-typed kind (ADR-0080).
+                .listener = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
+                .mode = .settling_only,
+            },
         },
+        .resolver_export = resolver_export,
     };
-    try peer.pushEncoded(wire);
 }
 
 /// Encode a semantic `Resolve` as its V1.0 resolver-callback `op:deliver`
@@ -90,7 +110,12 @@ pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model
 /// `captp-unknown-record-rag` on the partner and the break is lost (the
 /// `<error>` record stays next / `.error`-argument vocabulary, which never
 /// reaches this path).
-pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve, resolver_import: model.ImportPosition) !void {
+pub fn encodeResolveAsCallback(
+    peer: *Peer,
+    resolve: model.Resolve,
+    resolver_import: model.ImportPosition,
+    pending_charge: usize,
+) !void {
     var args: [2]model.Argument = switch (resolve.resolution) {
         .fulfill => |value| .{ .{ .symbol = "fulfill" }, value },
         .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
@@ -106,7 +131,7 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve, resolver_imp
             .resolve_me_desc = null,
         },
     };
-    try peer.pushEncoded(wire);
+    try peer.pushEncodedFromPending(pending_charge, wire);
 }
 
 /// Register the resolver the partner advertised on an inbound V1.0 deliver,
@@ -123,6 +148,10 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve, resolver_imp
 /// our resolver exports — is version-neutral and lives in the inbound
 /// classifier (`engine.inbound.classifyInboundDeliver`, ADR-0095).
 pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model.AnswerPosition {
+    var installed_virtual: ?model.AnswerPosition = null;
+    errdefer if (installed_virtual) |answer|
+        peer.session_state.abandonUnsharedInboundAnswer(answer);
+
     if (deliver.resolve_me_desc) |rmd| {
         if (rmd.position()) |import_position| {
             // V1.0 resolver: the partner introduces their resolver export as
@@ -139,6 +168,7 @@ pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model
                 // virtual answer absent from `inbound_answers`, breaking the
                 // authoritative-state invariant on OOM.
                 try peer.session_state.installInboundAnswer(virtual);
+                installed_virtual = virtual;
                 break :blk virtual;
             };
             try peer.session_state.installInboundResolver(answer, model.ImportPosition.from(import_position));

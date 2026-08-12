@@ -79,12 +79,14 @@ bash conformance/ocapn-conformance/run.sh test \
 
 ## The transports these vats speak
 
-Goblins ships no netlayer, so every one of these is written here.
+Goblins ships the standardized onion netlayer. This repository supplies the
+TCP testing and iroh adapters used by the other conformance vats.
 
 | Path | Transport symbol | Who dials whom |
 | ---- | ---------------- | -------------- |
 | Live Goblins interop (`zig build goblins-interop`, handoff, gift, relayed give, binding clients) | `tcp` (`tcp-netlayer.rkt`, pancake `net.tcp`) | Real Goblins ↔ pancake CapTP over cleartext TCP |
 | Live Goblins over QUIC (`zig build goblins-iroh`) | `iroh` (`iroh-netlayer.rkt`, pancake `net.transport.iroh`) | Real Goblins ↔ pancake CapTP over encrypted QUIC, both directions |
+| Live Goblins over Tor (`zig build goblins-onion`) | `onion` (upstream Goblins netlayer, pancake `net.onion`) | Real Goblins ↔ pancake CapTP over onion circuits, both directions |
 | Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ pancake or seven-caps peer |
 
 Do not infer that the suite netlayer is the Goblins parity path.

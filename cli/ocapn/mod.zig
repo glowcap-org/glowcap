@@ -92,20 +92,29 @@ pub fn sessionOpts() driver.SessionOptions {
 
 /// Dial with explicit session options (tests pass a short handshake budget).
 /// `PANCAKE_RENDEZVOUS` (a `ws://host:port/path` relay URL) joins a
-/// keyed-relay resident to the dial set, so a `keyed-relay` locator cold-dials
-/// a registered peer through that relay — the deployment-configured mapping
-/// ADR-0088 keeps out of locator bytes.
+/// relay provider to the dial set, so `keyed-relay` and `noise-relay` locators
+/// cold-dial through the same deployment-configured mapping ADR-0088 keeps out
+/// of locator bytes.
 pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) !*driver.Session {
     ctx.dial_resident = .{ .io = ctx.io };
     ctx.dial_netlayers[0] = ctx.dial_resident.netlayer();
     var netlayer_count: usize = 1;
     if (ctx.environ.get("PANCAKE_RENDEZVOUS")) |url| {
-        ctx.rendezvous_resident = pancake.net.keyed_relay.Resident.init(ctx.io, url) catch {
-            ctx.logErr("PANCAKE_RENDEZVOUS is not a ws://host:port/path relay URL: {s}", .{url});
-            return error.InvalidRendezvousUrl;
+        ctx.rendezvous_provider = .{};
+        ctx.rendezvous_provider.?.init(ctx.gpa, ctx.io, url) catch |err| switch (err) {
+            error.InvalidRelayUrl => {
+                ctx.logErr("PANCAKE_RENDEZVOUS is not a ws://host:port/path relay URL: {s}", .{url});
+                return error.InvalidRendezvousUrl;
+            },
+            error.OutOfMemory => return err,
         };
-        ctx.dial_netlayers[1] = ctx.rendezvous_resident.netlayer();
-        netlayer_count = 2;
+        errdefer {
+            ctx.rendezvous_provider.?.deinit();
+            ctx.rendezvous_provider = null;
+        }
+        const relay_layers = ctx.rendezvous_provider.?.netlayers();
+        @memcpy(ctx.dial_netlayers[1..3], relay_layers);
+        netlayer_count = 3;
     }
     const identity = try ctx.dialIdentity();
     return driver.connectUriOwned(ctx.gpa, ctx.dial_netlayers[0..netlayer_count], uri, identity, opts) catch |err| {
@@ -197,7 +206,7 @@ pub fn parseImportTarget(name_or_import: []const u8) !?u64 {
 /// foreign id fails closed at the call); otherwise bootstrap-fetch by
 /// published name.
 pub fn resolveTarget(session: *driver.Session, name_or_import: []const u8) !driver.Capability {
-    if (try parseImportTarget(name_or_import)) |raw| return session.host.core.capabilityFromRaw(raw);
+    if (try parseImportTarget(name_or_import)) |raw| return session.runtime.core.capabilityFromRaw(raw);
     return session.fetch(name_or_import);
 }
 
@@ -222,51 +231,69 @@ fn resolveSession(ctx: *Ctx, pos: []const []const u8, min_after_uri: usize) !str
     return .{ .{ .borrow = held }, 0 };
 }
 
-/// Which netlayer a `listen` binds, from its flags. Two ways to be reachable:
+/// Which transport and designator a `listen` binds, from its flags. Two ways
+/// to be reachable:
 /// the default binds a TCP socket and signs its address, while `--rendezvous`
 /// registers this identity at a relay and holds an inbound socket there
 /// (ADR-0088) — how a peer behind a NAT, or one that declines to listen at
 /// all, still gets dialed.
 ///
-/// The caller supplies both residents' storage because each must outlive the
+/// The caller supplies both residents' storage because one must outlive the
 /// server that borrows its netlayer, and the two fronts keep them in
 /// different places: argv on its own frame, the background listener in the
 /// handle its thread owns. The policy lives here either way.
 ///
-/// `register_url` is borrowed for the listener's whole life, not just this
-/// call: `RelayUrl` holds subslices of it, and the resident re-reads them on
-/// every re-registration. Argv passes its `Parsed` flag, which outlives the
-/// accept loop; a front whose flags die with the request duplicates the bytes
-/// first. The dial override comes from the environment, which lives as long
-/// as the process.
-pub fn listenNetlayer(
+/// The relay resident copies both URLs, so every front passes its request or
+/// environment view directly and the resident owns the asynchronous lifetime.
+pub const ListenTarget = struct {
+    netlayer: pancake.net.netlayer.Netlayer,
+    designator: []const u8,
+};
+
+pub fn listenTarget(
     ctx: *Ctx,
+    bind_designator: []const u8,
     register_url_opt: ?[]const u8,
+    relay_url_opt: ?[]const u8,
     tcp: *pancake.net.tcp.Resident,
-    relay: *pancake.net.keyed_relay.Resident,
-) !pancake.net.netlayer.Netlayer {
+    relay: *?pancake.net.keyed_relay.Resident,
+) !ListenTarget {
     tcp.* = .{ .io = ctx.io };
-    const register_url = register_url_opt orelse return tcp.netlayer();
-    const register = pancake.net.keyed_relay.RelayUrl.parse(register_url) catch {
+    const register_url = register_url_opt orelse return .{
+        .netlayer = tcp.netlayer(),
+        .designator = bind_designator,
+    };
+    _ = pancake.net.keyed_relay.RelayUrl.parse(register_url) catch {
         ctx.logErr("--rendezvous wants a ws://host:port/path relay URL, got {s}", .{register_url});
         return error.Usage;
     };
-    // The dial half is the deployment's own mapping. A listener that also
-    // dials keyed-relay peers names it with PANCAKE_RENDEZVOUS; with none
-    // set, this host registers but never dials one, so the register endpoint
-    // stands in and no dial can reach it.
-    const dial_url = ctx.environ.get("PANCAKE_RENDEZVOUS") orelse register_url;
-    const dial = pancake.net.keyed_relay.RelayUrl.parse(dial_url) catch {
-        ctx.logErr("PANCAKE_RENDEZVOUS is not a ws://host:port/path relay URL: {s}", .{dial_url});
+    const dial_url = relay_url_opt orelse ctx.environ.get("PANCAKE_RENDEZVOUS") orelse {
+        ctx.logErr("--rendezvous requires --rendezvous-relay or PANCAKE_RENDEZVOUS so its locator names a dialable route", .{});
         return error.Usage;
     };
-    relay.* = .{
-        .io = ctx.io,
-        .relay_url = dial,
-        .register_url = register,
-        .public_key = (try ctx.ensureSecret()).publicKey(),
+    _ = pancake.net.keyed_relay.RelayUrl.parse(dial_url) catch {
+        ctx.logErr("{s} is not a ws://host:port/path relay URL: {s}", .{
+            if (relay_url_opt != null) "--rendezvous-relay" else "PANCAKE_RENDEZVOUS",
+            dial_url,
+        });
+        return error.Usage;
     };
-    return relay.netlayer();
+    relay.* = pancake.net.keyed_relay.Resident.initRegistered(
+        ctx.gpa,
+        ctx.io,
+        dial_url,
+        register_url,
+        (try ctx.ensureSecret()).publicKey(),
+    ) catch |err| switch (err) {
+        error.InvalidRelayUrl => unreachable, // both URLs were validated above
+        error.OutOfMemory => return err,
+    };
+    return .{
+        .netlayer = relay.*.?.netlayer(),
+        // Relay locators are keyed by the Host identity supplied to
+        // `driver.listen`; there is no socket address to bind.
+        .designator = "",
+    };
 }
 
 pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
@@ -282,28 +309,24 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     const accept_id = try ctx.acceptIdentity();
 
     var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
-    var relay: pancake.net.keyed_relay.Resident = undefined;
-    // Argv's `Parsed` outlives the accept loop below, so its flag bytes are
-    // already durable enough for the borrows `RelayUrl` keeps.
-    const netlayer = try listenNetlayer(ctx, parsed.flagString("rendezvous"), &tcp, &relay);
+    var relay: ?pancake.net.keyed_relay.Resident = null;
+    defer if (relay) |*resident| resident.deinit();
+    const target = try listenTarget(
+        ctx,
+        bind,
+        parsed.flagString("rendezvous"),
+        parsed.flagString("rendezvous-relay"),
+        &tcp,
+        &relay,
+    );
 
-    var server = driver.listen(ctx.gpa, netlayer, .{ .designator = bind }, accept_id, sessionOpts()) catch |err| {
+    var server = driver.listen(ctx.gpa, target.netlayer, .{ .designator = target.designator }, accept_id, sessionOpts()) catch |err| {
         ctx.logErr("listen: {s}", .{@errorName(err)});
         return exit_codes.dial;
     };
     defer server.close() catch {};
 
-    var addr_buf: [128]u8 = undefined;
-    const designator = server.localDesignator(&addr_buf) catch {
-        ctx.logErr("listen: no dialable local designator", .{});
-        return exit_codes.internal;
-    };
-
-    const uri = try model.uri.writePeer(ctx.gpa, .{
-        .transport = server.listener.transportName(),
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    });
+    const uri = try model.uri.writePeer(ctx.gpa, server.advertisedLocator());
     defer ctx.gpa.free(uri);
     const locator_copy = try ctx.gpa.dupe(u8, uri);
     if (ctx.last_locator) |old| ctx.gpa.free(old);
@@ -343,14 +366,14 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
         };
         if (!ready) continue;
         if (signals.stopRequested()) return exit_codes.ok;
-        var conn = server.accept() catch |err| {
+        var session = server.accept() catch |err| {
             if (signals.stopRequested()) return exit_codes.ok;
             ctx.logErr("listen accept: {s}", .{@errorName(err)});
             return exit_codes.internal;
         };
-        defer conn.deinit();
+        defer session.deinit();
         if (publish_name) |name| {
-            publishBuiltin(conn, name) catch |err| switch (err) {
+            publishBuiltin(session, name) catch |err| switch (err) {
                 error.UnknownBuiltin => {
                     ctx.logErr("unknown --publish {s} (want greeter or echo)", .{name});
                     return exit_codes.usage;
@@ -359,7 +382,7 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
             };
             ctx.logInfo("published {s}", .{name});
         }
-        try serveUntilStop(conn);
+        try serveUntilStop(session);
         if (signals.stopRequested()) return exit_codes.ok;
         if (once or publish_name != null) break;
     }
@@ -369,9 +392,9 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
 /// Serve until the partner leaves or SIGINT/SIGTERM sets the stop latch.
 /// `Session.serve` parks in an unbounded read; chunked `stepReadable` lets the
 /// latch end a published peer without closing the socket from another thread.
-fn serveUntilStop(conn: *driver.Session) !void {
+fn serveUntilStop(session: *driver.Session) !void {
     while (!signals.stopRequested()) {
-        const progress = conn.stepReadable(signals.poll_ms) catch |err| switch (err) {
+        const progress = session.stepReadable(signals.poll_ms) catch |err| switch (err) {
             error.ConnectionLost, error.TruncatedFrame => return,
             else => return err,
         };

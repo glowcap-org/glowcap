@@ -408,6 +408,14 @@ pub const FrameStream = struct {
         self.reader.stream.close(self.io);
     }
 
+    /// Interrupt blocked reads and writes without releasing the stream's
+    /// storage. Foreign runtimes use this as the cancellation half of a split
+    /// close: shutdown wakes an operation running on another OS thread, and the
+    /// owner calls `deinit` only after that operation has returned.
+    pub fn shutdown(self: *FrameStream) void {
+        self.reader.stream.shutdown(self.io, .both) catch {};
+    }
+
     /// Block for one whole frame as an owned `Frame` (allocated, like the spill,
     /// from the stream's own allocator); `Closed` on graceful EOF.
     pub fn readFrame(self: *FrameStream) FrameError!foundation.Frame {

@@ -1,15 +1,16 @@
 //! The off-turn settle mailbox (ADR-0102 stage 4): the one sanctioned way a
 //! worker thread hands a resolver settle back to the thread that owns its
-//! Host. A worker calls `post` from any thread; the entry is recorded into a
-//! fixed slot under a spin lock and the owning thread is woken through the
-//! mailbox's socketpair, whose nudge follows the ADR-0089 invariant — a
+//! Host. A worker calls `post` from any thread with that thread's `std.Io`;
+//! the entry is recorded into a fixed slot under an io-aware mutex and the
+//! owning thread is woken through the mailbox's socketpair, whose nudge follows
+//! the ADR-0089 invariant — a
 //! `WouldBlock` on the wake write means unread bytes already make the read
 //! half readable, so no wake is ever lost. The owning thread drains the wake
 //! and applies every recorded settle through the ordinary top-level resolver
 //! verbs, so nothing about the Host's one-thread contract changes: the
 //! mailbox carries the *call*, never the authority.
 //!
-//! `driver.PollHost` polls the mailbox's wake fd beside its wires; the
+//! `driver.HostRuntime` polls the mailbox's wake fd beside its wires; the
 //! completion loop arms an ordinary recv on it (a socketpair is a socket,
 //! which is why it is not a pipe). Both apply on their own thread.
 //!
@@ -24,6 +25,8 @@ const std = @import("std");
 const model = @import("model");
 const net = @import("net");
 const driver_core = @import("driver_core");
+
+const Io = std.Io;
 
 pub const Resolution = union(enum) {
     fulfilled: model.Argument,
@@ -62,7 +65,7 @@ const Slot = struct {
 pub const SettleMailbox = struct {
     allocator: std.mem.Allocator,
     slots: []Slot,
-    lock: net.sync.SpinLock = .{},
+    lock: Io.Mutex = .init,
     /// Ring state: `head` is the next entry to apply, `count` the recorded
     /// entries. Posts append at `head + count`; apply consumes at `head`.
     head: usize = 0,
@@ -115,13 +118,13 @@ pub const SettleMailbox = struct {
     /// Record a settle from any thread and wake the owner. The resolution is
     /// borrowed for the call and cloned into the slot; refusals are loud
     /// (`PostError`) and consume nothing.
-    pub fn post(self: *SettleMailbox, resolver_id: u64, resolution: Resolution) PostError!void {
-        if (resolution == .fulfilled and !argumentIsPlain(&resolution.fulfilled, 0)) {
+    pub fn post(self: *SettleMailbox, io: Io, resolver_id: u64, resolution: Resolution) PostError!void {
+        if (resolution == .fulfilled and !model.argumentIsPlainData(&resolution.fulfilled)) {
             return PostError.NotPlainData;
         }
         {
-            self.lock.lock();
-            defer self.lock.unlock();
+            self.lock.lockUncancelable(io);
+            defer self.lock.unlock(io);
             if (self.count == self.slots.len) return PostError.MailboxFull;
             const slot = &self.slots[(self.head + self.count) % self.slots.len];
             var fba = std.heap.FixedBufferAllocator.init(&slot.storage);
@@ -160,15 +163,15 @@ pub const SettleMailbox = struct {
     /// The lock brackets only the ring bookkeeping; the resolver verb runs
     /// unlocked while the entry's slot stays reserved, so a concurrent post
     /// can fill every other slot but never the one being applied.
-    pub fn apply(self: *SettleMailbox, host: *driver_core.Host) void {
+    pub fn apply(self: *SettleMailbox, io: Io, host: *driver_core.Host) void {
         while (true) {
-            self.lock.lock();
+            self.lock.lockUncancelable(io);
             if (self.count == 0) {
-                self.lock.unlock();
+                self.lock.unlock(io);
                 return;
             }
             const slot = &self.slots[self.head % self.slots.len];
-            self.lock.unlock();
+            self.lock.unlock(io);
 
             const outcome = switch (slot.resolution) {
                 .fulfilled => |value| host.resolverFulfill(slot.resolver_id, value),
@@ -180,29 +183,10 @@ pub const SettleMailbox = struct {
                 else => self.lost += 1,
             };
 
-            self.lock.lock();
+            self.lock.lockUncancelable(io);
             self.head +%= 1;
             self.count -= 1;
-            self.lock.unlock();
+            self.lock.unlock(io);
         }
     }
 };
-
-/// Whether a value is plain data — no reference or handoff arm anywhere in
-/// the tree. The mailbox's admission rule: authority never crosses threads.
-fn argumentIsPlain(argument: *const model.Argument, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
-    return switch (argument.*) {
-        .reference, .handoff => false,
-        .list, .set => |items| for (items) |*item| {
-            if (!argumentIsPlain(item, depth + 1)) break false;
-        } else true,
-        .tagged => |tagged| for (tagged.value) |*item| {
-            if (!argumentIsPlain(item, depth + 1)) break false;
-        } else true,
-        .@"struct" => |entries| for (entries) |*entry| {
-            if (!argumentIsPlain(&entry.value, depth + 1)) break false;
-        } else true,
-        else => true,
-    };
-}

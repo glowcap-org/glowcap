@@ -1,221 +1,176 @@
 ---
 id: ADR-0106
-status: proposed
+status: accepted
 date: 2026-08-04
 tags: [observability, ocapnviz, capability, rooms, authority]
-decision: "A viewer drives only the endpoints it was handed a key to. An endpoint that has something to offer publishes one viz control object at an unguessable swissnum, reached by an ordinary sturdyref; the object answers one verb that returns a list of entries, each carrying a live capability and a display label, and the viewer renders exactly what came back. Watching stays the one-way trace stream ADR-0104 built and is not touched. Nothing here is implemented, and no endpoint in the tree yet has a control worth offering."
+decision: "Live ocapnviz observation is an OCapN capability: the convergence endpoint publishes a read-only trace object at an unguessable sturdyref, the browser enlivens it and grants an inbox capability, and bounded canonical trace records arrive through CapTP. Telemetry ingestion remains a one-way adapter. Observation and control are separate grants; this record accepts observation without inventing controls no endpoint offers."
 supersedes: []
 superseded_by: []
-amends: []
+amends: [ADR-0104]
 amended_by: []
 ---
 
-# ADR-0106 The viz control capability
+# ADR-0106 The viz capability
 
 ## Status
 
-Proposed, and **not implemented**. Nothing in `src/` or `apps/` publishes a
-control capability, dials one, or renders one. This record exists because the
-machinery that pretended to do it has been deleted, and the reasoning that
-replaced it needs somewhere honest to live. See Scope.
+Accepted. The capability endpoint, browser peer, bounded subscription
+protocol, wasm packaging, and production-bundle Chromium proof are
+implemented.
+
+This record began as a proposal for a control capability while leaving
+observation on an ambient WebSocket. No part of that proposal had shipped.
+Implementation scrutiny found the more fundamental authority error in the
+read path, so this record decides the implemented viz capability architecture
+instead of preserving an unimplemented draft.
 
 ## Context
 
-ocapnviz can connect to a live endpoint and draw what that endpoint reports.
-Until now it also showed three buttons — Pause, Resume, Step — under a "Drive
-sim" heading, compiled into the viewer and shown whenever it was connected to
-anything.
+[ADR-0104](ADR-0104-live-trace-convergence.md) established a convergence
+endpoint because room activity is observed by several independent producers.
+That endpoint assigns producer scopes, sequence numbers, an epoch, and arrival
+times. Those facts have one authority; a viewer cannot reconstruct them by
+dialing each producer.
 
-They never worked, and the reason is the interesting part. They were not a
-broken control. They were a control that assumed a capability the far end never
-had. The viewer wrote `{"v":1,"cmd":"pause"}` onto its own websocket; the only
-live endpoint in this repository gives producer sockets an `onmessage` and
-viewer sockets `onopen`, `onclose` and `onerror` and nothing else
-(`apps/rooms/server/viz.ts`), so the bytes were dropped on the floor. The
-matching ack could only arrive as a `ControlAcked` record, which no producer
-anywhere emits, so the panel's status pill was pinned forever on "no commands
-sent yet". The panel's own comment explained that sends land only when a bridge
-was launched with `--accept-stdin-commands`, a flag whose only occurrences in
-the tree were that comment and its neighbours.
+The original Live mode exposed the resulting stream to every process that
+could reach a loopback WebSocket. That transport moved trace bytes, but the
+port was also the only thing standing in for permission to observe them.
+Observation is authority: a room topology reveals peers, relationships, and
+message timing. An ambient port cannot express attenuation, delegation, or
+revocation.
 
-This is the defect [described-vs-built](../../../.agents/rules/described-vs-built.md)
-names, in user-interface form, and the interface form is worse than the comment
-form: a reader who opens a panel of buttons concludes the buttons do something.
-
-The same assumption had a second home one layer down. `live-feed.ts` dispatched
-on `HostJoined`, `MessageInFlight`, `LinkUp`, `LinkDown` and `SimStarted`, base
-kinds from the retired pre-Zig render bridge. `pancake griddle` emits
-snake_case (`host_joined`, `message_in_flight`) and the only reader of those is
-the offline converter `apps/ocapnviz/scripts/griddle-import.ts`, which is a
-shell pipe into Play mode and never touches the live path. So the live path
-carried a whole ingestion vocabulary for a producer that does not exist, and its
-tests passed because they manufactured the inputs themselves.
-
-The question this record answers is what should stand where that stood.
+The old UI also contained Pause, Resume, and Step controls. No endpoint
+implemented those verbs, so the controls were removed rather than retained as
+false affordances. A read grant and a mutation grant are different authority;
+fixing observation does not justify recreating controls.
 
 ## Decision
 
-**A viewer watches everything it is fed, and drives only the endpoints it was
-given a key to.** Watching and driving are two separate grants, acquired
-separately, and the split is the design rather than a caution attached to it.
+**Live observation is an OCapN capability.** The convergence endpoint hosts a
+read-only trace object at an unguessable swissnum and announces its ordinary
+sturdyref. ocapnviz parses that sturdyref, lazily loads the browser wasm Host,
+dials its locator, enlivens the trace object, hosts an inbox, and calls:
 
-**Watching is untouched.** The convergence endpoint, the one-way websocket, the
-producer scopes, [ADR-0104](ADR-0104-live-trace-convergence.md) entire. An
-earlier form of this design had the capability carry the trace stream too, and
-three facts killed it. ADR-0104's endpoint exists to assign the namespaces that
-keep two producers' session numbering apart and to own `seq`, `epoch` and
-arrival time, because two producers share no clock; a viewer talking to each
-producer directly would have to reinvent all of it. ocapnviz has no pancake
-dependency at all, so making the read path a CapTP peer would charge every
-watch-only viewer a wasm Host, a relay URL and a locator. And observation is
-many-to-one while control cannot be: the feed hands out a producer scope, not a
-dialable locator, and it must not hand out one, or the telemetry endpoint
-becomes the peer-to-peer broker ADR-0104 refused to be.
+```text
+trace.subscribe(inbox)
+inbox.record(canonical_json_trace_line)
+```
 
-**Driving is a capability.** An endpoint with something to offer publishes one
-**viz control object** at an ordinary swissnum, reached by a sturdyref of the
-spec's own form, `ocapn://<designator>.<transport>/s/<swiss-num>`. An operator
-hands that string to a viewer. The viewer dials the locator and enlivens the
-sturdyref like any other peer fetching any other object, and a viewer that is
-never handed one never opens a CapTP session at all.
+The sturdyref, not the WebSocket address, is the observation grant. WebSocket
+remains only the byte channel used by the current TCP browser transport. The
+same capability protocol can ride another transport without changing the
+application contract.
 
-The object answers **one verb**. `controls(inbox)` returns the current entries
-and calls the viewer's inbox back when the list changes. It may return an empty
-list, and usually will. That is the `watch(inbox)` shape `apps/rooms/lib/protocol.ts`
-already uses for the room directory and `apps/tasks` uses for its board, so
-change notification comes from a pattern the tree has proved, and revocation
-needs no notification at all: a revoked control refuses when pressed, which is
-machinery a capability system already has.
+The observer session uses the v1.0 interop profile. It is a generic ocapnviz
+capability protocol, not a Rooms peer and not a consumer of the private Rooms
+profile. The endpoint, production browser, and browser-shaped tests therefore
+all use the binding's explicit v1.0 floor.
 
-Each entry is `{ kind, label, cap, ...per-kind fields }`, where `cap` is a live
-capability reference, `label` is display text, and `kind` is **action** (invoke
-it) or **value** (invoke it with a value, and the entry carries the current
-one). **There is no entry id**, deliberately: an id would be endpoint-chosen
-while the viewer holds several endpoints, which is the collision the
-[architecture rule](../../../.agents/rules/architecture.md)'s Names section
-catalogs, and an endpoint reusing an id after removing an entry would let a
-stale widget address a capability it was never given.
+The endpoint remains the sole authority for producer scope, `seq`, `epoch`,
+arrival time, current live rows, and replay. Canonical bounded JSON trace lines
+remain the rooms/ocapnviz application schema for both live and offline data.
+JSON carries observations, not authority; replacing it with typed OCapN values
+would add a second schema without removing a current ambiguity.
 
-Three authority properties fall out and are the reason for the shape.
+### Subscription contract
 
-**The control surface never gets a port.** The trace feed is a loopback
-websocket, which is ambient authority that ADR-0104 states outright is not an
-authentication boundary. Replacing that is separate work. But the one surface
-that can *change* an endpoint rather than describe it is capability-native from
-its first line: holding the swissnum is holding the authority, and nothing else
-confers it.
+- `subscribe` accepts exactly one inbox capability and requires an active
+  CapTP session.
+- A session has at most one subscription. Calling `subscribe` again replaces
+  that session's prior inbox; it does not create a second delivery stream.
+- A new subscription first receives an authoritative replay of every current
+  row followed by one replay-complete record. Live records are queued after
+  that boundary.
+- Replay records are snapshots, not history. On replay completion the viewer
+  removes observations absent from the snapshot, so outage recovery converges
+  rather than merely appending.
+- Epoch changes reset sequence comparison. Within one epoch, duplicate or
+  older non-replay records are ignored.
+- Closing either CapTP session ends its subscription. Closing the endpoint
+  closes every observer session and releases the trace Host. Withdrawing or
+  replacing the sturdyref is ordinary capability revocation.
 
-**Default is nothing.** A host mints no control capability unless configured
-to, matching `ROOMS_VIZ_PORT`, where an absent variable leaves the tap cold. A
-rooms server mints none. The common case of this feature is no control panel at
-all, and that is success rather than an unfinished state — which is also why
-"this endpoint offers no controls" has to be a state the viewer can show with
-confidence, distinct from not connected, from connected and idle, and from
-connected and unable to ask.
+Every bound is part of the protocol posture. A record is at most 1 MiB. The
+endpoint admits at most 64 subscribers. Each subscriber may queue at most 256
+records and 8 MiB. Exceeding any queue bound closes that observer's session
+instead of dropping records silently; the viewer reconnects and obtains a new
+authoritative replay. An unbounded observer is not allowed to become storage
+owned by the room server.
 
-**A lying endpoint is confined to itself.** An endpoint can label a control
-"Pause" and wire it to something else, and nothing prevents that. What bounds
-it is that the label is display text and the capability is the authority: the
-lie changes what a human believes they are invoking, never what the viewer is
-able to invoke, because the viewer can only invoke capabilities the endpoint
-handed it, all of which the endpoint already held over itself. A malicious
-endpoint's best outcome is deceiving a human into telling it to do something it
-could have done unprompted. This is ADR-0104's trust rule — an application's
-claim is never protocol identity — applied to labels.
+The CapTP sessions used to deliver observation are implementation machinery,
+not room activity. The endpoint excludes its own observer sessions from the
+trace, or observing the trace would recursively change it.
 
-## Scope (what this does not decide)
+### Ingestion and control
 
-- **None of this is built.** No endpoint publishes a control capability, no
-  viewer dials one, and no code in the tree names the `controls` verb. The
-  deletion this record accompanies removed a false implementation and did not
-  add a true one.
-- **No endpoint currently has a control worth offering.** A rooms server should
-  mint none by design. `pancake griddle` is a simulator, so driving it affects
-  nobody and it is the natural first publisher — but it is a CLI subcommand
-  with no CapTP surface of its own today. Building the viewer half before an
-  endpoint half would recreate exactly the defect being deleted.
-- **The viewer is not a CapTP peer.** `apps/ocapnviz/deno.json` has no pancake
-  dependency, ocapnviz sits outside the root Deno scope, and it builds with
-  Vite while the rooms browser peer builds with `deno bundle` and serves its
-  wasm from `zig-out/wasm/`. Teaching the viewer to hold a key means getting
-  `@pancake/web` and a wasm artifact through a Vite build in an excluded scope,
-  loaded lazily so a watch-only viewer never pays for it. That is the largest
-  single piece of this feature and it is not started.
-- **Capability-native observation is a separate, larger decision, and it is
-  not made here.** Observing a host is authority, and a loopback port is
-  ambient authority: everything on the machine that can reach the port gets
-  the feed. The destination is a *viz capability* on the read side too — the
-  trace stream published at its own name, fetched and subscribed to like any
-  other object, so observing is attenuable and revocable and rides any
-  transport. The tap stays the shared source; the WebSocket broadcast and that
-  capability would be two sinks on it. Two rules are already known to fall out
-  and are recorded so they are not rediscovered: the observer's own session is
-  never traced, or observation feeds itself; and a relay is never a viz point,
-  because byte-transparency is the relay contract and direct or encrypted
-  sessions never show it anything. None of that is decided or built, and this
-  record deliberately leaves the read path alone.
-- **Richer trace facts are a third, separate decision.** What the timeline
-  draws is topology: hosts, sessions, and the messages on them. What a session
-  CARRIES — a peer's export and import tables, its outstanding answers, its
-  gift registry — is reported by nothing. Those are per-session by
-  construction, since an export position means nothing outside its session,
-  while a host's objects and its capability registry are host-scope, so the
-  two would belong to different panels. Adding them is a set of new facts on
-  the same spine rather than a second stack, and it needs its own record
-  before it needs code.
-- **The wire shape above is a sketch, not a contract.** No constants module
-  exists and none should until there is a second implementor; a constants file
-  with one user is a constants file waiting to drift.
+`/publish` remains a one-way JSON WebSocket telemetry adapter. Producers may
+send bounded observations and receive no commands or peer traffic. It is not
+the viewer protocol and confers no observation capability.
 
-## Alternatives Considered
+Observation and control are separate grants. This record defines and accepts
+only observation. A future endpoint may publish control capabilities, but a
+viewer must receive those references separately and render only operations
+they confer. No fixed command vocabulary, probe-based discovery, or return
+channel on `/publish` is permitted. Today no endpoint offers a control worth
+granting, and showing no control surface is the complete behavior.
 
-- **Keep the Pause/Resume/Step panel as scaffolding for this design.** Rejected
-  because its shape is the opposite of this one: a fixed verb list the viewer
-  already knew, aimed at whatever it happened to be connected to. Keeping it
-  would preserve exactly the coupling this record exists to break. Its
-  vocabulary also included `exit` — a viewer telling an endpoint to terminate —
-  with nothing anywhere discussing what earns that.
-- **A typed schema document the endpoint serves.** Rejected: it makes the
-  viewer a schema interpreter and still leaves the authority question open,
-  because a schema describes controls rather than conferring them.
-- **Probe and degrade — try a verb, hide the button if it fails.** Rejected: it
-  is guessing dressed as discovery, and it cannot distinguish "not offered"
-  from "offered and broken", which is the distinction the empty case needs.
-- **Carry controls on the trace stream as a return channel.** Rejected: it
-  destroys ADR-0104's property that a producer's socket carries nothing back,
-  which is what stops telemetry becoming a channel between peers.
-- **A control panel the viewer publishes and the endpoint fills in.** Rejected:
-  it inverts the grant, handing the endpoint authority over the viewer's
-  interface rather than the viewer a bounded reference.
+Offline file and fixture modes do not initialize wasm. Live mode pays for one
+browser Host only when the operator supplies a sturdyref.
 
 ## Consequences
 
-The deletion this record accompanies removed `apps/ocapnviz/src/ui/DriveSimPanel.tsx`,
-the `ControlCommand` and `ControlAck` types, `LiveFeed.send`, `LiveFeed.onAck`
-and their ack plumbing, the `sendCommand` / `lastAck` path through
-`state/hooks.ts` and `App.tsx`, and the dead base-kind ingestion arm with the
-`BaseTimelineEvent` fields that served only it. `LiveFeed` is now receive-only
-in code as well as in practice: it never writes to its socket.
+- ocapnviz is a real browser OCapN peer in Live mode: it hosts an inbox,
+  receives calls, and owns peer/session teardown.
+- A trace URL is no longer a public API. The rooms server announces
+  `ROOMS-VIZ-LISTENING <sturdyref>`, and the UI accepts that sturdyref.
+- Reconnect is loss recovery, not best-effort continuation. Queue pressure and
+  connection loss both lead to replay from the endpoint's current authority.
+- The wasm artifact is a production ocapnviz dependency and is copied into the
+  Vite output. Unit tests using a mocked feed do not substitute for the
+  production browser proof.
+- The rooms server remains a convergence point for observations, not a broker
+  for room capability traffic. Direct messages still travel directly between
+  their peers.
+- Richer per-session protocol facts and any mutation controls require separate
+  authority and evidence. They are not implied by access to the topology trace.
 
-When this record is implemented, the endpoint half is built before the viewer
-half, and the proof is a headless in-tree scenario with no browser and no relay:
-a native peer enlivens the control sturdyref, reads the entries, invokes one,
-and observes the effect. The empty case is proved in the same step, because
-"offers nothing" is the default and a default nobody tests is a default nobody
-has. The viewer half then earns a browser proof alongside the `rooms-web-*`
-family, asserting that a real tab dials a control endpoint, renders what it was
-handed, invokes one entry, and shows no panel for a producer it holds no key to.
+## Alternatives Considered
 
-The viewer will cap what it renders — a maximum entry count, a maximum label
-length, bounded options per entry — because it is talking to endpoints its
-operator does not necessarily run. The endpoint already takes that posture with
-its per-producer row cap.
+- **Keep viewer observation as raw WebSocket broadcast.** Rejected because
+  reachability to a port is ambient authority and cannot be delegated or
+  revoked as an object reference.
+- **Dial every producer directly.** Rejected because producer scope, ordering,
+  and replay would acquire several competing authorities, and producers would
+  become observer-facing services.
+- **Carry trace records as typed OCapN argument structures.** Rejected for this
+  surface: canonical bounded JSON already serves live and offline modes and
+  does not carry authority. A second representation would create drift.
+- **Drop records for slow subscribers.** Rejected because the viewer would stay
+  connected with a permanently incomplete topology. Closing and replaying is
+  bounded and convergent.
+- **Retain fixed Pause/Resume/Step buttons.** Rejected because no capability
+  grants those operations and no endpoint implements them.
+- **Carry control commands back through `/publish`.** Rejected because it
+  turns one-way telemetry into ambient mutation authority and a peer broker.
+
+## Evidence
+
+- Rooms endpoint tests cover durable publication, replay ordering, duplicate
+  subscription replacement, overflow closure, teardown, and observer-session
+  exclusion.
+- ocapnviz tests cover sturdyref validation, lazy wasm startup, inbox delivery,
+  replay reconciliation, reconnect, and exact peer lifetime.
+- `zig build ocapnviz-check` builds the production Vite bundle and requires
+  `dist/pancake_host.wasm`.
+- `zig build ocapnviz-live-browser` drives a real Chromium tab against the
+  production bundle. It initializes wasm, dials the announced sturdyref,
+  renders a fresh replay and a subsequent live record, and asserts that the
+  observer session is absent from the topology.
 
 ## Notes
 
-- [ADR-0104](ADR-0104-live-trace-convergence.md) owns the trace convergence this
-  record leaves untouched, and supplies the trust rule its label argument
-  applies.
+- [ADR-0104](ADR-0104-live-trace-convergence.md) remains the authority for
+  producer convergence and the trace schema. This record amends its viewer
+  delivery boundary.
 - [ADR-0105](ADR-0105-connection-scoped-durable-authentication.md) owns what a
-  connection can prove about a peer, which is what a control endpoint's
-  designator is worth when a viewer attributes a label to it.
+  transport proves about the peer behind a sturdyref.

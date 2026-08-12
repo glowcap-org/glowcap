@@ -1,0 +1,16 @@
+from pancake import connect, noise_tcp_locator
+
+# Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
+partner = noise_tcp_locator("<64 hex chars>", "127.0.0.1", 9099)
+
+session = await connect(partner)
+session.serve()
+
+greeter = await session.fetch("greeter")  # a capability, by name
+try:
+    reply = await session.send(greeter, "greet", ["world"])
+    print(reply)
+except Exception as reason:
+    print(f"the greeter refused: {reason}")
+
+await session.close()

@@ -1,9 +1,10 @@
-"""Idiomatic Python API for pancake, an OCapN/CapTP Host you drive over the
-byte-fed host archive (``libpancake_host``, ADR-0072).
+"""Idiomatic Python API for pancake, an OCapN/CapTP Host driven by the
+symbol-disjoint Host and driver archives (ADR-0112).
 
 This is the core package: it rides ``libpancake_ocapn`` (the shared value and
-locator vocabulary) plus its companion ``libpancake_host`` (the byte-fed
-multi-session CapTP host), and is usable on its own for TCP. The raw ``ctypes``
+locator vocabulary), ``libpancake_host`` (the byte-fed multi-session Host),
+and ``libpancake_driver`` (the stepping driver that adopts that Host). It is usable on its
+own for TCP. The raw ``ctypes``
 FFI lives in the internal ``_ffi_*`` modules; this package is the public
 surface over it. What you hold is a :class:`Session`: dial with
 :func:`connect`, accept with :func:`listen`, and speak native Python values —
@@ -31,9 +32,14 @@ importing one transport never loads another. Compose what you need:
     from pancake.inproc import InprocNetlayer  # libpancake_net_transport_inproc
     from pancake.iroh import listen_iroh       # libpancake_net_transport_iroh
 
-The async :func:`connect` / :func:`listen` / :class:`Session` surface here
-is transport-neutral and pure-asyncio over a TCP socket, so a plain TCP
-application needs only this core. The blocking ``pancake_tcp_*`` frame shuttle
+The async :func:`connect` / :func:`listen` / :class:`Session` surface here is
+transport-neutral. A ``tcp``, ``keyed-tcp``, ``noise-tcp``, ``iroh``, or routed
+relay connection runs on the driver archive — one stepping loop owns the
+provider, pumping, and session release, parked on the asyncio reactor. A bare
+relay locator with a Host rendezvous callback remains an explicit binding-level
+byte seam. A plain TCP application
+needs only this core. The blocking
+``pancake_tcp_*`` frame shuttle
 lives in :mod:`pancake.tcp`; the socket-free in-process transport in
 :mod:`pancake.inproc`; the encrypted-QUIC transport in :mod:`pancake.iroh`. An
 ``iroh`` locator handed to :func:`connect` reaches the iroh submodule lazily,
@@ -42,7 +48,7 @@ so the core never hard-depends on the optional iroh artifact.
 The implementation is split by responsibility across ``_``-private submodules
 (``_errors``, ``_value``, ``_codec``, ``_context``, ``_locator``,
 ``_trampoline``, ``_host``, ``_action``, ``_promise``, ``_gc``, ``_dial``,
-``_listen``, ``_pump``, ``_session``) alongside the per-archive ``_ffi_*``
+``_listen``, ``_loop``, ``_pump``, ``_session``) alongside the per-archive ``_ffi_*``
 loaders; this module is the barrel that re-exports the public surface. Import
 every name from :mod:`pancake` — the submodule layout is internal.
 """
@@ -56,7 +62,6 @@ from ._errors import (
     AbortDetail,
     FetchFailed,
     PancakeError,
-    PancakeException,
     VowBroken,
     abi_version,
     last_error,
@@ -69,17 +74,22 @@ from ._constants import (
     TRANSPORT_IROH,
     TRANSPORT_KEYED_RELAY,
     TRANSPORT_KEYED_TCP,
+    TRANSPORT_NOISE_TCP,
     TRANSPORT_TCP,
     TRANSPORT_WEBRTC,
 )
 from ._context import Context
 from ._locator import (
     Locator,
+    SturdyRef,
     designator_host_port,
     encode_peer_locator,
     format_peer_uri,
+    format_sturdyref,
     keyed_tcp_locator,
+    noise_tcp_locator,
     parse_locator,
+    parse_sturdyref,
     socket_addr_designator,
     tcp_locator,
 )
@@ -89,16 +99,18 @@ from ._promise import RemotePromise
 from ._constants import DurableProvenance
 from ._session import (
     PartnerIdentity,
-    RedeemedReply,
+    SendRedeemingResult,
     Session,
 )
 from ._trampoline import Caretaker
 from ._dial import connect
 from ._listen import (
     KeyedTcpServer,
+    NoiseTcpServer,
     Server,
     listen,
     listen_keyed_tcp,
+    listen_noise_tcp,
 )
 
 __all__ = [
@@ -107,7 +119,6 @@ __all__ = [
     "last_error",
     "AbortDetail",
     # Exceptions
-    "PancakeException",
     "PancakeError",
     "VowBroken",
     "FetchFailed",
@@ -122,12 +133,13 @@ __all__ = [
     "Context",
     # Application surface
     "Session",
-    "RedeemedReply",
+    "SendRedeemingResult",
     "DurableProvenance",
     "PartnerIdentity",
     "RemotePromise",
     "Server",
     "KeyedTcpServer",
+    "NoiseTcpServer",
     "Host",
     "Caretaker",
     "connect",
@@ -135,19 +147,25 @@ __all__ = [
     "enable_trace",
     "listen",
     "listen_keyed_tcp",
+    "listen_noise_tcp",
     "HANDSHAKE_TIMEOUT_MS",
     # Locator grammar
     "Locator",
+    "SturdyRef",
     "parse_locator",
+    "parse_sturdyref",
     "format_peer_uri",
+    "format_sturdyref",
     "designator_host_port",
     "socket_addr_designator",
     "tcp_locator",
     "keyed_tcp_locator",
+    "noise_tcp_locator",
     "encode_peer_locator",
     # Transport symbols
     "TRANSPORT_TCP",
     "TRANSPORT_KEYED_TCP",
+    "TRANSPORT_NOISE_TCP",
     "TRANSPORT_INPROC",
     "TRANSPORT_IROH",
     "TRANSPORT_KEYED_RELAY",

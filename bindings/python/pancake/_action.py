@@ -25,6 +25,7 @@ from ._host_action_gen import (
     Flush,
     HostAction,
     NeedGiftId,
+    Resume,
     Settle,
     decode,
     dispatch,
@@ -34,7 +35,7 @@ _OK = _abi.OK
 _ERR_CLOSED = _abi.ERR_CLOSED
 
 
-def _park_actions(host) -> list[HostAction]:
+def _park_actions(host) -> tuple[list[HostAction], bool]:
     """Run ``pancake_host_pump_drain`` with park-only arms; return decoded
     actions in queue order. Views are copied inside ``decode`` before the
     next pop frees them."""
@@ -51,42 +52,59 @@ def _park_actions(host) -> list[HostAction]:
     # locals (do not stash on Host private fields).
     hooks = _HostPumpHooks(None, park, park, park, park, park)
     acted = ctypes.c_uint32(0)
-    _check_host(_host.pancake_host_pump_drain(
-        host.raw, ctypes.byref(hooks), ctypes.byref(acted),
-    ))
-    return parked
+    yielded = ctypes.c_uint32(0)
+    _check_host(
+        _host.pancake_host_pump_drain(
+            host.raw,
+            ctypes.byref(hooks),
+            ctypes.byref(acted),
+            ctypes.byref(yielded),
+        )
+    )
+    return parked, yielded.value != 0
 
 
 async def _run_action(host, action: HostAction) -> None:
     # The executor is deliberately dumb: every decision was already made in
     # the core; each arm is pure I/O or marshalling. The kind inventory lives
-    # in generated `dispatch` — a seventh kind fails generate/check.
-    from ._dial import run_dial_ticket
-
+    # in generated `dispatch` — a new kind fails generate/check.
     class _Handlers:
         async def dial(self, a: Dial) -> None:
-            await run_dial_ticket(host, a.ticket)
+            # A popped DIAL is no longer owned by the native action queue. Hand
+            # it to the Host before returning so teardown can cancel and join it
+            # without serializing this drain behind network establishment.
+            from ._dial import run_dial_ticket
+
+            host.start_dial_task(lambda: run_dial_ticket(host, a.ticket))
 
         async def flush(self, a: Flush) -> None:
-            conn = host.get_session(a.conn_ptr)
-            if conn is not None:
-                await conn.flush_outbound()
+            session = host.get_session(a.session_ptr)
+            if session is not None:
+                await session.flush_outbound()
 
         async def close(self, a: Close) -> None:
-            conn = host.get_session(a.conn_ptr)
-            if conn is not None:
+            session = host.get_session(a.session_ptr)
+            if session is not None:
                 try:
-                    await conn.flush_outbound()
+                    await session.flush_outbound()
                 except Exception:  # noqa: BLE001 — the session is ending either way
                     pass
-                conn.close_transport()
+                session.close_transport()
 
         async def need_gift_id(self, a: NeedGiftId) -> None:
-            gift_id = secrets.token_bytes(32)
-            buf, ptr = _byte_buf(gift_id)
-            _check_host(_host.pancake_host_provide_gift_id(
-                host.raw, a.ticket, ptr, 32,
-            ))
+            try:
+                gift_id = secrets.token_bytes(32)
+                buf, ptr = _byte_buf(gift_id)
+                _check_host(
+                    _host.pancake_host_provide_gift_id(
+                        host.raw,
+                        a.ticket,
+                        ptr,
+                        32,
+                    )
+                )
+            except Exception:  # noqa: BLE001 — report the terminal host effect
+                _check_host(_host.pancake_host_gift_id_failed(host.raw, a.ticket))
 
         async def settle(self, a: Settle) -> None:
             host.settle_vow(a.ticket, True, a.value)
@@ -94,8 +112,14 @@ async def _run_action(host, action: HostAction) -> None:
         async def fail(self, a: Fail) -> None:
             error = (
                 PancakeError(_ERR_CLOSED, a.message)
-                if host.vow_session_closing(a.ticket) else VowBroken(a.message)
+                if host.vow_session_closing(a.ticket)
+                else VowBroken(a.message)
             )
             host.settle_vow(a.ticket, False, error)
+
+        async def resume(self, a: Resume) -> None:
+            # The shared C pump reports this as `yielded` before dispatch; keep
+            # the exhaustive generated handler honest for direct callers.
+            _ = a
 
     await dispatch(action, _Handlers())

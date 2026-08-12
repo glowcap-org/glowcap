@@ -162,13 +162,27 @@ pub fn writeServerFrame(leg: *Leg, opcode: keyed_relay.Opcode, payload: []const 
 /// then close-frame `dst`. Data frames re-frame unmasked and are followed by a
 /// ping, exercising the client's byte-stream behavior across buffered control
 /// frames. Pings from `src` are answered in place, as the relay runtime would.
-pub fn bridgeDirection(src: *Leg, dst: *Leg, allocator: std.mem.Allocator) !void {
+const PlaintextProbe = struct {
+    needle: []const u8,
+    found: *std.atomic.Value(bool),
+};
+
+fn bridgeDirectionObserved(
+    src: *Leg,
+    dst: *Leg,
+    allocator: std.mem.Allocator,
+    probe: ?PlaintextProbe,
+) !void {
     const payload_buf = try allocator.alloc(u8, max_frame_payload);
     defer allocator.free(payload_buf);
     while (true) {
         const frame = readClientFrame(src, payload_buf) catch break;
         switch (frame.opcode) {
             .binary, .continuation => {
+                if (probe) |p| {
+                    if (std.mem.indexOf(u8, frame.payload, p.needle) != null)
+                        p.found.store(true, .release);
+                }
                 writeServerFrame(dst, .binary, frame.payload) catch break;
                 writeServerFrame(dst, .ping, "hb") catch break;
             },
@@ -181,9 +195,25 @@ pub fn bridgeDirection(src: *Leg, dst: *Leg, allocator: std.mem.Allocator) !void
     writeServerFrame(dst, .close, &.{}) catch {};
 }
 
+pub fn bridgeDirection(src: *Leg, dst: *Leg, allocator: std.mem.Allocator) !void {
+    return bridgeDirectionObserved(src, dst, allocator, null);
+}
+
 /// Accept one registration leg and one rendezvous leg, assert they name the
 /// same key, then bridge bytes between them until either side closes.
 pub fn bridgeOneRendezvous(io: Io, server: *ip.Server, allocator: std.mem.Allocator) !void {
+    return bridgeOneRendezvousObserved(io, server, allocator, null);
+}
+
+/// The rendezvous bridge with an optional scanner at the relay's plaintext
+/// payload position. A sealed-channel test passes a needle and proves the far
+/// peer received it while this scanner did not.
+pub fn bridgeOneRendezvousObserved(
+    io: Io,
+    server: *ip.Server,
+    allocator: std.mem.Allocator,
+    probe: ?struct { needle: []const u8, found: *std.atomic.Value(bool) },
+) !void {
     var reg: Leg = .{ .stream = try server.accept(io), .io = io };
     reg.wire();
     defer reg.close();
@@ -206,8 +236,12 @@ pub fn bridgeOneRendezvous(io: Io, server: *ip.Server, allocator: std.mem.Alloca
     try std.testing.expect(std.mem.startsWith(u8, dial.target, "/relay?rendezvous="));
     try std.testing.expectEqualStrings(reg_id, dial.target["/relay?rendezvous=".len..]);
 
-    var to_reg = try io.concurrent(bridgeDirection, .{ &dial, &reg, allocator });
-    var to_dial = try io.concurrent(bridgeDirection, .{ &reg, &dial, allocator });
+    const internal_probe: ?PlaintextProbe = if (probe) |p| .{
+        .needle = p.needle,
+        .found = p.found,
+    } else null;
+    var to_reg = try io.concurrent(bridgeDirectionObserved, .{ &dial, &reg, allocator, internal_probe });
+    var to_dial = try io.concurrent(bridgeDirectionObserved, .{ &reg, &dial, allocator, internal_probe });
     to_reg.await(io) catch {};
     to_dial.await(io) catch {};
 }

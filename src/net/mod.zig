@@ -12,8 +12,9 @@
 //! `pumpOver` uses that pair for one peer step, and the `FrameStream` family
 //! reads and writes raw whole frames over it. Any transport that can provide
 //! those interfaces can drive a peer here: TCP, TLS or Unix streams over `std.Io`,
-//! or an in-memory pipe. The residents live under `transport/`: `tcp` is the
-//! built-in TCP binding, the first resident, not a requirement.
+//! or an in-memory pipe. The residents live under `transport/`: `tcp` owns the
+//! native provider and its plain, keyed, and Noise profiles, not a requirement
+//! of the protocol core.
 //!
 //! A transport that is not a blocking `std.Io` stream, such as a callback or
 //! datagram API, can drive the peer directly through
@@ -27,7 +28,7 @@
 //! multiplexes many connections on one thread. It drives the same peer
 //! stream-input and outbound-frame APIs from completion events and touches no
 //! `std.Io`. It is generic over a platform backend: `completion/uring.zig` is the
-//! Linux io_uring backend, and `completion/kqueue.zig` is the macOS/BSD backend.
+//! Linux io_uring backend, and `completion/kqueue.zig` is the Darwin backend.
 //! A Windows IOCP backend is not implemented. `TcpLoop` is the portable loop
 //! already bound to the host platform Backend plus `tcp.DialResolver`.
 
@@ -66,7 +67,20 @@ pub const frameShape = codec.dispatch.frameShape;
 /// `clock.zig`.
 pub const clock = @import("clock.zig");
 
+/// Shared `poll(2)` wrappers for blocking residents and readiness backends.
+pub const poll = @import("poll.zig");
+
+/// The native TCP transport provider and its `plain`, `keyed`, and `noise`
+/// profiles. The namespace owns their shared socket realization and fixed
+/// provider composition; drivers consume it without enumerating the profiles.
 pub const tcp = @import("transport/tcp.zig");
+
+/// The `onion` netlayer, the one transport symbol the OCapN draft standardizes:
+/// the two headless byte helpers (SOCKS5 out, the Tor control protocol for
+/// hosting), the streams that carry them, and the resident that dials and accepts
+/// over the netlayer contract (ADR-0108). Reached through a Tor daemon the
+/// deployment runs; pancake starts none.
+pub const onion = @import("transport/onion/mod.zig");
 
 /// The socket library: raw OS socket + stream plumbing beneath a netlayer,
 /// gathered behind one name so a resident never reaches into `completion/` or a
@@ -82,19 +96,15 @@ pub const sync = @import("sync.zig");
 /// ADR-0089 nudge invariant. The off-turn settle mailbox rides it
 /// (ADR-0102). See `wake_channel.zig`.
 pub const wake_channel = @import("wake_channel.zig");
+pub const operation_owner = @import("operation_owner.zig");
+pub const OperationOwner = operation_owner.OperationOwner;
+pub const OperationLatch = operation_owner.OperationLatch;
+pub const AsyncConnectCompletion = @import("async_connect.zig").Completion;
 
 /// Opt-in TCP keepalive (idle/interval/count). One public door: the socket
 /// library. NAT hold-open / dead-remote-host reclaim — not orphan-process
 /// reaping. See `socket.Keepalive`.
 pub const Keepalive = socket.Keepalive;
-
-/// The keyed TCP netlayer (`keyed-tcp`): the same TCP sockets under a durable,
-/// key-derived designator — the listener's Ed25519 public key in canonical
-/// hex, with the socket address riding the `direct-addresses` hint — so a
-/// partner re-dials the same designator across a process restart and the
-/// driver pins the handshake to the dialed key (ADR-0075). See
-/// `transport/tcp_keyed.zig`.
-pub const tcp_keyed = @import("transport/tcp_keyed.zig");
 
 /// The in-process netlayer (`inproc`): a second resident behind the same
 /// contract, with no sockets. It proves the contract is transport-general rather
@@ -108,6 +118,14 @@ pub const inproc = @import("transport/inproc.zig");
 /// configuration, never locator bytes. See `transport/keyed_relay.zig`.
 pub const keyed_relay = @import("transport/keyed_relay.zig");
 
+/// The sealing completion-backend adapter (`noise-relay`, ADR-0107): wraps
+/// any completion backend so a `.sealed` dial target completes the Noise_XK
+/// handshake before the loop hears the connect completed, then seals sends
+/// into records and lends opened record plaintext to the recv seat. The
+/// loop-tier owner of the sealed channel, composing
+/// `foundation.sealed.SealedChannel`. See `transport/noise_completion.zig`.
+pub const noise_completion = @import("transport/noise_completion.zig");
+
 /// Shared `std.Io` Reader/Writer scaffolding for byte-source residents
 /// (inproc, iroh). Pub because the out-of-graph iroh resident is its own
 /// module root under `transport/` and cannot `@import("../stream_shim.zig")`
@@ -118,12 +136,25 @@ pub const stream_shim = @import("stream_shim.zig");
 /// namespace: `net.netlayer.Netlayer` is a transport behind a runtime vtable, a
 /// `[]const Netlayer` is the set a host speaks, and `net.netlayer.resolve`
 /// dispatches a transport symbol against that slice. `net.netlayer.Listener` is
-/// the listener a netlayer yields. Residents include `tcp`, `keyed-tcp`,
-/// `inproc`, and the sidecar `iroh` resident. A transport is one more element
-/// in the slice, never privileged, so adding one touches no driver or core
-/// code. The OCapN concept itself — the locator and its `transport` symbol —
+/// the listener a netlayer yields. Providers compose related realizations into
+/// the slice; `net.tcp.Provider`, for example, owns plain, keyed, and sealed TCP.
+/// Adding a profile changes its provider, not the driver or bindings. The OCapN
+/// concept itself — the locator and its `transport` symbol —
 /// lives in `model`; this is only its I/O realization.
 pub const netlayer = @import("netlayer.zig");
+
+/// The multiplexed-resident contract (ADR-0112): a transport that multiplexes
+/// its connections behind one readiness descriptor — the iroh and WebRTC
+/// shape — as a runtime vtable a `driver.HostRuntime` hosts beside its
+/// per-descriptor wires.
+pub const multiplexed_resident = @import("multiplexed_resident.zig");
+pub const MultiplexedResident = multiplexed_resident.MultiplexedResident;
+
+/// The aggregate readiness set (ADR-0112): every descriptor a poll-shaped
+/// HostRuntime waits on, mirrored into one kernel set whose own fd an embedder
+/// parks on.
+pub const readiness = @import("readiness.zig");
+pub const ReadySet = readiness.ReadySet;
 
 /// The portable completion-loop server, generic over its platform backend. The
 /// connection orchestration is OS-neutral; the platform completion primitive is a
@@ -134,18 +165,27 @@ pub const completion = loop_mod;
 /// clean; it implements the `completion` backend interface and is reached
 /// through `Loop` below.
 const uring = if (@import("builtin").os.tag == .linux) @import("completion/uring.zig") else struct {};
+/// Test-only access to Linux backend invariants; empty in production builds.
+pub const uring_white_box = if (@import("builtin").is_test and @import("builtin").os.tag == .linux)
+    uring.white_box
+else
+    struct {};
 
-/// The kqueue completion backend (macOS / BSD). Empty off Darwin. It implements
+/// The kqueue completion backend (Darwin). Empty off Darwin. It implements
 /// the same `completion` backend interface, bridging kqueue's readiness model to
 /// the completion-shaped backend interface, and is reached through `Loop`
 /// below. A Windows (IOCP) backend is not implemented.
 const kqueue = if (@import("builtin").os.tag.isDarwin()) @import("completion/kqueue.zig") else struct {};
+pub const kqueue_white_box = if (@import("builtin").is_test and @import("builtin").os.tag.isDarwin())
+    kqueue.white_box
+else
+    struct {};
 
 /// The ready-to-use TCP completion loop for the host platform: the portable
 /// `completion.Loop` over the platform Backend plus `tcp.DialResolver` (OCapN
-/// locator into `IpAddress`). Linux uses io_uring, macOS/BSD use kqueue; on any
+/// locator into `IpAddress`). Linux uses io_uring, Darwin uses kqueue; on any
 /// other platform this is an empty struct. Named `TcpLoop` so it is not
-/// confused with the generic `completion.Loop(Backend, Locator)`.
+/// confused with the generic `completion.Loop(Backend, DialResolver)`.
 pub const TcpLoop = if (@import("builtin").os.tag == .linux)
     completion.Loop(uring.Backend, tcp.DialResolver)
 else if (@import("builtin").os.tag.isDarwin())
@@ -156,7 +196,7 @@ else
 /// The host platform's completion `Backend` (io_uring on Linux, kqueue on
 /// macOS/BSD), the type `TcpLoop` is bound over. Exposed so an embedder that
 /// needs a non-`tcp.DialResolver` locator grammar can bind its own
-/// `completion.Loop(net.Backend, CustomLocator)` without re-declaring the
+/// `completion.Loop(net.Backend, CustomDialResolver)` without re-declaring the
 /// per-OS backend selection. The OCapN conformance harness does exactly that
 /// (`conformance/ocapn-conformance/pancake_peer.zig`), binding a locator whose
 /// address lives in the locator hints. An empty struct off the supported platforms.
@@ -164,5 +204,66 @@ pub const Backend = if (@import("builtin").os.tag == .linux)
     uring.Backend
 else if (@import("builtin").os.tag.isDarwin())
     kqueue.Backend
+else
+    struct {};
+
+/// The host platform backend wrapped with native onion dials and onion-service
+/// publication (ADR-0108). Construct `Backend`, move it into
+/// `OnionBackend.initOnion` with the deployment's Tor endpoints, then pass the
+/// result to `OnionLoop.initWithBackend`.
+pub const OnionBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    onion.completion.CompletionBackend(Backend)
+else
+    struct {};
+
+/// The dial resolver paired with `OnionBackend`: `onion` designators become
+/// SOCKS targets while the platform resolver continues to own TCP designators.
+pub const OnionDialResolver = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    onion.completion.DialResolver(tcp.DialResolver, Backend)
+else
+    struct {};
+
+/// The ready-to-use native onion completion loop. Tor conversations stay in
+/// `OnionBackend`; `completion.Loop` and `driver.Bridge` remain transport-blind.
+pub const OnionLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    completion.Loop(OnionBackend, OnionDialResolver)
+else
+    struct {};
+
+/// The host platform backend wrapped with native keyed-relay outbound dials.
+/// TCP accept/dial still ride the platform backend directly; `keyed-relay`
+/// dials are evented WebSocket client legs to a configured relay. Use
+/// `initWithBackend` with `keyed_relay.CompletionBackend(Backend).initWithRelay`
+/// when constructing the loop so the relay URL, WebSocket entropy, and optional
+/// send-staging commitment are explicit deployment state.
+pub const KeyedRelayBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    keyed_relay.CompletionBackend(Backend)
+else
+    struct {};
+
+/// A completion loop whose locator grammar includes `tcp`, `keyed-tcp`, and
+/// outbound `keyed-relay`, so `driver.Bridge` can keep rendezvous redemption on
+/// the native scale path instead of its blocking side-wire fallback.
+pub const KeyedRelayLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    completion.Loop(KeyedRelayBackend, keyed_relay.DialResolver)
+else
+    struct {};
+
+/// The keyed-relay backend wrapped with sealing `noise-relay` dials
+/// (ADR-0107). Construct the relay backend with `initWithRelay`, then wrap it
+/// with `noise_completion.CompletionBackend(...).initSealing` so the durable
+/// identity and channel-entropy seed are explicit deployment state, and hand
+/// the result to `NoiseRelayLoop.initWithBackend`.
+pub const NoiseRelayBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    noise_completion.CompletionBackend(KeyedRelayBackend)
+else
+    struct {};
+
+/// A completion loop whose locator grammar adds sealed `noise-relay` dials to
+/// `KeyedRelayLoop`'s `tcp` / `keyed-tcp` / `keyed-relay` set, so a native
+/// peer reaches a relay-registered responder over a channel the relay cannot
+/// read.
+pub const NoiseRelayLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+    completion.Loop(NoiseRelayBackend, noise_completion.DialResolver(NoiseRelayBackend, keyed_relay.DialResolver))
 else
     struct {};

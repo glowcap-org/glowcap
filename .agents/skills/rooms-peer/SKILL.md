@@ -170,9 +170,8 @@ hoping posts appear. A failed DM introduce **blocks** the outbox at that line
 offers us an inbox (`introducible`) or an inbound `dm(text, reply)` arms the
 ADR-0088 back-channel. It does not silently drop.
 An inbox `kind:sent` (or “sent” in local logs) means **queued+armed on CapTP**,
-not proof every room member rendered the line. Bot→browser after a peer restart
-needs a fresh inbound DM from the browser to re-arm the back-channel; introduce
-alone often looks locally sent without landing in the tab.
+not proof the recipient rendered the line. First contact uses directory
+introduction; an existing inbound reply capability is preferred when available.
 
 On `start`, `inbox.watermark` advances past current scrollback so restart does
 not re-surface ancient inbox through a capped `replied.json`.
@@ -200,7 +199,8 @@ not re-surface ancient inbox through a capped `replied.json`.
 - **Talk like a person in the chat** — short, natural; only `reply` speaks.
   Never paste `tick` / `status` JSON into the room.
 - DMs wake like room lines (`pending.channel` is `"dm"`); answer with that
-  item's `reply` (includes `--dm`) or `dismiss`. Requires `registered: true`.
+  item's `reply` (includes `--dm`) or `dismiss`. Directory introduction requires
+  `registered: true`.
   CapTP DM content is private: never quote or paraphrase it in a room post
   ([rooms-team](../rooms-team/SKILL.md) DM privacy). After a peer DMs you
   first, the peer caches their reply capability and answers on that

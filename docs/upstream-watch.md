@@ -131,14 +131,24 @@ either shape on receive.
 
 ## Goblins over iroh
 
-Goblins ships no netlayer at all, so this repository writes the ones its
-conformance vats use. `conformance/goblins-peer/racket/iroh-netlayer.rkt` is the
-iroh one, and `zig build goblins-iroh` holds a live session over it in both
-directions. Watch upstream for a netlayer of its own: if Spritely ships one, the
-locator value and the hint names are what have to agree.
+Goblins ships the standardized onion netlayer, but not an iroh netlayer.
+`conformance/goblins-peer/racket/iroh-netlayer.rkt` is the repository-owned
+iroh adapter, and `zig build goblins-iroh` holds a live session over it in both
+directions. Watch upstream for an iroh netlayer: if Spritely ships one, the
+locator value and hint names are what have to agree.
 
 ## Native Zig QUIC
 
 pancake uses iroh rather than implementing QUIC. The decision reopens when
 iroh's protocols stabilize and a production Zig QUIC stack exists
 ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
+
+## An encrypted meta-netlayer
+
+OCapN issue 208 proposes a Noise-based meta-netlayer that would run inside any
+byte transport, and an NLnet grant funds a standardized end-to-end encrypted
+relay netlayer at Spritely. Neither has spec text yet. pancake's own sealed
+channel is [ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)
+(`Noise_XK` under two pancake-only symbols, `noise-tcp` and `noise-relay`);
+if upstream lands a Noise netlayer, the handshake pattern, prologue, and
+locator shape are what have to agree before the symbols can converge.

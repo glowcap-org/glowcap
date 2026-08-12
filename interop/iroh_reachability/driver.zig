@@ -62,7 +62,7 @@ const hostOnce = harness.AcceptServeOne(
 /// visibility over real discovery infrastructure is seconds-scale and variable,
 /// which is exactly why this step is opt-in and never part of the in-tree check.
 const publish_settle_ms: u64 = 8_000;
-// Discovery dial budget: lockstep with `driver.ResilientClient` / ADR-0082
+// Discovery dial budget: lockstep with `driver.DialRetry` / ADR-0082
 // (`PANCAKE_DISCOVERY_DIAL_*`). Was 5s×12; unified to the binding budget.
 // Attempt/backoff values are read from `pancake.driver.discovery_*` inside
 // `callByIdOnlyRetrying` so this file cannot drift from the policy owner.
@@ -77,7 +77,7 @@ fn callByIdOnlyRetrying(
     server_id: []const u8,
     allocator: std.mem.Allocator,
 ) !void {
-    // Continuity policy is `driver.ResilientClient` / `isTransientDialError`
+    // Continuity policy is `driver.DialRetry` / `isTransientDialError`
     // (ADR-0082). This harness owns `std.Io` sleep, so it applies the same
     // classifier inline rather than remapping CapTP faults (e.g. WrongReply)
     // onto DialError.
@@ -120,7 +120,10 @@ fn callByIdOnly(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer cv.deinit();
     std.debug.print("iroh-reachability: client dialed by node id alone and opened the keyed session\n", .{});
 

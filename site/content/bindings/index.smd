@@ -48,6 +48,8 @@ The packages and archives are not published yet. Pin a pancake checkout, run
 `zig-out/lib` by default; set `PANCAKE_LIB_DIR` if the archives live elsewhere.
 
 The [binding README](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md)
-has the path for each language. Add the optional
-[iroh]($link.page('transports/iroh')) archive only when you need encrypted
-peer-to-peer transport.
+has the path for each language. The TCP provider archive already carries
+`tcp`, `keyed-tcp`, and `noise-tcp`. Add an optional transport archive when you
+need [iroh]($link.page('transports/iroh')),
+[onion]($link.page('transports/onion')), or
+[WebRTC]($link.page('transports/webrtc')).

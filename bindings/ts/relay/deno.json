@@ -4,6 +4,15 @@
 	"exports": {
 		".": "./mod.ts"
 	},
+	"publish": {
+		"include": [
+			"**/*.ts",
+			"README.md"
+		],
+		"exclude": [
+			"test/**"
+		]
+	},
 	"tasks": {
 		"check": "deno check mod.ts"
 	}

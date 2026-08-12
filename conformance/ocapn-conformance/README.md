@@ -82,7 +82,8 @@ peer. To run one module or the probe alone:
 ```sh
 bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_start_session
 bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_abort # raw upstream diagnostic
-uv run python conformance/ocapn-conformance/handshake_abort_probe.py --port=22055
+uv run --project conformance/ocapn-conformance --locked \
+  python conformance/ocapn-conformance/handshake_abort_probe.py --port=22055
 ```
 
 Two details keep the suite's verdict honest. The Syrup codec consumes a

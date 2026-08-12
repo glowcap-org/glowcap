@@ -13,7 +13,9 @@
 
 use core::ffi::{c_int, c_uchar};
 
-use super::webrtc::{PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};
+use super::webrtc::{
+	PancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent,
+};
 
 extern "C" {
 	pub fn pancake_webrtc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
@@ -33,6 +35,11 @@ extern "C" {
 		netlayer: *mut PancakeWebrtcNetlayer,
 		is_offerer: c_int,
 		out_peer: *mut *mut PancakeWebrtcPeer,
+	) -> c_int;
+	pub fn pancake_webrtc_peer_authorize_remote(
+		peer: *mut PancakeWebrtcPeer,
+		designator: *const c_uchar,
+		designator_len: usize,
 	) -> c_int;
 	pub fn pancake_webrtc_peer_create_offer(
 		peer: *mut PancakeWebrtcPeer,
@@ -83,5 +90,9 @@ extern "C" {
 	) -> c_int;
 	pub fn pancake_webrtc_peer_close(peer: *mut PancakeWebrtcPeer);
 	pub fn pancake_webrtc_peer_release(peer: *mut PancakeWebrtcPeer);
+	pub fn pancake_webrtc_transport_provider(
+		netlayer: *mut PancakeWebrtcNetlayer,
+		out_provider: *mut PancakeTransportProvider,
+	) -> c_int;
 	pub fn pancake_webrtc_clear_last_error();
 }

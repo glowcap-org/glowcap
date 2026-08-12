@@ -3,18 +3,18 @@ id: ADR-0097
 status: accepted
 date: 2026-07-31
 tags: [captp, handshake, identity, keyed-tcp, transport]
-decision: "Every CapTP connection uses a fresh session signing key. The signed locator is that session signer's claim, while durable peer authentication is separate connection provenance. ADR-0109 retires the durable-key hint credential; without matching authenticated-channel proof, a durable locator claim remains unauthenticated."
+decision: "Every CapTP session uses a fresh signing key. The signed locator is that session signer's claim, while durable peer authentication is separate connection provenance. ADR-0109 retires the durable-key hint credential; without matching authenticated-channel proof, a durable locator claim remains unauthenticated."
 supersedes: []
 superseded_by: []
 amends: [ADR-0068, ADR-0075, ADR-0093]
-amended_by: [ADR-0105, ADR-0109]
+amended_by: [ADR-0105, ADR-0109, ADR-0113]
 ---
 
 # ADR-0097 CapTP session identity and durable-key attestation
 
 ## Status
 
-Accepted for fresh per-connection session keys and for keeping session identity,
+Accepted for fresh per-session signing keys and for keeping session identity,
 durable locator identity, and provenance distinct. ADR-0109 retires the
 durable-key credential and its provenance arm.
 
@@ -100,13 +100,13 @@ per-binding assertions in the keyed-tcp restart proofs.
 
 Migration steps 4 and 5 ship at the native tier, together because fresh keys
 invalidate the equality pin the moment they exist. A session's signing key is
-its own, derived from a per-host root through the one named `SessionSeedSource`
-seam; `driver.PollHost` draws that root at the I/O boundary, fresh per process,
+its own, derived from a required per-process root; `driver.HostRuntime` draws that
+root at the I/O boundary, fresh per process,
 because the sans-io core draws no entropy. The `session_pubkey == designator`
 pin is deleted, and `Peer.expectPartnerDurableKey` replaces it: a hello whose
 location designator has key form must name the identity the session
-expects, while `session_pubkey` is left unconstrained because a per-connection
-key is not an identity. What makes that claim trustworthy is the transport or
+expects, while `session_pubkey` is left unconstrained because a session key is
+not a durable identity. What makes that claim trustworthy is the transport or
 the hello's credential, and `DurableKeyBasis` keeps a dial's *expectation*
 from being reported as a transport's *proof*.
 
@@ -125,12 +125,12 @@ both are load-bearing:
   key for both yields a credential binding a session key the hello does not
   carry, which the verifier correctly refuses.
 
-The byte-fed tier draws its own keys too. `pancake_host_new` accepts a 64-byte
+The byte-fed tier draws its own keys too. `pancake_host_new` requires a 64-byte
 seed: the first 32 stay the durable identity, which must remain stable because
 a keyed locator's designator derives from it, and the next 32 are the
-session-key root, which must be fresh per process. A 32-byte call is still
-accepted and keeps the durable-key posture, so the change is additive for an
-existing embedder while every binding supplies a root — Rust through
+session-key root, which must be fresh per process. A durable-only 32-byte call
+is refused: silently reusing the identity seed would recreate the conflation
+this decision removes. Every binding supplies a root — Rust through
 `getrandom`, TypeScript and Wasm through `crypto.getRandomValues`, Python
 through `secrets`, Racket through `crypto-random-bytes` — each at its own
 entropy boundary, because the library has none. Held by the two-session
@@ -144,8 +144,9 @@ resolving the first connection's handoff names against the replacement session
 returns nothing, while the replacement's own names resolve — so a stale
 certificate is refused because it names a session that no longer exists, not
 because anything is live or closed. The test asserts the two connections' names
-actually differ before asserting the refusal, so it cannot pass on coincidence,
-and it fails when the seed source is put back to `reused_durable`. That
+actually differ before asserting the refusal, so it cannot pass on coincidence.
+The sans-I/O `driver_core.Host.init` requires the session root as a separate
+argument, so durable-key reuse is no longer a representable constructor mode. That
 resolver is also the only path a withdrawal takes to a gift registry, which is
 the whole of "must not consume a new deposit with the same gift id": an
 unresolvable certificate reaches no registry at all. Held by
@@ -157,12 +158,12 @@ reconnects without making a cleartext channel replay-safe.
 
 ### Current crossed-session behavior
 
-Item 9's two axes remain separate after ADR-0109. *Ordering* is per connection:
-the identifiers compared are the two connections' own session ids, so a race
+Item 9's two axes remain separate after ADR-0109. *Ordering* is per session:
+the identifiers compared are the two sessions' own ids, so a race
 between the same durable peers can be ordered at all. *Matching* is by a durable
 peer identity the channel authenticated: `refuseDuplicatePartnerKey` asks
 `Host.peer_by_durable` before it asks the session-key index, because two
-connections to one peer no longer share a session key and are invisible to that
+sessions to one peer no longer share a signing key and are invisible to that
 index.
 
 **Only a proved durable identity may collapse a session.** `peer_by_durable`
@@ -195,7 +196,7 @@ identity the caller supplied. That is now resolved the way the model reads
 rather than by narrowing the claim: `Identity.keyed` names the caller's
 *durable* identity and supplies the advertised designator, while the session
 draws its own signing key like any other. No tier is an exception to
-per-connection session identity, which is why the live iroh, WebRTC, and
+per-session identity, which is why the live iroh, WebRTC, and
 keyed-relay checks — all on that tier — now exercise fresh keys rather than
 passing beside the question.
 
@@ -215,7 +216,7 @@ identity-separation parts remain current as stated in Status.
 
 ### Context at adoption
 
-OCapN defines `session_pubkey` as the public half of a per-connection key pair.
+OCapN defines `session_pubkey` as the public half of a per-session key pair.
 Goblins generates a fresh pair for every CapTP session. pancake instead seeds
 every session in a Host from one durable Host key. The reuse made handoff and
 reconnect code convenient, but it collapsed two identities:
@@ -240,7 +241,7 @@ despite having different authentication mechanisms.
 
 ### Decision at adoption
 
-### Every CapTP connection has a fresh key
+### Every CapTP session has a fresh key
 
 Each `HostSession` receives a fresh Ed25519 signing seed from the adapter entropy
 boundary. The sync no-I/O core generates no entropy. Native drivers draw the
@@ -477,7 +478,7 @@ each one.
 ## Alternatives Considered
 
 - **Keep one durable key as every CapTP session key.** Rejected: it contradicts
-  per-connection session identity and lets reconnect reuse handoff names.
+  per-session identity and lets reconnect reuse handoff names.
 - **Change fresh keys everywhere except keyed-TCP.** Rejected: CapTP session
   semantics would depend on the selected transport and keyed-TCP reconnects
   would retain the defect.
@@ -511,7 +512,7 @@ each one.
 
 ## Consequences
 
-- Session entropy becomes per connection rather than per Host.
+- Signing-key entropy becomes per session rather than per Host.
 - The engine's expected-partner contract becomes a verification strategy over
   durable identity and session identity, not `expected_partner_key ==
   session_pubkey`.

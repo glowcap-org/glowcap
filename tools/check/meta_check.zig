@@ -19,6 +19,7 @@ const captp_product = @import("meta_check/captp_product.zig");
 const zig_docs = @import("meta_check/zig_docs.zig");
 const fuzz = @import("meta_check/fuzz.zig");
 const namespaces = @import("meta_check/namespaces.zig");
+const signing_domain = @import("meta_check/signing_domain.zig");
 const util = @import("meta_check/util.zig");
 
 /// Create the `meta-check` build step.
@@ -87,9 +88,11 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try rooms_ui.checkRoomsConfig(io, gpa, root, &violations);
     try project_shape.checkDocumentedBuildSteps(io, gpa, root, &violations);
     try c_abi.checkAbiVersionLockstep(io, gpa, root, &violations);
+    try c_abi.checkPrereleaseProviderAbiVersions(io, gpa, root, &violations);
     try c_abi.checkAbiFreeingVerb(io, gpa, root, &violations);
     try c_abi.checkAbiReturnShape(io, gpa, root, &violations);
     try c_abi.checkCAbiSurfaceShape(io, gpa, root, &violations);
+    try c_abi.checkLocatorAuthoritySplit(io, gpa, root, &violations);
     try c_abi.checkAbiExportsConsumed(io, gpa, root, &violations);
     try c_abi.checkBindingStructPins(io, gpa, root, &violations);
     try c_abi.checkTraceVocabulary(io, gpa, root, &violations);
@@ -125,7 +128,6 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try docs.checkLivingStateRegistry(io, gpa, root, &violations);
     try bans.runBans(io, gpa, root, &violations, bans.all);
     try captp_product.checkTransportVocabulary(io, gpa, root, &violations);
-    try captp_product.checkDesignatorSchemeSync(io, gpa, root, &violations);
     try captp_product.checkDurablePinWriters(io, gpa, root, &violations);
     try captp_product.checkHostErrorCodeMap(io, gpa, root, &violations);
     try captp_product.checkReferenceRelayIrohLazy(io, gpa, root, &violations);
@@ -140,6 +142,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try scaffolding.checkRuleFrontmatter(io, gpa, root, &violations);
     try project_shape.checkLayerOwnership(io, gpa, root, &violations);
     try project_shape.checkTestPlacement(io, gpa, root, &violations);
+    try project_shape.checkTsPackagePublishSurface(io, gpa, root, &violations);
     try project_shape.checkTestSuiteWiring(io, gpa, root, &violations);
     try project_shape.checkOracleCorpusRegistry(io, gpa, root, &violations);
     try project_shape.checkProtocolCheatsheet(io, gpa, root, &violations);
@@ -178,6 +181,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try zig_docs.checkZigDocSymbolClaims(io, gpa, root, &violations);
     try zig_docs.checkMemoryLedgerSymbolClaims(io, gpa, root, &violations);
     try namespaces.checkBareKeyedTables(io, gpa, root, &violations);
+    try signing_domain.checkSigningDomains(io, gpa, root, &violations);
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("meta-check: {s}\n", .{msg});
@@ -197,5 +201,6 @@ test {
     _ = captp_io_spine;
     _ = captp_product;
     _ = zig_docs;
+    _ = signing_domain;
     _ = util;
 }

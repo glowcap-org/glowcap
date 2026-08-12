@@ -132,7 +132,12 @@ export function makeWebAdapter(
 			slot = { ptr: 0, len: 0, epoch };
 		} else {
 			const ptr = exports.pancake_wasm_alloc(buf.length) >>> 0;
-			if (ptr === 0) throw new Error("pancake wasm: linear-memory allocation failed");
+			if (ptr === 0) {
+				throw new Error(
+					`pancake wasm: linear-memory allocation failed for ${buf.length} bytes ` +
+						`(${slots.length} staged allocations, ${exports.memory.buffer.byteLength} bytes of linear memory)`,
+				);
+			}
 			u8().set(buf, ptr);
 			slot = { ptr, len: buf.length, epoch };
 		}
@@ -251,6 +256,7 @@ export function makeWebAdapter(
 	}
 
 	const ffi: RuntimeFfi = {
+		offloadsBlockingCalls: () => false,
 		dlopen(_path: string, defs: Record<string, SymbolDef>): Symbols {
 			const table: Symbols = {};
 			for (const [name, def] of Object.entries(defs)) {

@@ -26,7 +26,7 @@ from ._errors import (
     _host_last_error,
 )
 from ._ffi_host import _host
-from ._ffi_ocapn import _byte_buf, _LastAbort, _lib, _ManagedFrame
+from ._ffi_ocapn import _byte_buf, _copy_managed_frame, _LastAbort, _ManagedFrame
 from ._trampoline import _enter_deliver, _exit_deliver
 
 _OK = _abi.OK
@@ -97,17 +97,22 @@ async def _feed(session, chunk: bytes) -> None:
     # an empty chunk resumes frames the session held behind its handshake
     # open. A mid-feed close parks its C release; it drains the moment the
     # feed returns.
-    if session.released:
-        return
     n = len(chunk)
     ptr = ctypes.cast(ctypes.c_char_p(chunk), ctypes.c_void_p) if n else None
-    prior = _enter_deliver(session)
-    try:
-        rc = _host.pancake_host_session_feed_bytes(session.raw, ptr, n)
-    finally:
-        _exit_deliver(prior)
-    session.host.drain_parked_releases()
-    if rc != _OK:
+    while True:
+        if session.released:
+            return
+        prior = _enter_deliver(session)
+        try:
+            rc = _host.pancake_host_session_feed_bytes(session.raw, ptr, n)
+        finally:
+            _exit_deliver(prior)
+        session.host.drain_parked_releases()
+        if rc == _OK:
+            break
+        if rc == _WOULD_BLOCK:
+            await session.host.kick_actions()
+            continue
         await _raise_feed_refusal(session, rc)
     await session.host.kick_actions()
 
@@ -151,22 +156,37 @@ def last_abort(session) -> Optional[AbortDetail]:
 
 
 async def flush_outbound(session) -> None:
-    """Drain every encoded outbound frame on this CapTP session and write it
-    to the byte-stream transport as a canonical Syrup byte string — how a
-    FLUSH action lands. Writes are serialized, so each prefix/body pair stays
-    in submission order. Binding-internal."""
+    """Drain transport-ready prefix/payload vectors and write them in order.
+
+    The host owns whether a prefix is present: clear sessions return canonical
+    outer framing, while sealed sessions return wire-ready payloads with an
+    empty prefix. Binding-internal.
+    """
     async with session.write_lock:
-        while True:
-            if session.released:
-                return
-            mf = _ManagedFrame()
-            rc = _host.pancake_host_session_take_outbound(session.raw, ctypes.byref(mf))
-            if rc == _WOULD_BLOCK:
-                return
-            _check_host(rc)
-            frame = ctypes.string_at(mf.bytes, mf.len) if mf.bytes else b""
-            # The managed frame is the shared core vocabulary, released
-            # through the core archive.
-            _lib.pancake_managed_frame_release(ctypes.byref(mf))
-            await session.transport.write(str(len(frame)).encode("ascii") + b":")
-            await session.transport.write(frame)
+        try:
+            while True:
+                if session.released:
+                    return
+                mf = _ManagedFrame()
+                prefix = (ctypes.c_ubyte * _abi.HOST_OUTBOUND_PREFIX_CAP)()
+                prefix_len = ctypes.c_size_t()
+                rc = _host.pancake_host_session_take_outbound(
+                    session.raw,
+                    ctypes.byref(mf),
+                    prefix,
+                    len(prefix),
+                    ctypes.byref(prefix_len),
+                )
+                if rc == _WOULD_BLOCK:
+                    return
+                _check_host(rc)
+                frame = _copy_managed_frame(mf)
+                if prefix_len.value:
+                    await session.transport.write(bytes(prefix[:prefix_len.value]))
+                await session.transport.write(frame)
+        except BaseException:
+            # `take_outbound` transferred the frame and a failed/cancelled
+            # write may have put only a prefix on the stream. The session is
+            # no longer retryable; release it so every far vow settles closed.
+            session.close_transport()
+            raise

@@ -1,0 +1,11 @@
+[project]
+name = "pancake-ocapn-conformance-environment"
+version = "0.0.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "cryptography==50.0.0",
+    "stem==1.8.2",
+]
+
+[tool.uv]
+package = false

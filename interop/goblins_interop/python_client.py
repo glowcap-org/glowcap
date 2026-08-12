@@ -50,17 +50,17 @@ async def converse() -> None:
         )
 
         locator = tcp_locator(HOST, PORT)
-        conn = await connect(locator)
+        session = await connect(locator)
         print(
             "python-goblins-interop: session open, keyed start-session accepted by goblins"
         )
-        conn.serve()
+        session.serve()
 
         # A sturdyref names a peer, and the enliven checks that peer against
         # the session it rides (ADR-0098). Build it from the very locator this
         # session dialed, so the two cannot drift apart.
         sturdyref = f"{locator}/s/{sturdyref_path}"
-        echo = await conn.enliven(sturdyref)
+        echo = await session.enliven(sturdyref)
         print("python-goblins-interop: enlivened goblins echo cap, calling it")
 
         # The echo actor is `(lambda args args)`: it returns its argument
@@ -73,9 +73,9 @@ async def converse() -> None:
                     f"echo returned {reply!r}, expected [{expected!r}]",
                 )
 
-        assert_echoed(await conn.send(echo, "", [b"pancake-ping"]), b"pancake-ping")
+        assert_echoed(await session.send(echo, "", [b"pancake-ping"]), b"pancake-ping")
 
-        again = await conn.enliven(sturdyref)
+        again = await session.enliven(sturdyref)
         # The dedup cache hands back the same capability, so the two handles
         # carry one opaque Host identity (ADR-0096). The id is the whole
         # observable: a binding cannot see the wire import behind it, which is
@@ -86,7 +86,7 @@ async def converse() -> None:
                 "repeat enliven did not return the same capability (dedup miss)",
             )
         assert_echoed(
-            await conn.send(again, "", [b"pancake-ping-again"]), b"pancake-ping-again"
+            await session.send(again, "", [b"pancake-ping-again"]), b"pancake-ping-again"
         )
         print(
             "python-goblins-interop: repeat enliven same import (dedup), second call resolved"
@@ -96,7 +96,7 @@ async def converse() -> None:
             "python-goblins-interop OK: keyed handshake + enliven/dedup + echo "
             "deliver/resolve with live Goblins"
         )
-        await conn.close()
+        await session.close()
     finally:
         try:
             proc.kill()

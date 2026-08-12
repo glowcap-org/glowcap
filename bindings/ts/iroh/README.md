@@ -27,7 +27,7 @@ entry.
 ```ts
 import { listenIroh, Reachability } from "@pancake/iroh";
 
-const server = listenIroh(Reachability.Direct);
+const server = await listenIroh({ reachability: Reachability.Direct });
 console.log(server.uri); // hand this to a partner
 for await (const session of server) session.serve();
 ```

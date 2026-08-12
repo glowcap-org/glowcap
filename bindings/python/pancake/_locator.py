@@ -12,56 +12,202 @@ gifter embeds in a give. Re-exported from the
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Union
 
 import ctypes
 
 from . import _constants as _abi
-from ._errors import _check
-from ._ffi_ocapn import _lib
+from ._errors import _check, PancakeError
+from ._ffi_ocapn import _lib, _LocatorHintView, _LocatorView
 
 _OK = _abi.OK
 _ERR_BUFFER_TOO_SMALL = _abi.ERR_BUFFER_TOO_SMALL
 
-def encode_peer_locator(transport: str, designator: str, direct_addresses: str = "") -> bytes:
-    """Build the verbatim exporter location-record bytes a gifter embeds in a give
-    when the exporter is reachable only by a dial hint (ADR-0009), the
-    construct-it-yourself counterpart of the partner's signed session record, for
-    an exporter whose own record carries no hint. ``transport``/``designator`` name
-    the exporter; a non-empty ``direct_addresses`` (comma-separated socket
-    addresses) adds a ``direct-addresses`` hint so a cross-process recipient dials
-    it directly with no discovery service (an iroh exporter reachable only by
-    address). The result feeds :meth:`Session.set_exporter_locator`. An empty
-    ``direct_addresses`` yields a hint-less location identical to the exporter's
-    own signed record, so a TCP or discovery-reachable exporter needs no
-    override."""
+def encode_peer_locator(locator: "Locator") -> bytes:
+    """Encode a complete typed locator as the canonical signed handoff record."""
     out_loc = ctypes.c_void_p()
     out_len = ctypes.c_size_t()
-    t_b = ctypes.create_string_buffer(transport.encode(), len(transport.encode()))
-    d_b = ctypes.create_string_buffer(designator.encode(), len(designator.encode()))
-    a_b = ctypes.create_string_buffer(direct_addresses.encode(), len(direct_addresses.encode()))
-    _check(_lib.pancake_locator_record_encode(
-        ctypes.cast(t_b, ctypes.c_void_p), len(transport.encode()),
-        ctypes.cast(d_b, ctypes.c_void_p), len(designator.encode()),
-        ctypes.cast(a_b, ctypes.c_void_p), len(direct_addresses.encode()),
-        ctypes.byref(out_loc), ctypes.byref(out_len),
-    ))
+    with _OwnedLocator.create(locator) as owned:
+        _check(_lib.pancake_locator_record_encode(
+            owned.borrow_view(), ctypes.byref(out_loc), ctypes.byref(out_len)
+        ))
     try:
         return ctypes.string_at(out_loc, out_len.value)
     finally:
         _lib.pancake_locator_record_bytes_release(out_loc, out_len.value)
 
 
+HintValue = Union[str, bytes, bool, int]
+
+
 class Locator(NamedTuple):
-    """A parsed OCapN locator: the fields a ``pancake_uri_parse_*`` yields.
-    ``swissnum`` is empty for a peer URI, the swiss bytes for a sturdyref.
+    """A parsed OCapN peer locator.
+
     Dial resolves host:port through ``pancake_host_plan_dial``; apps that need
-    a bare designator split use :func:`designator_host_port`."""
+    a bare designator split use :func:`designator_host_port`.
+    """
 
     transport: str
     designator: str
-    swissnum: str
-    hints: "dict[str, str]"
+    hints: "dict[str, HintValue]"
+    hint_wire_form: str = "map"
+
+
+class SturdyRef(NamedTuple):
+    """A peer locator paired with its opaque authority-bearing swissnum."""
+
+    locator: Locator
+    swissnum: bytes
+
+
+class _OwnedLocator:
+    """One OCapN-owned locator handle and its borrowed view."""
+
+    def __init__(self, handle: ctypes.c_void_p) -> None:
+        if not handle:
+            raise PancakeError(_abi.ERR_INVALID_ARGUMENT, "OCapN returned a null locator handle")
+        self.handle = handle
+
+    @classmethod
+    def create(cls, locator: Locator) -> "_OwnedLocator":
+        wire_form = {
+            "map": _abi.HINTS_MAP,
+            "boolean-false": _abi.HINTS_BOOLEAN_FALSE,
+        }.get(locator.hint_wire_form)
+        if wire_form is None:
+            raise ValueError("unknown locator hint wire form")
+        transport = locator.transport.encode("utf-8")
+        designator = locator.designator.encode("utf-8")
+        raw = ctypes.c_void_p()
+        _check(_lib.pancake_locator_new(
+            transport, len(transport), designator, len(designator), wire_form,
+            ctypes.byref(raw),
+        ))
+        owned = cls(raw)
+        try:
+            for name, value in locator.hints.items():
+                name_bytes = name.encode("utf-8")
+                prefix = (owned.handle, name_bytes, len(name_bytes))
+                if isinstance(value, str):
+                    data = value.encode("utf-8")
+                    rc = _lib.pancake_locator_add_string(*prefix, data, len(data))
+                elif isinstance(value, bytes):
+                    rc = _lib.pancake_locator_add_bytes(*prefix, value, len(value))
+                elif isinstance(value, bool):
+                    rc = _lib.pancake_locator_add_boolean(*prefix, int(value))
+                elif isinstance(value, int):
+                    if value < -(1 << 63) or value >= (1 << 63):
+                        raise OverflowError("locator integer hint does not fit int64")
+                    rc = _lib.pancake_locator_add_integer(*prefix, value)
+                else:
+                    raise TypeError(f"unsupported locator hint value for {name!r}")
+                _check(rc)
+            return owned
+        except BaseException:
+            owned.release()
+            raise
+
+    @classmethod
+    def adopt(cls, handle: ctypes.c_void_p) -> "_OwnedLocator":
+        return cls(handle)
+
+    @classmethod
+    def clone_view(cls, view: ctypes.c_void_p) -> "_OwnedLocator":
+        raw = ctypes.c_void_p()
+        _check(_lib.pancake_locator_clone(
+            ctypes.cast(view, ctypes.POINTER(_LocatorView)), ctypes.byref(raw)
+        ))
+        return cls(raw)
+
+    def borrow_view(self) -> "ctypes.POINTER[_LocatorView]":
+        raw = ctypes.c_void_p()
+        _check(_lib.pancake_locator_borrow_view(self.handle, ctypes.byref(raw)))
+        return ctypes.cast(raw, ctypes.POINTER(_LocatorView))
+
+    def release(self) -> None:
+        if self.handle:
+            _lib.pancake_locator_release(self.handle)
+            self.handle = ctypes.c_void_p()
+
+    def __enter__(self) -> "_OwnedLocator":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.release()
+
+    def value(self) -> Locator:
+        def field(accessor) -> str:
+            ptr = ctypes.c_void_p()
+            length = ctypes.c_size_t()
+            _check(accessor(self.handle, ctypes.byref(ptr), ctypes.byref(length)))
+            return _read_view(ptr, length)
+
+        count = ctypes.c_size_t()
+        _check(_lib.pancake_locator_hint_count(self.handle, ctypes.byref(count)))
+        hints: "dict[str, HintValue]" = {}
+        for index in range(count.value):
+            hint = _LocatorHintView()
+            _check(_lib.pancake_locator_hint_at(self.handle, index, ctypes.byref(hint)))
+            name = ctypes.string_at(hint.name, hint.name_len).decode("utf-8")
+            if hint.kind == _abi.HINT_STRING:
+                value: HintValue = ctypes.string_at(hint.bytes, hint.bytes_len).decode("utf-8")
+            elif hint.kind == _abi.HINT_BYTES:
+                value = ctypes.string_at(hint.bytes, hint.bytes_len)
+            elif hint.kind == _abi.HINT_BOOLEAN and hint.boolean_value <= 1:
+                value = bool(hint.boolean_value)
+            elif hint.kind == _abi.HINT_INTEGER:
+                value = int(hint.integer_value)
+            else:
+                raise PancakeError(_abi.ERR_INVALID_ARGUMENT, "OCapN returned an invalid locator hint")
+            hints[name] = value
+        raw_wire_form = ctypes.c_uint32()
+        _check(_lib.pancake_locator_hint_wire_form(self.handle, ctypes.byref(raw_wire_form)))
+        wire_form = {
+            _abi.HINTS_MAP: "map",
+            _abi.HINTS_BOOLEAN_FALSE: "boolean-false",
+        }.get(raw_wire_form.value)
+        if wire_form is None:
+            raise PancakeError(_abi.ERR_INVALID_ARGUMENT, "OCapN returned an invalid hint wire form")
+        return Locator(
+            field(_lib.pancake_locator_transport),
+            field(_lib.pancake_locator_designator),
+            hints,
+            wire_form,
+        )
+
+
+class _OwnedSturdyRef:
+    """One OCapN-owned sturdyref handle."""
+
+    def __init__(self, handle: ctypes.c_void_p) -> None:
+        if not handle:
+            raise PancakeError(_abi.ERR_INVALID_ARGUMENT, "OCapN returned a null sturdyref handle")
+        self.handle = handle
+
+    def release(self) -> None:
+        if self.handle:
+            _lib.pancake_sturdyref_release(self.handle)
+            self.handle = ctypes.c_void_p()
+
+    def __enter__(self) -> "_OwnedSturdyRef":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.release()
+
+    def value(self) -> SturdyRef:
+        view = ctypes.c_void_p()
+        _check(_lib.pancake_sturdyref_borrow_locator(self.handle, ctypes.byref(view)))
+        with _OwnedLocator.clone_view(view) as locator:
+            locator_value = locator.value()
+
+        ptr = ctypes.c_void_p()
+        length = ctypes.c_size_t()
+        _check(_lib.pancake_sturdyref_swissnum(
+            self.handle, ctypes.byref(ptr), ctypes.byref(length)
+        ))
+        swissnum = b"" if length.value == 0 else ctypes.string_at(ptr, length.value)
+        return SturdyRef(locator_value, swissnum)
 
 
 def _read_view(ptr: ctypes.c_void_p, length: ctypes.c_size_t) -> str:
@@ -73,44 +219,47 @@ def _read_view(ptr: ctypes.c_void_p, length: ctypes.c_size_t) -> str:
     return ctypes.string_at(ptr.value, n).decode("utf-8")
 
 
-def parse_locator(uri: str, *, sturdyref: bool = False) -> Locator:
-    """Parse an ``ocapn://`` URI into its structured locator fields through the
-    core grammar. ``sturdyref`` selects the ``/s/<swiss>`` form; the default reads
-    a peer URI. Raises :class:`PancakeError` for a malformed URI."""
+def parse_locator(uri: str) -> Locator:
+    """Parse an ``ocapn://`` peer URI through the core grammar."""
     raw = uri.encode("utf-8")
     out = ctypes.c_void_p()
-    parse = _lib.pancake_uri_parse_sturdyref if sturdyref else _lib.pancake_uri_parse_peer
-    _check(parse(raw, len(raw), ctypes.byref(out)))
-    try:
-        def field(accessor) -> str:
-            p = ctypes.c_void_p()
-            n = ctypes.c_size_t()
-            _check(accessor(out, ctypes.byref(p), ctypes.byref(n)))
-            return _read_view(p, n)
+    _check(_lib.pancake_uri_parse_peer(raw, len(raw), ctypes.byref(out)))
+    with _OwnedLocator.adopt(out) as owned:
+        return owned.value()
 
-        count = ctypes.c_size_t()
-        _check(_lib.pancake_locator_hint_count(out, ctypes.byref(count)))
-        hints: "dict[str, str]" = {}
-        for i in range(count.value):
-            kp = ctypes.c_void_p()
-            kn = ctypes.c_size_t()
-            vp = ctypes.c_void_p()
-            vn = ctypes.c_size_t()
-            _check(_lib.pancake_locator_hint_at(out, i, ctypes.byref(kp), ctypes.byref(kn), ctypes.byref(vp), ctypes.byref(vn)))
-            hints[_read_view(kp, kn)] = _read_view(vp, vn)
-        return Locator(
-            field(_lib.pancake_locator_transport),
-            field(_lib.pancake_locator_designator),
-            field(_lib.pancake_locator_swissnum),
-            hints,
-        )
-    finally:
-        _lib.pancake_locator_release(out)
+
+def parse_sturdyref(uri: str) -> SturdyRef:
+    """Parse an ``ocapn://.../s/<swiss>`` sturdyref without losing authority."""
+    raw = uri.encode("utf-8")
+    out = ctypes.c_void_p()
+    _check(_lib.pancake_uri_parse_sturdyref(raw, len(raw), ctypes.byref(out)))
+    with _OwnedSturdyRef(out) as owned:
+        return owned.value()
 
 
 def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, str]]" = None) -> str:
     """Format a peer locator as an ``ocapn://<designator>.<transport>[?hints]``
     URI through the core grammar."""
+    return _format_uri(transport, designator, None, hints)
+
+
+def format_sturdyref(locator_uri: str, swissnum: bytes) -> str:
+    """Format a peer URI plus opaque swiss authority through the core grammar."""
+    locator = parse_locator(locator_uri)
+    hints: dict[str, str] = {}
+    for name, value in locator.hints.items():
+        if not isinstance(value, str):
+            raise TypeError(f"locator hint {name!r} has no lossless URI spelling")
+        hints[name] = value
+    return _format_uri(locator.transport, locator.designator, swissnum, hints)
+
+
+def _format_uri(
+    transport: str,
+    designator: str,
+    swissnum: "Optional[bytes]",
+    hints: "Optional[dict[str, str]]" = None,
+) -> str:
     items = list((hints or {}).items())
     t = transport.encode("utf-8")
     d = designator.encode("utf-8")
@@ -139,11 +288,18 @@ def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, 
     while True:
         buf = ctypes.create_string_buffer(cap)
         out_len = ctypes.c_size_t()
-        rc = _lib.pancake_uri_format_peer(
-            t, len(t), d, len(d),
-            key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
-            buf, cap, ctypes.byref(out_len),
-        )
+        if swissnum is None:
+            rc = _lib.pancake_uri_format_peer(
+                t, len(t), d, len(d),
+                key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
+                buf, cap, ctypes.byref(out_len),
+            )
+        else:
+            rc = _lib.pancake_uri_format_sturdyref(
+                t, len(t), d, len(d), swissnum, len(swissnum),
+                key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
+                buf, cap, ctypes.byref(out_len),
+            )
         need = out_len.value
         if rc == _OK:
             return buf.raw[:need].decode("utf-8")
@@ -151,6 +307,16 @@ def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, 
             cap = need
             continue
         _check(rc)
+
+
+def format_locator_uri(locator: Locator) -> str:
+    """Render a typed peer locator when every hint has a URI string spelling."""
+    hints: dict[str, str] = {}
+    for name, value in locator.hints.items():
+        if not isinstance(value, str):
+            raise TypeError(f"locator hint {name!r} has no lossless URI spelling")
+        hints[name] = value
+    return format_peer_uri(locator.transport, locator.designator, hints)
 
 
 
@@ -199,6 +365,17 @@ def keyed_tcp_locator(designator: str, host: str, port: int) -> str:
     and re-dials after a restart with only the hint updated."""
     return format_peer_uri(
         _abi.TRANSPORT_KEYED_TCP,
+        designator,
+        {_abi.HINT_DIRECT_ADDRESSES: socket_addr_designator(host, port)},
+    )
+
+
+def noise_tcp_locator(designator: str, host: str, port: int) -> str:
+    """Build a ``noise-tcp`` locator from the listener's durable key and
+    bound address. The key remains the designator; the socket rides the
+    ``direct-addresses`` hint."""
+    return format_peer_uri(
+        _abi.TRANSPORT_NOISE_TCP,
         designator,
         {_abi.HINT_DIRECT_ADDRESSES: socket_addr_designator(host, port)},
     )

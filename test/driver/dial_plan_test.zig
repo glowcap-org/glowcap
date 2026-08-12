@@ -11,6 +11,7 @@ const driver = pancake.driver;
 const transport = pancake.ocapn.model.transport;
 
 const planDial = driver.core.planDial;
+const planDialProfile = driver.core.planDialProfile;
 const planAccept = driver.core.planAccept;
 const Shape = driver.core.DialShape;
 
@@ -22,6 +23,19 @@ test "planDial tcp: designator is the host:port" {
     try std.testing.expectEqual(Shape.host_port, std.meta.activeTag(plan));
     try std.testing.expectEqualStrings("127.0.0.1", plan.host_port.host);
     try std.testing.expectEqual(@as(u16, 9000), plan.host_port.port);
+}
+
+test "provider profile plans an extension without a first-party symbol branch" {
+    const plan = try planDialProfile(.{
+        .symbol = "private-noise-stream",
+        .designator_scheme = .key,
+        .address_source = .direct_addresses_hint,
+        .dial_shape = .host_port,
+        .sealed_channel = true,
+    }, key_designator, "10.0.0.8:4040", .redeem);
+    try std.testing.expectEqual(Shape.host_port, std.meta.activeTag(plan));
+    try std.testing.expectEqualStrings("10.0.0.8", plan.host_port.host);
+    try std.testing.expectEqual(@as(u16, 4040), plan.host_port.port);
 }
 
 test "planDial tcp: bracketed IPv6 designator keeps its address" {
@@ -101,19 +115,19 @@ test "planDial: an unknown transport is a typed refusal" {
 }
 
 test "planAccept tcp: signs the accepted address, no hint" {
-    const plan = planAccept(transport.tcp, "", "127.0.0.1:5000");
+    const plan = planAccept(.address, "", "127.0.0.1:5000");
     try std.testing.expectEqualStrings("127.0.0.1:5000", plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }
 
 test "planAccept tcp: an absent accepted address signs the unreachable-client placeholder" {
-    const plan = planAccept(transport.tcp, "", "");
+    const plan = planAccept(.address, "", "");
     try std.testing.expectEqualStrings(driver.core.unreachable_client_designator, plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }
 
 test "planAccept keyed-tcp: signs the server key, the accepted address is the hint" {
-    const plan = planAccept(transport.keyed_tcp, key_designator, "127.0.0.1:6000");
+    const plan = planAccept(.key, key_designator, "127.0.0.1:6000");
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("127.0.0.1:6000", plan.direct_addresses_hint);
 }
@@ -123,16 +137,16 @@ test "planAccept iroh: signs the node id and publishes the endpoint's direct add
     // this locator in a handoff has never spoken to the peer and still has to
     // dial it, so an accept publishes the addresses it knows. This is the arm
     // that used to drop them, leaving a give nobody could dial without a relay.
-    const plan = planAccept(transport.iroh, key_designator, "127.0.0.1:7000,[::1]:7001");
+    const plan = planAccept(.key, key_designator, "127.0.0.1:7000,[::1]:7001");
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("127.0.0.1:7000,[::1]:7001", plan.direct_addresses_hint);
 }
 
 test "planAccept iroh: an endpoint with no addresses yet publishes none" {
-    // Not a refusal: `iroh` is outside `requiresDirectAddressesHint`, so an
+    // Not a refusal: iroh is peer-id addressed, so an
     // empty hint is a dial that falls back to discovery rather than one that
     // cannot happen.
-    const plan = planAccept(transport.iroh, key_designator, "");
+    const plan = planAccept(.key, key_designator, "");
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }
@@ -166,6 +180,15 @@ test "planDial keyed-relay: ignores posture and hint (the relay mapping is host 
     try std.testing.expectEqual(Shape.rendezvous, std.meta.activeTag(plan));
 }
 
+test "planDial noise-relay: shares rendezvous shape and validates the responder key" {
+    const plan = try planDial(transport.noise_relay, key_designator, "", .redeem);
+    try std.testing.expect(plan == .rendezvous);
+    try std.testing.expectError(
+        error.DesignatorNotPeerKey,
+        planDial(transport.noise_relay, "not-a-key", "", .redeem),
+    );
+}
+
 test "planDial keyed-relay: a non-key designator is DesignatorNotPeerKey" {
     try std.testing.expectError(error.DesignatorNotPeerKey, planDial(transport.keyed_relay, "not-a-key", "", .redeem));
 }
@@ -178,7 +201,7 @@ test "planAccept webrtc: signs the server key, and its netlayer offers no addres
     // transport — said this side is reachable at. Which hints a locator carries
     // is the netlayer's business, so a second table here could only drift from
     // the vtable that produces the value.
-    const plan = planAccept(transport.webrtc, key_designator, "");
+    const plan = planAccept(.key, key_designator, "");
     try std.testing.expectEqualStrings(key_designator, plan.designator);
     try std.testing.expectEqualStrings("", plan.direct_addresses_hint);
 }

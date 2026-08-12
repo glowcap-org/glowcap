@@ -15,13 +15,11 @@ const emitStdoutFmt = common.emitStdoutFmt;
 const reply_placeholder = common.reply_placeholder;
 
 const Pending = harness.Pending;
-const appendLine = harness.appendLine;
 const loadReplied = harness.loadReplied;
 const markReplied = harness.markReplied;
 const readFile = harness.readFile;
 const scanInbox = harness.scanInbox;
 const stateField = harness.stateField;
-const writeJsonString = harness.writeJsonString;
 
 const Json = supervise.Json;
 const emitInternalError = supervise.emitInternalError;
@@ -194,26 +192,7 @@ fn runReply(io: Io, gpa: Allocator, flags: Flags) !void {
         emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"placeholder\",\"detail\":\"replace 'YOUR REPLY HERE' with your actual message\"}}\n", .{});
         return error.UsageFailed;
     }
-    // Fail closed: --dm without an ADR-0088 reply-cap must not queue a line that
-    // looks locally sent while introduce is the only route (browser silence).
-    if (flags.dm.len > 0 and !harness.dmBackchannelArmed(io, gpa, flags.dir, flags.dm)) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"no_reply_cap\",\"detail\":\"--dm {s}: peer has not DMed us yet (no reply-cap); use room or wait for inbound DM\"}}\n", .{flags.dm});
-        return error.UsageFailed;
-    }
-    var list: std.ArrayList(u8) = .empty;
-    defer list.deinit(gpa);
-    if (flags.dm.len > 0) {
-        try list.appendSlice(gpa, "{\"channel\":\"dm\",\"peer\":");
-        try writeJsonString(&list, gpa, flags.dm);
-        try list.appendSlice(gpa, ",\"text\":");
-        try writeJsonString(&list, gpa, flags.text);
-        try list.append(gpa, '}');
-    } else {
-        try list.appendSlice(gpa, "{\"channel\":\"room\",\"text\":");
-        try writeJsonString(&list, gpa, flags.text);
-        try list.append(gpa, '}');
-    }
-    try appendLine(io, gpa, flags.dir, "outbox.jsonl", list.items);
+    try harness.appendOutbox(io, gpa, flags.dir, flags.text, if (flags.dm.len > 0) flags.dm else null);
     // --id folds the mark into the reply, so there is no separate done step.
     var marked = false;
     // A ledger write that failed is reported, not counted: the caller acts on
@@ -337,9 +316,8 @@ const usage_text =
     \\  status  --dir DIR                                             show state
     \\
     \\Identity defaults to DIR/identity (minted on first start). Pass --identity to pin another seed.
-    \\`--dm PEER` sends a direct message on the ADR-0088 reply-cap back-channel
-    \\(the peer must have DMed us first). Without a reply-cap, reply refuses with
-    \\`no_reply_cap` rather than queueing an introduce that can look locally sent.
+    \\`--dm PEER` sends a direct message off-room. The peer reuses a live reply
+    \\capability or asks the room directory to introduce the target on first contact.
     \\Example:
     \\  pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room general
     \\

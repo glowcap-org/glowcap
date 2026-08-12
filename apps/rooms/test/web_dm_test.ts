@@ -95,7 +95,11 @@ const bobHost = roomsHost(bobSeed);
 // connection. Bob never dials the browser, which cannot be dialed — the shared
 // `recordingReplyDm` owns that receiver primitive.
 const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got your DM: ${text}`);
-const bobEndpoint = listenIroh({ reachability: Reachability.Direct }, bobSeed, bobHost);
+const bobEndpoint = await listenIroh(
+	{ reachability: Reachability.Direct },
+	bobSeed,
+	bobHost,
+);
 (async () => {
 	for await (const session of bobEndpoint) session.serve().catch(() => {});
 })();

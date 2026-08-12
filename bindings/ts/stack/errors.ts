@@ -5,7 +5,7 @@
 // guards stay package-internal.
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { readErrorSlot } from "./internal/seam.ts";
 import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_SESSION, BROKEN, OK } from "@pancake/abi";
 
@@ -19,7 +19,7 @@ export function lastError(): string | null {
  * null when there is none. The driver archive keeps its own slot, so a host
  * call's diagnostic never scrapes the core's unrelated one. */
 export function hostLastError(): string | null {
-	return readErrorSlot(driverS.pancake_host_last_error);
+	return readErrorSlot(hostS.pancake_host_last_error);
 }
 
 /** The typed cause of a peer's most recent local dispatch failure, the

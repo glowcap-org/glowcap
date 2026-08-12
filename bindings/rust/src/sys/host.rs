@@ -78,7 +78,7 @@ pub struct PancakeHostAction {
 	pub kind: c_uint,
 	/// DIAL: the report-back handle; SETTLE/FAIL: the vow that settled.
 	pub ticket: u64,
-	pub conn: *mut PancakeHostSession,
+	pub session: *mut PancakeHostSession,
 	/// SETTLE: the fulfilled value; zeroed otherwise.
 	pub value: PancakeArgument,
 	/// FAIL: the break reason; NULL otherwise.
@@ -98,7 +98,7 @@ const _: () = {
 	assert!(size_of::<PancakeHostAction>() == PANCAKE_HOST_ACTION_SIZE);
 	assert!(offset_of!(PancakeHostAction, kind) == PANCAKE_HOST_ACTION_KIND_OFF);
 	assert!(offset_of!(PancakeHostAction, ticket) == PANCAKE_HOST_ACTION_TICKET_OFF);
-	assert!(offset_of!(PancakeHostAction, conn) == PANCAKE_HOST_ACTION_SESSION_OFF);
+	assert!(offset_of!(PancakeHostAction, session) == PANCAKE_HOST_ACTION_SESSION_OFF);
 	assert!(offset_of!(PancakeHostAction, value) == PANCAKE_HOST_ACTION_VALUE_OFF);
 	assert!(offset_of!(PancakeHostAction, message) == PANCAKE_HOST_ACTION_MESSAGE_OFF);
 	assert!(offset_of!(PancakeHostAction, message_len) == PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF);
@@ -195,32 +195,6 @@ const _: () = {
 		offset_of!(PancakeAcceptPlan, direct_addresses_hint_len)
 			== PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF
 	);
-};
-
-/// Borrowed pending dial view from `pancake_host_pending_dial` (parts only).
-#[repr(C)]
-pub struct PancakePendingDial {
-	pub transport: *const c_uchar,
-	pub transport_len: usize,
-	pub designator: *const c_uchar,
-	pub designator_len: usize,
-	pub hint: *const c_uchar,
-	pub hint_len: usize,
-}
-
-const _: () = {
-	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakePendingDial>() == PANCAKE_PENDING_DIAL_SIZE);
-	assert!(offset_of!(PancakePendingDial, transport) == PANCAKE_PENDING_DIAL_TRANSPORT_OFF);
-	assert!(
-		offset_of!(PancakePendingDial, transport_len) == PANCAKE_PENDING_DIAL_TRANSPORT_LEN_OFF
-	);
-	assert!(offset_of!(PancakePendingDial, designator) == PANCAKE_PENDING_DIAL_DESIGNATOR_OFF);
-	assert!(
-		offset_of!(PancakePendingDial, designator_len) == PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF
-	);
-	assert!(offset_of!(PancakePendingDial, hint) == PANCAKE_PENDING_DIAL_HINT_OFF);
-	assert!(offset_of!(PancakePendingDial, hint_len) == PANCAKE_PENDING_DIAL_HINT_LEN_OFF);
 };
 
 const _: () = {

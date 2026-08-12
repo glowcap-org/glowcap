@@ -38,7 +38,7 @@ pub const Hints = struct {
 
     /// A single `hint_direct_addresses` entry, or the `#f` empty spelling
     /// (`emptyFalse`) when there are none. Both the dial-locator builders
-    /// (`driver.PollHost`'s redeem dial, the C URI helpers) and the keyed
+    /// (`driver.HostRuntime`'s redeem dial, the C URI helpers) and the keyed
     /// hello builders start here; a hello then passes through
     /// `engine.Peer.advertisedLocator`, which adds this peer's preference. The
     /// empty case stays `#f`, not `{}`: a partner

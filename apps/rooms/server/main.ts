@@ -28,8 +28,8 @@
 // iroh endpoint on n0 relays + DNS/pkarr and announces a bare
 // `ocapn://<nodeid>.iroh` URI (dial-by-id); the default `direct` announces
 // `ocapn://…?direct-addresses=…` for hermetic same-host demos. On TCP,
-// `ROOMS_ANNOUNCE_HOST` (when set) is the dialable hostname printed and used as
-// the self-designator. Either way the announce line is
+// `ROOMS_ANNOUNCE_HOST` (when set) is the dialable hostname printed and
+// advertised. Either way the announce line is
 // `ROOMS-SERVER-LISTENING <locator>`, which the demo harness and web bridge read
 // to point clients at the right place.
 //
@@ -49,6 +49,7 @@ import {
 	type Session,
 	socketAddrDesignator,
 	TRANSPORT_IROH,
+	TRANSPORT_TCP,
 	TRANSPORT_WEBRTC,
 } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
@@ -65,7 +66,12 @@ import {
 	ROOM_EXISTS,
 	RoomError,
 } from "../lib/errors.ts";
-import { MAX_DM_INBOXES, MAX_NICK, MAX_SIGNAL_EXCHANGES } from "../lib/limits.ts";
+import {
+	MAX_DM_INBOXES,
+	MAX_NICK,
+	MAX_SIGNAL_EXCHANGES,
+	SIGNAL_EXCHANGE_TIMEOUT_MS,
+} from "../lib/limits.ts";
 import {
 	DIRECTORY,
 	ENTER,
@@ -78,11 +84,14 @@ import {
 	OPEN,
 	POST,
 	REGISTER,
+	SIG_ACCEPTED,
 	SIG_ANSWER,
 	SIG_CANDIDATE,
 	SIG_OFFER,
+	SIG_REJECT,
 	SIGNAL_ANSWER,
 	SIGNAL_CANDIDATE,
+	SIGNAL_DONE,
 	SIGNAL_OFFER,
 	SUBSCRIBE,
 	TYPING,
@@ -159,17 +168,27 @@ interface SignalExchange {
 	originator: Session;
 	reply: Ref;
 	targetKey: string;
+	expires: ReturnType<typeof setTimeout>;
 }
 
 const signalExchanges = new Map<string, SignalExchange>();
-const signalExchangeOrder: string[] = [];
 let nextSignalExchange = 0;
 
-function dropSignalExchange(id: string): void {
+function dropSignalExchange(id: string, reason?: string): void {
 	const exchange = signalExchanges.get(id);
 	if (exchange === undefined) return;
 	signalExchanges.delete(id);
-	giveBackInbox(exchange.originator, exchange.reply);
+	clearTimeout(exchange.expires);
+	if (reason == null) {
+		giveBackInbox(exchange.originator, exchange.reply);
+		return;
+	}
+	// Queue the reject before releasing the remote import. Retirement is joined
+	// to the send so a slow carrier cannot invert those two protocol effects.
+	void exchange.originator.tell(exchange.reply, SIG_REJECT, [reason]).then(
+		() => giveBackInbox(exchange.originator, exchange.reply),
+		() => giveBackInbox(exchange.originator, exchange.reply),
+	);
 }
 
 /** The exchange `session` originated toward `designator`, if one is live. A
@@ -200,7 +219,7 @@ function originatedExchange(session: Session, designator: string): string | null
  * It cannot be closed otherwise, and the reason is worth stating rather than
  * papering over. The transport a member reaches the *directory* over is not the
  * transport other members reach the *member* over. A browser peer talks to the
- * room through a relayed TCP socket while being reachable at a keyed-relay
+ * room through a relayed TCP socket while being reachable at a noise-relay
  * designator of its own, so its connection here proves nothing about the address
  * it advertises. Refusing that would refuse the app's headline feature; accepting
  * it is what the directory has always done. The honest statement is that an
@@ -750,13 +769,28 @@ export function directoryBehavior(session: Session) {
 			// One live exchange per (caller, target): a repeat offer replaces the
 			// prior bring-up attempt, so a retry cannot strand rows.
 			const prior = originatedExchange(session, toDesignator);
-			if (prior !== null) dropSignalExchange(prior);
+			if (prior !== null) dropSignalExchange(prior, "signaling exchange was replaced");
 			const id = `x${nextSignalExchange++}`;
-			signalExchanges.set(id, { originator: session, reply, targetKey: targetKey! });
-			signalExchangeOrder.push(id);
-			while (signalExchangeOrder.length > MAX_SIGNAL_EXCHANGES) {
-				dropSignalExchange(signalExchangeOrder.shift()!);
+			const expires = setTimeout(
+				() => dropSignalExchange(id, "signaling exchange timed out"),
+				SIGNAL_EXCHANGE_TIMEOUT_MS,
+			);
+			signalExchanges.set(id, {
+				originator: session,
+				reply,
+				targetKey: targetKey!,
+				expires,
+			});
+			while (signalExchanges.size > MAX_SIGNAL_EXCHANGES) {
+				// Map iteration is insertion ordered and contains only live rows. Using
+				// it directly keeps active exchange ownership and eviction order one fact.
+				const oldest = signalExchanges.keys().next();
+				if (oldest.done) throw new Error("signal exchange cap accounting drift");
+				dropSignalExchange(oldest.value, "signaling exchange was evicted");
 			}
+			// Admission is explicit because the minted id is the stable identity for
+			// candidates and retirement. A designator can name a later exchange.
+			session.tell(reply, SIG_ACCEPTED, [id]).catch(() => {});
 			target.registrar.tell(target.signaling, SIG_OFFER, [id, sdp]).catch(() => {});
 			return null;
 		}
@@ -778,23 +812,28 @@ export function directoryBehavior(session: Session) {
 			const key = typeof args[0] === "string" ? args[0] : "";
 			const ice = typeof args[1] === "string" ? args[1] : "";
 			if (key.length === 0 || ice.length === 0) return null;
-			// The offering side names the target's designator (it holds no exchange
-			// id); the answering side names the exchange id it was offered. Resolve
-			// by who is calling, so neither can inject into the other's exchange.
-			const originated = originatedExchange(session, key);
-			if (originated !== null) {
-				const exchange = signalExchanges.get(originated)!;
+			// Both sides name the exact exchange. Session ownership decides the
+			// direction, so neither side can inject into another exchange.
+			const exchange = signalExchanges.get(key);
+			if (exchange === undefined) return null; // evicted or settled: drop
+			if (exchange.originator === session) {
 				const target = introductions.get(exchange.targetKey);
 				if (target === undefined || target.signaling === null) return null;
-				target.registrar.tell(target.signaling, SIG_CANDIDATE, [originated, ice])
+				target.registrar.tell(target.signaling, SIG_CANDIDATE, [key, ice])
 					.catch(() => {});
 				return null;
 			}
-			const exchange = signalExchanges.get(key);
-			if (exchange === undefined) return null; // evicted or settled: drop
 			const target = introductions.get(exchange.targetKey);
 			if (target === undefined || target.registrar !== session) return null;
 			exchange.originator.tell(exchange.reply, SIG_CANDIDATE, [ice]).catch(() => {});
+			return null;
+		}
+		if (verb === SIGNAL_DONE) {
+			const id = typeof args[0] === "string" ? args[0] : "";
+			const exchange = signalExchanges.get(id);
+			if (exchange !== undefined && exchange.originator === session) {
+				dropSignalExchange(id);
+			}
 			return null;
 		}
 		if (verb === INTRODUCE) {
@@ -955,7 +994,11 @@ if (import.meta.main) {
 		// ends only when QUIC gives up on a peer that stopped answering, and
 		// until then the room still holds the nickname of somebody who left.
 		// Eight seconds is the room's answer to how long that may take.
-		const iroh = listenIroh({ reachability: reach, idleTimeoutMs: 8_000 }, seed, host);
+		const iroh = await listenIroh(
+			{ reachability: reach, idleTimeoutMs: 8_000 },
+			seed,
+			host,
+		);
 		const announce = reach === Reachability.Discovery
 			? formatPeerUri(TRANSPORT_IROH, iroh.nodeId)
 			: iroh.uri;
@@ -976,7 +1019,12 @@ if (import.meta.main) {
 		const boundPort = await tcp.ready();
 		if (announceHost) {
 			const designator = socketAddrDesignator(announceHost, boundPort);
-			tcp.host.setSelfDesignator(designator);
+				tcp.host.setAdvertisedLocator({
+					transport: TRANSPORT_TCP,
+					designator,
+					hints: new Map(),
+					hintWireForm: "map",
+				});
 			console.log(`ROOMS-SERVER-LISTENING ${designator}`);
 		} else {
 			console.log(`ROOMS-SERVER-LISTENING ${boundPort}`);

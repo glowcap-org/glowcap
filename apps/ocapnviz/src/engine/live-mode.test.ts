@@ -12,7 +12,7 @@ import { primaryObservations } from "./temporal/recording-access.ts";
  * recording layer via `primaryObservations(doc)`, then tick the
  * engine — actually produces the world state the renderer expects.
  *
- * Bypasses the WebSocket layer (covered by `live-feed.test.ts`
+ * Bypasses the CapTP delivery layer (covered by `live-feed.test.ts`
  * for conversion and by the producer's own integration
  * tests for the wire). Focuses on the renderer-side fold.
  */
@@ -285,7 +285,7 @@ liveTest(
 
 // makeLiveAppender: the pure helper used by `startLiveMode` to
 // stamp incoming events onto the live clock and append them to the
-// monitor's doc. Tested without spinning up a real websocket — the
+// monitor's doc. Tested without opening a real peer — the
 // appender doesn't care where events come from.
 
 Deno.test("makeLiveAppender shifts a message's whole time base", () => {

@@ -23,7 +23,7 @@ runDmHandoff({
 	async startMember(who) {
 		const seed = crypto.getRandomValues(new Uint8Array(32));
 		const host = roomsHost(seed);
-		const member = listenIroh({ reachability: Reachability.Direct }, seed, host);
+		const member = await listenIroh({ reachability: Reachability.Direct }, seed, host);
 		await waitUntil(
 			() => member.directAddresses.length > 0,
 			DIRECT_ADDRESSES_MS,
@@ -33,7 +33,11 @@ runDmHandoff({
 	},
 	async startRoom() {
 		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const room = listenIroh({ reachability: Reachability.Direct }, seed, roomsHost(seed));
+		const room = await listenIroh(
+			{ reachability: Reachability.Direct },
+			seed,
+			roomsHost(seed),
+		);
 		await waitUntil(
 			() => room.directAddresses.length > 0,
 			DIRECT_ADDRESSES_MS,

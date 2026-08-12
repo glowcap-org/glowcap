@@ -104,7 +104,10 @@ fn callOnce(
         .designator = designator,
         .hints = .{ .entries = &hint_entries },
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer cv.deinit();
     std.debug.print("iroh-interop: client dialed by endpoint id and opened the keyed session\n", .{});
 
@@ -132,7 +135,10 @@ fn callByIdOnly(
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -146,9 +152,9 @@ fn callByIdOnly(
 ///
 /// This used to assert all three were one value, which is what key unification
 /// meant while a host signed every session with its durable key. Each
-/// connection now draws its own signing key, so the durable identity and the
+/// session now draws its own signing key, so the durable identity and the
 /// session identity are different facts about the same peer: `node_id_hex`
-/// names who the partner is, and the session key names only this connection.
+/// names who the partner is, and the session key names only this session.
 /// Asserting the difference is what would catch a regression back to one key.
 fn assertPartnerIsNodeId(cv: *driver.BlockingSession, node_id_hex: []const u8) !void {
     const designator = cv.served.port.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
@@ -173,7 +179,10 @@ fn hostUnified(
     var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
     defer scaffold.deinit();
 
-    var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, .unbounded);
+    var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, expect_partner_id);
 
@@ -200,7 +209,10 @@ fn callUnified(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, scaffold.read_buf, scaffold.write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, server_id);
 

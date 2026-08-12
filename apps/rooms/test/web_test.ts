@@ -90,8 +90,13 @@ async function withWeb(
 /** Reach the room server the way the page does: dial its tcp locator through
  * serve.ts's `/relay` and list the directory. Resolves the room count on
  * success, throws otherwise. */
-async function reachRoomThroughRelay(httpPort: number, roomPort: number): Promise<number> {
-	const ws = new WebSocket(`ws://127.0.0.1:${httpPort}/relay?target=127.0.0.1:${roomPort}`);
+async function reachRoomThroughRelay(
+	httpPort: number,
+	roomPort: number,
+): Promise<number> {
+	const ws = new WebSocket(
+		`ws://127.0.0.1:${httpPort}/relay?target=127.0.0.1:${roomPort}`,
+	);
 	await new Promise<void>((resolve, reject) => {
 		ws.onopen = () => resolve();
 		ws.onerror = () => reject(new Error("relay ws failed to open"));
@@ -118,7 +123,11 @@ async function reachRoomThroughRelay(httpPort: number, roomPort: number): Promis
 Deno.test("the relay allow-list and origin check refuse what they must", () => {
 	// The web handler classifies the target through the shared core primitive,
 	// then admits it; an unparseable locator fails the classify and is refused.
-	const admits = (target: string, roomPort: number, peers: TcpPeer[] = []): boolean => {
+	const admits = (
+		target: string,
+		roomPort: number,
+		peers: TcpPeer[] = [],
+	): boolean => {
 		try {
 			return relayAllowed(classifyRelayTarget(target), roomPort, peers);
 		} catch {
@@ -129,12 +138,27 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 	// designator against (an iroh node id or a keyed-tcp key).
 	const key = "a".repeat(64);
 	// TCP is allowed only to the room server itself.
-	assert(admits("127.0.0.1:9099", 9099), "the room server's port should be allowed");
-	assert(!admits("127.0.0.1:22", 9099), "another loopback port should be refused");
-	assert(!admits("10.0.0.8:9099", 9099), "a non-loopback host should be refused");
+	assert(
+		admits("127.0.0.1:9099", 9099),
+		"the room server's port should be allowed",
+	);
+	assert(
+		!admits("127.0.0.1:22", 9099),
+		"another loopback port should be refused",
+	);
+	assert(
+		!admits("10.0.0.8:9099", 9099),
+		"a non-loopback host should be refused",
+	);
 	// iroh is any node; the keyed handshake carries the authority.
-	assert(admits(`ocapn://${key}.iroh`, 9099), "an ocapn:// iroh URI should be allowed");
-	assert(!admits("https://example.com/", 9099), "a non-ocapn URI should be refused");
+	assert(
+		admits(`ocapn://${key}.iroh`, 9099),
+		"an ocapn:// iroh URI should be allowed",
+	);
+	assert(
+		!admits("https://example.com/", 9099),
+		"a non-ocapn URI should be refused",
+	);
 	assert(
 		!admits("ocapn://abc.iroh", 9099),
 		"an iroh URI with a malformed node id should be refused",
@@ -150,10 +174,22 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 	// a Goblins vat on a TCP netlayer is the ordinary one. Only the addresses
 	// named are opened, and naming one opens nothing else on that host.
 	const vat: TcpPeer[] = [{ hostname: "127.0.0.1", port: 9200 }];
-	assert(admits("127.0.0.1:9200", 9099, vat), "a named TCP peer should be allowed");
-	assert(!admits("127.0.0.1:9201", 9099, vat), "an unnamed port on that host should be refused");
-	assert(!admits("127.0.0.1:22", 9099, vat), "a local service should still be refused");
-	assert(admits("127.0.0.1:9099", 9099, vat), "the room server is still allowed beside them");
+	assert(
+		admits("127.0.0.1:9200", 9099, vat),
+		"a named TCP peer should be allowed",
+	);
+	assert(
+		!admits("127.0.0.1:9201", 9099, vat),
+		"an unnamed port on that host should be refused",
+	);
+	assert(
+		!admits("127.0.0.1:22", 9099, vat),
+		"a local service should still be refused",
+	);
+	assert(
+		admits("127.0.0.1:9099", 9099, vat),
+		"the room server is still allowed beside them",
+	);
 
 	// The list is read from one `host:port,host:port` string, and an entry that
 	// cannot be read is dropped rather than taking the rest of the list with it.
@@ -161,16 +197,25 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 		{ hostname: "127.0.0.1", port: 9200 },
 		{ hostname: "10.0.0.8", port: 9201 },
 	]);
-	assertEquals(parseTcpPeers("[::1]:9200"), [{ hostname: "[::1]", port: 9200 }]);
-	assertEquals(parseTcpPeers("nonsense,127.0.0.1:0,127.0.0.1:70000,,127.0.0.1:9200"), [
-		{ hostname: "127.0.0.1", port: 9200 },
-	]);
+	assertEquals(parseTcpPeers("[::1]:9200"), [{
+		hostname: "[::1]",
+		port: 9200,
+	}]);
+	assertEquals(
+		parseTcpPeers("nonsense,127.0.0.1:0,127.0.0.1:70000,,127.0.0.1:9200"),
+		[
+			{ hostname: "127.0.0.1", port: 9200 },
+		],
+	);
 	assertEquals(parseTcpPeers(""), []);
 	assertEquals(parseTcpPeers(undefined), []);
 
 	// Absent Origin (non-browser clients) passes; a mismatched or unparseable
 	// Origin is refused before the WebSocket upgrade.
-	assert(relayOriginAllowed(null, "127.0.0.1:8000"), "no Origin header should pass");
+	assert(
+		relayOriginAllowed(null, "127.0.0.1:8000"),
+		"no Origin header should pass",
+	);
 	assert(
 		relayOriginAllowed("http://127.0.0.1:8000", "127.0.0.1:8000"),
 		"a same-origin page should pass",
@@ -179,7 +224,10 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 		!relayOriginAllowed("http://evil.example:1234", "127.0.0.1:8000"),
 		"a cross-origin page should be refused",
 	);
-	assert(!relayOriginAllowed("null", "127.0.0.1:8000"), "an opaque Origin should be refused");
+	assert(
+		!relayOriginAllowed("null", "127.0.0.1:8000"),
+		"an opaque Origin should be refused",
+	);
 });
 
 Deno.test("the relay capacity caps admit under the ceiling and refuse at it", () => {
@@ -190,20 +238,29 @@ Deno.test("the relay capacity caps admit under the ceiling and refuse at it", ()
 	assert(!relaySessionAdmitted(100, 100), "a full relay refuses");
 	assert(!relaySessionAdmitted(101, 100), "an over-full relay refuses");
 
-	// The registration cap (the rendezvous leg): an identity already holding a
-	// socket replenishes its own queue freely, while a new identity must fit under
-	// the cap, so a flood of fresh identities cannot pin unbounded held sockets.
-	assert(rendezvousAdmitted(200, true, 200), "a registered identity replenishes at the cap");
-	assert(rendezvousAdmitted(0, false, 200), "a new identity admits under the cap");
-	assert(rendezvousAdmitted(199, false, 200), "the last registration slot admits a new identity");
-	assert(!rendezvousAdmitted(200, false, 200), "a new identity is refused at the cap");
+	// Registration admission counts held sockets, globally and per identity.
+	assert(
+		rendezvousAdmitted(0, 0, 200, 4),
+		"an empty relay admits a registration",
+	);
+	assert(
+		rendezvousAdmitted(199, 3, 200, 4),
+		"the last global and identity slot admits",
+	);
+	assert(!rendezvousAdmitted(200, 0, 200, 4), "the global socket cap refuses");
+	assert(
+		!rendezvousAdmitted(10, 4, 200, 4),
+		"one identity cannot bypass the global budget",
+	);
 });
 
 Deno.test("a pancake peer reaches the room server through the /relay byte pipe", async () => {
 	await withWeb(async (httpPort, roomPort) => {
 		await waitForHttp(httpPort);
 		// The relay refuses targets off the allow-list before upgrading.
-		const refused = await fetch(`http://127.0.0.1:${httpPort}/relay?target=127.0.0.1:22`);
+		const refused = await fetch(
+			`http://127.0.0.1:${httpPort}/relay?target=127.0.0.1:22`,
+		);
 		await refused.body?.cancel();
 		assert(refused.status === 403, "off-list relay target should be refused");
 
@@ -213,7 +270,10 @@ Deno.test("a pancake peer reaches the room server through the /relay byte pipe",
 			{ headers: { origin: "http://evil.example:1234" } },
 		);
 		await crossOrigin.body?.cancel();
-		assert(crossOrigin.status === 403, "cross-origin relay upgrade should be refused");
+		assert(
+			crossOrigin.status === 403,
+			"cross-origin relay upgrade should be refused",
+		);
 
 		const count = await reachRoomThroughRelay(httpPort, roomPort);
 		assert(count >= 0, "the directory list should answer over the relay");
@@ -240,7 +300,10 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 		await waitForHttp(httpFirst); // the first now owns roomPort
 		second = spawnWeb(httpSecond);
 		const page = await waitForHttp(httpSecond);
-		assert(page.includes("pancake rooms"), "the attached instance should serve the page");
+		assert(
+			page.includes("pancake rooms"),
+			"the attached instance should serve the page",
+		);
 		// A peer dialing through the second instance reaches the shared room.
 		await reachRoomThroughRelay(httpSecond, roomPort);
 	} finally {
@@ -298,7 +361,10 @@ Deno.test("rooms web UI takes over when an attached room server dies", async () 
 				await delay(250);
 			}
 		}
-		assert(reached, `attached web did not take over after owner exit: ${lastError}`);
+		assert(
+			reached,
+			`attached web did not take over after owner exit: ${lastError}`,
+		);
 	} finally {
 		for (const proc of [second, first]) {
 			if (!proc) continue;

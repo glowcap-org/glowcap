@@ -1,0 +1,7 @@
+from pancake import listen
+
+# Plain TCP binds the host and port you choose.
+server = await listen("127.0.0.1", 9099)
+async for session in server:
+    session.publish("greeter", lambda _verb, args: f"hello, {args[0]}")
+    session.serve()

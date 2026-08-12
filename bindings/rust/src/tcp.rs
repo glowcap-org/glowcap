@@ -4,7 +4,7 @@
 //! archive that the `tcp` Cargo feature links (ADR-0059). It is the
 //! frame-shuttle layer one step below the async [`Session`](crate::Session):
 //! a [`Netlayer`] owns the blocking-TCP I/O backend, [`Netlayer::listen`] /
-//! [`Netlayer::connect`] bind and dial, and an [`Endpoint`] reads and writes one
+//! [`Netlayer::connect`] bind and dial, and a [`Connection`] reads and writes one
 //! whole CapTP frame at a time. The frame methods block.
 //!
 //! Errors from a `pancake_tcp_*` call route through the transport archive's own
@@ -17,6 +17,17 @@ use crate::error_slot::error_slot;
 use crate::sys::tcp as ffi;
 use crate::{Codec, Context, Result};
 
+/// Install the complete TCP provider package on a native loop when no profile
+/// from that package is present yet. Package construction stays with the
+/// archive wrapper; the generic loop only registers the resulting provider.
+pub(crate) fn ensure_loop_provider(lp: &crate::driver_loop::LoopShared) -> Result<()> {
+	if lp.has_transport(crate::abi_constants::TRANSPORT_TCP)? {
+		return Ok(());
+	}
+	let netlayer = Netlayer::new()?;
+	lp.add_provider(netlayer.transport_provider()?)
+}
+
 error_slot!(
 	// Like the core `check`, but for `pancake_tcp_*` calls: snapshot the TCP
 	// transport's own thread-local last-error rather than the unrelated
@@ -27,7 +38,7 @@ error_slot!(
 );
 
 /// Owns the blocking-TCP I/O backend. Connections and listeners borrow it (via
-/// `&self`), so the borrow checker rejects an [`Endpoint`] or [`Listener`] that
+/// `&self`), so the borrow checker rejects a [`Connection`] or [`Listener`] that
 /// outlives the netlayer that produced it. The `'ctx` lifetime additionally ties
 /// a context-backed netlayer to its [`Context`]; a netlayer on the library-owned
 /// allocator is `Netlayer<'static>`.
@@ -60,10 +71,22 @@ impl<'ctx> Netlayer<'ctx> {
 	/// `context`. The context must outlive the netlayer, which `'ctx` enforces.
 	pub fn new_in(context: &'ctx Context) -> Result<Netlayer<'ctx>> {
 		let mut raw: *mut ffi::PancakeTcpNetlayer = core::ptr::null_mut();
-		check_tcp(unsafe { ffi::pancake_tcp_netlayer_new_in(context.raw, &mut raw) })?;
+		check_tcp(unsafe { ffi::pancake_tcp_netlayer_new_in(context.raw(), &mut raw) })?;
 		Ok(Netlayer {
 			raw,
 			_ctx: PhantomData,
+		})
+	}
+
+	/// Borrow this runtime's complete tcp/keyed-tcp/noise-tcp package. The
+	/// driver acquires its own lease during registration.
+	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::TransportProvider<'_>> {
+		let mut package: crate::sys::driver::PancakeTransportProvider =
+			unsafe { core::mem::zeroed() };
+		check_tcp(unsafe { ffi::pancake_tcp_transport_provider(self.raw, &mut package) })?;
+		Ok(crate::driver_loop::TransportProvider {
+			package,
+			_owner: PhantomData,
 		})
 	}
 
@@ -95,7 +118,7 @@ impl<'ctx> Netlayer<'ctx> {
 		port: u16,
 		codec: Codec,
 		max_frame_bytes: usize,
-	) -> Result<Endpoint<'_>> {
+	) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeTcpConn = core::ptr::null_mut();
 		check_tcp(unsafe {
 			ffi::pancake_tcp_connect(
@@ -108,7 +131,7 @@ impl<'ctx> Netlayer<'ctx> {
 				&mut raw,
 			)
 		})?;
-		Ok(Endpoint {
+		Ok(Connection {
 			raw,
 			_nl: PhantomData,
 		})
@@ -136,14 +159,22 @@ impl Listener<'_> {
 		Ok(port)
 	}
 
+	/// Return the borrowed listening descriptor for reactor integration.
+	/// The listener owns it; callers must not close it or retain it after drop.
+	pub fn readiness_fd(&self) -> Result<i32> {
+		let mut fd: i32 = -1;
+		check_tcp(unsafe { ffi::pancake_tcp_listener_readiness_fd(self.raw, &mut fd) })?;
+		Ok(fd)
+	}
+
 	/// Block for a client connection. The returned connection borrows this
 	/// listener (and thus the netlayer) and cannot outlive it.
-	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Endpoint<'_>> {
+	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeTcpConn = core::ptr::null_mut();
 		check_tcp(unsafe {
 			ffi::pancake_tcp_accept(self.raw, codec.to_c(), max_frame_bytes, &mut raw)
 		})?;
-		Ok(Endpoint {
+		Ok(Connection {
 			raw,
 			_nl: PhantomData,
 		})
@@ -168,17 +199,18 @@ impl Drop for Listener<'_> {
 	}
 }
 
-/// A blocking TCP endpoint, the `pancake_tcp_*` frame shuttle, one
+/// A blocking TCP connection, the `pancake_tcp_*` frame shuttle, one
 /// layer below [`Session`](crate::Session). Closed on drop. The frame
 /// methods block. Borrows the [`Netlayer`] (or [`Listener`]) it came from, so
 /// that backend outlives it.
-pub struct Endpoint<'a> {
+pub struct Connection<'a> {
 	raw: *mut ffi::PancakeTcpConn,
 	_nl: PhantomData<&'a ()>,
 }
 
-impl Endpoint<'_> {
-	/// Block for one whole frame. An error with `code() == -8` is a clean EOF.
+impl Connection<'_> {
+	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
+	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
 		let mut frame: crate::sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
 		check_tcp(unsafe { ffi::pancake_tcp_conn_read_frame(self.raw, &mut frame) })?;
@@ -198,15 +230,15 @@ impl Endpoint<'_> {
 	}
 }
 
-// SAFETY: an `Endpoint` owns a self-contained payload — its own TCP stream plus
+// SAFETY: a `Connection` owns a self-contained payload — its own TCP stream plus
 // a copy of the netlayer's allocator — and shares no per-handle mutable state
 // with the netlayer or sibling handles, so moving it to another thread and doing
 // frame I/O on it touches only its own state. The allocator and the netlayer's
 // `std.Io.Threaded` backend it shares are thread-safe under the concurrent
 // blocking calls a borrowed handle makes off-thread (see `Listener` above).
-unsafe impl Send for Endpoint<'_> {}
+unsafe impl Send for Connection<'_> {}
 
-impl Drop for Endpoint<'_> {
+impl Drop for Connection<'_> {
 	fn drop(&mut self) {
 		unsafe { ffi::pancake_tcp_conn_release(self.raw) };
 	}

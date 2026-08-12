@@ -34,11 +34,18 @@ const emitted_fn_names = [_][]const u8{
     "pancake_inproc_netlayer_new_in",
     "pancake_inproc_netlayer_release",
     "pancake_inproc_connect",
+    "pancake_inproc_connect_with_diagnostic",
     "pancake_inproc_listen",
+    "pancake_inproc_listener_readiness_fd",
     "pancake_inproc_accept",
+    "pancake_inproc_accept_with_diagnostic",
     "pancake_inproc_conn_read_frame",
+    "pancake_inproc_conn_read_frame_with_diagnostic",
     "pancake_inproc_conn_write_frame",
+    "pancake_inproc_conn_write_frame_with_diagnostic",
+    "pancake_inproc_conn_shutdown",
     "pancake_inproc_conn_release",
+    "pancake_inproc_listener_shutdown",
     "pancake_inproc_listener_release",
     "pancake_inproc_last_error",
     "pancake_inproc_clear_last_error",
@@ -99,8 +106,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
 
     try emitDoc(&b, gpa,
         \\Orientation: the socket-free sibling of the TCP endpoints (pancake_net_transport_tcp.h):
-        \\two peers in one process wired by in-process pipes, no kernel transport
-        \\and no file descriptors. Same host-owns-the-peer frame shuttle and same
+        \\two peers in one process wired by in-process pipes and no kernel transport.
+        \\The listener exposes a wake descriptor for foreign reactors. The same
+        \\host-owns-the-peer frame shuttle and
         \\netlayer lifecycle — create the netlayer, make connections/listeners from
         \\it, release them, then release it — but a listener binds to a string
         \\designator (any opaque token, not a host:port) and a dialer names that
@@ -115,8 +123,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   pancake_inproc_netlayer_release after every endpoint is released. */
         \\typedef struct PancakeInprocNetlayer PancakeInprocNetlayer;
         \\/* One in-process connection carrying one OCapN session, framed on the
-        \\   netlayer's codec. Created by pancake_inproc_connect or
-        \\   pancake_inproc_accept; released by pancake_inproc_conn_release. */
+        \\   netlayer's codec. One read and one write may run concurrently; calls in
+        \\   the same direction are serialized by the archive. Created by
+        \\   pancake_inproc_connect or pancake_inproc_accept; released by
+        \\   pancake_inproc_conn_release. */
         \\typedef struct PancakeInprocConn PancakeInprocConn;
         \\/* A bound in-process listener. Created by pancake_inproc_listen; released
         \\   by pancake_inproc_listener_release. */
@@ -128,13 +138,22 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_inproc_netlayer_new", &.{"out_netlayer"}, "Create the in-process netlayer handle that owns the switchboard and its I/O\nbackend, allocating through the library allocator. Release with\npancake_inproc_netlayer_release after releasing every endpoint made from it.");
     try emitFn(&b, gpa, "pancake_inproc_netlayer_new_in", &.{ "context", "out_netlayer" }, "Create an in-process netlayer whose switchboard, backend, and per-connection\nbuffers allocate through `context`.");
     try emitFn(&b, gpa, "pancake_inproc_netlayer_release", &.{"netlayer"}, "Release the in-process netlayer. Every connection and listener made from it\nmust already be released.");
+    const diagnosed_doc = "The same operation as its unsuffixed sibling, plus an atomic diagnostic\ncapture for runtimes that dispatch native calls to worker threads. out_error_len\nis required and receives the full diagnostic length; out_error receives at most\nerror_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.";
+
     try emitFn(&b, gpa, "pancake_inproc_connect", &.{ "netlayer", "designator", "designator_len", "codec", "max_frame_bytes", "out_conn" }, "Dial the listener bound at `designator` and return an owned connection\nframing on `codec`, refusing inbound frames over max_frame_bytes.\n`designator` is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a bad codec or a\nzero frame cap; PANCAKE_ERR_IO (see pancake_inproc_last_error) when no listener\nis bound there. Release with pancake_inproc_conn_release.");
+    try emitFn(&b, gpa, "pancake_inproc_connect_with_diagnostic", &.{ "netlayer", "designator", "designator_len", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
     try emitFn(&b, gpa, "pancake_inproc_listen", &.{ "netlayer", "designator", "designator_len", "out_listener" }, "Bind an in-process listener on `designator` (any opaque token; borrowed).\nPANCAKE_ERR_INVALID_ARGUMENT for an empty or already-bound designator. Release\nwith pancake_inproc_listener_release.");
+    try emitFn(&b, gpa, "pancake_inproc_listener_readiness_fd", &.{ "listener", "out_fd" }, "Return the borrowed wake descriptor nudged when a dial is queued. Park an\nexternal reactor on it before pancake_inproc_accept. The listener owns the fd;\ndo not close it or use it after pancake_inproc_listener_release.");
     try emitFn(&b, gpa, "pancake_inproc_accept", &.{ "listener", "codec", "max_frame_bytes", "out_conn" }, "Block until a dialer connects, returning an owned connection framing on\n`codec`. Same argument and release contract as pancake_inproc_connect.");
+    try emitFn(&b, gpa, "pancake_inproc_accept_with_diagnostic", &.{ "listener", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
     try emitFn(&b, gpa, "pancake_inproc_conn_read_frame", &.{ "conn", "out_frame" }, "Block for one whole frame as an owned managed frame. Returns\nPANCAKE_ERR_CLOSED on graceful EOF.");
-    try emitFn(&b, gpa, "pancake_inproc_conn_write_frame", &.{ "conn", "frame" }, "Write one frame's borrowed bytes into the partner's pipe.");
-    try emitFn(&b, gpa, "pancake_inproc_conn_release", &.{"conn"}, "Close the connection and free the handle; do not use `conn` afterward.");
-    try emitFn(&b, gpa, "pancake_inproc_listener_release", &.{"listener"}, "Close the listener and free the handle; do not use `listener` afterward.");
+    try emitFn(&b, gpa, "pancake_inproc_conn_read_frame_with_diagnostic", &.{ "conn", "out_frame", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_inproc_conn_write_frame", &.{ "conn", "frame" }, "Write one frame's borrowed bytes into the partner's pipe. Returns\nPANCAKE_ERR_CLOSED after shutdown begins.");
+    try emitFn(&b, gpa, "pancake_inproc_conn_write_frame_with_diagnostic", &.{ "conn", "frame", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_inproc_conn_shutdown", &.{"conn"}, "Seal native admission and interrupt blocked reads and writes without freeing\nthe connection. May race operations; join the embedding's leases before release.\nIdempotent.");
+    try emitFn(&b, gpa, "pancake_inproc_conn_release", &.{"conn"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the handle. Release must not race call initiation.");
+    try emitFn(&b, gpa, "pancake_inproc_listener_shutdown", &.{"listener"}, "Seal native accept admission and wake a blocked accept without freeing the\nlistener. May race operations; join the embedding's leases before release. Idempotent.");
+    try emitFn(&b, gpa, "pancake_inproc_listener_release", &.{"listener"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the listener. Release must not race call initiation.");
 
     try emitFn(&b, gpa, "pancake_inproc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last in-process-transport error into out_buf, the\ninproc sibling of pancake_last_error, reading this archive's own per-thread\nslot. A pancake_inproc_* call that returns a cause-bearing code records it\nhere. Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or\ncap 0 queries the length. Returns the full message length, or 0 when none is\nset.");
     try emitFn(&b, gpa, "pancake_inproc_clear_last_error", &.{}, "Clear the calling thread's in-process-transport last-error slot.");

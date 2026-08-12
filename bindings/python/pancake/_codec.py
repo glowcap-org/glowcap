@@ -50,7 +50,7 @@ def _captp_version_id(version: str) -> int:
 
 def _codec_id(codec: str) -> int:
     """The ``PANCAKE_CODEC_*`` id for a codec name, the selector
-    ``pancake_host_new`` and the blocking transport endpoints take."""
+    ``pancake_host_new`` and the blocking transport connections take."""
     if codec == "syrup":
         return _abi.CODEC_SYRUP
     if codec == "capnp":

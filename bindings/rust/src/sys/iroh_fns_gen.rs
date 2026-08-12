@@ -13,6 +13,7 @@
 
 use core::ffi::{c_int, c_uchar};
 
+use super::driver::PancakeTransportProvider;
 use super::iroh::{PancakeIrohConfig, PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent};
 
 extern "C" {
@@ -84,6 +85,10 @@ extern "C" {
 		buf: *const c_uchar,
 		len: usize,
 		out_written: *mut usize,
+	) -> c_int;
+	pub fn pancake_iroh_transport_provider(
+		netlayer: *mut PancakeIrohNetlayer,
+		out_provider: *mut PancakeTransportProvider,
 	) -> c_int;
 	pub fn pancake_iroh_clear_last_error();
 }

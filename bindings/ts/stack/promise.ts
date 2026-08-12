@@ -7,7 +7,7 @@
 // this module owns the handle type, remote-send/post-mint choreography, and
 // the projection FFI (`pancake_host_vow_*`).
 
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
 import { INVALID_ARGUMENT } from "@pancake/abi";
@@ -51,7 +51,7 @@ function projectVow(
 ): bigint {
 	const out = new Uint8Array(8);
 	if (op === "index") {
-		checkHost(driverS.pancake_host_vow_index(
+		checkHost(hostS.pancake_host_vow_index(
 			hostRaw,
 			source,
 			key as bigint,
@@ -59,7 +59,7 @@ function projectVow(
 		));
 	} else {
 		const bytes = utf8Encoder.encode(key as string);
-		const fn = op === "get" ? driverS.pancake_host_vow_get : driverS.pancake_host_vow_untag;
+		const fn = op === "get" ? hostS.pancake_host_vow_get : hostS.pancake_host_vow_untag;
 		checkHost(fn(
 			hostRaw,
 			source,
@@ -102,7 +102,7 @@ export async function fetchLike(
 	swiss: Uint8Array,
 	label: string,
 	mint: (
-		conn: Ptr,
+		session: Ptr,
 		swiss: BufferSource,
 		len: bigint,
 		out: BufferSource,
@@ -142,7 +142,8 @@ export function promiseFor(
 }
 
 /** Far-send mint→`RemotePromise`: encode args, mint the host vow
- * (`conn_send` / `vow_send`), register it, and hand back `promiseFor`.
+ * (`pancake_host_session_send` / `pancake_host_vow_send`), register it, and
+ * hand back `promiseFor`.
  * Local-hosted targets stay in Session (trampoline `sendLocal`). */
 /** `Session.listen`'s wire half: mint the listen vow over a held far reference
  * (CapTP `op:listen`, ADR-0095) and hand back the settle handle. The Session API
@@ -150,7 +151,7 @@ export function promiseFor(
  * to any value, not only a capability. */
 export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 	const out = new Uint8Array(8);
-	checkHost(driverS.pancake_host_session_listen(h.ptr, ab(refStruct(target)), ab(out)));
+	checkHost(hostS.pancake_host_session_listen(h.ptr, ab(refStruct(target)), ab(out)));
 	const vow = outU64(out);
 	h.vowMinted(vow);
 	return promiseFor(h, vow);
@@ -171,7 +172,7 @@ export function sendFar(
 		// Promise pipelining: eventual-send to the unresolved answer. A local
 		// send's promise has no wire answer to pipeline against.
 		const sourceVow = target.farVow();
-		checkHost(driverS.pancake_host_vow_send(
+		checkHost(hostS.pancake_host_vow_send(
 			h.hostRaw,
 			sourceVow,
 			ab(verbBytes),
@@ -181,7 +182,7 @@ export function sendFar(
 			ab(out),
 		));
 	} else {
-		checkHost(driverS.pancake_host_session_send(
+		checkHost(hostS.pancake_host_session_send(
 			h.ptr,
 			ab(refStruct(target)),
 			ab(verbBytes),

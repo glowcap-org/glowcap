@@ -116,20 +116,41 @@ pub(crate) struct ActorCell {
 	pub(crate) behavior: RefCell<InternalBehavior>,
 }
 
-// The Session whose inbound feed is running. Hosted callbacks fire
-// synchronously inside that FFI call, so this supplies the arriving Port even
-// after the Port that originally spawned the actor has closed.
+// What a hosted callback reads as the arriving deliver context. The byte-fed
+// pump brackets each feed with the arriving Session; a native loop step
+// (ADR-0112) delivers for any of its host's sessions at once, so it brackets
+// itself with the loop's adopted Host instead — the loop-tier sibling of the
+// Session bracket, which is what latches a turn to its Host (turn-time spawn)
+// when a behavior fires inside `pancake_driver_step`.
+enum DeliverCtx {
+	Session(Weak<SessionShared>),
+	Host(Weak<crate::host::HostShared>),
+}
+
+// The deliver context whose feed (or loop step) is running. Hosted callbacks
+// fire synchronously inside that FFI call, so this supplies the arriving Port
+// (or at least its Host) even after the Port that originally spawned the
+// actor has closed.
 thread_local! {
-	static ACTIVE_DELIVER: RefCell<Option<Weak<SessionShared>>> = const { RefCell::new(None) };
+	static ACTIVE_DELIVER: RefCell<Option<DeliverCtx>> = const { RefCell::new(None) };
 }
 
 pub(crate) struct DeliverGuard {
-	prev: Option<Weak<SessionShared>>,
+	prev: Option<DeliverCtx>,
 }
 
 impl DeliverGuard {
 	pub(crate) fn enter(session: &Rc<SessionShared>) -> DeliverGuard {
-		let prev = ACTIVE_DELIVER.with(|active| active.replace(Some(Rc::downgrade(session))));
+		let prev = ACTIVE_DELIVER
+			.with(|active| active.replace(Some(DeliverCtx::Session(Rc::downgrade(session)))));
+		DeliverGuard { prev }
+	}
+
+	/// The loop-step bracket: behaviors fired inside `pancake_driver_step`
+	/// latch their turns to the loop's adopted Host through this.
+	pub(crate) fn enter_host(host: &Rc<crate::host::HostShared>) -> DeliverGuard {
+		let prev = ACTIVE_DELIVER
+			.with(|active| active.replace(Some(DeliverCtx::Host(Rc::downgrade(host)))));
 		DeliverGuard { prev }
 	}
 }
@@ -143,7 +164,27 @@ impl Drop for DeliverGuard {
 }
 
 fn active_deliver() -> Option<Rc<SessionShared>> {
-	ACTIVE_DELIVER.with(|active| active.borrow().as_ref().and_then(Weak::upgrade))
+	ACTIVE_DELIVER.with(|active| match active.borrow().as_ref() {
+		Some(DeliverCtx::Session(session)) => session.upgrade(),
+		_ => None,
+	})
+}
+
+// The Host key of the running deliver, whichever bracket carries it: the
+// arriving Session's Host on the byte-fed path, the adopted Host itself on a
+// loop step. Zero outside any deliver.
+fn active_deliver_host_key() -> usize {
+	ACTIVE_DELIVER.with(|active| match active.borrow().as_ref() {
+		Some(DeliverCtx::Session(session)) => session
+			.upgrade()
+			.map(|session| session.host_key())
+			.unwrap_or(0),
+		Some(DeliverCtx::Host(host)) => host
+			.upgrade()
+			.map(|host| Rc::as_ptr(&host) as usize)
+			.unwrap_or(0),
+		None => 0,
+	})
 }
 
 // The turn context while a hosted object's trampoline runs: the opaque
@@ -243,7 +284,10 @@ thread_local! {
 /// each caller defers its own way: the trampoline through the host's
 /// turn-forward, `send` onto the forwarded send's wire reply, `tell` as a
 /// far tell. Shared by the wire trampoline and `Session`'s local send arm.
-pub(crate) fn chase_local_forwards(conn: &SessionShared, mut outcome: TurnOutcome) -> TurnOutcome {
+pub(crate) fn chase_local_forwards(
+	session: &SessionShared,
+	mut outcome: TurnOutcome,
+) -> TurnOutcome {
 	// The wire path defers each hop onto a fresh turn, so a forward cycle
 	// there loops asynchronously; the local chase runs hops synchronously
 	// and must bound them, or a caretaker forwarding to itself spins this
@@ -258,11 +302,11 @@ pub(crate) fn chase_local_forwards(conn: &SessionShared, mut outcome: TurnOutcom
 		if hops > MAX_LOCAL_FORWARD_HOPS {
 			return TurnOutcome::Break(crate::abi_constants::FORWARD_CYCLE_MESSAGE.to_string());
 		}
-		let hosted = conn.hosted_cell(target.id());
+		let hosted = session.hosted_cell(target.id());
 		let Some(cell) = hosted else {
 			return TurnOutcome::Forward { target, verb, args };
 		};
-		// The cell is host-owned and alive while its connection is
+		// The cell is host-owned and alive while its Host is
 		// unreleased; the hosted table is cleared before the release that
 		// frees it.
 		let cell = unsafe { &*cell };
@@ -340,15 +384,15 @@ fn turn_break(turn: *mut ffi::PancakeHostTurn, message: &str) -> i32 {
 // the target, else defers through the host's turn-forward; a `Break` settles
 // the answer broken with the behavior's own words.
 fn settle_reply(
-	conn: Option<&SessionShared>,
+	session: Option<&SessionShared>,
 	turn: *mut ffi::PancakeHostTurn,
 	outcome: TurnOutcome,
 	out_reply: *mut sys::PancakeArgument,
 ) -> i32 {
 	// The locally hosted Forward prefix runs in this same turn through the Host
 	// index reached by the arriving Session.
-	let outcome = match conn {
-		Some(conn) => chase_local_forwards(conn, outcome),
+	let outcome = match session {
+		Some(session) => chase_local_forwards(session, outcome),
 		None => outcome,
 	};
 	match outcome {
@@ -423,11 +467,11 @@ unsafe fn trampoline_body(
 	// The one owned lift per deliver: the borrowed C args become owned Rust
 	// values before any behavior code can run.
 	let args = args_from_sys(args, args_len);
-	let conn = active_deliver();
-	let host_key = conn.as_ref().map(|session| session.host_key()).unwrap_or(0);
+	let session = active_deliver();
+	let host_key = active_deliver_host_key();
 	let _guard = TurnGuard::enter(turn, host_key);
 	let outcome = (cell.behavior.borrow_mut())(&verb, &args);
-	settle_reply(conn.as_deref(), turn, outcome, out_reply)
+	settle_reply(session.as_deref(), turn, outcome, out_reply)
 }
 
 // Render a caught panic payload as the diagnostic the break carries, so a

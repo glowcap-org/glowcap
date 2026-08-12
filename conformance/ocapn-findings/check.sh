@@ -8,6 +8,7 @@ netlayers="$repo_root/conformance/ocapn-spec/upstream/draft-specifications/Netla
 suite="$repo_root/conformance/ocapn-conformance/upstream/utils/captp_types.py"
 goblins="$repo_root/conformance/spritely-goblins/upstream/goblins/ocapn/captp.rkt"
 goblins_urls="$repo_root/conformance/spritely-goblins/upstream/goblins/ocapn/structs-urls.rkt"
+goblins_onion="$repo_root/conformance/spritely-goblins/upstream/goblins/ocapn/netlayer/onion.rkt"
 
 submodules="conformance/ocapn-spec/upstream
 conformance/ocapn-conformance/upstream
@@ -72,6 +73,8 @@ require_text "$goblins" "($ gifter-exporter-session-coordinator 'new-handoff-cou
 require_text "$spec" "when this is sent the connection should" "draft op:abort connection teardown"
 require_text "$repo_root/conformance/ocapn-conformance/upstream/tests/op_abort.py" "with self.assertRaises((TimeoutError, ConnectionAbortedError)):" "suite pre-handshake abort outcomes"
 require_text "$goblins" "(bcom (lambda _ (void)))" "Goblins pre-handshake abort handler"
+require_text "$goblins_onion" "(<-np-extern conn-establisher read-message write-message #f)" "Goblins onion accept supplies no remote node"
+require_text "$goblins_onion" "[(ocapn-node 'onion designator #f)" "Goblins onion dial matches only an unhinted locator"
 
-printf '%s\n' "ocapn-findings-check: pinned op:listen, locator-hints, withdrawal-lookup, handoff-count, and pre-handshake-abort discrepancies reproduced"
+printf '%s\n' "ocapn-findings-check: pinned op:listen, locator-hints, withdrawal-lookup, handoff-count, pre-handshake-abort, and onion-declared-location observations reproduced"
 git -C "$repo_root" submodule status -- $submodules

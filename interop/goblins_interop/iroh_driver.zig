@@ -231,7 +231,10 @@ fn callEcho(
         .{ .keyed = .{ .secret = self.secret, .designator = self.designator } },
         scaffold.read_buf,
         scaffold.write_buf,
-        .{ .ms = handshake_budget_ms },
+        .{
+            .handshake = .{ .ms = handshake_budget_ms },
+            .settle = .{ .ms = handshake_budget_ms },
+        },
     );
     defer cv.deinit();
     std.debug.print("goblins-iroh: keyed session open with the goblins vat over QUIC\n", .{});

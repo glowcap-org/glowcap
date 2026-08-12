@@ -1,35 +1,41 @@
 # Architecture
 
-Most applications use `driver.Session`, a view onto one connection owned by a
-`driver.PollHost`. It presents fetch, call, publish, and handoff as ordinary
-operations. A process may own many Hosts. Each Host is an independent CapTP
-endpoint with one Node and one Vat:
+Most Zig programs start with `driver.Session`: connect or listen, then fetch,
+call, publish, and redeem handoffs as ordinary operations. That Session is a
+view onto one connection owned by a `driver.HostRuntime`. Each runtime realizes
+one independent multi-session CapTP Host, and a process may own many. Every Host
+has one Node (identity and routing), one Vat (actors and turns), and one
+Port-plus-Peer per live session:
 
 ```text
 process
-└── Hosts
-    ├── one Node: identity, routing, advertised locators
-    ├── one Vat: actors, state, turns
-    └── sessions
-    └── Port: that session's projection and ingress
-        └── Peer: that session's CapTP state
+└── HostRuntime(s)
+    └── Host
+        ├── one Node: identity, routing, advertised locators
+        ├── one Vat: actors, state, turns
+        └── sessions
+            └── Port: that session's projection and ingress
+                └── Peer: that session's CapTP state
 ```
 
-A Host is the runtime and application facade around those parts. Its Node owns
-protocol-wide identity, cross-session routing, and one advertised locator per
-transport, with one selected as the acceptable location independently of the
-current session transport. Its Vat supplies one actor graph and scheduler.
-Each session's Port projects that graph into session-local export positions and
-attributes inbound work to its own ingress. `engine.Peer` remains the protocol
-state for one session. Creating another Host creates another Node and Vat, so
-one process can serve multiple independent endpoints.
+Those product names mean:
 
-The layers below separate protocol decisions from encoding, I/O, and
-application scheduling.
+| Name | Meaning |
+| --- | --- |
+| Host | Multi-session CapTP product: one identity, one Vat, one Node, and the sessions under them. Not an OS hostname or transport endpoint. |
+| Node | Host-owned sans-I/O identity, routing state, and handoff router (`engine.Node`). |
+| Vat | Actor container and turn loop. |
+| Port | One actor-layer session projection and ingress into the Vat (`actors.Port`). It lives inside the Host's serving shell; it is not a TCP port or a synonym for `PancakeHostSession`. |
+| Peer | Local CapTP state machine for that session. In prose, "peer" still means the remote party. |
+| Session | Application-facing one-partner CapTP conversation, backed by a Host-registered shell (`driver_core.HostSession` / `PancakeHostSession`) and one byte connection. |
+
+Creating another Host creates another Node and Vat, so one process can serve
+multiple independent CapTP products. The layers below separate protocol decisions
+from encoding, I/O, and application scheduling.
 
 ```text
 application
-    driver.Session / driver.PollHost
+    driver.Session / driver.HostRuntime
     actors.Vat
     engine.Peer
     session
@@ -51,7 +57,7 @@ does not open sockets, start tasks, or choose a scheduler.
 
 | Layer | Responsibility |
 | --- | --- |
-| `foundation` | Owned frames, borrowed frame views, limits, crypto, and shared utilities. |
+| `foundation` | Owned frames, borrowed frame views, limits, crypto, the sealed byte channel both stream tiers compose (ADR-0107), and shared utilities. |
 | `model` | Values and messages that can cross an OCapN session. |
 | `codec` | Syrup and Cap'n Proto framing and encoding. |
 | `session` | Imports, exports, answers, promises, handoff, and protocol validation. |
@@ -74,10 +80,10 @@ embedding pancake behind another runtime. Most Zig programs start higher.
 
 | API | Use it when |
 | --- | --- |
-| `driver.Session` | You want one owned connection and blocking application calls. Handoffs are redeemed before a call returns. |
-| `driver.PollHost` | You want one identity across several file-descriptor-backed sessions. |
-| `driver.BlockingSession` | You own the connection and buffers and want the lower-level blocking path, or your transport has no pollable descriptor (an in-process pipe, a WebRTC peer) so `PollHost` cannot wait on it. Values are the actor layer's own references and messages rather than opaque host capabilities, and a call may return a handoff for you to redeem. |
-| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own its I/O. This is the core exposed to bindings. Inside the library it is one type implemented across responsibility-named files (sessions, vows, enlivenment, handoff, publication, the action queue), so each concern reads on its own. |
+| `driver.Session` | You want one application-facing session with blocking calls, backed by a connection its `driver.HostRuntime` owns. Handoffs are redeemed before a call returns. |
+| `driver.HostRuntime` | You want one identity across several file-descriptor-backed sessions. |
+| `driver.BlockingSession` | You own the connection and buffers, or your transport has no pollable descriptor (an in-process pipe, a WebRTC peer). Values are actor-layer references rather than opaque host capabilities. A call may return a handoff for you to redeem. |
+| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own I/O. This is the core exposed to bindings. |
 | `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
 The actor layer sits between the protocol peer and these application APIs.
@@ -89,13 +95,13 @@ entry does not copy the whole map
 ([ADR-0060](decisions/adr/ADR-0060-vat-local-time-travel.md),
 [ADR-0061](decisions/adr/ADR-0061-persistent-collections-module.md)).
 
-Local eventual-sends enter ingress-attributed queues. The Vat measures the
-complete owned-clone charge before mutation, applies per-ingress turn and byte
-limits, and rotates runnable ingresses one turn at a time while retaining FIFO
-within each one. Queue chunks reclaim independently, with at most one bounded
-spare for the whole Vat. The actor layer owns this admission and scheduling;
-the standard Host owns one Vat, and each session Port supplies its ingress
-identity but does not own a queue
+Local eventual-sends enter queues keyed by *ingress*: which session the work
+came from. The Vat measures the owned-clone charge before mutation, applies
+per-ingress turn and byte limits, and rotates runnable ingresses one turn at a
+time while keeping FIFO within each one. Queue chunks reclaim independently,
+with at most one bounded spare for the whole Vat. The actor layer owns this
+admission and scheduling; the standard Host owns one Vat, and each session Port
+supplies its ingress identity but does not own a queue
 ([ADR-0099](decisions/adr/ADR-0099-shared-vat-scheduling.md)).
 
 ## Transports and connection loops
@@ -105,7 +111,8 @@ message is a bare negotiated-codec frame inside one outer Syrup byte string;
 the outer length supplies the boundary and the inner codec must consume the
 body exactly. A transport that already preserves message boundaries hands bare
 frames to the whole-frame API instead. The transport implementations are plain
-TCP, keyed TCP, keyed relay, in-process pipes, iroh, and WebRTC
+TCP, keyed TCP, Noise-sealed TCP, keyed relay, Noise-sealed relay, onion,
+in-process pipes, iroh, and WebRTC
 ([ADR-0110](decisions/adr/ADR-0110-byte-stream-message-envelope.md)).
 
 Inbound frames have a size limit. A frame larger than the current read buffer
@@ -114,36 +121,38 @@ maximum-sized buffer. Read buffers are pooled across the completion loop.
 Outbound backpressure stops reads when queued reply bytes cross their limit.
 
 The simple blocking pump runs on one fiber. Applications that must keep reading
-while a partner streams use the TCP or iroh completion loop. A WebRTC resident
-owns one sidecar runtime and readiness fd shared by stable endpoint-scoped peer
-ids. Peer creation and SDP/ICE submissions are synchronous control operations;
-after submission, channel establishment, candidates, byte I/O, and closure are
-readiness events with non-blocking try-I/O. The explicit blocking connection is
-the `BlockingSession` tier. The scale path is
-`completion.Loop(webrtc.Backend)` under `driver.Bridge`: it adopts signaled
-peers and dials through a configured `SignalingAuthority`
-(`zig build webrtc-loop`; three-party redeem is
-`zig build webrtc-bridge-redeem`). A bare locator without that authority still
-refuses. Crossed connections, where both peers dial at once, are resolved by
-the host because the choice depends on peer identity rather than transport
-mechanics.
+while a partner streams use a completion loop (TCP, iroh, onion, or keyed-relay
+outbound). WebRTC joins that path through `completion.Loop(webrtc.Backend)`
+under `driver.Bridge` when a `SignalingAuthority` is configured
+(`zig build webrtc-loop`; redeem via `zig build webrtc-bridge-redeem`). A bare
+locator without that authority still refuses. Crossed connections, where both
+peers dial at once, are resolved by the host because the choice depends on peer
+identity rather than transport mechanics.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.
 
-## Limits belong to the layer they protect
+## Resource controls belong to the layer they protect
 
-Three options contain the phrase “frame cap,” but they limit different things:
+Protocol admission, shared read memory, and outbound backpressure are separate
+decisions:
 
 | Option | What it limits | Default |
 | --- | --- | --- |
-| `driver.PollHost.Options.frame_cap` | One owned session's buffers and protocol admission. | 64 KiB |
+| `driver.HostRuntime.Options.frame_cap` | Protocol admission for sessions the owning face creates. | 64 KiB |
+| `driver.HostRuntime.Options.wire_buffer_bytes` / `PancakeDriverOptions.wire_buffer_bytes` | Each stream read/write buffer and multiplexed-resident read staging buffer. | 16 KiB |
+| `driver.HostRuntime.Options.max_pending_opens` / `PancakeDriverOptions.max_pending_opens` | Transport connects and CapTP handshakes admitted at once, across dial, accept, adoption, and redeem. | 256 |
 | `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
-| `completion.Loop.Options.frame_cap` | Buffers in the shared read pool, not protocol admission. | 64 KiB |
+| `net.completion.BackendOptions.read_buffer_bytes` | Each buffer in the loop-wide shared read pool. | 16 KiB |
+| `net.completion.Options.outbound_high_water_bytes` | Pending outbound bytes before one connection's reads park. | 64 KiB |
+| `net.keyed_relay.RelayOptions.send_staging_bytes` | One retained masked WebSocket send chunk, including its header. | 4 KiB |
 
-Raising one does not raise the others.
+The completion loop can therefore change admission, pool memory, outbound
+slack, and transport staging independently. `initWithBackendOptions` tunes a
+backend the loop builds; `initWithBackend` accepts only runtime policy because
+the supplied backend already owns its resource configuration.
 
-`driver.ResilientClient` adds reconnect policy above the loop. It classifies
+`driver.DialRetry` adds reconnect policy above the loop. It classifies
 dial failures, opens a new CapTP session, and applies its own discovery budget.
 The protocol core has no reconnect policy.
 
@@ -199,21 +208,32 @@ copy constructor.
 
 The C ABI uses opaque handles, fixed-width result codes, `ptr + len` views,
 caller-supplied callback contexts, and explicit release. Allocation goes
-through `PancakeContext`.
+through `PancakeContext`. Peer locators and sturdyrefs stay distinct values at
+every public surface: a locator carries transport, designator, and hints; a
+sturdyref embeds a peer locator plus swiss bytes.
 
-There is no umbrella library. A C program links the core and only the host and
-transport archives it needs. [The C guide](consuming-from-c.md) has the archive
-table, build commands, and a complete program.
+There is no umbrella library. A C program links the shared OCapN vocabulary and
+only the Host, driver, and transport archives it needs. [The C
+guide](consuming-from-c.md) has the archive table, build commands, provider
+install, and a complete program.
 
-Bindings drive the byte-fed host in a three-part cycle:
+Bindings drive the byte-fed host in a three-part cycle: feed bytes, pump and
+drain, take outbound frames. The binding's runtime schedules that cycle and
+performs the I/O. pancake does not create a background runtime inside Python,
+Racket, Rust, or TypeScript.
 
-1. feed bytes with `pancake_host_session_feed_bytes`;
-2. let the host run resulting work with `pancake_host_pump_drain`;
-3. take outbound frames with `pancake_host_session_take_outbound`.
-
-The binding's runtime schedules that cycle and performs the actual I/O. pancake
-does not create a background runtime inside Python, Racket, Rust, or
-TypeScript.
+`libpancake_driver` is the other option: the archive owns pumping while the
+embedder parks on one readiness descriptor, calls `pancake_driver_step`, and
+drains one event queue. It adopts an idle Host from `libpancake_host` and
+starts with zero transports; the application installs provider packages through
+`pancake_transport_provider.h`. The TCP archive supplies `tcp`, `keyed-tcp`,
+and `noise-tcp`; the relay archive supplies `keyed-relay` and `noise-relay`;
+onion, iroh, and WebRTC ship as separate archives the driver consumes without
+naming their members. Listener ids remain the acceptance routing key through
+every binding. Host and session progress occurs only inside a step call on the
+one thread that drives the loop. A provider may use transport-owned workers,
+but it reports their results through the common readiness seam and never calls
+the Host from those workers.
 
 ## Other entry points
 

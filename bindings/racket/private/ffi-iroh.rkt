@@ -21,6 +21,7 @@
          _PancakeIrohReadyEvent
          PancakeIrohReadyEvent-subject PancakeIrohReadyEvent-events
          make-PancakeIrohConfig
+         make-PancakeTransportProvider
          IROH-EV-READABLE IROH-EV-WRITABLE IROH-EV-CLOSED IROH-EV-ACCEPT IROH-EV-CONNECT)
 
 ;; Readiness event bits (the header's PANCAKE_IROH_EV_*), carried by a

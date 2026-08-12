@@ -13,12 +13,15 @@
 import {
 	denoIrohChannel,
 	denoTcpChannel,
+	isRendezvousDesignator,
 	type RelayChannel,
 	type RelayConfig,
 	Rendezvous,
 	webSocketRelay,
 } from "@pancake/relay";
 import { type RelayTarget } from "@pancake/stack";
+
+export { isRendezvousDesignator };
 
 // A chat session is a persistent, mostly-quiet byte pipe: a peer can sit in a
 // room for a long time without typing, so no CapTP bytes cross the relay. A
@@ -48,7 +51,7 @@ const tcpDialTimeoutMs = 5_000;
 // only the POSIX-default soft limit and splits it, leaving headroom for the
 // listener, the room dials, and stdio. The relay itself holds thousands of
 // connections per GiB at about 80 KiB each, measured by `zig build relay-scaling`
-// (bindings/ts/relay/scaling_bench.ts), so a real deployment raises these well
+// (bindings/ts/relay/test/scaling_bench.ts), so a real deployment raises these well
 // past the floor. The cap is host policy, not pancake's scale claim: the core's
 // ~2 KiB-per-session budget is a property of the sans-io engine, this one of the
 // host the relay runs on.
@@ -73,10 +76,16 @@ const maxRelaySessions = envCap("PANCAKE_RELAY_MAX_SESSIONS") ??
 	Math.max(16, Math.floor(usableFds / 4));
 const maxRegistrations = envCap("PANCAKE_RELAY_MAX_REGISTRATIONS") ??
 	Math.max(32, Math.floor(usableFds / 2));
+// Browser peers normally hold two sockets ready. Four leaves room for a
+// reconnect overlap without letting one claimed identity consume the global
+// descriptor budget.
+const maxRegistrationsPerIdentity = envCap("PANCAKE_RELAY_MAX_REGISTRATIONS_PER_IDENTITY") ?? 4;
 
 // Live relay sessions, counted from capacity admission until the relay's
 // pair-atomic teardown finishes (dial failures included).
 let activeRelaySessions = 0;
+const activeRelaySockets = new Set<WebSocket>();
+let relayShuttingDown = false;
 
 /** A cleartext-TCP address the relay may dial, besides the room server. */
 export interface TcpPeer {
@@ -138,7 +147,10 @@ export function parseTcpPeers(raw: string | null | undefined): TcpPeer[] {
 /** Whether a browser `Origin` header may drive the relay: absent (non-browser
  * clients) or matching the request's own `Host`. A cross-origin page is
  * refused before the WebSocket upgrade. */
-export function relayOriginAllowed(origin: string | null, host: string | null): boolean {
+export function relayOriginAllowed(
+	origin: string | null,
+	host: string | null,
+): boolean {
 	if (!origin) return true;
 	if (!host) return false;
 	try {
@@ -155,16 +167,15 @@ export function relaySessionAdmitted(active: number, cap: number): boolean {
 	return active < cap;
 }
 
-/** Whether a rendezvous registration is admitted. An identity already holding a
- * socket replenishes its own queue freely; a new identity must fit under the
- * registration cap, so a flood of fresh identities cannot pin unbounded held
- * sockets (ADR-0086 bounded resources, carried to the rendezvous leg). */
+/** Whether a rendezvous registration fits both the relay-wide held-socket
+ * budget and one identity's queue budget. */
 export function rendezvousAdmitted(
-	registered: number,
-	alreadyPresent: boolean,
-	cap: number,
+	heldTotal: number,
+	heldForIdentity: number,
+	totalCap: number,
+	perIdentityCap: number,
 ): boolean {
-	return alreadyPresent || registered < cap;
+	return heldTotal < totalCap && heldForIdentity < perIdentityCap;
 }
 
 const relayConfig: RelayConfig = { idleTimeoutMs, maxBytesPerSession };
@@ -178,17 +189,25 @@ function relayViaChannel(
 	getChannel: () => Promise<RelayChannel>,
 	dialFailReason: string,
 ): void {
+	if (relayShuttingDown) {
+		socket.close(1001, "relay shutting down");
+		return;
+	}
 	if (!relaySessionAdmitted(activeRelaySessions, maxRelaySessions)) {
 		socket.close(1008, "relay capacity exceeded");
 		return;
 	}
 	activeRelaySessions++;
-	webSocketRelay(socket, getChannel, dialFailReason, relayConfig).catch((err) => {
-		console.error(
-			`relay: unexpected error: ${err instanceof Error ? err.message : String(err)}`,
-		);
-	}).finally(() => {
+	activeRelaySockets.add(socket);
+	webSocketRelay(socket, getChannel, dialFailReason, relayConfig).catch(
+		(err) => {
+			console.error(
+				`relay: unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		},
+	).finally(() => {
 		activeRelaySessions--;
+		activeRelaySockets.delete(socket);
 	});
 }
 
@@ -200,22 +219,47 @@ function relayViaChannel(
 // the dialer and the registered browser through two relay legs.
 const rendezvous = new Rendezvous();
 
+/** Stop accepting relay work and close every resource owned by this relay.
+ * Deno's HTTP abort closes the listener, but it is not the owner of the
+ * rendezvous channels or of a far-side dial already in progress. Keeping this
+ * boundary here makes signal/error teardown release both classes exactly once. */
+export function shutdownRelay(): void {
+	if (relayShuttingDown) return;
+	relayShuttingDown = true;
+	rendezvous.close();
+	for (const socket of activeRelaySockets) {
+		try {
+			socket.close(1001, "relay shutting down");
+		} catch { /* already closed */ }
+	}
+}
+
 /** Hold `socket` as the inbound accept socket for the peer identified by
  * `designator`, under the registration cap. The registered peer waits to be
  * cold-dialed; a bridge consumes the registration, so the peer registers a fresh
  * socket for the next dial (one held socket carries one inbound session). */
-export function registerRendezvous(socket: WebSocket, designator: string): void {
+export function registerRendezvous(
+	socket: WebSocket,
+	designator: string,
+): void {
+	if (!isRendezvousDesignator(designator)) {
+		socket.close(1008, "invalid rendezvous designator");
+		return;
+	}
 	if (
 		!rendezvousAdmitted(
-			rendezvous.registered().length,
-			rendezvous.has(designator),
+			rendezvous.heldCount(),
+			rendezvous.heldFor(designator),
 			maxRegistrations,
+			maxRegistrationsPerIdentity,
 		)
 	) {
 		socket.close(1008, "rendezvous capacity exceeded");
 		return;
 	}
-	rendezvous.register(designator, socket);
+	if (!rendezvous.register(designator, socket)) {
+		socket.close(1001, "relay shutting down");
+	}
 }
 
 /** Bridge `socket` (a dialer) to the browser registered under `designator`,
@@ -232,6 +276,14 @@ export function bridgeRendezvous(socket: WebSocket, designator: string): void {
 	// closes. Two refusals empty its pool, and it silently leaves the roster
 	// while its own UI still shows connected. The sibling `relayToTarget` is
 	// safe because it passes a thunk, so a refusal opens nothing.
+	if (relayShuttingDown) {
+		socket.close(1001, "relay shutting down");
+		return;
+	}
+	if (!isRendezvousDesignator(designator)) {
+		socket.close(1008, "invalid rendezvous designator");
+		return;
+	}
 	if (!relaySessionAdmitted(activeRelaySessions, maxRelaySessions)) {
 		socket.close(1008, "relay capacity exceeded");
 		return;
@@ -260,7 +312,10 @@ export function relayToTarget(socket: WebSocket, target: RelayTarget): void {
 	if (target.kind === "tcp") {
 		relayViaChannel(
 			socket,
-			() => denoTcpChannel(target.hostname, target.port, { dialTimeoutMs: tcpDialTimeoutMs }),
+			() =>
+				denoTcpChannel(target.hostname, target.port, {
+					dialTimeoutMs: tcpDialTimeoutMs,
+				}),
 			"TCP relay target unreachable",
 		);
 	} else {

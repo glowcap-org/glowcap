@@ -1,0 +1,11 @@
+(require "pancake.rkt")
+
+;; Key designator, cleartext CapTP. Persist the seed to keep the same key.
+(define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
+(define server (listen-keyed-tcp "127.0.0.1" 9099 #:seed seed))
+(printf "~a\n" (keyed-tcp-server-uri server)) ; Hand this locator to partners.
+(define session (accept server))
+(session-publish session "greeter"
+                 (lambda (verb args)
+                   (format "hello, ~a" (car args))))
+(session-serve session)

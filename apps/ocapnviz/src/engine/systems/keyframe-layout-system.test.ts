@@ -34,7 +34,7 @@ import {
   pillSize,
 } from "../../render/stage-labels.ts";
 import type { Components, GameWorld, Vec2 } from "../world.ts";
-import type { TimelineDocument } from "../timeline.ts";
+import { TimelineDocument } from "../timeline.ts";
 import { attachedEndpoint } from "../../schema/topology.ts";
 import { materializeWorldAt } from "./world-materializer.ts";
 
@@ -1486,6 +1486,63 @@ layoutTest(
       at(1100).has("authored"),
       false,
       "a peer outstayed the window its timing declares",
+    );
+  },
+);
+
+layoutTest(
+  "settled update still lands a placement recompute",
+  () => {
+    // Past the transition window, `update` skips rewriting positions.
+    // A pin must still land: recomputeForPlacement bumps the layout
+    // generation so the next update cannot keep the pre-pin coords.
+    const doc = TimelineDocument.parse({
+      id: "settled-placement",
+      duration: 5000,
+      layoutMode: "authored",
+      events: [
+        {
+          id: "a0",
+          t: 0,
+          kind: "peer-joined",
+          peerId: "a",
+          profile: "pancake",
+          position: { x: 0, y: 0 },
+        },
+        {
+          id: "b0",
+          t: 0,
+          kind: "peer-joined",
+          peerId: "b",
+          profile: "goblins",
+          position: { x: 100, y: 0 },
+        },
+      ],
+    });
+    const layout = new KeyframeLayoutSystem(doc);
+    const world = new World<Components>() as GameWorld;
+    materializeWorldAt(world, doc, 0);
+    const settledT = DEFAULT_LAYOUT_CONFIG.transitionWindow + 50;
+    layout.update(world, settledT);
+    layout.update(world, settledT); // second call is the early-out
+    const beforePos =
+      [...world.with("peer", "position")].find((e) => e.peer.id === "a")!
+        .position;
+    const before = { x: beforePos.x, y: beforePos.y };
+    doc.entities!.peers!.a!.position = { x: 40, y: 40 };
+    layout.recomputeForPlacement();
+    layout.update(world, settledT);
+    const after =
+      [...world.with("peer", "position")].find((e) => e.peer.id === "a")!
+        .position;
+    assertEquals(
+      { x: after.x, y: after.y },
+      { x: 40, y: 40 },
+      "a settled early-out kept the pre-pin position after placement",
+    );
+    assert(
+      before.x !== after.x || before.y !== after.y,
+      "the peer was already at the pin, so this test proves nothing",
     );
   },
 );

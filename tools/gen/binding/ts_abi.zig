@@ -1,6 +1,6 @@
 //! Generates the TypeScript mirror of the `libpancake_ocapn` and
-//! `libpancake_host` ABIs from the Zig source of truth: the constants, the
-//! struct layouts, and the driver FFI symbol table.
+//! `libpancake_host` and `libpancake_driver` ABIs from the Zig source of truth: the constants, the
+//! struct layouts, and the dlopen FFI symbol tables.
 //!
 //! JavaScript FFI has no struct types, so the TypeScript binding reads C structs
 //! through byte offsets. Every other binding declares fields symbolically
@@ -16,21 +16,27 @@
 //! wasm32 browser surface import. The struct sizes and field offsets are
 //! target-specific, so they stay with the 64-bit consumer that reads them
 //! (`bindings/ts/stack/internal/abi.ts`); the wasm32 surface reports its own
-//! offsets instead (`pancake_wasm_abi_layout`). The third file is the driver
-//! dlopen table (`bindings/ts/stack/internal/ffi/host.ts`), reflected from
-//! the annotated symbol inventory in `src/c_abi/host/symbols.zig` — the
-//! first slice of the binding FFI-table generation the roadmap orders.
-//! `zig build gen-ts-abi-check` (part of `check`) holds every committed file
-//! against a fresh generation, the same discipline as the C headers.
+//! offsets instead (`pancake_wasm_abi_layout`). The dlopen tables follow: the
+//! byte-fed `pancake_host_*` family (`bindings/ts/stack/internal/ffi/host.ts`,
+//! from `src/c_abi/host/symbols.zig`) and the `pancake_driver_*` loop family
+//! (`bindings/ts/stack/internal/ffi/driver.ts`, from
+//! `src/c_abi/driver/symbols.zig`), loaded from their symbol-owning archives.
+//! `zig build gen-ts-abi-check` (part of `check`) holds every
+//! committed file against a fresh generation, the same discipline as the C
+//! headers.
 
 const std = @import("std");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
+const cdr = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
+const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
+const cr = @import("c_abi_net_transport_relay");
+const model = @import("model");
 
 pub const step_name = "gen-ts-abi";
 
@@ -41,10 +47,13 @@ const Output = @import("output").Output;
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/abi/constants.ts", .generate = generateConstants },
     .{ .path = "bindings/ts/stack/internal/abi.ts", .generate = generateLayouts },
-    .{ .path = "bindings/ts/stack/internal/ffi/host.ts", .generate = generateDriverFfi },
+    .{ .path = "bindings/ts/stack/internal/ffi/host.ts", .generate = generateHostFfi },
+    .{ .path = "bindings/ts/stack/internal/ffi/driver.ts", .generate = generateLoopFfi },
     .{ .path = "bindings/ts/stack/internal/ffi/ocapn.ts", .generate = generateOcapnFfi },
     .{ .path = "bindings/ts/stack/internal/ffi/tcp.ts", .generate = generateTcpFfi },
     .{ .path = "bindings/ts/stack/internal/ffi/inproc.ts", .generate = generateInprocFfi },
+    .{ .path = "bindings/ts/stack/internal/ffi/onion.ts", .generate = generateOnionFfi },
+    .{ .path = "bindings/ts/stack/internal/ffi/relay.ts", .generate = generateRelayFfi },
     .{ .path = "bindings/ts/iroh/ffi.ts", .generate = generateIrohFfi },
 };
 
@@ -92,9 +101,14 @@ fn k(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(c, decl)) };
 }
 
-/// `k` reading from the driver archive (`c_abi_host`) instead of ocapn.
+/// `k` reading from the byte-fed host archive (`c_abi_host`) instead of ocapn.
 fn kd(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(cd, decl)) };
+}
+
+/// `k` reading from the driver archive (`c_abi_driver`, ADR-0112).
+fn kdr(comptime ts: []const u8, comptime decl: []const u8) Const {
+    return .{ .ts = ts, .value = @intCast(@field(cdr, decl)) };
 }
 
 /// `k` reading from the iroh transport archive (`c_abi_net_transport_iroh`),
@@ -107,24 +121,12 @@ fn kw(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(cw, decl)) };
 }
 
-/// One generated `bigint` constant, for the values wider than JavaScript's safe
-/// integer range: emitted with the `n` suffix so the mirror stays exact.
-const BigConst = struct {
-    ts: []const u8,
-    value: u64,
-};
-
-fn kb(comptime ts: []const u8, comptime decl: []const u8) BigConst {
-    return .{ .ts = ts, .value = @field(c, decl) };
-}
-
-const big_constants = [_]BigConst{};
-
 const constants = [_]Const{
     // Return codes (the subset the binding branches on; the rest surface
     // through `check` as thrown errors carrying the raw code).
     k("OK", "PANCAKE_OK"),
     k("INVALID_ARGUMENT", "PANCAKE_ERR_INVALID_ARGUMENT"),
+    k("INTERNAL", "PANCAKE_ERR_INTERNAL"),
     k("WOULD_BLOCK", "PANCAKE_ERR_WOULD_BLOCK"),
     k("CLOSED", "PANCAKE_ERR_CLOSED"),
     k("IO", "PANCAKE_ERR_IO"),
@@ -143,12 +145,22 @@ const constants = [_]Const{
     kd("HOST_ACTION_SETTLE", "PANCAKE_HOST_ACTION_SETTLE"),
     kd("HOST_ACTION_FAIL", "PANCAKE_HOST_ACTION_FAIL"),
     kd("HOST_ACTION_CLOSE", "PANCAKE_HOST_ACTION_CLOSE"),
+    kd("HOST_ACTION_RESUME", "PANCAKE_HOST_ACTION_RESUME"),
     // Default host connection frame cap (session.SessionLimits.max_frame_bytes).
     kd("DEFAULT_FRAME_CAP", "PANCAKE_DEFAULT_FRAME_CAP"),
     kd("MAX_LOCAL_FORWARD_HOPS", "PANCAKE_MAX_LOCAL_FORWARD_HOPS"),
     kd("HANDSHAKE_TIMEOUT_MS", "PANCAKE_HANDSHAKE_TIMEOUT_MS"),
+    kd("DEFAULT_PENDING_ACCEPTS", "PANCAKE_DEFAULT_PENDING_ACCEPTS"),
+    kd("DEFAULT_HANDSHAKE_CONCURRENCY", "PANCAKE_DEFAULT_HANDSHAKE_CONCURRENCY"),
+    kd("MAX_HANDSHAKE_CONCURRENCY", "PANCAKE_MAX_HANDSHAKE_CONCURRENCY"),
     kd("DISCOVERY_DIAL_RETRY_MS", "PANCAKE_DISCOVERY_DIAL_RETRY_MS"),
     kd("DISCOVERY_DIAL_MAX_ATTEMPTS", "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS"),
+    kdr("DRIVER_OPTIONS_ABI_VERSION", "PANCAKE_DRIVER_OPTIONS_ABI_VERSION"),
+    kdr("DRIVER_MAX_WAIT_MS", "PANCAKE_DRIVER_MAX_WAIT_MS"),
+    kdr("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", "PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES"),
+    kdr("DRIVER_DEFAULT_MAX_PENDING_OPENS", "PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS"),
+    kdr("DRIVER_DEFAULT_HANDSHAKE_MS", "PANCAKE_DRIVER_DEFAULT_HANDSHAKE_MS"),
+    kdr("DRIVER_DEFAULT_SETTLE_MS", "PANCAKE_DRIVER_DEFAULT_SETTLE_MS"),
     // The resolved dial the core hands back from pancake_host_plan_dial: the
     // byte channel to open (PancakeDialPlan.shape) and, for peer_id, the posture.
     kd("TRACE_SESSION_OPEN", "PANCAKE_TRACE_SESSION_OPEN"),
@@ -166,6 +178,25 @@ const constants = [_]Const{
     kd("DIAL_POSTURE_REDEEM", "PANCAKE_DIAL_POSTURE_REDEEM"),
     kd("DIAL_POSTURE_EXPLICIT", "PANCAKE_DIAL_POSTURE_EXPLICIT"),
     kd("DIAL_POSTURE_EXPLICIT_NONE", "PANCAKE_DIAL_POSTURE_EXPLICIT_NONE"),
+    kd("DESIGNATOR_SCHEME_ADDRESS", "PANCAKE_DESIGNATOR_SCHEME_ADDRESS"),
+    kd("DESIGNATOR_SCHEME_KEY", "PANCAKE_DESIGNATOR_SCHEME_KEY"),
+    kd("HOST_OUTBOUND_PREFIX_CAP", "PANCAKE_HOST_OUTBOUND_PREFIX_CAP"),
+    // PancakeDriverEvent.kind values the driver archive's event queue
+    // carries (libpancake_driver, ADR-0112).
+    kdr("DRIVER_EVENT_OPENED", "PANCAKE_DRIVER_EVENT_OPENED"),
+    kdr("DRIVER_EVENT_OPEN_FAILED", "PANCAKE_DRIVER_EVENT_OPEN_FAILED"),
+    kdr("DRIVER_EVENT_ACCEPTED", "PANCAKE_DRIVER_EVENT_ACCEPTED"),
+    kdr("DRIVER_EVENT_SESSION_CLOSED", "PANCAKE_DRIVER_EVENT_SESSION_CLOSED"),
+    kdr("DRIVER_EVENT_COMPLETION", "PANCAKE_DRIVER_EVENT_COMPLETION"),
+    kdr("DRIVER_ADOPT_DIALED", "PANCAKE_DRIVER_ADOPT_DIALED"),
+    kdr("DRIVER_ADOPT_ACCEPTED", "PANCAKE_DRIVER_ADOPT_ACCEPTED"),
+    kdr("LOCATOR_VIEW_ABI_VERSION", "PANCAKE_LOCATOR_VIEW_ABI_VERSION"),
+    kdr("HINT_STRING", "PANCAKE_HINT_STRING"),
+    kdr("HINT_BYTES", "PANCAKE_HINT_BYTES"),
+    kdr("HINT_BOOLEAN", "PANCAKE_HINT_BOOLEAN"),
+    kdr("HINT_INTEGER", "PANCAKE_HINT_INTEGER"),
+    kdr("HINTS_MAP", "PANCAKE_HINTS_MAP"),
+    kdr("HINTS_BOOLEAN_FALSE", "PANCAKE_HINTS_BOOLEAN_FALSE"),
     // PancakePartnerIdentity.provenance: how the partner's advertised durable
     // identity was authenticated (ADR-0097). A caller needing a proved durable
     // peer reads this, never a designator-equals-session-key comparison.
@@ -256,6 +287,8 @@ const wasm_manifest = cd.wasm_layout_manifest;
 /// source both mirrors generate from, so the layout check can hold the
 /// exemption instead of a hardcoded skip drifting in the checker.
 const native_only_layouts = [_][]const u8{
+    "DRIVER_EVENT",
+    "TRANSPORT_PROVIDER",
     "IROH_READY_EVENT",
     "WEBRTC_READY_EVENT",
     "IROH_CONFIG",
@@ -272,8 +305,13 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
     inline for (constants) |entry| {
         try out.print(gpa, "export const {s} = {d};\n", .{ entry.ts, entry.value });
     }
-    inline for (big_constants) |entry| {
-        try out.print(gpa, "export const {s} = {d}n;\n", .{ entry.ts, entry.value });
+    try out.print(gpa, "export const HINT_DIRECT_ADDRESSES = \"{s}\";\n", .{model.transport.hint_direct_addresses});
+    inline for (std.enums.values(model.transport.Known)) |known| {
+        try out.appendSlice(gpa, "export const TRANSPORT_");
+        for (@tagName(known)) |ch| {
+            try out.append(gpa, if (ch == '_') '_' else std.ascii.toUpper(ch));
+        }
+        try out.print(gpa, " = \"{s}\";\n", .{known.metadata().symbol});
     }
 
     try out.appendSlice(gpa,
@@ -340,9 +378,13 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks, "PancakeHostPumpHooks (libpancake_host, pancake_host_pump_drain)");
     try emitLayout(&out, gpa, "DIAL_PLAN", cd.PancakeDialPlan, "PancakeDialPlan (libpancake_host, pancake_host_plan_dial)");
     try emitLayout(&out, gpa, "ACCEPT_PLAN", cd.PancakeAcceptPlan, "PancakeAcceptPlan (libpancake_host, pancake_host_plan_accept)");
-    try emitLayout(&out, gpa, "PENDING_DIAL", cd.PancakePendingDial, "PancakePendingDial (libpancake_host, pancake_host_pending_dial)");
     try emitLayout(&out, gpa, "PARTNER_IDENTITY", cd.PancakePartnerIdentity, "PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)");
     try emitLayout(&out, gpa, "TRACE_EVENT", cd.PancakeTraceEvent, "PancakeTraceEvent (libpancake_host, pancake_host_set_trace)");
+    try emitLayout(&out, gpa, "DRIVER_OPTIONS", cdr.PancakeDriverOptions, "PancakeDriverOptions (libpancake_driver, pancake_driver_take_host)");
+    try emitLayout(&out, gpa, "DRIVER_EVENT", cdr.PancakeDriverEvent, "PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)");
+    try emitLayout(&out, gpa, "LOCATOR_HINT_VIEW", cdr.PancakeLocatorHintView, "PancakeLocatorHintView (pancake_transport_provider.h)");
+    try emitLayout(&out, gpa, "LOCATOR_VIEW", cdr.PancakeLocatorView, "PancakeLocatorView (pancake_transport_provider.h)");
+    try emitLayout(&out, gpa, "TRANSPORT_PROVIDER", cdr.PancakeTransportProvider, "PancakeTransportProvider (pancake_transport_provider.h, pancake_driver_add_provider)");
     try emitLayout(&out, gpa, "IROH_READY_EVENT", ci.PancakeIrohReadyEvent, "PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)");
     try emitLayout(&out, gpa, "WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent, "PancakeWebrtcReadyEvent (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_drain_ready)");
     try emitLayout(&out, gpa, "IROH_CONFIG", ci.PancakeIrohConfig, "PancakeIrohConfig (libpancake_net_transport_iroh, pancake_iroh_netlayer_new)");
@@ -385,10 +427,13 @@ fn checkInventory(comptime M: type) void {
 comptime {
     checkInventory(c);
     checkInventory(cd);
+    checkInventory(cdr);
     checkInventory(ct);
     checkInventory(cin);
+    checkInventory(con);
     checkInventory(ci);
     checkInventory(cw);
+    checkInventory(cr);
     for (cw.symbols.symbols) |row| {
         if (row.ts_omit == null) {
             @compileError("WebRTC export '" ++ row.name ++ "' promises a TypeScript native loader, but TypeScript WebRTC is browser-native");
@@ -411,10 +456,16 @@ fn tsParamClass(comptime T: type) []const u8 {
             },
         },
         .int => switch (T) {
+            u8 => "\"u8\"",
             u16 => "\"u16\"",
             u32 => "\"u32\"",
             u64 => "U64",
             usize => "U",
+            // A signed 32-bit parameter is a timeout in milliseconds, where
+            // negative means wait without limit — the one place this ABI takes a
+            // signed integer in, and the same `I` the result classes use.
+            i32 => "I",
+            i64 => "\"i64\"",
             else => @compileError("unmapped integer parameter width"),
         },
         else => @compileError("unmapped parameter type"),
@@ -468,6 +519,11 @@ const RowParts = struct {
 
 fn rowParts(gpa: std.mem.Allocator, comptime M: type, comptime row: anytype, used: *UsedClasses) !RowParts {
     const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
+    inline for (row.out_params) |op| {
+        if (op >= info.params.len) {
+            @compileError(row.name ++ " names an out parameter beyond its reflected arity");
+        }
+    }
     var params: std.ArrayList(u8) = .empty;
     errdefer params.deinit(gpa);
     try params.appendSlice(gpa, "parameters: [");
@@ -579,21 +635,23 @@ fn renderDlopenFile(gpa: std.mem.Allocator, comptime M: type, comptime preamble:
     return out.toOwnedSlice(gpa);
 }
 
-const driver_ffi_preamble =
+const host_ffi_preamble =
     \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/host (the annotated
     \\// symbol inventory in symbols.zig plus each export's reflected signature)
     \\// — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libpancake_host` — the byte-fed host archive
-    \\// (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
+    \\// Internal: the FFI mirror of the `pancake_host_*` family — the byte-fed
+    \\// host tier (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
     \\//
-    \\// Nothing here is public. The archive is a companion of libpancake_ocapn: it
-    \\// exports only the `pancake_host_*` family and shares the frame, argument,
-    \\// reference, and last-abort layouts by layout, so this loader opens ONLY
-    \\// libpancake_host and declares no core symbol. The host surface over it
-    \\// spans `../../host.ts`, `../../session.ts`, `../../action.ts`, and
-    \\// `../../pump.ts`.
+    \\// Nothing here is public. This table loads `libpancake_host`, the archive
+    \\// that owns every `pancake_host_*` symbol. The driver archive is a separate
+    \\// consumer of Host and exports only its `pancake_driver_*` family. Host shares the
+    \\// frame, argument, reference, and last-abort layouts by layout, so this
+    \\// loader declares no core symbol. The host surface over it spans
+    \\// `../../host.ts`, `../../session.ts`, `../../action.ts`, and
+    \\// `../../pump.ts`. The wasm browser build keeps importing the byte-fed
+    \\// `c_abi_host` root only; its injected adapter ignores the stem here.
     \\//
     \\// Callback discipline: the ONE native callback in the whole binding, the
     \\// shared behavior trampoline (`../../trampoline.ts`), fires synchronously
@@ -631,7 +689,7 @@ const ocapn_ffi_preamble =
     \\// binding still speaks directly: the ABI version, the core last-error slot, the
     \\// allocation context, managed-frame release, the exporter-locator encoder, and
     \\// the OCapN URI grammar. The peer itself is driven through the byte-fed host
-    \\// archive (`driver.ts`, `libpancake_host`, ADR-0072), never through raw
+    \\// archive (`host.ts`, `libpancake_host`, ADR-0072), never through raw
     \\// raw per-session engine calls. Each transport archive has its own sibling loader
     \\// here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
     \\//
@@ -645,8 +703,33 @@ const ocapn_ffi_preamble =
     \\
 ;
 
-fn generateDriverFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cd, driver_ffi_preamble, "pancake_host", "driverS");
+fn generateHostFfi(gpa: std.mem.Allocator) ![]u8 {
+    return renderDlopenFile(gpa, cd, host_ffi_preamble, "pancake_host", "hostS");
+}
+
+const loop_ffi_preamble =
+    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/driver (the annotated
+    \\// symbol inventory in symbols.zig plus each export's reflected signature)
+    \\// — do not edit.
+    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
+    \\//
+    \\// Internal: the FFI mirror of the `pancake_driver_*` loop family —
+    \\// `libpancake_driver`, the driver archive (ADR-0112).
+    \\//
+    \\// Nothing here is public; `../../driver_loop.ts` is the surface over it.
+    \\// The archive exports only this family and consumes a Host transferred from
+    \\// `libpancake_host`. One thread drives one loop:
+    \\// `pancake_driver_wake` is the one cross-thread call, and borrowed views
+    \\// in a popped event die at the next `pancake_driver_next_event`.
+    \\
+    \\import { libPath } from "./load.ts";
+    \\import { lazySymbols } from "./runtime.ts";
+    \\
+    \\
+;
+
+fn generateLoopFfi(gpa: std.mem.Allocator) ![]u8 {
+    return renderDlopenFile(gpa, cdr, loop_ffi_preamble, "pancake_driver", "loopS");
 }
 
 fn generateOcapnFfi(gpa: std.mem.Allocator) ![]u8 {
@@ -664,7 +747,7 @@ const tcp_ffi_preamble =
     \\//
     \\// Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
     \\// loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
-    \\// the inproc or iroh archives. The TCP family is symbol-disjoint from the core
+    \\// the inproc or iroh archives. The TCP archive is symbol-disjoint from the core
     \\// (it shares the frame/context types by layout, not by symbol), so it loads
     \\// alongside `libpancake_ocapn` rather than instead of it, and carries its own
     \\// thread-local last-error read through `pancake_tcp_last_error`.
@@ -702,6 +785,52 @@ const inproc_ffi_preamble =
 
 fn generateInprocFfi(gpa: std.mem.Allocator) ![]u8 {
     return renderDlopenFile(gpa, cin, inproc_ffi_preamble, "pancake_net_transport_inproc", "inprocS");
+}
+
+const onion_ffi_preamble =
+    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/net_transport/onion
+    \\// (the annotated symbol inventory in symbols.zig plus each export's
+    \\// reflected signature) — do not edit.
+    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
+    \\//
+    \\// Internal: the FFI mirror of `libpancake_net_transport_onion`'s C ABI.
+    \\//
+    \\// Nothing here is public; `transport/onion.ts` is the ergonomic surface over
+    \\// it. This loader opens *only* the onion archive, so importing that module
+    \\// never pulls in the TCP, inproc, or iroh archives. The onion family is
+    \\// symbol-disjoint from the core and shares the frame/context types by layout;
+    \\// it carries its own thread-local last-error read through
+    \\// `pancake_onion_last_error`.
+    \\
+    \\import { libPath } from "./load.ts";
+    \\import { lazySymbols } from "./runtime.ts";
+    \\
+    \\
+;
+
+fn generateOnionFfi(gpa: std.mem.Allocator) ![]u8 {
+    return renderDlopenFile(gpa, con, onion_ffi_preamble, "pancake_net_transport_onion", "onionS");
+}
+
+const relay_ffi_preamble =
+    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/net_transport/relay
+    \\// (the annotated symbol inventory in symbols.zig plus each export's
+    \\// reflected signature) — do not edit.
+    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
+    \\//
+    \\// Internal: the FFI mirror of `libpancake_net_transport_relay`'s C ABI.
+    \\// The archive owns one provider package for keyed-relay and noise-relay;
+    \\// profile policy remains in the native driver.
+    \\//
+    \\// Nothing here is public; `transport/relay.ts` is the ergonomic surface.
+    \\
+    \\import { libPath } from "./load.ts";
+    \\import { lazySymbols } from "./runtime.ts";
+    \\
+;
+
+fn generateRelayFfi(gpa: std.mem.Allocator) ![]u8 {
+    return renderDlopenFile(gpa, cr, relay_ffi_preamble, "pancake_net_transport_relay", "relayS");
 }
 
 const iroh_ffi_preamble =

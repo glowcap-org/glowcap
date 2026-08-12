@@ -3,15 +3,17 @@
 // — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of `libpancake_host` — the byte-fed host archive
-// (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
+// Internal: the FFI mirror of the `pancake_host_*` family — the byte-fed
+// host tier (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
 //
-// Nothing here is public. The archive is a companion of libpancake_ocapn: it
-// exports only the `pancake_host_*` family and shares the frame, argument,
-// reference, and last-abort layouts by layout, so this loader opens ONLY
-// libpancake_host and declares no core symbol. The host surface over it
-// spans `../../host.ts`, `../../session.ts`, `../../action.ts`, and
-// `../../pump.ts`.
+// Nothing here is public. This table loads `libpancake_host`, the archive
+// that owns every `pancake_host_*` symbol. The driver archive is a separate
+// consumer of Host and exports only its `pancake_driver_*` family. Host shares the
+// frame, argument, reference, and last-abort layouts by layout, so this
+// loader declares no core symbol. The host surface over it spans
+// `../../host.ts`, `../../session.ts`, `../../action.ts`, and
+// `../../pump.ts`. The wasm browser build keeps importing the byte-fed
+// `c_abi_host` root only; its injected adapter ignores the stem here.
 //
 // Callback discipline: the ONE native callback in the whole binding, the
 // shared behavior trampoline (`../../trampoline.ts`), fires synchronously
@@ -38,7 +40,7 @@ const P = "pointer",
 	I = "i32",
 	U64 = "u64";
 
-export const driverS = lazySymbols(() => libPath("pancake_host"), {
+export const hostS = lazySymbols(() => libPath("pancake_host"), {
 	// Lifecycle. `outBuffers` marks the buffer params the callee writes, so
 	// the wasm adapter copies back only true outputs (dlopen ignores it).
 	pancake_host_new: {
@@ -53,11 +55,10 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	},
 	pancake_host_release: { parameters: [P], result: I },
 	pancake_host_designator_from_seed: { parameters: [B, U, B, U], result: I, outBuffers: [2] },
-	pancake_host_set_self_designator: { parameters: [P, B, U], result: I, outBuffers: [] },
-	pancake_host_set_advertised_locator: { parameters: [P, B, U], result: I, outBuffers: [] },
+	pancake_host_set_advertised_locator: { parameters: [P, P], result: I },
 	pancake_host_ensure_advertised_locator: { parameters: [P, B, U], result: I, outBuffers: [] },
 	pancake_host_remove_advertised_locator: { parameters: [P, B, U], result: I, outBuffers: [] },
-	pancake_host_set_session_limits: { parameters: [P, U, U], result: I },
+	pancake_host_set_session_limits: { parameters: [P, U, U, U], result: I },
 	pancake_host_session_open_dialed_locator: {
 		parameters: [P, B, U, B, U, B],
 		result: I,
@@ -70,9 +71,13 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 		result: I,
 		outBuffers: [8],
 	},
-	pancake_host_pending_dial: { parameters: [P, U64, B], result: I, outBuffers: [2] },
+	pancake_host_pending_dial: {
+		parameters: [P, U64, B, U, B, B],
+		result: I,
+		outBuffers: [2, 4, 5],
+	},
 	pancake_host_reference_exporter: { parameters: [P, B, B], result: I, outBuffers: [2] },
-	pancake_host_plan_accept: { parameters: [B, U, B, U, B, U, B], result: I, outBuffers: [6] },
+	pancake_host_plan_accept: { parameters: ["u32", B, U, B, U, B], result: I, outBuffers: [5] },
 	pancake_host_session_release: { parameters: [P], result: I },
 	pancake_host_session_is_open: { parameters: [P], result: I },
 	pancake_host_session_trace_id: { parameters: [P, B], result: I, outBuffers: [1] },
@@ -80,11 +85,16 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	// the annotation is what keeps the wasm boundary at one copy-in per feed
 	// with no full-chunk copy-back.
 	pancake_host_session_feed_bytes: { parameters: [P, B, U], result: I, outBuffers: [] },
-	pancake_host_session_take_outbound: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_host_session_take_outbound: {
+		parameters: [P, B, B, U, B],
+		result: I,
+		outBuffers: [1, 2, 4],
+	},
 	pancake_host_next_action: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_host_dialed: { parameters: [P, U64, P], result: I },
 	pancake_host_dial_failed: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
 	pancake_host_provide_gift_id: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
+	pancake_host_gift_id_failed: { parameters: [P, U64], result: I },
 	// Publish and spawn (behavior = the trampoline pointer, ctx = the JS
 	// registry id packed as a pointer-sized integer, free = NULL).
 	pancake_host_session_publish: { parameters: [P, B, U, P, P, P, B], result: I, outBuffers: [6] },
@@ -106,9 +116,8 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	pancake_host_set_trace: { parameters: [P, P, P], result: I },
 	pancake_host_set_trace_queue: { parameters: [P, U, U], result: I },
 	pancake_host_next_trace: { parameters: [P, B], result: I, outBuffers: [1] },
-	// Off-turn settlement: a behavior defers its answer onto a resolver vow
-	// and the work's completion settles it later, top-level.
-	pancake_host_spawn_resolver: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
+	// Off-turn settlement: a behavior atomically defers its answer onto a fresh
+	// resolver vow and the work's completion settles it later, top-level.
 	pancake_host_resolver_fulfill: { parameters: [P, U64, B], result: I, outBuffers: [] },
 	pancake_host_resolver_break: { parameters: [P, U64, B, U], result: I, outBuffers: [] },
 	pancake_host_session_listen: { parameters: [P, B, B], result: I, outBuffers: [2] },
@@ -123,18 +132,14 @@ export const driverS = lazySymbols(() => libPath("pancake_host"), {
 	// out-reply is the raw pointer the trampoline was handed, so it crosses as
 	// a pointer, not a JS buffer.
 	pancake_host_turn_forward: { parameters: [P, B, B, U, B, U, P], result: I, outBuffers: [] },
-	pancake_host_turn_forward_vow: { parameters: [P, U64], result: I },
+	pancake_host_turn_defer: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_host_turn_spawn: { parameters: [P, P, P, P, B], result: I, outBuffers: [4] },
 	pancake_host_turn_break: { parameters: [P, B, U], result: I, outBuffers: [] },
 	// Capability lifetime, teardown, diagnostics.
 	pancake_host_ref_release: { parameters: [P, B, U64], result: I, outBuffers: [] },
 	pancake_host_session_published_ref: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_host_session_break_far_vows: { parameters: [P, B, U], result: I, outBuffers: [] },
-	pancake_host_session_set_exporter_location: {
-		parameters: [P, B, U],
-		result: I,
-		outBuffers: [],
-	},
+	pancake_host_session_set_exporter_location: { parameters: [P, P], result: I },
 	pancake_host_session_last_abort: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_host_session_partner_identity: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_host_session_bind_verified_channel_key: {

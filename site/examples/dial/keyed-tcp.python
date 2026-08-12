@@ -1,0 +1,16 @@
+from pancake import connect, keyed_tcp_locator
+
+# Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
+partner = keyed_tcp_locator("<64 hex chars>", "127.0.0.1", 9099)
+
+session = await connect(partner)
+session.serve()
+
+greeter = await session.fetch("greeter")  # a capability, by name
+try:
+    reply = await session.send(greeter, "greet", ["world"])
+    print(reply)
+except Exception as reason:
+    print(f"the greeter refused: {reason}")
+
+await session.close()

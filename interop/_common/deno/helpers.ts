@@ -64,7 +64,7 @@ export function parsePort(gate: string, defaultPort: number, maxPort = 65535): n
 export async function acceptLoop(
 	server: AsyncIterable<{ serve(): Promise<void> }>,
 ): Promise<void> {
-	for await (const conn of server) conn.serve().catch(() => {});
+	for await (const session of server) session.serve().catch(() => {});
 }
 
 export async function awaitGreeterReady(

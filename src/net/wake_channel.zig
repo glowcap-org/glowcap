@@ -43,7 +43,7 @@ pub const WakeChannel = struct {
         // arm reaches (Darwin); Linux takes the syscall arm above.
         if (socketpair(1, 1, 0, &sv) < 0) return error.WakeChannelFailed;
         for (sv) |fd| {
-            if (!setNonblockingC(fd)) {
+            if (!setNonblockingC(fd) or !setNoSigpipeC(fd)) {
                 _ = close(sv[0]);
                 _ = close(sv[1]);
                 return error.WakeChannelFailed;
@@ -89,6 +89,12 @@ fn setNonblockingC(fd: c_int) bool {
     if (flags < 0) return false;
     const nonblock: c_int = @bitCast(c.O{ .NONBLOCK = true });
     return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
+}
+
+fn setNoSigpipeC(fd: c_int) bool {
+    const c = std.c;
+    const enable: c_int = 1;
+    return c.setsockopt(fd, c.SOL.SOCKET, c.SO.NOSIGPIPE, &enable, @sizeOf(c_int)) >= 0;
 }
 
 fn closeFd(fd: i32) void {

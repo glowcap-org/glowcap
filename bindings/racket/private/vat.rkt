@@ -13,9 +13,9 @@
 ;; vows and their listeners, `bcom`, and the time-travel history. Everything
 ;; wire-shaped — hosting exports, far sends, far vows, three-party redemption —
 ;; lives in the byte-fed host archive (libpancake_host) behind
-;; `private/session.rkt`. A connection installs a `far-ops` record into its
+;; `private/session.rkt`. A session installs a `far-ops` record into its
 ;; vat, so `<-` to a far reference and `on` over a far vow stay
-;; location-transparent for the application; a pure-local vat (no connection)
+;; location-transparent for the application; a pure-local vat (no session)
 ;; refuses far work with a clear error, as a peerless Goblins vat would.
 
 (require racket/match
@@ -401,7 +401,7 @@
 ;; `export-id` names `actor` in this vat, so a near reference at that position
 ;; resolves to its own actor in process (`vat-resolve-target`). The wire half —
 ;; allocating the position and hosting the behavior for partner delivers — is
-;; the connection's (`session-spawn` / `session-publish` bind through here after
+;; the session's (`session-spawn` / `session-publish` bind through here after
 ;; registering with the host).
 (define (bind-export! v actor export-id)
   (unless (actor-ref? actor) (error 'bind-export! "can only bind a local actor reference"))

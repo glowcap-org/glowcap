@@ -392,7 +392,7 @@ test "re-arming a consumed gift still respects max_deposited_gifts" {
     );
 }
 
-test "each session registry mints one monotonic emitted handoff count" {
+test "each session registry commits one monotonic emitted handoff count" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator, null);
@@ -401,9 +401,28 @@ test "each session registry mints one monotonic emitted handoff count" {
     // the recipient-side mirror of the accepted-count replay guard, so the count
     // this node emits is exactly the count the exporter's `validateWithdraw`
     // expects next.
-    try std.testing.expectEqual(@as(u64, 0), try registry.nextEmittedCount());
-    try std.testing.expectEqual(@as(u64, 1), try registry.nextEmittedCount());
-    try std.testing.expectEqual(@as(u64, 2), try registry.nextEmittedCount());
+    const first = try registry.prepareEmittedCount();
+    const duplicate = try registry.prepareEmittedCount();
+    try std.testing.expectEqual(@as(u64, 0), first.count);
+    try std.testing.expectEqual(@as(u64, 0), duplicate.count);
+    try first.commit();
+    try std.testing.expectError(error.StaleHandoffCountPreparation, duplicate.commit());
+
+    const second = try registry.prepareEmittedCount();
+    try std.testing.expectEqual(@as(u64, 1), second.count);
+    try second.commit();
+    try std.testing.expectEqual(@as(u64, 2), (try registry.prepareEmittedCount()).count);
+}
+
+test "an issuer-bound handoff count refuses a tampered preparation" {
+    const allocator = std.testing.allocator;
+    var registry: GiftRegistry = .{};
+    defer registry.deinit(allocator, null);
+
+    var fabricated = try registry.prepareEmittedCount();
+    fabricated.count = 9;
+    try std.testing.expectError(error.StaleHandoffCountPreparation, fabricated.commit());
+    try std.testing.expectEqual(@as(u64, 0), (try registry.prepareEmittedCount()).count);
 }
 
 test "a receive naming a session other than the derived one is refused" {

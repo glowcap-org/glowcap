@@ -98,6 +98,38 @@ observations stops matching its source or if a submodule has drifted off the
 commit this repository pins. A pin bump must therefore re-evaluate the
 discrepancy instead of silently carrying the note forward.
 
+## A declared location is load-bearing where nothing can check it
+
+Not knowing who called is the ordinary case in an object-capability system:
+authority comes from holding the reference, so a caller's name is not what a
+receiver acts on. Tor is built the same way from the other side, telling a hidden
+service nothing at all about who dialed. Those two agree, and neither is a defect.
+
+Three-party handoff is where they stop agreeing, because it is the one part of
+CapTP that acts on *who the partner is* rather than on what it holds.
+
+| Source | Says |
+| ------ | ---- |
+| Spritely Goblins (`goblins/ocapn/netlayer/onion.rkt`) | the accept path calls `(<-np-extern conn-establisher read-message write-message #f)` — `#f` where the dial path passes the remote node |
+| Spritely Goblins (`goblins/ocapn/captp.rkt`) | registers the session with `($ locations->open-session-names 'set remote-location session-name)`, under the location the hello declared |
+| Spritely Goblins (`goblins/ocapn/captp.rkt`) | resolves a withdrawal with `($ locations->open-session-names 'ref exporter-location))`, by that same declared value |
+
+The `#f` is accurate rather than an oversight: on an accepted circuit there is no
+client identity to pass. But the session then goes into a table keyed by the
+location the partner announced, and a withdrawal finds its exporter session by
+looking that value up. Over `onion` a peer can announce any location it likes,
+and the accepting side has nothing to check it against.
+
+This is a note about where the protocol's own machinery needs a name, not a claim
+that a peer should be identified in general. pancake reports an accepted onion
+partner's location as unproven for the same reason (ADR-0108), and only code that
+authenticated an end-to-end channel may report a proved peer.
+
+The same netlayer file pins a second, practical observation: the dial arm matches
+`[(ocapn-node 'onion designator #f)`, so a Goblins peer handed an onion locator
+carrying hints does not dial it at all. A peer that emits hinted onion locators is
+unreachable from Goblins, which is why pancake emits none.
+
 ## Upstream-use note
 
 These findings and their checker were prepared with AI assistance during a pancake

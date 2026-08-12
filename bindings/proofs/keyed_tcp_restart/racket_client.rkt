@@ -37,11 +37,11 @@
   (unless (equal? (partner-identity-designator proved) expected)
     (error 'keyed-tcp-restart "partner claimed ~a, not the dialed ~a"
            (partner-identity-designator proved) expected))
-  ;; Every connection signs with a fresh session key (ADR-0097), distinct from
+  ;; Every session signs with a fresh key (ADR-0097), distinct from
   ;; the claimed durable designator.
   (when (equal? (bytes->hex-string (partner-identity-session-key proved)) expected)
     (error 'keyed-tcp-restart
-           "session key still equals the durable designator; sessions are not keyed per connection"))
+           "session key still equals the durable designator; sessions are not independently keyed"))
   ;; Raw keyed TCP carries the stable key-shaped locator but does not prove that
   ;; whoever answered controls it.
   (unless (eq? (partner-identity-provenance proved) 'unauthenticated)

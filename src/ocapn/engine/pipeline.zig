@@ -566,37 +566,84 @@ fn fireListenersOnResolve(peer: *Peer, resolve: model.Resolve) !void {
 pub fn fireImportedPromiseListeners(peer: *Peer, import_position: model.ImportPosition) !void {
     const row = peer.session_state.findImportedPromise(import_position) orelse return;
     const resolution = row.cell.resolution orelse return;
-    const listeners = try peer.session_state.takeImportedPromiseListeners(import_position);
-    defer peer.allocator.free(listeners);
-    // Relayed resolutions are final (record-once), so every listener fires.
-    try fireTakenListeners(peer, .{ .import = .{ .position = import_position, .row_id = row.cell.row_id } }, resolution, listeners, .always_fire);
+    var prepared = try prepareImportedPromiseFires(peer, import_position, row.cell.row_id, resolution);
+    prepared.commit(peer, import_position, row.cell.row_id, resolution);
 }
 
-const FireTakenPolicy = enum { always_fire, classify };
+/// All fallible work for firing one imported-promise settlement. Listeners are
+/// detached reversibly, every destination is validated, export-table and queue
+/// capacity are reserved, and the shared outbound waterline is charged before
+/// the resolution store commits. `commit` is therefore allocation-free and
+/// cannot strand a stored resolution with silently lost listeners.
+pub const PreparedImportedFires = struct {
+    listeners: []session.ListenerEntry,
+    reservation: ?Peer.PendingReservation = null,
+    reserved: usize = 0,
 
-fn fireTakenListeners(
-    peer: *Peer,
-    target: engine.StoreTarget,
-    resolution: model.Resolution,
-    listeners: []const session.ListenerEntry,
-    policy: FireTakenPolicy,
-) !void {
-    for (listeners) |entry| {
-        switch (policy) {
-            .always_fire => try enqueueFire(
-                peer,
-                entry.listener.import_position.int(),
-                .{ .store = target },
-                resolution,
-            ),
-            .classify => try applyListenerDrain(
-                peer,
-                target,
-                resolution,
-                classifyListenerDrain(entry, resolution),
-            ),
+    pub fn abandon(self: *PreparedImportedFires, peer: *Peer, import_position: model.ImportPosition) void {
+        if (self.reservation) |reservation| {
+            for (0..self.reserved) |_| peer.cancelPendingReservation(reservation);
         }
+        peer.session_state.restoreImportedPromiseListeners(import_position, self.listeners);
+        self.* = .{ .listeners = &.{} };
     }
+
+    pub fn commit(
+        self: *PreparedImportedFires,
+        peer: *Peer,
+        import_position: model.ImportPosition,
+        row_id: u64,
+        resolution: model.Resolution,
+    ) void {
+        for (self.listeners) |entry| {
+            var args: [2]model.Argument = undefined;
+            const message = borrowedListenerFire(entry.listener.import_position.int(), resolution, &args);
+            peer.session_state.commitPreparedListenerFire(message);
+            peer.pushPendingAssume(self.reservation.?, .{ .listener_fire = .{
+                .listener_position = entry.listener.import_position.int(),
+                .target = .{ .store = .{ .import = .{
+                    .position = import_position,
+                    .row_id = row_id,
+                } } },
+            } });
+        }
+        if (self.listeners.len != 0) peer.allocator.free(self.listeners);
+        self.* = .{ .listeners = &.{} };
+    }
+};
+
+pub fn prepareImportedPromiseFires(
+    peer: *Peer,
+    import_position: model.ImportPosition,
+    row_id: u64,
+    resolution: model.Resolution,
+) !PreparedImportedFires {
+    var prepared: PreparedImportedFires = .{
+        .listeners = try peer.session_state.takeImportedPromiseListeners(import_position),
+    };
+    errdefer prepared.abandon(peer, import_position);
+    if (prepared.listeners.len == 0) return prepared;
+
+    for (prepared.listeners) |entry|
+        try peer.session_state.validateListenerFireTarget(entry.listener);
+    try peer.session_state.ensureSentResolutionExportCapacity(resolution);
+
+    var batch = try peer.beginPendingBatch(prepared.listeners.len);
+    for (prepared.listeners) |entry| {
+        const reservation = try batch.reserve(.{ .listener_fire = .{
+            .listener_position = entry.listener.import_position.int(),
+            .target = .{ .store = .{ .import = .{
+                .position = import_position,
+                .row_id = row_id,
+            } } },
+        } });
+        if (prepared.reservation) |first|
+            std.debug.assert(first.charge == reservation.charge)
+        else
+            prepared.reservation = reservation;
+        prepared.reserved += 1;
+    }
+    return prepared;
 }
 
 /// Queue one listener fire against a stored resolution: session accounting on
@@ -619,11 +666,17 @@ fn enqueueFire(
 ) !void {
     var args: [2]model.Argument = undefined;
     const borrowed = borrowedListenerFire(listener_position, resolution, &args);
-    try peer.pending_send.ensureUnusedCapacityForOne(peer.allocator);
+    const reservation = try peer.reservePending(.{ .listener_fire = .{
+        .listener_position = listener_position,
+        .target = target,
+    } });
     // `recordSend` borrows a deliver (it consumes only the resolve arm), so
     // the stack message is safe on every outcome.
-    try peer.session_state.recordSend(borrowed);
-    peer.pending_send.pushAssumeCapacity(.{ .listener_fire = .{
+    peer.session_state.recordSend(borrowed) catch |err| {
+        peer.cancelPendingReservation(reservation);
+        return err;
+    };
+    peer.pushPendingAssume(reservation, .{ .listener_fire = .{
         .listener_position = listener_position,
         .target = target,
     } });

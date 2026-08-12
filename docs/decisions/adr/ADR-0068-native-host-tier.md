@@ -3,14 +3,14 @@ id: ADR-0068
 status: accepted
 date: 2026-07-05
 tags: [driver, actors, handoff, three-party, host, crossed-hellos, api]
-decision: "The native multi-connection tier is `driver.core.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered connections. An introduction is a typed third outcome (`actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there)) and the native forms of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every connection, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connections compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/core_host_test.zig` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
+decision: "The native multi-session tier is `driver.core.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered sessions. An introduction is a typed third outcome (`actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there)) and the native forms of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every session, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connection attempts compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/core_host_test.zig` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0096, ADR-0097, ADR-0100]
+amended_by: [ADR-0096, ADR-0097, ADR-0100, ADR-0113]
 ---
 
-# ADR-0068 The native multi-connection tier is an explicit Host
+# ADR-0068 The native multi-session tier is an explicit Host
 
 > ADR-0100 amends handoff ownership: Host resolves live sessions but owns no
 > shared gift or replay table. Each Peer owns that session authority.

@@ -1,0 +1,17 @@
+use pancake::{connect, Argument, Reachability};
+
+// Discovery resolves a bare iroh node ID without an address hint.
+// Cargo.toml: pancake = { …, features = ["iroh"] }
+let partner = "ocapn://3b6a…da29.iroh";
+
+let session = connect(&partner, Some(Reachability::Discovery), None).await?;
+let greeter = session.fetch("greeter").await?; // a capability, by name
+match session
+    .send(&greeter, "greet", &[Argument::String("world".into())])
+    .await
+{
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+session.close();

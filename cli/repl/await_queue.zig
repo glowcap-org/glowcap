@@ -405,7 +405,7 @@ pub const Queue = struct {
                 defer active.gpa.free(args);
 
                 if (try ocapn.parseImportTarget(target_tok)) |raw| {
-                    const target = session.host.core.capabilityFromRaw(raw);
+                    const target = session.runtime.core.capabilityFromRaw(raw);
                     if (sverb == .tell) {
                         try session.tell(target, active.tokens[2], args);
                         try store.setLine(active.block_idx, .result, "told");
@@ -452,7 +452,7 @@ fn capIdFromFetch(session_opt: ?*driver.Session, settled: driver.Settled) !u64 {
     const session = session_opt orelse return driver.Error.ConnectionClosed;
     return switch (settled) {
         .fulfilled => |arg| switch (arg) {
-            .reference => |reference| (try session.host.core.liftCapability(session.hs, reference)).raw(),
+            .reference => |reference| (try session.runtime.core.liftCapability(session.hs, reference)).raw(),
             else => driver.Error.FetchNotACapability,
         },
         .broken => error.FetchBroken,

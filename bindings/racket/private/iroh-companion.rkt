@@ -20,7 +20,7 @@
 (provide iroh-ref)
 
 ;; `private/iroh.rkt`, not `../pancake-iroh.rkt`: the barrel re-exports only the
-;; application surface, and the dial needs `connect-iroh/node` beside it. Loading
+;; application surface and the provider/raw seams need it beside them. Loading
 ;; the implementation directly also keeps this a plain module load. Racket's
 ;; compile manager does not manage submodule requests, so a program running
 ;; against compiled bytecode answers one by expanding the enclosing module again,
@@ -53,9 +53,11 @@
 ;; nothing else.
 (define iroh-bindings
   (delay/sync
-   (hasheq 'connect-iroh/node (dynamic-require iroh-path 'connect-iroh/node)
-           'IROH-REACH-DIRECT (dynamic-require iroh-path 'IROH-REACH-DIRECT)
-           'dial-locator-for-relay (dynamic-require iroh-path 'dial-locator-for-relay))))
+   (hasheq 'IROH-REACH-DIRECT (dynamic-require iroh-path 'IROH-REACH-DIRECT)
+           'make-iroh-config (dynamic-require iroh-path 'make-iroh-config)
+           'dial-locator-for-relay (dynamic-require iroh-path 'dial-locator-for-relay)
+           'iroh-loop-provider-parts (dynamic-require iroh-path 'iroh-loop-provider-parts)
+           'iroh-adopt-loop! (dynamic-require iroh-path 'iroh-adopt-loop!))))
 
 ;; Read a binding out of the iroh transport, loading it exactly once.
 (define (iroh-ref name)

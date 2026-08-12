@@ -47,7 +47,8 @@ test "durable publication uses the host's selected acceptable location" {
         .designator = "public.example:443",
         .hints = model.Hints.emptyFalse(),
     };
-    try server.host.core.setAdvertisedLocator(selected);
+    _ = try server.runtime.core.defineTransport(.{ .symbol = selected.transport, .designator_scheme = .address });
+    try server.runtime.core.setAdvertisedLocator(selected);
 
     const uri = try server.publishDurable(allocator, FirstService, .{});
     defer allocator.free(uri);

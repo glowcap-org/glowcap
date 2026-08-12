@@ -14,6 +14,7 @@
 
 (provide HOST-ACTION-DIAL HOST-ACTION-FLUSH HOST-ACTION-NEED-GIFT-ID
          HOST-ACTION-SETTLE HOST-ACTION-FAIL HOST-ACTION-CLOSE
+         HOST-ACTION-RESUME
          host-decode-action!
          host-dispatch-action!)
 
@@ -24,6 +25,7 @@
 (define HOST-ACTION-SETTLE 3)
 (define HOST-ACTION-FAIL 4)
 (define HOST-ACTION-CLOSE 5)
+(define HOST-ACTION-RESUME 6)
 
 ;; Decode a filled PancakeHostAction cstruct into the list form the
 ;; drain switch matches: `(list 'dial …)`, `(list 'flush …)`, …
@@ -36,7 +38,7 @@
     [(= kind HOST-ACTION-DIAL)
      (list 'dial (PancakeHostAction-ticket a))]
     [(= kind HOST-ACTION-FLUSH)
-     (list 'flush (PancakeHostAction-conn a))]
+     (list 'flush (PancakeHostAction-session a))]
     [(= kind HOST-ACTION-NEED-GIFT-ID)
      (list 'need-gift-id (PancakeHostAction-ticket a))]
     [(= kind HOST-ACTION-SETTLE)
@@ -47,13 +49,15 @@
      (list 'fail (PancakeHostAction-ticket a)
            (view->string (PancakeHostAction-message a) (PancakeHostAction-message-len a)))]
     [(= kind HOST-ACTION-CLOSE)
-     (list 'close (PancakeHostAction-conn a))]
+     (list 'close (PancakeHostAction-session a))]
+    [(= kind HOST-ACTION-RESUME)
+     (list 'resume)]
     [else (error 'pancake "unknown host action kind: ~a" kind)]))
 
 ;; Exhaustive dispatch over a decoded action list. `handlers` is a
 ;; hash of racket symbols (`'dial`, `'flush`, …) to thunks of
 ;; `(lambda (a) …)`. A missing arm fails loud — the inventory lives
-;; here so `action.rkt` cannot silently drop a seventh kind.
+;; here so `action.rkt` cannot silently drop a new kind.
 (define (host-dispatch-action! a handlers)
   (define tag (car a))
   (define fn (hash-ref handlers tag #f))

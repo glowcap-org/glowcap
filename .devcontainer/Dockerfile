@@ -25,6 +25,12 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PLTUSERHOME=/opt/pancake-racket-userhome \
     PATH=/home/vscode/.cargo/bin:/usr/local/cargo/bin:/usr/local/bin:${PATH}
 
+# `tor` is here for the `onion` netlayer (ADR-0108), whose live checks talk to a
+# Tor daemon over SOCKS and the control protocol. pancake never starts,
+# supervises, or configures one, so the image installs the binary and nothing
+# else: no init runs in this container, so the Debian service stays down, and a
+# check that needs a daemon starts its own with its own torrc. The in-tree onion
+# checks run against a fake daemon and need none of this.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean \
@@ -32,7 +38,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  && apt-get install -y -qq --no-install-recommends \
       build-essential ca-certificates curl gdb gh git hyperfine jq libssl-dev \
       linux-perf lldb netcat-openbsd pkg-config python-is-python3 python3 \
-      python3-pip python3-venv strace tar unzip valgrind xz-utils util-linux
+      python3-pip python3-venv strace tar tor unzip valgrind xz-utils util-linux
 
 # ==============================================================================
 # The vscode user space, created before any bind mount lands in it.
@@ -64,11 +70,14 @@ COPY .devcontainer/pins.sh \
      .devcontainer/install-claude-code.sh \
      .devcontainer/install-opencode.sh \
      .devcontainer/install-uv.sh \
+     .devcontainer/install-python.sh \
      .devcontainer/install-serena.sh \
      .devcontainer/install-racket-goblins.sh \
      .devcontainer/install-playwright.sh \
      .devcontainer/verify-toolchains.sh \
      "${PANCAKE_DEVCONTAINER_DIR}/"
+COPY .devcontainer/patches/crypto-lib-racket-9.2.patch \
+     "${PANCAKE_DEVCONTAINER_DIR}/patches/crypto-lib-racket-9.2.patch"
 
 RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-zls.sh" \
@@ -76,6 +85,7 @@ RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-js-toolchains.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-claude-code.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-opencode.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/install-python.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-serena.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-racket-goblins.sh"
 

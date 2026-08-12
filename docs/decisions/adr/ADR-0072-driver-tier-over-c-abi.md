@@ -3,11 +3,11 @@ id: ADR-0072
 status: accepted
 date: 2026-07-09
 tags: [c-abi, driver, host, net, netlayer, loop, bindings, wasm, browser]
-decision: "The C ABI gains a `libpancake_driver` archive that projects `driver.core.Host` (ADR-0068) as a sans-io core a binding drives, so a binding stops re-implementing the host tier per language on top of `pancake_peer_*` and the then-current pancake_node_* waist (since deleted; CapTP product work uses `pancake_host_*` only). Two seams are host-configurable: a binding registers netlayers as byte-fed callback vtables dispatched by transport symbol (the C projection of ADR-0062's `[]const net.netlayer.Netlayer`), and a binding either owns the loop (the core never blocks, draining through a `schedule` callback and honoring a `set_read_paused` backpressure callback while the binding pumps its own event loop) or delegates it (name a built-in netlayer and call a blocking `run`, where `net.TcpLoop` / `completion.Loop` owns sockets and scheduling; Zig CapTP multi-conn rides `driver.Bridge` per ADR-0076). The core is byte-fed, so Zig's stream-shaped `tcp`/`iroh` netlayers are used only in the Zig-owned mode where the loop bridges stream to feed; the byte-fed seam is not a rewrite of the stream contract. A published actor is embedder-hosted behavior the core hosts through `Vat.spawnHosted` / `HostedActor` (ADR-0071), reusing that contract rather than a second archive; the interim `libpancake_actors` archive is retired (this ADR supersedes ADR-0071: the `spawnHosted` foundation stands, consumed here). Because the core is sans-io it compiles to `wasm32`, so a browser binding (ADR-0070) drives this same core from JS through a WebSocket netlayer instead of driving the raw `Peer`. The archive is named after its Zig module (as `actors`/`net`/`ocapn` are), imports `driver` and `c_abi_shared`, exports only the `pancake_host_*` family, is symbol-disjoint per ADR-0059, and is an adapter, never in the sans-io core."
+decision: "The C ABI gains a `libpancake_driver` archive that projects `driver.core.Host` (ADR-0068) as a sans-io core a binding drives, so a binding stops re-implementing the host tier per language on top of `pancake_peer_*` and the then-current pancake_node_* waist (since deleted; CapTP product work uses `pancake_host_*` only). Two seams are host-configurable: a binding registers netlayers as byte-fed callback vtables dispatched by transport symbol (the C projection of ADR-0062's `[]const net.netlayer.Netlayer`), and a binding either owns the loop (the core never blocks, draining through a `schedule` callback and honoring a `set_read_paused` backpressure callback while the binding pumps its own event loop) or delegates it (name a built-in netlayer and call a blocking `run`, where `net.TcpLoop` / `completion.Loop` owns sockets and scheduling; Zig CapTP multi-session work rides `driver.Bridge` per ADR-0076). The core is byte-fed, so Zig's stream-shaped `tcp`/`iroh` netlayers are used only in the Zig-owned mode where the loop bridges stream to feed; the byte-fed seam is not a rewrite of the stream contract. A published actor is embedder-hosted behavior the core hosts through `Vat.spawnHosted` / `HostedActor` (ADR-0071), reusing that contract rather than a second archive; the interim `libpancake_actors` archive is retired (this ADR supersedes ADR-0071: the `spawnHosted` foundation stands, consumed here). Because the core is sans-io it compiles to `wasm32`, so a browser binding (ADR-0070) drives this same core from JS through a WebSocket netlayer instead of driving the raw `Peer`. The archive is named after its Zig module (as `actors`/`net`/`ocapn` are), imports `driver` and `c_abi_shared`, exports only the `pancake_host_*` family, is symbol-disjoint per ADR-0059, and is an adapter, never in the sans-io core."
 supersedes: [ADR-0071]
 superseded_by: []
 amends: []
-amended_by: [ADR-0096, ADR-0100, ADR-0110]
+amended_by: [ADR-0096, ADR-0100, ADR-0110, ADR-0112, ADR-0113]
 ---
 
 # ADR-0072 The driver tier over the C ABI: host-configurable netlayers and loop
@@ -15,7 +15,7 @@ amended_by: [ADR-0096, ADR-0100, ADR-0110]
 > ADR-0100 amends the Host internals only: gifts and replay counters are
 > session-owned, while the byte-fed C waist and action contract remain intact.
 
-> **Vocabulary note (ADR-0079).** CapTP multi-connection product work is
+> **Vocabulary note (ADR-0079).** CapTP multi-session product work is
 > `Host` / `PancakeHost` / binding `Host` over `pancake_host_*`. The
 > pancake_node_* C waist named in Context below is deleted; binding `Node` is
 > not current. Embedder-hosted behavior is `HostedActor` / `spawnHosted`.
@@ -29,6 +29,15 @@ amended_by: [ADR-0096, ADR-0100, ADR-0110]
 > surface. `PancakeReference` is one opaque Host-scoped id; raw peer and owning
 > transport-session mirrors are retired. The byte-fed action/pump design below
 > stands.
+
+> **Archive/provider amendment (ADR-0112).** The archive and transport
+> composition described below are historical. The current byte-fed archive is
+> `libpancake_host`, which owns `pancake_host_*`; `libpancake_driver` exports
+> only `pancake_driver_*`, adopts a quiescent Host through
+> `pancake_driver_take_host`, and starts with zero transports. Transport
+> archives install provider packages through the standalone
+> `pancake_transport_provider.h` ABI. See ADR-0112 for the current native-loop
+> contract; the byte-fed Host seam remains the primitive described here.
 
 ## Context
 
@@ -82,9 +91,8 @@ at the boundary that performs them.
 with two host-configurable seams.** A binding drives one shared host core
 instead of re-implementing the tier; `src/driver/core/host.zig` is the authority the
 archive wraps, and `src/c_abi/driver` is the new root. The archive is named
-after its Zig module, consistent with `net` to
-`libpancake_net`, and `ocapn` to `libpancake_ocapn`; `Host` is a type inside the
-module, not the archive's name.
+after its Zig module; `Host` is a type inside the module, not the archive's
+name.
 
 **The embedder owns its transports outright; the seam is a pull-based action
 queue, not callback vtables.** The embedder opens connections against its own
@@ -133,14 +141,12 @@ byte-fed WebSocket netlayer. JS owns the socket, feeds bytes, honors
 `schedule` as `queueMicrotask`: instead of driving the raw `Peer`. This is the
 same JS-owns-the-socket pattern ADR-0070 chose, lifted to the host tier.
 
-**Placement follows ADR-0059.** `libpancake_driver` exports the `pancake_host_*`
-family (plus its own `pancake_host_last_error`): the archive is named for its
-Zig module, as `actors`/`net`/`ocapn` are, while the function family reads for
-its entry type `Host`, the same divergence `libpancake_net_transport_tcp` to
-`pancake_tcp_*` already carries. It imports `driver` and `c_abi_shared`, reuses
-the shared value vocabulary by layout, is symbol-disjoint, and sits outside the
-layer DAG (`.graph = false`) like the transport archives. It is an adapter tier
-above the sans-io core, never inside it.
+**Placement in the original decision.** At acceptance, this section placed the
+byte-fed Host family in `libpancake_driver`. ADR-0112 amended that placement:
+`libpancake_host` owns `pancake_host_*`, while `libpancake_driver` owns only its
+loop family and adopts Host explicitly. The two archives remain symbol-disjoint,
+share C layouts rather than symbols, and sit outside the layer DAG as adapter
+tiers above the sans-io core.
 
 ## Scope (what this does not decide)
 
@@ -376,19 +382,30 @@ their hand-rolled drains (async dial / promise settlement / Racket sync lock).
 ## Amendment (2026-07-15, sixth): bindings adopt `pancake_host_pump_drain`
 
 The fifth amendment authorized the opt-in wrapper; this amendment lands the
-binding adoption. Every language action module drains through
-`pancake_host_pump_drain` with **synchronous park-only arms**: decode and
-append (or accumulate `drain-effects`), never await inside the C loop. Async
-bindings (Python / TypeScript / Rust) await parked arms after the C call
-returns; Racket keeps its sync `with-host-drain` form (flush / gift-id
-under the host lock, dial / close / settle as post-lock fires).
+binding adoption where the runtime can supply C callbacks. Python, Rust, and
+Racket drain through `pancake_host_pump_drain` with **synchronous park-only
+arms**: decode and append (or accumulate `drain-effects`), never await inside
+the C loop. TypeScript drains the normative `pancake_host_next_action` queue
+directly because browser Wasm carries no general C-callback seam. The async
+bindings await parked arms only after the pop loop returns; Racket keeps its
+sync `with-host-drain` form (flush / gift-id under the host lock, dial / close /
+settle as post-lock fires).
 
 The pull-queue remains normative: `pancake_host_next_action` stays the C
 contract the wrapper pops internally, and `examples/c/host_embedder_pump.c`
 still names it. Binding action modules must not hand-roll a
-`pancake_host_next_action` pop loop. `zig build meta-check` refuses that
-symbol in those four files and requires `pancake_host_pump_drain` instead.
+`pancake_host_next_action` pop loop where the callback wrapper is available.
+`zig build meta-check` requires the wrapper in Python, Rust, and Racket while
+holding TypeScript's callbackless pull loop to the same generated action
+inventory.
 
-**Landed.** All four bindings' action modules call `pancake_host_pump_drain`;
-executor arm bodies (socket I/O, language promise settlement) stay hand-written
-per language.
+**Landed.** Python, Rust, and Racket call `pancake_host_pump_drain`; TypeScript
+uses the pull queue. Executor arm bodies (socket I/O, language promise
+settlement) stay hand-written per language.
+
+Every authority-bearing effect has a terminal report after it is popped.
+`DIAL` already answers with `pancake_host_dialed` or
+`pancake_host_dial_failed`; `NEED_GIFT_ID` answers with
+`pancake_host_provide_gift_id` or `pancake_host_gift_id_failed`. The failure
+arm breaks the claimed handoff in the Node, so an entropy-provider failure
+cannot silently discard the only ticket capable of settling it.

@@ -18,13 +18,18 @@ const pancake = @import("pancake");
 
 const cabi = @import("c_abi");
 const cabi_driver = @import("c_abi_host");
+const cabi_loop = @import("c_abi_driver");
 const cabi_tcp = @import("c_abi_net_transport_tcp");
+const cabi_relay = @import("c_abi_net_transport_relay");
 const cabi_inproc = @import("c_abi_net_transport_inproc");
 const c = @cImport({
     @cInclude("pancake_ocapn.h");
     @cInclude("pancake_host.h");
+    @cInclude("pancake_driver.h");
     @cInclude("pancake_net_transport_tcp.h");
+    @cInclude("pancake_net_transport_relay.h");
     @cInclude("pancake_net_transport_inproc.h");
+    @cInclude("pancake_net_transport_webrtc.h");
 });
 
 /// Every field of the Zig struct sits at the same offset in the C struct, and
@@ -63,7 +68,9 @@ fn expectFunctionsDeclared(comptime Mod: type, comptime header: []const u8) void
 test "every exported C ABI function is declared in its header" {
     expectFunctionsDeclared(cabi, "pancake_ocapn.h");
     expectFunctionsDeclared(cabi_driver, "pancake_host.h");
+    expectFunctionsDeclared(cabi_loop, "pancake_driver.h");
     expectFunctionsDeclared(cabi_tcp, "pancake_net_transport_tcp.h");
+    expectFunctionsDeclared(cabi_relay, "pancake_net_transport_relay.h");
     expectFunctionsDeclared(cabi_inproc, "pancake_net_transport_inproc.h");
 }
 
@@ -73,6 +80,21 @@ test "C header struct layouts match the Zig c_abi source" {
     try expectLayoutParity(c.PancakeAllocator, cabi.PancakeAllocator);
     try expectLayoutParity(c.PancakeReference, cabi.PancakeReference);
     try expectLayoutParity(c.PancakeArgument, cabi.PancakeArgument);
+    try expectLayoutParity(c.PancakeDriverEvent, cabi_loop.PancakeDriverEvent);
+    try expectLayoutParity(c.PancakeMultiplexedReadyEvent, cabi_loop.PancakeMultiplexedReadyEvent);
+    try expectLayoutParity(c.PancakeMultiplexedTransport, cabi_loop.PancakeMultiplexedTransport);
+    try expectLayoutParity(c.PancakeTransportProfile, cabi_loop.PancakeTransportProfile);
+    try expectLayoutParity(c.PancakeStreamTransport, cabi_loop.PancakeStreamTransport);
+    try expectLayoutParity(c.PancakeTransportProviderEntry, cabi_loop.PancakeTransportProviderEntry);
+    try expectLayoutParity(c.PancakeTransportProvider, cabi_loop.PancakeTransportProvider);
+    try expectLayoutParity(c.PancakeRelayConfig, cabi_relay.PancakeRelayConfig);
+}
+
+test "the generated WebRTC header exposes its control and provider surface" {
+    try std.testing.expect(@hasDecl(c, "pancake_webrtc_peer_authorize_remote"));
+    try std.testing.expect(@hasDecl(c, "pancake_webrtc_transport_provider"));
+    try std.testing.expect(@hasDecl(c, "PancakeWebrtcReadyEvent"));
+    try std.testing.expect(@hasDecl(c, "PancakeWebrtcConfig"));
 }
 
 test "C header return codes match the Zig c_abi source" {

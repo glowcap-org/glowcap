@@ -3,11 +3,11 @@ id: ADR-0100
 status: accepted
 date: 2026-08-01
 tags: [captp, handoff, session, authority, gifts]
-decision: "Each CapTP Peer owns its session's deposited gifts, accepted replay counter, and spec-profile emitted counter. Withdrawal resolves the live Gifter–Exporter Peer named by the signed give, verifies with that Peer's session key, consumes from that Peer's gift table, and records replay state on the Receiver–Exporter Peer. Closing a Peer destroys the authority it owns. A Node's automatic V1 redeem path uses a separate host-lifetime emitted-count cursor for Goblins reconnect interoperability; this changes count issuance only and never receive-side validation. Fresh per-connection session keys (ADR-0097) isolate reconnect incarnations on ordinary product Hosts. Node otherwise keeps only authority-neutral handoff routing and scheduler state."
+decision: "Each CapTP Peer owns its session's deposited gifts, accepted replay counter, and spec-profile emitted counter. Withdrawal resolves the live Gifter–Exporter Peer named by the signed give, verifies with that Peer's session key, consumes from that Peer's gift table, and records replay state on the Receiver–Exporter Peer. Closing a Peer destroys the authority it owns. A Node's automatic V1 redeem path uses a separate host-lifetime emitted-count cursor for Goblins reconnect interoperability; this changes count issuance only and never receive-side validation. Fresh per-session signing keys (ADR-0097) isolate reconnect incarnations on ordinary product Hosts. Node otherwise keeps only authority-neutral handoff routing and scheduler state."
 supersedes: [ADR-0056]
 superseded_by: []
 amends: [ADR-0025, ADR-0066, ADR-0068, ADR-0072, ADR-0083, ADR-0096]
-amended_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0100 Session-owned handoff authority
@@ -33,12 +33,12 @@ dirty-FIFO slot and one flush plus one close action slot per live shell. A drive
 that encounters OOM keeps the exact wake and dirty row for the next action
 drain.
 
-Reconnect-incarnation isolation for ordinary product Hosts is ADR-0097 work
-that has since shipped: `PollHost`, the C Host, and the bindings mint fresh
-session keys from a rooted entropy seed, and the reconnect evidence there
-holds. A bare byte-fed Host that omits `Options.session_seeds` still defaults
-to reusing the durable seed, which can recreate session names across reconnect;
-that default is the remaining footgun, not an open ADR-0097 deliverable.
+Reconnect-incarnation isolation is shipped at every Host surface. `HostRuntime`,
+the C Host, and the bindings mint fresh session keys from a rooted entropy
+seed, and the reconnect evidence there holds. The C Host refuses a
+durable-only 32-byte seed. The sans-I/O `driver_core.Host.init` requires a
+separate per-process session root, so omitting entropy or silently reusing the
+durable identity is not a representable constructor mode.
 
 The V1 Goblins compatibility case is also shipped. Goblins 0.15 retains the
 last accepted count on its Gifter–Exporter coordinator, so it rejects count

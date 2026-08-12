@@ -37,8 +37,8 @@ pub fn needsV1_0Translation(self: *const Session) bool {
 /// place, the whole wire-delta accounting its on-wire mention requires:
 /// allocate the export, install the answer-to-resolver link, and take the
 /// export's wire-delta retain. The V1.0 encode hooks
-/// (`engine.v1_0.installResolverForOutboundDeliver` for an answered deliver,
-/// `installListenerForOutboundProjection` for a projection listener) put the
+/// (`engine.v1_0.prepareOutboundDeliver` for an answered deliver,
+/// `prepareProjectionListener` for a projection listener) put the
 /// resolver mention on the wire *outside* `recordSend`/`retainSentExports`,
 /// so this is the single owner of that accounting, both hooks route through
 /// it rather than restating the three steps and risking drift from
@@ -50,7 +50,7 @@ pub fn needsV1_0Translation(self: *const Session) bool {
 /// `bindFreshResolverExport` and its rollback rather than the whole
 /// `nominateResolverExport` verb.
 pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model.ExportPosition {
-    return self.mintMentionedResolverExport(answer, .promise);
+    return self.mintMentionedResolverExport(answer, .object);
 }
 
 /// Record that the partner's inbound `answer` is resolved via their resolver

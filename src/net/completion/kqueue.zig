@@ -1,4 +1,4 @@
-//! The macOS / BSD kqueue completion backend for `completion.Loop`.
+//! The Darwin kqueue completion backend for `completion.Loop`.
 //!
 //! One implementation of the completion-backend interface documented in
 //! `completion.Loop` (`loop.zig`). The portable connection orchestration lives in
@@ -71,9 +71,11 @@ const Pending = struct {
 
 pub const Backend = struct {
     pub const Fd = c.fd_t;
+    pub const adapter_depth = 0;
     /// Platform dial target: a resolved `IpAddress`. OCapN locator resolve
     /// lives on `tcp.DialResolver`, not on this platform Backend.
     pub const ConnectTarget = std.Io.net.IpAddress;
+    pub const ListenerAddress = u16;
 
     allocator: std.mem.Allocator,
     kq: c.fd_t,
@@ -130,10 +132,21 @@ pub const Backend = struct {
         self.scratch_pool.release(@intCast(comp.recv_token));
     }
 
-    fn slot(self: *Backend, fd: c.fd_t) !*Pending {
+    const ReservedSlot = struct {
+        pending: *Pending,
+        inserted: bool,
+    };
+
+    fn reserveSlot(self: *Backend, fd: c.fd_t) !ReservedSlot {
         const gop = try self.pending.getOrPut(fd);
         if (!gop.found_existing) gop.value_ptr.* = .{};
-        return gop.value_ptr;
+        return .{ .pending = gop.value_ptr, .inserted = !gop.found_existing };
+    }
+
+    fn rollbackSlot(self: *Backend, fd: c.fd_t, reserved: ReservedSlot) void {
+        if (!reserved.inserted) return;
+        std.debug.assert(reserved.pending.read == .idle and reserved.pending.write == .idle);
+        std.debug.assert(self.pending.remove(fd));
     }
 
     fn register(self: *Backend, fd: c.fd_t, filter: i16) !void {
@@ -146,22 +159,47 @@ pub const Backend = struct {
             .udata = 0,
         };
         // nchanges = 1, nevents = 0: process the change and return at once.
-        const rc = c.kevent(self.kq, @ptrCast(&change), 1, @ptrCast(&change), 0, null);
-        if (rc < 0) return error.KeventFailed;
+        while (true) {
+            const rc = c.kevent(self.kq, @ptrCast(&change), 1, @ptrCast(&change), 0, null);
+            if (rc >= 0) return;
+            if (std.posix.errno(rc) == .INTR) continue;
+            return error.KeventFailed;
+        }
     }
 
-    // Each submit* registers the kernel filter *before* recording the pending
-    // operation. The other order is not failure-safe: a `Pending` mutated ahead
-    // of a failed `register` would leave a stale user_data behind a propagated
-    // error, and a later registration on the same fd would resurrect it as a
-    // synthesized completion, landing on a reused slot and tearing down an
-    // unrelated connection. A registered one-shot filter with no pending record
-    // is benign: `poll`'s `getPtr(fd) orelse continue` drops it.
+    fn unregister(self: *Backend, fd: c.fd_t, filter: i16) !void {
+        var change: c.Kevent = .{
+            .ident = @intCast(fd),
+            .filter = filter,
+            .flags = c.EV.DELETE,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+        };
+        while (true) {
+            const rc = c.kevent(self.kq, @ptrCast(&change), 1, @ptrCast(&change), 0, null);
+            if (rc >= 0) return;
+            switch (std.posix.errno(rc)) {
+                .INTR => continue,
+                // A one-shot event may already have left the kernel queue. Its
+                // request is still represented by `pending` and is retired by
+                // the synthetic target completion below.
+                .NOENT => return,
+                else => return error.KeventFailed,
+            }
+        }
+    }
+
+    // Reserve the map row before installing the one-shot filter, but publish the
+    // operation only after registration succeeds. This makes both failure halves
+    // transactional: allocation failure installs no kernel state, while kevent
+    // failure rolls back a newly-created idle row.
 
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
-        const p = try self.slot(listen_fd);
+        const reserved = try self.reserveSlot(listen_fd);
+        errdefer self.rollbackSlot(listen_fd, reserved);
         try self.register(listen_fd, c.EVFILT.READ);
-        p.read = .{ .accept = user_data };
+        reserved.pending.read = .{ .accept = user_data };
     }
 
     /// Start an outbound TCP connect: open a nonblocking socket, submit connect,
@@ -188,21 +226,45 @@ pub const Backend = struct {
                 return;
             },
         }
-        const p = try self.slot(fd);
+        const reserved = try self.reserveSlot(fd);
+        errdefer self.rollbackSlot(fd, reserved);
         try self.register(fd, c.EVFILT.WRITE);
-        p.write = .{ .connect = user_data };
+        reserved.pending.write = .{ .connect = user_data };
     }
 
     pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
-        const p = try self.slot(fd);
+        const reserved = try self.reserveSlot(fd);
+        errdefer self.rollbackSlot(fd, reserved);
         try self.register(fd, c.EVFILT.READ);
-        p.read = .{ .recv = user_data };
+        reserved.pending.read = .{ .recv = user_data };
     }
 
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
-        const p = try self.slot(fd);
+        const reserved = try self.reserveSlot(fd);
+        errdefer self.rollbackSlot(fd, reserved);
         try self.register(fd, c.EVFILT.WRITE);
-        p.write = .{ .send = .{ .ud = user_data, .bytes = bytes } };
+        reserved.pending.write = .{ .send = .{ .ud = user_data, .bytes = bytes } };
+    }
+
+    pub fn submitCancel(
+        self: *Backend,
+        cancel_user_data: u64,
+        target_user_data: u64,
+        fd: Fd,
+    ) !void {
+        const pending = self.pending.getPtr(fd) orelse return error.InvalidCancelTarget;
+        switch (pending.read) {
+            .recv => |ud| if (ud != target_user_data) return error.InvalidCancelTarget,
+            .idle, .accept => return error.InvalidCancelTarget,
+        }
+        // Reserve both publications before changing the filter or pending row.
+        // Once the delete succeeds, this backend owns retirement of the target.
+        try self.ready.ensureUnusedCapacity(self.allocator, 2);
+        try self.unregister(fd, c.EVFILT.READ);
+        pending.read = .idle;
+        self.ready.appendAssumeCapacity(.{ .user_data = target_user_data, .result = -1 });
+        self.ready.appendAssumeCapacity(.{ .user_data = cancel_user_data, .result = 0 });
+        if (pending.write == .idle) std.debug.assert(self.pending.remove(fd));
     }
 
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
@@ -249,8 +311,12 @@ pub const Backend = struct {
             };
             break :blk &ts;
         } else null;
-        const got = c.kevent(self.kq, @ptrCast(&events), 0, @ptrCast(&events), want, timeout_ptr);
-        if (got < 0) return error.KeventFailed;
+        const got = while (true) {
+            const rc = c.kevent(self.kq, @ptrCast(&events), 0, @ptrCast(&events), want, timeout_ptr);
+            if (rc >= 0) break rc;
+            if (std.posix.errno(rc) == .INTR) continue;
+            return error.KeventFailed;
+        };
         if (got == 0) return 0;
 
         var produced: usize = 0;
@@ -316,12 +382,30 @@ pub const Backend = struct {
                             // result stays -1
                         } else {
                             const accepted = accept(fd, null, null);
-                            // Darwin does not inherit nonblocking across accept(2), and
-                            // a blocking send at write-readiness would park the whole
-                            // loop (ADR-0042), so the accepted fd must be nonblocking
-                            // before the loop ever submits on it. If it cannot be,
-                            // refuse the connection; the loop's re-arm recovers.
-                            if (accepted >= 0 and !socket_tcp.setNonblocking(accepted)) {
+                            if (accepted < 0) switch (std.posix.errno(accepted)) {
+                                // Readiness can be spent by another kernel event,
+                                // and a signal can interrupt before accept makes
+                                // progress. Preserve the outstanding operation;
+                                // only a failed re-arm is terminal.
+                                .AGAIN, .INTR => {
+                                    self.register(fd, c.EVFILT.READ) catch {
+                                        p.read = .idle;
+                                        out[produced] = comp;
+                                        produced += 1;
+                                    };
+                                    continue;
+                                },
+                                else => {},
+                            };
+                            // Darwin does not inherit nonblocking across
+                            // accept(2), and a blocking send at write-readiness
+                            // would park the whole loop (ADR-0042). The accepted
+                            // fd also needs SO_NOSIGPIPE before any send, so a
+                            // torn-down peer becomes a completion error rather
+                            // than a process signal. If either socket option
+                            // cannot be set, refuse the connection; the loop's
+                            // re-arm recovers.
+                            if (accepted >= 0 and (!socket_tcp.setNonblocking(accepted) or !socket_tcp.setNoSigpipe(accepted))) {
                                 _ = close(accepted);
                                 comp.result = -1;
                             } else {
@@ -343,12 +427,36 @@ pub const Backend = struct {
                         produced += 1;
                     },
                     .send => |s| {
-                        const result: i32 = if (ev.flags & EV_ERROR != 0)
-                            -1
-                        else
-                            @intCast(c.send(fd, s.bytes.ptr, s.bytes.len, 0));
+                        if (ev.flags & EV_ERROR == 0) {
+                            const sent = c.send(fd, s.bytes.ptr, s.bytes.len, 0);
+                            if (sent < 0) switch (std.posix.errno(sent)) {
+                                // kqueue reports readiness, not completion.
+                                // A stale edge can find the socket not writable
+                                // anymore, and a signal can interrupt before
+                                // progress. Keep the op outstanding and wait
+                                // for the next write edge.
+                                .AGAIN, .INTR => {
+                                    self.register(fd, c.EVFILT.WRITE) catch {
+                                        p.write = .idle;
+                                        out[produced] = .{ .user_data = s.ud, .result = -1 };
+                                        produced += 1;
+                                    };
+                                    continue;
+                                },
+                                else => {
+                                    p.write = .idle;
+                                    out[produced] = .{ .user_data = s.ud, .result = -1 };
+                                    produced += 1;
+                                    continue;
+                                },
+                            };
+                            p.write = .idle;
+                            out[produced] = .{ .user_data = s.ud, .result = @intCast(sent) };
+                            produced += 1;
+                            continue;
+                        }
                         p.write = .idle;
-                        out[produced] = .{ .user_data = s.ud, .result = result };
+                        out[produced] = .{ .user_data = s.ud, .result = -1 };
                         produced += 1;
                     },
                 }
@@ -366,11 +474,15 @@ pub const Backend = struct {
         return socket_tcp.openSocket(tcp_os);
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
+    pub fn listenerAddress(_: *Backend, fd: Fd) !ListenerAddress {
         var addr: sockaddr_in = .{ .port = 0, .addr = 0 };
         var len: c.socklen_t = @sizeOf(sockaddr_in);
         if (c.getsockname(fd, @ptrCast(&addr), &len) < 0) return error.GetsocknameFailed;
         return std.mem.bigToNative(u16, addr.port);
+    }
+
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *Backend, fd: Fd) void {
@@ -384,6 +496,23 @@ pub const Backend = struct {
         _ = c.shutdown(fd, c.SHUT.RDWR);
     }
 };
+
+/// Narrow runtime proof for the transactional registration rule above. Kept
+/// test-only so backend bookkeeping does not become public API.
+pub const white_box = if (builtin.is_test) struct {
+    pub fn failedRegistrationLeavesNoPending(allocator: std.mem.Allocator) !bool {
+        var backend = try Backend.init(allocator, 1, 1, 64);
+        defer backend.deinit();
+
+        const fd = try Backend.openSocket();
+        backend.closeFd(fd);
+        const before = backend.pending.count();
+        backend.submitRecv(1, fd) catch |err| {
+            return err == error.KeventFailed and before == backend.pending.count();
+        };
+        return false;
+    }
+} else struct {};
 
 // accept(2) is `pub extern` in std.c, but reference it through a thin alias so the
 // call sites read the same as the other socket calls.

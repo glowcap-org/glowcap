@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const test_host = @import("../support/core_host.zig");
 
 const Host = pancake.driver.core.Host;
 const engine = pancake.ocapn.engine;
@@ -13,7 +14,7 @@ test "Host.Options projects full SessionLimits into minted peers" {
     limits.max_frame_bytes = 4096;
     limits.queue_cap = 17;
     limits.max_imports = 42;
-    var host = Host.init(allocator, [_]u8{0xab} ** 32, .{ .limits = limits });
+    var host = test_host.init(allocator, [_]u8{0xab} ** 32, .{ .limits = limits });
     defer host.deinit();
 
     try std.testing.expectEqual(@as(usize, 4096), host.opts.frameCap());
@@ -57,7 +58,7 @@ test "Host mint projects full SessionLimits onto an adopted peer" {
     limits.queue_cap = 17;
     limits.max_imports = 42;
 
-    var server = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .limits = limits });
+    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, .{ .limits = limits });
     defer server.deinit();
 
     var pinned = engine.Peer.initNegotiating(allocator);

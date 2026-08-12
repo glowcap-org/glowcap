@@ -14,15 +14,16 @@
 // ── Constants (values mirror src/c_abi declarations) ─────────────────────
 
 export const OK = 0;
-export const INVALID_ARGUMENT = -3;
-export const WOULD_BLOCK = -7;
-export const CLOSED = -8;
-export const IO = -9;
-export const BUFFER_TOO_SMALL = -16;
-export const NOT_FOUND = -15;
-export const UNSUPPORTED_VALUE = -13;
-export const BROKEN = -14;
-export const TIMEOUT = -17;
+export const INVALID_ARGUMENT = -2;
+export const INTERNAL = -5;
+export const WOULD_BLOCK = -6;
+export const CLOSED = -7;
+export const IO = -8;
+export const BUFFER_TOO_SMALL = -14;
+export const NOT_FOUND = -13;
+export const UNSUPPORTED_VALUE = -11;
+export const BROKEN = -12;
+export const TIMEOUT = -15;
 export const FRAME_SHAPE_BYTE = 0;
 export const FRAME_SHAPE_WORD = 1;
 export const HOST_ACTION_DIAL = 0;
@@ -31,11 +32,21 @@ export const HOST_ACTION_NEED_GIFT_ID = 2;
 export const HOST_ACTION_SETTLE = 3;
 export const HOST_ACTION_FAIL = 4;
 export const HOST_ACTION_CLOSE = 5;
+export const HOST_ACTION_RESUME = 6;
 export const DEFAULT_FRAME_CAP = 1048576;
 export const MAX_LOCAL_FORWARD_HOPS = 256;
 export const HANDSHAKE_TIMEOUT_MS = 10000;
+export const DEFAULT_PENDING_ACCEPTS = 128;
+export const DEFAULT_HANDSHAKE_CONCURRENCY = 16;
+export const MAX_HANDSHAKE_CONCURRENCY = 32;
 export const DISCOVERY_DIAL_RETRY_MS = 3000;
 export const DISCOVERY_DIAL_MAX_ATTEMPTS = 24;
+export const DRIVER_OPTIONS_ABI_VERSION = 1;
+export const DRIVER_MAX_WAIT_MS = 2147483647;
+export const DRIVER_DEFAULT_WIRE_BUFFER_BYTES = 16384;
+export const DRIVER_DEFAULT_MAX_PENDING_OPENS = 256;
+export const DRIVER_DEFAULT_HANDSHAKE_MS = 10000;
+export const DRIVER_DEFAULT_SETTLE_MS = 10000;
 export const TRACE_SESSION_OPEN = 0;
 export const TRACE_MESSAGE = 1;
 export const TRACE_SESSION_CLOSE = 2;
@@ -50,6 +61,23 @@ export const DIAL_REACH_EXPLICIT = 2;
 export const DIAL_POSTURE_REDEEM = 0;
 export const DIAL_POSTURE_EXPLICIT = 1;
 export const DIAL_POSTURE_EXPLICIT_NONE = 2;
+export const DESIGNATOR_SCHEME_ADDRESS = 0;
+export const DESIGNATOR_SCHEME_KEY = 1;
+export const HOST_OUTBOUND_PREFIX_CAP = 32;
+export const DRIVER_EVENT_OPENED = 0;
+export const DRIVER_EVENT_OPEN_FAILED = 1;
+export const DRIVER_EVENT_ACCEPTED = 2;
+export const DRIVER_EVENT_SESSION_CLOSED = 3;
+export const DRIVER_EVENT_COMPLETION = 4;
+export const DRIVER_ADOPT_DIALED = 0;
+export const DRIVER_ADOPT_ACCEPTED = 1;
+export const LOCATOR_VIEW_ABI_VERSION = 1;
+export const HINT_STRING = 1;
+export const HINT_BYTES = 2;
+export const HINT_BOOLEAN = 3;
+export const HINT_INTEGER = 4;
+export const HINTS_MAP = 0;
+export const HINTS_BOOLEAN_FALSE = 1;
 export const DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT = 0;
 export const DURABLE_PROVENANCE_UNAUTHENTICATED = 1;
 export const IROH_REACH_DIRECT = 0;
@@ -94,6 +122,16 @@ export const FEATURE_FULL = 15;
 export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
+export const HINT_DIRECT_ADDRESSES = "direct-addresses";
+export const TRANSPORT_TCP = "tcp";
+export const TRANSPORT_ONION = "onion";
+export const TRANSPORT_KEYED_TCP = "keyed-tcp";
+export const TRANSPORT_INPROC = "inproc";
+export const TRANSPORT_IROH = "iroh";
+export const TRANSPORT_KEYED_RELAY = "keyed-relay";
+export const TRANSPORT_WEBRTC = "webrtc";
+export const TRANSPORT_NOISE_TCP = "noise-tcp";
+export const TRANSPORT_NOISE_RELAY = "noise-relay";
 
 // ── Wasm layout-descriptor manifest (pancake_wasm_abi_layout) ────────────
 // Struct index i of the wasm32 module's layout descriptor is row i here;
@@ -113,9 +151,10 @@ export const WASM_LAYOUT_STRUCTS = [
 	{ prefix: "HOST_PUMP_HOOKS", fields: ["CTX", "FLUSH", "CLOSE", "NEED_GIFT_ID", "COMPLETE", "DIAL"] },
 	{ prefix: "DIAL_PLAN", fields: ["SHAPE", "HOST", "HOST_LEN", "PORT", "ADDRESSES", "ADDRESSES_LEN", "REACH_KIND", "REACH_VALUE"] },
 	{ prefix: "ACCEPT_PLAN", fields: ["DESIGNATOR", "DESIGNATOR_LEN", "DIRECT_ADDRESSES_HINT", "DIRECT_ADDRESSES_HINT_LEN"] },
-	{ prefix: "PENDING_DIAL", fields: ["TRANSPORT", "TRANSPORT_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "HINT", "HINT_LEN"] },
 	{ prefix: "PARTNER_IDENTITY", fields: ["SESSION_KEY", "SESSION_KEY_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "LOCATOR_RECORD", "LOCATOR_RECORD_LEN", "PROVENANCE"] },
 	{ prefix: "TRACE_EVENT", fields: ["KIND", "SESSION", "OUTBOUND", "PROVENANCE", "CODEC", "CAPTP_VERSION", "DESIGNATOR", "DESIGNATOR_LEN", "TRANSPORT", "TRANSPORT_LEN", "SESSION_ID", "SESSION_ID_LEN", "VERB", "VERB_LEN", "FRAME", "FRAME_LEN", "FRAME_TOTAL_LEN", "DROPPED", "DIGEST"] },
+	{ prefix: "LOCATOR_HINT_VIEW", fields: ["NAME", "NAME_LEN", "KIND", "BYTES", "BYTES_LEN", "BOOLEAN_VALUE", "INTEGER_VALUE"] },
+	{ prefix: "LOCATOR_VIEW", fields: ["ABI_VERSION", "STRUCT_SIZE", "TRANSPORT", "TRANSPORT_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "HINTS", "HINT_COUNT", "HINT_WIRE_FORM"] },
 ] as const;
 
 // Layout prefixes that exist only in native archives the wasm32 module
@@ -124,6 +163,8 @@ export const WASM_LAYOUT_STRUCTS = [
 // other 64-bit prefix to have a manifest row above, and refuses a
 // prefix listed here that gains one.
 export const NATIVE_ONLY_LAYOUT_PREFIXES = [
+	"DRIVER_EVENT",
+	"TRANSPORT_PROVIDER",
 	"IROH_READY_EVENT",
 	"WEBRTC_READY_EVENT",
 	"IROH_CONFIG",

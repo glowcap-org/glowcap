@@ -68,7 +68,8 @@ life later. The
 
 Worked examples, as the URIs actually print. Reserved characters inside a
 designator are URI-encoded, which is why a `tcp` peer's `host:port` shows a
-`%3A` where the colon is:
+`%3A` where the colon is. The `keyed-tcp` form below is cleartext and for a
+trusted network only; prefer `noise-tcp` when the stream must be sealed:
 
 ```
 ocapn://127.0.0.1%3A46659.tcp
@@ -76,5 +77,7 @@ ocapn://<64 hex chars>.keyed-tcp?direct-addresses=127.0.0.1%3A9099
 ocapn://<64 hex chars>.iroh/s/<swiss>
 ```
 
-If a name here is new, start with [Concepts]($link.page('concepts')). The
-[Transports]($link.page('transports')) page covers the netlayers a locator can name.
+If a name here is new, start with [Concepts]($link.page('concepts')).
+[Transports]($link.page('transports')) explains what a netlayer is;
+[Choosing a transport]($link.page('transports/choosing')) lists the ones a
+locator can name.

@@ -4,8 +4,9 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of `libpancake_host`. The hand-written sibling
-// (`driver.rs`) owns the `#[repr(C)]` mirrors, the callback `pub type`
+// The raw extern block of the `pancake_host_*` family, exported by the
+// `libpancake_host` archive. The hand-written sibling
+// (`host.rs`) owns the `#[repr(C)]` mirrors, the callback `pub type`
 // aliases, and their layout pins, and re-exports this block, so consumers
 // keep their `sys::host::pancake_host_*` paths.
 
@@ -16,8 +17,9 @@ use core::ffi::{c_int, c_uchar, c_uint, c_void};
 use super::host::{
 	PancakeAcceptPlan, PancakeDialPlan, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree,
 	PancakeHostPumpHooks, PancakeHostSession, PancakeHostTurn, PancakePartnerIdentity,
-	PancakePendingDial, PancakeTraceCallback,
+	PancakeTraceCallback,
 };
+use super::ocapn::{PancakeLocatorHintView, PancakeLocatorView};
 use crate::sys::{
 	PancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference,
 };
@@ -53,15 +55,9 @@ extern "C" {
 		out: *mut c_uchar,
 		out_len: usize,
 	) -> c_int;
-	pub fn pancake_host_set_self_designator(
-		host: *mut PancakeHost,
-		designator: *const c_uchar,
-		len: usize,
-	) -> c_int;
 	pub fn pancake_host_set_advertised_locator(
 		host: *mut PancakeHost,
-		locator: *const c_uchar,
-		locator_len: usize,
+		locator: *const PancakeLocatorView,
 	) -> c_int;
 	pub fn pancake_host_ensure_advertised_locator(
 		host: *mut PancakeHost,
@@ -77,6 +73,7 @@ extern "C" {
 		host: *mut PancakeHost,
 		max_frame_bytes: usize,
 		queue_cap: usize,
+		outbound_high_water_bytes: usize,
 	) -> c_int;
 	pub fn pancake_host_session_open_dialed_locator(
 		host: *mut PancakeHost,
@@ -106,7 +103,10 @@ extern "C" {
 	pub fn pancake_host_pending_dial(
 		host: *mut PancakeHost,
 		ticket: u64,
-		out: *mut PancakePendingDial,
+		hint_storage: *mut PancakeLocatorHintView,
+		hint_capacity: usize,
+		out_locator: *mut PancakeLocatorView,
+		out_hint_count: *mut usize,
 	) -> c_int;
 	pub fn pancake_host_reference_exporter(
 		host: *mut PancakeHost,
@@ -114,8 +114,7 @@ extern "C" {
 		out_session: *mut *mut PancakeHostSession,
 	) -> c_int;
 	pub fn pancake_host_plan_accept(
-		transport: *const c_uchar,
-		transport_len: usize,
+		designator_scheme: c_uint,
 		server_designator: *const c_uchar,
 		server_designator_len: usize,
 		accepted_local_addr: *const c_uchar,
@@ -136,11 +135,15 @@ extern "C" {
 	pub fn pancake_host_session_take_outbound(
 		session: *mut PancakeHostSession,
 		out_frame: *mut PancakeManagedFrame,
+		out_prefix: *mut c_uchar,
+		prefix_cap: usize,
+		out_prefix_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_host_pump_drain(
 		host: *mut PancakeHost,
 		hooks: *const PancakeHostPumpHooks,
 		out_acted: *mut u32,
+		out_yielded: *mut u32,
 	) -> c_int;
 	pub fn pancake_host_dialed(
 		host: *mut PancakeHost,
@@ -159,6 +162,7 @@ extern "C" {
 		gift_id: *const c_uchar,
 		gift_id_len: usize,
 	) -> c_int;
+	pub fn pancake_host_gift_id_failed(host: *mut PancakeHost, ticket: u64) -> c_int;
 	pub fn pancake_host_session_publish(
 		session: *mut PancakeHostSession,
 		name: *const c_uchar,
@@ -225,11 +229,6 @@ extern "C" {
 		host: *mut PancakeHost,
 		callback: PancakeTraceCallback,
 		ctx: *mut c_void,
-	) -> c_int;
-	pub fn pancake_host_spawn_resolver(
-		host: *mut PancakeHost,
-		out_vow_id: *mut u64,
-		out_resolver_id: *mut u64,
 	) -> c_int;
 	pub fn pancake_host_resolver_fulfill(
 		host: *mut PancakeHost,
@@ -302,7 +301,7 @@ extern "C" {
 		args_len: usize,
 		out_reply: *mut PancakeArgument,
 	) -> c_int;
-	pub fn pancake_host_turn_forward_vow(turn: *mut PancakeHostTurn, vow_id: u64) -> c_int;
+	pub fn pancake_host_turn_defer(turn: *mut PancakeHostTurn, out_resolver_id: *mut u64) -> c_int;
 	pub fn pancake_host_turn_spawn(
 		turn: *mut PancakeHostTurn,
 		behavior: PancakeHostBehavior,
@@ -333,8 +332,7 @@ extern "C" {
 	) -> c_int;
 	pub fn pancake_host_session_set_exporter_location(
 		session: *mut PancakeHostSession,
-		locator: *const c_uchar,
-		locator_len: usize,
+		locator: *const PancakeLocatorView,
 	) -> c_int;
 	pub fn pancake_host_session_last_abort(
 		session: *mut PancakeHostSession,

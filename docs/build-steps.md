@@ -76,6 +76,7 @@ zig build bindings-fmt       # format the Rust crates and the TypeScript binding
 zig build bindings-fmt-check # Rust and TypeScript formatting, lint and type-check for both TypeScript scopes (the bindings workspace, and the root scope covering apps/, interop/, transports/, bench/, and tools/), plus ruff and mypy over the Python binding (needs cargo + deno + uv)
 zig build ocapnviz-test      # the ocapnviz visualizer's own test suite; its Deno scope is excluded from the root one, so no other step reaches it. Skips when deno is absent; part of check
 zig build ocapnviz-check     # everything ocapnviz answers to: tests, type-check, formatting, lint (needs deno)
+zig build ocapnviz-live-browser # build production ocapnviz and prove its OCapN Live mode in Chromium (needs deno + a Playwright Chromium)
 zig build ocapnviz-fmt       # format the ocapnviz sources in place (needs deno)
 ```
 
@@ -87,8 +88,15 @@ Each `gen-*` step writes a committed mirror, and its `-check` sibling rides
 ```sh
 zig build gen-header-ocapn       # regenerate include/pancake_ocapn.h from src/c_abi/ocapn
 zig build gen-header-ocapn-check # verify that header matches src/c_abi/ocapn (fails if stale), part of check
+zig build gen-header-locator       # regenerate the shared include/pancake_locator.h POD vocabulary
+zig build gen-header-locator-check # verify the shared locator header (fails if stale), part of check
 zig build gen-header-host        # regenerate include/pancake_host.h from src/c_abi/host
 zig build gen-header-host-check  # verify include/pancake_host.h matches src/c_abi/host (fails if stale), part of check
+zig build gen-header-transport-provider       # regenerate include/pancake_transport_provider.h from the shared provider ABI
+zig build gen-header-transport-provider-check # verify the standalone provider ABI header (fails if stale), part of check
+zig build gen-header-driver      # regenerate include/pancake_driver.h from src/c_abi/driver
+zig build gen-header-driver-check # verify include/pancake_driver.h matches src/c_abi/driver (fails if stale), part of check
+zig build iroh-driver-provider     # live ADR-0112 seam proof: the driver archive dials a real iroh endpoint through the common provider ABI (needs cargo)
 ```
 
 The transport archives each carry their own header.
@@ -98,17 +106,23 @@ zig build gen-header-net-transport-tcp          # regenerate include/pancake_net
 zig build gen-header-net-transport-tcp-check    # verify it matches src/c_abi/net_transport/tcp (fails if stale), part of check
 zig build gen-header-net-transport-inproc       # regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc
 zig build gen-header-net-transport-inproc-check # verify it matches src/c_abi/net_transport/inproc (fails if stale), part of check
+zig build gen-header-net-transport-onion        # regenerate include/pancake_net_transport_onion.h from src/c_abi/net_transport/onion
+zig build gen-header-net-transport-onion-check  # verify it matches src/c_abi/net_transport/onion (fails if stale), part of check
 zig build gen-header-net-transport-iroh         # regenerate include/pancake_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig
 zig build gen-header-net-transport-iroh-check   # verify it matches src/c_abi/net_transport/iroh/mod.zig (fails if stale), part of check
 zig build gen-header-net-transport-webrtc       # regenerate include/pancake_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig
 zig build gen-header-net-transport-webrtc-check # verify it matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale), part of check
+zig build gen-header-net-transport-relay        # regenerate include/pancake_net_transport_relay.h from src/c_abi/net_transport/relay/mod.zig
+zig build gen-header-net-transport-relay-check  # verify it matches src/c_abi/net_transport/relay/mod.zig (fails if stale), part of check
 ```
 
 The bindings read the same facts out of generated mirrors.
 
 ```sh
-zig build gen-ts-abi                    # regenerate the TypeScript ABI mirror from src/c_abi: constants into bindings/ts/abi/constants.ts, 64-bit struct layouts into bindings/ts/stack/internal/abi.ts, and the driver dlopen table into bindings/ts/stack/internal/ffi/host.ts (from the annotated inventory in src/c_abi/host/symbols.zig)
+zig build gen-ts-abi                    # regenerate the TypeScript ABI mirror from src/c_abi: constants into bindings/ts/abi/constants.ts, 64-bit struct layouts into bindings/ts/stack/internal/abi.ts, and the symbol-owning dlopen tables — the libpancake_host byte-fed family into bindings/ts/stack/internal/ffi/host.ts and the libpancake_driver loop family into bindings/ts/stack/internal/ffi/driver.ts (from the annotated inventories in src/c_abi/host/symbols.zig and src/c_abi/driver/symbols.zig)
 zig build gen-ts-abi-check              # verify the generated TypeScript ABI mirror matches src/c_abi (fails if stale), part of check
+zig build gen-site-examples             # assemble site/examples snippets into SuperMD code-tabs between page markers (Start, bindings, onion, browser)
+zig build gen-site-examples-check       # verify those tabs match site/examples (fails if stale), part of check
 zig build gen-binding-constants         # regenerate binding ABI constants from src/c_abi
 zig build gen-binding-constants-check   # verify binding ABI constants match src/c_abi (fails if stale), part of check
 zig build gen-binding-host-action       # regenerate binding HostAction decode/types from src/c_abi/host
@@ -136,6 +150,7 @@ zig build bun-dogfood    # the Bun binding, the same multi-runtime JS binding as
 zig build python-dogfood # the Python binding against the pancake archives (needs python3)
 zig build racket-dogfood # the Racket binding against the pancake archives (needs racket)
 zig build iroh-abi       # build libpancake_net_transport_iroh, the iroh transport's C ABI companion (needs cargo)
+zig build iroh-abi-test  # test that companion, including off-thread constructor diagnostics (needs cargo + deno)
 zig build webrtc-abi     # build libpancake_net_transport_webrtc, the WebRTC transport's C ABI companion (ADR-0089 phase 3; needs cargo)
 ```
 
@@ -210,6 +225,8 @@ zig build iroh-reachability          # opt-in: live real-internet dial-by-id ove
 zig build bindings-iroh-loop         # per-binding iroh scale: many connections served from one loop, every binding (needs cargo + the runtimes)
 zig build deno-iroh-loop             # that scale proof, the Deno binding (ADR-0057; needs cargo + deno)
 zig build python-iroh-loop           # that scale proof, the Python binding (needs cargo + python3)
+zig build python-iroh-driver-provider  # live ADR-0112 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the common provider ABI (needs cargo + python3)
+zig build rust-iroh-driver-provider    # that same parity, the Rust binding (needs cargo)
 zig build rust-iroh-loop             # that scale proof, the Rust binding (needs cargo)
 zig build racket-iroh-loop           # that scale proof, the Racket binding (needs cargo + racket)
 zig build bindings-iroh-handoff      # per-binding three-party handoff over iroh, minted and redeemed in one process (needs cargo + the runtimes)
@@ -236,11 +253,31 @@ zig build webrtc-resident-check     # type-check the netlayer resident src/net/t
 zig build webrtc-interop            # two native pancake peers hold a keyed OCapN session over a real DataChannel, signaling ferried in-process (phase 2; needs cargo)
 zig build webrtc-loop               # many concurrent DataChannels served from one loop thread through the generic Host completion adapter (needs cargo)
 zig build webrtc-bridge-redeem      # the recipient's loop redeems a give naming a bare webrtc designator, dialing through its configured signaling authority (needs cargo)
+zig build webrtc-driver-provider    # install the WebRTC multiplexed provider into the generic C driver and open a session through it (needs cargo)
 zig build webrtc-mesh               # two native peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (phase 5; needs cargo)
 zig build webrtc-signaling-captp    # the exporter hosts a signaling inbox behind a keyed session, and the recipient drives offer/answer/candidate over it (phase 5; needs cargo)
 zig build webrtc-answerer           # build the native answerer for the webrtc-browser-peer proof (phase 6; needs cargo)
 zig build webrtc-browser-peer       # a real headless Chromium runs @pancake/web and @pancake/webrtc, and the DataChannel to the native answerer carries a keyed OCapN session (phase 6; needs cargo + deno + a Playwright Chromium)
 zig build webrtc-browser-to-browser # two headless Chromium peers bring up a direct DataChannel and hold a keyed session, the offerer dialing a bare webrtc locator through Host.setSignaling with the signaling host out of the byte path (needs deno + a Playwright Chromium)
+```
+
+## The onion transport
+
+`onion` is the netlayer the OCapN draft standardizes and the one upstream
+Spritely Goblins ships. Everything that exercises it inside `zig build check`
+drives a fake daemon on loopback, so it needs neither Tor nor the network. The
+focused loop and binding checks use the same local setup. The live steps need
+`tor` on `PATH` and outbound network access. During the conformance step,
+pancake uses operator-supplied control and SOCKS endpoints while the pinned
+upstream netlayer starts its own separate Tor.
+
+```sh
+zig build onion-loop # focused native OnionLoop completion tests against fake SOCKS and control daemons
+zig build bindings-onion # install and exercise the onion provider from Rust, TypeScript, Python, and Racket (needs cargo + deno + python3 + racket)
+zig build onion-interop # live Tor: two pancake peers hold an OCapN conversation over a real onion service (needs tor + network)
+zig build goblins-onion # live Goblins over Tor: a real Goblins vat and a pancake peer hold OCapN sessions over hidden service circuits, both directions (needs tor + network + racket + goblins)
+zig build ocapn-conformance-onion # run the upstream suite through its onion netlayer against pancake, using an operator-supplied Tor (needs uv + tor + network)
+zig build demo-rooms-onion # run one hosted Rooms service and two independent clients over real Tor (needs deno + tor + network)
 ```
 
 ## The browser peer and the relays
@@ -285,6 +322,7 @@ zig build python-keyed-relay-rendezvous   # that cold dial, the Python binding (
 zig build rust-keyed-relay-rendezvous     # that cold dial, the Rust binding (needs deno + cargo)
 zig build racket-keyed-relay-rendezvous   # that cold dial, the Racket binding (needs deno + racket)
 zig build zig-keyed-relay-rendezvous      # that cold dial, the native pancake CLI via PANCAKE_RENDEZVOUS (needs deno)
+zig build rooms-web-noise-relay-provenance # browser relay session reports sealed-channel provenance
 zig build zig-keyed-relay-register        # the native CLI registers at the reference relay with no listening socket and answers a cold dial (needs deno)
 ```
 
@@ -297,8 +335,8 @@ runtimes in one conversation.
 zig build demo-rooms                   # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-rooms-iroh              # the rooms chat over iroh's encrypted QUIC, with cross-language clients through the iroh C ABI (needs cargo + deno)
 zig build demo-rooms-dm                # rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)
-zig build demo-rooms-dm-reply          # a host-wide giftable replies to its caller over the arriving connection via currentSession(), so a non-listening peer receives the reply on the connection it opened (needs deno)
-zig build demo-rooms-dm-back           # a member replies to a non-listening sender across a redeemed introduction, hosting a reply inbox on the redeemed direct connection (sendRedeeming); the native, Chromium-free sibling of rooms-web-dm (needs deno)
+zig build demo-rooms-dm-reply          # a host-wide giftable replies to its caller over the arriving session via currentSession(), so a non-listening peer receives the reply on the session it opened (needs deno)
+zig build demo-rooms-dm-back           # a member replies to a non-listening sender across a redeemed introduction, hosting a reply inbox on the redeemed direct session (sendRedeeming); the native, Chromium-free sibling of rooms-web-dm (needs deno)
 zig build demo-rooms-dm-reredeem       # sendRedeeming resolves the direct exporter from the reply's route, so a re-redeem reaches the same live session with no second dial (needs deno)
 zig build demo-rooms-dm-iroh           # the same DM-by-introduction over encrypted QUIC, where the gift names the exporter's direct addresses (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the gift names the exporter by node id alone and the recipient resolves it through n0 discovery, no direct-address hints (needs cargo + deno + internet)

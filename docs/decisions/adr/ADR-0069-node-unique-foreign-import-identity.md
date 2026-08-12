@@ -7,7 +7,7 @@ decision: "A fetched foreign capability is identified across connections by a no
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0079, ADR-0096]
+amended_by: [ADR-0079, ADR-0096, ADR-0113]
 ---
 
 # ADR-0069 A fetched foreign capability is identified by a node-unique token
@@ -15,8 +15,8 @@ amended_by: [ADR-0079, ADR-0096]
 > **C-projection / vocabulary amendment (ADR-0079).** The Zig `engine.Node`
 > token enrollment and its semantics remain accepted. The former
 > pancake_node_enroll_foreign C entry (and the pancake_node_* waist) were
-> deleted; CapTP multi-connection product work uses `pancake_host_*`. Binding
-> `Node` is not the current multi-conn product: that is binding `Host`. Read
+> deleted; CapTP multi-session product work uses `pancake_host_*`. Binding
+> `Node` is not the current multi-session product: that is binding `Host`. Read
 > historical pancake_node_* / binding-`Node` mentions below as acceptance-time
 > shape.
 
@@ -31,9 +31,9 @@ import position to the connection it lives on, written by `recordForeignHome`
 after every `fetch`.
 
 That key is wrong. An import position is a **per-session** name: CapTP numbers
-imports per connection, each starting fresh, so the same position value occurs on
-every connection. A single node that holds fetched capabilities from more than
-one connection therefore has more than one capability at the same position, and
+imports per session, each starting fresh, so the same position value occurs in
+every session. A single node that holds fetched capabilities from more than one
+session therefore has more than one capability at the same position, and
 the node-global `foreign_homes[position] = home` makes the second `fetch` clobber
 the first. Every later re-gift then resolves to the last-fetched home. A broker
 that introduces a *single* exporter never trips it: which is why every existing

@@ -107,6 +107,40 @@ test "in-flight enliven dedup tracks and clears the outstanding answer" {
     try std.testing.expectEqual(@as(?[]const u8, null), s.pendingEnlivenSwissnum(.from(5)));
 }
 
+test "in-flight enliven indexes reject an answer-position collision" {
+    var s = session.Session.init(std.testing.allocator);
+    defer s.deinit();
+
+    try s.notePendingEnliven("first", .from(5));
+    try std.testing.expectError(
+        error.AnswerAlreadyPending,
+        s.notePendingEnliven("second", .from(5)),
+    );
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.pendingEnlivenAnswer("first"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("second"));
+    try std.testing.expectEqualStrings("first", s.pendingEnlivenSwissnum(.from(5)).?);
+}
+
+test "in-flight enliven registration is failure-atomic across both indexes" {
+    var observed_failures: usize = 0;
+    for (0..4) |fail_index| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+        var s = session.Session.init(failing.allocator());
+        defer s.deinit();
+
+        s.notePendingEnliven("owned-after-success", .from(17)) catch |err| switch (err) {
+            error.OutOfMemory => observed_failures += 1,
+            error.AnswerAlreadyPending => unreachable,
+        };
+        if (s.pendingEnlivenAnswer("owned-after-success") != null)
+            s.finishPendingEnliven("owned-after-success");
+
+        try std.testing.expectEqual(@as(usize, 0), s.pending_enlivens.count());
+        try std.testing.expectEqual(@as(usize, 0), s.pending_enliven_by_answer.count());
+    }
+    try std.testing.expectEqual(@as(usize, 3), observed_failures);
+}
+
 test "checkEnlivenPreconditions rejects non-negotiated and non-open sessions" {
     const allocator = std.testing.allocator;
 

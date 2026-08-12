@@ -56,7 +56,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, .unbounded);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -80,7 +80,7 @@ fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
         .transport = inproc.transport_name,
         .designator = node_designator,
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, read_buf, write_buf, .unbounded);
+    }, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -137,7 +137,7 @@ test "inproc netlayer: dialing an unbound designator fails closed" {
         .transport = inproc.transport_name,
         .designator = "no-such-node",
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, &read_buf, &write_buf, .unbounded));
+    }, .ephemeral, &read_buf, &write_buf, .{ .handshake = .unbounded, .settle = .unbounded }));
 }
 
 /// Park an accept on the listener and expect the clean closed verdict: the
@@ -173,6 +173,64 @@ test "inproc netlayer: closing the listener wakes a parked accept cleanly" {
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
     listener.close();
     try accept_future.await(io);
+}
+
+fn waitFiniteUntilClosed(listener: net.netlayer.Listener) anyerror!void {
+    try std.testing.expectError(error.ConnectionLost, listener.waitAcceptable(10_000));
+}
+
+test "inproc netlayer: close joins a finite readiness wait before freeing storage" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    const listener = try network.netlayer().listen(allocator, .{ .designator = "finite-close" });
+    var waiter = try io.concurrent(waitFiniteUntilClosed, .{listener});
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    listener.close();
+    try waiter.await(io);
+}
+
+fn waitAcceptableForever(listener: net.netlayer.Listener, outcome: *std.atomic.Value(u8)) anyerror!void {
+    const ready = try listener.waitAcceptable(-1);
+    outcome.store(if (ready) 1 else 2, .release);
+    try std.testing.expect(ready);
+}
+
+test "inproc netlayer: unbounded waitAcceptable parks until a dial arrives" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    const listener = try network.netlayer().listen(allocator, .{ .designator = "wait-forever" });
+    defer listener.close();
+
+    var outcome = std.atomic.Value(u8).init(0);
+    var waiter = try io.concurrent(waitAcceptableForever, .{ listener, &outcome });
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try std.testing.expectEqual(@as(u8, 0), outcome.load(.acquire));
+
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+    var conn = try network.netlayer().dial(&peer, .{
+        .transport = inproc.transport_name,
+        .designator = "wait-forever",
+        .hints = model.Hints.emptyFalse(),
+    }, .{ .read = &read_buf, .write = &write_buf });
+    defer conn.deinit();
+
+    try waiter.await(io);
+    try std.testing.expectEqual(@as(u8, 1), outcome.load(.acquire));
 }
 
 /// One racing dial: either it wins (a connection comes back, whose pipes the
@@ -232,6 +290,58 @@ test "inproc netlayer: closing the listener races concurrent dials without touch
     // The listener is gone from the switchboard: a late dial finds no listener
     // and fails closed with the refused-partner reason (ADR-0081).
     try std.testing.expectError(error.ConnectionRefused, dialAgainstCloseDirect(&network, allocator));
+}
+
+const SlowArrival = struct {
+    entered: *std.atomic.Value(bool),
+    release: *std.atomic.Value(bool),
+
+    fn notify(ctx: *anyopaque) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        self.entered.store(true, .release);
+        while (!self.release.load(.acquire)) std.Thread.yield() catch {};
+    }
+};
+
+fn dialWhileArrivalNotifies(network: *inproc.Network) anyerror!void {
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+    var stream = try network.connectFrameStream("notify-close", .syrup, frame_cap, &read_buf, &write_buf);
+    stream.deinit();
+}
+
+fn closeRawListener(listener: *inproc.InprocListener, returned: *std.atomic.Value(bool)) void {
+    listener.close();
+    returned.store(true, .release);
+}
+
+test "inproc listener close drains an in-flight arrival notification" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    const listener = try network.bindFrame(allocator, "notify-close");
+    var entered = std.atomic.Value(bool).init(false);
+    var release = std.atomic.Value(bool).init(false);
+    var slow = SlowArrival{ .entered = &entered, .release = &release };
+    listener.setArrivalNotifier(.{ .ctx = &slow, .notify_fn = SlowArrival.notify });
+
+    var dial = try io.concurrent(dialWhileArrivalNotifies, .{&network});
+    while (!entered.load(.acquire)) std.Thread.yield() catch {};
+
+    var close_returned = std.atomic.Value(bool).init(false);
+    var close = try io.concurrent(closeRawListener, .{ listener, &close_returned });
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    try std.testing.expect(!close_returned.load(.acquire));
+
+    release.store(true, .release);
+    try dial.await(io);
+    close.await(io);
+    try std.testing.expect(close_returned.load(.acquire));
 }
 
 /// As `dialAgainstClose`, but surfacing the dial error to the caller so the

@@ -15,15 +15,26 @@ import {
 	type RelayChannel,
 	type RelayConfig,
 } from "./relay.ts";
+import {
+	type WebSocketByteChannel,
+	webSocketChannel as byteWebSocketChannel,
+	type WebSocketChannelOptions,
+} from "@pancake/stack/websocket";
 
-// The browser-bound sink gates on this send-buffer high-water: a `WebSocket`
-// has no drain event, so `write` polls `bufferedAmount` down before returning.
-// That is what backpressures the far side — while a slow browser's buffer is
-// full, `relayBytes` stops reading the far channel, so its TCP/QUIC receive
-// window closes. Without this gate the relay would drain the far side as fast
-// as it arrives and pile it into the WebSocket's own queue unbounded.
-const wsSendHighWaterBytes = 1 << 20; // 1 MiB
-const wsDrainPollMs = 4;
+/** WebSocket-specific relay adapter limits. */
+export interface WebSocketRelayOptions extends WebSocketChannelOptions {
+	/** Maximum bytes admitted into the adapter's inbound queue before the relay
+	 * pump reads them. Browser WebSockets cannot be paused, and the cold-dial
+	 * rendezvous must install handlers before the far-side dial resolves, so this
+	 * is the adapter's memory bound for early or stalled inbound bytes. */
+	inboundHighWaterBytes?: number;
+}
+
+/** Maximum WebSocket message admitted by the relay adapter. WebSocket
+ * fragmentation is reassembled before `message`, so this is the adapter's
+ * transport-message bound, not a CapTP frame bound. The relay never parses
+ * those frames. A smaller queue limit may be selected per connection. */
+export const MAX_RELAY_WEBSOCKET_MESSAGE_BYTES = 1 << 20;
 
 // The shared byte adaptation for one upgraded WebSocket: an inbound stream that
 // buffers from the instant the socket opens (a peer sends its first handshake
@@ -36,77 +47,30 @@ interface WsByteIo {
 	cancel: () => Promise<void>;
 }
 
-function wsByteIo(socket: WebSocket): WsByteIo {
-	socket.binaryType = "arraybuffer";
-
-	const fromWs = new ReadableStream<Uint8Array>({
-		start(controller) {
-			socket.onmessage = (event: MessageEvent) => {
-				try {
-					controller.enqueue(new Uint8Array(event.data as ArrayBuffer));
-				} catch { /* stream already closed by teardown */ }
-			};
-			socket.onclose = () => {
-				try {
-					controller.close();
-				} catch { /* already closed */ }
-			};
-			socket.onerror = () => {
-				try {
-					controller.error(new Error("WebSocket error"));
-				} catch { /* already closed */ }
-			};
-		},
+function wsByteIo(socket: WebSocket, options?: WebSocketRelayOptions): WsByteIo {
+	const inboundHighWaterBytes = options?.inboundHighWaterBytes ??
+		MAX_RELAY_WEBSOCKET_MESSAGE_BYTES;
+	if (
+		!Number.isSafeInteger(inboundHighWaterBytes) ||
+		inboundHighWaterBytes <= 0 ||
+		inboundHighWaterBytes > MAX_RELAY_WEBSOCKET_MESSAGE_BYTES
+	) {
+		throw new RangeError(
+			`relay WebSocket message bound must be an integer from 1 to ${MAX_RELAY_WEBSOCKET_MESSAGE_BYTES}`,
+		);
+	}
+	const channel: WebSocketByteChannel = byteWebSocketChannel(socket, {
+		...options,
+		inboundHighWaterBytes,
 	});
-	const reader = fromWs.getReader();
-
-	const source: ByteSource = {
-		read: async () => {
-			const { value, done } = await reader.read();
-			return done ? null : value;
-		},
+	return {
+		source: { read: () => channel.read() },
+		// The shared channel owns serialized, bounded outbound chunking. Keeping
+		// that policy there makes browser sessions and both relay legs identical.
+		sink: { write: (chunk) => channel.write(chunk) },
+		close: (code, reason) => channel.close(code, reason),
+		cancel: () => channel.cancel(),
 	};
-	const sink: ByteSink = {
-		write: async (chunk: Uint8Array) => {
-			// A dialer socket may still be completing its WebSocket upgrade when the
-			// far side already has bytes to deliver — the cold-dial rendezvous
-			// buffers the accept side's early hello, so the very first far→dialer
-			// write can land before the dialer socket finishes opening. Wait for the
-			// open rather than throwing and tearing the bridge down. A socket that is
-			// already open skips the wait; one that closes while connecting rejects.
-			if (socket.readyState === WebSocket.CONNECTING) {
-				await new Promise<void>((resolve, reject) => {
-					socket.addEventListener("open", () => resolve(), { once: true });
-					socket.addEventListener("error", () => reject(new Error("WebSocket error")), {
-						once: true,
-					});
-					socket.addEventListener("close", () => reject(new Error("WebSocket closed")), {
-						once: true,
-					});
-				});
-			}
-			if (socket.readyState !== WebSocket.OPEN) {
-				throw new Error("WebSocket closed");
-			}
-			socket.send(chunk);
-			// Backpressure: hold the far→browser leg until the send buffer drains
-			// below the high-water, so the far side's flow control engages.
-			while (
-				socket.bufferedAmount > wsSendHighWaterBytes &&
-				socket.readyState === WebSocket.OPEN
-			) {
-				await new Promise((resolve) => setTimeout(resolve, wsDrainPollMs));
-			}
-		},
-	};
-	const close = (code?: number, reason?: string) => {
-		try {
-			socket.close(code, reason);
-		} catch { /* already closed */ }
-	};
-	const cancel = () => reader.cancel().catch(() => {});
-
-	return { source, sink, close, cancel };
 }
 
 /**
@@ -127,8 +91,9 @@ export async function webSocketRelay(
 	getChannel: () => Promise<RelayChannel>,
 	dialFailReason: string,
 	config: RelayConfig,
+	options?: WebSocketRelayOptions,
 ): Promise<void> {
-	const { source, sink, close, cancel } = wsByteIo(socket);
+	const { source, sink, close, cancel } = wsByteIo(socket, options);
 
 	let channel: RelayChannel;
 	try {
@@ -154,8 +119,11 @@ export async function webSocketRelay(
  * Byte-transparent like every relay leg — the keyed session runs end to end
  * between the two sockets and the relay parses nothing.
  */
-export function webSocketChannel(socket: WebSocket): RelayChannel {
-	const { source, sink, close } = wsByteIo(socket);
+export function webSocketChannel(
+	socket: WebSocket,
+	options?: WebSocketRelayOptions,
+): RelayChannel {
+	const { source, sink, close } = wsByteIo(socket, options);
 	return {
 		read: () => source.read(),
 		write: (chunk: Uint8Array) => sink.write(chunk),

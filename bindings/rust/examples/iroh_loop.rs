@@ -21,10 +21,12 @@
 
 use std::rc::Rc;
 
+use pancake_rust_dogfood::iroh::IrohStream;
 use pancake_rust_dogfood::{
 	connect, format_peer_uri, listen_iroh, Argument, IrohConfig, Reachability, Session,
 	TRANSPORT_IROH,
 };
+use tokio::io::AsyncWriteExt;
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -46,7 +48,7 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn run() -> Result<(), Fail> {
-	let server = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery))?);
+	let server = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
 	let server_id = server.node_id().to_string();
 	println!("rust-iroh-loop: server endpoint id {server_id}");
 
@@ -63,6 +65,11 @@ async fn run() -> Result<(), Fail> {
 		}
 		served // hold the connections (and their drivers) until the loop ends
 	});
+
+	// A valid but incomplete outer frame occupies one handshake lane. Later
+	// clients must still complete before that lane's handshake timeout expires.
+	let mut silent = IrohStream::connect(&server_id, "", Reachability::LocalDiscovery).await?;
+	silent.write_all(b"1").await?;
 
 	// Fan out all clients at once: they share nothing, so the only thing that can
 	// serve them all is the one server loop multiplexing.
@@ -86,15 +93,32 @@ async fn run() -> Result<(), Fail> {
 			}
 		}
 	}
+	drop(silent);
 
 	// Bring the server (and its readiness loop) down so the accept task ends and
 	// the gate never hangs.
-	server.close();
+	server.close()?;
 	let _ = accept_task.await;
 
 	if failures > 0 {
 		return Err(format!("{failures}/{NUM_CONNS} client(s) failed").into());
 	}
+
+	// Host teardown owns admission on every transport. A task parked on iroh's
+	// reactor must wake terminally rather than retaining the endpoint.
+	let closing = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
+	let accept_server = Rc::clone(&closing);
+	let pending_accept = tokio::task::spawn_local(async move { accept_server.accept().await });
+	tokio::task::yield_now().await;
+	closing.host().close();
+	let closed_accept = tokio::time::timeout(std::time::Duration::from_secs(2), pending_accept)
+		.await
+		.map_err(|_| "Host release did not wake iroh accept")??;
+	if closed_accept.is_ok() {
+		return Err("a released Host admitted an iroh session".into());
+	}
+	closing.close()?;
+
 	println!(
         "rust-iroh-loop: OK, {NUM_CONNS} concurrent iroh connections, {CALLS_PER_CONN} calls each, \
          served from one loop over the readiness fd + non-blocking frame I/O"

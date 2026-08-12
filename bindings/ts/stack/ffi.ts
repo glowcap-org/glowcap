@@ -16,3 +16,4 @@ export * from "./internal/constants.ts";
 // error-slot helpers a companion transport marshals through. The public
 // `.` entry never exports these.
 export { ab, outPointer, readErrorSlot } from "./internal/seam.ts";
+export { NativeDiagnostic } from "./transport/diagnostic.ts";

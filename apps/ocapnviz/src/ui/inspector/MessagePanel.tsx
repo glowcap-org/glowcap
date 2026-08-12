@@ -103,6 +103,8 @@ export function MessageFields(
     editor?: EditorBindings | undefined;
   },
 ) {
+  // No world pin to follow: shell `useDocVersion` + `useClockSnapshot` is
+  // enough for playhead-shaped flight and lifecycle.
   // The flight-time row's drag brackets, held by the same thing every
   // other editable row here uses, so a panel that goes away mid-drag
   // cannot leave the transaction open behind it.

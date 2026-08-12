@@ -9,12 +9,11 @@
 
 WebRTC carries pancake between browsers over a direct DataChannel. A session's
 bytes ride a
-[WebRTC](https://www.w3.org/TR/webrtc/) DataChannel, encrypted with DTLS, and the
-channel opens directly between the two peers with no server on the byte path.
-Everything above the wire stays the same OCapN, the object-capability network
-protocol pancake speaks over TCP. What changes is how the channel comes up: a
-WebRTC peer has no address to dial, so the two ends arrange the connection through
-a capability they can both already reach.
+[WebRTC](https://www.w3.org/TR/webrtc/) DataChannel, encrypted with DTLS, with
+no server on the byte path. Above the wire it is the same OCapN pancake speaks
+over TCP. What changes is how the channel comes up: a WebRTC peer has no
+address to dial, so both ends arrange the connection through a capability they
+can already reach.
 
 ## The channel comes up by signaling
 
@@ -27,87 +26,67 @@ session.
 
 [The two peers trade an offer, an answer, and ICE candidates through a signaling capability, then open a direct DataChannel and run the keyed session over it with the signaling host out of the byte path.]($image.siteAsset('diagram-webrtc-signaling.svg'))
 
-Once the candidates pair, the DataChannel opens directly between the two peers and
-the keyed `op:start-session` handshake runs over it end to end. From that point
-the signaling host is out of the byte path entirely: it saw the setup strings, not
-the session, and the DTLS channel and keyed handshake both run above it.
-
-This is also why a bare `webrtc` locator does not dial. pancake's dial
-classifier recognizes the transport and validates its designator (the peer
-name inside the locator, here a public key), but with
-no signaling reference there is nowhere to send an offer. A WebRTC peer is
-reached through a signaling exchange the application arranges. With a
-configured `SignalingAuthority`, the Host dials that bare locator, adopts the
-DataChannel, and continues handoff redemption on the new session. Without that
-authority the dial refuses.
+A bare `webrtc` locator does not dial on its own. pancake recognizes the
+transport and checks the designator (a public key), but with no signaling
+reference there is nowhere to send an offer. Configure a `SignalingAuthority`
+on the Host and the dial adopts the DataChannel. Without that authority the
+dial refuses.
 
 ## One key, pinned by the handshake
 
 Like keyed TCP and iroh, a WebRTC peer is named by its Ed25519 public key in
 canonical hex, not by an address. Signaling brings the channel up, and then the
 keyed handshake pins the session to that designator. Whoever answers has to
-prove the key the peer was introduced under, so a signaling host that swapped in
-a peer of its own is refused before the session ever opens. The DTLS
+prove the key the peer was introduced under, so a signaling host that swapped
+in a peer of its own is refused before the session ever opens. The DTLS
 fingerprint is trusted to introduce, never to impersonate, because it cannot
 complete the keyed handshake for a key it does not hold.
 
-## You only link this if you use it
+## Optional sidecar archive
 
-Same deal as [iroh]($link.page('transports/iroh')): the stack is Rust, so it
-ships as its own sidecar staticlib, `libpancake_net_transport_webrtc`
-([ADR-0089](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)),
-and the base archives stay pure Zig. Building it requires `cargo`. A native
-endpoint gives one readiness descriptor and stable peer ids for many
-DataChannels. Peer creation and signaling are control operations; channel
-events and byte I/O are non-blocking readiness events. The explicit blocking
-connection is still available for one-session use. The scale path adopts those
-readiness-driven peers into the generic Host loop through
-`completion.Loop(webrtc.Backend)` under `driver.Bridge`, with dials driven by a
-configured signaling authority.
+pancake's WebRTC DataChannel sidecar is Rust, so it rides a staticlib in
+`libpancake_net_transport_webrtc`
+([ADR-0089](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
+The base archives stay pure Zig; a program links WebRTC only when it wants it.
+Building the companion archive needs `cargo`.
+
+A native endpoint exposes one readiness descriptor and stable peer ids for many
+DataChannels. The one-session blocking connection remains available. The scale
+path adopts those peers into the same Host loop iroh uses, with dials driven by
+a configured signaling authority.
 [What you can depend on]($link.page('stability')) says which WebRTC checks run
 in CI and which are still manual.
 
 ## The browser arm
 
 The browser is where WebRTC earns its place. `@pancake/webrtc` drives an
-`RTCPeerConnection` and presents the open DataChannel as the same byte channel the
-wasm Host runs a keyed session over, the WebRTC sibling of the relay's WebSocket
-channel. The browser path supports two useful shapes:
+`RTCPeerConnection` and presents the open DataChannel as the same byte channel
+the wasm Host runs a keyed session over. Two useful shapes:
 
 - a browser and a native peer hold a keyed session over a DataChannel, and
-- two browsers, introduced by a signaling host, bring up a direct DataChannel and
-  hold a keyed session with the host out of the byte path.
+- two browsers, introduced by a signaling host, bring up a direct DataChannel
+  and hold a keyed session with the host out of the byte path.
 
 ## STUN, TURN, and staying direct
 
-ICE is how the two ends find a network path, and the posture mirrors iroh's:
-nothing infrastructural is on by default, and a relay is a fallback, never the
-steady path. On loopback and on a LAN, two peers pair on their own host
-candidates with no STUN and no TURN, which is why the in-tree checks stand up
-no ICE infrastructure. A browser deployment that must cross NAT hands
-`@pancake/webrtc` a STUN server in its ICE server list, the way an iroh
-deployment opts into discovery. The native sidecar gathers host candidates
-only, so a native peer today pairs on loopback or a LAN. A TURN relay, where a
-deployment configures one, carries bytes only when ICE finds no direct path at
-all. Even then it sits under the DTLS channel, so it sees timing and volume but
-never the keyed session.
+ICE finds a network path. Nothing infrastructural is on by default; a relay is
+a fallback, never the steady path. On loopback or a LAN, peers pair on host
+candidates with no STUN or TURN. A browser that must cross NAT hands
+`@pancake/webrtc` a STUN server. The native sidecar gathers host candidates
+only, so a native peer pairs on loopback or a LAN. A TURN relay carries bytes
+only when ICE finds no direct path, and even then it sits under DTLS, so it
+sees timing and volume but never the keyed session.
 
 ## Three-party handoff over WebRTC
 
-A three-party handoff is this: peer A, already talking to B, hands B a working
-reference to a third peer C that B has never contacted, and B ends up talking to C
-directly ([Concepts]($link.page('concepts')) covers the general shape).
-
+A handoff over WebRTC is the same introduction as over any other session
+([Concepts]($link.page('concepts')) covers the shape): the gifter names the
+exporter, and the recipient redeems by dialing that peer on a fresh session.
 pancake redeems that path when the redeeming host has signaling authority
-configured. The engine redeems the signed give once a session to C exists; the
-Host dials the bare `webrtc` designator through `SignalingAuthority`, adopts the
-DataChannel, and continues withdrawal there. Native redeem is proved by
-`zig build webrtc-bridge-redeem`; the rooms browser path is proved by
-`zig build rooms-web-dm-webrtc`. A host with no configured authority still
-refuses a bare locator rather than inventing a route.
-[What you can depend on]($link.page('stability')) owns the current evidence
-boundary.
+configured. Without that authority, a bare `webrtc` locator still refuses
+rather than inventing a route.
+[What you can depend on]($link.page('stability')) owns the evidence boundary.
 
-If you got here wondering whether you actually want
-[iroh]($link.page('transports/iroh')) instead: for native peers you probably
-do. The rest of the lineup is on [Transports]($link.page('transports')).
+For native peers that need discovery or NAT traversal, prefer
+[iroh]($link.page('transports/iroh')). The rest of the lineup is on
+[Choosing a transport]($link.page('transports/choosing')).

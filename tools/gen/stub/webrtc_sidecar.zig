@@ -29,6 +29,18 @@ export fn pancake_webrtc_sidecar_endpoint_drain_ready(endpoint: *const anyopaque
     _ = .{ endpoint, out, out_cap };
     @panic(msg);
 }
+
+export fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(endpoint: *const anyopaque) i32 {
+    _ = endpoint;
+    return -1;
+}
+
+export fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(endpoint: *const anyopaque, out: *anyopaque, out_cap: usize) isize {
+    _ = endpoint;
+    _ = out;
+    _ = out_cap;
+    return -1;
+}
 export fn pancake_webrtc_sidecar_endpoint_free(endpoint: *anyopaque) void {
     _ = endpoint;
     @panic(msg);

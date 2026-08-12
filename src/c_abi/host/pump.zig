@@ -7,6 +7,7 @@
 
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
+const common = @import("common.zig");
 const embedder_pump = @import("embedder_pump.zig");
 
 const PancakeHost = c.PancakeHost;
@@ -21,16 +22,20 @@ const PANCAKE_ERR_INTERNAL = shared.PANCAKE_ERR_INTERNAL;
 /// Opt-in convenience drain over `pancake_host_next_action` (ADR-0072 fifth
 /// amendment). Still pops through the pull-queue internally; does not replace
 /// it. NULL `hooks` discards every action (rarely useful). `*out_acted` is 1
-/// when any arm reported progress (optional).
+/// when any arm reported progress (optional). `*out_yielded` is 1 when the
+/// finite Host scheduler requested another embedder turn (optional); return to
+/// the reactor before calling the drain again.
 pub export fn pancake_host_pump_drain(
     host: ?*PancakeHost,
     hooks: ?*const PancakeHostPumpHooks,
     out_acted: ?*u32,
+    out_yielded: ?*u32,
 ) i32 {
-    if (host == null) {
+    const inst = common.instanceFrom(host) orelse {
         shared.setLastError("null host", .{});
         return PANCAKE_ERR_NULL_POINTER;
-    }
+    };
+    if (!common.embedderOwnsRuntime(inst, "pump_drain")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     const Exec = struct {
         hooks: ?*const PancakeHostPumpHooks,
         err: i32 = PANCAKE_OK,
@@ -41,7 +46,11 @@ pub export fn pancake_host_pump_drain(
             var progressed: u32 = 0;
             const rc = cb(hooks_ptr.ctx, h, action, &progressed);
             if (rc != PANCAKE_OK) {
-                self.err = rc;
+                // A non-OK arm is a transactional refusal: it must have
+                // published no external effect. Keep this exact borrowed pop
+                // first for the next drain rather than losing it or appending
+                // it behind younger actions.
+                self.err = if (c.retryBorrowedAction(h)) rc else PANCAKE_ERR_INTERNAL;
                 return error.ArmFailed;
             }
             return progressed != 0;
@@ -63,11 +72,12 @@ pub export fn pancake_host_pump_drain(
         }
     };
     var exec = Exec{ .hooks = hooks };
-    const acted = embedder_pump.drainHost(c, shared, host, &exec) catch {
+    const result = embedder_pump.drainHost(c, shared, host, &exec) catch {
         if (exec.err != PANCAKE_OK) return exec.err;
         shared.setLastError("host action drain failed", .{});
         return PANCAKE_ERR_INTERNAL;
     };
-    if (out_acted) |slot| slot.* = if (acted) 1 else 0;
+    if (out_acted) |slot| slot.* = if (result.acted) 1 else 0;
+    if (out_yielded) |slot| slot.* = if (result.yielded) 1 else 0;
     return PANCAKE_OK;
 }

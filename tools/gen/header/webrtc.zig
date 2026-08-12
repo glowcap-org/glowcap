@@ -43,6 +43,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_webrtc_netlayer_release",
     "pancake_webrtc_peer_new",
     "pancake_webrtc_peer_new_in",
+    "pancake_webrtc_peer_authorize_remote",
     "pancake_webrtc_peer_create_offer",
     "pancake_webrtc_peer_create_answer",
     "pancake_webrtc_peer_set_remote_offer",
@@ -55,6 +56,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_webrtc_peer_try_write",
     "pancake_webrtc_peer_close",
     "pancake_webrtc_peer_release",
+    "pancake_webrtc_transport_provider",
     "pancake_webrtc_last_error",
     "pancake_webrtc_clear_last_error",
 };
@@ -212,6 +214,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_webrtc_peer_new", &.{ "netlayer", "is_offerer", "out_peer" }, "Create a peer from netlayer in one of the two signaling roles into out_peer.\nis_offerer nonzero creates the offerer; zero creates the answerer. Release with\npancake_webrtc_peer_release before releasing netlayer.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_new_in", &.{ "context", "netlayer", "is_offerer", "out_peer" }, "As pancake_webrtc_peer_new, allocating the peer shell through context.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_create_offer", &.{ "peer", "out", "cap", "out_len" }, "Produce the offerer's SDP offer into out (cap bytes), writing the SDP length to\nout_len and setting it as the local description. PANCAKE_ERR_BUFFER_TOO_SMALL\nstill writes the required length to out_len, so retry with a buffer that size.\nOfferer only.");
+    try emitFn(&b, gpa, "pancake_webrtc_peer_authorize_remote", &.{ "peer", "designator", "designator_len" }, "Bind the durable key authorized by the signaling authority before the channel opens.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_create_answer", &.{ "peer", "out", "cap", "out_len" }, "Produce the answerer's SDP answer into out (cap bytes), writing the SDP length\nto out_len and setting it as the local description. Answerer only, after\npancake_webrtc_peer_set_remote_offer. PANCAKE_ERR_BUFFER_TOO_SMALL still writes\nthe required length.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_set_remote_offer", &.{ "peer", "sdp", "sdp_len" }, "Set the far offerer's SDP offer (sdp/sdp_len, borrowed UTF-8) as the remote\ndescription. Answerer side.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_set_remote_answer", &.{ "peer", "sdp", "sdp_len" }, "Set the far answerer's SDP answer (sdp/sdp_len, borrowed UTF-8) as the remote\ndescription. Offerer side.");
@@ -223,6 +226,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_webrtc_peer_try_write", &.{ "peer", "buf", "len", "out_written" }, "Copy a prefix into the bounded send queue and return immediately. Advance by\nout_written; on PANCAKE_ERR_WOULD_BLOCK retry the remaining slice after\nWRITABLE.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_close", &.{"peer"}, "Close the channel without releasing the handle and report CLOSED readiness.\nIdempotent; pancake_webrtc_peer_release is still required afterward.");
     try emitFn(&b, gpa, "pancake_webrtc_peer_release", &.{"peer"}, "Release the peer and close its channel. Release before its netlayer. NULL is a\nno-op.");
+    try emitFn(&b, gpa, "pancake_webrtc_transport_provider", &.{ "netlayer", "out_provider" }, "Fill the generic multiplexed provider package. Signaling establishes peers; the driver claims authorized open peers by stable subject.");
 
     try emitFn(&b, gpa, "pancake_webrtc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last webrtc-transport error into out_buf, the webrtc\nsibling of pancake_last_error, reading libpancake_net_transport_webrtc's own\nper-thread slot. A pancake_webrtc_* call that returns PANCAKE_ERR_IO records its\nconcrete cause here. Copies at most cap-1 bytes and NUL-terminates when cap>0;\nout_buf NULL or cap 0 queries the length. Returns the full message length, or 0\nwhen none is set.");
     try emitFn(&b, gpa, "pancake_webrtc_clear_last_error", &.{}, "Clear the calling thread's webrtc-transport last-error slot.");

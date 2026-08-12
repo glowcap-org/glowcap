@@ -78,9 +78,11 @@ pub const TraceQueue = struct {
         capacity: usize,
         payload_cap: usize,
     ) !TraceQueue {
+        const payload_bytes = std.math.mul(usize, capacity, payload_cap) catch
+            return error.SizeOverflow;
         const slots = try allocator.alloc(Slot, capacity);
         errdefer allocator.free(slots);
-        const payload = try allocator.alloc(u8, capacity * payload_cap);
+        const payload = try allocator.alloc(u8, payload_bytes);
         return .{ .slots = slots, .payload = payload, .payload_cap = payload_cap };
     }
 

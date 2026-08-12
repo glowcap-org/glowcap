@@ -181,6 +181,43 @@ const GiftEntry = struct {
     payload: GiftPayload,
 };
 
+pub const HandoffCountCommitError = error{StaleHandoffCountPreparation};
+
+/// One issuer-bound handoff count prepared for an outbound withdrawal. The
+/// count is visible because it is signed on the wire; advancement remains with
+/// the issuer captured here. Exact release-mode validation makes a stale,
+/// duplicate, or fabricated preparation fail without moving authority.
+pub const PreparedHandoffCount = struct {
+    count: u64,
+    issuer: *anyopaque,
+    commit_fn: *const fn (*anyopaque, u64) HandoffCountCommitError!void,
+
+    pub fn bind(
+        issuer: anytype,
+        count: u64,
+        comptime commit_prepared: fn (@TypeOf(issuer), u64) HandoffCountCommitError!void,
+    ) PreparedHandoffCount {
+        const Issuer = @TypeOf(issuer);
+        const Adapter = struct {
+            fn commitPrepared(erased: *anyopaque, prepared: u64) HandoffCountCommitError!void {
+                return @call(.always_inline, commit_prepared, .{
+                    @as(Issuer, @ptrCast(@alignCast(erased))),
+                    prepared,
+                });
+            }
+        };
+        return .{
+            .count = count,
+            .issuer = issuer,
+            .commit_fn = Adapter.commitPrepared,
+        };
+    }
+
+    pub fn commit(self: PreparedHandoffCount) HandoffCountCommitError!void {
+        try self.commit_fn(self.issuer, self.count);
+    }
+};
+
 /// One CapTP session's gift and handoff-count authority. Deposits made on this
 /// session live in `gifts`; receives arriving on this session use the accepted
 /// count; standalone and next-profile gives redeemed through this session use
@@ -223,15 +260,21 @@ pub const GiftRegistry = struct {
         self.gifts.deinit(allocator);
     }
 
-    /// Mint the `handoff_count` for this session's next withdrawal and advance
-    /// the stored counter. Returns 0 for the
-    /// first withdrawal from a session and a strictly increasing value after,
-    /// exactly what the exporter's `validateWithdraw` replay guard requires.
-    pub fn nextEmittedCount(self: *GiftRegistry) !u64 {
+    /// Prepare the `handoff_count` for this session's next withdrawal without
+    /// consuming it. The caller commits only after its outbound queue owns the
+    /// withdrawal, so malformed input, allocation failure, and backpressure do
+    /// not consume a count. Queue admission is the emission boundary: teardown
+    /// may discard an admitted frame, so counts are monotonic, not contiguous.
+    pub fn prepareEmittedCount(self: *GiftRegistry) !PreparedHandoffCount {
         const value = self.next_emitted_handoff_count;
         if (value == std.math.maxInt(u64)) return error.HandoffCountExhausted;
-        self.next_emitted_handoff_count = value + 1;
-        return value;
+        return PreparedHandoffCount.bind(self, value, commitPreparedEmittedCount);
+    }
+
+    fn commitPreparedEmittedCount(self: *GiftRegistry, prepared: u64) HandoffCountCommitError!void {
+        if (self.next_emitted_handoff_count != prepared or prepared == std.math.maxInt(u64))
+            return error.StaleHandoffCountPreparation;
+        self.next_emitted_handoff_count = prepared + 1;
     }
 
     /// Deposit (or re-deposit) a gift whose capability the registry adopts. On

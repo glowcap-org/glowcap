@@ -1,54 +1,76 @@
 ---
 .title = "Choosing a transport",
-.description = "Choose a pancake transport by the peers involved, the channel they can open, and whether the channel must be encrypted.",
+.description = "Pick a pancake netlayer from the peers you have and the channel you can open: when to reach for each symbol, and what that path proves.",
 .date = @date("2026-07-22T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-The application and CapTP session stay the same across transports. Choose by
-the peers involved and the channel they can open.
+The CapTP session does not change when you change transports. What changes is
+who you can reach and what the path between you proves.
+[Transports]($link.page('transports')) explains that layer. Pick a symbol from
+the table below.
 
-| Situation | Use | Why |
-| --- | --- | --- |
-| Two native hosts, anywhere real | `iroh` | Encrypted QUIC addressed by node key, and the only native transport that authenticates the peer and encrypts the channel |
-| A stable key identity on a network you already trust | `keyed-tcp` | The designator is the peer's key, not its address, but the bytes stay cleartext |
-| Talking to Spritely Goblins | `tcp` | Goblins interoperability runs over cleartext TCP, so this is an interoperability choice rather than a deployment one |
-| Both peers are in one process | `inproc` | No socket or port, and it is a test transport |
-| Browsers should talk directly | `webrtc` | Encrypted DataChannel after signaling |
-| A browser must reach a native peer | [relay]($link.page('relay')) | WebSocket on the browser side, TCP or iroh on the native side |
+Rows are ordered by how far the path can be trusted: production first, then a
+network you already trust, then testing only. The **When** column is the
+situation. The last column is what proves who answered, and what someone on the
+path can do.
 
-Plain `tcp` authenticates nobody and encrypts nothing, so reach for it only to
-talk to a peer that speaks no other transport. `tcp` and `keyed-tcp` are both
-cleartext, and there is no TLS-over-TCP netlayer today. If a native channel must
-be confidential, use iroh.
+| Use | Standing | When | What the path proves |
+| --- | --- | --- | --- |
+| `iroh` | Production | Native peers that need discovery or NAT traversal; also Goblins via this repository's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
+| `webrtc` | Production | Browsers talking directly | The DataChannel is encrypted. Who the peer is comes from the signaling authority that introduced it. |
+| `noise-tcp` | Production | Pancake peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. Pancake to pancake only. |
+| `noise-relay` | Production | Pancake peers through a relay, sealed, in native and browser wasm runtimes | Same Noise handshake peer to peer; the relay only forwards ciphertext. |
+| `onion` | Production | Meeting unmodified Goblins on the standardized path | Tor proves the dialed service and hides both ends' network location. CapTP does not treat that as a channel-authenticated peer proof. |
+| `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
+| `keyed-relay` | Trusted network only | Native peers through a relay, cleartext | Same key demand; the relay reads every frame, and nothing proves who is on the far side. |
+| `tcp` | Testing only | Cleartext Goblins testing (adapter this repository wrote) | An address, not a key. Nothing is proved and nothing is encrypted. |
+| `inproc` | Testing only | Both peers in one process | No network between them, so nothing to prove and nothing to encrypt. |
+
+A browser that must reach a native peer uses the [relay]($link.page('relay')),
+not a netlayer of its own: WebSocket on the browser side, TCP or iroh on the
+native side. Prefer `onion` for unmodified Goblins over Tor. Prefer iroh for
+discovery or NAT traversal, and for Goblins when the vat loads this
+repository's iroh adapter. Prefer `noise-tcp` when two pancake peers already
+share a TCP route and only need the stream sealed. Reach for plain `tcp` only
+for cleartext Goblins testing.
+
+`noise-relay` seals the relay path for native providers and browser wasm.
+[What you can depend on]($link.page('stability')) lists the checks.
 
 ## Browser traffic
 
 A browser cannot open raw TCP or iroh QUIC. It has two choices:
 
-- **WebRTC** creates a direct encrypted DataChannel, usually between two
+- **WebRTC** opens a direct encrypted DataChannel, usually between two
   browsers. Both peers need a shared signaling capability, and ICE must find a
-  path. Real NAT traversal may require STUN or TURN.
+  path. Real NAT traversal may need STUN or TURN.
 - **The relay** carries a browser's WebSocket bytes to a native peer over TCP
   or iroh. It does not parse CapTP or join the session. Use it for
-  browser-to-native traffic and as a fallback when a direct WebRTC channel
+  browser-to-native traffic, and as a fallback when a direct WebRTC channel
   cannot form.
 
 Offer both only when direct browser-to-browser traffic is worth the extra
-signaling and NAT infrastructure. Otherwise the relay is simpler to operate.
+signaling and NAT work. Otherwise the relay is simpler to run.
 
-## Similar-looking choices
+## Choices that look alike
 
-- `keyed-tcp` and `iroh` both name a peer by key. Only iroh encrypts the
-  channel and supplies discovery and NAT traversal.
-- `iroh` and WebRTC are both encrypted peer-to-peer channels. iroh is the
-  native path; WebRTC is the browser path.
+- `keyed-tcp`, `noise-tcp`, and iroh all name a peer by key. `noise-tcp` and
+  iroh encrypt and authenticate; only iroh adds discovery and NAT traversal.
+- iroh and WebRTC are both encrypted peer-to-peer channels. iroh is the native
+  path; WebRTC is the browser path.
 - `tcp` and `keyed-tcp` use the same sockets. `tcp` names an address;
   `keyed-tcp` names an identity and carries the address as a hint.
+- Three paths reach Goblins. `onion` is the draft's transport and the one
+  Goblins ships. `tcp` and `iroh` meet the vat through adapters this repository
+  wrote: cleartext loopback, and encrypted QUIC.
 
-See the [transport inventory]($link.page('transports')) for locator forms and
-for what each transport authenticates and encrypts, then continue with [iroh]($link.page('transports/iroh')),
-[WebRTC]($link.page('transports/webrtc')), or the
-[relay]($link.page('relay')) for setup details.
+Once you know which path you want, the setup pages are
+[Noise]($link.page('transports/noise')),
+[iroh]($link.page('transports/iroh')),
+[WebRTC]($link.page('transports/webrtc')),
+[onion]($link.page('transports/onion')), and the
+[relay]($link.page('relay')). Locator designators for each symbol live with
+those guides and on [Transports]($link.page('transports')).

@@ -1,13 +1,8 @@
 import { findSession, type GameWorld } from "../world.ts";
-import { CLAIM_LEAN } from "./keyframe-layout-system.ts";
 import { type EasingFn, smoothstep } from "../easing.ts";
-import type { TimelineEvent } from "../timeline.ts";
 import {
   bezierAt,
-  claimTargets,
-  computeMessageTimeBundles,
-  computeSessionBundles,
-  drawnSessionCurve,
+  type FrameGeometry,
   temporalArcAmount,
 } from "../session-geometry.ts";
 
@@ -21,8 +16,8 @@ import {
  *
  *   1. The session edge follows a quadratic Bezier curve when the
  *      same peer-pair carries multiple sessions, so each session
- *      reads as its own line. Geometry is owned by
- *      `session-geometry::drawnSessionCurve`.
+ *      reads as its own line. Curves come from `frameGeometry.sessionCurves`,
+ *      built once per stage pass from `drawnSessionCurve`.
  *   2. Messages whose flight intervals overlap on the SAME session
  *      get **different progress curves** instead of the same
  *      linear ramp — the same mirror-image arcs that session
@@ -54,43 +49,19 @@ export class MessageFlightSystem {
     this.config = config;
   }
 
-  /** `claimed` is the document's claim resolution (`engine/claims.ts`), the
-   *  same map the layout placed these ends with and the renderer draws them
-   *  from. A dot follows the wire its session is drawn as, so it has to
-   *  resolve claims the one way. */
-  update(
-    world: GameWorld,
-    events: readonly TimelineEvent[],
-    simT: number,
-    claimed: ReadonlyMap<string, string>,
-  ): void {
-    const claims = claimTargets(world, claimed);
-    const sessionBundles = computeSessionBundles(world, claims);
-    // Time bundles are doc-level (stable over wall time) — see
-    // `computeMessageTimeBundles`'s header for why we don't bundle
-    // by the in-flight set at `simT`.
-    const timeBundles = computeMessageTimeBundles(events);
+  /** `geometry` is the frame's one claim/bundle resolution — the same maps
+   *  the renderer draws edges from. A dot follows the wire its session is
+   *  drawn as, so it cannot rebuild those tables on its own. */
+  update(world: GameWorld, simT: number, geometry: FrameGeometry): void {
+    const { sessionCurves, timeBundles } = geometry;
     for (const e of world.with("messageInFlight", "position")) {
       const m = e.messageInFlight;
       const session = findSession(world, m.sessionId);
-      const sBundle = sessionBundles.get(m.sessionId);
-      // Without the session entity (or its bundle) we can't locate
-      // the curve. Skipping keeps the dot at its last position for
+      const curve = sessionCurves.get(m.sessionId);
+      // Without the session entity (or its curve) we can't locate
+      // the spine. Skipping keeps the dot at its last position for
       // one frame if the session was just closed at this tick.
-      if (!session || !sBundle) continue;
-      // The curve the EDGE is drawn along, not the one between the raw
-      // endpoints. A session whose far end is a claim is drawn as the prefix
-      // of the lane to the peer it names, and a dot on the other curve would
-      // fly beside its own wire.
-      const curve = drawnSessionCurve(
-        world,
-        session.endpoints.a,
-        session.endpoints.b,
-        sBundle,
-        claims,
-        CLAIM_LEAN,
-      );
-      if (!curve) continue;
+      if (!session || !curve) continue;
 
       const span = Math.max(1, m.arrivalT - m.sentT);
       const kLinear = (simT - m.sentT) / span;

@@ -61,14 +61,14 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	// `connect` completes the keyed handshake; reaching here means Goblins
 	// accepted our signed start-session and we accepted its.
 	let locator = tcp_locator(HOST, port);
-	let conn = connect(&locator, None, None).await?;
+	let session = connect(&locator, None, None).await?;
 	println!("rust-goblins-interop: session open, keyed start-session accepted by goblins");
 
 	// A sturdyref names a peer, and the enliven checks that peer against the
 	// session it rides (ADR-0098). Build it from the very locator this session
 	// dialed, so the two cannot drift apart.
 	let sturdyref = format!("{locator}/s/{sturdyref_path}");
-	let echo = conn.enliven(&sturdyref).await?;
+	let echo = session.enliven(&sturdyref).await?;
 	println!("rust-goblins-interop: enlivened goblins echo cap, calling it");
 
 	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
@@ -83,16 +83,16 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 			other => Err(format!("echo reply is not a one-bytes list: {other:?}").into()),
 		}
 	}
-	let reply = conn
+	let reply = session
 		.send(&echo, "", &[b"pancake-ping".as_slice().into()])
 		.await?;
 	assert_echoed(&reply, b"pancake-ping")?;
 
-	let again = conn.enliven(&sturdyref).await?;
+	let again = session.enliven(&sturdyref).await?;
 	if echo != again {
 		return Err("repeat enliven did not return the same Host identity (dedup miss)".into());
 	}
-	let reply_again = conn
+	let reply_again = session
 		.send(&again, "", &[b"pancake-ping-again".as_slice().into()])
 		.await?;
 	assert_echoed(&reply_again, b"pancake-ping-again")?;
@@ -103,6 +103,6 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	println!(
 		"rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins"
 	);
-	conn.close();
+	session.close();
 	Ok(())
 }

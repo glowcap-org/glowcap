@@ -65,7 +65,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator, ident
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, .unbounded);
+    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
     defer cv.deinit();
     _ = try cv.publish("greeter", Greeter, .{});
     try cv.serve();
@@ -95,7 +95,7 @@ fn clientMeasure(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -161,11 +161,11 @@ fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []
     });
     defer listener.close();
 
-    var addr_buf: [64]u8 = undefined;
-    const designator = listener.localDesignator(&addr_buf);
+    const locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, locator);
 
     var host = try io.concurrent(hostOnce, .{ listener, allocator, driver.AcceptIdentity.ephemeral });
-    const client_result = clientMeasure(io, allocator, &entries, net.tcp.at(designator), warmup, samples);
+    const client_result = clientMeasure(io, allocator, &entries, net.tcp.at(locator.designator), warmup, samples);
     const host_result = host.await(io);
     try client_result;
     try host_result;
@@ -273,7 +273,7 @@ fn loopClient(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -309,7 +309,9 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);
 
-    var host = driver.core.Host.init(allocator, server_seed, .{
+    var session_root: [32]u8 = undefined;
+    try io.randomSecure(&session_root);
+    var host = driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
@@ -321,12 +323,11 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
     const backend = try iroh.Backend.initBound(allocator, &server, 256, 256, read_buffer_bytes);
     loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), IrohBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 64,
         .listen = 0,
     }));
     defer loop.deinit();
-    try bridge.attach(iroh.transport_name, server_id, &.{});
+    try bridge.attach(model.transport.Known.iroh.metadata(), server_id, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(serveIrohLoop, .{ &loop, &loop_err });

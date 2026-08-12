@@ -52,7 +52,7 @@ fn hostOnce(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, .{ .ms = 10_000 }) catch |err| switch (err) {
+    var cv = driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } }) catch |err| switch (err) {
         // A pinned dialer that refuses our key drops the socket mid-handshake;
         // that is this vat's whole (expected) conversation in the negative arm.
         error.ConnectionLost, error.TruncatedFrame, driver.Error.ConnectionClosed => return,
@@ -71,12 +71,7 @@ fn callKeyed(
     locator: model.PeerLocator,
     expect_designator: []const u8,
 ) !void {
-    var resident = net.tcp_keyed.Resident{
-        .io = io,
-        // The dialer does not listen; its resident key is unused on the dial
-        // path, so any value works. Use the expected partner key for shape.
-        .public_key = crypto.PeerKey.fromDesignator(expect_designator).?,
-    };
+    var resident = net.tcp.keyed.Resident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
 
     var peer = engine.Peer.initNegotiating(allocator);
@@ -88,7 +83,7 @@ fn callKeyed(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .ms = 10_000 });
+    var cv = try driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
     defer cv.deinit();
 
     // The knot: the partner's signed designator is the key that was dialed,
@@ -114,26 +109,23 @@ fn callKeyed(
 fn serveAndDial(
     io: std.Io,
     allocator: std.mem.Allocator,
-    resident: *net.tcp_keyed.Resident,
+    resident: *net.tcp.keyed.Resident,
     secret: crypto.SecretKey,
     dial_designator: []const u8,
-    hint_out: []u8,
 ) !void {
-    var listener = try resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
+    var listener = try resident.netlayer().listen(allocator, .{
+        .designator = "127.0.0.1:0",
+        .identity = secret.publicKey(),
+    });
     defer listener.close();
 
-    // The bound host:port is the dial hint; the designator stays the key.
-    const hint = try listener.localDirectAddresses(hint_out);
-    try std.testing.expect(hint.len != 0);
-
-    const hint_entries = [_]model.HintEntry{.{
-        .name = net.netlayer.hint_direct_addresses,
-        .value = .{ .string = hint },
-    }};
+    const local_locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, local_locator);
+    try std.testing.expect(net.netlayer.directAddrHint(local_locator.hints) != null);
     const locator: model.PeerLocator = .{
-        .transport = net.tcp_keyed.transport_name,
+        .transport = net.tcp.keyed.transport_name,
         .designator = dial_designator,
-        .hints = .{ .entries = &hint_entries },
+        .hints = local_locator.hints,
     };
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator, secret });
@@ -151,17 +143,20 @@ test "keyed-tcp loopback: the dialed key designator is the partner's signed iden
 
     const secret = crypto.SecretKey.fromSeed([_]u8{0x71} ** crypto.SEED_BYTES);
     const designator = secret.publicKey().toDesignator();
-    var resident = net.tcp_keyed.Resident{ .io = io, .public_key = secret.publicKey() };
+    var resident = net.tcp.keyed.Resident{ .io = io };
 
-    var hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    try serveAndDial(io, allocator, &resident, secret, designator[0..], &hint_buf);
+    try serveAndDial(io, allocator, &resident, secret, designator[0..]);
 
     // The contract listener also reports the key as its designator (what a
     // `driver.Server.localDesignator` hands an application to publish).
-    var listener = try resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
+    var listener = try resident.netlayer().listen(allocator, .{
+        .designator = "127.0.0.1:0",
+        .identity = secret.publicKey(),
+    });
     defer listener.close();
-    var designator_buf: [crypto.PeerKey.designator_len]u8 = undefined;
-    try std.testing.expectEqualStrings(designator[0..], listener.localDesignator(&designator_buf));
+    const local_locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, local_locator);
+    try std.testing.expectEqualStrings(designator[0..], local_locator.designator);
 }
 
 test "keyed-tcp negative: a listener claiming a different key than the dialed designator is refused" {
@@ -175,20 +170,18 @@ test "keyed-tcp negative: a listener claiming a different key than the dialed de
     const dialed_designator = honest.publicKey().toDesignator();
 
     // The squatter answers the socket the hint names, holding a different key.
-    var resident = net.tcp_keyed.Resident{ .io = io, .public_key = squatter.publicKey() };
-    var listener = try resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
+    var resident = net.tcp.keyed.Resident{ .io = io };
+    var listener = try resident.netlayer().listen(allocator, .{
+        .designator = "127.0.0.1:0",
+        .identity = squatter.publicKey(),
+    });
     defer listener.close();
-    var hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    const hint = try listener.localDirectAddresses(&hint_buf);
-
-    const hint_entries = [_]model.HintEntry{.{
-        .name = net.netlayer.hint_direct_addresses,
-        .value = .{ .string = hint },
-    }};
+    const local_locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, local_locator);
     const locator: model.PeerLocator = .{
-        .transport = net.tcp_keyed.transport_name,
+        .transport = net.tcp.keyed.transport_name,
         .designator = dialed_designator[0..],
-        .hints = .{ .entries = &hint_entries },
+        .hints = local_locator.hints,
     };
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator, squatter });
@@ -201,7 +194,7 @@ test "keyed-tcp negative: a listener claiming a different key than the dialed de
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var dial_resident = net.tcp_keyed.Resident{ .io = io, .public_key = honest.publicKey() };
+    var dial_resident = net.tcp.keyed.Resident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{dial_resident.netlayer()};
     // The squatter's hello advertises the identity its own key spells, not
     // the one this dial named, so the claim check refuses it. The connection
@@ -209,7 +202,7 @@ test "keyed-tcp negative: a listener claiming a different key than the dialed de
     // keeps the typed member readable on the peer (`AbortInfo`).
     try std.testing.expectError(
         error.ProtocolAbort,
-        driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .ms = 10_000 }),
+        driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } }),
     );
     const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
     try std.testing.expectEqualStrings("PartnerDesignatorMismatch", abort.error_name);
@@ -230,27 +223,27 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     const secret = crypto.SecretKey.fromSeed(seed);
     const recorded_designator = secret.publicKey().toDesignator();
     const recorded_locator: model.PeerLocator = .{
-        .transport = net.tcp_keyed.transport_name,
+        .transport = net.tcp.keyed.transport_name,
         .designator = recorded_designator[0..],
         .hints = model.Hints.emptyFalse(),
     };
 
-    var resident = net.tcp_keyed.Resident{ .io = io, .public_key = secret.publicKey() };
+    var resident = net.tcp.keyed.Resident{ .io = io };
 
     // First life: bind on port 0, serve one client through the key designator,
     // and record only the designator (the hint is per-life connection advice).
-    var first_listener = try resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
-    var first_hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    const first_hint = try first_listener.localDirectAddresses(&first_hint_buf);
+    var first_listener = try resident.netlayer().listen(allocator, .{
+        .designator = "127.0.0.1:0",
+        .identity = secret.publicKey(),
+    });
+    const first_local = try first_listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, first_local);
+    const first_hint = net.netlayer.directAddrHint(first_local.hints) orelse return error.MissingDirectAddresses;
     {
-        const hint_entries = [_]model.HintEntry{.{
-            .name = net.netlayer.hint_direct_addresses,
-            .value = .{ .string = first_hint },
-        }};
         const locator: model.PeerLocator = .{
-            .transport = net.tcp_keyed.transport_name,
+            .transport = net.tcp.keyed.transport_name,
             .designator = recorded_designator[0..],
-            .hints = .{ .entries = &hint_entries },
+            .hints = first_local.hints,
         };
         var host_future = try io.concurrent(hostOnce, .{ first_listener, allocator, secret });
         const client_result = callKeyed(io, allocator, locator, recorded_designator[0..]);
@@ -264,23 +257,23 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     // kernel cannot hand back the same port — the port change is the proof
     // that the designator is the identity, not the address.
     const rebuilt = crypto.SecretKey.fromSeed(seed);
-    var second_life = net.tcp_keyed.Resident{ .io = io, .public_key = rebuilt.publicKey() };
-    var second_listener = try second_life.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
-    var second_hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    const second_hint = try second_listener.localDirectAddresses(&second_hint_buf);
+    var second_life = net.tcp.keyed.Resident{ .io = io };
+    var second_listener = try second_life.netlayer().listen(allocator, .{
+        .designator = "127.0.0.1:0",
+        .identity = rebuilt.publicKey(),
+    });
+    const second_local = try second_listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, second_local);
+    const second_hint = net.netlayer.directAddrHint(second_local.hints) orelse return error.MissingDirectAddresses;
     try std.testing.expect(!std.mem.eql(u8, first_hint, second_hint));
     first_listener.close();
     {
-        const hint_entries = [_]model.HintEntry{.{
-            .name = net.netlayer.hint_direct_addresses,
-            .value = .{ .string = second_hint },
-        }};
         // Re-dial the locator recorded before the restart: same designator,
         // only the hint updated.
         const locator: model.PeerLocator = .{
-            .transport = net.tcp_keyed.transport_name,
+            .transport = net.tcp.keyed.transport_name,
             .designator = recorded_designator[0..],
-            .hints = .{ .entries = &hint_entries },
+            .hints = second_local.hints,
         };
         var host_future = try io.concurrent(hostOnce, .{ second_listener, allocator, rebuilt });
         const client_result = callKeyed(io, allocator, locator, recorded_designator[0..]);
@@ -295,7 +288,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     // identity (`model.peerLocatorsEqual` compares transport + designator).
     const fresh_designator = rebuilt.publicKey().toDesignator();
     const fresh_locator: model.PeerLocator = .{
-        .transport = net.tcp_keyed.transport_name,
+        .transport = net.tcp.keyed.transport_name,
         .designator = fresh_designator[0..],
         .hints = model.Hints.emptyFalse(),
     };

@@ -210,6 +210,19 @@ pub const Turn = struct {
         return serve.forwardTurnVow(self.vat, self, vow);
     }
 
+    /// Reserve the fallible half of a vow deferral without publishing the vow.
+    /// Host adapters use this to make resolver mint + turn deferral one atomic
+    /// operation across their own row tables and the Vat.
+    pub fn reserveForwardVow(self: *Turn, location: vat_mod.VowLocation) anyerror!serve.ForwardReservation {
+        return serve.reserveForward(self.vat, self, location);
+    }
+
+    /// Commit a fresh vow into a reservation returned by `reserveForwardVow`.
+    /// No allocation or refusal remains after the reservation succeeds.
+    pub fn forwardReservedVow(self: *Turn, reservation: serve.ForwardReservation, vow: Vow) void {
+        serve.commitForward(self.vat, self, reservation, vow);
+    }
+
     /// Break this turn's own answer with `message` — the served-turn spelling
     /// of a handler failure that must carry its diagnostic. A native handler
     /// breaks by returning an error, whose `@errorName` becomes the reason; a

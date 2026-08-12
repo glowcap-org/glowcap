@@ -42,10 +42,10 @@ const Greeter = support_actors.StaticReplyValueActor("greet", "hello over loopba
 /// Accept one partner over the bound listener, publish the greeter, and serve
 /// until the client leaves. Mirrors the owning `Server` accept the bindings ride.
 fn hostOnce(server: *driver.Server) anyerror!void {
-    const conn = try server.accept();
-    defer conn.deinit();
-    _ = try conn.publish("greeter", Greeter, .{});
-    try conn.serve();
+    const session = try server.accept();
+    defer session.deinit();
+    _ = try session.publish("greeter", Greeter, .{});
+    try session.serve();
 }
 
 test "session capability targets: promise-kind is refused, an object still calls" {
@@ -79,7 +79,7 @@ test "session capability targets: promise-kind is refused, an object still calls
 fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
+    var designator_buf: [net.tcp.plain.designator_buf_len]u8 = undefined;
     const client = try driver.connect(
         allocator,
         &netlayers,
@@ -103,10 +103,10 @@ fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress
     // capability: the import row's identity already names the object kind,
     // and the lift refuses the mismatch outright.
     const import_position = blk: {
-        const wire = try client.host.core.lowerCapability(client.hs, greeter);
+        const wire = try client.runtime.core.lowerCapability(client.hs, greeter);
         break :blk wire.far.import_position;
     };
-    try std.testing.expectError(error.EnrolledKindConflict, client.host.core.liftCapability(
+    try std.testing.expectError(error.EnrolledKindConflict, client.runtime.core.liftCapability(
         client.hs,
         .{ .far = .{ .import_position = import_position, .kind = .promise } },
     ));
@@ -117,7 +117,7 @@ fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress
     // into an object turn.
     const fresh_promise_position: u64 = 40;
     try client.peer().importObject(fresh_promise_position);
-    const far_promise = try client.host.core.liftCapability(
+    const far_promise = try client.runtime.core.liftCapability(
         client.hs,
         .{ .far = .{ .import_position = model.ImportPosition.from(fresh_promise_position), .kind = .promise } },
     );
@@ -129,7 +129,7 @@ fn clientAsserts(allocator: std.mem.Allocator, io: std.Io, address: ip.IpAddress
     // surface: a promise-kind local export and a bare answer-promise are
     // refused at the lift itself.
     const near_promise = model.Reference{ .near = .{ .export_position = model.ExportPosition.from(1), .kind = .promise } };
-    try std.testing.expectError(error.UncallableTarget, client.host.core.liftCapability(client.hs, near_promise));
+    try std.testing.expectError(error.UncallableTarget, client.runtime.core.liftCapability(client.hs, near_promise));
     const bare_promise = model.Reference{ .promise = .{ .answer_position = model.AnswerPosition.from(1) } };
-    try std.testing.expectError(error.UncallableTarget, client.host.core.liftCapability(client.hs, bare_promise));
+    try std.testing.expectError(error.UncallableTarget, client.runtime.core.liftCapability(client.hs, bare_promise));
 }

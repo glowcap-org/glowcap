@@ -36,9 +36,9 @@
 ;; step dispatches the frames the core held behind the handshake hello), the
 ;; `closed?` flag the reader raises on end of stream, and the `released?`
 ;; flag guarding the C handle after `session-close!` (no host verb may touch
-;; a released conn). `conn` boxes the owning `session` once it is built, so a
+;; a released session). `session` boxes the owning `session` once it is built, so a
 ;; flush can reach the host from the pump handle alone.
-(struct async-connection (transport tail-resumed? reader closed? released? conn) #:transparent)
+(struct async-connection (transport tail-resumed? reader closed? released? session) #:transparent)
 
 (define (make-async-connection transport)
   (async-connection transport (box #f) (box #f) (box #f) (box #f) (box #f)))

@@ -133,12 +133,12 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	let host = server.host();
 
 	// Run the accept loop, retaining every accepted connection: dropping a
-	// `Session` closes it, so the recipient's connection must be held for the
+	// `Session` closes it, so the recipient's session must be held for the
 	// duration of the handoff.
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
-		while let Ok(conn) = server.accept().await {
-			held.push(conn);
+		while let Ok(session) = server.accept().await {
+			held.push(session);
 		}
 	});
 

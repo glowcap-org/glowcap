@@ -147,7 +147,8 @@
                ;; head happened to run this drain.
                (with-handlers ([(lambda (_) #t) void])
                  (check/host (pancake_host_ref_release (host-ptr m) (make-PancakeReference id) 1))))
-             (drain-host-actions! m)]))))))
+             (drain-host-actions! m)]))
+        #:allow-released? #t))))
 
 (define (drain-gc! c)
   (drain-host-gc! (session-host c)))

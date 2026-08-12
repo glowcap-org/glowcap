@@ -57,8 +57,9 @@ pub(crate) async fn fetch_like(
 /// (CapTP `op:listen`) and hand back the settle handle. The vow is plain — a
 /// listen may settle to any value, not only a capability.
 pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> RemotePromise {
-	let failed =
-		|error: Error, conn: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(conn));
+	let failed = |error: Error, session: &Rc<SessionShared>| {
+		RemotePromise::failed(error, Rc::clone(session))
+	};
 	if let Err(error) = shared.guard_open() {
 		return failed(error, shared);
 	}
@@ -83,8 +84,9 @@ pub(crate) fn send_promise(
 	verb: &str,
 	args: &[Argument],
 ) -> RemotePromise {
-	let failed =
-		|error: Error, conn: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(conn));
+	let failed = |error: Error, session: &Rc<SessionShared>| {
+		RemotePromise::failed(error, Rc::clone(session))
+	};
 	if let Err(error) = shared.guard_open() {
 		return failed(error, shared);
 	}
@@ -211,7 +213,7 @@ pub(crate) enum PromiseState {
 /// eventual-send, and — the point of promise pipelining (ADR-0007) — a target
 /// you can `send` to before it resolves.
 ///
-/// It is `IntoFuture<Output = Result<Argument>>`, so `conn.send(...).await` yields
+/// It is `IntoFuture<Output = Result<Argument>>`, so `session.send(...).await` yields
 /// the reply exactly as a plain future would (a [`crate::Ref`] via `Ref::try_from(&arg)`
 /// if the partner returned a capability; a typed `Err` on a break). Pass it
 /// *unawaited* — by reference — as the `target` of a later `send` to address the
@@ -220,9 +222,9 @@ pub(crate) enum PromiseState {
 /// chain costs one round trip instead of one per link:
 ///
 /// ```ignore
-/// let task = conn.send(&root, "create", &["x".into()]);   // not awaited
-/// conn.send(&task, "assign", &["alice".into()]);           // pipelined at the answer
-/// let status = conn.send(&task, "status", &[]).await?;     // settles the chain
+/// let task = session.send(&root, "create", &["x".into()]);   // not awaited
+/// session.send(&task, "assign", &["alice".into()]);           // pipelined at the answer
+/// let status = session.send(&task, "status", &[]).await?;     // settles the chain
 /// ```
 ///
 /// A handle awaited for its value resolves once; a handle only used as a target
@@ -238,14 +240,14 @@ pub(crate) enum PromiseState {
 /// costs no extra round trip.
 pub struct RemotePromise {
 	pub(crate) state: PromiseState,
-	pub(crate) conn: Rc<SessionShared>,
+	pub(crate) session: Rc<SessionShared>,
 }
 
 impl RemotePromise {
-	pub(crate) fn far(vow: u64, conn: Rc<SessionShared>) -> Self {
+	pub(crate) fn far(vow: u64, session: Rc<SessionShared>) -> Self {
 		Self {
 			state: PromiseState::Far(vow),
-			conn,
+			session,
 		}
 	}
 
@@ -253,18 +255,18 @@ impl RemotePromise {
 		ref_id: u64,
 		verb: String,
 		args: Vec<Argument>,
-		conn: Rc<SessionShared>,
+		session: Rc<SessionShared>,
 	) -> Self {
 		Self {
 			state: PromiseState::Local { ref_id, verb, args },
-			conn,
+			session,
 		}
 	}
 
-	pub(crate) fn failed(error: Error, conn: Rc<SessionShared>) -> Self {
+	pub(crate) fn failed(error: Error, session: Rc<SessionShared>) -> Self {
 		Self {
 			state: PromiseState::Failed(error),
-			conn,
+			session,
 		}
 	}
 
@@ -287,7 +289,7 @@ impl RemotePromise {
 			// hides the operation that actually failed and sends callers debugging
 			// the projection instead of the rejected send.
 			PromiseState::Failed(error) => {
-				return RemotePromise::failed(error.clone(), Rc::clone(&self.conn))
+				return RemotePromise::failed(error.clone(), Rc::clone(&self.session))
 			}
 			PromiseState::Local { .. } => {
 				return RemotePromise::failed(
@@ -295,18 +297,18 @@ impl RemotePromise {
 						sys::ERR_INVALID_ARGUMENT,
 						"cannot project a local-send promise; await it for a value".to_string(),
 					),
-					Rc::clone(&self.conn),
+					Rc::clone(&self.session),
 				)
 			}
 		};
 		let mut vow: u64 = 0;
 		let rc = match &op {
 			ProjectOp::Index(i) => unsafe {
-				ffi::pancake_host_vow_index(self.conn.host.raw(), source, *i as u64, &mut vow)
+				ffi::pancake_host_vow_index(self.session.host.raw(), source, *i as u64, &mut vow)
 			},
 			ProjectOp::Untag(tag) => unsafe {
 				ffi::pancake_host_vow_untag(
-					self.conn.host.raw(),
+					self.session.host.raw(),
 					source,
 					tag.as_ptr(),
 					tag.len(),
@@ -315,7 +317,7 @@ impl RemotePromise {
 			},
 			ProjectOp::Get(field) => unsafe {
 				ffi::pancake_host_vow_get(
-					self.conn.host.raw(),
+					self.session.host.raw(),
 					source,
 					field.as_ptr(),
 					field.len(),
@@ -325,10 +327,10 @@ impl RemotePromise {
 		};
 		match check_host(rc) {
 			Ok(()) => {
-				self.conn.host.vow_minted(vow, Some(&self.conn));
-				RemotePromise::far(vow, Rc::clone(&self.conn))
+				self.session.host.vow_minted(vow, Some(&self.session));
+				RemotePromise::far(vow, Rc::clone(&self.session))
 			}
-			Err(error) => RemotePromise::failed(error, Rc::clone(&self.conn)),
+			Err(error) => RemotePromise::failed(error, Rc::clone(&self.session)),
 		}
 	}
 
@@ -372,12 +374,12 @@ impl IntoFuture for RemotePromise {
 					// synchronously (the row already exists — the mint was the
 					// registration), then the kick puts the queued batch on the
 					// wire and routes any already-arrived outcome.
-					let settled = self.conn.host.await_vow(vow);
-					self.conn.host.kick_actions().await;
+					let settled = self.session.host.await_vow(vow);
+					self.session.host.kick_actions().await;
 					settled.await
 				}
 				PromiseState::Local { ref_id, verb, args } => {
-					crate::trampoline::run_local_send(self.conn, ref_id, verb, args).await
+					crate::trampoline::run_local_send(self.session, ref_id, verb, args).await
 				}
 			}
 		})

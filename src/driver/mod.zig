@@ -1,4 +1,4 @@
-//! A connection-bound vat driver: the application surface for native Zig.
+//! The native Zig application surface over CapTP sessions and transport I/O.
 //!
 //! `actors.Vat` is a sync, no-I/O turn loop. `net` is where I/O lives.
 //! A networked Zig app normally has to open a socket, bind a vat to the peer, pump
@@ -21,8 +21,8 @@
 //! themselves. The surfaces live in sibling files and are re-exported here, so
 //! every driver surface is reached through this one root: the borrowing,
 //! caller-pumped `BlockingSession` and its transport constructors in
-//! `blocking_session.zig`, and the owning, one-call `Session`/`Server` host
-//! and client in `session.zig`. Zig-owned fan-out at scale is the byte-fed
+//! `blocking_session.zig`, and the owning, one-call `Session`/`Server` views
+//! in `session.zig`. Zig-owned fan-out at scale is the byte-fed
 //! `driver.core.Host` under a completion loop: TCP ships as `net.TcpLoop` plus
 //! `driver.Bridge` (ADR-0076); iroh ships as `completion.Loop(iroh.Backend, iroh.DialResolver)`
 //! plus the same `driver.Bridge` (ADR-0057 + ADR-0076).
@@ -49,6 +49,7 @@ pub const SettleMailbox = settle_mailbox.SettleMailbox;
 // (I/O-banned by arch-check); re-exported so callers keep reaching them as
 // `driver.Served`, `driver.Error`, `driver.Capability`, and so on.
 pub const Served = driver_core.Served;
+pub const DriveError = driver_core.DriveError;
 pub const ServeOptions = driver_core.ServeOptions;
 pub const BeforeServeHook = driver_core.BeforeServeHook;
 pub const Error = driver_core.Error;
@@ -107,15 +108,19 @@ const bridge = @import("bridge.zig");
 /// `Loop.armOutbound`, the budgeted drive, and the host's action queue
 /// answered at this tier's entropy boundary (ADR-0076). This is the Zig
 /// multi-session CapTP *scale* spine; the blocking application tier is the
-/// owning face `driver.PollHost` (ADR-0090) over that same core. Neither is a
+/// owning face `driver.HostRuntime` (ADR-0090) over that same core. Neither is a
 /// second core of its own — that is the type that stays deleted.
 pub const Bridge = bridge.Bridge;
 
 const session = @import("session.zig");
-/// The owning host face (ADR-0090): one identity, a blocking poll-multiplexed
-/// pump over the byte-fed core. `connect`/`listen` build one underneath; an
-/// app that wants several sessions under one identity builds it explicitly.
-pub const PollHost = @import("host.zig").PollHost;
+/// The owning native runtime (ADR-0090): transport I/O and a blocking,
+/// poll-multiplexed pump around one byte-fed Host. `connect`/`listen` build one
+/// underneath; an app that wants several sessions under one Host identity
+/// builds it explicitly.
+const host_runtime = @import("host_runtime.zig");
+pub const HostRuntime = host_runtime.HostRuntime;
+pub const default_wire_buffer_bytes = host_runtime.default_wire_buffer_bytes;
+pub const default_max_pending_opens = host_runtime.default_max_pending_opens;
 /// The owning, one-call application session `connect`/`listen` hand back
 /// (see `session.zig`), re-exported so callers reach them as
 /// `driver.Session`, `driver.connect`, `driver.listen`.
@@ -130,13 +135,13 @@ pub const connect = session.connect;
 pub const connectUriOwned = session.connectUriOwned;
 pub const listen = session.listen;
 
-const resilient_client = @import("resilient_client.zig");
+const dial_retry = @import("dial_retry.zig");
 /// CapTP-honest dial continuity (ADR-0082): DialError classification, discovery
 /// budget, and dial-retry. Not a Session facade — rebuild yields a new session.
-pub const ResilientClient = resilient_client.ResilientClient;
-pub const DialPolicy = resilient_client.DialPolicy;
-pub const DialOutcome = resilient_client.DialOutcome;
-pub const OnDialOutcome = resilient_client.OnDialOutcome;
-pub const isTransientDialError = resilient_client.isTransient;
-pub const discovery_retry_ms = resilient_client.discovery_retry_ms;
-pub const discovery_max_attempts = resilient_client.discovery_max_attempts;
+pub const DialRetry = dial_retry.DialRetry;
+pub const DialPolicy = dial_retry.DialPolicy;
+pub const DialOutcome = dial_retry.DialOutcome;
+pub const OnDialOutcome = dial_retry.OnDialOutcome;
+pub const isTransientDialError = dial_retry.isTransient;
+pub const discovery_retry_ms = dial_retry.discovery_retry_ms;
+pub const discovery_max_attempts = dial_retry.discovery_max_attempts;

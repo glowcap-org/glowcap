@@ -1,5 +1,5 @@
-"""Internal: the application surface over the byte-fed host
-(``libpancake_host``, ADR-0072).
+"""Internal: the application surface over the multi-session host family
+(ADR-0072, loaded from ``libpancake_host``).
 
 This is what an application holds: :class:`Session` and its verbs
 (``fetch``/``send``/``tell``/``spawn``/``publish``/``enliven``/``serve``/
@@ -33,13 +33,12 @@ from ._constants import DurableProvenance, _provenance_from_abi
 from ._errors import (
     AbortDetail,
     PancakeError,
-    PancakeException,
     _check_host,
 )
 from ._ffi_host import _AcceptPlan, _PartnerIdentity, _host
 from ._ffi_ocapn import _byte_buf, _Reference
 from ._host import Host
-from ._locator import encode_peer_locator
+from ._locator import _OwnedLocator, Locator
 from ._promise import RemotePromise, _fetch_like, _listen_far
 from ._gc import release_ref
 from ._trampoline import (
@@ -59,7 +58,7 @@ _ERR_TIMEOUT = _abi.ERR_TIMEOUT
 _HANDSHAKE_TIMEOUT_MS = _abi.HANDSHAKE_TIMEOUT_MS
 
 
-class RedeemedReply(NamedTuple):
+class SendRedeemingResult(NamedTuple):
     """What :meth:`Session.send_redeeming` hands back: the ``reply`` the send
     settled to, and ``via``, the direct exporter :class:`Session` that reply
     routes to (``None`` when it routes to no live redeemed exporter).
@@ -99,8 +98,8 @@ class PartnerIdentity:
         cryptographically authenticated by the realized channel.
 
         This is the predicate to ask when an operation requires a proved
-        durable peer. It stays correct once each connection draws a fresh
-        session key, which a designator-equals-session-key comparison does not.
+        durable peer. It stays correct once each session draws a fresh signing
+        key, which a designator-equals-session-key comparison does not.
         """
         return self.provenance is not DurableProvenance.UNAUTHENTICATED
 
@@ -121,6 +120,10 @@ class Session:
         self._key = ptr.value or 0
         self._host = host
         self._transport = transport
+        # A Host may be constructed before asyncio.run(). The first Session
+        # driven by a running loop binds that Host to this loop, so sibling
+        # sessions and every action drain share one owner.
+        host._bind_running_loop()
         self._serve_task: Optional[asyncio.Task] = None
         # Set the moment teardown begins (an application close, or the
         # transport reporting EOF), so the FAIL completions the break queues
@@ -146,7 +149,9 @@ class Session:
         # Distributed GC (ADR-0063), opt-in and off by default — see `_gc`.
         self._gc_enabled = False
         try:
-            self._loop: "Optional[asyncio.AbstractEventLoop]" = asyncio.get_running_loop()
+            self._loop: "Optional[asyncio.AbstractEventLoop]" = (
+                asyncio.get_running_loop()
+            )
         except RuntimeError:
             self._loop = None
         # Join the Host's registry so a FLUSH action can find the transport and
@@ -157,7 +162,11 @@ class Session:
 
     @classmethod
     def _open_dialed_locator(
-        cls, host: Host, transport_name: str, designator: str, transport,
+        cls,
+        host: Host,
+        transport_name: str,
+        designator: str,
+        transport,
     ) -> "Session":
         # Mint the dialing half from already-parsed locator pieces without
         # driving the handshake — the signed op:start-session is encoded (its
@@ -169,14 +178,25 @@ class Session:
         tbuf, tptr = _byte_buf(t)
         dbuf, dptr = _byte_buf(d)
         out = ctypes.c_void_p()
-        _check_host(_host.pancake_host_session_open_dialed_locator(
-            host.raw, tptr, len(t), dptr, len(d), ctypes.byref(out),
-        ))
+        _check_host(
+            _host.pancake_host_session_open_dialed_locator(
+                host.raw,
+                tptr,
+                len(t),
+                dptr,
+                len(d),
+                ctypes.byref(out),
+            )
+        )
         return cls(out, host, transport)
 
     @classmethod
     async def establish_dialed_locator(
-        cls, host: Host, transport_name: str, designator: str, transport,
+        cls,
+        host: Host,
+        transport_name: str,
+        designator: str,
+        transport,
         handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
         verified_channel_key: "Optional[str]" = None,
     ) -> "Session":
@@ -187,13 +207,14 @@ class Session:
         ``PancakeError`` with ``ERR_TIMEOUT`` and abandons the half-built
         connection, exactly as a failed handshake does. Binding-internal."""
         session = cls._open_dialed_locator(
-            host, transport_name, designator, transport,
+            host,
+            transport_name,
+            designator,
+            transport,
         )
-        # Before the first partner byte, which is the only window a realizer's
-        # proof can be weighed in.
-        if verified_channel_key:
-            session.bind_verified_channel_key(verified_channel_key)
-        return await session._establish(handshake_timeout_ms)
+        return await session._bind_channel_proof_and_establish(
+            verified_channel_key, handshake_timeout_ms
+        )
 
     @classmethod
     async def establish_accepted(
@@ -222,37 +243,77 @@ class Session:
         sbuf, sptr = _byte_buf(server)
         lbuf, lptr = _byte_buf(local)
         plan = _AcceptPlan()
-        _check_host(_host.pancake_host_plan_accept(
-            tptr, len(t), sptr, len(server), lptr, len(local), ctypes.byref(plan),
-        ))
-        plan_designator = ctypes.string_at(
-            plan.designator, plan.designator_len).decode("utf-8")
+        designator_scheme = getattr(transport, "designator_scheme", None)
+        if designator_scheme is None:
+            transport.close()
+            raise PancakeError(
+                _abi.ERR_INVALID_ARGUMENT,
+                "accepted byte-channel provider must declare its designator scheme",
+            )
+        _check_host(
+            _host.pancake_host_plan_accept(
+                designator_scheme,
+                sptr,
+                len(server),
+                lptr,
+                len(local),
+                ctypes.byref(plan),
+            )
+        )
+        plan_designator = ctypes.string_at(plan.designator, plan.designator_len).decode(
+            "utf-8"
+        )
         plan_hint = ctypes.string_at(
             plan.direct_addresses_hint,
             plan.direct_addresses_hint_len,
         ).decode("utf-8")
-        host.set_advertised_locator(encode_peer_locator(
-            transport_name, plan_designator, plan_hint,
+        host.set_advertised_locator(Locator(
+            transport_name,
+            plan_designator,
+            {_abi.HINT_DIRECT_ADDRESSES: plan_hint} if plan_hint else {},
+            "map" if plan_hint else "boolean-false",
         ))
         # Plan views borrow the caller buffers (or the static unreachable
         # placeholder); keep tbuf/sbuf/lbuf alive and pass those pointers
         # through — no second materialize (ADR-0078 / Rust establish_accepted).
         out = ctypes.c_void_p()
-        _check_host(_host.pancake_host_session_open_accepted(
-            host.raw, tptr, len(t), ctypes.byref(out),
-        ))
+        _check_host(
+            _host.pancake_host_session_open_accepted(
+                host.raw,
+                tptr,
+                len(t),
+                ctypes.byref(out),
+            )
+        )
         # Every accept path lands here, and each runs the handshake inline in
         # its accept loop, so a silent partner must not park the loop; the
         # bound lives in `_establish`, which both halves reach.
         session = cls(out, host, transport)
-        # Before the first partner byte, which is the only window a realizer's
-        # proof can be weighed in.
-        if verified_channel_key:
-            session.bind_verified_channel_key(verified_channel_key)
-        return await session._establish(handshake_timeout_ms)
+        return await session._bind_channel_proof_and_establish(
+            verified_channel_key, handshake_timeout_ms
+        )
+
+    async def _bind_channel_proof_and_establish(
+        self,
+        verified_channel_key: "Optional[str]",
+        handshake_timeout_ms: "Optional[int]",
+    ) -> "Session":
+        """Consume post-mint setup under the Session's transport ownership."""
+        try:
+            # Before the first partner byte, which is the only window a
+            # realizer's proof can be weighed in.
+            if verified_channel_key:
+                self.bind_verified_channel_key(verified_channel_key)
+            return await self._establish(handshake_timeout_ms)
+        except BaseException:
+            # `_establish` owns its own failure path; this additionally covers
+            # proof refusal before that path starts. Teardown is idempotent.
+            self.close_transport()
+            raise
 
     async def _establish(
-        self, handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
+        self,
+        handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
     ) -> "Session":
         # Drive the freshly opened connection's keyed handshake to an open
         # session, abandoning the connection on any failure (release +
@@ -269,7 +330,8 @@ class Session:
         try:
             if handshake_timeout_ms:
                 await asyncio.wait_for(
-                    _pump._run_handshake(self), handshake_timeout_ms / 1000,
+                    _pump._run_handshake(self),
+                    handshake_timeout_ms / 1000,
                 )
             else:
                 await _pump._run_handshake(self)
@@ -300,6 +362,7 @@ class Session:
         DIAL arm reports it through ``pancake_host_dialed``. Raises once the
         session is released, rather than handing out the null the field
         then holds."""
+        self._host._assert_owner()
         if self._ptr is None:
             raise PancakeError(_ERR_CLOSED, "the session has been released")
         return self._ptr
@@ -317,7 +380,7 @@ class Session:
 
     @property
     def released(self) -> bool:
-        """Whether the host conn handle has been released. Binding-internal seam."""
+        """Whether the host session handle has been released. Binding-internal seam."""
         return self._released
 
     @property
@@ -341,6 +404,7 @@ class Session:
     def session_open(self) -> bool:
         """Whether the keyed handshake has completed and the session is open.
         Binding-internal seam for the pump."""
+        self._host._assert_owner()
         return not self._released and _host.pancake_host_session_is_open(self._ptr) == 1
 
     @property
@@ -381,6 +445,7 @@ class Session:
     def guard_open(self) -> None:
         """Raise ERR_CLOSED when the connection is released. Binding-internal
         seam."""
+        self._host._assert_owner()
         if self._released:
             raise PancakeError(_ERR_CLOSED, "connection closed")
 
@@ -390,11 +455,22 @@ class Session:
         """Run the inbound loop as a background task: read raw bytes, hand them
         to the core's stream delimiter (behaviors run and vow completions queue
         inside the feed), and drain the action queue. The task completes when
-        the CapTP session closes cleanly; started once."""
+        the CapTP session closes cleanly; started once.
+
+        A loop-backed session (ADR-0112) has no byte pump of its own — the
+        native loop reads, feeds, and drains — so its serve task only awaits
+        the session's closure, keeping the completes-on-close contract."""
+        self._host._assert_owner()
         if self._serve_task is None:
-            self._serve_task = asyncio.get_running_loop().create_task(
-                _pump._serve_loop(self),
-            )
+            transport = self._transport
+            if getattr(transport, "_driver_loop", None) is not None:
+                self._serve_task = asyncio.get_running_loop().create_task(
+                    transport.wait_closed(),
+                )
+            else:
+                self._serve_task = asyncio.get_running_loop().create_task(
+                    _pump._serve_loop(self),
+                )
         return self._serve_task
 
     def last_abort(self) -> Optional[AbortDetail]:
@@ -407,7 +483,12 @@ class Session:
     async def flush_outbound(self) -> None:
         """Drain every encoded outbound frame on this CapTP session and write it
         to the transport — how a FLUSH action lands. Writes are serialized, so
-        frames stay whole and in submission order. Binding-internal."""
+        frames stay whole and in submission order. Binding-internal. On a
+        loop-backed session one loop step is the flush."""
+        loop_ref = getattr(self._transport, "_driver_loop", None)
+        if loop_ref is not None:
+            loop_ref.step_now()
+            return
         await _pump.flush_outbound(self)
 
     # ── Teardown ────────────────────────────────────────────────────────────────
@@ -420,24 +501,38 @@ class Session:
         It does not reach a sibling session, and it does not reach the
         connections the Host opened by itself to redeem a handoff -- the
         ``via`` from :meth:`send_redeeming` is one of those.
-        :meth:`Host.release` ends those.
+        :meth:`Host.release_async` ends those.
 
         A session that had to make its own Host -- :func:`connect` with no
         ``host`` passed, the ordinary case -- closes that Host with it, so
         single-session code needs no Host call."""
+        self._host._assert_owner()
         self._closing = True
         self.close_transport()
+        # Some transports must finish an asynchronous endpoint release after
+        # their synchronous close has revoked the connection. Keep the common
+        # callback-safe close path synchronous, but join that completion here.
+        wait_closed = getattr(self._transport, "wait_closed", None)
+        if wait_closed is not None:
+            await wait_closed()
         # A Host this session created has no other owner, so it goes too, and
         # with it every connection it dialed for redeems. A caller-supplied
         # Host stays: sibling sessions on it are still running, and closing
         # their exporters from here is not this session's call to make.
         if self.owns_host:
-            self._host.release()
+            loop_ref = getattr(self._transport, "_driver_loop", None)
+            if loop_ref is not None:
+                # A bare loop-routed connect owns its whole stack: closing
+                # the session closes the loop, which releases the adopted
+                # host and any resident transports with it.
+                loop_ref.close()
+            else:
+                await self._host.release_async()
         task = self._serve_task
         if task is not None and task is not asyncio.current_task():
             try:
                 await task
-            except (asyncio.CancelledError, OSError, PancakeException):
+            except (asyncio.CancelledError, OSError, PancakeError):
                 pass
 
     def close_transport(self) -> None:
@@ -449,6 +544,9 @@ class Session:
         refuses the release — it parks the release on the Host; the enclosing
         feed's unwind runs it, so a mid-turn close never leaks the handle.
         Binding-internal."""
+        if self._host._schedule_cleanup(self.close_transport):
+            return
+        self._host._assert_owner()
         self._closing = True
         try:
             self._transport.close()
@@ -463,10 +561,22 @@ class Session:
         # trampoline sweep.
         ptr = self._ptr
         self._ptr = None
-        if _inside_turn():
-            self._host.park_release(lambda: _host.pancake_host_session_release(ptr))
+        loop_ref = getattr(self._transport, "_driver_loop", None)
+        if loop_ref is not None:
+            # The native loop owns loop-minted sessions: their release is the
+            # loop's own verb, which also drops queued events naming them.
+            def release_native(p=ptr):
+                loop_ref._native_session_release(p)
+
         else:
-            _host.pancake_host_session_release(ptr)
+
+            def release_native(p=ptr):
+                _host.pancake_host_session_release(p)
+
+        if _inside_turn():
+            self._host.park_release(release_native)
+        else:
+            release_native()
         # The release queued FAIL completions (and sibling withdraws may have
         # failed closed): route them now.
         self._host.schedule_kick()
@@ -525,7 +635,11 @@ class Session:
         the fetch, and :class:`FetchFailed` when it fulfills with something
         that is not a live capability."""
         return await _fetch_like(
-            self, name.encode(), name, _host.pancake_host_session_fetch, track=True,
+            self,
+            name.encode(),
+            name,
+            _host.pancake_host_session_fetch,
+            track=True,
         )
 
     async def enliven(self, sturdyref: str) -> Ref:
@@ -540,10 +654,16 @@ class Session:
         and :class:`FetchFailed` when it fulfills with something that is not a
         capability."""
         return await _fetch_like(
-            self, sturdyref.encode(), sturdyref, _host.pancake_host_session_enliven, track=False,
+            self,
+            sturdyref.encode(),
+            sturdyref,
+            _host.pancake_host_session_enliven,
+            track=False,
         )
 
-    def send(self, target: "Ref | RemotePromise", verb: str, args: "Optional[list]" = None) -> RemotePromise:
+    def send(
+        self, target: "Ref | RemotePromise", verb: str, args: "Optional[list]" = None
+    ) -> RemotePromise:
         """Eventual-send ``verb(args)`` to ``target`` and return a
         :class:`RemotePromise` for the reply. ``await`` it for the value (a
         :class:`Ref` if the partner returned a capability; raises
@@ -555,7 +675,7 @@ class Session:
         chain costs one round trip instead of one per link. ``args`` may
         contain :class:`Ref`\\ s. A :class:`Ref` this session spawned runs
         in process; a partner's rides the wire, and a redeemed or fetched token
-        routes to the exporter connection that hosts it, transparently.
+        routes to the exporter session that hosts it, transparently.
 
         The deliver is queued now; its bytes leave the wire when the returned
         handle -- or any send pipelined behind it -- is first observed (awaited
@@ -589,31 +709,34 @@ class Session:
             return RemotePromise.failed(err)
 
     async def send_redeeming(
-        self, target: "Ref | RemotePromise", verb: str, args: "Optional[list]" = None,
-    ) -> RedeemedReply:
+        self,
+        target: "Ref | RemotePromise",
+        verb: str,
+        args: "Optional[list]" = None,
+    ) -> SendRedeemingResult:
         """Eventual-send ``verb(args)`` to ``target``, await the reply, and also
         surface the direct :class:`Session` a three-party-handoff redeem opened
         to answer it.
 
         When ``target`` answers with a handoff give (a room's ``introduce``,
         say), the binding redeems it by dialing the exporter, and the reply
-        settles to a capability that routes over that fresh direct connection.
-        That connection is otherwise internal. This returns it as ``via``, so
-        you can host your own objects on the very connection the redeemed
-        capability lives on. That is the one place a reply capability handed
-        back to the exporter is valid: an OCapN near reference names an export
-        position on one specific connection's peer, so a :meth:`spawn` on *this*
-        session is not a live export on the exporter's, and the host refuses
-        that send rather than mis-encode it.
+        settles to a capability that routes over a fresh direct session. The
+        byte connection is otherwise internal. This returns the session as
+        ``via``, so you can host your own objects in the same session as the
+        redeemed capability. That is the one place a reply capability handed
+        back to the exporter is valid: an OCapN near reference names a position
+        in one specific session, so a :meth:`spawn` on *this* session is not a
+        live export in the exporter's, and the host refuses that send rather
+        than mis-encode it.
 
         ``via`` is resolved from the reply's own token, which carries the
-        connection it lives on, not from watching which dial ran during the
+        session it lives in, not from watching which dial ran during the
         send. So it is right with several redeems in flight at once, and it
-        still finds the exporter when the reply reused a connection an earlier
-        redeem already dialed -- a cache hit that opens no new connection and
+        still finds the exporter when the reply reused a session an earlier
+        redeem already dialed -- a cache hit that opens no new session and
         that a which-dial-ran guess could never see. ``via`` is ``None`` when
         the reply is not a redeemed-handoff capability (an ordinary far reply,
-        or a value that is no capability at all) or its exporter connection is
+        or a value that is no capability at all) or its exporter session is
         already gone; fall back to this session there::
 
             reply, via = await session.send_redeeming(directory, "introduce", [nick])
@@ -626,7 +749,7 @@ class Session:
         via = self._host.exporter_for(reply) if isinstance(reply, Ref) else None
         if via is self:
             via = None
-        return RedeemedReply(reply, via)
+        return SendRedeemingResult(reply, via)
 
     async def tell(self, target: Ref, verb: str, args: "Optional[list]" = None) -> None:
         """Fire-and-forget eventual-send (Goblins ``<-np``): no answer is
@@ -637,20 +760,21 @@ class Session:
         args = list(args or [])
         await _dispatch_tell(self, target, verb, args)
 
-    def set_exporter_locator(self, raw_locator: bytes) -> None:
-        """Record the verbatim exporter-location bytes (from
-        :func:`encode_peer_locator`) the gifter embeds when *this* connection
-        is the exporter side of a handoff this host originates (ADR-0009).
-        Needed when the partner's signed location is not dialable on its own —
-        an iroh partner signs only its node id, so a gifter that learned the
-        exporter's ``direct-addresses`` out of band sets the full locator here.
-        Unset, origination falls back to the partner's signed location."""
+    def set_exporter_locator(self, locator: "Optional[Locator]") -> None:
+        """Override the exporter location with a complete typed locator.
+        ``None`` restores the partner's signed location."""
         self.guard_open()
-        # Empty unsets the override; keep the NULL the header documents there.
-        buf, ptr = _byte_buf(raw_locator) if raw_locator else (None, None)
-        _check_host(_host.pancake_host_session_set_exporter_location(
-            self._ptr, ptr, len(raw_locator),
-        ))
+        if locator is None:
+            _check_host(
+                _host.pancake_host_session_set_exporter_location(self._ptr, None)
+            )
+            return
+        with _OwnedLocator.create(locator) as owned:
+            _check_host(
+                _host.pancake_host_session_set_exporter_location(
+                    self._ptr, owned.borrow_view()
+                )
+            )
 
     # ── Who the partner is, as the handshake proved it ─────────────────────────
 
@@ -675,16 +799,21 @@ class Session:
         """
         self.guard_open()
         info = _PartnerIdentity()
-        _check_host(_host.pancake_host_session_partner_identity(
-            self._ptr, ctypes.byref(info),
-        ))
+        _check_host(
+            _host.pancake_host_session_partner_identity(
+                self._ptr,
+                ctypes.byref(info),
+            )
+        )
 
         def owned(ptr, length) -> bytes:
             return ctypes.string_at(ptr, length) if ptr and length else b""
 
         return PartnerIdentity(
             session_key=owned(info.session_key, info.session_key_len),
-            designator=owned(info.designator, info.designator_len).decode(errors="replace"),
+            designator=owned(info.designator, info.designator_len).decode(
+                errors="replace"
+            ),
             locator_record=owned(info.locator_record, info.locator_record_len),
             provenance=_provenance_from_abi(info.provenance),
         )
@@ -713,9 +842,13 @@ class Session:
         self.guard_open()
         raw = designator.encode()
         buf, ptr = _byte_buf(raw)
-        _check_host(_host.pancake_host_session_bind_verified_channel_key(
-            self._ptr, ptr, len(raw),
-        ))
+        _check_host(
+            _host.pancake_host_session_bind_verified_channel_key(
+                self._ptr,
+                ptr,
+                len(raw),
+            )
+        )
 
     # ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 

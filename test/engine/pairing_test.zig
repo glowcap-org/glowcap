@@ -7,6 +7,7 @@ const engine = pancake.ocapn.engine;
 const session = pancake.ocapn.session;
 const codec = pancake.ocapn.codec;
 const pairing = engine.pairing;
+const handshake = @import("../support/handshake.zig");
 
 const crypto = foundation.crypto;
 
@@ -214,6 +215,58 @@ test "a hello naming anything but the baseline version is refused before it is s
     try std.testing.expect(!peer.session_state.handshake_local_sent);
 }
 
+test "a negotiated fallback retains its hello under the baseline profile" {
+    const allocator = std.testing.allocator;
+    var receiver = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .next,
+        .codec = .capnp,
+    });
+    defer receiver.deinit();
+    var sender = engine.Peer.initNegotiating(allocator);
+    defer sender.deinit();
+
+    const locator: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:2",
+        .hints = model.Hints.emptyFalse(),
+    };
+    try sender.sendKeyedStartSession(
+        locator,
+        crypto.SecretKey.fromSeed([_]u8{0x42} ** crypto.SEED_BYTES),
+    );
+    try std.testing.expectEqual(engine.StepOutcome.progress, try sender.step());
+    try receiver.feedOwned(sender.takeOutbound().?);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try receiver.step());
+
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, receiver.session_state.captp_version);
+    var event = receiver.pollEvent().?;
+    defer event.deinit();
+    const hello = (try event.view()).start_session;
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, hello.captp_version);
+    try std.testing.expectEqualStrings(locator.designator, hello.acceptable_location.designator);
+}
+
+test "a pre-settlement abort uses the baseline wire pair" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .next,
+        .codec = .capnp,
+    });
+    defer peer.deinit();
+
+    try std.testing.expectError(
+        error.MalformedFrame,
+        peer.recvBorrowed(.{ .bytes = "not a syrup frame", .shape = .byte }),
+    );
+    try std.testing.expectEqual(session.State.closed, peer.session_state.state);
+
+    var frame = peer.takeOutbound() orelse return error.MissingAbort;
+    defer frame.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.v1_0, frame.view());
+    try std.testing.expect(body == .abort);
+    try std.testing.expectEqual(model.AbortKind.malformed_frame, body.abort.kind);
+}
+
 test "exact keyed start-session refuses an unstamped non-baseline profile" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.initNegotiatingWith(allocator, .{
@@ -251,6 +304,92 @@ test "exact keyed start-session refuses duplicate locator hints before signing" 
         peer.sendKeyedStartSessionExact(loc, secret),
     );
     try std.testing.expect(!peer.session_state.handshake_local_sent);
+}
+
+test "keyed start-session refuses an unregistered preferred codec before signing" {
+    const allocator = std.testing.allocator;
+    const unknown: model.CodecId = @enumFromInt(0xfffe);
+    const secret = crypto.SecretKey.fromSeed([_]u8{0x46} ** crypto.SEED_BYTES);
+    const loc: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:1",
+        .hints = model.Hints.emptyFalse(),
+    };
+
+    var ordinary = engine.Peer.initNegotiatingWith(allocator, .{ .codec = unknown });
+    defer ordinary.deinit();
+    try std.testing.expectError(error.UnknownCodec, ordinary.sendKeyedStartSession(loc, secret));
+    try std.testing.expect(!ordinary.session_state.handshake_local_sent);
+
+    const hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_codec,
+        .value = .{ .string = "65534" },
+    }};
+    const exact_loc: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:1",
+        .hints = .{ .entries = &hints },
+    };
+    var exact = engine.Peer.initNegotiatingWith(allocator, .{ .codec = unknown });
+    defer exact.deinit();
+    try std.testing.expectError(error.UnknownCodec, exact.sendKeyedStartSessionExact(exact_loc, secret));
+    try std.testing.expect(!exact.session_state.handshake_local_sent);
+}
+
+test "a signed hello advertising an unknown codec falls back before dispatch" {
+    const allocator = std.testing.allocator;
+    const local_secret = crypto.SecretKey.fromSeed([_]u8{0x47} ** crypto.SEED_BYTES);
+    const remote_secret = crypto.SecretKey.fromSeed([_]u8{0x48} ** crypto.SEED_BYTES);
+
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{
+        .captp_version = .next,
+        .codec = .capnp,
+    });
+    defer peer.deinit();
+
+    const local: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:1",
+        .hints = model.Hints.emptyFalse(),
+    };
+    try peer.sendKeyedStartSession(local, local_secret);
+    _ = try peer.step();
+    var local_hello = peer.takeOutbound().?;
+    local_hello.deinit();
+
+    const remote_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_codec,
+        .value = .{ .string = "65534" },
+    }};
+    const remote_hello = try handshake.signedHelloFrame(
+        allocator,
+        remote_secret,
+        "tcp",
+        "127.0.0.1:2",
+        .{ .entries = &remote_hints },
+    );
+    try peer.feedOwned(remote_hello);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    try std.testing.expect(peer.sessionIsOpen());
+    try std.testing.expectEqual(model.CodecId.syrup, peer.codecId());
+    try std.testing.expect(codec.registry.contains(peer.codecId()));
+
+    var hello_event = peer.pollEvent().?;
+    hello_event.deinit();
+
+    const deliver = try codec.syrup.encodeMessageForProfile(allocator, .v1_0, .{
+        .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .args = &.{.{ .bytes = "still syrup" }},
+            .answer = null,
+            .resolve_me_desc = null,
+        },
+    });
+    try peer.feedOwned(deliver);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var deliver_event = peer.pollEvent().?;
+    defer deliver_event.deinit();
+    try std.testing.expectEqual(engine.EventKind.deliver, deliver_event.kind());
 }
 
 test "v1.0 resolve round-trips as a resolver-callback deliver across paired peers" {

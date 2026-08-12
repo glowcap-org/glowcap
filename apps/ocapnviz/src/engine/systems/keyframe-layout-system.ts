@@ -412,6 +412,12 @@ export class KeyframeLayoutSystem {
   /** What the keyframes were last derived from, so a recompute over unchanged
    *  inputs can decline to re-anneal. See `layoutInputSignature`. */
   #inputSignature: string;
+  /** Bumped on every recompute so a settled early-out cannot skip a
+   *  placement write after the layout maps changed underfoot. */
+  #layoutGen = 0;
+  /** Keyframe whose progress-1 write has already landed for `#layoutGen`. */
+  #settledKeyframe: Keyframe | null = null;
+  #settledGen = -1;
 
   constructor(
     doc: TimelineDocument,
@@ -486,6 +492,7 @@ export class KeyframeLayoutSystem {
       this.#claims,
       this.#keyframes,
     );
+    this.#layoutGen += 1;
   }
 
   /**
@@ -530,6 +537,17 @@ export class KeyframeLayoutSystem {
       ),
       this.config,
     );
+    this.#layoutGen += 1;
+  }
+
+  /**
+   * Drop the settled early-out. Required after the world is rebuilt
+   * (`#resetWorld` / seek) or gains nodes (materialize topology change):
+   * the skip assumes entity positions already match the targets, and a
+   * fresh world does not.
+   */
+  invalidateSettled(): void {
+    this.#settledKeyframe = null;
   }
 
   update(world: GameWorld, t: number): void {
@@ -539,6 +557,22 @@ export class KeyframeLayoutSystem {
     const since = t - active.keyframe.t;
     const raw = window <= 0 ? 1 : Math.min(1, since / window);
     const progress = this.config.easing(raw);
+    // Once the era has finished easing, positions already equal the
+    // targets. Skip the per-node write until the active keyframe or the
+    // layout generation changes (seek into the window, recompute, pin),
+    // or until `invalidateSettled` runs after the world is rebuilt.
+    if (progress >= 1) {
+      if (
+        this.#settledKeyframe === active.keyframe &&
+        this.#settledGen === this.#layoutGen
+      ) {
+        return;
+      }
+      this.#settledKeyframe = active.keyframe;
+      this.#settledGen = this.#layoutGen;
+    } else {
+      this.#settledKeyframe = null;
+    }
     // The arrangement this era eases FROM is the one the picture actually holds
     // when the era begins, worked out for every era at construction. Reading it
     // rather than reconstructing it keeps this at one lerp per node however

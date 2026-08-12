@@ -33,6 +33,32 @@ export type SessionBundleEntry = {
   size: number;
 };
 
+/**
+ * One frame's claim resolution and the two bundle tables derived from it.
+ *
+ * Flight positioning and edge drawing must read the same maps, or a dot
+ * leaves the wire it is meant to ride. The engine builds this once per
+ * stage update; the Stage projects from it rather than rebuilding.
+ */
+export type FrameGeometry = {
+  claimsToward: ReadonlyMap<string, string>;
+  sessionBundles: ReadonlyMap<string, SessionBundleEntry>;
+  /** Doc-stable simultaneity slots — memoized across playback and
+   *  mid-drag; rebuilt on seek and when the document is marked dirty. */
+  timeBundles: ReadonlyMap<string, SessionBundleEntry>;
+  /** Per-session drawn curves for this stage pass, after layout has
+   *  placed nodes. Flight and edge drawing share one curve per session
+   *  so a dense wire is not re-derived once per in-flight message. */
+  sessionCurves: ReadonlyMap<string, SessionCurve>;
+};
+
+export const EMPTY_FRAME_GEOMETRY: FrameGeometry = {
+  claimsToward: new Map(),
+  sessionBundles: new Map(),
+  timeBundles: new Map(),
+  sessionCurves: new Map(),
+};
+
 /** Perpendicular spacing between adjacent bundle slots, in world
  * units. Tuned so two sessions on the same pair clearly read as
  * separate, but a singleton session still feels like a direct line

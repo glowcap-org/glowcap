@@ -76,10 +76,13 @@ answered operation with no inline resolver, then follows it with a mandatory
 `op:listen`. The listener callback settles the answer; next has no wire
 `op:resolve`.
 
-The two profiles also differ on `op:listen` itself. V1.0 carries Goblins's
-Boolean `wants_partial`; next carries integer mode 1, 2, or 3. Both translate to
-`model.ListenMode` at the codec edge. [ADR-0111](ADR-0111-next-promise-listeners.md)
-records the next-profile amendment.
+The two profiles also differ on `op:listen` itself. V1.0 canonically emits
+Goblins's third Boolean `wants_partial` operand. Its decoder also accepts the
+older two-operand shape as `#f` / settling-only, strictly as compatibility with
+the earlier OCapN text; pancake never emits that legacy form. Next carries
+integer mode 1, 2, or 3. Both translate to `model.ListenMode` at the codec edge.
+[ADR-0111](ADR-0111-next-promise-listeners.md) records the next-profile
+amendment.
 
 ## Scope (what this does not decide)
 

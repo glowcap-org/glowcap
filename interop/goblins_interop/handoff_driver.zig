@@ -166,8 +166,10 @@ pub fn main(init: std.process.Init) !void {
 fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, alice_port_str: []const u8) !void {
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
+    var session_root: [crypto.SEED_BYTES]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
 
-    var host = Host.init(allocator, seed, blk: {
+    var host = Host.init(allocator, seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -184,15 +186,14 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
     });
     defer bridge.deinit();
     loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
     }));
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const bound = tcp.locator(&designator_buf, bound_addr).designator;
-    try bridge.attach(tcp.transport_name, bound, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
 
     const alice_port = try std.fmt.parseInt(u16, alice_port_str, 10);
     var alice_designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -205,7 +206,7 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
         .greeter_done = &greeter_done,
         .ok = &ok,
     };
-    try bridge.dialOutbound(alice_locator.transport, alice_locator.designator, "");
+    try bridge.dialOutbound(alice_locator);
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &greeter_done, &loop_err });

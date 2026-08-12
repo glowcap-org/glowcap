@@ -31,10 +31,20 @@ import { explicitBound, implicitBound } from "./temporal/bound.ts";
 import type { TimeSpan } from "./temporal/time-span.ts";
 import { materializeWorldAt } from "./systems/world-materializer.ts";
 import {
+  CLAIM_LEAN,
   DEFAULT_LAYOUT_CONFIG,
   KeyframeLayoutSystem,
 } from "./systems/keyframe-layout-system.ts";
 import { MessageFlightSystem } from "./systems/animation-system.ts";
+import {
+  claimTargets,
+  computeMessageTimeBundles,
+  computeSessionBundles,
+  drawnSessionCurve,
+  EMPTY_FRAME_GEOMETRY,
+  type FrameGeometry,
+  type SessionCurve,
+} from "./session-geometry.ts";
 import { type DocSnapshot, History, snapshotsEqual } from "./history.ts";
 import {
   collisionError,
@@ -600,6 +610,17 @@ export class Engine {
   // `tick()` skip per-frame interpolation when nothing moved
   // (paused, no seek). NaN sentinel so the first tick always runs.
   #lastUpdateT = Number.NaN;
+  /** Claim/bundle tables for the last stage update — Stage projects
+   *  from these so flight and edges do not rebuild the same maps. */
+  #frameGeometry: FrameGeometry = EMPTY_FRAME_GEOMETRY;
+  /** Time bundles are observation-shaped. Playback and mid-drag leave
+   *  observations alone, so the table stays; seek and a document
+   *  change mark it dirty and the next stage pass rebuilds. */
+  #timeBundlesDirty = true;
+  /** Claim targets + session bundles are membership-shaped. A playing
+   *  frame that only lerps positions leaves them alone; materialize
+   *  reports when the standing set changed. */
+  #pairTablesDirty = true;
   #intents: EngineIntent[] = [];
   #listeners = new Set<() => void>();
   #errorListeners = new Set<(err: EngineError) => void>();
@@ -690,7 +711,57 @@ export class Engine {
    *  by construction and restart paths. */
   #applyInstantaneousEvents(): void {
     materializeWorldAt(this.world, this.doc, 0);
-    this.layout.update(this.world, 0);
+    this.#runStageSystems(0);
+    this.#lastUpdateT = 0;
+  }
+
+  /**
+   * Layout peers, rebuild the frame's shared geometry tables, then place
+   * in-flight messages from those same tables.
+   *
+   * Claim targets and session bundles are membership-shaped: memoized until
+   * materialize reports a topology change or the document dirties claims.
+   * Time bundles are observation-shaped: memoized across playback and
+   * mid-drag. Session curves depend on positions, so they are rebuilt every
+   * pass — once per session — and shared by flight and the Stage.
+   */
+  #runStageSystems(t: number): void {
+    this.layout.update(this.world, t);
+    let claimsToward = this.#frameGeometry.claimsToward;
+    let sessionBundles = this.#frameGeometry.sessionBundles;
+    if (this.#pairTablesDirty) {
+      claimsToward = claimTargets(this.world, this.claims);
+      sessionBundles = computeSessionBundles(this.world, claimsToward);
+      this.#pairTablesDirty = false;
+    }
+    let timeBundles = this.#frameGeometry.timeBundles;
+    if (this.#timeBundlesDirty) {
+      timeBundles = computeMessageTimeBundles(
+        observationsOf(this.doc) as readonly TimelineEvent[],
+      );
+      this.#timeBundlesDirty = false;
+    }
+    const sessionCurves = new Map<string, SessionCurve>();
+    for (const e of this.world.with("session", "endpoints")) {
+      const bundle = sessionBundles.get(e.session.id);
+      if (!bundle) continue;
+      const curve = drawnSessionCurve(
+        this.world,
+        e.endpoints.a,
+        e.endpoints.b,
+        bundle,
+        claimsToward,
+        CLAIM_LEAN,
+      );
+      if (curve) sessionCurves.set(e.session.id, curve);
+    }
+    this.#frameGeometry = {
+      claimsToward,
+      sessionBundles,
+      timeBundles,
+      sessionCurves,
+    };
+    this.messages.update(this.world, t, this.#frameGeometry);
   }
 
   // Entity-definition mutation helpers (define, patch, remove)
@@ -834,20 +905,20 @@ export class Engine {
     const tNow = this.clock.t;
 
     if (simDt > 0) {
-      if (this.#drainEvents(this.#prevT, tNow)) docChanged = true;
+      if (this.#drainEvents(this.#prevT, tNow)) {
+        docChanged = true;
+        this.#timeBundlesDirty = true;
+        // Claims may have changed with the document even when the
+        // standing set did not.
+        this.#pairTablesDirty = true;
+      }
       dirty = true;
     }
     // Skip layout / message updates when `t` hasn't advanced —
     // paused frames or repeated ticks at the same t would otherwise
     // reinterpolate every peer back to the same coords.
     if (tNow !== this.#lastUpdateT) {
-      this.layout.update(this.world, tNow);
-      this.messages.update(
-        this.world,
-        observationsOf(this.doc) as readonly TimelineEvent[],
-        tNow,
-        this.claims,
-      );
+      this.#runStageSystems(tNow);
       this.#lastUpdateT = tNow;
       dirty = true;
     }
@@ -891,6 +962,16 @@ export class Engine {
    */
   get claims(): ReadonlyMap<string, string> {
     return this.layout.claims;
+  }
+
+  /**
+   * The claim/bundle tables the last layout + message pass produced.
+   * Stage reads these for the frame instead of rebuilding; flight already
+   * used them to place dots, so an edge drawn from a second map would
+   * disagree with its own traffic.
+   */
+  get frameGeometry(): FrameGeometry {
+    return this.#frameGeometry;
   }
 
   /** Peers in their canonical draw order: explicit `doc.rowOrder`
@@ -941,7 +1022,13 @@ export class Engine {
    */
   #notify(docChanged = true): void {
     this.#version += 1;
-    if (docChanged) this.#docVersion += 1;
+    if (docChanged) {
+      this.#docVersion += 1;
+      // Observation edits land through here; the next stage pass must
+      // not keep simultaneity slots from the previous document.
+      this.#timeBundlesDirty = true;
+      this.#pairTablesDirty = true;
+    }
     for (const listener of this.#listeners) {
       try {
         listener();
@@ -1012,7 +1099,10 @@ export class Engine {
     // away. That is one d3-force convergence per era per arrival, and it is
     // why playing a hand-built document cost far more than drawing it.
     const docChanged = this.#reproject();
-    materializeWorldAt(this.world, this.doc, toT);
+    if (materializeWorldAt(this.world, this.doc, toT)) {
+      this.#pairTablesDirty = true;
+      this.layout.invalidateSettled();
+    }
     if (docChanged) this.layout.recompute();
     return docChanged;
   }
@@ -1100,6 +1190,11 @@ export class Engine {
     if (this.#txnDepth > 0) {
       this.#txnSeekT = t;
       this.#txnLayoutDirty = true;
+      // Defer the rematerialize (N cold seeks → one at close) but still
+      // wake world subscribers: timeline paint and scrub fields follow
+      // the live doc mid-gesture the way placement does. `docVersion`
+      // stays quiet until `endTransaction`.
+      this.#notify(false);
       return;
     }
     this.#doSeek(t);
@@ -1370,13 +1465,7 @@ export class Engine {
    */
   #refreshStageAtPlayhead(): void {
     const t = this.clock.t;
-    this.layout.update(this.world, t);
-    this.messages.update(
-      this.world,
-      observationsOf(this.doc) as readonly TimelineEvent[],
-      t,
-      this.claims,
-    );
+    this.#runStageSystems(t);
     this.#lastUpdateT = t;
   }
 
@@ -2390,13 +2479,15 @@ export class Engine {
     this.#resetWorld();
     materializeWorldAt(this.world, this.doc, clamped);
     if (docChanged) this.layout.recompute();
-    this.layout.update(this.world, clamped);
-    this.messages.update(
-      this.world,
-      observationsOf(this.doc) as readonly TimelineEvent[],
-      clamped,
-      this.claims,
-    );
+    // Scrub and authoring seek both land here. Observations may have been
+    // rewritten in place since the last build (retiming a message does that
+    // without a fresh doc object), so the time-bundle table is not trusted
+    // across a seek. The standing set is rebuilt from empty, so pair tables
+    // are not trusted either.
+    this.#timeBundlesDirty = true;
+    this.#pairTablesDirty = true;
+    this.layout.invalidateSettled();
+    this.#runStageSystems(clamped);
     this.clock.seekTo(clamped);
     this.#prevT = clamped;
     this.#lastUpdateT = clamped;
@@ -2409,5 +2500,7 @@ export class Engine {
     // entity world is empty so the cached "already updated for
     // this t" promise no longer holds.
     this.#lastUpdateT = Number.NaN;
+    // Fresh entities do not carry the targets a settled early-out assumes.
+    this.layout.invalidateSettled();
   }
 }

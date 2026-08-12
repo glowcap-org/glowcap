@@ -80,7 +80,12 @@ comptime {
     // of the name, so a typo would not be an error, it would be the quadratic
     // from-start re-walk the member exists to avoid. `self_delimiting` turns
     // that absence into a statement the build can check.
-    for (active) |spec| {
+    for (active, 0..) |spec, i| {
+        for (active[0..i]) |prior| {
+            if (prior.id == spec.id)
+                @compileError("codec id " ++ std.fmt.comptimePrint("{d}", .{@intFromEnum(spec.id)}) ++
+                    " is registered more than once (" ++ @typeName(prior.module) ++ " and " ++ @typeName(spec.module) ++ ")");
+        }
         const M = spec.module;
         const name = @typeName(M);
         for ([_][]const u8{ "decodeBody", "decodeBodyForProfile", "decodePrefix", "decodePrefixForProfile", "framePrefix", "encodeMessageForProfile", "Error", "self_delimiting" }) |member| {
@@ -93,6 +98,15 @@ comptime {
             else
                 " has a scanStream but declares self_delimiting = false; a self-describing frame length makes the incremental scan dead weight");
     }
+}
+
+/// Whether this build has an implementation for `id`. Codec ids are an open
+/// wire set, so enum construction alone does not establish membership.
+pub fn contains(id: model.CodecId) bool {
+    inline for (active) |spec| {
+        if (spec.id == id) return true;
+    }
+    return false;
 }
 
 /// The union of every registered codec's error set, plus `UnknownCodec` for an

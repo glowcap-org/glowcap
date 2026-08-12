@@ -1,19 +1,26 @@
 ---
 .title = "iroh: encrypted peer-to-peer",
-.description = "iroh is pancake's encrypted transport: session bytes ride QUIC, and a peer is named by a self-authenticating key rather than a host and port.",
+.description = "iroh carries CapTP over encrypted QUIC with discovery and NAT traversal, and names each peer by a self-authenticating key rather than a host and port.",
 .date = @date("2026-06-17T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-iroh is pancake's encrypted transport, and the one that lets two peers reach each
-other without a server in the middle. A session's bytes ride
+iroh is the transport that lets two peers find each other without a fixed
+address or a server in the middle. A session's bytes ride
 [QUIC](https://www.rfc-editor.org/rfc/rfc9000.html) carried by
 [iroh](https://www.iroh.computer/), and a peer is named by a self-authenticating
 key rather than a `host:port`. Everything above the wire stays the same OCapN
-pancake speaks over TCP, so switching to iroh changes only two things: how a peer
-is addressed, and that its channel is now encrypted and authenticated end to end.
+pancake speaks over TCP. Switching to iroh changes how a peer is addressed and
+how it is reached: discovery, relays, and NAT traversal come with the channel.
+For a direct TCP route between pancake peers that only needs encryption, prefer
+[Noise]($link.page('transports/noise')) (`noise-tcp`) instead.
+
+Goblins ships no iroh netlayer. Live Goblins-over-iroh
+(`zig build goblins-iroh`) uses the adapter in `conformance/goblins-peer/`.
+Prefer [onion]($link.page('transports/onion')) when both sides should run
+unmodified upstream transports.
 
 ## The durable key and session key have separate jobs
 
@@ -24,7 +31,7 @@ roles:
 - it is the **designator**, the peer's name inside an OCapN locator, the part
   you dial in an `ocapn://<node-id>.iroh` URI;
 
-Every CapTP connection also draws a fresh session signing key. The hello
+Every CapTP session also draws a fresh signing key. The hello
 signature proves control of that session key and binds it to the locator the
 partner claims. The signature alone does not prove control of the durable node
 id.
@@ -40,10 +47,10 @@ restores the named object under the same swiss number.
 
 ## Reaching a peer
 
-A peer hands you its node id; how that id turns into a route is a *reachability
-posture* you choose when you bind the endpoint. pancake exposes four:
+A peer hands you its node id; how that id turns into a route is a reachability
+mode you choose when you bind the endpoint. pancake exposes four:
 
-| Posture | How a dial resolves |
+| Mode | How a dial resolves |
 | --- | --- |
 | `direct` | Locator hints carry the peer's socket addresses |
 | `local_discovery` | An in-process address book resolves the id |
@@ -54,7 +61,7 @@ posture* you choose when you bind the endpoint. pancake exposes four:
 information and depends on public infrastructure and propagation. The
 no-relay form needs a publicly reachable direct address.
 
-## A separate artifact, by design
+## Optional sidecar archive
 
 iroh's QUIC stack is Rust, so it rides a sidecar staticlib that pancake keeps in
 its own compiled artifact, `libpancake_net_transport_iroh`
@@ -73,7 +80,7 @@ as TCP; the only difference a caller sees is the address.
 
 ## Scale: many connections, one thread
 
-The blocking path uses one OS thread per connection. To serve many, a loop host
+The blocking path uses one OS thread per connection. To serve many, a driver loop
 drives every connection from one
 readiness descriptor
 ([ADR-0057](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)):

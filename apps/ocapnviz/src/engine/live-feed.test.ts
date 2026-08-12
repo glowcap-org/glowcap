@@ -3,6 +3,7 @@ import {
   type BaseTimelineEvent,
   convertEvent,
   LiveFeed,
+  type LivePeerFactory,
   makeBaseEventConverter,
   newFeedState,
 } from "./live-feed.ts";
@@ -19,6 +20,7 @@ import {
   UNNAMED_PROFILE,
 } from "../schema/topology.ts";
 import { Observation } from "./temporal/recording.ts";
+import type { PancakeWebModule } from "./pancake-web-api.ts";
 
 /**
  * Narrow `TimelineEvent | undefined` to a specific `kind`. Returns
@@ -676,6 +678,52 @@ Deno.test("replay is state, not events: topology applies, messages stay out", ()
   });
   assertEquals(liveMsg.length, 1);
   expectKind(liveMsg[0], "message-sent");
+});
+
+Deno.test("replay completion removes observations absent from the snapshot", () => {
+  const convert = makeBaseEventConverter();
+  convert({
+    v: 1,
+    sim_t_ns: 0,
+    kind: "ocapn.session-opened",
+    session: "p0/s1",
+    a: "rooms",
+    b: "alice",
+    codec: "syrup",
+  });
+  const reconciled = convert({
+    v: 1,
+    sim_t_ns: 2_000_000,
+    kind: "trace.replay-end",
+  });
+  assertEquals(
+    reconciled.filter((ev) => ev.kind === "session-unobserved").length,
+    1,
+  );
+});
+
+Deno.test("replay completion retains observations still in the snapshot", () => {
+  const convert = makeBaseEventConverter();
+  const open: BaseTimelineEvent = {
+    v: 1,
+    sim_t_ns: 0,
+    kind: "ocapn.session-opened",
+    session: "p0/s1",
+    a: "rooms",
+    b: "alice",
+    codec: "syrup",
+  };
+  convert(open);
+  assertEquals(convert({ ...open, replay: true }), []);
+  assertEquals(
+    convert({
+      v: 1,
+      sim_t_ns: 2_000_000,
+      kind: "trace.replay-end",
+    }),
+    [],
+    "a retained observation was closed and reopened during snapshot replacement",
+  );
 });
 
 Deno.test("session-meta folds into the partner's label, identity untouched", () => {
@@ -2885,113 +2933,316 @@ Deno.test("a producer that names no netlayer leaves the field off", () => {
 
 // ─────────────────────── dialing and its channels ───────────────────────
 
-/** A socket that opens nothing and remembers who is listening.
- *
- *  Standing in for the browser's `WebSocket` is what lets these tests
- *  ask the two questions the real one cannot be asked in a test
- *  process: what a feed does with a string that is not a URL, and who
- *  hears the `onclose` that arrives after the feed was let go. */
-class StubSocket {
-  static last: StubSocket | null = null;
-  onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
-  onerror: ((e: unknown) => void) | null = null;
-  onmessage: ((e: { data: unknown }) => void) | null = null;
-  closed = false;
-  constructor(public url: string) {
-    if (!/^wss?:\/\//.test(url)) {
-      // What the browser does: the constructor throws synchronously.
-      throw new SyntaxError(`'${url}' is not a valid WebSocket URL`);
+Deno.test("connect: an invalid sturdyref is reported, not thrown", () => {
+  const feed = new LiveFeed("w");
+  const seen: string[] = [];
+  feed.onError((e) => seen.push(e.detail));
+  feed.connect();
+  assertEquals(seen.length, 1);
+  assert(
+    seen[0]!.includes('"w"'),
+    `the report names the value; got ${seen[0]}`,
+  );
+  feed.disconnect();
+});
+
+Deno.test("startLiveMode: an invalid sturdyref still returns a live handle", () => {
+  const seen: string[] = [];
+  const handle = startLiveMode({
+    sturdyref: "ws:/",
+    onError: (e) => seen.push(e.detail),
+  });
+  assertEquals(seen.length, 1);
+  assert(handle.engine.doc.id === "live");
+  handle.dispose();
+});
+
+type ControlledPeer = {
+  closeCount: number;
+  finish: () => void;
+};
+
+function controlledFactory(): {
+  factory: LivePeerFactory;
+  peers: ControlledPeer[];
+  records: Array<(line: string) => void>;
+} {
+  const peers: ControlledPeer[] = [];
+  const records: Array<(line: string) => void> = [];
+  const factory: LivePeerFactory = (_ref, onRecord) => {
+    let finish!: () => void;
+    const closed = new Promise<void>((resolve) => finish = resolve);
+    const control: ControlledPeer = { closeCount: 0, finish };
+    peers.push(control);
+    records.push(onRecord);
+    return Promise.resolve({
+      closed,
+      close: () => {
+        control.closeCount += 1;
+        finish();
+      },
+    });
+  };
+  return { factory, peers, records };
+}
+
+Deno.test("disconnect closes the exact peer once and a late close reaches nobody", async () => {
+  const controlled = controlledFactory();
+  const feed = new LiveFeed(
+    "ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+    controlled.factory,
+  );
+  let connected: boolean | null = null;
+  feed.onConnectionChange((v) => connected = v);
+  feed.connect();
+  await Promise.resolve();
+  assertEquals(connected, true);
+  feed.disconnect();
+  assertEquals(controlled.peers[0]?.closeCount, 1);
+  connected = null;
+  controlled.peers[0]?.finish();
+  await Promise.resolve();
+  assertEquals(
+    connected,
+    null,
+    "a disposed feed wrote its close into a live subscriber",
+  );
+});
+
+Deno.test("onConnectionChange: the unsubscribe releases the slot", async () => {
+  const controlled = controlledFactory();
+  const feed = new LiveFeed(
+    "ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+    controlled.factory,
+  );
+  let connected: boolean | null = null;
+  const off = feed.onConnectionChange((v) => connected = v);
+  feed.connect();
+  off();
+  await Promise.resolve();
+  assertEquals(connected, null);
+  feed.disconnect();
+});
+
+Deno.test("records arrive through the hosted inbox callback", async () => {
+  const controlled = controlledFactory();
+  const feed = new LiveFeed(
+    "ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+    controlled.factory,
+  );
+  const seen: TimelineEvent[] = [];
+  feed.subscribe((ev) => seen.push(ev));
+  feed.connect();
+  await Promise.resolve();
+  controlled.records[0]?.(JSON.stringify({
+    v: 1,
+    sim_t_ns: 0,
+    seq: 10,
+    epoch: 1,
+    kind: "ocapn.session-opened",
+    session: "p0/s1",
+    a: "rooms",
+    b: "alice",
+    codec: "syrup",
+  }));
+  assertEquals(seen.filter((ev) => ev.kind === "session-opened").length, 1);
+  feed.disconnect();
+});
+
+Deno.test("old replay sequence numbers still form an authoritative snapshot", async () => {
+  const controlled = controlledFactory();
+  const feed = new LiveFeed(
+    "ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+    controlled.factory,
+  );
+  const seen: TimelineEvent[] = [];
+  feed.subscribe((ev) => seen.push(ev));
+  feed.connect();
+  await Promise.resolve();
+  const open = {
+    v: 1,
+    sim_t_ns: 0,
+    seq: 10,
+    epoch: 1,
+    kind: "ocapn.session-opened",
+    session: "p0/s1",
+    a: "rooms",
+    b: "alice",
+    codec: "syrup",
+  };
+  controlled.records[0]?.(JSON.stringify(open));
+  controlled.records[0]?.(JSON.stringify({ ...open, replay: true }));
+  controlled.records[0]?.(JSON.stringify({
+    v: 1,
+    sim_t_ns: 1_000_000,
+    epoch: 1,
+    kind: "trace.replay-end",
+  }));
+  assertEquals(
+    seen.filter((ev) => ev.kind === "session-unobserved").length,
+    0,
+    "stale-sequence suppression discarded current snapshot state",
+  );
+  feed.disconnect();
+});
+
+Deno.test({
+  name: "a dropped peer reconnects with a fresh session and inbox",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const controlled = controlledFactory();
+    const feed = new LiveFeed(
+      "ocapn://key.keyed-tcp?h=127.0.0.1:1/s/swiss",
+      controlled.factory,
+    );
+    const states: boolean[] = [];
+    feed.onConnectionChange((connected) => states.push(connected));
+    feed.connect();
+    await Promise.resolve();
+    controlled.peers[0]?.finish();
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    await Promise.resolve();
+    assertEquals(controlled.peers.length, 2);
+    assert(controlled.records[0] !== controlled.records[1]);
+    assertEquals(states, [true, false, true]);
+    feed.disconnect();
+    assertEquals(controlled.peers[1]?.closeCount, 1);
+  },
+});
+
+const browserWasm = new URL(
+  "../../../../zig-out/wasm/pancake_host.wasm",
+  import.meta.url,
+);
+let browserWasmExists = true;
+try {
+  await Deno.stat(browserWasm);
+} catch (error) {
+  if (error instanceof Deno.errors.NotFound) browserWasmExists = false;
+  else throw error;
+}
+
+Deno.test({
+  name:
+    "the lazy wasm browser peer enlivens, subscribes, and receives a live record",
+  ignore: !browserWasmExists,
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const root = new URL("../../../../", import.meta.url);
+    const hostScript = new URL(
+      "../../../rooms/test/viz_browser_host.ts",
+      import.meta.url,
+    );
+    const child = new Deno.Command(Deno.execPath(), {
+      args: ["run", "-A", hostScript.pathname],
+      cwd: root.pathname,
+      stdout: "piped",
+      stderr: "inherit",
+    }).spawn();
+    const reader = child.stdout.getReader();
+    let wasmObjectUrl: string | null = null;
+    let feed: LiveFeed | null = null;
+    let publisher: WebSocket | null = null;
+    try {
+      const ready = await readJsonLine(reader) as {
+        port: number;
+        sturdyref: string;
+      };
+      const registry = globalThis as Record<symbol, unknown>;
+      const adapterKey = Symbol.for("pancake.stack.adapter");
+      assertEquals(
+        registry[adapterKey],
+        undefined,
+        "importing LiveFeed eagerly initialized the browser stack",
+      );
+
+      const wasm = await Deno.readFile(browserWasm);
+      wasmObjectUrl = URL.createObjectURL(
+        new Blob([wasm], { type: "application/wasm" }),
+      );
+      (globalThis as { __OCV_PANCAKE_WASM_URL?: string })
+        .__OCV_PANCAKE_WASM_URL = wasmObjectUrl;
+      const webModuleName: string = "@pancake/web";
+      (globalThis as {
+        __OCV_PANCAKE_WEB_LOADER?: () => Promise<PancakeWebModule>;
+      }).__OCV_PANCAKE_WEB_LOADER = () =>
+        import(webModuleName) as unknown as Promise<PancakeWebModule>;
+
+      let connected!: () => void;
+      const didConnect = new Promise<void>((resolve) => connected = resolve);
+      feed = new LiveFeed(ready.sturdyref);
+      feed.onConnectionChange((value) => {
+        if (value) connected();
+      });
+      const received: TimelineEvent[] = [];
+      let sawSession!: () => void;
+      const didReceive = new Promise<void>((resolve) => sawSession = resolve);
+      feed.subscribe((event) => {
+        received.push(event);
+        if (event.kind === "session-opened") sawSession();
+      });
+      feed.connect();
+      await didConnect;
+      assert(
+        registry[adapterKey] !== undefined,
+        "Live mode did not initialize wasm",
+      );
+
+      publisher = new WebSocket(`ws://127.0.0.1:${ready.port}/publish`);
+      await new Promise<void>((resolve, reject) => {
+        publisher!.onopen = () => resolve();
+        publisher!.onerror = () => reject(new Error("publisher did not open"));
+      });
+      publisher.send(JSON.stringify({
+        v: 1,
+        sim_t_ns: 0,
+        kind: "ocapn.session-opened",
+        session: "browser-proof-s1",
+        a: "rooms",
+        b: "alice",
+        codec: "syrup",
+      }));
+      await didReceive;
+      assertEquals(
+        received.filter((event) => event.kind === "session-opened").length,
+        1,
+      );
+    } finally {
+      publisher?.close();
+      feed?.disconnect();
+      delete (globalThis as { __OCV_PANCAKE_WASM_URL?: string })
+        .__OCV_PANCAKE_WASM_URL;
+      delete (globalThis as { __OCV_PANCAKE_WEB_LOADER?: unknown })
+        .__OCV_PANCAKE_WEB_LOADER;
+      if (wasmObjectUrl !== null) URL.revokeObjectURL(wasmObjectUrl);
+      reader.releaseLock();
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // already exited
+      }
+      await child.status;
     }
-    StubSocket.last = this;
+  },
+});
+
+async function readJsonLine(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<unknown> {
+  const decoder = new TextDecoder();
+  let buffered = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      throw new Error("viz host exited before announcing its capability");
+    }
+    buffered += decoder.decode(value, { stream: true });
+    const newline = buffered.indexOf("\n");
+    if (newline >= 0) return JSON.parse(buffered.slice(0, newline));
   }
-  close() {
-    this.closed = true;
-  }
-  send() {}
 }
-
-function withStubSocket(run: () => void): void {
-  const real = (globalThis as { WebSocket?: unknown }).WebSocket;
-  (globalThis as { WebSocket?: unknown }).WebSocket = StubSocket;
-  try {
-    run();
-  } finally {
-    (globalThis as { WebSocket?: unknown }).WebSocket = real;
-    StubSocket.last = null;
-  }
-}
-
-Deno.test("connect: a URL no socket can open is reported, not thrown", () => {
-  withStubSocket(() => {
-    const feed = new LiveFeed("w");
-    const seen: string[] = [];
-    feed.onError((e) => seen.push(e.detail));
-    // The app dials inside a React effect body, where a throw reaches
-    // the error boundary and replaces the running page.
-    feed.connect();
-    assertEquals(seen.length, 1);
-    assert(
-      seen[0]!.includes('"w"'),
-      `the report names the URL that failed; got ${seen[0]}`,
-    );
-    feed.disconnect();
-  });
-});
-
-Deno.test("startLiveMode: an unopenable URL still returns a live handle", () => {
-  withStubSocket(() => {
-    const seen: string[] = [];
-    const handle = startLiveMode({
-      url: "ws:/",
-      onError: (e) => seen.push(e.detail),
-    });
-    assertEquals(seen.length, 1);
-    // The engine exists whatever the URL was, so the app has something
-    // to render and the reader can retype the address.
-    assert(handle.engine.doc.id === "live");
-    handle.dispose();
-  });
-});
-
-Deno.test("disconnect: a late onclose reaches nobody", () => {
-  withStubSocket(() => {
-    const feed = new LiveFeed("ws://127.0.0.1:9000/");
-    let connected: boolean | null = null;
-    feed.onConnectionChange((v) => {
-      connected = v;
-    });
-    feed.connect();
-    const ws = StubSocket.last!;
-    ws.onopen?.();
-    assertEquals(connected, true);
-    feed.disconnect();
-    connected = null;
-    // The browser delivers `onclose` after `close()` returns. A feed
-    // nobody owns any more must not write into the owner it had.
-    ws.onclose?.();
-    assertEquals(
-      connected,
-      null,
-      "a disposed feed wrote its close into a live subscriber",
-    );
-  });
-});
-
-Deno.test("onConnectionChange: the unsubscribe releases the slot", () => {
-  withStubSocket(() => {
-    const feed = new LiveFeed("ws://127.0.0.1:9000/");
-    let connected: boolean | null = null;
-    const off = feed.onConnectionChange((v) => {
-      connected = v;
-    });
-    feed.connect();
-    off();
-    StubSocket.last!.onopen?.();
-    assertEquals(connected, null);
-    feed.disconnect();
-  });
-});
 
 // ─────────────────────────── what a feed retains ────────────────────────
 

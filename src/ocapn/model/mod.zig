@@ -35,6 +35,7 @@ pub const cloneArgument = owned.cloneArgument;
 pub const freeArgument = owned.freeArgument;
 pub const cloneArgumentSlice = owned.cloneArgumentSlice;
 pub const measureArgumentSliceOwnedBytes = owned.measureArgumentSliceOwnedBytes;
+pub const measureMessageOwnedBytes = owned.measureMessageOwnedBytes;
 pub const freeArgumentSlice = owned.freeArgumentSlice;
 pub const freePipelineOp = owned.freePipelineOp;
 pub const freeResolution = owned.freeResolution;
@@ -44,6 +45,7 @@ pub const freeReference = owned.freeReference;
 pub const freeHandoffGive = owned.freeHandoffGive;
 pub const freeHandoff = owned.freeHandoff;
 pub const freePeerLocator = owned.freePeerLocator;
+pub const clonePeerLocator = owned.clonePeerLocator;
 pub const cloneHints = owned.cloneHints;
 pub const freeHints = owned.freeHints;
 pub const freeHintEntry = owned.freeHintEntry;
@@ -63,6 +65,10 @@ pub const referencesStructurallyEqual = equality.referencesStructurallyEqual;
 pub const argumentsEqual = equality.argumentsEqual;
 pub const peerLocatorsEqual = equality.peerLocatorsEqual;
 pub const handoffsEqual = equality.handoffsEqual;
+
+/// Whether a value tree carries no reference or handoff authority. Resolver
+/// settlements and cross-thread handoff queues use this one model-owned walk.
+pub const argumentIsPlainData = @import("plain.zig").argumentIsPlainData;
 
 /// OCapN locators to and from `ocapn://` URIs: the out-of-band bootstrap form
 /// a peer or sturdyref address is shared in. It is pure parse/emit over the
@@ -115,6 +121,8 @@ pub const Hints = hint_types.Hints;
 
 const peer_locator = @import("peer_locator.zig");
 pub const PeerLocator = peer_locator.PeerLocator;
+pub const validatePeerLocator = peer_locator.validate;
+pub const PeerLocatorValidationError = peer_locator.ValidationError;
 
 pub const SessionPubkey = struct {
     bytes: []const u8,

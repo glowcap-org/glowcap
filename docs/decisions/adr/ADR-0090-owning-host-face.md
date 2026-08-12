@@ -3,11 +3,11 @@ id: ADR-0090
 status: accepted
 date: 2026-07-28
 tags: [driver, host, api, session, poll, handoff]
-decision: "`driver.connect` and `driver.listen` keep their signatures but return sessions backed by a `driver_core.Host` that an owning `driver.PollHost` drives with blocking, poll-multiplexed I/O, the native sibling of the pump every binding already runs. A three-party introduction settles as a live capability inside the caller's wait in Zig exactly as it does in every binding, and the two things previously named `Session` collapse into one contract. The direct single-connection tier survives as the borrowing `BlockingSession`, the explicit escape whose caller owns the peer and buffers."
+decision: "`driver.connect` and `driver.listen` keep their signatures but return sessions backed by a `driver_core.Host` that an owning `driver.HostRuntime` drives with blocking, poll-multiplexed I/O, the native sibling of the pump every binding already runs. A three-party introduction settles as a live capability inside the caller's wait in Zig exactly as it does in every binding, and the two things previously named `Session` collapse into one contract. The direct single-connection tier survives as the borrowing `BlockingSession`, the explicit escape whose caller owns the peer and buffers."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0110]
+amended_by: [ADR-0110, ADR-0112, ADR-0113]
 ---
 
 # ADR-0090 The owning host face
@@ -21,7 +21,7 @@ amended_by: [ADR-0110]
 ## Decision
 
 `driver.connect` and `driver.listen` keep their signatures but return sessions
-backed by a `driver_core.Host` that an owning `driver.PollHost` drives with
+backed by a `driver_core.Host` that an owning `driver.HostRuntime` drives with
 blocking, poll-multiplexed I/O, the native sibling of the pump every binding
 already runs. A three-party introduction settles as a live capability inside the
 caller's wait in Zig exactly as it does in every binding, and the two things
@@ -55,36 +55,35 @@ the bindings block on their languages' event loops, and native Zig has none.
 ### Types and ownership
 
 ```text
-driver.Host (owning; heap-pinned; src/driver/host.zig)
+driver.HostRuntime (owning; heap-pinned; src/driver/host_runtime.zig)
 ├── core: driver_core.Host          sans-io: node, identity, sessions, vows,
 │                                   actions — never touches a socket
 ├── netlayers: []const Netlayer     borrowed; must outlive the Host — later
 │                                   redeem dials resolve through this slice,
 │                                   so a caller's stack-local array dangles
 ├── wires: PeerId → *Wire           one wire per live session
-└── opts: SessionOptions            frame_cap → limits; codec; both Budgets
+└── opts: SessionOptions            frame/open admission; wire staging; codec; Budgets
 
-Wire (owning; one per session; private to driver.Host)
+Wire (owning; one per session; private to driver.HostRuntime)
 ├── conn: net.Connection            the transport byte stream: r/w interfaces,
 │                                   TransportHandle, waitReadable, socketHandle
 │                                   — its parse machinery (pump/spill) is never
 │                                   used; the byte-fed core owns framing
-├── read_buf, write_buf: []u8       owned, frame_cap-sized; read_buf is the
+├── read_buf, write_buf: []u8       owned, wire_buffer_bytes-sized; read_buf is the
 │                                   transport reader's buffer, write_buf the
 │                                   writer's
 └── session: *HostSession           the core shell this wire feeds
 
 driver.Session (view; heap-pinned)
-├── host: *driver.PollHost
+├── runtime: *driver.HostRuntime
 ├── session: *HostSession           which partner this view speaks to
-└── owns_host: bool                 connect() builds a single-session Host
-                                    underneath and hands back its one view, so
-                                    deinit tears the whole bundle down;
-                                    Server.accept views borrow the Server's
-                                    Host and deinit releases one session only
+└── owner: Session.Owner            borrowed owns nothing; accepted releases
+                                    one session from its Server's shared Host;
+                                    private_host tears down the whole Host
+                                    bundle built by connect()
 
 driver.Server (owning)
-├── host: driver.Host               one identity for every accepted partner —
+├── runtime: driver.HostRuntime     one identity for every accepted partner —
 │                                   which is what makes a give minted for one
 │                                   partner verifiable by another
 └── listener: net.netlayer.Listener
@@ -153,7 +152,7 @@ matter which vocabulary the caller speaks.
 
 ### Lifecycle walks
 
-- **connect**: build the private `driver.PollHost`, `core.openDialedLocator`
+- **connect**: build the private `driver.HostRuntime`, `core.openDialedLocator`
   (registers crossed hellos, encodes the signed hello, refuses a duplicate
   dial), dial the transport into a `Wire`, then `pumpUntil(session open,
   handshake budget)`. Failure at any point unwinds the wire, the session
@@ -182,25 +181,28 @@ matter which vocabulary the caller speaks.
   — inproc by design, iroh's userspace stream) is refused at open with a
   typed error naming `completion.Loop` as the tier that serves it. This is
   the boundary `BlockingSession` documents for budgets, made structural.
-- **One thread drives one `driver.PollHost`** — inherited from the core's
+- **One thread drives one `driver.HostRuntime`** — inherited from the core's
   unsynchronized contract and its debug owner assert.
-- The redeem dial's TCP connect syscall is not budget-bounded (the same
-  posture `connectVia` has always had); the handshake after it is.
+- Redeem connect inherits its provider. Driver providers begin connects
+  nonblocking; a native Zig stream netlayer without staged-dial support keeps
+  the blocking fallback, whose connect syscall is outside the handshake
+  budget. The handshake itself remains bounded either way.
 - No 500k claim: the owning face is the application tier. Its per-session
-  cost — shell + peer + two frame_cap buffers — and its per-host cost — one
+  cost — shell + peer + two wire buffers — and its per-host cost — one
   node — are named in the memory rule; the completion loop remains the scale
   path and the bridge is untouched.
 
 ## Scope (what this does not decide)
 
-The C ABI is untouched (bindings already drive the core directly). The
-borrowing tier keeps its whole surface. No new CapTP semantics exist
+The borrowing C ABI is untouched. ADR-0112 subsequently projects this owning
+face through the separate driver ABI; it does not move transport execution
+into the borrowing host family. The borrowing tier keeps its whole surface. No new CapTP semantics exist
 anywhere: every behavior this face exposes is the core's, already held by
 the byte-fed host tests and the binding interop steps.
 
 ## Alternatives Considered
 
-- **Rename the direct tier (`DirectSession`) and add `driver.PollHost` beside
+- **Rename the direct tier (`DirectSession`) and add `driver.HostRuntime` beside
   it.** Rejected: two front doors survive, and the confusion halves instead
   of dying.
 - **Wrap `Bridge` + `completion.Loop` in a background thread and park
@@ -216,7 +218,7 @@ the byte-fed host tests and the binding interop steps.
 
 ## Consequences
 
-- New: `src/driver/host.zig` (`driver.PollHost`, `Wire`, the pump, the
+- New: `src/driver/host_runtime.zig` (`driver.HostRuntime`, `Wire`, the pump, the
   `Session`/`Server` views); `net.waitAnyReadable`.
 - Reworked: `driver/session.zig`'s owning tier is reimplemented over the
   host face with signatures unchanged, so `cli/`, the C tcp session, the

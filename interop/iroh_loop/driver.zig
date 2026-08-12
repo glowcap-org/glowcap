@@ -65,7 +65,10 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) a
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, &entries, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -97,7 +100,9 @@ pub fn main(init: std.process.Init) !void {
     const server_id = server.nodeId(&id_buf);
     std.debug.print("iroh-loop: server endpoint id {s}\n", .{server_id});
 
-    var host = driver.core.Host.init(allocator, server_seed, .{
+    var session_root: [32]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
@@ -109,12 +114,11 @@ pub fn main(init: std.process.Init) !void {
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
     const backend = try iroh.Backend.initBound(allocator, &server, 256, 256, read_buffer_bytes);
     loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), IrohBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 64,
         .listen = 0,
     }));
     defer loop.deinit();
-    try bridge.attach(iroh.transport_name, server_id, &.{});
+    try bridge.attach(model.transport.Known.iroh.metadata(), server_id, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, num_conns, &loop_err });

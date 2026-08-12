@@ -131,7 +131,6 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
 
     var shared = Shared{ .allocator = allocator, .loop = undefined };
     var loop = try Loop.init(allocator, makeServerPeer, @ptrCast(&shared), .{
-        .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
         .make_conn_ctx = Shared.make,
@@ -139,7 +138,7 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
     });
     defer loop.deinit();
     shared.loop = &loop;
-    const port = loop.port.?;
+    const port = loop.port().?;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -213,6 +212,7 @@ const CrossArmBackend = struct {
 
     var chunks: []const []const u8 = &.{};
     var hold_sends: bool = false;
+    var refuse_cancel: bool = false;
     var eof_when_exhausted: bool = false;
     /// Set once the loop asks `poll` to wait a bounded time rather than block.
     /// A deadline the loop enforces only after the poll cannot fire on a quiet
@@ -252,9 +252,12 @@ const CrossArmBackend = struct {
         return 1;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -321,6 +324,17 @@ const CrossArmBackend = struct {
         self.held_len += 1;
     }
 
+    pub fn submitCancel(self: *CrossArmBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = fd;
+        if (refuse_cancel) return error.SubmissionQueueFull;
+        if (self.pending_recv) |ud| {
+            if (ud != target_user_data) return error.InvalidCancelTarget;
+            self.pending_recv = null;
+            self.push(.{ .user_data = target_user_data, .result = -1 });
+        }
+        self.push(.{ .user_data = cancel_user_data, .result = 0 });
+    }
+
     pub fn submitClose(self: *CrossArmBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         self.push(.{ .user_data = user_data, .result = 0 });
@@ -368,6 +382,57 @@ const CrossArmBackend = struct {
         return n;
     }
 };
+
+fn countWake(ctx: ?*anyopaque) void {
+    const count: *usize = @ptrCast(@alignCast(ctx.?));
+    count.* += 1;
+}
+
+test "completion wake: shutdown cancels an idle armed recv before backend teardown" {
+    const allocator = std.testing.allocator;
+    CrossArmBackend.chunks = &.{};
+    CrossArmBackend.eof_when_exhausted = false;
+
+    var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(
+        allocator,
+        makeServerPeer,
+        null,
+        .{ .max_conns = 1, .listen = 0 },
+    );
+    defer loop.deinit();
+
+    var wake_count: usize = 0;
+    try loop.armWake(99, &wake_count, countWake);
+    try loop.closeAndDrain();
+
+    try std.testing.expectEqual(@as(usize, 0), wake_count);
+    try std.testing.expect(loop.backend.pending_recv == null);
+}
+
+test "completion wake: a ready wake racing shutdown runs no handler and does not rearm" {
+    const allocator = std.testing.allocator;
+    const nudge = [_]u8{1};
+    CrossArmBackend.chunks = &.{&nudge};
+    defer CrossArmBackend.chunks = &.{};
+    CrossArmBackend.eof_when_exhausted = false;
+    CrossArmBackend.refuse_cancel = true;
+    defer CrossArmBackend.refuse_cancel = false;
+
+    var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(
+        allocator,
+        makeServerPeer,
+        null,
+        .{ .max_conns = 1, .listen = 0 },
+    );
+    defer loop.deinit();
+
+    var wake_count: usize = 0;
+    try loop.armWake(99, &wake_count, countWake);
+    try loop.closeAndDrain();
+
+    try std.testing.expectEqual(@as(usize, 0), wake_count);
+    try std.testing.expect(loop.backend.pending_recv == null);
+}
 
 /// Encode `peer`'s queued sends and append their frame bytes to `sink`.
 fn drainOutboundBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink: *std.ArrayList(u8)) !void {
@@ -428,10 +493,9 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
     }
 
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
-        .outbound_high_water = high_water,
+        .outbound_high_water_bytes = high_water,
     });
     defer loop.deinit();
 
@@ -508,7 +572,6 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
     }
 
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -555,7 +618,7 @@ test "close-slot: the terminal drain is bounded out of the box" {
     // opted into would be a bound nothing ever applied. The default is the
     // whole guarantee: a partner that never reads an abort cannot pin a slot,
     // its fd, its peer, and its queues for the loop's lifetime.
-    const defaults: completion.Options = .{ .frame_cap = frame_cap, .max_conns = 1, .listen = 0 };
+    const defaults: completion.Options = .{ .max_conns = 1, .listen = 0 };
     try std.testing.expect(defaults.drain_kill_ms != null);
 }
 
@@ -590,10 +653,9 @@ test "cross-arm: a partial write that drains under the mark clears the deadline"
     // sink the moment it is served, and a finite park budget so the park is
     // stamped at all.
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
-        .outbound_high_water = 16,
+        .outbound_high_water_bytes = 16,
         .park_kill_ms = 60_000,
     });
     defer loop.deinit();
@@ -646,7 +708,6 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
 
     const LoopType = completion.Loop(CrossArmBackend, no_dial.Unsupported);
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -709,7 +770,6 @@ test "close-slot: a terminal drain the partner never reads is reclaimed, not pin
 
     const LoopType = completion.Loop(CrossArmBackend, no_dial.Unsupported);
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
         // Reclaim as soon as a reap runs after the wait begins. Deliberately
@@ -778,7 +838,6 @@ test "close-slot: a second close on a draining connection escalates to a hard cl
     }
 
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
     });
@@ -842,13 +901,12 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
     }
 
     var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
         // Above the reply, so the connection does *not* park and its read
         // re-arms — otherwise the refused frame never arrives and the overlap
         // never forms.
-        .outbound_high_water = 4096,
+        .outbound_high_water_bytes = 4096,
         .park_kill_ms = 60_000,
     });
     defer loop.deinit();

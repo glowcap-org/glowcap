@@ -111,8 +111,9 @@
 	   14px, which is the size it is actually used at.
 
 	   The full-colour mascot is a different asset and stays a picture. On the
-	   site it appears once, at the front door; the rooms app uses only this
-	   quiet version.
+	   site it appears on the home hero and again, small, in the footer; the
+	   header chrome uses this quiet mark, matching rooms. The rooms app uses
+	   only the quiet version.
 
 	   There is deliberately no `.pk-mark` class to go with the token. Two of
 	   the three places that draw the mark are pseudo-elements, which a class

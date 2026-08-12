@@ -45,8 +45,8 @@
    (lambda ()
      (with-handlers ([exn:fail? (lambda (_) (void))])
        (let loop ()
-         (define conn (iroh-server-accept s))
-         (set-box! serves-box (cons (thread (lambda () (session-serve conn))) (unbox serves-box)))
+         (define session (iroh-server-accept s))
+         (set-box! serves-box (cons (thread (lambda () (session-serve session))) (unbox serves-box)))
          (loop))))))
 
 ;; ── Exporter: a node-giftable greeter on its own local-discovery endpoint ──────
@@ -67,7 +67,7 @@
 (define greeter-ref (session-fetch to-exporter "greeter"))
 ;; Record the exporter's location by node id alone, no direct-addresses. This is
 ;; what forces the recipient down the configured-posture redeem path.
-(session-set-exporter-locator! to-exporter (encode-peer-locator "iroh" exporter-id ""))
+(session-set-exporter-locator! to-exporter (locator "iroh" exporter-id (hash) 'map))
 (host-publish-giftable (iroh-server-host gifter) "introducer"
                           (methods [(get-greeter) greeter-ref]))
 (define gifter-serves (box '()))

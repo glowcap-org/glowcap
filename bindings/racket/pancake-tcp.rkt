@@ -2,7 +2,7 @@
 ;; pancake/tcp — the blocking TCP transport for the pancake Racket binding.
 ;;
 ;; Mirrors the à-la-carte archive split (ADR-0059): this module is
-;; libpancake_net_transport_tcp's binding, the explicit netlayer/listener/endpoint
+;; libpancake_net_transport_tcp's binding, the explicit netlayer/listener/connection
 ;; handles for cleartext, loopback-grade TCP. Its private loader
 ;; (`private/ffi-tcp.rkt`) opens ONLY that archive, so requiring this module
 ;; never links a transport you do not use. It builds on the core value and
@@ -16,7 +16,7 @@
 ;;   (define nl (make-netlayer))
 ;;   (define lst (netlayer-listen nl "127.0.0.1" 0))
 ;;   (define cn (netlayer-connect nl "127.0.0.1" (listener-port lst)))
-;;   (endpoint-write-frame! cn frame) ; the embedder shuttles whole frames
+;;   (connection-write-frame! cn frame) ; the embedder shuttles whole frames
 ;;
 ;; This is the explicit blocking handle for the I/O backend: the embedder reads
 ;; a frame, feeds it to its byte-fed connection, and writes what the feed
@@ -25,13 +25,15 @@
 ;; is the direct C-ABI netlayer beneath it.
 
 (require ffi/unsafe
+         ffi/unsafe/port
          "private/constants.rkt"
          "private/ffi-tcp.rkt"
+         "private/native-parent.rkt"
          "private/seam.rkt")
 
 (provide make-netlayer netlayer-release! netlayer-listen netlayer-connect
-         listener-port listener-accept listener-release!
-         endpoint-read-frame endpoint-write-frame! endpoint-release!
+         listener-port listener-readiness-fd listener-accept listener-release!
+         connection-read-frame connection-write-frame! connection-release!
          tcp-last-error)
 
 ;; (tcp-last-error) -> the calling thread's last error message from the TCP
@@ -45,36 +47,60 @@
 ;; archive's own last-error rather than the unrelated ocapn-family one.
 (define (check/tcp code) (check-with code tcp-last-error))
 
-(struct netlayer (handle) #:mutable)
-(struct listener (handle) #:mutable)
-(struct endpoint (handle) #:mutable)
+(struct netlayer (owner))
+(struct listener (handle fd accept-gate closing netlayer) #:mutable)
+(struct connection (handle read-gate write-gate netlayer) #:mutable)
+
+(define (netlayer-forget! nl child)
+  (native-parent-forget! (netlayer-owner nl) child))
 
 (define (make-netlayer)
   (define-values (rc h) (pancake_tcp_netlayer_new))
   (check/tcp rc)
-  (define nl (netlayer h))
+  (define nl
+    (netlayer
+     (make-native-parent h pancake_tcp_netlayer_release
+                         pancake_tcp_netlayer_shutdown)))
   (register-finalizer nl (lambda (q) (netlayer-release! q)))
   nl)
 
 (define (netlayer-release! nl)
-  (when (netlayer-handle nl)
-    (pancake_tcp_netlayer_release (netlayer-handle nl))
-    (set-netlayer-handle! nl #f)))
+  (native-parent-release!
+   (netlayer-owner nl)
+   (lambda (child)
+     (cond [(listener? child) (listener-release! child)]
+           [(connection? child) (connection-release! child)]))))
 
 (define (netlayer-listen nl host [port 0])
   (define bs (string->bytes/utf-8 host))
-  (define-values (rc h) (pancake_tcp_listen (netlayer-handle nl) (pin-immobile bs) (bytes-length bs) port))
-  (check/tcp rc)
-  (define lst (listener h))
+  (define lst
+    (native-parent-open-child
+     (netlayer-owner nl) 'netlayer-listen
+     (lambda (parent-handle)
+       (define-values (rc h)
+         (pancake_tcp_listen parent-handle (pin-immobile bs) (bytes-length bs) port))
+       (check/tcp rc)
+       (define-values (fd-rc fd) (pancake_tcp_listener_readiness_fd h))
+       (with-handlers ([exn? (lambda (e) (pancake_tcp_listener_release h) (raise e))])
+         (check/tcp fd-rc))
+       (listener h fd (make-semaphore 1) (make-semaphore 0) nl))
+     listener-release!))
   (register-finalizer lst (lambda (q) (listener-release! q)))
   lst)
 
 (define (netlayer-connect nl host port [codec 'syrup] [max-frame 4096])
   (define bs (string->bytes/utf-8 host))
-  (define-values (rc h) (pancake_tcp_connect (netlayer-handle nl) (pin-immobile bs) (bytes-length bs) port (codec-id codec) max-frame))
-  (check/tcp rc)
-  (define cn (endpoint h))
-  (register-finalizer cn (lambda (q) (endpoint-release! q)))
+  (define cn
+    (native-parent-open-child
+     (netlayer-owner nl) 'netlayer-connect
+     (lambda (parent-handle)
+       (define-values (rc h)
+         (pancake_tcp_connect parent-handle (pin-immobile bs) (bytes-length bs)
+                              port (codec-id codec) max-frame))
+       (check/tcp rc)
+       (connection h (make-semaphore 1) (make-semaphore 1) nl))
+     connection-release!))
+  (register-finalizer cn (lambda (q) (connection-release! q)))
   cn)
 
 (define (listener-port lst)
@@ -82,30 +108,91 @@
   (check/tcp rc)
   port)
 
+(define (listener-readiness-fd lst)
+  (or (listener-fd lst) (error 'listener-readiness-fd "listener is closed")))
+
 (define (listener-accept lst [codec 'syrup] [max-frame 4096])
-  (define-values (rc h) (pancake_tcp_accept (listener-handle lst) (codec-id codec) max-frame))
-  (check/tcp rc)
-  (define cn (endpoint h))
-  (register-finalizer cn (lambda (q) (endpoint-release! q)))
-  cn)
+  (call-with-semaphore
+   (listener-accept-gate lst)
+   (lambda ()
+     ;; Register the real listener fd with rktio before entering the blocking FFI
+     ;; call. The gate makes readiness plus accept one indivisible consumer
+     ;; operation: sibling accepters park as green threads and re-arm after this
+     ;; accept, so none enters C on readiness another accepter already consumed.
+     (define fd (listener-readiness-fd lst))
+     (define ready (unsafe-file-descriptor->semaphore fd 'read))
+     (unless ready (error 'listener-accept "TCP listener fd ~a is not pollable" fd))
+     (define outcome
+       (sync (handle-evt ready (lambda (_) 'ready))
+             (handle-evt (semaphore-peek-evt (listener-closing lst))
+                         (lambda (_) 'closing))))
+     (when (eq? outcome 'closing)
+       (error 'listener-accept "listener is closed"))
+     (define-values (rc h) (pancake_tcp_accept (listener-handle lst) (codec-id codec) max-frame))
+     (check/tcp rc)
+     (define nl (listener-netlayer lst))
+     (define cn
+       (native-parent-adopt-or-release!
+        (netlayer-owner nl)
+        (connection h (make-semaphore 1) (make-semaphore 1) nl)
+        connection-release!
+        'listener-accept))
+     (register-finalizer cn (lambda (q) (connection-release! q)))
+     cn)))
 
 (define (listener-release! lst)
   (when (listener-handle lst)
-    (pancake_tcp_listener_release (listener-handle lst))
-    (set-listener-handle! lst #f)))
+    ;; Wake an accepter parked on readiness, then take the same gate that owns
+    ;; readiness + native accept. Native release can therefore never free the
+    ;; listener under an in-flight blocking FFI call.
+    (semaphore-post (listener-closing lst))
+    (pancake_tcp_listener_shutdown (listener-handle lst))
+    (call-with-semaphore
+     (listener-accept-gate lst)
+     (lambda ()
+       (when (listener-handle lst)
+         ;; rktio registrations are per descriptor and re-armed by each 'read
+         ;; call. Remove the registration before native release closes the
+         ;; borrowed fd.
+         (unsafe-file-descriptor->semaphore (listener-readiness-fd lst) 'remove)
+         (pancake_tcp_listener_release (listener-handle lst))
+         (set-listener-handle! lst #f)
+         (set-listener-fd! lst #f)
+         (netlayer-forget! (listener-netlayer lst) lst))))))
 
-(define (endpoint-read-frame cn)
-  (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
-  (check/tcp (pancake_tcp_conn_read_frame (endpoint-handle cn) mf))
-  (define out (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
-  (pancake_managed_frame_release mf)
-  out)
+(define (connection-read-frame cn)
+  (call-with-semaphore
+   (connection-read-gate cn)
+   (lambda ()
+     (define h (connection-handle cn))
+     (unless h (error 'connection-read-frame "connection is closed"))
+     (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
+     (check/tcp (pancake_tcp_conn_read_frame h mf))
+     (dynamic-wind
+      void
+      (lambda ()
+        (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
+      (lambda () (pancake_managed_frame_release mf))))))
 
-(define (endpoint-write-frame! cn frame)
-  (define buf (pin-immobile frame))
-  (check/tcp (pancake_tcp_conn_write_frame (endpoint-handle cn) (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))
+(define (connection-write-frame! cn frame)
+  (call-with-semaphore
+   (connection-write-gate cn)
+   (lambda ()
+     (define h (connection-handle cn))
+     (unless h (error 'connection-write-frame! "connection is closed"))
+     (define buf (pin-immobile frame))
+     (check/tcp (pancake_tcp_conn_write_frame h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))))
 
-(define (endpoint-release! cn)
-  (when (endpoint-handle cn)
-    (pancake_tcp_conn_release (endpoint-handle cn))
-    (set-endpoint-handle! cn #f)))
+(define (connection-release! cn)
+  (when (connection-handle cn)
+    (pancake_tcp_conn_shutdown (connection-handle cn))
+    (call-with-semaphore
+     (connection-read-gate cn)
+     (lambda ()
+       (call-with-semaphore
+        (connection-write-gate cn)
+        (lambda ()
+          (when (connection-handle cn)
+            (pancake_tcp_conn_release (connection-handle cn))
+            (set-connection-handle! cn #f)
+            (netlayer-forget! (connection-netlayer cn) cn))))))))

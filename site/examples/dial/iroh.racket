@@ -1,0 +1,10 @@
+(require "pancake.rkt"
+         "pancake-iroh.rkt")
+
+;; IROH-REACH-DISCOVERY resolves a bare iroh node ID without an address hint.
+(define partner "ocapn://3b6a…da29.iroh")
+
+(define session (connect partner IROH-REACH-DISCOVERY))
+(define greeter (session-fetch session "greeter")) ; a capability, by name
+(printf "~a\n" (session-send session greeter 'greet "world"))
+(session-close! session)

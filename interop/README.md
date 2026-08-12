@@ -1,11 +1,11 @@
 # interop/
 
 Cross-implementation interoperability drivers: pancake talking to a *different*
-implementation over a real OCapN session. Two kinds live here, pancake against
-a live Spritely Goblins vat, and pancake against another pancake over real iroh
-endpoints. A failure here means two implementations disagree on the wire or two
-pancake peers cannot reach each other, not that a single layer's invariant
-broke.
+implementation over a real OCapN session, and pancake against another pancake
+over a transport that is really running. So a live Spritely Goblins vat, and two
+pancake peers over real iroh endpoints or a real Tor hidden service. A failure
+here means two implementations disagree on the wire or two pancake peers cannot
+reach each other, not that a single layer's invariant broke.
 
 These are live drivers, not the arbiters of correct. The external authority they
 lean on — the Goblins peer they dial, the OCapN spec — lives in
@@ -36,3 +36,11 @@ one directory per language; the Zig drivers' shared harness is
 | [`iroh_loop/`](iroh_loop/)                     | Live iroh scale: many concurrent connections from one readiness loop (ADR-0057).                                        | `zig build iroh-loop` / binding siblings (`python-iroh-loop`, etc.) |
 | [`iroh_bridge_redeem/`](iroh_bridge_redeem/)   | Live iroh redeem dial on `driver.Bridge`: recipient on one loop thread redeems a handoff via `Loop.dialLocator` (ADR-0076).            | `zig build iroh-bridge-redeem`                                      |
 | [`iroh_handoff/`](iroh_handoff/)               | Per-binding three-party handoff over iroh in one process: each binding mints and redeems an iroh handoff give (Direct posture). | `zig build bindings-iroh-handoff` / siblings (`rust-iroh-handoff`, etc.) |
+| [`onion_interop/`](onion_interop/)             | Live Tor: two pancake peers hold an OCapN conversation over a real onion service. The driver starts its own Tor, so it needs `tor` on PATH and outbound network access. | `zig build onion-interop`                                           |
+
+The Goblins-over-Tor bracket lives with its siblings in
+[`goblins_interop/`](goblins_interop/): `zig build goblins-onion` runs a real
+Goblins vat and a pancake peer over hidden service circuits in both directions.
+It is the only live interop here whose transport this repository did not write
+for the partner, because `onion` is the netlayer the OCapN draft standardizes and
+the one upstream Goblins ships.

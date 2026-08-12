@@ -69,22 +69,22 @@ async fn main() -> Result<(), Fail> {
 async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	// `connect` completes the keyed handshake; the host's retained identity is
 	// the recipient key the gift Alice deposits will name.
-	let conn = connect(&tcp_locator(HOST, port), None, None).await?;
+	let session = connect(&tcp_locator(HOST, port), None, None).await?;
 	println!("rust-goblins-handoff: session open (recipient -> alice)");
 
-	let introducer = conn.fetch(&swiss).await?;
+	let introducer = session.fetch(&swiss).await?;
 	println!("rust-goblins-handoff: enlivened alice's introducer, asking for the greeter");
 
 	// The introduction: Alice returns Bob's greeter as a handoff give. The
 	// binding redeems it transparently, so this resolves to an ordinary capability.
-	let granted = conn.send(&introducer, "get-greeter", &[]).await?;
+	let granted = session.send(&introducer, "get-greeter", &[]).await?;
 	let greeter = Ref::try_from(&granted)
 		.map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
 	println!("rust-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref");
 
 	// Call the greeter. The send routes straight to Bob (the exporter); the reply
 	// must echo the name we sent, so the handoff proves data integrity.
-	let reply = conn
+	let reply = session
 		.send(&greeter, "", &[Argument::String("pancake-carol".into())])
 		.await?;
 	match &reply {
@@ -100,6 +100,6 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
         "rust-goblins-handoff OK: the Rust binding redeemed a three-party handoff from live Goblins \
          and called the exporter directly"
     );
-	conn.close();
+	session.close();
 	Ok(())
 }

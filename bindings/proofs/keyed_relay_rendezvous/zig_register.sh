@@ -49,25 +49,28 @@ port=$(grep "DENO-RELAY-READY" "$relay_log" | awk '{print $2}')
 # The registrant: no bind, a relay registration instead. `--publish` answers
 # one partner and exits, which is the whole conversation this row needs.
 PANCAKE_STATE="$host_state" ./zig-out/bin/pancake --json ocapn listen \
-	--rendezvous "ws://127.0.0.1:${port}/register" --publish greeter >"$host_log" 2>&1 &
+	--rendezvous "ws://127.0.0.1:${port}/register" \
+	--rendezvous-relay "ws://127.0.0.1:${port}/relay" \
+	--publish greeter >"$host_log" 2>&1 &
 host_pid=$!
 for _ in $(seq 1 60); do
 	grep -q "ocapn://" "$host_log" && break
 	sleep 0.2
 done
-locator=$(grep -o 'ocapn://[^"]*' "$host_log" | head -1)
+locator=$(grep -o 'ocapn://[^"]*' "$host_log" | head -1 || true)
 [ -n "$locator" ] || fail "registrant never printed a locator"
 case "$locator" in
-*.keyed-relay) ;;
+*.keyed-relay\?rendezvous-relay=*) ;;
 *) fail "registrant printed a non-rendezvous locator: $locator" ;;
 esac
 
-# The client cold-dials that identity through the same relay.
-out=$(PANCAKE_STATE="$client_state" PANCAKE_RENDEZVOUS="ws://127.0.0.1:${port}/relay" \
+# The client has a deliberately dead deployment fallback. It can cold-dial
+# only if the locator's route advice is authoritative.
+out=$(PANCAKE_STATE="$client_state" PANCAKE_RENDEZVOUS="ws://127.0.0.1:1/relay" \
 	./zig-out/bin/pancake --json ocapn call "$locator" greeter greet registered 2>&1) || true
 case "$out" in
 *"Hello, registered"*)
-	echo "PASS: a native CLI registered at the relay and answered a cold dial - no listening socket, reached by key designator alone"
+		echo "PASS: a native CLI registered at the relay and answered a cold dial through locator-carried route advice"
 	exit 0
 	;;
 esac

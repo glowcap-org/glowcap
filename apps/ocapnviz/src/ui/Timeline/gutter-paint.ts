@@ -15,6 +15,7 @@
 import type { Graphics } from "pixi.js";
 import type { LaneKind } from "./state.ts";
 import type { ThemedColors } from "../../render/palette.ts";
+import { intentLabel } from "../../engine/intent-labels.ts";
 import { FONT, SIZE } from "../tokens.ts";
 import { monoAdvance, truncateToWidth } from "./label-layout.ts";
 import type { TextPool } from "./textPool.ts";
@@ -82,10 +83,42 @@ export function gutterLabelText(
  * eye + label-strikethrough mark below, `body` = eye outline
  * only (no pupil), `both` = slashed eye. The four glyphs are
  * picked to be distinguishable at the 8px scale we paint at;
- * the cursor tooltip on the gutter eyeball spells out the
- * current state so the glyph doesn't have to carry semantics
- * unaided. */
+ * `eyeGlyphStatus` supplies the hover title so the glyph doesn't
+ * have to carry semantics unaided. */
 export type EyeGlyphMode = "visible" | "label" | "body" | "both";
+
+/**
+ * Hover status for an eyeball's current mode — the same verbs
+ * `intentLabel` uses for the matching `set-*-vis-mode` intent.
+ *
+ * Spells out the stored state under the pointer; the next click
+ * still advances the cycle (`nextVisCycleStep`).
+ */
+export function eyeGlyphStatus(
+  mode: EyeGlyphMode,
+  scope:
+    | { kind: "row" }
+    | { kind: "category"; category: "peers" | "sessions" | "messages" }
+    | { kind: "all" },
+): string {
+  switch (scope.kind) {
+    case "row":
+      return intentLabel({
+        kind: "set-row-vis-mode",
+        category: "peers",
+        id: "",
+        mode,
+      });
+    case "category":
+      return intentLabel({
+        kind: "set-category-vis-mode",
+        category: scope.category,
+        mode,
+      });
+    case "all":
+      return intentLabel({ kind: "set-all-vis-mode", mode });
+  }
+}
 
 export function drawCategoryHeader(
   graphics: Graphics,

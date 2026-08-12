@@ -140,16 +140,16 @@ class RemotePromise(asyncio.Future):
     eventual-send, and -- the point of promise pipelining (ADR-0007) -- a target
     you can ``send`` to before it resolves.
 
-    It is a real :class:`asyncio.Future`, so ``await conn.send(...)``,
+    It is a real :class:`asyncio.Future`, so ``await session.send(...)``,
     ``asyncio.gather(...)``, and ``isinstance(_, asyncio.Future)`` all work
     natively. Pass it *unawaited* as the ``target`` of a later ``send`` to
     address the object the answer will resolve to: the dependent call rides a
     ``desc:answer`` deliver and the partner queues it until the answer settles,
     so a ``create -> use`` chain costs one round trip::
 
-        task = conn.send(root, "create", ["x"])       # not awaited
-        conn.send(task, "assign", ["alice"])          # pipelined at the answer
-        status = await conn.send(task, "status", [])  # settles the chain
+        task = session.send(root, "create", ["x"])       # not awaited
+        session.send(task, "assign", ["alice"])          # pipelined at the answer
+        status = await session.send(task, "status", [])  # settles the chain
 
     The send is queued when this is created, but its bytes leave the wire only
     when this -- or any send pipelined behind it -- is first observed: awaited,
@@ -309,7 +309,8 @@ def _listen_far(session, target) -> RemotePromise:
 
 def _send_far(session, target, verb: str, args: list) -> RemotePromise:
     # Far-send mint→RemotePromise: encode args, mint the host vow
-    # (conn_send / vow_send), register it, and hand back _promise_for.
+    # (pancake_host_session_send / pancake_host_vow_send), register it, and
+    # hand back _promise_for.
     # Local-hosted targets stay in Session (trampoline _send_local).
     verb_bytes = verb.encode()
     vbuf, vptr = _byte_buf(verb_bytes)

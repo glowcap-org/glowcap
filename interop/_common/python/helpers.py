@@ -83,9 +83,9 @@ async def _read_readiness_field(
 
 
 async def accept_loop(server) -> None:
-    """Serve every connection a server accepts until it closes."""
-    async for conn in server:
-        conn.serve()
+    """Serve every session a server accepts until it closes."""
+    async for session in server:
+        session.serve()
 
 
 async def await_greeter_ready(

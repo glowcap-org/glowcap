@@ -214,24 +214,15 @@ Deno.test("a union covers every rectangle it is given", () => {
   assertEquals(unionBounds([]), null);
 });
 
-Deno.test("an empty layer's bounds would drag the fit back to the origin", () => {
-  // The trap `unionBounds` exists to make visible. An empty Pixi container
-  // reports bounds at the origin, which is a real point, so a caller that folds
-  // one in fits a document far from the origin plus a long walk back to it.
-  // Here that is the difference between fitting 20 units and fitting 320.
+Deno.test("unionBounds skips empty rectangles so they cannot drag the fit", () => {
+  // An empty Pixi layer reports bounds at the origin. Folding that in used
+  // to stretch a far-away document back to `(0, 0)`. The shared edge-stroke
+  // batch is always a child of `edgeLayer`, so the skip here is what keeps
+  // Fit answering the drawn peers rather than the empty batch.
   const drawn = { x: 300, y: 300, width: 20, height: 20 };
   const emptyLayer = { x: 0, y: 0, width: 0, height: 0 };
-  const right = unionBounds([drawn]);
-  const wrong = unionBounds([drawn, emptyLayer]);
-  assertEquals(right, drawn);
-  assertEquals(wrong, { x: 0, y: 0, width: 320, height: 320 });
-  assert(right !== null && wrong !== null, "both unions hold a rectangle");
-  const size = { width: 400, height: 400 };
-  assert(
-    fitStageView(right, size, 0).zoom > fitStageView(wrong, size, 0).zoom * 10,
-    "folding an empty layer in should cost most of the zoom, or this case is " +
-      "not measuring the trap",
-  );
+  assertEquals(unionBounds([drawn, emptyLayer]), drawn);
+  assertEquals(unionBounds([emptyLayer]), null);
 });
 
 Deno.test("a typed zoom is read as the percentage the field shows", () => {

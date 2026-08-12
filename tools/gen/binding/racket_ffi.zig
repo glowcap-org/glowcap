@@ -20,10 +20,13 @@ const std = @import("std");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
+const cdr = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
+const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
+const cr = @import("c_abi_net_transport_relay");
 
 const headerParamNames = @import("header_names.zig").headerParamNames;
 
@@ -33,11 +36,14 @@ const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/racket/private/ffi-ocapn-gen.rkt", .generate = generateOcapn },
-    .{ .path = "bindings/racket/private/ffi-host-gen.rkt", .generate = generateDriver },
+    .{ .path = "bindings/racket/private/ffi-host-gen.rkt", .generate = generateHost },
+    .{ .path = "bindings/racket/private/ffi-driver-gen.rkt", .generate = generateLoop },
     .{ .path = "bindings/racket/private/ffi-tcp-gen.rkt", .generate = generateTcp },
     .{ .path = "bindings/racket/private/ffi-inproc-gen.rkt", .generate = generateInproc },
+    .{ .path = "bindings/racket/private/ffi-onion-gen.rkt", .generate = generateOnion },
     .{ .path = "bindings/racket/private/ffi-iroh-gen.rkt", .generate = generateIroh },
     .{ .path = "bindings/racket/private/ffi-webrtc-gen.rkt", .generate = generateWebrtc },
+    .{ .path = "bindings/racket/private/ffi-relay-gen.rkt", .generate = generateRelay },
 };
 
 /// `module.PancakeManagedFrame` → `PancakeManagedFrame`.
@@ -73,6 +79,8 @@ fn rktParamType(comptime T: type, comptime specials: []const Special) []const u8
         },
         .int => switch (T) {
             i32 => "_int32",
+            i64 => "_int64",
+            u8 => "_uint8",
             u16 => "_uint16",
             u32 => "_uint32",
             u64 => "_uint64",
@@ -109,13 +117,26 @@ fn slotCell(comptime T: type) ?Cell {
             if (p.size != .one) break :blk null;
             if (p.child == u8 or p.child == anyopaque) break :blk null;
             switch (@typeInfo(p.child)) {
-                .optional => break :blk .{ .ctype = "_pointer", .init = "#f" },
+                .optional => |optional| break :blk switch (@typeInfo(optional.child)) {
+                    .pointer => |borrowed| if (borrowed.size == .one and
+                        @typeInfo(borrowed.child) == .@"struct")
+                        .{
+                            .ctype = "_" ++ baseName(borrowed.child) ++ "-pointer/null",
+                            .init = "#f",
+                        }
+                    else
+                        .{ .ctype = "_pointer", .init = "#f" },
+                    else => .{ .ctype = "_pointer", .init = "#f" },
+                },
                 .int => break :blk .{
                     .ctype = switch (p.child) {
                         u16 => "_uint16",
                         u32 => "_uint32",
                         u64 => "_uint64",
                         usize => "_size",
+                        // A signed out-slot: the readiness descriptor the onion
+                        // archive hands back.
+                        i32 => "_int32",
                         else => @compileError("unmapped scalar slot width"),
                     },
                     .init = "0",
@@ -368,15 +389,16 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
     });
 }
 
-fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
+fn generateHost(gpa: std.mem.Allocator) ![]u8 {
     return renderEager(gpa, .{
         .M = cd,
         .archive = "pancake_host",
-        .lib_var = "driver-lib",
-        .definer = "define-driver",
+        .lib_var = "host-lib",
+        .definer = "define-host",
         .note =
-        \\;; The raw `ffi/unsafe` table of libpancake_host, the byte-fed host
-        \\;; archive. The hand-written sibling (`ffi-host.rkt`) owns the prose and
+        \\;; The raw `ffi/unsafe` table of the `pancake_host_*` byte-fed host
+        \\;; family, loaded from its symbol-disjoint libpancake_host archive.
+        \\;; The hand-written sibling (`ffi-host.rkt`) owns the prose and
         \\;; the bespoke pending-dial wrapper over the starred raw, and re-provides
         \\;; this module. The behavior/pump callback types and the plan/dial cstructs
         \\;; live in `ffi-shared.rkt`, the binding's types leaf.
@@ -387,8 +409,29 @@ fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
         .specials = &.{
             .{ .T = cd.PancakeHostBehavior, .spelling = "_PancakeHostBehavior" },
             .{ .T = cd.PancakeHostCtxFree, .spelling = "_pointer" },
-            .{ .T = cd.PancakeTraceCallback, .spelling = "_PancakeTraceCallback" },
+            // The binding constructs and strongly retains one callback object
+            // with `function-ptr`; accepting `_fpointer` here prevents every
+            // installation call from minting a short-lived callback thunk.
+            .{ .T = cd.PancakeTraceCallback, .spelling = "_fpointer" },
         },
+    });
+}
+
+fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
+    return renderEager(gpa, .{
+        .M = cdr,
+        .archive = "pancake_driver",
+        .lib_var = "loop-lib",
+        .definer = "define-driver-loop",
+        .note =
+        \\;; The raw `ffi/unsafe` table of the `pancake_driver_*` loop family
+        \\;; (ADR-0112), exported by symbol-disjoint libpancake_driver. The
+        \\;; hand-written sibling (`ffi-driver.rkt`) owns the prose
+        \\;; and re-provides this module. The event and provider cstructs live
+        \\;; in `ffi-shared.rkt`, the binding's types leaf.
+        \\
+        ,
+        .header_path = "include/pancake_driver.h",
     });
 }
 
@@ -425,6 +468,28 @@ fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
     });
 }
 
+fn generateOnion(gpa: std.mem.Allocator) ![]u8 {
+    return renderEager(gpa, .{
+        .M = con,
+        .archive = "pancake_net_transport_onion",
+        .lib_var = "onion-lib",
+        .definer = "define-pancake-onion",
+        // `pancake_onion_listen` writes five out-parameters, so its wrapper needs
+        // the header's argument names to spell them.
+        .header_path = "include/pancake_net_transport_onion.h",
+        .note =
+        \\;; The raw `ffi/unsafe` table of libpancake_net_transport_onion. The
+        \\;; hand-written sibling (`ffi-onion.rkt`) owns the prose and re-provides
+        \\;; this module. The blocking rows (`#:blocking?`) park the calling thread
+        \\;; on a Tor circuit, which costs seconds rather than milliseconds; the mark
+        \\;; keeps the runtime GC-cooperative during that park. The readiness rows
+        \\;; carry no mark, because they return at once: park on the descriptor they
+        \\;; hand back and the blocking rows are only entered when they will return.
+        \\
+        ,
+    });
+}
+
 fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
@@ -454,7 +519,7 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
             const key = comptime irohKey(row.name);
             const sig = comptime funSig(ci, row, &.{});
             const slots = comptime slotIndexes(ci, row);
-            if (slots.len == 0 or row.blocking) {
+            if (slots.len == 0) {
                 try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key, row.name, sig });
             } else {
                 // Every out-bearing iroh row has exactly one trailing cell.
@@ -493,15 +558,14 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\;; The keyed table of libpancake_net_transport_webrtc. The archive is
         \\;; optional and loads lazily, so this module exports one table-building
         \\;; function the hand-written sibling (`ffi-webrtc.rkt`) calls with the
-        \\;; opened library -- the generated module stays below the hand module, so
-        \\;; no require cycle forms. WebRTC handles are opaque and the readiness
-        \\;; record buffer crosses as a raw pointer, so the table takes only the
-        \\;; library. Every row returns immediately; the endpoint fd owns wakeups.
+        \\;; opened library and the config cstruct pointer type it declares -- the
+        \\;; generated module stays below the hand module, so no require cycle
+        \\;; forms. Every row returns immediately; the endpoint fd owns wakeups.
         \\(require ffi/unsafe
         \\         "ffi-shared.rkt")
         \\(provide webrtc-ffi-table)
         \\
-        \\(define (webrtc-ffi-table L)
+        \\(define (webrtc-ffi-table L _PancakeWebrtcConfig-pointer)
         \\  (hasheq
     );
     inline for (cw.symbols.symbols) |row| {
@@ -509,7 +573,7 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
             const key = comptime webrtcKey(row.name);
             const sig = comptime funSig(cw, row, &.{});
             const slots = comptime slotIndexes(cw, row);
-            if (slots.len == 0 or row.blocking) {
+            if (slots.len == 0) {
                 try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key, row.name, sig });
             } else {
                 // Every out-bearing webrtc row has exactly one trailing cell.
@@ -532,4 +596,21 @@ fn webrtcKey(comptime name: []const u8) []const u8 {
         s = s ++ &[_]u8{if (ch == '_') '-' else ch};
     }
     return s;
+}
+
+fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
+    return renderEager(gpa, .{
+        .M = cr,
+        .archive = "pancake_net_transport_relay",
+        .lib_var = "relay-lib",
+        .definer = "define-pancake-relay",
+        .note =
+        \\;; The raw `ffi/unsafe` table of libpancake_net_transport_relay. The
+        \\;; hand-written sibling (`ffi-relay.rkt`) owns the config mirror and
+        \\;; re-provides this module. One package owns both keyed-relay and
+        \\;; noise-relay; profile policy remains in the native driver.
+        \\
+        ,
+        .header_path = "include/pancake_net_transport_relay.h",
+    });
 }

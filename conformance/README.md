@@ -45,9 +45,13 @@ For a one-page map of what these build checks prove versus Goblins live interop,
 
 - **Submodule `upstream/` trees are read-only.** Bump the pin, never edit in
   place.
-- **Toolchains are native.** Racket + Goblins (with the crypto-lib atomic patch)
-  and Python come from the devcontainer; the `run.sh` wrappers call `racket` /
-  `uv run` directly.
+- **Toolchains are native and their direct inputs are pinned.** Racket,
+  Goblins, the direct Racket packages these checks add, and Python come from
+  the devcontainer at committed versions. The crypto-lib atomic compatibility
+  patch is committed and verified against both source and output hashes;
+  Python wrappers use committed `uv` locks. The `run.sh` wrappers call
+  `racket` / `uv run` directly. Racket's `--auto` dependencies still resolve
+  from its catalogs; only the named direct package sources are pinned.
 - **The canonical positive Syrup byte corpus lives at
   [`../test/oracle/corpus/`](../test/oracle/corpus/)** and is checked by
   `zig build oracle-check` (protocol reference fixtures); this directory is the live, process-level

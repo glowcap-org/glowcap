@@ -1,23 +1,34 @@
 # What ships today
 
 pancake is unreleased, but the library, bindings, transports, and tools below
-are implemented and checked in this repository. This is the short inventory.
-Read [known limitations](boundaries.md) before deploying it and
+are implemented and checked in this repository. Read
+[known limitations](boundaries.md) before deploying it and
 [stability](stability.md) for the evidence behind each support claim.
 
 ## Application APIs
 
 | Surface | What it provides |
 | --- | --- |
-| Zig | `driver.Session` connects or listens, fetches and publishes capabilities, calls them, and redeems three-party introductions. `driver.PollHost` owns the sessions behind that API. |
+| Zig | `driver.Session` connects or listens, fetches and publishes capabilities, calls them, and redeems three-party introductions. `driver.HostRuntime` owns the sessions behind that API. |
 | Sans-I/O Zig | `engine.Peer` exposes the protocol engine without sockets or scheduling. Callers feed frames, step the engine, drain output, and handle events. |
-| C | Opaque handles, fixed-width result codes, explicit release, and separate archives for the core, host, and transports. |
+| C | Opaque handles, fixed-width result codes, explicit release, and separate archives for the core, host, native loop, and transports. |
 | Bindings | Rust, TypeScript, Python, and Racket expose the same session and actor model through the C ABI. They can dial, listen, host objects, call far objects, and pass capabilities. |
 | Browser | `@pancake/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, and redeem handoffs over WebSocket; after signaling, it can also hold an ordinary keyed session over WebRTC. |
 
 The [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), and
 [binding contract](../bindings/README.md) are the entry points for those
 surfaces.
+
+Native binding fronts compose `libpancake_host` and `libpancake_driver`. The
+driver provides one generic dial/listen/event ABI over an adopted Host. The TCP
+provider package owns `tcp`, `keyed-tcp`, and `noise-tcp`; separately built
+transports register through the common ABI. The iroh provider owns both dial
+and listener operations, and the onion archive supplies the standardized Tor
+transport without teaching the driver its symbol. An idle Host that is not yet
+pumping can move into this runtime in one step: success preserves its identity
+and capabilities, and failure leaves the original Host untouched. Listener
+close preserves sessions already yielded. Wasm and explicitly supplied byte
+channels use the byte-fed Host instead.
 
 ## Protocol
 
@@ -35,46 +46,31 @@ surfaces.
   peer or an accepted plain-TCP assertion is refused.
 - **Three-party handoff.** A capability received from one peer can be returned
   to another. The application API covers deposit, signed gift, withdrawal, and
-  any new connection redemption needs. A deposited local gift keeps the exact
-  actor in the Host Vat, so alias replacement cannot redirect it
+  any new connection redemption needs. Deposited gifts keep the exact actor in
+  the Host Vat
   ([ADR-0101](decisions/adr/ADR-0101-actor-roots-and-reclamation.md)).
   Zig and the bindings can also listen for settlement of a promise received
   from a peer
   ([ADR-0095](decisions/adr/ADR-0095-listening-on-a-received-promise.md)).
-- **Handoff ownership.** Gifts live on the Gifter–Exporter `Peer`. Accepted
-  replay counters live on the Receiver–Exporter `Peer`. An early withdrawal is
-  verified against the still-open gifter session before it waits for the
-  deposit. After that session closes with no replacement reusing its names, a
-  later withdrawal fails closed
-  ([ADR-0100](decisions/adr/ADR-0100-session-owned-handoff-authority.md)).
-  Product Hosts (`PollHost`, the C Host, and the bindings) mint a fresh session
-  signing key per connection
-  ([ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md)).
-  A bare byte-fed Host that omits `Options.session_seeds` still defaults to the
-  durable seed, which can recreate those names across reconnect. Next-profile
-  emitted counters stay session-owned; automatic V1 redemption counts up for
-  the Node lifetime so Goblins reconnect stays compatible.
-- **Identity.** A session can report the identity its handshake established. On
-  `driver.Session`, the C ABI, Wasm, and the bindings, every application
+  Gifts and replay counters live on the sessions that own them; product Hosts
+  mint a fresh signing key per session
+  ([ADR-0100](decisions/adr/ADR-0100-session-owned-handoff-authority.md),
+  [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md)).
+- **Identity.** A session can report the identity its handshake established.
+  On `driver.Session`, the C ABI, Wasm, and the bindings, every application
   capability is one opaque Host-scoped identity
   ([ADR-0096](decisions/adr/ADR-0096-host-scoped-capability-identity.md)).
-  Identities lift from fetches, replies, delivered arguments, enlivenment,
-  publication, and handoff. Wire positions surface only on the low-level
-  `engine.Peer` and `BlockingSession` tiers.
+  Wire positions surface only on the low-level `engine.Peer` and
+  `BlockingSession` tiers.
 - **Publication.** Each session reaches the Host's shared Vat through its own
-  Port. Publishing, replacing, or removing an alias changes discovery only.
-  Issued capabilities and deposited gifts keep the exact actor, whose local
-  identity survives Port closure. An actor lives exactly as long as its roots
-  (aliases, capability handles, export bindings, and exact gifts) and is
-  reclaimed when the last one releases
+  Port. Publishing changes discovery only; issued capabilities and deposited
+  gifts keep the exact actor until their roots release
   ([ADR-0101](decisions/adr/ADR-0101-actor-roots-and-reclamation.md)).
   Durable publication is a separate namespace
-  ([ADR-0098](decisions/adr/ADR-0098-sturdyref-peer-authority.md)).
-  The Host mints an unpredictable versioned swiss name a mutable alias cannot
-  claim, never reassigns it, and returns the complete sturdyref. Removal makes
-  the old sturdyref miss without revoking issued capabilities. Native
-  enlivenment selects a live matching session or dials the sturdyref peer
-  itself.
+  ([ADR-0098](decisions/adr/ADR-0098-sturdyref-peer-authority.md)): the Host
+  mints an unpredictable swiss name, never reassigns it, and returns the
+  complete sturdyref. Native enlivenment selects a live matching session or
+  dials the sturdyref peer itself.
 - **Locators.** Zig, C, and the bindings parse and format `ocapn://` peer and
   sturdyref URIs. Applications dial through a locator rather than a
   transport-specific session API.
@@ -101,10 +97,11 @@ hints, and `engine.Peer.settleNegotiatedProfile` settles the pair after both
 verified hellos arrive
 ([ADR-0103](decisions/adr/ADR-0103-hello-carried-profile-offers.md)). An absent
 offer is the v1.0/Syrup floor, so Goblins traffic stays wire-identical. Every
-binding exposes the host preference selector. Each of `zig build rust-dogfood`,
-`deno-dogfood`, `python-dogfood`, and `racket-dogfood` exercises the C ABI as a
-real consumer over a live Cap'n Proto socket. Zig applications can add another
-codec through the open registry without changing the protocol core.
+binding exposes the host preference selector. Binding checks
+(`zig build rust-dogfood`, `deno-dogfood`, `python-dogfood`, and
+`racket-dogfood`) exercise the C ABI as a real consumer over a live Cap'n Proto
+socket. Zig applications can add another codec through the open registry
+without changing the protocol core.
 
 ## Transports
 
@@ -112,21 +109,32 @@ codec through the open registry without changing the protocol core.
 | --- | --- |
 | `tcp` | Plain TCP and the broadest interop path. It is cleartext. |
 | `keyed-tcp` | TCP with a key designator as the dial target. The channel is cleartext and unauthenticated; the key does not prove possession. |
+| `noise-tcp` | The keyed-tcp grammar with ADR-0107's sealed channel on the wire: a Noise_XK handshake between the two peers encrypts the channel end to end, and completing it proves the dialed key. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. |
 | `keyed-relay` | Cleartext WebSocket to a relay; the key designator is a dial target with no listening address. Trusted network and relay only. |
+| `noise-relay` | The keyed-relay pipe with ADR-0107's sealed channel: CapTP peers run Noise_XK with each other, and the relay only forwards ciphertext. The native provider dials and registers through the generic driver, every native binding composes that provider, and browser wasm rendezvous reports authenticated transport provenance. |
 | `inproc` | An in-process connection for tests and deterministic local scenarios. |
 | `iroh` | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
 | `webrtc` | An encrypted DataChannel reached through signaling. It carries a normal keyed OCapN session once the channel is open. |
+| `onion` | The standardized OCapN Tor netlayer. A version 3 service id addresses an encrypted, location-hiding circuit; Tor proves the service to the dialer but reveals no caller identity to the listener. |
 
-TCP, iroh, and WebRTC have Host completion-loop integrations. A native WebRTC
-resident owns one shared runtime and readiness fd for stable peer-id open,
-candidate, readable, writable, and closed events; its public C family uses
-non-blocking try-I/O. The explicit blocking connection remains available for
-`BlockingSession`. A bare `webrtc` locator still cannot dial without configured
-signaling authority; with that authority the Host adopts the DataChannel and
-continues handoff redemption (`zig build webrtc-loop`,
-`zig build webrtc-bridge-redeem`). Browsers that cannot open native sockets can
-also use the byte-transparent relay shipped in Deno, Python, Rust, and Racket.
-The relay forwards bytes without parsing CapTP or holding a capability.
+`onion` is the draft's transport and the one Goblins ships. Live Goblins also
+meets pancake over `tcp` and `iroh` through adapters in
+`conformance/goblins-peer/`. In-tree onion checks use fake SOCKS and control
+daemons under `zig build check`. Live Tor proofs are `onion-interop`,
+`goblins-onion`, `ocapn-conformance-onion`, `bindings-onion`, and
+`demo-rooms-onion`. See [stability](stability.md) and
+[known limitations](boundaries.md).
+
+TCP, iroh, WebRTC, and relay transports integrate with the generic Host driver.
+A relay locator can carry its `rendezvous-relay` route, with deployment
+configuration retained only as the fallback for a bare locator.
+A bare `webrtc` locator needs configured signaling authority
+(`zig build webrtc-loop`, `zig build webrtc-bridge-redeem`). Browsers without
+native sockets use the byte-transparent relay in Deno, Python, Rust, and
+Racket. The relay forwards bytes without parsing CapTP or holding a capability.
+
+`noise-tcp` and `noise-relay` run ADR-0107's Noise_XK channel on the byte-fed
+Host and native tiers; `BlockingSession` refuses both symbols.
 
 See [known limitations](boundaries.md#transports-and-peer-identity) for the
 security and reachability differences between these choices.
@@ -156,6 +164,9 @@ listening socket can still receive replies and participate in a handoff.
   several bindings.
 - The rooms application exercises browser peers, direct messages, WebRTC, and
   relay rendezvous.
+- ocapnviz can open a read-only trace sturdyref as a browser OCapN peer. Its
+  production Chromium check covers replay, subsequent live observations, and
+  exclusion of the observer session from its own topology.
 - The accountability example layers signed identity and an audit log above
   ordinary capabilities without changing CapTP.
 
@@ -165,14 +176,24 @@ programs.
 
 ## What checks it
 
-`zig build check` runs the in-tree tests, examples, architecture checks,
-protocol fixtures, and allocation and footprint budgets. The upstream OCapN
-suite runs against a pancake peer, and the Goblins checks hold live sessions in
-both call directions and all three handoff roles. Each language binding also
-runs a live Goblins client through the C ABI. One check puts three
-implementations at the three corners of a single handoff: a browser tab redeems
-a room's introduction and holds a direct message with a real Goblins vat, off
-the room's path, over cleartext TCP and over encrypted QUIC alike.
+`zig build check` is the in-tree check: it runs the tests, examples,
+architecture checks, committed protocol fixtures, and allocation and footprint
+budgets, and it compiles the live-interop drivers. It does not run an outside
+protocol implementation.
+
+`zig build check-external` runs the core outside-authority baseline: the
+upstream OCapN suite, live Goblins sessions in both call directions and all
+three handoff roles, and pinned-source findings. It also regenerates the Syrup
+corpus with the upstream encoder. The every-push
+[`ci/gates.sh`](../ci/gates.sh) sequence runs that evidence plus each language
+binding as a live Goblins client through the C ABI and the Deno binding as a
+host. Those steps require their named external runtimes and are not evidence
+supplied by `zig build check`.
+
+The three-implementation rooms checks are on-demand: a browser tab redeems a
+room's introduction and holds a direct message with a real Goblins vat, off the
+room's path, over cleartext TCP and encrypted QUIC. They require Chromium and
+therefore do not run in the every-push sequence.
 
 [Stability](stability.md) says which checks run on every push.
 [Community review](community-review.md) records exactly what the outside-peer

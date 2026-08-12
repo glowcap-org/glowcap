@@ -1,0 +1,17 @@
+from pancake import connect
+from pancake.iroh import Reachability
+
+# DISCOVERY resolves a bare iroh node ID without an address hint.
+partner = "ocapn://3b6a…da29.iroh"
+
+session = await connect(partner, Reachability.DISCOVERY)
+session.serve()
+
+greeter = await session.fetch("greeter")  # a capability, by name
+try:
+    reply = await session.send(greeter, "greet", ["world"])
+    print(reply)
+except Exception as reason:
+    print(f"the greeter refused: {reason}")
+
+await session.close()

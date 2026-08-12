@@ -168,6 +168,12 @@ const registered = [_]Table{
     },
     .{
         .file = "driver/core/host.zig",
+        .name = "transport_profiles",
+        .owner = "Transport symbols supplied by providers attached to this Host; canonical symbols must carry their exact model.transport profile, and extension names are copied into Host ownership.",
+        .epoch = "A registration owns the row until its provider is removed, duplicate occupancy is refused, and sessions retain their transport symbol only while that registration's owning driver remains alive.",
+    },
+    .{
+        .file = "driver/core/host.zig",
         .name = "vows",
         .owner = "Vow ids this host mints from one counter.",
         .epoch = "Monotonic; a row retires when its vow settles.",
@@ -221,6 +227,12 @@ const registered = [_]Table{
         .epoch = "The row is inserted when the key is verified and removed on unindex, condemn, and release; key-shaped lookups compare the selected shell's exact retained key before accepting equality.",
     },
     .{
+        .file = "c_abi/net_transport/iroh/mod.zig",
+        .name = "conns",
+        .owner = "The sidecar's endpoint-scoped connection ids: the endpoint mints them from one counter and never reuses one for its lifetime, so no other endpoint's id can alias a row (one adapter per netlayer, one netlayer per endpoint).",
+        .epoch = "A row enters when `finish_connect` claims the connection and leaves at `conn_close` (or netlayer release, which sweeps stragglers). A stale id looks up nothing — the resident contract's drain-to-nothing rule.",
+    },
+    .{
         .file = "driver/bridge.zig",
         .name = "pending_connects",
         .owner = "Loop slot indices this bridge itself handed out; a slot is the loop's own array position, never a number a partner supplied.",
@@ -255,6 +267,18 @@ const registered = [_]Table{
         .name = "by_id",
         .owner = "Peer ids the bound sidecar resident mints (`ReadyEvent.subject`); the reverse of `conns` plus the pre-open rows, scoped to this backend and resident.",
         .epoch = "Stable and never reused during the resident lifetime, so queued readiness for a released peer cannot name its replacement.",
+    },
+    .{
+        .file = "c_abi/net_transport/webrtc/mod.zig",
+        .name = "peers",
+        .owner = "Peer subjects minted by this WebRTC netlayer resident; callers can submit only an id returned by this same endpoint's peer handle.",
+        .epoch = "Stable and never reused during the netlayer lifetime. A row remains while either the caller handle or the provider claim owns a reference, and stale readiness resolves to nothing.",
+    },
+    .{
+        .file = "c_abi/net_transport/relay/mod.zig",
+        .name = "by_id",
+        .owner = "Connection ids minted by one relay runtime and returned only through handles from that same provider lease.",
+        .epoch = "Monotonic and never reused during the runtime lifetime, so stale readiness or handles cannot resolve to a replacement connection.",
     },
     .{
         .file = "net/transport/webrtc.zig",

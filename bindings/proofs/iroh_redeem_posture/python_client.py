@@ -41,7 +41,7 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Ref, TRANSPORT_IROH, connect, encode_peer_locator, format_peer_uri  # noqa: E402
+from pancake import Locator, Ref, TRANSPORT_IROH, connect, format_peer_uri  # noqa: E402
 from pancake.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
@@ -62,15 +62,15 @@ def greeter(verb: str, args: list):
 
 
 async def accept_loop(server, served: list) -> None:
-    """Serve every connection the server accepts for the life of the run."""
-    async for conn in server:
-        conn.serve()
-        served.append(conn)
+    """Serve every session the server accepts for the life of the run."""
+    async for session in server:
+        session.serve()
+        served.append(session)
 
 
 async def run() -> None:
     # ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
-    exporter = listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
+    exporter = await listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
     exporter.host.publish_giftable("greeter", greeter)
     exporter_id = exporter.node_id
     exporter_served: list = []
@@ -78,7 +78,7 @@ async def run() -> None:
     print(f"python-iroh-redeem-posture: exporter published greeter on {exporter_id}")
 
     # ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-    gifter = listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
+    gifter = await listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
     gifter_id = gifter.node_id
     exporter_uri = format_peer_uri(TRANSPORT_IROH, exporter_id)
     to_exporter = await connect(exporter_uri, Reachability.LOCAL_DISCOVERY, host=gifter.host)
@@ -86,7 +86,7 @@ async def run() -> None:
     # Record the exporter's location by **node id alone** — no direct-addresses.
     # This is what forces the recipient down the configured-posture redeem path
     # instead of a Direct dial.
-    to_exporter.set_exporter_locator(encode_peer_locator("iroh", exporter_id, ""))
+    to_exporter.set_exporter_locator(Locator("iroh", exporter_id, {}))
 
     def introducer(verb: str, args: list):
         if verb == "get-greeter":
@@ -126,8 +126,8 @@ async def run() -> None:
     # Teardown: dialing connections first, then accepted connections, then servers.
     await recipient.close()
     await to_exporter.close()
-    for conn in (*exporter_served, *gifter_served):
-        await conn.close()
+    for session in (*exporter_served, *gifter_served):
+        await session.close()
     await exporter.close()
     await gifter.close()
     await exporter_task

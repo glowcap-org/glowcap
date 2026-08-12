@@ -175,7 +175,6 @@ test "completion loop: outbound dialed sessions fetch from a blocking listener" 
     var shared = ClientShared{ .allocator = allocator, .fulfilled_total = &fulfilled_total };
     // A pure dialer: no `.listen`, so the loop opens no accepting socket.
     var loop = try Loop.init(allocator, makeClientPeer, @ptrCast(&shared), .{
-        .frame_cap = frame_cap,
         .max_conns = 16,
         .make_conn_ctx = makeClientCtx,
         .serve = ClientCtx.serve,
@@ -186,7 +185,7 @@ test "completion loop: outbound dialed sessions fetch from a blocking listener" 
     for (0..client_count) |_| {
         var buf: [tcp.designator_buf_len]u8 = undefined;
         const loc = tcp.locator(&buf, address);
-        _ = try loop.dialLocator(loc.transport, loc.designator, &.{});
+        _ = try loop.dialLocator(loc);
     }
 
     var loop_err: ?anyerror = null;
@@ -231,7 +230,6 @@ test "completion loop: refused outbound connect closes, reclaims the slot, and f
 
     var journal = CloseJournal{};
     var loop = try Loop.init(allocator, makeClientPeer, @ptrCast(&journal), .{
-        .frame_cap = frame_cap,
         .max_conns = 1,
         .on_close = CloseJournal.onClose,
     });
@@ -240,7 +238,7 @@ test "completion loop: refused outbound connect closes, reclaims the slot, and f
     {
         var buf: [tcp.designator_buf_len]u8 = undefined;
         const loc = tcp.locator(&buf, address);
-        _ = try loop.dialLocator(loc.transport, loc.designator, &.{});
+        _ = try loop.dialLocator(loc);
     }
     try loop.run(.{ .after_closed = 1 });
 
@@ -248,7 +246,7 @@ test "completion loop: refused outbound connect closes, reclaims the slot, and f
     {
         var buf: [tcp.designator_buf_len]u8 = undefined;
         const loc = tcp.locator(&buf, address);
-        _ = try loop.dialLocator(loc.transport, loc.designator, &.{});
+        _ = try loop.dialLocator(loc);
     }
     try loop.run(.{ .after_closed = 2 });
 
@@ -256,6 +254,40 @@ test "completion loop: refused outbound connect closes, reclaims the slot, and f
     // the connect never completed, so the connection never opened.
     try std.testing.expectEqual(@as(usize, 2), journal.closes);
     try std.testing.expectEqual(@as(usize, 0), journal.opened_closes);
+}
+
+test "completion loop: reserved dials cannot be starved by ordinary admission" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var listener = try tcp.Listener.bind(io, try ip.IpAddress.parse("127.0.0.1", 0));
+    const address = listener.localAddress();
+    listener.deinit();
+
+    var loop = try Loop.init(allocator, makeClientPeer, null, .{
+        .max_conns = 2,
+        .reserved_dial_conns = 1,
+    });
+    defer loop.deinit();
+
+    var buf: [tcp.designator_buf_len]u8 = undefined;
+    const loc = tcp.locator(&buf, address);
+    _ = try loop.dialLocator(loc);
+    try std.testing.expectError(
+        error.TooManyConnections,
+        loop.dialLocator(loc),
+    );
+
+    _ = try loop.dialLocatorReserved(loc);
+    try std.testing.expectError(
+        error.TooManyConnections,
+        loop.dialLocatorReserved(loc),
+    );
+    try loop.run(.{ .after_closed = 2 });
 }
 
 /// A backend whose connect submission always fails. Dialing through it must
@@ -286,9 +318,12 @@ const FailingConnectBackend = struct {
         return 1;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -347,6 +382,10 @@ const FailingConnectBackend = struct {
         _ = bytes;
     }
 
+    pub fn submitCancel(self: *FailingConnectBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
+        _ = .{ self, cancel_user_data, target_user_data, fd };
+    }
+
     pub fn submitClose(self: *FailingConnectBackend, user_data: u64, fd: Fd) !void {
         _ = self;
         _ = user_data;
@@ -367,7 +406,6 @@ test "completion loop: a failed connect submission frees the peer once and recla
     FailingConnectBackend.closed_fds = 0;
 
     var loop = try completion.Loop(FailingConnectBackend, tcp.DialResolver).init(allocator, makeClientPeer, null, .{
-        .frame_cap = frame_cap,
         .max_conns = 1,
     });
     defer loop.deinit();
@@ -375,10 +413,10 @@ test "completion loop: a failed connect submission frees the peer once and recla
     const address = try ip.IpAddress.parse("127.0.0.1", 1);
     var buf: [tcp.designator_buf_len]u8 = undefined;
     const loc = tcp.locator(&buf, address);
-    try std.testing.expectError(error.SubmitFailed, loop.dialLocator(loc.transport, loc.designator, &.{}));
+    try std.testing.expectError(error.SubmitFailed, loop.dialLocator(loc));
     // The slot was reclaimed: a second dial reuses it and fails the same way
     // instead of reporting TooManyConnections.
-    try std.testing.expectError(error.SubmitFailed, loop.dialLocator(loc.transport, loc.designator, &.{}));
+    try std.testing.expectError(error.SubmitFailed, loop.dialLocator(loc));
     // Each failed dial opened one socket and closed it exactly once.
     try std.testing.expectEqual(@as(usize, 2), FailingConnectBackend.open_sockets);
     try std.testing.expectEqual(@as(usize, 2), FailingConnectBackend.closed_fds);

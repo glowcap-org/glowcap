@@ -5,7 +5,16 @@
 		".": "./mod.ts",
 		"./channel": "./channel.ts"
 	},
+	"publish": {
+		"include": [
+			"**/*.ts"
+		],
+		"exclude": [
+			"test/**"
+		]
+	},
 	"tasks": {
-		"check": "deno check mod.ts"
+		"check": "deno check mod.ts channel.ts test/peer_test.ts",
+		"test": "deno test test/peer_test.ts"
 	}
 }

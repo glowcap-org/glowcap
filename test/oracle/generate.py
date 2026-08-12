@@ -98,7 +98,7 @@ def op_resolve_fulfill_import_promise() -> Record:
 def op_listen_promise_target() -> Record:
     """``<op:listen <desc:answer 7> <desc:import-object 9>>``.
 
-    Stage 1 op:listen wire-shape per ADR-0007 § Decision 4, two
+    Legacy op:listen wire-shape per ADR-0007 § Decision 4, two
     desc:* reference operands. ``to-desc`` may be ``desc:answer``
     (the pipelining target case) or ``desc:export`` (the local-
     export target case). ``listen-desc`` is ``desc:import-object``
@@ -106,12 +106,9 @@ def op_listen_promise_target() -> Record:
     emits ``desc:import-object`` for ``Reference::Near`` listener
     arguments via the standard payload-position perspective flip.
 
-    Same shape on next and V1_0, adding a new record is wire-
-    additive (existing peers without ADR-0007 reject the unknown
-    record up the negotiation chain). The Stage 2 V1_0 Goblins-
-    canonical 3-operand ``wants-partial?`` extension lives in a
-    separate fixture once the Stage 2 Goblins-canonical wire
-    profile lands.
+    V1.0 accepts this omitted third operand only as settling-only
+    compatibility with the earlier OCapN text. Pancake canonically emits the
+    Goblins three-operand form below. Next always carries its integer mode.
     """
     target = Record(Symbol("desc:answer"), (7,))
     listener = Record(Symbol("desc:import-object"), (9,))

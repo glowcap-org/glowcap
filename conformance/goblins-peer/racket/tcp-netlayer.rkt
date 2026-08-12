@@ -92,6 +92,9 @@
 ;; an application API; it exists so pancake's interop probes can prove a
 ;; canonical Goblins-written frame caused the partner's semantic response even
 ;; where the pinned Goblins release has no public API for creating that request.
+;; `#:interop-outbound-message-sink` is the symmetric hook: it observes decoded
+;; outbound records before encoding, so a probe can refer to a Goblins-allocated
+;; wire name without guessing the allocator's current position.
 (define make-wire-ocapn-node (cdr unmarshall::ocapn-node))
 
 (define (^tcp-netlayer _bcom
@@ -101,7 +104,8 @@
                        #:trace [trace-fn void]
                        #:location-hints [location-hints #f]
                        #:session-trace [session-trace #f]
-                       #:interop-message-sink [interop-message-sink #f])
+                       #:interop-message-sink [interop-message-sink #f]
+                       #:interop-outbound-message-sink [interop-outbound-message-sink #f])
   ;; The bind happens here, on the caller's thread, so returning from the
   ;; constructor means the port is listening and a dial lands in its backlog.
   ;; Anything later — `setup`, the accept thread below — leaves a window where a
@@ -159,12 +163,16 @@
       (when (and interop-message-sink (not (eof-object? msg)))
         (interop-message-sink msg))
       msg)
+    (define (observed-write-message msg marshallers)
+      (when interop-outbound-message-sink
+        (interop-outbound-message-sink msg))
+      (write-message msg marshallers))
     (if session-trace
-        (traced-message-procs observed-read-message write-message session-trace
+        (traced-message-procs observed-read-message observed-write-message session-trace
                               #:transport "tcp"
                               #:our-designator our-designator
                               #:provenance (lambda (_claimed) provenance-unauthenticated))
-        (values observed-read-message write-message)))
+        (values observed-read-message observed-write-message)))
 
   (define (register-captp-writer write-message)
     (set-box! interop-captp-writer write-message))

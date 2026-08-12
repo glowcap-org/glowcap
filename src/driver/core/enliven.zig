@@ -22,6 +22,7 @@ const actors = @import("actors");
 const host_mod = @import("host.zig");
 const host_pump = @import("host_pump.zig");
 const vocab = @import("vocab.zig");
+const vows_mod = @import("vows.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -91,6 +92,46 @@ const EnlivenListener = struct {
     }
 };
 
+const EnlivenVowReservation = struct {
+    vow: vows_mod.VowReservation,
+    bridge: *EnlivenListener,
+};
+
+fn reserveEnlivenVowAt(self: *Host, session: *HostSession, id: u64) !EnlivenVowReservation {
+    const bridge = try self.allocator.create(EnlivenListener);
+    errdefer self.allocator.destroy(bridge);
+    return .{
+        .vow = try self.reserveVowAt(session, .far, .plain, id),
+        .bridge = bridge,
+    };
+}
+
+fn cancelEnlivenVow(self: *Host, reservation: EnlivenVowReservation) void {
+    self.cancelVowReservation(reservation.vow);
+    self.allocator.destroy(reservation.bridge);
+}
+
+fn commitEnlivenVow(
+    self: *Host,
+    session: *HostSession,
+    answer: model.AnswerPosition,
+    reservation: EnlivenVowReservation,
+) u64 {
+    const row = reservation.vow.row;
+    reservation.bridge.* = .{
+        .host = self,
+        .peer_id = session.peer_id,
+        .answer = answer,
+        .vow_id = row.id,
+    };
+    return self.commitVowWithListener(
+        session,
+        reservation.vow,
+        .{ .far = answer },
+        .{ .ctx = reservation.bridge, .func = EnlivenListener.fire },
+    );
+}
+
 pub fn matchSturdyrefPeer(
     self: *Host,
     session: *HostSession,
@@ -101,7 +142,7 @@ pub fn matchSturdyrefPeer(
     const locator = sturdyref.peer;
     if (!std.mem.eql(u8, locator.transport, session.transport)) return HostError.PeerIdentityMismatch;
 
-    if (vocab.designatorSchemeForTransport(session.transport) == .key) {
+    if (try self.designatorScheme(session.transport) == .key) {
         const identity = try self.partnerIdentity(session);
         if (!std.mem.eql(u8, locator.designator, identity.designator)) return HostError.PeerIdentityMismatch;
         // The provenance-bearing predicate, not key equality (ADR-0097): this
@@ -161,7 +202,7 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     defer self.allocator.free(locator);
     switch (try self.node.stageDial(locator)) {
         .open => |peer_id| {
-            const session = self.sessions.get(peer_id) orelse return HostError.ConnectionCondemned;
+            const session = self.sessions.get(peer_id) orelse return HostError.SessionCondemned;
             return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
         },
         .pending => |ticket| {
@@ -194,9 +235,7 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
 }
 
 pub fn freeParkedEnliven(self: *Host, parked: PendingEnliven) void {
-    self.allocator.free(parked.sturdyref.peer.transport);
-    self.allocator.free(parked.sturdyref.peer.designator);
-    self.allocator.free(parked.sturdyref.swissnum);
+    model.uri.freeSturdyref(self.allocator, parked.sturdyref);
 }
 
 /// Settle a parked enliven's vow broken. The message must be host-owned
@@ -217,25 +256,25 @@ pub fn continueParkedEnliven(self: *Host, session: *HostSession, parked: Pending
     const err: anyerror = blk: {
         _ = matchSturdyrefPeer(self, session, parked.sturdyref, .checked) catch |e| break :blk e;
         const peer = session.served.port.peer;
+        const reservation = reserveEnlivenVowAt(self, session, parked.vow_id) catch |e| break :blk e;
+        var reservation_live = true;
+        defer if (reservation_live) cancelEnlivenVow(self, reservation);
         const start = engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, parked.sturdyref.swissnum) catch |e| break :blk e;
         switch (start) {
             .cached => |reference| {
+                cancelEnlivenVow(self, reservation);
+                reservation_live = false;
                 self.actions.pushReserved(.{ .settled = .{ .peer_id = session.peer_id, .vow_id = parked.vow_id, .value = .{ .reference = reference } } });
                 return;
             },
-            .in_flight => |answer| {
-                _ = mintEnlivenVowAt(self, session, answer, parked.vow_id) catch |e| break :blk e;
-                return;
-            },
+            .in_flight => break :blk actors.Error.AlreadyListening,
             .fresh => |prepared| {
                 peer.sendPreparedFetch(prepared) catch |e| {
                     peer.finishPendingEnliven(parked.sturdyref.swissnum);
                     break :blk e;
                 };
-                _ = mintEnlivenVowAt(self, session, prepared.answer_position, parked.vow_id) catch |e| {
-                    peer.finishPendingEnliven(parked.sturdyref.swissnum);
-                    break :blk e;
-                };
+                _ = commitEnlivenVow(self, session, prepared.answer_position, reservation);
+                reservation_live = false;
                 host_pump.markDirty(self, session.peer_id);
                 return;
             },
@@ -280,8 +319,17 @@ pub fn enlivenWithPolicy(
     const provenance = try matchSturdyrefPeer(self, session, sturdyref, policy);
     const swissnum = sturdyref.swissnum;
     const peer = session.served.port.peer;
+    // Admission precedes `prepareEnliven`: its fresh arm records the in-flight
+    // marker and retains bootstrap authority, so refusing afterward would need
+    // a protocol rollback. Cache hits are cheap but remain retryable under the
+    // same application-verb contract rather than duplicating the core's dedup
+    // decision at this adapter layer.
+    try self.checkOutboundAdmission(session);
     // The peer check above fixes the namespace before this session-local
     // swiss cache is consulted or any bootstrap fetch can be emitted.
+    const reservation = try reserveEnlivenVowAt(self, session, self.next_vow);
+    var reservation_live = true;
+    errdefer if (reservation_live) cancelEnlivenVow(self, reservation);
     const start = try engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, swissnum);
     switch (start) {
         .cached => |reference| {
@@ -289,19 +337,17 @@ pub fn enlivenWithPolicy(
             // never build a row, so the id refuses `NoSuchVow` exactly
             // like any other settled vow.
             const id = self.next_vow;
-            try host_pump.queueHostAction(self, .{ .settled = .{ .peer_id = session.peer_id, .vow_id = id, .value = .{ .reference = reference } } });
+            cancelEnlivenVow(self, reservation);
+            reservation_live = false;
+            self.actions.pushReserved(.{ .settled = .{ .peer_id = session.peer_id, .vow_id = id, .value = .{ .reference = reference } } });
             self.next_vow += 1;
-            try host_pump.finishVerb(self);
+            host_pump.finishCommittedWork(self, session);
             return .{ .vow_id = id, .provenance = provenance };
         },
         // An enliven already in flight holds the one listener slot on its
         // answer, so a concurrent duplicate is refused `AlreadyListening`
         // rather than parked where it could never fire.
-        .in_flight => |answer| {
-            const id = try mintEnlivenVow(self, session, answer);
-            try host_pump.finishVerb(self);
-            return .{ .vow_id = id, .provenance = provenance };
-        },
+        .in_flight => return actors.Error.AlreadyListening,
         .fresh => |prepared| {
             peer.sendPreparedFetch(prepared) catch |err| {
                 // The fresh enliven recorded an in-flight marker; clear it
@@ -309,33 +355,11 @@ pub fn enlivenWithPolicy(
                 peer.finishPendingEnliven(swissnum);
                 return err;
             };
-            const id = mintEnlivenVow(self, session, prepared.answer_position) catch |err| {
-                peer.finishPendingEnliven(swissnum);
-                return err;
-            };
-            try host_pump.dirtyThenPump(self, session.peer_id);
+            const id = commitEnlivenVow(self, session, prepared.answer_position, reservation);
+            reservation_live = false;
+            self.next_vow += 1;
+            host_pump.finishCommittedVow(self, session);
             return .{ .vow_id = id, .provenance = provenance };
         },
     }
-}
-
-pub fn mintEnlivenVow(self: *Host, session: *HostSession, answer: model.AnswerPosition) !u64 {
-    const id = try mintEnlivenVowAt(self, session, answer, self.next_vow);
-    self.next_vow += 1;
-    return id;
-}
-
-/// The explicit-id half of `mintEnlivenVow`: a parked select-or-dial
-/// enliven settles under the id its caller already holds, so the id is an
-/// argument rather than a draw, and `next_vow` moves only where an id is
-/// genuinely fresh.
-pub fn mintEnlivenVowAt(self: *Host, session: *HostSession, answer: model.AnswerPosition, id: u64) !u64 {
-    const bridge = try self.allocator.create(EnlivenListener);
-    errdefer self.allocator.destroy(bridge);
-    const row = try self.createVowRow(session, .{ .far = answer }, .plain, id);
-    errdefer self.allocator.destroy(row);
-    bridge.* = .{ .host = self, .peer_id = session.peer_id, .answer = answer, .vow_id = row.id };
-    try session.served.port.on(&self.vat, .{ .far = answer }, .{ .ctx = bridge, .func = EnlivenListener.fire });
-    self.vows.putAssumeCapacity(row.id, row);
-    return row.id;
 }

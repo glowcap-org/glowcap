@@ -1,14 +1,15 @@
-//! Thin conformance host: canonical swiss-nums over `tcp-testing-only`, served
-//! by one `driver.core.Host` behind a `driver.Bridge` over a completion loop,
+//! Thin conformance host: canonical swiss-nums over the build-selected
+//! conformance transport, served by one `driver.core.Host` behind a
+//! `driver.Bridge` over a completion loop,
 //! the single-thread, many-session host tier (ADR-0076), not a thread per
 //! connection.
 //!
 //! The Host owns every protocol-policy seam the suite exercises through the
 //! library rather than this file: crossed-hellos tiebreak (`Host.CrossedHellos`,
 //! ADR-0030), one node identity reused as every session's signing key, and the
-//! live-session directory that reaches each Peer-owned gift table. What stays here is what the Host cannot know: the
-//! conformance actors, and the three suite-specific interceptors the harness
-//! requires on the serve path:
+//! live-session directory that reaches each Peer-owned gift table. What stays
+//! here is what the Host cannot know: the conformance actors, and the three
+//! suite-specific interceptors the harness decorates onto the Host's serve hook:
 //!
 //!   * the promise-resolver bootstrap object (a `fulfill`/`break` to a minted
 //!     resolver export becomes an `op:resolve` on its paired answer);
@@ -27,6 +28,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const peer_options = @import("ocapn_peer_options");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -36,14 +38,16 @@ const net = pancake.net;
 const driver = pancake.driver;
 const codec = pancake.ocapn.codec;
 const tcp = net.tcp;
+const onion = net.onion;
 
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
 const PeerId = engine.PeerId;
 
-/// The transport symbol the suite dials pancake on. Its designator is a bare
-/// uuid; the dialable address lives in the locator's `host`/`port` hints.
-const transport_name = "tcp-testing-only";
+const use_onion = peer_options.use_onion;
+/// The ordinary suite path uses a bare UUID plus address hints. The dedicated
+/// onion path uses the standardized self-routing onion service designator.
+const transport_name = if (use_onion) model.transport.onion else "tcp-testing-only";
 
 const host_ip = "127.0.0.1";
 /// The suite dials this fixed port; `--port=N` (threaded by
@@ -95,7 +99,7 @@ const AddrTable = struct {
 };
 
 /// Process-global address table. The conformance peer is one Host on one loop
-/// in one process, and the loop's `Locator.resolve` is a free function with no
+/// in one process, and the loop's `DialResolver.resolve` is a free function with no
 /// context slot, so the table it consults lives here. `main` owns its storage.
 var g_addrs: ?*AddrTable = null;
 
@@ -103,21 +107,20 @@ var g_addrs: ?*AddrTable = null;
 /// through the address table (the designator is a uuid, the address a hint we
 /// recorded); every other transport defers to the standard `tcp.DialResolver`.
 const ConformanceLocator = struct {
-    pub fn resolve(
-        transport: []const u8,
-        designator: []const u8,
-        direct_addresses_hint: []const u8,
-    ) !std.Io.net.IpAddress {
-        if (std.mem.eql(u8, transport, transport_name)) {
+    pub fn resolve(locator: model.PeerLocator) !std.Io.net.IpAddress {
+        if (std.mem.eql(u8, locator.transport, transport_name)) {
             const table = g_addrs orelse return error.InvalidAddress;
-            const hostport = table.get(designator) orelse return error.InvalidAddress;
+            const hostport = table.get(locator.designator) orelse return error.InvalidAddress;
             return tcp.parseDesignator(hostport);
         }
-        return tcp.DialResolver.resolve(transport, designator, direct_addresses_hint);
+        return tcp.DialResolver.resolve(locator);
     }
 };
 
-const ConfLoop = net.completion.Loop(net.Backend, ConformanceLocator);
+const ConfLoop = if (use_onion)
+    net.OnionLoop
+else
+    net.completion.Loop(net.Backend, ConformanceLocator);
 const ConfBridge = driver.Bridge(ConfLoop);
 
 // ── Conformance actors ───────────────────────────────────────────────────────
@@ -244,6 +247,7 @@ fn publishLocal(turn: *actors.Turn, ref: actors.Ref) !u64 {
 const ConfCtx = struct {
     shared: *Shared,
     session: *HostSession,
+    host_serve_options: driver.core.ServeOptions,
     resolver_map: std.AutoHashMapUnmanaged(u64, u64) = .{},
 };
 
@@ -257,6 +261,37 @@ const PendingEnliven = struct {
     answer: u64,
 };
 
+/// A Host-driving effect classified under the before-serve callback latch and
+/// executed after Host.serveEvent unwinds. The hook may inspect and claim an
+/// event, but Host.fetch/acceptGive and Bridge.dialOutbound are deliberately
+/// top-level operations and reject callback re-entry.
+const DeferredAction = union(enum) {
+    accept_give: struct {
+        session: *HostSession,
+        answer: u64,
+        give: []u8,
+        uri: []u8,
+    },
+    fetch: struct {
+        exporter: *HostSession,
+        swiss: []u8,
+        recipient_peer: PeerId,
+        answer: u64,
+    },
+    dial: []u8,
+
+    fn deinit(self: DeferredAction, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .accept_give => |action| {
+                allocator.free(action.give);
+                allocator.free(action.uri);
+            },
+            .fetch => |action| allocator.free(action.swiss),
+            .dial => |designator| allocator.free(designator),
+        }
+    }
+};
+
 const Shared = struct {
     allocator: std.mem.Allocator,
     host: *Host,
@@ -267,6 +302,8 @@ const Shared = struct {
     /// Gifter enlivens whose exporter session was not yet open when the enliven
     /// arrived; drained in `on_open`.
     pending: std.ArrayListUnmanaged(PendingEnliven) = .empty,
+    /// Host-driving effects held until the before-serve callback latch opens.
+    deferred: std.ArrayListUnmanaged(DeferredAction) = .empty,
 
     fn deinit(self: *Shared) void {
         var it = self.confs.valueIterator();
@@ -280,6 +317,8 @@ const Shared = struct {
             self.allocator.free(p.swiss);
         }
         self.pending.deinit(self.allocator);
+        for (self.deferred.items) |action| action.deinit(self.allocator);
+        self.deferred.deinit(self.allocator);
     }
 };
 
@@ -322,13 +361,23 @@ fn publishConf(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyer
 
     const conf = try shared.allocator.create(ConfCtx);
     errdefer shared.allocator.destroy(conf);
-    conf.* = .{ .shared = shared, .session = session };
+    conf.* = .{
+        .shared = shared,
+        .session = session,
+        .host_serve_options = served.serve_options,
+    };
     try shared.confs.put(shared.allocator, session.peer_id, conf);
 
-    // The suite's GC modules expect wire-delta drops for every reference an actor
-    // consumed and did not retain. The Host wires its own before-serve hook at
-    // enroll; flip stateless GC on without disturbing it.
-    served.serve_options.gc_stateless = true;
+    // Decorate, rather than replace, the Host's policy hook. Host.serveEvent
+    // drains every event still queued after the loop hands it the first event
+    // in a batch; an outer completion-loop serve wrapper therefore cannot see
+    // every event. Keeping the interceptors here makes batching irrelevant and
+    // preserves crossed-hellos, handoff, and trace policy in the saved hook.
+    served.serve_options = .{
+        .gc_stateless = true,
+        .hook_ctx = conf,
+        .before_serve = confBeforeServe,
+    };
 
     _ = try served.publish(vat, ECHO, Echo, .{});
     _ = try served.publish(vat, GREETER, Greeter, .{});
@@ -348,31 +397,77 @@ fn confFreeConnCtx(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
     ConfBridge.freeConnCtx(ctx, conn_ctx);
 }
 
-/// The loop's serve hook: try the three conformance interceptors first (each
-/// consumes the event and never serves it into the vat), else the bridge's
-/// ordinary serve.
+/// Decorate the Host's per-event policy with the suite-only protocol actors.
+/// Claimed events never enter the Vat. Top-level effects are retained for
+/// `confServe`, after the enclosing Host dispatch opens its callback latch.
+fn confBeforeServe(ctx: ?*anyopaque, served: *driver.core.Served, event: *engine.Event) anyerror!bool {
+    const conf: *ConfCtx = @ptrCast(@alignCast(ctx.?));
+    const host_options = conf.host_serve_options;
+    if (host_options.before_serve) |host_hook| {
+        if (try host_hook(host_options.hook_ctx, served, event)) return true;
+    }
+    if (event.kind() == .deliver) {
+        if (try tryPromiseResolve(conf, event)) return true;
+        if (try tryRecipientGive(conf, event)) return true;
+        if (try tryGifterEnliven(conf, event)) return true;
+    }
+    return false;
+}
+
+/// Host.serveEvent may drain several queued events through `confBeforeServe`.
+/// Only after it returns is the callback latch open for the top-level effects
+/// those events classified.
 fn confServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
     const shell: *ConfBridge.Slot = @ptrCast(@alignCast(conn_ctx.?));
     const bridge = shell.bridge;
     const shared: *Shared = @ptrCast(@alignCast(bridge.publish_ctx.?));
+    std.debug.assert(shared.deferred.items.len == 0);
+    ConfBridge.serve(conn_ctx, peer, event) catch |err| {
+        discardDeferred(shared);
+        return err;
+    };
+    try drainDeferred(shared);
+    try bridge.drainActions();
+}
 
-    if (event.kind() == .deliver) {
-        if (shared.confs.get(shell.session.peer_id)) |conf| {
-            if (try tryPromiseResolve(conf, event)) {
-                try bridge.drainActions();
-                return;
-            }
-            if (try tryRecipientGive(conf, event)) {
-                try bridge.drainActions();
-                return;
-            }
-            if (try tryGifterEnliven(conf, event)) {
-                try bridge.drainActions();
-                return;
-            }
-        }
+fn discardDeferred(shared: *Shared) void {
+    for (shared.deferred.items) |action| action.deinit(shared.allocator);
+    shared.deferred.clearRetainingCapacity();
+}
+
+fn drainDeferred(shared: *Shared) !void {
+    var index: usize = 0;
+    errdefer {
+        for (shared.deferred.items[index..]) |action| action.deinit(shared.allocator);
+        shared.deferred.clearRetainingCapacity();
     }
-    try ConfBridge.serve(conn_ctx, peer, event);
+    while (index < shared.deferred.items.len) {
+        const action = shared.deferred.items[index];
+        index += 1;
+        const result = switch (action) {
+            .accept_give => |redeem| shared.host.acceptGive(
+                redeem.session,
+                redeem.answer,
+                redeem.give,
+                redeem.uri,
+            ),
+            .fetch => |fetch| runGifterFetch(
+                shared,
+                fetch.exporter,
+                fetch.swiss,
+                fetch.recipient_peer,
+                fetch.answer,
+            ),
+            .dial => |designator| shared.bridge.dialOutbound(.{
+                .transport = transport_name,
+                .designator = designator,
+                .hints = model.Hints.emptyFalse(),
+            }),
+        };
+        action.deinit(shared.allocator);
+        try result;
+    }
+    shared.deferred.clearRetainingCapacity();
 }
 
 /// When a session opens, run any gifter enliven that was waiting for this
@@ -385,10 +480,10 @@ fn confOnOpen(ctx: ?*anyopaque, bridge: *ConfBridge, shell: *ConfBridge.Slot) an
     while (i < shared.pending.items.len) {
         const p = shared.pending.items[i];
         if (std.mem.eql(u8, p.exporter_uuid, designator)) {
-            runGifterFetch(shared, shell.session, p.swiss, p.recipient_peer, p.answer) catch {};
-            shared.allocator.free(p.exporter_uuid);
-            shared.allocator.free(p.swiss);
             _ = shared.pending.swapRemove(i);
+            defer shared.allocator.free(p.exporter_uuid);
+            defer shared.allocator.free(p.swiss);
+            try runGifterFetch(shared, shell.session, p.swiss, p.recipient_peer, p.answer);
             continue;
         }
         i += 1;
@@ -420,19 +515,24 @@ fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
         else => return false,
     };
     const value = deliver.args.at(1) catch return false;
-    const owned_value = value.toOwned(allocator) catch return false;
     const resolution: model.Resolution = if (std.mem.eql(u8, verb, "fulfill"))
-        .{ .fulfill = owned_value }
+        .{ .fulfill = try value.toOwned(allocator) }
     else if (std.mem.eql(u8, verb, "break"))
-        .{ .@"break" = switch (owned_value) {
-            .@"error" => |e| e,
-            .symbol => |sym| .{ .message = sym },
-            .string => |str| .{ .message = str },
-            else => .{ .message = "broken" },
+        .{ .@"break" = switch (value) {
+            .@"error" => |reason| try reason.toOwned(allocator),
+            .symbol => |message| .{ .message = try allocator.dupe(u8, message) },
+            .string => |message| .{ .message = try allocator.dupe(u8, message) },
+            else => .{ .message = try allocator.dupe(u8, "broken") },
         } }
     else
         return false;
-    peer.sendCopying(.{ .resolve = .{ .answer = model.AnswerPosition.from(answer_position), .resolution = resolution } }) catch return false;
+    defer model.freeResolution(allocator, resolution);
+    try peer.sendCopying(.{
+        .resolve = .{
+            .answer = model.AnswerPosition.from(answer_position),
+            .resolution = resolution,
+        },
+    });
     return true;
 }
 
@@ -466,9 +566,27 @@ fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
     const uri = locatorFromGive(allocator, shared, event.bytes()) orelse return false;
     defer allocator.free(uri);
 
+    const give_owned = try allocator.dupe(u8, give_bytes);
+    const uri_owned = allocator.dupe(u8, uri) catch |err| {
+        allocator.free(give_owned);
+        return err;
+    };
+    var owns_buffers = true;
+    defer if (owns_buffers) {
+        allocator.free(give_owned);
+        allocator.free(uri_owned);
+    };
+    try shared.deferred.ensureUnusedCapacity(allocator, 1);
+
     const answer = (peer.session_state.allocateExport() catch return false).int();
     peer.session_state.installInboundAnswer(model.AnswerPosition.from(answer)) catch return false;
-    shared.host.acceptGive(conf.session, answer, give_bytes, uri) catch return true;
+    shared.deferred.appendAssumeCapacity(.{ .accept_give = .{
+        .session = conf.session,
+        .answer = answer,
+        .give = give_owned,
+        .uri = uri_owned,
+    } });
+    owns_buffers = false;
     return true;
 }
 
@@ -507,27 +625,32 @@ fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     // session — use one that exists, else dial and defer the fetch to `on_open`.
     if (enlivenAnswer(deliver, peer)) |answer| {
         if (existing) |exporter| {
-            const swiss_owned = allocator.dupe(u8, swiss) catch return true;
-            defer allocator.free(swiss_owned);
-            runGifterFetch(shared, exporter, swiss_owned, conf.session.peer_id, answer) catch return true;
+            const swiss_owned = try allocator.dupe(u8, swiss);
+            errdefer allocator.free(swiss_owned);
+            try shared.deferred.ensureUnusedCapacity(allocator, 1);
+            shared.deferred.appendAssumeCapacity(.{ .fetch = .{
+                .exporter = exporter,
+                .swiss = swiss_owned,
+                .recipient_peer = conf.session.peer_id,
+                .answer = answer,
+            } });
             return true;
         }
-        const swiss_owned = allocator.dupe(u8, swiss) catch return true;
-        const uuid_owned = allocator.dupe(u8, locator.designator) catch {
-            allocator.free(swiss_owned);
-            return true;
-        };
-        shared.pending.append(allocator, .{
+        const swiss_owned = try allocator.dupe(u8, swiss);
+        errdefer allocator.free(swiss_owned);
+        const uuid_owned = try allocator.dupe(u8, locator.designator);
+        errdefer allocator.free(uuid_owned);
+        const designator_owned = try allocator.dupe(u8, locator.designator);
+        errdefer allocator.free(designator_owned);
+        try shared.pending.ensureUnusedCapacity(allocator, 1);
+        try shared.deferred.ensureUnusedCapacity(allocator, 1);
+        shared.pending.appendAssumeCapacity(.{
             .exporter_uuid = uuid_owned,
             .swiss = swiss_owned,
             .recipient_peer = conf.session.peer_id,
             .answer = answer,
-        }) catch {
-            allocator.free(uuid_owned);
-            allocator.free(swiss_owned);
-            return true;
-        };
-        shared.bridge.dialOutbound(transport_name, locator.designator, "") catch {};
+        });
+        shared.deferred.appendAssumeCapacity(.{ .dial = designator_owned });
         return true;
     }
 
@@ -535,7 +658,10 @@ fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     // which is what the crossed-hellos tiebreak (Host, ADR-0030) needs on the
     // wire; there is no answer to resolve, so no fetch follows.
     if (existing == null) {
-        shared.bridge.dialOutbound(transport_name, locator.designator, "") catch {};
+        const designator_owned = try allocator.dupe(u8, locator.designator);
+        errdefer allocator.free(designator_owned);
+        try shared.deferred.ensureUnusedCapacity(allocator, 1);
+        shared.deferred.appendAssumeCapacity(.{ .dial = designator_owned });
     }
     return true;
 }
@@ -548,13 +674,13 @@ fn runGifterFetch(shared: *Shared, exporter: *HostSession, swiss: []const u8, re
     wait.* = .{ .shared = shared, .recipient_peer = recipient_peer, .answer = answer };
     const vow = try shared.host.fetch(exporter, swiss);
     try shared.host.vowOn(vow, .{ .ctx = wait, .func = GifterWait.fire });
-    try shared.bridge.drainActions();
 }
 
 // ── Locator helpers ──────────────────────────────────────────────────────────
 
 /// Record a `tcp-testing-only` locator's uuid → `host:port` for the dialer.
 fn recordLocatorAddr(shared: *Shared, locator: model.PeerLocator) void {
+    if (use_onion) return;
     const hostport = hostPortFromHints(shared.allocator, locator) orelse return;
     defer shared.allocator.free(hostport);
     if (g_addrs) |table| table.put(locator.designator, hostport);
@@ -653,6 +779,10 @@ pub fn main(init: std.process.Init) !void {
     var port: u16 = default_port;
     while (args.next()) |arg| {
         if (std.mem.startsWith(u8, arg, "--port=")) {
+            if (use_onion) {
+                std.debug.print("pancake-ocapn-onion-peer: --port is not valid for an onion service\n", .{});
+                return error.BadArgument;
+            }
             port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch {
                 std.debug.print("pancake-ocapn-peer: --port must be an integer in 1..65535\n", .{});
                 return error.BadPort;
@@ -670,8 +800,10 @@ pub fn main(init: std.process.Init) !void {
 
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     try io.randomSecure(&seed);
+    var session_root: [crypto.SEED_BYTES]u8 = undefined;
+    try io.randomSecure(&session_root);
 
-    var host = Host.init(allocator, seed, blk: {
+    var host = Host.init(allocator, seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -691,27 +823,105 @@ pub fn main(init: std.process.Init) !void {
     defer bridge.deinit();
     shared.bridge = &bridge;
 
-    loop = try ConfLoop.init(allocator, ConfBridge.makePeer, @ptrCast(&bridge), .{
-        .frame_cap = frame_cap,
+    var loop_options = ConfBridge.hookOptions(net.completion.Options{
         .max_conns = 256,
-        .listen = port,
-        .make_conn_ctx = ConfBridge.makeConnCtx,
-        .serve = confServe,
-        .free_conn_ctx = confFreeConnCtx,
-        .on_close = ConfBridge.onClose,
+        .listen = if (use_onion) 0 else port,
     });
+    const backend_options: net.completion.BackendOptions = .{};
+    loop_options.serve = confServe;
+    loop_options.free_conn_ctx = confFreeConnCtx;
+
+    var control_cookie: ?[]u8 = null;
+    defer if (control_cookie) |bytes| allocator.free(bytes);
+
+    loop = if (use_onion) blk: {
+        const socks_text = requiredEnv(init.environ_map, "PANCAKE_OCAPN_TOR_SOCKS") catch |err| {
+            std.debug.print("pancake-ocapn-onion-peer: PANCAKE_OCAPN_TOR_SOCKS is required (host:port)\n", .{});
+            return err;
+        };
+        const control_text = requiredEnv(init.environ_map, "PANCAKE_OCAPN_TOR_CONTROL") catch |err| {
+            std.debug.print("pancake-ocapn-onion-peer: PANCAKE_OCAPN_TOR_CONTROL is required (host:port)\n", .{});
+            return err;
+        };
+        const socks_target = tcp.parseDesignator(socks_text) catch {
+            std.debug.print("pancake-ocapn-onion-peer: invalid SOCKS endpoint '{s}'; expected host:port\n", .{socks_text});
+            return error.BadTorEndpoint;
+        };
+        const control_target = tcp.parseDesignator(control_text) catch {
+            std.debug.print("pancake-ocapn-onion-peer: invalid control endpoint '{s}'; expected host:port\n", .{control_text});
+            return error.BadTorEndpoint;
+        };
+
+        const password = init.environ_map.get("PANCAKE_OCAPN_TOR_CONTROL_PASSWORD");
+        const cookie_file = init.environ_map.get("PANCAKE_OCAPN_TOR_CONTROL_COOKIE_FILE");
+        if (password != null and cookie_file != null) {
+            std.debug.print("pancake-ocapn-onion-peer: set at most one Tor control credential\n", .{});
+            return error.AmbiguousTorAuthentication;
+        }
+        const auth: onion.control.Auth = if (password) |value|
+            .{ .password = value }
+        else if (cookie_file) |path| cookie: {
+            control_cookie = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4096)) catch |err| {
+                std.debug.print("pancake-ocapn-onion-peer: cannot read control cookie '{s}': {s}\n", .{ path, @errorName(err) });
+                return err;
+            };
+            if (control_cookie.?.len == 0) {
+                std.debug.print("pancake-ocapn-onion-peer: Tor control cookie is empty\n", .{});
+                return error.BadTorCredential;
+            }
+            break :cookie .{ .cookie = control_cookie.? };
+        } else .none;
+
+        // Apply the same pool options as `Loop.init` while constructing the
+        // configured adapter that `initWithBackend` requires.
+        const inner = try net.Backend.init(
+            allocator,
+            backend_options.queue_entries,
+            backend_options.read_buffers,
+            backend_options.read_buffer_bytes,
+        );
+        const backend = net.OnionBackend.initOnion(allocator, inner, .{
+            .socks = socks_target,
+            .control = control_target,
+            .auth = auth,
+        });
+        break :blk try ConfLoop.initWithBackend(
+            allocator,
+            backend,
+            ConfBridge.makePeer,
+            @ptrCast(&bridge),
+            loop_options,
+        );
+    } else try ConfLoop.init(allocator, ConfBridge.makePeer, @ptrCast(&bridge), loop_options);
     defer loop.deinit();
 
-    const bound_port = loop.port.?;
-    // The suite's `tcp-testing-only` designator is a bare uuid; pancake advertises
-    // the reused CAR_FACTORY_BUILDER swiss as its own, and its address lives in
-    // the banner's `host`/`port` the suite parses.
-    try bridge.attach(transport_name, CAR_FACTORY_BUILDER, "");
-
-    std.debug.print(
-        "PANCAKE-OCAPN-PEER-READY ocapn://{s}.tcp-testing-only?host={s}&port={d}\n",
-        .{ CAR_FACTORY_BUILDER, host_ip, bound_port },
-    );
+    if (use_onion) {
+        const service_id = loop.listenerAddress().?;
+        try bridge.attach(.{
+            .symbol = transport_name,
+            .designator_scheme = .address,
+        }, &service_id, "");
+        std.debug.print("PANCAKE-OCAPN-PEER-READY ocapn://{s}.onion\n", .{&service_id});
+    } else {
+        try bridge.attach(.{
+            .symbol = transport_name,
+            .designator_scheme = .address,
+        }, CAR_FACTORY_BUILDER, "");
+        const bound_port = loop.port().?;
+        // The suite's `tcp-testing-only` designator is a bare uuid; pancake
+        // advertises the reused CAR_FACTORY_BUILDER swiss as its own, and its
+        // address lives in the banner's host/port hints.
+        std.debug.print(
+            "PANCAKE-OCAPN-PEER-READY ocapn://{s}.tcp-testing-only?host={s}&port={d}\n",
+            .{ CAR_FACTORY_BUILDER, host_ip, bound_port },
+        );
+    }
 
     try loop.run(.forever);
+}
+
+fn requiredEnv(environ: *std.process.Environ.Map, name: []const u8) ![]const u8 {
+    const value = environ.get(name) orelse return error.MissingEnvironment;
+    if (value.len == 0) return error.MissingEnvironment;
+    return value;
 }

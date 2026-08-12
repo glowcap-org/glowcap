@@ -163,7 +163,7 @@ fn writeNodeHelpTo(dest: Dest, path: []const *const Command) !void {
             \\Environment:
             \\  PANCAKE_STATE       State dir (lock + default identity)
             \\  PANCAKE_IDENTITY    Identity seed path (overrides state dir)
-            \\  PANCAKE_RENDEZVOUS  Relay URL (ws://host:port/relay) for keyed-relay dials
+            \\  PANCAKE_RENDEZVOUS  Relay URL (ws://host:port/relay) for keyed-relay and noise-relay dials
             \\  XDG_STATE_HOME      Default state parent (…/pancake)
             \\  HOME                Fallback for XDG defaults
             \\

@@ -33,6 +33,18 @@ const releaseBox = boxed.releaseBox;
 /// (on settle, or on a disconnect break via `breakFarVows`).
 pub const ForwardContext = struct { vat: *Vat, port: *Port, answer: model.AnswerPosition };
 
+/// Every fallible resource needed to hand a served turn's answer to a vow.
+/// A no-answer deliver needs no listener; an answered deliver reserves both
+/// the listener-table slot and its heap context before the send or resolver
+/// pair becomes visible.
+pub const ForwardReservation = union(enum) {
+    no_answer,
+    answer: struct {
+        context: *ForwardContext,
+        listener: vat_mod.ListenerReservation,
+    },
+};
+
 pub fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
     const fc: *ForwardContext = @ptrCast(@alignCast(ctx.?));
     defer fc.vat.allocator.destroy(fc);
@@ -59,34 +71,60 @@ pub fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
 /// `tell`) it forwards fire-and-forget. The placeholder return is ignored
 /// by `serve` once `forwarded` is set.
 pub fn forwardTurn(self: *Vat, turn: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
+    if (turn.forwarded) return Error.AlreadyForwarded;
     const maybe_answer = switch (turn.origin) {
         .local => return self.nearFromPort(turn.port, turn.ingress, target, msg),
         .served => |maybe_answer| maybe_answer,
     };
-    const answer = maybe_answer orelse {
+    if (maybe_answer == null) {
         try turn.port.?.tellFromIngress(self, turn.ingress, target, msg);
         turn.forwarded = true;
         return .{ .void = {} };
+    }
+    const location: vat_mod.VowLocation = switch (target) {
+        .local => .local,
+        .far => .far,
     };
+    const reservation = try reserveForward(self, turn, location);
+    errdefer cancelForward(self, reservation);
     const vow = try turn.port.?.sendFromIngress(self, turn.ingress, target, msg);
-    try parkAnswerOnVow(self, turn.port.?, answer, vow);
-    turn.forwarded = true;
+    commitForward(self, turn, reservation, vow);
     return .{ .void = {} };
 }
 
-/// Park a served answer on `vow` so the answer settles when the vow does —
-/// the one owner of the forward-context choreography, shared by
-/// `forwardTurn` (which mints the vow by sending) and `forwardTurnVow`
-/// (which is handed one, typically a resolver vow, ADR-0102).
-fn parkAnswerOnVow(self: *Vat, port: *Port, answer: model.AnswerPosition, vow: vat_mod.Vow) anyerror!void {
-    const fc = try self.allocator.create(ForwardContext);
-    fc.* = .{ .vat = self, .port = port, .answer = answer };
-    // A fresh send's vow can only collide on OOM; a caller-supplied vow may
-    // already hold a listener, and that refusal propagates loud.
-    port.on(self, vow, .{ .ctx = fc, .func = forwardListener }) catch |e| {
-        self.allocator.destroy(fc);
-        return e;
+pub fn reserveForward(self: *Vat, turn: *Turn, location: vat_mod.VowLocation) anyerror!ForwardReservation {
+    if (turn.forwarded) return Error.AlreadyForwarded;
+    const maybe_answer = switch (turn.origin) {
+        .local => return Error.NotLocal,
+        .served => |answer| answer,
     };
+    const answer = maybe_answer orelse return .no_answer;
+    const port = turn.port.?;
+    const context = try self.allocator.create(ForwardContext);
+    errdefer self.allocator.destroy(context);
+    const listener = try port.reserveListener(self, location);
+    context.* = .{ .vat = self, .port = port, .answer = answer };
+    return .{ .answer = .{ .context = context, .listener = listener } };
+}
+
+pub fn cancelForward(self: *Vat, reservation: ForwardReservation) void {
+    switch (reservation) {
+        .no_answer => {},
+        .answer => |answer| self.allocator.destroy(answer.context),
+    }
+}
+
+pub fn commitForward(self: *Vat, turn: *Turn, reservation: ForwardReservation, vow: vat_mod.Vow) void {
+    switch (reservation) {
+        .no_answer => {},
+        .answer => |answer| answer.context.port.onReserved(
+            self,
+            answer.listener,
+            vow,
+            .{ .ctx = answer.context, .func = forwardListener },
+        ),
+    }
+    turn.forwarded = true;
 }
 
 /// `Turn.forwardVow`'s spine (ADR-0102): defer the turn's answer onto a vow
@@ -96,13 +134,24 @@ fn parkAnswerOnVow(self: *Vat, port: *Port, answer: model.AnswerPosition, vow: v
 /// no-answer wire `tell` has nothing to defer: the turn is marked forwarded
 /// and the vow's eventual settlement fires no answer.
 pub fn forwardTurnVow(self: *Vat, turn: *Turn, vow: vat_mod.Vow) anyerror!void {
+    if (turn.forwarded) return Error.AlreadyForwarded;
     const maybe_answer = switch (turn.origin) {
-        .local => return vat_mod.Error.NotLocal,
-        .served => |maybe_answer| maybe_answer,
+        .local => return Error.NotLocal,
+        .served => |answer| answer,
     };
-    if (maybe_answer) |answer| {
-        try parkAnswerOnVow(self, turn.port.?, answer, vow);
-    }
+    const answer = maybe_answer orelse {
+        turn.forwarded = true;
+        return;
+    };
+    const port = turn.port.?;
+    const context = try self.allocator.create(ForwardContext);
+    errdefer self.allocator.destroy(context);
+    context.* = .{ .vat = self, .port = port, .answer = answer };
+    // Unlike the reserved Host transaction below, this public actor API may
+    // receive any vow the behavior holds. Checked installation preserves the
+    // ordinary AlreadySettled/AlreadyListening contract instead of asserting
+    // the vow was freshly minted.
+    try port.on(self, vow, .{ .ctx = context, .func = forwardListener });
     turn.forwarded = true;
 }
 

@@ -259,7 +259,7 @@ test "Syrup materializes hints by skipping exotic values Cap'n Proto cannot expr
     const frame_bytes: []const u8 =
         "<16'op:start-session3\"1.0" ++
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-        "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.15'extra3'bad4\"port5\"52833}>" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"528335'extra3'bad}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
     const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
     const body = try syrup.decodeBody(view);
@@ -324,7 +324,7 @@ test "a session refuses an unrecognised captp-version as a version mismatch" {
     );
 }
 
-test "a session refuses duplicate feature hints on the borrowed start-session path" {
+test "Syrup decode refuses duplicate feature hints as a noncanonical dictionary" {
     const allocator = std.testing.allocator;
     var peer = pancake.ocapn.engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
@@ -336,12 +336,11 @@ test "a session refuses duplicate feature hints on the borrowed start-session pa
         "<10'ocapn-peer3'tcp9\"127.0.0.1{16\"pancake/features0\"16\"pancake/features10\"pipelining}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
     const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
-    const body = try syrup.decodeBody(view);
-    try std.testing.expect(body.start_session.acceptable_location.hints == .lazy);
     try std.testing.expectError(
-        pancake.ocapn.session.Error.MalformedMessage,
-        peer.recvBorrowed(view),
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(view),
     );
+    try std.testing.expectError(syrup.Error.MalformedFrame, peer.recvBorrowed(view));
     try std.testing.expect(!peer.session_state.handshake_remote_received);
 }
 
@@ -545,6 +544,19 @@ test "Struct key order compares the fully-encoded key, not the raw key bytes" {
     try std.testing.expectError(
         syrup.Error.MalformedFrame,
         syrup.decodeBody(.{ .bytes = raw_byte_order, .shape = .byte }),
+    );
+}
+
+test "Struct key order remains byte-lexicographic across decimal length prefixes" {
+    // `10\"...` sorts before `9\"...` because canonical Syrup compares the
+    // complete encodings byte by byte; it does not compare encoded lengths.
+    const canonical = "<10'op:deliver<11'desc:export7+>[{10\"bbbbbbbbbb2+9\"aaaaaaaaa1+}]42+f>";
+    _ = try syrup.decodeBody(.{ .bytes = canonical, .shape = .byte });
+
+    const shortlex_order = "<10'op:deliver<11'desc:export7+>[{9\"aaaaaaaaa1+10\"bbbbbbbbbb2+}]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(.{ .bytes = shortlex_order, .shape = .byte }),
     );
 }
 
@@ -993,6 +1005,22 @@ test "decodeBody exposes borrowed views for deliver, get, index, listen, and res
     }
 }
 
+test "v1.0 listen emits the Goblins boolean and accepts the legacy omitted false" {
+    const allocator = std.testing.allocator;
+    const message: model.Message = .{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(7) } },
+        .listener = .{ .near = .{ .export_position = .from(9) } },
+        .mode = .settling_only,
+    } };
+    var canonical = try syrup.encodeMessageForProfile(allocator, .v1_0, message);
+    defer canonical.deinit();
+    try expectFixtureBytes("op_listen_v1_0_wants_partial_false.bin", canonical);
+
+    const legacy = protocol_oracle.fixtureByName("op_listen_promise_target.bin").?;
+    const decoded = try syrup.decodeBodyForProfile(.v1_0, .{ .bytes = legacy.bytes(), .shape = .byte });
+    try std.testing.expectEqual(model.ListenMode.settling_only, decoded.listen.mode);
+}
+
 test "op:index preserves an arbitrary-precision Integer" {
     const wire = "<8'op:index<11'desc:export7+>9223372036854775808+11+>";
     const decoded = try syrup.decodeBody(.{ .bytes = wire, .shape = .byte });
@@ -1085,6 +1113,55 @@ test "encodePeerLocatorRecord round-trips a direct-addresses hint for cross-proc
     try std.testing.expectEqual(@as(usize, 1), parsed.hints.entries.len);
     try std.testing.expectEqualStrings("direct-addresses", parsed.hints.entries[0].name);
     try std.testing.expectEqualStrings(addrs, parsed.hints.entries[0].value.string);
+}
+
+test "Syrup locator hints require canonical strictly ascending keys" {
+    const reversed = "<10'ocapn-peer3'tcp1\"x{1\"b1\"x1\"a1\"y}>";
+    var reversed_cursor: usize = 0;
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.readLocatorOwned(std.testing.allocator, reversed, &reversed_cursor),
+    );
+
+    const duplicate = "<10'ocapn-peer3'tcp1\"x{1\"a1\"x1\"a1\"y}>";
+    var duplicate_cursor: usize = 0;
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.readLocatorOwned(std.testing.allocator, duplicate, &duplicate_cursor),
+    );
+
+    const oversized_integer = "<10'ocapn-peer3'tcp1\"x{1\"a9223372036854775808+}>";
+    var integer_cursor: usize = 0;
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.readLocatorOwned(std.testing.allocator, oversized_integer, &integer_cursor),
+    );
+}
+
+test "borrowed start-session decode refuses noncanonical hint order" {
+    const entries = [_]model.HintEntry{
+        .{ .name = "a", .value = .{ .string = "x" } },
+        .{ .name = "b", .value = .{ .string = "y" } },
+    };
+    var frame = try syrup.encodeMessageForProfile(std.testing.allocator, .v1_0, .{
+        .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = &repeatedByte(32, 0xaa) },
+            .acceptable_location = .{
+                .transport = "tcp",
+                .designator = "x",
+                .hints = .{ .entries = &entries },
+            },
+            .acceptable_location_sig = .{ .bytes = &repeatedByte(64, 0xbb) },
+        },
+    });
+    defer frame.deinit();
+
+    const canonical = "{1\"a1\"x1\"b1\"y}";
+    const reversed = "{1\"b1\"y1\"a1\"x}";
+    const at = std.mem.indexOf(u8, frame.bytes(), canonical) orelse return error.MissingHintMap;
+    @memcpy(@constCast(frame.bytes())[at..][0..reversed.len], reversed);
+    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(frame.view()));
 }
 
 test "Syrup decode rejects non-byte frame shape" {

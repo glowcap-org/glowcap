@@ -20,8 +20,8 @@ actually severed.
 Run under the same `uv` environment as `run.sh`; it adds the suite's `upstream/`
 to `sys.path` itself, so it works from any cwd.
 
-Port: `--port=N` or env `PANCAKE_OCAPN_CONFORMANCE_PORT` (default 22055), matching
-`run-against-pancake.sh`.
+Target: either `--port=N` for the ordinary TCP harness or
+`--locator=ocapn://...onion` for the upstream onion netlayer.
 """
 
 import argparse
@@ -35,6 +35,7 @@ from contrib.syrup import syrup_encode, Record, Symbol  # noqa: E402
 from utils.ocapn_uris import OCapNPeer  # noqa: E402
 from utils.captp_types import OpStartSession, OpAbort, CapTPPublicKey  # noqa: E402
 from netlayers.testing_only_tcp import TestingOnlyTCPNetlayer  # noqa: E402
+from netlayers.onion import OnionNetlayer  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
 CAPTP_VERSION = "1.0"
@@ -100,12 +101,24 @@ def main():
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("PANCAKE_OCAPN_CONFORMANCE_PORT", "22055")),
-        help="TCP port of the running pancake-ocapn-peer (default: 22055 or env)",
+        default=None,
+        help="TCP port of the running pancake-ocapn-peer",
     )
+    parser.add_argument("--locator", help="onion locator of the running pancake peer")
     args = parser.parse_args()
-    uri = OCapNPeer.from_uri(peer_url(args.port))
-    netlayer = TestingOnlyTCPNetlayer(uri.hints.get("host"))
+    if args.locator is not None and args.port is not None:
+        parser.error("--locator and --port are mutually exclusive")
+    if args.locator is not None:
+        uri = OCapNPeer.from_uri(args.locator)
+        if uri.transport != Symbol("onion"):
+            parser.error("--locator must name the onion transport")
+        netlayer = OnionNetlayer()
+    else:
+        port = args.port
+        if port is None:
+            port = int(os.environ.get("PANCAKE_OCAPN_CONFORMANCE_PORT", "22055"))
+        uri = OCapNPeer.from_uri(peer_url(port))
+        netlayer = TestingOnlyTCPNetlayer(uri.hints.get("host"))
     ok = True
     for name, fn in (
         ("invalid-signature", case_invalid_signature),
@@ -118,6 +131,7 @@ def main():
         except Exception as exc:  # noqa: BLE001 - the probe reports any failure as a gate failure
             ok = False
             print(f"handshake-abort-probe: {name} -> FAILED ({type(exc).__name__}: {exc})")
+    netlayer.shutdown()
     sys.exit(0 if ok else 1)
 
 

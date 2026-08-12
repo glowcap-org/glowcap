@@ -4,8 +4,9 @@ The in-process transport ships as its own à-la-carte archive (ADR-0059),
 symbol-disjoint from the core ``libpancake_ocapn``: it carries the
 ``pancake_inproc_*`` family plus its own thread-local last-error
 (``pancake_inproc_last_error`` / ``_clear``). It is the socket-free sibling of
-the TCP endpoints — two peers in one process wired by in-process pipes, no
-kernel transport and no file descriptors — and a listener binds to an opaque
+the TCP connections — two peers in one process wired by in-process pipes, with no
+kernel transport; the listener wake descriptor carries no application bytes —
+and a listener binds to an opaque
 string designator rather than a ``host:port``. This module loads only that
 archive, reusing the shared ``Structure`` types from :mod:`pancake._ffi_ocapn` by
 layout. Nothing here is public; :mod:`pancake.inproc` is the ergonomic surface

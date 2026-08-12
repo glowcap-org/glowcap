@@ -45,6 +45,12 @@ const discriminant_consts = [_][]const u8{
     "PANCAKE_RESOLUTION_HANDOFF",   "PANCAKE_ABORT_DOMAIN_CODEC",
     "PANCAKE_ABORT_DOMAIN_SESSION", "PANCAKE_ABORT_DOMAIN_FOREIGN",
 };
+const locator_consts = [_][]const u8{
+    "PANCAKE_LOCATOR_VIEW_ABI_VERSION", "PANCAKE_HINT_STRING",
+    "PANCAKE_HINT_BYTES",               "PANCAKE_HINT_BOOLEAN",
+    "PANCAKE_HINT_INTEGER",             "PANCAKE_HINTS_MAP",
+    "PANCAKE_HINTS_BOOLEAN_FALSE",
+};
 
 const const_doc_entries = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_OK", .doc = "Success." },
@@ -74,17 +80,31 @@ const emitted_fn_names = [_][]const u8{
     "pancake_last_error",
     "pancake_clear_last_error",
     "pancake_uri_parse_peer",
+    "pancake_uri_parse_peer_in",
     "pancake_uri_parse_sturdyref",
+    "pancake_uri_parse_sturdyref_in",
     "pancake_uri_format_peer",
     "pancake_uri_format_sturdyref",
+    "pancake_locator_new",
+    "pancake_locator_new_in",
+    "pancake_locator_clone",
+    "pancake_locator_clone_in",
+    "pancake_locator_borrow_view",
+    "pancake_sturdyref_borrow_locator",
+    "pancake_sturdyref_swissnum",
+    "pancake_sturdyref_release",
+    "pancake_locator_add_string",
+    "pancake_locator_add_bytes",
+    "pancake_locator_add_boolean",
+    "pancake_locator_add_integer",
     "pancake_locator_transport",
     "pancake_locator_designator",
     "pancake_locator_host_port",
     "pancake_designator_host_port",
-    "pancake_locator_swissnum",
     "pancake_locator_hint",
     "pancake_locator_hint_count",
     "pancake_locator_hint_at",
+    "pancake_locator_hint_wire_form",
     "pancake_locator_release",
     "pancake_locator_record_encode",
     "pancake_locator_record_bytes_release",
@@ -115,7 +135,7 @@ comptime {
     @setEvalBranchQuota(40000);
     E.guardFns("c_abi", "pancake_");
 
-    const all = version_consts ++ error_consts ++ discriminant_consts;
+    const all = version_consts ++ error_consts ++ discriminant_consts ++ locator_consts;
     for (@typeInfo(c).@"struct".decls) |decl| {
         if (!std.mem.startsWith(u8, decl.name, "PANCAKE_")) continue;
         if (@typeInfo(@TypeOf(@field(c, decl.name))) != .int) continue;
@@ -139,6 +159,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\#include <stddef.h>
         \\#include <stdint.h>
+        \\#include "pancake_locator.h"
         \\
         \\#ifdef __cplusplus
         \\extern "C" {
@@ -207,21 +228,39 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_clear_last_error", &.{}, "Clear this archive's calling-thread error message.");
 
     try section(&b, gpa, "OCapN locators");
-    try b.appendSlice(gpa, "typedef struct PancakeLocator PancakeLocator;\n\n");
+    try b.appendSlice(gpa,
+        \\typedef struct PancakeLocator PancakeLocator;
+        \\typedef struct PancakeSturdyRef PancakeSturdyRef;
+        \\
+    );
     try emitFn(&b, gpa, "pancake_uri_parse_peer", &.{ "uri", "uri_len", "out_locator" }, "Parse an ocapn:// peer URI into an owned locator.");
-    try emitFn(&b, gpa, "pancake_uri_parse_sturdyref", &.{ "uri", "uri_len", "out_locator" }, "Parse an ocapn:// sturdyref URI into an owned locator.");
+    try emitFn(&b, gpa, "pancake_uri_parse_peer_in", &.{ "context", "uri", "uri_len", "out_locator" }, "Parse a peer URI into a locator allocated through context.");
+    try emitFn(&b, gpa, "pancake_uri_parse_sturdyref", &.{ "uri", "uri_len", "out_sturdyref" }, "Parse an ocapn:// sturdyref URI into an owned sturdyref.");
+    try emitFn(&b, gpa, "pancake_uri_parse_sturdyref_in", &.{ "context", "uri", "uri_len", "out_sturdyref" }, "Parse a sturdyref URI through context.");
     try emitFn(&b, gpa, "pancake_uri_format_peer", &.{ "transport", "transport_len", "designator", "designator_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a peer locator into a caller-owned buffer.");
     try emitFn(&b, gpa, "pancake_uri_format_sturdyref", &.{ "transport", "transport_len", "designator", "designator_len", "swissnum", "swissnum_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a sturdyref into a caller-owned buffer.");
+    try emitFn(&b, gpa, "pancake_locator_new", &.{ "transport", "transport_len", "designator", "designator_len", "hint_wire_form", "out_locator" }, "Construct an owned OCapN peer locator.");
+    try emitFn(&b, gpa, "pancake_locator_new_in", &.{ "context", "transport", "transport_len", "designator", "designator_len", "hint_wire_form", "out_locator" }, "Construct an OCapN peer locator allocated through context.");
+    try emitFn(&b, gpa, "pancake_locator_clone", &.{ "view", "out_locator" }, "Clone a borrowed locator view into an owned OCapN locator.");
+    try emitFn(&b, gpa, "pancake_locator_clone_in", &.{ "context", "view", "out_locator" }, "Clone a borrowed locator view through context.");
+    try emitFn(&b, gpa, "pancake_locator_borrow_view", &.{ "loc", "out_view" }, "Borrow the complete locator view until mutation or release.");
+    try emitFn(&b, gpa, "pancake_sturdyref_borrow_locator", &.{ "sturdyref", "out_view" }, "Borrow the sturdyref's embedded peer locator view.");
+    try emitFn(&b, gpa, "pancake_sturdyref_swissnum", &.{ "sturdyref", "out_ptr", "out_len" }, "Borrow the sturdyref's authority-bearing swissnum.");
+    try emitFn(&b, gpa, "pancake_sturdyref_release", &.{"sturdyref"}, "Release an owned sturdyref.");
+    try emitFn(&b, gpa, "pancake_locator_add_string", &.{ "loc", "name", "name_len", "value", "value_len" }, "Add one owned string hint.");
+    try emitFn(&b, gpa, "pancake_locator_add_bytes", &.{ "loc", "name", "name_len", "value", "value_len" }, "Add one owned byte-string hint.");
+    try emitFn(&b, gpa, "pancake_locator_add_boolean", &.{ "loc", "name", "name_len", "value" }, "Add one owned boolean hint.");
+    try emitFn(&b, gpa, "pancake_locator_add_integer", &.{ "loc", "name", "name_len", "value" }, "Add one owned integer hint.");
     try emitFn(&b, gpa, "pancake_locator_transport", &.{ "loc", "out_ptr", "out_len" }, "Borrow the locator transport.");
     try emitFn(&b, gpa, "pancake_locator_designator", &.{ "loc", "out_ptr", "out_len" }, "Borrow the locator designator.");
     try emitFn(&b, gpa, "pancake_locator_host_port", &.{ "loc", "out_host", "out_host_len", "out_port" }, "Split a locator designator as host:port.");
     try emitFn(&b, gpa, "pancake_designator_host_port", &.{ "designator", "designator_len", "out_host", "out_host_len", "out_port" }, "Split a borrowed designator as host:port.");
-    try emitFn(&b, gpa, "pancake_locator_swissnum", &.{ "loc", "out_ptr", "out_len" }, "Borrow the sturdyref swissnum, or an empty view for a peer locator.");
-    try emitFn(&b, gpa, "pancake_locator_hint", &.{ "loc", "key", "key_len", "out_ptr", "out_len" }, "Borrow one locator hint by key.");
+    try emitFn(&b, gpa, "pancake_locator_hint", &.{ "loc", "key", "key_len", "out_hint" }, "Borrow one typed locator hint by key.");
     try emitFn(&b, gpa, "pancake_locator_hint_count", &.{ "loc", "out_count" }, "Read the number of locator hints.");
-    try emitFn(&b, gpa, "pancake_locator_hint_at", &.{ "loc", "idx", "out_key", "out_key_len", "out_val", "out_val_len" }, "Borrow one locator hint by index.");
+    try emitFn(&b, gpa, "pancake_locator_hint_at", &.{ "loc", "idx", "out_hint" }, "Borrow one typed locator hint by index.");
+    try emitFn(&b, gpa, "pancake_locator_hint_wire_form", &.{ "loc", "out_wire_form" }, "Read the locator hint container's wire spelling.");
     try emitFn(&b, gpa, "pancake_locator_release", &.{"loc"}, "Release an owned locator.");
-    try emitFn(&b, gpa, "pancake_locator_record_encode", &.{ "transport", "transport_len", "designator", "designator_len", "direct_addresses", "direct_addresses_len", "out", "out_len" }, "Encode an owned Syrup <ocapn-peer> record for a signed handoff locator.");
+    try emitFn(&b, gpa, "pancake_locator_record_encode", &.{ "locator", "out", "out_len" }, "Encode an owned Syrup <ocapn-peer> record for a signed handoff locator.");
     try emitFn(&b, gpa, "pancake_locator_record_bytes_release", &.{ "bytes", "len" }, "Release bytes returned by pancake_locator_record_encode.");
 
     try b.appendSlice(gpa,

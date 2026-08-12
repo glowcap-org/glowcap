@@ -50,13 +50,16 @@ wrong.
   at all: a drained pipelined call whose target resolved to _another_ promise
   moves one message at a time into `Session.requeuePipelinedCall`, which appends
   it directly and frees it on refusal.
-- `Peer.emitAbortForError` handles an inbound refusal or a `step` drain failure
-  by committing a fresh outbound `op:abort` through `Peer.commitAbortOutbound`,
-  bypassing `recordSend`, because a session being refused always admits its
-  abort. The diagnostic is a static `[]const u8` borrowed by encode, so there is
-  no message clone. The path is best-effort: an encode or append failure is
-  swallowed so it cannot mask the original dispatch error, and the session still
-  closes when the projection requires it, even with no queued frame.
+- `Peer.emitAbortForError` handles an inbound refusal, including the inbound
+  dispatch arm of `step`, by committing a fresh outbound `op:abort` through
+  `Peer.commitAbortOutbound`, bypassing `recordSend`, because a session being
+  refused always admits its abort. Deferred local work and outbound encoding
+  propagate pressure without calling it: the same `OutboundBackpressure` name
+  means a partner-owned cap only at the inbound boundary. The diagnostic is a
+  static `[]const u8` borrowed by encode, so there is no message clone. The path
+  is best-effort: an encode or append failure is swallowed so it cannot mask the
+  original dispatch error, and the session still closes when the projection
+  requires it, even with no queued frame.
 - Test-support copy helpers (`test/support/frame.zig`, for example
   `copyFromBorrowed`) materialize borrowed wire bytes for assertions. **Copy
   helpers belong in `test/support`, never in a production module.**
@@ -83,10 +86,11 @@ the bytes and raise the budget deliberately, in the constant and in
 
 | Gate | Holds |
 | --- | --- |
-| `@sizeOf(Peer)` comptime (`peer_session_struct_budget_bytes`, 1112) | one session's struct |
+| `@sizeOf(Peer)` comptime (`peer_session_struct_budget_bytes`, 1136) | one session's struct |
 | `test/engine/footprint_budget_test.zig` | a warmed session's core state at or under 2 KiB |
 | `@sizeOf(Conn) - @sizeOf(engine.Peer)` comptime in `src/net/completion/loop.zig` | the loop wrapper's own bookkeeping at exactly `conn_slot_overhead_bytes` (128). An equality, so a field added to `Conn` fails the build rather than spending headroom nobody is watching |
-| `@sizeOf(HostSession)` comptime in `src/driver/core/host.zig` | the byte-fed host shell. The Host session ceiling is 496 bytes; narrower targets may be smaller. The Host owns one shared Vat, so the 448-byte Vat is charged once per Host rather than per connection, and a `Peer` lives behind a pointer |
+| `CompletionBackend.connection_state_bytes` in `test/net/keyed_relay_test.zig` | one completion-backed keyed-relay leg's heap-resident adapter state at exactly 264 bytes. Mask entropy belongs to the single-owner backend RNG, not a 520-byte CSPRNG copied into every connection |
+| `@sizeOf(HostSession)` comptime in `src/driver/core/host.zig` | the byte-fed host shell. The Host session ceiling is 528 bytes (ADR-0107's sealed-channel pointer is the last eight); narrower targets may be smaller. The Host owns one shared Vat, so the 448-byte Vat is charged once per Host rather than per session, and a `Peer` lives behind a pointer |
 | `test/actors/vat_footprint_budget_test.zig` | a burst-then-quiescent Vat back under the arena and one-spare bounds |
 | `test/engine/deliver_set_scratch_budget_test.zig` | a big-set frame's recv scratch under its bound |
 
@@ -136,11 +140,12 @@ pointing it at nothing.
 - **Recv scratch arena** — `Session.recv_scratch`. The common inbound kinds
   validate and apply straight from the borrowed `model.view.Body` with zero
   materialization; only the two paths that _retain_ (a pipelined deliver queued
-  on its answer, and the substructure-heavy `gc_*` / `handoff` /
-  `get`-`index`-`untag` kinds) build an owned `Message`, as turn scratch that
-  dies in the `retain_with_limit` reset every recv entry point runs. Apply dupes
-  anything session-lived onto the gpa, so the reset can never dangle a table
-  row. Send-side folds stay on the gpa, because no recv turn brackets a send.
+  on its answer, and the substructure-heavy `gc_*` kinds) build an owned
+  `Message`, as turn scratch that dies in the `retain_with_limit` reset every
+  recv entry point runs. Handoff is an argument arm on the borrowed walk;
+  `get`/`index`/`untag` stay borrowed too. Apply dupes anything session-lived
+  onto the gpa, so the reset can never dangle a table row. Send-side folds stay
+  on the gpa, because no recv turn brackets a send.
 - **Introduced-import record** — `validate.IntroducedImports`. One walk serves
   validate and apply; allocation-free for the common no-reference message, and
   depth-bounded by `SessionLimits.max_nesting_depth` so a nested argument tree
@@ -168,15 +173,28 @@ pointing it at nothing.
   time. Row identity stamps make a released-and-reused position leave the fire
   moot rather than shipping another row's payload. Pinned by
   `test/engine/listener_fire_budget_test.zig`.
+- **Outbound byte accounting** — `Peer.queuedOutboundBytes`. One machine word
+  per peer, updated where the outbound queue takes or transfers frame ownership,
+  so a byte-fed host's backpressure check is O(1) instead of re-walking every
+  queued frame before each feed or serve call. At 500,000 sessions the fixed
+  charge is about 4 MiB; the peer struct and warmed-state checks hold it.
 - **Relayed resolution** — `Peer.applyRelayedResolution`,
   `Session.recordRelayedResolution`. Lower in place (this path bypasses `send`'s
   chokepoint), move into the store, fire from the store. Written exactly once, so
-  a second relay is refused. No clone anywhere on the single-store path; held by
-  behavior tests rather than a budget test.
+  a second relay is refused. A terminal Node relay that cannot prepare listener
+  carriers commits the store and increments one `u32` retry count on the Peer;
+  only while nonzero does `step` scan imported-promise rows for stored values
+  with listeners. No clone anywhere on the single-store path; held by behavior
+  tests rather than a budget test.
 - **Proxy fan-out** — `Node.proxyForeignPromiseFulfill`,
   `materializeResolutionForStore`. One home `op:listen` per home wire shared
   across recipients, never N listens; N=1 moves, above that each recipient store
-  materializes. A bare far object takes the handoff arm
+  materializes. Admission owns one fixed diagnostic per recipient as terminal
+  settlement escrow: after the one home fire is consumed, clone, signing, or
+  entropy failure moves that buffer into a break without allocating and can
+  never strand the relayed promise. The Node reserves one future action seat
+  beside each escrow, moves both into a pending gift, and spends the seat on the
+  recipient flush; teardown releases both. Success frees it. A bare far object takes the handoff arm
   (`Node.giftRelayedCapability`) at one give per recipient, because a give is
   signed for one recipient's session key. Bounded by
   `Node.max_proxy_recipients`.
@@ -308,7 +326,32 @@ pointing it at nothing.
   pending tail; one bounded coalesce per chunk while one is pending. Straddling a
   chunk is ordinary here rather than exceptional, so this tier retains
   `steady_feed_tail_bytes` instead of freeing outright.
-- **Shared read-buffer pool** — `Options.read_buffers` (ADR-0054). An idle
+- **Sealed byte channel** — `foundation.sealed.SealedChannel` (ADR-0107), one
+  channel type with one thin owner per stream tier: the byte-fed `HostSession`
+  boxes one per sealed session (the unsealed shell pays one null pointer), and
+  the loop tier's sealing completion adapter (`net.noise_completion`) embeds
+  one in its per-connection state. The channel stages inbound wire in its own
+  spill, bounded by one record plus a chunk tail, and opens each record into a
+  plaintext scratch shrunk back to steady size by the next small record.
+  Sealing and opening pay the one AEAD pass per record ADR-0107 names;
+  `sealFrame` allocates one owned wire frame per outbound frame, `sealBytes`
+  seals a stream chunk into a caller-owned queue, and `takeWire` dupes the
+  fixed-size pending handshake message. Deleting the box moves key material
+  onto every shell in the 500k budget; deleting the record copy means
+  encrypting over borrowed frame bytes the engine still owns.
+- **Sealing adapter ciphertext staging** — the sealed dial arm of
+  `net.noise_completion` (ADR-0107). The loop's submitted send is a borrow,
+  and record boundaries survive partial inner writes only if the ciphertext is
+  owned, so sealed records and handshake messages stage in a two-buffer queue:
+  the frozen half is borrowed by the wrapped backend until its send completes
+  while fresh seals append to the open half — the loop's own ADR-0042 shape,
+  one tier down. A drained burst retains at most the steady bound; opened
+  record plaintext is lent to the recv seat zero-copy from the channel's own
+  scratch, safe because the loop holds one recv seat per connection and
+  recycles before re-arming. Per-leg state is pinned exactly by
+  `test/net/noise_relay_test.zig`; unsealed connections pay nothing.
+- **Shared read-buffer pool** — `completion.BackendOptions.read_buffers` ×
+  `completion.BackendOptions.read_buffer_bytes` (ADR-0054). An idle
   connection holds zero read-buffer bytes; whole frames apply zero-copy from the
   pool view and a partial tail pays one bounded copy into the spill. **The
   zero-copy claim is scoped to spill-inactive.** Deleting the pool reopens the
@@ -319,16 +362,74 @@ pointing it at nothing.
   write borrows `front` while the loop keeps running**, and appending could
   realloc that storage out from under the kernel. Steady retention is
   per-buffer, so the ceiling is 32 KiB per connection, not 16. Bounded by read
-  backpressure at `Options.outbound_high_water`. The iroh `Backend` holds the
-  same posture over one buffer, throttling the partner through QUIC flow control
-  (ADR-0057).
-- **WebRTC callback bridge** — one bounded inbound deque and one bounded outbound
-  batch per peer (ADR-0089), because `webrtc` 0.14 delivers through a serialized
-  callback rather than a borrowed read. Checking the bound before the callback
-  parks limits overshoot to one message and lets SCTP throttle the partner.
-  Readiness is endpoint-owned, and its self-pipe writes are best-effort **under
-  one invariant**: `WouldBlock` means the pipe already holds unread bytes, so the
-  fd is already readable and no wake was lost.
+  backpressure at `completion.Options.outbound_high_water_bytes`, whose
+  independent 64 KiB default is replaceable without changing admission or pool
+  sizing.
+- **Completion-adapter transport staging** — iroh `enqueue_outbound` and
+  keyed-relay `queueWsFrame` (ADRs 0057 and 0088). The Loop's submitted send is
+  a borrow, while both foreign async engines must own bytes past the call: iroh
+  copies the admitted prefix into one queue whose queued plus in-flight bytes
+  share `NB_BUFFER_BOUND`; keyed-relay keeps the external write borrowed through
+  its one completion and copies and masks one bounded WebSocket chunk at a time
+  into `RelayConn.ws_out`, as RFC 6455 requires. The unsent tail is a subslice of
+  the Loop-owned borrow, including while a Pong owns the wrapped send seat: a
+  second whole-write copy is forbidden.
+  Iroh retains at most one `NB_STEADY_BYTES` spare after a drained burst; relay
+  send staging retains at most `RelayOptions.send_staging_bytes`, 4 KiB by
+  default including the frame header. A larger override is an explicit
+  per-connection memory commitment, not a frame-admission limit.
+- **iroh provider connection-id table** — `LoopAdapter`
+  (`src/c_abi/net_transport/iroh/mod.zig`, ADR-0112). One POD row per live
+  loop connection, mapping the sidecar's stable id to its handle, because
+  drained records carry ids while the sidecar verbs take handles. Rows enter
+  at `finish_connect`, free precisely at `conn_close`, and netlayer release
+  sweeps stragglers; no byte payload crosses the table.
+- **Keyed-relay resident configuration** — `keyed_relay.Resident` copies its
+  dial and registration URLs into one block because parsed `RelayUrl` fields are
+  views retained across background registration work. One copy per resident,
+  freed by `Resident.deinit`; no per-dial configuration copy.
+- **Keyed-relay receive projection** — the completion adapter lends ordinary
+  WebSocket payload directly from the wrapped backend's shared recv buffer,
+  preserving its token so recycle returns to the actual owner. Only a split
+  header or control frame, upgrade residue, or the next-frame tail coalesced
+  behind a payload crosses into `RelayConn.raw_in`. A platform receive that
+  completes after its caller seat was canceled also copies there so stream
+  bytes survive recycling the shared buffer; a replacement seat installed
+  before completion still takes the ordinary zero-copy path. The spill is
+  hard-bounded to one platform buffer plus the parser prefix, and capacity
+  above `steady_raw_in_bytes` is released when drained. The blocking resident
+  still copies from its socket reader into the caller's CapTP reader.
+- **WebRTC C-facing staging** — one bounded inbound deque and one bounded
+  outbound staging buffer per peer (ADR-0089), because the C ABI exposes
+  synchronous reads and nonblocking try-writes while the `webrtc` 0.20 data
+  channel is async. The inbound poller admits a message only when the whole
+  message fits under `INBOUND_BUFFER_BOUND`, and it refuses a single message
+  larger than that budget. Try-writes copy into the outbound staging buffer and
+  return without entering the runtime; an async drain task sends bounded chunks
+  through `DataChannel::send`. The crate's SCTP receive window and send buffer
+  are separately bounded at the same layer. Readiness is endpoint-owned, and its
+  self-pipe writes are best-effort **under one invariant**: `WouldBlock` means
+  the pipe already holds unread bytes, so the fd is already readable and no wake
+  was lost.
+- **WebRTC signaling transfer** — `SignalPayloadPool` in the native completion
+  backend. `provideAnswer` and `provideRemoteCandidate` are callable from
+  foreign threads, while a caller-supplied Zig allocator may be single-threaded.
+  The backend therefore allocates one fixed 4 MiB endpoint-level pool on its
+  owner thread and copies each bounded signaling payload into an exclusive slot
+  before publishing the queue row. The loop returns the slot after applying the
+  row; no foreign thread enters the allocator, no payload allocation reaches the
+  session byte path, and overload is `WouldBlock` rather than heap growth.
+- **Browser WebRTC candidate staging** — `RtcPeer` snapshots the standard ICE
+  fields before retaining a remote candidate, caps one candidate at 4 Ki text
+  units, and caps each pre-SDP or apply queue at 256 candidates / 64 Ki text
+  units. Local candidates waiting for a signaling sink carry the same bounds.
+  Once a sink is installed, `SignalingSendOwner` admits at most 256 unresolved
+  signaling sends and aborts bring-up on overflow. The rooms carrier creates
+  one row per active dial before gathering starts, holds early local candidates
+  behind the directory's admitted exchange id, expires routing rows after 30
+  seconds, and retires that exact id when bring-up ends. These queues are
+  signaling control state, not session bytes, but remain attacker-influenced
+  when the signaling capability crosses a network.
 - **Pinned stream wrapper** — `net.tcp`'s `TcpStream`, and `IrohStream`
   (ADR-0043, ADR-0055). `std.Io.Reader`'s vtable recovers its concrete reader
   from `&interface` by field offset, so the reader and writer need a stable
@@ -342,11 +443,26 @@ pointing it at nothing.
 
 ### Host tier
 
-- **Host face wires** — `driver.PollHost`'s `Wire` (ADR-0090). One shell plus two
-  `frame_cap` buffers per session, freed only by its owner. An EOF marks the wire
-  closed and breaks its vows **without freeing**, because a view still holds the
-  pointers: the close-and-release split. Poll scratch grows once and then
-  allocates nothing.
+- **Host face wires** — `driver.HostRuntime`'s `Wire` (ADR-0090, ADR-0112). One
+  shell per session plus two `wire_buffer_bytes` buffers on a stream link, one
+  on a multiplexed-provider link, freed only by its owner. Protocol admission
+  stays independently bounded by `frame_cap`: a larger frame assembles in the
+  core's bounded spill instead of making every live wire retain the maximum.
+  A multiplexed-provider link may also retain one outbound frame across a full
+  write window — owned transfer from `takeOutbound`, resumed at its offset on
+  `ev_writable`, never a copy. An EOF marks the wire closed and breaks its vows
+  **without freeing**, because a view still holds the pointers: the
+  close-and-release split. Poll scratch grows once and then allocates nothing.
+- **Pending open rows** — `HostRuntime.startConnectLocator`,
+  `HostRuntime.startAcceptWire`, and the redeem drain into
+  `HostRuntime.stageConnect` (ADR-0112). One gpa row per in-flight dial or
+  accept, carrying stage, deadline, and outcome route; no byte payload because
+  the locator is consumed at stage time. The shared `max_pending_opens`
+  admission bound limits these rows and their pre-open sessions/wires across
+  every route; blocking dial and accept consume the same counter while they
+  pump without owning a row. Rows are heap-owned and removed before their
+  settle notification runs, since a notification may stage further dials and
+  a list realloc must not move a row mid-sweep.
 - **Lower and lift boundary** — `driver.Session` (ADR-0096). Per-verb scratch
   arena on the way down (spines only; leaves stay borrowed) and the caller's
   arena on the way up, with capability rows under rollback receipts. **The lift
@@ -367,12 +483,25 @@ pointing it at nothing.
 - **Settle mailbox** — `driver.SettleMailbox` (ADR-0102). Fixed slots at init, so
   a worker's `post` allocates nothing; one boundary clone into the slot's arena,
   refusing `ValueTooLarge` and `MailboxFull`. Backpressure, never growth.
+- **Loop-archive dial and events** — `pancake_driver_dial`,
+  `pancake_driver_next_event` (ADR-0112). A dial projects the borrowed locator
+  only for its call and starts the provider immediately; the nonblocking
+  provider contract lets the loop retain no locator copy. Admission reserves
+  one event slot per externally observed open, so OPENED, OPEN_FAILED, and
+  ACCEPTED callbacks append without allocation; error names are static. A
+  completion action is the one owned event payload — moved from the drain
+  through the completion sink, never re-cloned, projected with the byte-fed
+  queue's own scratch and freed through `Host.freeAction`. Session events carry
+  a peer id beside the pointer, so release invalidates them in O(1) and drain
+  skips stale rows without touching freed memory. Sink and close-observer
+  appends remain best-effort under allocation failure, named at their
+  declarations.
 - **Host session indexes** — `Host.partner_by_side`, `dialed_by_designator`
   (ADR-0012). O(1) dial and partner-key refusal at the 500k tier, on the gpa with
   precise frees, because rows leave individually.
-- **Host connection identity** — `Host.mintShell` (ADR-0098). One owned block
+- **Host session locator identity** — `Host.mintShell` (ADR-0098). One owned block
   holding the transport (and, for a dial, the selected designator), because the
-  sturdyref peer check needs the actual connection transport and a signed locator
+  sturdyref peer check needs the actual session transport and a signed locator
   cannot supply it. Replaces a block the dial already required, so it adds
   nothing.
 - **Import identity memo** — `session.ImportTable.identities`. **Both identities
@@ -406,6 +535,12 @@ name stays here.
   managed-frame bytes and release before the async write; Rust holds the frame
   across it. Language and lifetime forced: no change without a hold-across-await
   proof.
+- **TypeScript native-connection write copy** — `AsyncFfiWriteQueue` snapshots a
+  caller-owned frame before off-thread TCP, inproc, or onion FFI can borrow it.
+  No single frame or admitted set may cross the connection's frame-scale byte
+  waterline; later writes are refused until ownership retires, and a separate
+  16-write cap keeps zero-length calls from retaining an unbounded promise
+  chain.
 - **Racket inbound `pin-immobile`** — every `feed_bytes` path pins the buffer
   into collector-immobile memory first. The tail lives in the core session, so no
   binding-side coalesce rides on top.

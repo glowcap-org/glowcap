@@ -7,7 +7,7 @@
 //!
 //! One `arms` table drives every language's types, decode, and the exhaustive
 //! `dispatch*` skeleton. Executor arm *bodies* stay hand-written in each
-//! binding's `action` module; a seventh kind fails generate/check rather than
+//! binding's `action` module; a new kind fails generate/check rather than
 //! silently missing in five hand-rolled switches.
 
 const std = @import("std");
@@ -24,9 +24,10 @@ pub const outputs = [_]Output{
     .{ .path = "bindings/racket/private/host-action-gen.rkt", .generate = generateRacket },
 };
 
-/// Decode shape shared across languages. FLUSH and CLOSE both carry only `conn`.
+/// Decode shape shared across languages. FLUSH and CLOSE both carry only `session`.
 const Shape = enum {
-    conn,
+    none,
+    session,
     ticket,
     settle,
     fail,
@@ -45,11 +46,12 @@ const Arm = struct {
 
 const arms = [_]Arm{
     .{ .name = "DIAL", .value = cd.PANCAKE_HOST_ACTION_DIAL, .variant = "Dial", .racket = "dial", .shape = .ticket },
-    .{ .name = "FLUSH", .value = cd.PANCAKE_HOST_ACTION_FLUSH, .variant = "Flush", .racket = "flush", .shape = .conn },
+    .{ .name = "FLUSH", .value = cd.PANCAKE_HOST_ACTION_FLUSH, .variant = "Flush", .racket = "flush", .shape = .session },
     .{ .name = "NEED_GIFT_ID", .value = cd.PANCAKE_HOST_ACTION_NEED_GIFT_ID, .variant = "NeedGiftId", .racket = "need-gift-id", .shape = .ticket },
     .{ .name = "SETTLE", .value = cd.PANCAKE_HOST_ACTION_SETTLE, .variant = "Settle", .racket = "settle", .shape = .settle },
     .{ .name = "FAIL", .value = cd.PANCAKE_HOST_ACTION_FAIL, .variant = "Fail", .racket = "fail", .shape = .fail },
-    .{ .name = "CLOSE", .value = cd.PANCAKE_HOST_ACTION_CLOSE, .variant = "Close", .racket = "close", .shape = .conn },
+    .{ .name = "CLOSE", .value = cd.PANCAKE_HOST_ACTION_CLOSE, .variant = "Close", .racket = "close", .shape = .session },
+    .{ .name = "RESUME", .value = cd.PANCAKE_HOST_ACTION_RESUME, .variant = "Resume", .racket = "resume", .shape = .none },
 };
 
 comptime {
@@ -59,6 +61,7 @@ comptime {
     if (arms[3].value != cd.PANCAKE_HOST_ACTION_SETTLE) @compileError("arms SETTLE value drift");
     if (arms[4].value != cd.PANCAKE_HOST_ACTION_FAIL) @compileError("arms FAIL value drift");
     if (arms[5].value != cd.PANCAKE_HOST_ACTION_CLOSE) @compileError("arms CLOSE value drift");
+    if (arms[6].value != cd.PANCAKE_HOST_ACTION_RESUME) @compileError("arms RESUME value drift");
 }
 
 fn writeUpperKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
@@ -79,13 +82,16 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     errdefer out.deinit(gpa);
     // Struct offsets come from the active layout `L` (64-bit mirror or the
     // wasm32 descriptor); the kind constants and INVALID_ARGUMENT are
-    // target-independent and live in the @pancake/abi package.
+    // target-independent and live in the @pancake/abi package. Imports are
+    // lexical source order, independent of the protocol arm order used below;
+    // coupling those two made a correct generated inventory fail `deno fmt`.
     const const_imports = [_][]const u8{
         "HOST_ACTION_CLOSE",
         "HOST_ACTION_DIAL",
         "HOST_ACTION_FAIL",
         "HOST_ACTION_FLUSH",
         "HOST_ACTION_NEED_GIFT_ID",
+        "HOST_ACTION_RESUME",
         "HOST_ACTION_SETTLE",
         "INVALID_ARGUMENT",
     };
@@ -146,14 +152,14 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     try tline(&out, gpa, 2, ");");
     try tline(&out, gpa, 1, "switch (kind) {");
     // FLUSH and CLOSE share a case — emit ticket/settle/fail individually,
-    // then one shared conn case for both conn-shaped arms.
+    // then one shared session case for both session-shaped arms.
     inline for (arms) |arm| {
-        if (arm.shape == .conn) continue;
+        if (arm.shape == .session) continue;
         try emitTsDecodeCase(&out, gpa, arm);
     }
     try tline(&out, gpa, 2, "case HOST_ACTION_FLUSH:");
     try tline(&out, gpa, 2, "case HOST_ACTION_CLOSE:");
-    try tline(&out, gpa, 3, "return { kind, conn: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };");
+    try tline(&out, gpa, 3, "return { kind, session: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };");
     try tline(&out, gpa, 2, "default:");
     try tline(&out, gpa, 3, "throw new PancakeError(");
     try tline(&out, gpa, 4, "INVALID_ARGUMENT,");
@@ -162,7 +168,7 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     try tline(&out, gpa, 1, "}");
     try out.appendSlice(gpa, "}\n\n");
     try out.appendSlice(gpa,
-        \\/** Exhaustive dispatch over `HostAction`: a seventh kind fails compile.
+        \\/** Exhaustive dispatch over `HostAction`: a new kind fails compile.
         \\ * Bindings supply the per-arm I/O; this switch is the generated inventory. */
         \\export type HostActionHandlers = {
         \\
@@ -247,9 +253,14 @@ fn emitTsHandlerSignature(out: *std.ArrayList(u8), gpa: std.mem.Allocator, metho
 
 fn emitTsUnionMember(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm, last: bool) !void {
     switch (arm.shape) {
-        .conn => {
+        .none => {
             try out.append(gpa, '\t');
-            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; conn: Ptr }}", .{arm.name});
+            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s} }}", .{arm.name});
+            try out.appendSlice(gpa, if (last) ";\n" else "\n");
+        },
+        .session => {
+            try out.append(gpa, '\t');
+            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; session: Ptr }}", .{arm.name});
             try out.appendSlice(gpa, if (last) ";\n" else "\n");
         },
         .ticket => {
@@ -275,6 +286,7 @@ fn emitTsDecodeCase(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !
     try out.append(gpa, '\t');
     try out.print(gpa, "case HOST_ACTION_{s}:\n", .{arm.name});
     switch (arm.shape) {
+        .none => try tline(out, gpa, 3, "return { kind };"),
         .ticket => try tline(out, gpa, 3, "return { kind, ticket };"),
         .settle => try tline(out, gpa, 3, "return { kind, ticket, value: readArg(dv, L.HOST_ACTION_VALUE_OFF) };"),
         .fail => {
@@ -284,7 +296,7 @@ fn emitTsDecodeCase(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !
             try tline(out, gpa, 4, "message: view(L.HOST_ACTION_MESSAGE_OFF, L.HOST_ACTION_MESSAGE_LEN_OFF),");
             try tline(out, gpa, 3, "};");
         },
-        .conn => unreachable,
+        .session => unreachable,
     }
 }
 
@@ -351,7 +363,8 @@ fn generatePython(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\async def dispatch(action: HostAction, handlers) -> None:
         \\    """Exhaustive dispatch: handlers expose one coroutine/callable per arm
-        \\    (`dial`, `flush`, `need_gift_id`, `settle`, `fail`, `close`). A seventh
+        \\    (`dial`, `flush`, `need_gift_id`, `settle`, `fail`, `close`, `resume`).
+        \\    An eighth
         \\    kind fails here rather than silently missing in `_action.py`.
         \\    """
         \\    match action:
@@ -383,8 +396,13 @@ fn snakeHandlerName(gpa: std.mem.Allocator, arm: Arm) ![]u8 {
 fn emitPyClass(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !void {
     try out.print(gpa, "@dataclass(frozen=True)\nclass {s}:\n", .{arm.variant});
     switch (arm.shape) {
-        .conn => try out.appendSlice(gpa,
-            \\    conn_ptr: int
+        .none => try out.appendSlice(gpa,
+            \\    pass
+            \\
+            \\
+        ),
+        .session => try out.appendSlice(gpa,
+            \\    session_ptr: int
             \\
             \\
         ),
@@ -414,8 +432,12 @@ fn emitPyClass(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !void 
 fn emitPyDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !void {
     try out.print(gpa, "    if kind == HOST_ACTION_{s}:\n", .{arm.name});
     switch (arm.shape) {
-        .conn => try out.print(gpa,
-            \\        return {s}(conn_ptr=a.conn or 0)
+        .none => try out.print(gpa,
+            \\        return {s}()
+            \\
+        , .{arm.variant}),
+        .session => try out.print(gpa,
+            \\        return {s}(session_ptr=a.session or 0)
             \\
         , .{arm.variant}),
         .ticket => try out.print(gpa,
@@ -496,7 +518,7 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, "}\n\n");
     try out.appendSlice(gpa,
         \\/// Exhaustive dispatch over `HostAction`. Handlers expose one async fn
-        \\/// per arm; a seventh kind fails to compile here.
+        \\/// per arm; a new kind fails to compile here.
         \\pub async fn dispatch<H>(action: HostAction, handlers: &H) -> crate::Result<()>
         \\where
         \\    H: HostActionHandlers,
@@ -507,7 +529,10 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     inline for (arms) |arm| {
         const method = try snakeHandlerName(gpa, arm);
         defer gpa.free(method);
-        try out.print(gpa, "        HostAction::{s} {{ .. }} => handlers.{s}(action).await,\n", .{ arm.variant, method });
+        if (arm.shape == .none)
+            try out.print(gpa, "        HostAction::{s} => handlers.{s}(action).await,\n", .{ arm.variant, method })
+        else
+            try out.print(gpa, "        HostAction::{s} {{ .. }} => handlers.{s}(action).await,\n", .{ arm.variant, method });
     }
     try out.appendSlice(gpa,
         \\    }
@@ -527,10 +552,15 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn emitRustVariant(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !void {
+    if (arm.shape == .none) {
+        try out.print(gpa, "\t{s},\n", .{arm.variant});
+        return;
+    }
     try out.append(gpa, '\t');
     try out.print(gpa, "{s} {{\n", .{arm.variant});
     switch (arm.shape) {
-        .conn => try tline(out, gpa, 2, "conn: usize,"),
+        .none => unreachable,
+        .session => try tline(out, gpa, 2, "session: usize,"),
         .ticket => try tline(out, gpa, 2, "ticket: u64,"),
         .settle => {
             try tline(out, gpa, 2, "ticket: u64,");
@@ -546,6 +576,10 @@ fn emitRustVariant(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !v
 
 fn emitRustDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !void {
     // Single-field ticket arms stay one-line so rustfmt and gen-check agree.
+    if (arm.shape == .none) {
+        try out.print(gpa, "\t\tHOST_ACTION_{s} => HostAction::{s},\n", .{ arm.name, arm.variant });
+        return;
+    }
     if (arm.shape == .ticket) {
         try out.append(gpa, '\t');
         try out.append(gpa, '\t');
@@ -556,7 +590,8 @@ fn emitRustDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) 
     try out.append(gpa, '\t');
     try out.print(gpa, "HOST_ACTION_{s} => HostAction::{s} {{\n", .{ arm.name, arm.variant });
     switch (arm.shape) {
-        .conn => try tline(out, gpa, 3, "conn: raw.conn as usize,"),
+        .none => unreachable,
+        .session => try tline(out, gpa, 3, "session: raw.session as usize,"),
         .ticket => unreachable,
         .settle => {
             try tline(out, gpa, 3, "ticket: raw.ticket,");
@@ -590,6 +625,7 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\(provide HOST-ACTION-DIAL HOST-ACTION-FLUSH HOST-ACTION-NEED-GIFT-ID
         \\         HOST-ACTION-SETTLE HOST-ACTION-FAIL HOST-ACTION-CLOSE
+        \\         HOST-ACTION-RESUME
         \\         host-decode-action!
         \\         host-dispatch-action!)
         \\
@@ -622,7 +658,7 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\;; Exhaustive dispatch over a decoded action list. `handlers` is a
         \\;; hash of racket symbols (`'dial`, `'flush`, …) to thunks of
         \\;; `(lambda (a) …)`. A missing arm fails loud — the inventory lives
-        \\;; here so `action.rkt` cannot silently drop a seventh kind.
+        \\;; here so `action.rkt` cannot silently drop a new kind.
         \\(define (host-dispatch-action! a handlers)
         \\  (define tag (car a))
         \\  (define fn (hash-ref handlers tag #f))
@@ -639,8 +675,12 @@ fn emitRacketDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm
     try writeUpperKebab(out, gpa, arm.name);
     try out.appendSlice(gpa, ")\n");
     switch (arm.shape) {
-        .conn => try out.print(gpa,
-            \\     (list '{s} (PancakeHostAction-conn a))]
+        .none => try out.print(gpa,
+            \\     (list '{s})]
+            \\
+        , .{arm.racket}),
+        .session => try out.print(gpa,
+            \\     (list '{s} (PancakeHostAction-session a))]
             \\
         , .{arm.racket}),
         .ticket => try out.print(gpa,

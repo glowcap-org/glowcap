@@ -1,0 +1,9 @@
+(require "pancake.rkt")
+
+;; Plain TCP uses a cleartext host and port.
+(define partner (tcp-locator "127.0.0.1" 9099))
+
+(define session (connect partner))
+(define greeter (session-fetch session "greeter")) ; a capability, by name
+(printf "~a\n" (session-send session greeter 'greet "world"))
+(session-close! session)

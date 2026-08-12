@@ -8,7 +8,7 @@
 ;; vat, a pump, and the shared Host's routing/redeem authority, constructed by
 ;; `connect`/`listen`/`accept`.
 ;; The host owns an `engine.Node` (sans-io router); Goblins `mycapn` is two
-;; roles — endpoint ≈ host, router tables ≈ `engine.Node`. Everything
+;; roles — product maps to Host, router tables map to `engine.Node`. Everything
 ;; three-party — gift origination, transparent redemption, cross-session
 ;; routing — happens inside the library; the binding moves bytes and answers
 ;; the host's action queue. `PancakeHost` is the sole C CapTP application
@@ -53,25 +53,29 @@
 ;; (`session-fetch`/`session-publish`/`session-spawn`/`session-send`/`session-tell`/`session-serve`),
 ;; since Racket has no method-receiver syntax to carry the verb. `session-close!`
 ;; keeps the full prefix so the application-surface close reads distinctly from
-;; the netlayer's `endpoint-release!`. The Goblins verbs (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`)
+;; the netlayer's `connection-release!`. The Goblins verbs (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`)
 ;; are unchanged, you use them through the session's vat.
-(provide (struct-out server)
-         connect listen accept server-port server-close! server-host
+(provide server? server-host
+         connect listen accept server-port server-close!
          HANDSHAKE-TIMEOUT-MS
          listen-keyed-tcp keyed-tcp-server-port keyed-tcp-server-uri
          keyed-tcp-server-accept keyed-tcp-server-close!
-         keyed-tcp-server-host keyed-tcp-server-designator
-         (struct-out keyed-tcp-server)
+         keyed-tcp-server? keyed-tcp-server-host keyed-tcp-server-designator
+         listen-noise-tcp noise-tcp-server-port noise-tcp-server-uri
+         noise-tcp-server-accept noise-tcp-server-close!
+         noise-tcp-server? noise-tcp-server-host noise-tcp-server-designator
          make-host make-fresh-host
          host-publish-giftable
          host-unpublish-giftable
          host-publish-durable
          host-remove-durable
-         host-spawn-resolver resolver? resolver-vow-id
-         resolver-forward-turn! resolver-fulfill! resolver-break!
+         host-defer-turn resolver?
+         resolver-fulfill! resolver-break!
          host-enliven
          enable-trace!
-         tcp-locator keyed-tcp-locator parse-locator format-peer-uri (struct-out locator)
+         tcp-locator keyed-tcp-locator noise-tcp-locator
+         parse-locator parse-sturdyref format-peer-uri format-sturdyref
+         (struct-out locator) (struct-out sturdyref)
          encode-peer-locator designator-host-port socket-addr-designator session-set-exporter-locator!
          host-redeem-reachability-value set-host-redeem-reachability!
          host-rendezvous-url-value set-host-rendezvous-url!
@@ -87,7 +91,7 @@
          ;; Closing a session closes that connection; this closes every session
          ;; the host holds, including the ones it dialed to redeem handoffs.
          host-release!
-         TRANSPORT-TCP TRANSPORT-KEYED-TCP TRANSPORT-INPROC TRANSPORT-IROH
+         TRANSPORT-TCP TRANSPORT-KEYED-TCP TRANSPORT-NOISE-TCP TRANSPORT-INPROC TRANSPORT-IROH
          HINT-DIRECT-ADDRESSES)
 
 ;; ── Transport seam ───────────────────────────────────────────────────────────
@@ -113,7 +117,7 @@
   (provide (struct-out async-transport) make-fresh-host make-host
            establish-dialed-locator-session
            establish-accepted-session accept-next-session HANDSHAKE-TIMEOUT-MS
-           host-set-self-designator! host-set-advertised-locator!
+           host-set-advertised-locator!
            host-set-session-limits! format-peer-uri
            check check-with read-last-error raise-pancake bytes<-c codec-id
            pin-immobile

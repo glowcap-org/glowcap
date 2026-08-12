@@ -83,6 +83,14 @@ pub const ListenerList = struct {
         return self.entries.toOwnedSlice(allocator);
     }
 
+    /// Put back a just-taken listener slice without allocating. Preparation
+    /// uses this rollback when a later reservation fails before settlement.
+    pub fn restoreOwned(self: *ListenerList, entries: []ListenerEntry) void {
+        std.debug.assert(self.entries.items.len == 0);
+        if (entries.len == 0) return;
+        self.entries = .fromOwnedSlice(entries);
+    }
+
     /// Release the backing store (entries are POD).
     pub fn deinit(self: *ListenerList, allocator: std.mem.Allocator) void {
         self.entries.deinit(allocator);
@@ -274,6 +282,14 @@ pub const AnswerTable = struct {
 
     pub fn put(self: *AnswerTable, allocator: std.mem.Allocator, position: Id, cell: AnswerCell) !void {
         try self.rows.put(allocator, position.int(), cell);
+    }
+
+    pub fn ensureUnusedCapacity(self: *AnswerTable, allocator: std.mem.Allocator, additional: u32) !void {
+        try self.rows.ensureUnusedCapacity(allocator, additional);
+    }
+
+    pub fn putAssumeCapacity(self: *AnswerTable, position: Id, cell: AnswerCell) void {
+        self.rows.putAssumeCapacity(position.int(), cell);
     }
 
     pub fn remove(self: *AnswerTable, position: Id) void {

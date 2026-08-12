@@ -76,7 +76,7 @@
 
 ;; Project a filled `_PancakeLastAbort` cstruct into an `abort-info`, copying
 ;; each process-static C view into a Racket string so the result outlives any
-;; later library call. The host connection's abort readers
+;; later library call. The Host session's abort readers
 ;; (`private/session.rkt`) build every typed refused-frame diagnostic
 ;; through this.
 (define (abort-info<-c out)

@@ -12,21 +12,18 @@ explicitly dials over iroh adds this module. The transport-neutral dialer
 here only when it parses an ``iroh`` locator, so the core never hard-depends on
 the iroh artifact.
 
-    server = listen_iroh(IrohConfig(Reachability.DIRECT))
+    server = await listen_iroh(IrohConfig(Reachability.DIRECT))
     print(server.uri)                       # hand this to a partner
-    async for conn in server:
-        conn.serve()
+    async for session in server:
+        session.serve()
 
 The byte unit is identical to TCP's — the core's stream delimiter
-(``pancake_host_session_feed_bytes``) owns framing — so the same byte-fed
-:class:`pancake.Session` serve loop drives a session over it; only the
-addressing differs, an endpoint id plus direct-address hints, no host:port.
-The sidecar's loop surface (ADR-0057) is the netlayer's one I/O model:
-:class:`_IrohLoop` registers the endpoint's single readiness fd with the
-asyncio event loop (``add_reader``) and drains readiness records when it signals,
-so one endpoint serves many connections at scale with no per-connection thread —
-the parity with the Zig resident and the Deno binding that
-``zig build python-iroh-loop`` proves."""
+(``pancake_host_session_feed_bytes``) owns framing — so the same session
+surface works over it; only the addressing differs, an endpoint id plus
+direct-address hints, no host:port. The server explicitly registers the
+sidecar's provider package with :class:`DriverLoop`; the private
+:class:`_IrohLoop` remains only for raw endpoint consumers. The binding
+dogfood exercises the same generic listener lifecycle."""
 
 from __future__ import annotations
 
@@ -36,7 +33,9 @@ import ctypes
 from dataclasses import dataclass
 import enum
 import secrets
-from typing import Optional, Union
+import threading
+import weakref
+from typing import Optional, Union, cast
 
 # The core binding owns the value vocabulary, the host/connection machinery, and
 # the shared archives; the iroh transport plugs into that seam as the byte
@@ -44,10 +43,18 @@ from typing import Optional, Union
 # ``_iroh()`` lives in the internal :mod:`pancake._ffi_iroh`.
 from ._session import Session
 from . import _constants as _c
-from ._constants import ERR_CLOSED as _ERR_CLOSED, ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT, HINT_DIRECT_ADDRESSES, OK as _OK, TRANSPORT_IROH, WOULD_BLOCK as _WOULD_BLOCK
+from ._constants import (
+    ERR_CLOSED as _ERR_CLOSED,
+    ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT,
+    HINT_DIRECT_ADDRESSES,
+    OK as _OK,
+    TRANSPORT_IROH,
+    WOULD_BLOCK as _WOULD_BLOCK,
+)
 from ._errors import PancakeError
 from ._host import Host
-from ._locator import encode_peer_locator, format_peer_uri
+from ._locator import format_peer_uri, parse_locator
+from ._native import NativeHandle
 from ._ffi_ocapn import _byte_buf, _read_last_error
 from ._ffi_iroh import _iroh, _IrohConfig, _IrohReadyEvent
 
@@ -56,8 +63,13 @@ from ._ffi_iroh import _iroh, _IrohConfig, _IrohReadyEvent
 # constants directly rather than through the FFI loader, which only forwarded
 # them.
 # The discovery-posture dial retry budget (ADR-0082) is lockstep with
-# ``PANCAKE_DISCOVERY_DIAL_*`` / ``driver.ResilientClient``.
-from ._constants_gen import DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS
+# ``PANCAKE_DISCOVERY_DIAL_*`` / ``driver.DialRetry``.
+from ._constants_gen import (
+    DISCOVERY_DIAL_MAX_ATTEMPTS,
+    DISCOVERY_DIAL_RETRY_MS,
+    HANDSHAKE_TIMEOUT_MS,
+    MAX_HANDSHAKE_CONCURRENCY,
+)
 from ._constants_gen import (
     IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
     IROH_EV_CLOSED as _IROH_EV_CLOSED,
@@ -71,7 +83,7 @@ __all__ = [
     "IrohServer",
     "IrohNetlayer",
     "IrohConfig",
-    "IrohConn",
+    "IrohConnection",
     "listen_iroh",
     "dial_locator_for_relay",
 ]
@@ -89,7 +101,9 @@ def _check_iroh(code: int) -> None:
     # The iroh library carries its own thread-local last-error, so read this
     # archive's own slot rather than scraping libpancake_ocapn's unrelated one.
     if code != _OK:
-        raise PancakeError(code, _iroh_last_error() or f"iroh transport call failed (code {code})")
+        raise PancakeError(
+            code, _iroh_last_error() or f"iroh transport call failed (code {code})"
+        )
 
 
 class Reachability(enum.IntEnum):
@@ -117,19 +131,34 @@ class Reachability(enum.IntEnum):
     LOCAL_DISCOVERY = _c.IROH_REACH_LOCAL_DISCOVERY
 
 
-class IrohConn:
+_NETLAYER_CONSTRUCTION = object()
+
+
+class IrohConnection:
     """One iroh QUIC connection carrying one OCapN session, the iroh sibling of
-    :class:`pancake.tcp.TcpEndpoint`. It is driven by an :class:`_IrohLoop`, which
+    :class:`pancake.tcp.TcpConnection`. It is driven by an :class:`_IrohLoop`, which
     frames the raw bytes :meth:`try_read_into` hands out the same way the TCP pump
     frames its socket bytes. No call here ever parks on the connection, so a
     release never races a read."""
 
-    def __init__(self, raw: ctypes.c_void_p) -> None:
-        self._raw: ctypes.c_void_p | None = raw
+    def __init__(self, raw: ctypes.c_void_p, netlayer: "IrohNetlayer") -> None:
+        self._netlayer = netlayer
+        self._native = NativeHandle(
+            raw,
+            _iroh().pancake_iroh_conn_release,
+            label="iroh connection",
+            keepalive=netlayer,
+        )
+        if not netlayer._adopt_conn(self):
+            self._native.close()
+            raise RuntimeError("iroh netlayer is closed")
 
     def key(self) -> int:
         """This connection's stable readiness identity."""
-        return int(_iroh().pancake_iroh_conn_id(self._raw)) if self._raw else 0
+        if self._native.closed:
+            return 0
+        with self._native.lease() as raw:
+            return int(_iroh().pancake_iroh_conn_id(raw))
 
     def remote_node_id(self) -> "str | None":
         """The far end's node id, as QUIC proved it: this connection completed
@@ -140,17 +169,21 @@ class IrohConn:
         -- it did not open this connection -- so whoever did passes it on with
         :meth:`Session.bind_verified_channel_key`, which the accept and dial
         paths below do for every session this module establishes."""
-        if not self._raw:
+        if self._native.closed:
             return None
         cap = 64
         buf = ctypes.create_string_buffer(cap)
         out_len = ctypes.c_size_t(0)
-        code = _iroh().pancake_iroh_conn_remote_node_id(
-            self._raw, buf, cap, ctypes.byref(out_len),
-        )
+        with self._native.lease() as raw:
+            code = _iroh().pancake_iroh_conn_remote_node_id(
+                raw,
+                buf,
+                cap,
+                ctypes.byref(out_len),
+            )
         if code != _OK:
             return None
-        return buf.raw[:out_len.value].decode()
+        return buf.raw[: out_len.value].decode()
 
     def try_read_into(self, buf) -> int:
         """Non-blocking read of raw inbound bytes into the ctypes ``buf``: the
@@ -158,37 +191,51 @@ class IrohConn:
         ``_ERR_CLOSED`` on a clean end of stream, or raises on a fault. The caller
         frames these bytes itself."""
         out = ctypes.c_size_t()
-        rc = _iroh().pancake_iroh_conn_try_read(self._raw, buf, len(buf), ctypes.byref(out))
+        with self._native.lease() as raw:
+            rc = _iroh().pancake_iroh_conn_try_read(
+                raw, buf, len(buf), ctypes.byref(out)
+            )
         if rc == _WOULD_BLOCK or rc == _ERR_CLOSED:
             return rc
         if rc != _OK:
-            raise PancakeError(rc, _iroh_last_error() or f"iroh conn try_read failed (code {rc})")
+            raise PancakeError(
+                rc, _iroh_last_error() or f"iroh conn try_read failed (code {rc})"
+            )
         return out.value
 
     def try_write(self, frame: bytes) -> int:
-        """Non-blocking write of ``frame``'s raw bytes: the count written (the
-        whole slice, all-or-nothing), or ``_WOULD_BLOCK`` when the outbound buffer
-        is at its bound (retry the same bytes after the next writable record).
-        Raises on a fault."""
-        buf = (ctypes.c_uint8 * len(frame)).from_buffer_copy(frame) if frame else (ctypes.c_uint8 * 0)()
+        """Non-blocking write of ``frame``'s raw bytes: the count written
+        (possibly a prefix), or ``_WOULD_BLOCK`` when the outbound buffer has no
+        room. Raises on a fault."""
+        buf = (
+            (ctypes.c_uint8 * len(frame)).from_buffer_copy(frame)
+            if frame
+            else (ctypes.c_uint8 * 0)()
+        )
         out = ctypes.c_size_t()
-        rc = _iroh().pancake_iroh_conn_try_write(self._raw, buf, len(frame), ctypes.byref(out))
+        with self._native.lease() as raw:
+            rc = _iroh().pancake_iroh_conn_try_write(
+                raw, buf, len(frame), ctypes.byref(out)
+            )
         if rc == _WOULD_BLOCK:
             return rc
         if rc != _OK:
-            raise PancakeError(rc, _iroh_last_error() or f"iroh conn try_write failed (code {rc})")
+            raise PancakeError(
+                rc, _iroh_last_error() or f"iroh conn try_write failed (code {rc})"
+            )
         return out.value
 
-    def __enter__(self) -> "IrohConn":
+    def __enter__(self) -> "IrohConnection":
         return self
 
     def __exit__(self, *exc) -> None:
         self.release()
 
     def release(self) -> None:
-        if self._raw:
-            _iroh().pancake_iroh_conn_release(self._raw)
-            self._raw = None
+        try:
+            self._native.close()
+        finally:
+            self._netlayer._forget_conn(self)
 
 
 @dataclass(frozen=True)
@@ -202,23 +249,34 @@ class IrohConfig:
     connection up, ``idle_timeout_ms`` bounds keeping one. Set
     ``idle_timeout_ms`` if you read a live session as presence, because it is
     what ends a connection whose peer was killed rather than closed.
+    ``worker_threads`` sizes this endpoint's sidecar runtime; ``None`` takes
+    pancake's default.
     """
 
     reachability: "Union[int, Reachability]"
     connect_timeout_ms: "Optional[int]" = None
     idle_timeout_ms: "Optional[int]" = None
+    worker_threads: "Optional[int]" = None
 
 
 class IrohNetlayer:
     """A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
     sibling of :class:`pancake.tcp.TcpNetlayer`, and its own listener (there is no
-    host:port, so :meth:`accept` lives here). Release every :class:`IrohConn` it
-    mints before releasing it.
+    host:port, so :meth:`accept` lives here). It owns every :class:`IrohConnection` it
+    mints and releases remaining children before its native endpoint.
 
     ``reachability`` (a :class:`Reachability`) is required, it sets the
     endpoint's addressing posture and has no default."""
 
-    def __init__(self, config: IrohConfig, secret_seed: "Optional[bytes]" = None):
+    def __init__(
+        self,
+        config: IrohConfig,
+        secret_seed: "Optional[bytes]" = None,
+        *,
+        _construction_token=None,
+    ):
+        if _construction_token is not _NETLAYER_CONSTRUCTION:
+            raise RuntimeError("use 'await IrohNetlayer.open(...)' to bind an endpoint")
         seed = secret_seed or b""
         # Empty means "draw a fresh random key"; keep the NULL the header
         # documents for that arm.
@@ -231,10 +289,77 @@ class IrohNetlayer:
             cfg.connect_timeout_ms = config.connect_timeout_ms
         if config.idle_timeout_ms is not None:
             cfg.idle_timeout_ms = config.idle_timeout_ms
-        _check_iroh(_iroh().pancake_iroh_netlayer_new(
-            ptr, len(seed), ctypes.byref(cfg), ctypes.byref(out),
-        ))
-        self._raw: ctypes.c_void_p | None = out
+        if config.worker_threads is not None:
+            if config.worker_threads <= 0 or config.worker_threads > 0xFFFFFFFF:
+                raise PancakeError(
+                    _ERR_INVALID_ARGUMENT,
+                    "iroh worker_threads must be between 1 and 4294967295",
+                )
+            cfg.worker_threads = config.worker_threads
+        _check_iroh(
+            _iroh().pancake_iroh_netlayer_new(
+                ptr,
+                len(seed),
+                ctypes.byref(cfg),
+                ctypes.byref(out),
+            )
+        )
+        self._native = NativeHandle(
+            out,
+            _iroh().pancake_iroh_netlayer_release,
+            _iroh().pancake_iroh_netlayer_close,
+            label="iroh netlayer",
+        )
+        self._children_lock = threading.Lock()
+        self._children: "set[IrohConnection]" = set()
+        self._release_started = False
+        # One retained task owns the non-cancelable native release. Callers may
+        # cancel their wait, but the task remains the join point for every later
+        # close_async/release_async call.
+        self._release_task: "Optional[asyncio.Task]" = None
+
+    @classmethod
+    async def open(
+        cls,
+        config: IrohConfig,
+        secret_seed: "Optional[bytes]" = None,
+    ) -> "IrohNetlayer":
+        """Bind off-reactor, retaining ownership through caller cancellation.
+
+        A worker thread cannot be canceled once native endpoint construction
+        starts. Cancellation therefore joins that construction and explicitly
+        releases the resulting endpoint before it propagates.
+        """
+        construction = asyncio.create_task(
+            asyncio.to_thread(
+                cls,
+                config,
+                secret_seed,
+                _construction_token=_NETLAYER_CONSTRUCTION,
+            )
+        )
+        try:
+            return await asyncio.shield(construction)
+        except asyncio.CancelledError:
+            # Further cancel requests must not detach the non-cancelable worker
+            # or its cleanup. Keep joining until each owned task is terminal.
+            while not construction.done():
+                try:
+                    await asyncio.shield(construction)
+                except asyncio.CancelledError:
+                    continue
+                except BaseException:
+                    break
+            if not construction.cancelled() and construction.exception() is None:
+                netlayer = construction.result()
+                release = asyncio.create_task(netlayer.release_async())
+                while not release.done():
+                    try:
+                        await asyncio.shield(release)
+                    except asyncio.CancelledError:
+                        continue
+                release.result()
+            raise
 
     def node_id(self) -> str:
         """This endpoint's id, its Ed25519 public key as lowercase hex, the
@@ -242,7 +367,10 @@ class IrohNetlayer:
         cap = 64
         out = (ctypes.c_uint8 * cap)()
         n = ctypes.c_size_t()
-        _check_iroh(_iroh().pancake_iroh_netlayer_node_id(self._raw, out, cap, ctypes.byref(n)))
+        with self._native.lease() as raw:
+            _check_iroh(
+                _iroh().pancake_iroh_netlayer_node_id(raw, out, cap, ctypes.byref(n))
+            )
         return ctypes.string_at(out, n.value).decode()
 
     def direct_addresses(self) -> str:
@@ -251,7 +379,12 @@ class IrohNetlayer:
         cap = 1024
         out = (ctypes.c_uint8 * cap)()
         n = ctypes.c_size_t()
-        _check_iroh(_iroh().pancake_iroh_netlayer_direct_addrs(self._raw, out, cap, ctypes.byref(n)))
+        with self._native.lease() as raw:
+            _check_iroh(
+                _iroh().pancake_iroh_netlayer_direct_addrs(
+                    raw, out, cap, ctypes.byref(n)
+                )
+            )
         return ctypes.string_at(out, n.value).decode()
 
     # ── The event-driven loop surface (ADR-0057) ────────────────────────────────
@@ -259,13 +392,35 @@ class IrohNetlayer:
     # connections from one readiness fd registered with the asyncio event loop.
     # The loop is armed when the netlayer is created, so these work immediately.
 
+    def _transport_provider(self):
+        """Borrow this endpoint's archive-owned provider package."""
+        from ._ffi_driver import _TransportProvider
+
+        package = _TransportProvider()
+        with self._native.lease() as raw:
+            rc = _iroh().pancake_iroh_transport_provider(raw, ctypes.byref(package))
+        if rc != _OK:
+            raise PancakeError(rc, _iroh_last_error() or f"iroh transport_provider failed (code {rc})")
+        return package
+
+    def _relinquish_provider_reference(self) -> None:
+        """Transfer endpoint lifetime to an already-retained provider lease."""
+        with self._children_lock:
+            if self._release_started or self._children:
+                raise RuntimeError("iroh netlayer is not transferable")
+            self._release_started = True
+        self._native.drop_reference()
+
     def readiness_fd(self) -> int:
         """This endpoint's single readiness fd, register it with the event loop
         (``add_reader``) and call :meth:`drain_ready` when it signals. Owned by
         the netlayer; never close it."""
-        fd = _iroh().pancake_iroh_netlayer_readiness_fd(self._raw)
+        with self._native.lease() as raw:
+            fd = _iroh().pancake_iroh_netlayer_readiness_fd(raw)
         if fd < 0:
-            raise PancakeError(fd, _iroh_last_error() or f"iroh readiness_fd failed (code {fd})")
+            raise PancakeError(
+                fd, _iroh_last_error() or f"iroh readiness_fd failed (code {fd})"
+            )
         return fd
 
     def drain_ready(self, buf, cap: int) -> int:
@@ -274,20 +429,26 @@ class IrohNetlayer:
         when none); raises on fault. Call it when :meth:`readiness_fd` signals,
         then again until it returns fewer than ``cap`` records."""
         out = ctypes.c_size_t()
-        rc = _iroh().pancake_iroh_netlayer_drain_ready(self._raw, buf, cap, ctypes.byref(out))
+        with self._native.lease() as raw:
+            rc = _iroh().pancake_iroh_netlayer_drain_ready(
+                raw, buf, cap, ctypes.byref(out)
+            )
         if rc != _OK:
-            raise PancakeError(rc, _iroh_last_error() or f"iroh drain_ready failed (code {rc})")
+            raise PancakeError(
+                rc, _iroh_last_error() or f"iroh drain_ready failed (code {rc})"
+            )
         return out.value
 
-    def try_accept(self) -> "Optional[IrohConn]":
+    def try_accept(self) -> "Optional[IrohConnection]":
         """Claim one accepted non-blocking connection, or ``None`` when none is
         pending."""
         out = ctypes.c_void_p()
-        code = _iroh().pancake_iroh_netlayer_try_accept(self._raw, ctypes.byref(out))
+        with self._native.lease() as raw:
+            code = _iroh().pancake_iroh_netlayer_try_accept(raw, ctypes.byref(out))
         if code == _WOULD_BLOCK:
             return None
         _check_iroh(code)
-        return IrohConn(out)
+        return IrohConnection(out, self)
 
     def start_connect(self, request_id: int, node_id: str, addr_hints: str) -> None:
         """Admit one dial without blocking; completion arrives as EV_CONNECT."""
@@ -295,24 +456,34 @@ class IrohNetlayer:
         hints_b = addr_hints.encode()
         id_buf, id_ptr = _byte_buf(id_b)
         hints_buf, hints_ptr = _byte_buf(hints_b)
-        _check_iroh(_iroh().pancake_iroh_netlayer_start_connect(
-            self._raw,
-            request_id,
-            id_ptr, len(id_b),
-            hints_ptr, len(hints_b),
-        ))
+        with self._native.lease() as raw:
+            _check_iroh(
+                _iroh().pancake_iroh_netlayer_start_connect(
+                    raw,
+                    request_id,
+                    id_ptr,
+                    len(id_b),
+                    hints_ptr,
+                    len(hints_b),
+                )
+            )
         _ = (id_buf, hints_buf)
 
-    def finish_connect(self, request_id: int) -> IrohConn:
+    def finish_connect(self, request_id: int) -> IrohConnection:
         out = ctypes.c_void_p()
-        _check_iroh(_iroh().pancake_iroh_netlayer_finish_connect(
-            self._raw, request_id,
-            ctypes.byref(out),
-        ))
-        return IrohConn(out)
+        with self._native.lease() as raw:
+            _check_iroh(
+                _iroh().pancake_iroh_netlayer_finish_connect(
+                    raw,
+                    request_id,
+                    ctypes.byref(out),
+                )
+            )
+        return IrohConnection(out, self)
 
     def cancel_connect(self, request_id: int) -> None:
-        _check_iroh(_iroh().pancake_iroh_netlayer_cancel_connect(self._raw, request_id))
+        with self._native.lease() as raw:
+            _check_iroh(_iroh().pancake_iroh_netlayer_cancel_connect(raw, request_id))
 
     def __enter__(self) -> "IrohNetlayer":
         return self
@@ -321,13 +492,138 @@ class IrohNetlayer:
         self.release()
 
     def close(self) -> None:
-        if self._raw:
-            _iroh().pancake_iroh_netlayer_close(self._raw)
+        for child in self._begin_release():
+            child.release()
+        if self._native.closed:
+            return
+        with self._native.lease() as raw:
+            _iroh().pancake_iroh_netlayer_close(raw)
 
     def release(self) -> None:
-        if self._raw:
-            _iroh().pancake_iroh_netlayer_release(self._raw)
-            self._raw = None
+        for child in self._begin_release():
+            child.release()
+        self._native.close()
+
+    def _adopt_conn(self, conn: IrohConnection) -> bool:
+        with self._children_lock:
+            if self._release_started:
+                return False
+            self._children.add(conn)
+            return True
+
+    def _forget_conn(self, conn: IrohConnection) -> None:
+        with self._children_lock:
+            self._children.discard(conn)
+
+    def _begin_release(self) -> "list[IrohConnection]":
+        with self._children_lock:
+            self._release_started = True
+            return list(self._children)
+
+    def _start_release_task(self) -> "Optional[asyncio.Task]":
+        """Start or return the one task that owns native endpoint release."""
+        task = self._release_task
+        if task is not None:
+            return task
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.release()
+            return None
+        task = loop.create_task(asyncio.to_thread(self.release))
+        self._release_task = task
+        return task
+
+    async def release_async(self) -> None:
+        """Close, join operation leases, and release off the asyncio reactor.
+
+        Cancellation is remembered and re-raised only after the retained task
+        has completed, so canceling a caller cannot detach native teardown.
+        """
+        task = self._start_release_task()
+        if task is None:
+            return
+        cancelled = False
+        while True:
+            try:
+                await asyncio.shield(task)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+        if cancelled:
+            raise asyncio.CancelledError
+
+
+@dataclass(frozen=True, slots=True)
+class _LoopIrohState:
+    """Immutable binding state for one loop's registered iroh provider.
+
+    Native callback lifetime belongs to the driver's provider lease. This state
+    deliberately contains no netlayer handle: after registration the binding's
+    construction reference is gone, so there must be no wrapper left that could
+    accidentally call into the released native endpoint.
+    """
+
+    config: IrohConfig
+    seed: bytes
+    node_id: str
+
+
+_loop_iroh_states: "weakref.WeakKeyDictionary[object, _LoopIrohState]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def reachability_for_plan(plan) -> Reachability:
+    """Translate the core's peer-id posture into the optional iroh type."""
+    if plan.reach_kind == _c.DIAL_REACH_DIRECT:
+        return Reachability.DIRECT
+    return Reachability(plan.reach_value)
+
+
+async def adopt_loop_provider(loop, config: IrohConfig, *, seed: "Optional[bytes]" = None):
+    """Adopt or reuse iroh for a generic driver loop.
+
+    A loop Host's durable seed is the endpoint seed when the caller does not
+    supply one. Reuse is allowed only for exactly the same configuration and
+    seed; a second authority cannot silently change the endpoint posture.
+    """
+    if seed is None:
+        seed = loop.wrapper_host().seed
+    if len(seed) != 32:
+        raise PancakeError(_ERR_INVALID_ARGUMENT, "iroh provider seed must be 32 bytes")
+    seed = bytes(seed)
+    existing = _loop_iroh_states.get(loop)
+    if existing is not None:
+        if existing.config != config or existing.seed != seed:
+            raise PancakeError(
+                _ERR_INVALID_ARGUMENT,
+                "the loop's iroh endpoint configuration or durable seed conflicts",
+            )
+        return existing
+    netlayer = await IrohNetlayer.open(config, seed)
+    state_published = False
+    construction_owned = True
+    try:
+        node_id = netlayer.node_id()
+        state = _LoopIrohState(config, seed, node_id)
+        # Publish immutable state before registration so a failure to allocate
+        # the registry entry cannot leave a native provider without its
+        # corresponding configuration authority.
+        _loop_iroh_states[loop] = state
+        state_published = True
+        loop._install_provider(lambda register: register(netlayer._transport_provider()))
+        # Registration retained the callback context. This is only the
+        # construction reference; do not shut the endpoint down here.
+        netlayer._relinquish_provider_reference()
+        construction_owned = False
+        return state
+    except BaseException:
+        if state_published and _loop_iroh_states.get(loop) is state:
+            _loop_iroh_states.pop(loop, None)
+        if construction_owned:
+            netlayer.release()
+        raise
 
 
 # ── The iroh readiness dispatcher (ADR-0057) ────────────────────────────────
@@ -344,9 +640,16 @@ class _ConnWaiters:
     ``*_pending`` flag holds an edge that arrived before its waiter so no wakeup
     is lost."""
 
-    __slots__ = ("conn", "readable", "writable", "readable_pending", "writable_pending", "closed")
+    __slots__ = (
+        "conn",
+        "readable",
+        "writable",
+        "readable_pending",
+        "writable_pending",
+        "closed",
+    )
 
-    def __init__(self, conn: "IrohConn") -> None:
+    def __init__(self, conn: "IrohConnection") -> None:
         self.conn = conn
         self.readable: "Optional[asyncio.Future]" = None
         self.writable: "Optional[asyncio.Future]" = None
@@ -391,10 +694,10 @@ class _IrohLoop:
             self._fd = self._netlayer.readiness_fd()
             self._aio_loop.add_reader(self._fd, self._on_ready)
 
-    def register(self, conn: IrohConn) -> None:
+    def register(self, conn: IrohConnection) -> None:
         self._conns[conn.key()] = _ConnWaiters(conn)
 
-    async def dial(self, node_id: str, addr_hints: str) -> IrohConn:
+    async def dial(self, node_id: str, addr_hints: str) -> IrohConnection:
         request_id = self._next_request
         self._next_request += 1
         fut = asyncio.get_running_loop().create_future()
@@ -410,12 +713,12 @@ class _IrohLoop:
             self._netlayer.cancel_connect(request_id)
             raise
 
-    def unregister(self, conn: IrohConn) -> None:
+    def unregister(self, conn: IrohConnection) -> None:
         w = self._conns.pop(conn.key(), None)
         if w is not None:
             self._wake_closed(w)
 
-    def wait_readable(self, conn: IrohConn) -> "asyncio.Future":
+    def wait_readable(self, conn: IrohConnection) -> "asyncio.Future":
         """A future resolving ``True`` when this connection is readable, ``False``
         if it closed."""
         fut = asyncio.get_running_loop().create_future()
@@ -429,7 +732,7 @@ class _IrohLoop:
             w.readable = fut
         return fut
 
-    def wait_writable(self, conn: IrohConn) -> "asyncio.Future":
+    def wait_writable(self, conn: IrohConnection) -> "asyncio.Future":
         """A future resolving ``True`` when this connection is writable, ``False``
         if it closed."""
         fut = asyncio.get_running_loop().create_future()
@@ -501,9 +804,7 @@ class _IrohLoop:
             try:
                 n = self._netlayer.drain_ready(self._buf, _DRAIN_READY_CAP)
             except Exception:
-                if self._aio_loop is not None and self._fd >= 0:
-                    self._aio_loop.remove_reader(self._fd)
-                    self._fd = -1
+                self.close()
                 return
             for i in range(n):
                 self._dispatch(self._buf[i].subject, self._buf[i].events)
@@ -557,7 +858,7 @@ class _IrohLoop:
 
 
 class _IrohTransport:
-    """The iroh transport: a non-blocking :class:`IrohConn` driven by an
+    """The iroh transport: a non-blocking :class:`IrohConnection` driven by an
     :class:`_IrohLoop` (ADR-0057), reshaped into the byte transport a
     :class:`pancake.Session`'s serve loop reads. ``read`` sources raw
     inbound bytes through the sidecar's non-blocking ``try_read`` — the
@@ -582,7 +883,7 @@ class _IrohTransport:
 
     def __init__(
         self,
-        conn: IrohConn,
+        conn: IrohConnection,
         loop: _IrohLoop,
         owned_netlayer: "Optional[IrohNetlayer]" = None,
         owns_loop: bool = False,
@@ -593,6 +894,7 @@ class _IrohTransport:
         self._owned_netlayer = owned_netlayer
         self._read_buf = (ctypes.c_uint8 * self._READ_CHUNK)()
         self._closed = False
+        self._release_task: "Optional[asyncio.Task]" = None
 
     async def read(self) -> "Optional[bytes]":
         while True:
@@ -618,10 +920,12 @@ class _IrohTransport:
                 return None
 
     async def write(self, data: bytes) -> None:
-        while True:
-            n = self._conn.try_write(data)
+        offset = 0
+        while offset < len(data):
+            n = self._conn.try_write(data[offset:])
             if n != _WOULD_BLOCK:
-                return  # the whole slice went (all-or-nothing)
+                offset += n
+                continue
             if not await self._loop.wait_writable(self._conn):
                 raise PancakeError(_ERR_CLOSED, "iroh connection closed while writing")
 
@@ -641,13 +945,22 @@ class _IrohTransport:
             # when it is freed.
             self._loop.close()
             if self._owned_netlayer is not None:
-                self._owned_netlayer.release()
+                self._release_task = self._owned_netlayer._start_release_task()
+
+    async def wait_closed(self) -> None:
+        """Join an owned endpoint release started by synchronous ``close``."""
+        if not self._closed:
+            self.close()
+        if self._owned_netlayer is not None:
+            await self._owned_netlayer.release_async()
 
 
 _DISCOVERY_DIAL_RETRY_S = DISCOVERY_DIAL_RETRY_MS / 1000.0
 
 
-async def _dial_resolving(loop: _IrohLoop, node_id: str, direct_addresses: str, retry: bool) -> IrohConn:
+async def _dial_resolving(
+    loop: _IrohLoop, node_id: str, direct_addresses: str, retry: bool
+) -> IrohConnection:
     """Dial, retrying only under a propagating-discovery posture (``DISCOVERY`` and
     ``DISCOVERY_NO_RELAY``) while it resolves the partner by id. A dial-by-id can
     fail with "no addressing information" until the exporter's pkarr record
@@ -675,56 +988,9 @@ async def _dial_resolving(loop: _IrohLoop, node_id: str, direct_addresses: str, 
         await asyncio.sleep(_DISCOVERY_DIAL_RETRY_S)
 
 
-async def _connect_iroh_with_host(
-    node_id: str,
-    direct_addresses: str,
-    reachability: "Union[int, Reachability]",
-    host: Host,
-    handshake_timeout_ms: "Optional[int]" = _c.HANDSHAKE_TIMEOUT_MS,
-) -> Session:
-    """Binding-internal Host-keyed iroh dial behind a handoff redeem.
-    Application code uses ``connect(locator, reachability, host=…)``."""
-    netlayer = IrohNetlayer(IrohConfig(reachability))
-    loop = _IrohLoop(netlayer)
-    loop.start()
-    try:
-        conn = await _dial_resolving(
-            loop, node_id, direct_addresses,
-            int(reachability) in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
-        )
-    except BaseException:
-        loop.close()
-        netlayer.release()
-        raise
-    loop.register(conn)
-    # The transport owns the dialer-minted connection, loop, and ephemeral
-    # netlayer; on a handshake failure `establish_dialed_locator` abandons the
-    # half-built connection, and its transport close is what unregisters and
-    # releases the sidecar connection, stops the readiness loop, and releases
-    # the netlayer. The session is minted against `host`, so the session's
-    # identity (a give's recipient key) and the Host's session directory agree —
-    # what a three-party handoff requires.
-    transport = _IrohTransport(conn, loop, netlayer, owns_loop=True)
-    # `handshake_timeout_ms` bounds only the keyed exchange over the live QUIC
-    # connection, which is one round trip: resolving a node id over discovery
-    # and hole-punching a path is `_dial_resolving`'s own retry budget above,
-    # already finished by the time the handshake starts.
-    try:
-        # This module opened the connection, so it is the one place that can
-        # say what QUIC proved about the far end.
-        return await Session.establish_dialed_locator(
-            host, TRANSPORT_IROH, node_id, transport, handshake_timeout_ms,
-            conn.remote_node_id(),
-        )
-    except BaseException:
-        # establish can fail after register; close the transport so the conn,
-        # loop, and netlayer never leak without an owner.
-        with contextlib.suppress(Exception):
-            transport.close()
-        raise
-
-
-async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachability]") -> "_IrohTransport":
+async def dial_locator_for_relay(
+    locator: str, reachability: "Union[int, Reachability]"
+) -> "_IrohTransport":
     """Dial an iroh ``ocapn://`` locator to a raw byte channel for a
     byte-transparent relay: no CapTP handshake, since the relay only pipes bytes
     and the two ends key the session end to end. This is the Python parallel to
@@ -739,11 +1005,13 @@ async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachab
 
     parsed = parse_locator(locator)
     if parsed.transport != TRANSPORT_IROH:
-        raise ValueError(f"expected an iroh locator, got transport {parsed.transport!r}")
+        raise ValueError(
+            f"expected an iroh locator, got transport {parsed.transport!r}"
+        )
     node_id = parsed.designator
     direct_addresses = parsed.hints.get(HINT_DIRECT_ADDRESSES, "")
 
-    netlayer = IrohNetlayer(IrohConfig(reachability))
+    netlayer = await IrohNetlayer.open(IrohConfig(reachability))
     loop = _IrohLoop(netlayer)
     loop.start()
     try:
@@ -751,176 +1019,139 @@ async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachab
             loop,
             node_id,
             direct_addresses,
-            int(reachability) in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
+            int(reachability)
+            in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
         )
     except BaseException:
         loop.close()
-        netlayer.release()
+        await netlayer.release_async()
         raise
     loop.register(conn)
     return _IrohTransport(conn, loop, netlayer, owns_loop=True)
 
 
-async def _accept_iroh(
-    conn: IrohConn,
-    local_node_id: str,
-    direct_addresses: str,
-    loop: _IrohLoop,
-    host: Host,
-) -> Session:
-    """Complete the responder handshake over an accepted iroh connection, signing
-    the server's endpoint id as the locator designator (used by
-    :class:`IrohServer`). The accepted connection's loop and netlayer belong to
-    the server, not this connection. It is bound to the server's one ``host``
-    — shared identity and handoff router — and every node-giftable is published
-    on it by the open itself, before a dialer's pipelined fetch is answered
-    (the exporter half of a three-party handoff, ADR-0009), exactly as the TCP
-    responder does."""
-    # As the dial side: this module accepted the connection, so it is the one
-    # place that can say what QUIC proved about the peer that reached it.
-    return await Session.establish_accepted(
-        host, TRANSPORT_IROH, local_node_id, _IrohTransport(conn, loop),
-        accepted_local_addr=direct_addresses,
-        verified_channel_key=conn.remote_node_id(),
-    )
-
-
 class IrohServer:
-    """A listening iroh endpoint — the iroh sibling of :class:`pancake.Server`.
-    Async-iterable (``async for conn in server``) for an accepted
-    :class:`pancake.Session` per partner; read :attr:`uri` for the dialable
-    address (endpoint id + direct-address hints) to hand a client.
-    ``reachability`` (a :class:`Reachability`) is required and sets the endpoint's
-    addressing posture — there is no default. Needs the iroh ABI library
-    (``zig build iroh-abi``).
+    """A driver-owned iroh listener.
 
-    One seed drives both the iroh endpoint and the :class:`Host`: the node id,
-    the locator designator, and the session signing key are one value
-    (ADR-0075). Pass the same seed after a restart to keep the designator
-    stable."""
+    The supplied Host, when present, is transferred into the same native loop
+    that owns the iroh resident. The driver owns listener admission and keeps
+    yielded sessions alive until their own release.
+    """
 
-    def __init__(
-        self,
+    def __init__(self, node_id: str, host: Host, driver_loop, listener, *, owns_loop: bool):
+        self._node_id = node_id
+        self._host = host
+        self._driver_loop = driver_loop
+        self._listener = listener
+        self._owns_loop = owns_loop
+        self._closed = False
+
+    @classmethod
+    async def open(
+        cls,
         config: IrohConfig,
         secret_seed: "Optional[bytes]" = None,
         host: "Optional[Host]" = None,
-    ):
+    ) -> "IrohServer":
         if secret_seed is not None and len(secret_seed) != 32:
-            raise PancakeError(_ERR_INVALID_ARGUMENT, "listen_iroh: secret_seed must be 32 bytes")
+            raise PancakeError(
+                _ERR_INVALID_ARGUMENT, "listen_iroh: secret_seed must be 32 bytes"
+            )
         if host is not None and secret_seed is not None and host.seed != secret_seed:
             raise PancakeError(
                 _ERR_INVALID_ARGUMENT,
-                "listen_iroh: host seed must match secret_seed (one identity for endpoint and Host)",
+                "listen_iroh: host seed must match secret_seed",
             )
-        # One seed for the endpoint and the Host — never mint a fresh Host
-        # beside a different endpoint key (rooms Deno / Zig interop pattern).
         seed = secret_seed if secret_seed is not None else (
             host.seed if host is not None else secrets.token_bytes(32)
         )
-        self._netlayer = IrohNetlayer(config, seed)
-        self._node_id = self._netlayer.node_id()
-        # Serve every accepted connection from one readiness loop instead of a
-        # blocking accept and a blocking read parked per connection (ADR-0057).
-        self._loop = _IrohLoop(self._netlayer)
-        # One shared Host across every accepted session — one retained
-        # identity and one live-session directory — the iroh sibling of the TCP
-        # :class:`pancake.Server`. The gifter half of a three-party handoff dials
-        # the exporter under this same Host (:func:`pancake.connect` with ``host=``)
-        # so a published node-giftable and the introducer it returns share one
-        # Host (ADR-0009/ADR-0056).
-        self._host = host if host is not None else Host(seed=seed)
-        # Dials from this Host sign the endpoint's own id so a partner's
-        # crossed-hellos table can recognize it.
-        self._host.set_self_designator(self._node_id)
-        self._advertised_direct_addresses: Optional[str] = None
-        self._refresh_advertised_locator()
-        self._closed = False
-        # Accepted sessions still borrow the endpoint through their loop
-        # connections; release them before the netlayer.
-        self._sessions: list[Session] = []
+        return await cls._open_native_loop(config, seed, host)
+
+    @classmethod
+    async def _open_native_loop(
+        cls,
+        config: IrohConfig,
+        secret_seed: bytes,
+        host: "Optional[Host]",
+    ) -> "IrohServer":
+        from ._loop import DriverLoop
+
+        created_loop = True
+        if host is None:
+            loop = DriverLoop.open(
+                seed=secret_seed + secrets.token_bytes(32),
+                handshake_ms=HANDSHAKE_TIMEOUT_MS,
+            )
+        elif getattr(host, "_loop_mode", False):
+            loop = host._driver_loop
+            created_loop = False
+        else:
+            loop = DriverLoop.take_host(host)
+        try:
+            provider = await adopt_loop_provider(
+                loop, config, seed=secret_seed
+            )
+            listener = loop.listen(TRANSPORT_IROH, provider.node_id)
+            loop.select_listener(listener)
+            await loop.start()
+            return cls(
+                provider.node_id,
+                loop.wrapper_host(),
+                loop,
+                listener,
+                owns_loop=host is None,
+            )
+        except BaseException:
+            if created_loop:
+                loop.close()
+            raise
 
     @property
     def node_id(self) -> str:
-        """This endpoint's id, the keyed locator designator and the URI host."""
         return self._node_id
 
     @property
     def host(self) -> Host:
-        """The server's shared Host: one retained identity and handoff router
-        across every accepted session. Pass it to
-        :func:`pancake.connect` with ``host=self.host`` so a fetched capability and the dialing
-        session share one Host — the gifter side of a three-party handoff —
-        and publish a host-giftable on it with :meth:`Host.publish_giftable`."""
         return self._host
 
     @property
     def direct_addresses(self) -> str:
-        """This endpoint's comma-separated direct-address hints."""
-        return self._refresh_advertised_locator()
-
-    def _refresh_advertised_locator(self) -> str:
-        direct_addresses = self._netlayer.direct_addresses()
-        if direct_addresses != self._advertised_direct_addresses:
-            self._host.set_advertised_locator(encode_peer_locator(
-                TRANSPORT_IROH, self._node_id, direct_addresses,
-            ))
-            self._advertised_direct_addresses = direct_addresses
-        return direct_addresses
+        if self._closed:
+            raise PancakeError(_ERR_CLOSED, "iroh server is closed")
+        locator = self._driver_loop.listener_locator(self._listener)
+        direct = locator.hints.get(HINT_DIRECT_ADDRESSES, "")
+        if not isinstance(direct, str):
+            raise PancakeError(_ERR_INVALID_ARGUMENT, "iroh direct-addresses hint is not text")
+        return direct
 
     @property
     def uri(self) -> str:
-        """The ``ocapn://<nodeid>.iroh?direct-addresses=…`` URI a partner dials."""
-        hints = {HINT_DIRECT_ADDRESSES: self.direct_addresses} if self.direct_addresses else None
-        return format_peer_uri(TRANSPORT_IROH, self._node_id, hints)
+        if self._closed:
+            raise PancakeError(_ERR_CLOSED, "iroh server is closed")
+        from ._locator import format_locator_uri
+
+        return format_locator_uri(self._driver_loop.listener_locator(self._listener))
 
     def __aiter__(self) -> "IrohServer":
         return self
 
     async def __anext__(self) -> "Session":
-        self._loop.start()
-        while True:
-            if self._closed:
-                raise StopAsyncIteration
-            conn = self._netlayer.try_accept()
-            if conn is None:
-                # Nothing pending: wait for the loop's next accept record. A
-                # False resolution means the server is closing.
-                if not await self._loop.next_accept():
-                    raise StopAsyncIteration
-                continue
-            self._loop.register(conn)
-            # A handshake failure belongs to that one connection (a partner that
-            # dialed and died, or one that opened its stream and then said
-            # nothing, which `Session.establish_accepted` bounds), never the
-            # server, release it and keep accepting. The sidecar's own
-            # `connect_timeout` bounds only the QUIC `accept_bi` below it, not
-            # the OCapN handshake over the accepted stream.
-            try:
-                session = await _accept_iroh(
-                    conn, self._node_id, self.direct_addresses, self._loop, self._host,
-                )
-            except Exception:
-                self._loop.unregister(conn)
-                conn.release()
-                continue
-            self._sessions.append(session)
-            return session
+        try:
+            return await self._driver_loop.accept_session(self._listener)
+        except PancakeError as err:
+            if err.code == _ERR_CLOSED:
+                await self.close()
+                raise StopAsyncIteration from None
+            raise
 
     async def close(self) -> None:
-        """Stop accepting and release the endpoint. Closes every accepted
-        session (so each loop conn is released), then the readiness loop and
-        netlayer — never free the netlayer while a conn still points at it."""
         if self._closed:
             return
         self._closed = True
-        sessions = self._sessions
-        self._sessions = []
-        for session in sessions:
-            with contextlib.suppress(Exception):
-                await session.close()
-        self._netlayer.close()
-        self._loop.close()
-        self._netlayer.release()
+        self._listener.close()
+        if self._owns_loop:
+            self._driver_loop.request_close()
+            await self._driver_loop.wait_closed()
 
     async def __aenter__(self) -> "IrohServer":
         return self
@@ -929,7 +1160,7 @@ class IrohServer:
         await self.close()
 
 
-def listen_iroh(
+async def listen_iroh(
     config: IrohConfig,
     secret_seed: "Optional[bytes]" = None,
     host: "Optional[Host]" = None,
@@ -945,4 +1176,4 @@ def listen_iroh(
     presence should set ``idle_timeout_ms``, because that is what ends a
     connection whose peer was killed rather than closed. Needs the iroh ABI
     library (``zig build iroh-abi``)."""
-    return IrohServer(config, secret_seed, host)
+    return await IrohServer.open(config, secret_seed, host)

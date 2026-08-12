@@ -11,15 +11,17 @@ inventory, [stability](stability.md) says how each surface is tested, and the
   peer claims no identity and proves none, and the channel is cleartext. That
   fails the OCapN draft's own netlayer requirement that a session be secure
   enough that only its participants can insert messages. Upstream Goblins ships
-  no TCP netlayer, and the OCapN suite's equivalent is named `tcp-testing-only`
-  and declares itself unsafe in its own source. The Goblins TCP netlayer these
-  checks dial is a shim written in this repository for interoperability work.
-  Use `tcp` to reach a peer that speaks nothing else, not to deploy.
+  onion (and an in-process `fake`), not TCP. The OCapN suite's equivalent is
+  named `tcp-testing-only` and declares itself unsafe in its own source. The
+  Goblins TCP netlayer these checks dial is a shim in this repository. Use
+  `tcp` to reach a peer that speaks nothing else, not to deploy.
 - **`keyed-tcp` and `keyed-relay` are cleartext and unauthenticated.** Their key
   designator is a stable dial target, but the channel proves no possession of
   it. Anyone on the path reads and can alter every frame; on `keyed-relay` that
   includes the relay operator, whose leg the native resident opens as `ws://`.
-  Use iroh or WebRTC for production channel identity and confidentiality.
+  Prefer `noise-tcp` or `noise-relay` for pancake-to-pancake sealed channels,
+  iroh when discovery or NAT traversal is needed, and WebRTC for a direct
+  browser channel.
 - **An address is not an identity.** On plain TCP, the crossed-connection
   tiebreak trusts the location each peer declares. A peer that can connect and
   claim an address you are dialing can make your outgoing session lose that
@@ -31,20 +33,33 @@ inventory, [stability](stability.md) says how each surface is tested, and the
   with channel proof recognises the peer by its durable name and keeps one.
 - **`inproc` is a test transport.** Its unbounded pipes block the reading
   thread, so it is not a production or load-test substitute.
+- **`onion` is proven live against the portable upstream suite, but not at scale.** `zig build
+  onion-interop` holds a session between two pancake peers and restores the same
+  service in a fresh process. `zig build goblins-onion` does it with a real
+  Spritely Goblins vat in both directions. `zig build ocapn-conformance-onion`
+  passes the complete portable upstream suite plus the strict abort probe through the
+  upstream onion netlayer. The local fake-daemon checks cover the blocking
+  resident, generic provider package, native Zig `OnionLoop`, and provider
+  installation from every native binding. Live steps need `tor`
+  and outbound network access, so they remain siblings of `check`. No recorded
+  live-Tor scale run exists.
+- **An onion session runs the `1.0` profile.** The hints that would state a
+  wire-profile preference cannot ride an onion locator, so two pancake peers over
+  Tor settle the baseline rather than `pancake-next` (ADR-0108).
 - **iroh reachability is not fully exercised in CI.** The loop checks
   multiplexing, and opt-in checks cover discovery and relay use from one host.
   They do not cover hole-punching between separate NATs.
   `discovery_no_relay` has no green check because it needs a publishable direct
   address. A live Goblins-over-iroh session does have one, `goblins-iroh`, over
-  the iroh netlayer this repository wrote for Goblins; it runs on loopback under
-  the direct posture, so it adds no reachability evidence.
+  the iroh netlayer this repository wrote for Goblins; it runs on loopback with
+  direct dial (no relay), so it adds no reachability evidence.
 - **A `webrtc` dial needs configured signaling authority.** On the TypeScript
   stack, a host configured with `Host.setSignaling` dials a bare `webrtc`
   locator: the dial executor runs the offer, answer, and candidate exchange
   and holds the keyed session over the opened DataChannel. Without that
-  authority the dial refuses. On the native side the same posture holds: the
-  completion backend dials through a configured `SignalingAuthority` and
-  adopts signaled peers into the generic Host.
+  authority the dial refuses. Native Zig does the same: the completion backend
+  dials through a configured `SignalingAuthority` and adopts signaled peers
+  into the generic Host.
 
 The iroh and WebRTC transports rely on their existing sidecars; pancake does
 not ship a native Zig QUIC or WebRTC stack.
@@ -63,6 +78,12 @@ not ship a native Zig QUIC or WebRTC stack.
 
 ## Runtime and scale
 
+- **TypeScript on Bun cannot host the native driver loop.** Bun's FFI executes
+  native calls on its JavaScript thread, so a listener or blocking transport
+  lifecycle could park the reactor. Those APIs refuse before allocating a
+  native runtime. The synchronous Host and locator surface and byte-fed client
+  path remain available; Deno owns the full native-loop binding proof.
+
 - **A Host's actor runtime (its Vat) is single-threaded and non-preemptive.** A
   hosted behavior runs synchronously to the end of its turn. A slow or blocking
   handler therefore stalls every session adapter (Port) sharing that Host. Keep
@@ -71,29 +92,71 @@ not ship a native Zig QUIC or WebRTC stack.
   move blocking work out of the behavior callback. The actor layer's mechanism
   for that is the resolver vow
   ([ADR-0102](decisions/adr/ADR-0102-off-turn-settlement.md)): a behavior
-  defers its answer with `Turn.forwardVow` and the work's completion settles
+  defers its answer atomically and the work's completion settles
   it later through `Vat.fulfillVow` or `Vat.breakVow`, on the owning thread.
   A byte-fed embedder has the same seam over the C surface
-  (`pancake_host_spawn_resolver` and its settle verbs). A TypeScript or
+  (`pancake_host_turn_defer` and its settle verbs). A TypeScript or
   Python behavior that returns a promise defers this way automatically, and
   the Rust and Racket bindings expose the resolver pair directly. A native
   worker thread hands its settle back through `driver.SettleMailbox`: the
-  post wakes the owning thread's wait — `PollHost` polls the mailbox's fd
+  post wakes the owning thread's wait — `driver.HostRuntime` polls the mailbox's fd
   beside its wires, and the completion loop arms a recv on it — and the
   settle applies there. Off-thread settles carry plain data only; a
   capability never crosses threads.
 - **The 500,000-session target has not been proved under live socket load.**
   Checked budgets hold the warmed protocol core near 2 KiB per session, and the
   loop checks serve many connections, but neither is a 500,000-connection run.
-  [The ladder](ladder.md) carries the measured budgets.
-- **The simplest blocking pump serves one connection on one fiber.** Use the
-  TCP or iroh completion loop for a partner that streams while waiting for you
-  to drain output.
-- **`driver.PollHost` accepts only its integrated pollable transports.** TCP
-  fits directly. iroh and WebRTC use their completion loops (the WebRTC
-  backend adopts signaled peers and dials through a configured signaling
-  authority); `inproc` and the WebRTC blocking tier use
-  `driver.BlockingSession`.
+  [The 1.0 ladder](ladder.md) carries the measured budgets.
+- **The simplest blocking pump serves one connection on one fiber.** Use a
+  completion loop (TCP, iroh, onion, or keyed-relay outbound) for a partner that
+  streams while waiting for you to drain output.
+- **`driver.HostRuntime` hosts descriptor-backed transports and multiplexed
+  providers.** A stream transport needs a pollable socket:
+  TCP, keyed TCP, onion, and keyed-relay fit directly, while `inproc` reports
+  no readiness and stays on `driver.BlockingSession`. A transport that
+  multiplexes connections behind one shared readiness descriptor joins
+  through the common provider package ABI (ADR-0112), which covers dials,
+  listener metadata and lifecycle, accepted-connection claim, and teardown.
+  iroh implements the multiplexed execution entry in that provider package
+  (`pancake_iroh_transport_provider`, with both dial and accept proven live by
+  `zig build iroh-driver-provider`). WebRTC implements the package's external
+  connection claim: its archive owns signaling and opens the DataChannel, then
+  `pancake_driver_adopt_external` transfers either session role to the generic
+  driver. `zig build webrtc-driver-provider` proves both halves and an
+  authenticated capability fetch.
+- **`libpancake_driver` steps one `HostRuntime` from C.** It parks behind one
+  readiness descriptor (epoll on Linux, kqueue on Darwin; elsewhere
+  `pancake_driver_readiness_fd` fails typed while the stepping verbs keep
+  working). Dial and accept handshakes advance across steps under the
+  handshake budget, so two loops on one thread can dial each other and a
+  stalled connector cannot park the step. Stream providers begin connects
+  through a nonblocking `start_connect` contract and publish readiness-driven
+  completion; native Zig netlayers without `start_dial` retain the blocking
+  fallback outside this provider seam.
+- **Pre-open memory is explicitly bounded.** `max_pending_opens` defaults to
+  256 per driver Host and counts transport connects plus CapTP handshakes
+  across dial, accept, external adoption, and redeem. Over-limit stream
+  accepts remain in the kernel backlog; multiplexed-provider accepts are claimed
+  and closed without minting a session. Applications can tune the bound with
+  the wire-buffer and deadline policy they deploy.
+- **A driver loop permits at most one listener per registered provider
+  profile.** Listener ids route accepts independently; listeners can be
+  selected as the Host's acceptable route and closed individually. A provider
+  package may impose a narrower runtime limit. Closing the selected listener
+  leaves no acceptable route until the caller selects another.
+- **Provider packages own which profiles the loop can open.** The TCP package
+  realizes `tcp`, `keyed-tcp`, and `noise-tcp`. Key-addressed profiles take
+  their designator from the wrapped Host and expose the bound address as a
+  separate listener hint; `noise-tcp` seals and authenticates the channel in
+  the Host. Other transports arrive as packages. Iroh's multiplexed provider
+  (`pancake_iroh_transport_provider`) owns listener start, metadata, accept
+  claim, stop, and dial. Providers that cannot host refuse listener start
+  explicitly.
+
+  The relay package can dial both `keyed-relay` and `noise-relay`, but may host
+  only one at a time. The deployed rendezvous protocol queues inbound legs by
+  durable designator without a channel-profile discriminator. Two relay
+  listeners would therefore route nondeterministically.
 - **Callers can still choose an infinite wait.** Zig requires an explicit
   handshake and settle budget, but `.unbounded` remains available. The CLI and
   examples use finite deadlines; library callers must make the same choice.
@@ -121,7 +184,7 @@ not ship a native Zig QUIC or WebRTC stack.
 ## API gaps
 
 - **A sturdyref enliven verifies the complete locator before wire traffic.**
-  Every tier's select-or-dial enliven (`driver.PollHost.enliven`,
+  Every tier's select-or-dial enliven (`driver.HostRuntime.enliven`,
   `pancake_host_enliven`, and each binding's host-level verb) checks the
   sturdyref's peer against the session it selects or dials. An accepted
   plain-TCP session is refused by default; only the native low-level
@@ -147,14 +210,13 @@ assets are not published.
 
 ## Protocol and interop
 
-- **Raw keyed TCP and keyed relay do not authenticate a peer.** Their key
-  designator is a stable dial target and a claim in the hello. Matching it
-  rejects an accidental mismatch, but the cleartext channel proves no key
-  possession and reports `unauthenticated`. A fresh session key limits honest
-  reconnects to distinct CapTP identities; it does not stop a captured hello
-  from being replayed. iroh, WebRTC signaling, and the planned Noise channel
-  supply connection-scoped identity proof. An embedder that realizes its own
-  authenticated channel records the same fact through
+- **Keyed TCP and keyed relay prove no peer.** Matching the hello's key claim
+  rejects an accidental mismatch, but the cleartext channel reports
+  `unauthenticated`. A fresh session key limits honest reconnects; it does not
+  stop a captured hello from being replayed. iroh, WebRTC signaling, and
+  `noise-tcp` / `noise-relay` supply connection-scoped identity proof
+  (ADR-0107). `BlockingSession` refuses Noise symbols.
+  An embedder with its own authenticated channel records the same fact through
   `pancake_host_session_bind_verified_channel_key`.
 - **OCapN Null is absent.** Unknown Syrup records remain tagged values instead.
   The encoding is an open upstream question
@@ -220,30 +282,21 @@ and specification-gap record.
 ## Browser reachability
 
 A browser is a full peer after it has a channel, but it cannot open a listening
-socket. Cold dial works through a shared relay. The relay holds an inbound
-socket under the browser's keyed identity, and a dialer configured for that
-relay (another browser, or a native peer) bridges onto it. The relay carries
-bytes and proves nothing. Raw `keyed-relay` therefore provides reachability but
-not peer authentication or confidentiality. WebRTC supplies both through its
-DTLS channel and signaling authority; ADR-0107 proposes Noise_XK for an
-end-to-end sealed byte channel through the relay.
+socket. Cold dial works through a relay that holds an inbound socket under the
+browser's keyed identity. A `rendezvous-relay` locator hint carries the route,
+so the dialer need not share the registrant's deployment configuration. Raw
+`keyed-relay` reaches the peer but proves nothing and leaves frames cleartext.
+WebRTC supplies encryption and signaling authority. `noise-relay` seals the
+CapTP stream end to end (ADR-0107).
 
-The core classifies a `keyed-relay` locator as the `rendezvous` dial shape for
-every consumer. Each consumer opens it through its host's configured relay
-mapping: the four language bindings through their runtimes' WebSocket clients,
-and native Zig through the in-tree `net.keyed_relay` resident (the CLI joins
-it with `PANCAKE_RENDEZVOUS`). The
-`zig build bindings-keyed-relay-rendezvous` proof family holds all five rows.
-The registration half is native too: `pancake ocapn listen --rendezvous
-ws://host:port/register` binds no listening socket, holds an inbound socket at
-the relay under its key designator, and prints the `keyed-relay` locator that
-names it. `zig build zig-keyed-relay-register` proves a CLI registrant
-answering a CLI cold dial.
-
-One reachability path is not built: a cold dial across different relays,
-because the locator names the peer identity rather than a relay route.
+`zig build bindings-keyed-relay-rendezvous` proves Deno, Python, Rust, Racket,
+and the native CLI honor locator-carried routes over a deliberately dead local
+fallback. `zig build zig-keyed-relay-register` proves the CLI registration
+half. The relay provider archive owns both `keyed-relay` and `noise-relay`,
+including native dial and registration through the generic driver. A real
+Chromium wasm peer reports `authenticated_transport` on a live `noise-relay`
+session under `zig build rooms-web-noise-relay-provenance`.
 
 The [roadmap](roadmap.md) owns those tasks and the remaining product work,
-including the A2A facade. The griddle simulator and protocol visualization ship
-today; what they still lack is named in the roadmap's Beyond the library
-section.
+including the A2A facade, OpenTelemetry export, the object layer, and control
+capabilities.

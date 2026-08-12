@@ -29,7 +29,6 @@ import { archiveListingViolation } from "./archive_hygiene.ts";
 import nodeProcess from "node:process";
 import * as nodeFs from "node:fs";
 import * as nodeCrypto from "node:crypto";
-import * as nodeOs from "node:os";
 import * as nodePath from "node:path";
 import * as nodeUrl from "node:url";
 import * as nodeChildProcess from "node:child_process";
@@ -42,7 +41,6 @@ type HostModules = {
 	process: typeof import("node:process");
 	fs: typeof import("node:fs");
 	crypto: typeof import("node:crypto");
-	os: typeof import("node:os");
 	path: typeof import("node:path");
 	url: typeof import("node:url");
 	childProcess: typeof import("node:child_process");
@@ -57,7 +55,6 @@ const host: HostModules | null =
 		process: nodeProcess,
 		fs: nodeFs,
 		crypto: nodeCrypto,
-		os: nodeOs,
 		path: nodePath,
 		url: nodeUrl,
 		childProcess: nodeChildProcess,
@@ -83,12 +80,30 @@ const rmdirSync = host?.fs.rmdirSync ?? hostOnly;
 const rmSync = host?.fs.rmSync ?? hostOnly;
 const statSync = host?.fs.statSync ?? hostOnly;
 const createHash = host?.crypto.createHash ?? hostOnly;
-const homedir = host?.os.homedir ?? hostOnly;
-const tmpdir = host?.os.tmpdir ?? hostOnly;
 const dirname = host?.path.dirname ?? hostOnly;
 const join = host?.path.join ?? hostOnly;
 const fileURLToPath = host?.url.fileURLToPath ?? hostOnly;
 const spawnSync = host?.childProcess.spawnSync ?? hostOnly;
+
+const syncWaitCell: Int32Array | null =
+	typeof SharedArrayBuffer === "function" && typeof Atomics.wait === "function"
+		? new Int32Array(new SharedArrayBuffer(4))
+		: null;
+
+function sleepSync(ms: number): boolean {
+	if (syncWaitCell != null) {
+		try {
+			Atomics.wait(syncWaitCell, 0, 0, ms);
+			return true;
+		} catch {
+			// Some embedders expose SharedArrayBuffer but forbid blocking waits on
+			// this thread. The archive loader is synchronous by contract, so the
+			// caller degrades to the next archive-resolution rung rather than
+			// burning CPU.
+		}
+	}
+	return false;
+}
 
 export function libFile(stem: string): string {
 	const suffix = ffi.libSuffix();
@@ -277,21 +292,10 @@ function cacheBase(contract: Contract): string | null {
 	if (override !== null) return override;
 	const xdg = envVar("XDG_CACHE_HOME");
 	if (xdg !== null) return join(xdg, "pancake/c-abi");
-	// homedir()/tmpdir() read HOME/TMPDIR and throw without --allow-env, so gate
-	// them the way envVar() gates its own reads. When the environment is fully
-	// ungranted the cache rung is simply unavailable (null), and libDir() degrades
-	// to the in-tree or bare-name rung — the loader's documented contract — rather
-	// than throwing out of the whole cascade.
-	if (envGranted("HOME")) {
-		try {
-			return join(homedir(), ".cache/pancake/c-abi");
-		} catch { /* fall through to tmpdir */ }
-	}
-	if (envGranted("TMPDIR")) {
-		try {
-			return join(tmpdir(), contract.fallback_cache_name);
-		} catch { /* fall through to null */ }
-	}
+	const home = envVar("HOME");
+	if (home !== null) return join(home, ".cache/pancake/c-abi");
+	const tmp = envVar("TMPDIR");
+	if (tmp !== null) return join(tmp, contract.fallback_cache_name);
 	return null;
 }
 
@@ -436,9 +440,9 @@ function fetchIntoCache(
 				softFail(`timed out waiting for cache lock at ${lockDir}`);
 				return;
 			}
-			const until = Date.now() + 100;
-			while (Date.now() < until) {
-				/* spin-wait for lock without spawning sleep */
+			if (!sleepSync(100)) {
+				softFail("host runtime cannot park while waiting for cache lock");
+				return;
 			}
 		}
 	}

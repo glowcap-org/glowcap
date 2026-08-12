@@ -170,8 +170,8 @@ let mintRef!: (id: bigint) => Ref;
 
 /** A capability, a reference to an object you can `send` to, wherever it lives.
  *
- * You get a `Ref` two ways: `conn.spawn(behavior)` (a local actor you host) or
- * `conn.fetch(name)` (a capability a partner published). A `Ref` is opaque: pass
+ * You get a `Ref` two ways: `session.spawn(behavior)` (a local actor you host) or
+ * `session.fetch(name)` (a capability a partner published). A `Ref` is opaque: pass
  * it as an argument to `send` and it marshals to the right wire reference
  * automatically. You never construct `near`/`far` references by hand.
  *

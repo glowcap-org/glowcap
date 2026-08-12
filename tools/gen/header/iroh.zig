@@ -33,7 +33,9 @@ pub const step_name = "gen-header-net-transport-iroh";
 // cannot silently miss the header while the gate stays green.
 const emitted_fn_names = [_][]const u8{
     "pancake_iroh_netlayer_new",
+    "pancake_iroh_netlayer_new_with_diagnostic",
     "pancake_iroh_netlayer_new_in",
+    "pancake_iroh_netlayer_new_with_diagnostic_in",
     "pancake_iroh_netlayer_close",
     "pancake_iroh_netlayer_release",
     "pancake_iroh_netlayer_node_id",
@@ -49,6 +51,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_iroh_netlayer_cancel_connect",
     "pancake_iroh_conn_try_read",
     "pancake_iroh_conn_try_write",
+    "pancake_iroh_transport_provider",
     "pancake_iroh_last_error",
     "pancake_iroh_clear_last_error",
 };
@@ -103,6 +106,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\#include <stddef.h>
         \\#include <stdint.h>
         \\#include "pancake_ocapn.h"
+        \\#include "pancake_transport_provider.h"
         \\
         \\#ifdef __cplusplus
         \\extern "C" {
@@ -249,7 +253,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
 
     try emitFn(&b, gpa, "pancake_iroh_netlayer_new", &.{ "secret_seed", "secret_seed_len", "config", "out_netlayer" }, "Create an iroh netlayer (one bound endpoint) allocating through the library\nallocator. secret_seed/secret_seed_len is either a 32-byte Ed25519 secret key\n(borrowed) or empty (secret_seed_len == 0) for a fresh random key; any other\nlength is PANCAKE_ERR_INVALID_ARGUMENT. config carries the mandatory reachability\n(PANCAKE_IROH_REACH_*; an unknown value or a NULL config is\nPANCAKE_ERR_INVALID_ARGUMENT / PANCAKE_ERR_NULL_POINTER) and the optional\nconnect_timeout_ms (0 = pancake's own default). Binds the endpoint and arms the\nreadiness loop, so the netlayer is immediately driveable through\npancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO (see pancake_iroh_last_error)\nif the endpoint cannot bind or the loop cannot arm. Release with\npancake_iroh_netlayer_release after releasing every connection made from it.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_new_with_diagnostic", &.{ "secret_seed", "secret_seed_len", "config", "out_netlayer", "out_error", "error_cap", "out_error_len" }, "As pancake_iroh_netlayer_new, additionally copying the constructor thread's\nlast-error detail into caller-owned out_error storage before return. out_error_len\nis required and receives the full diagnostic length; at most error_cap-1 bytes\nare copied and NUL-terminated when error_cap is nonzero. Use this companion when\na foreign runtime dispatches construction to a worker thread.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_new_in", &.{ "context", "secret_seed", "secret_seed_len", "config", "out_netlayer" }, "As pancake_iroh_netlayer_new, allocating the netlayer, endpoint, and every\nper-connection buffer through context.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_new_with_diagnostic_in", &.{ "context", "secret_seed", "secret_seed_len", "config", "out_netlayer", "out_error", "error_cap", "out_error_len" }, "As pancake_iroh_netlayer_new_in, additionally returning the constructor\nthread's diagnostic through caller-owned storage; see\npancake_iroh_netlayer_new_with_diagnostic.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_close", &.{"netlayer"}, "Close the endpoint without releasing the handle: subsequent dials fail and the\nreadiness loop winds down. Idempotent. The shutdown lever for a host whose\nreadiness wait parks on another thread.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_release", &.{"netlayer"}, "Release the netlayer, its endpoint, and the runtime. Every connection made\nfrom it must already be released. NULL is a no-op.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_node_id", &.{ "netlayer", "out", "cap", "out_len" }, "Write this endpoint's id — its Ed25519 public key, the dialable designator —\ninto out as lowercase hex, and the byte count into out_len. cap must be at\nleast the id length (64) or the call is PANCAKE_ERR_BUFFER_TOO_SMALL. No\nterminator is written.");
@@ -265,7 +271,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_iroh_netlayer_finish_connect", &.{ "netlayer", "request_id", "out_conn" }, "Consume one terminal dial after EV_CONNECT. PANCAKE_OK transfers the owned\nconnection to out_conn; a failure returns its PANCAKE_ERR_* classification. The\nresult can be consumed only once. Release a successful connection with\npancake_iroh_conn_release.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_cancel_connect", &.{ "netlayer", "request_id" }, "Cancel one admitted dial. Its sole EV_CONNECT still arrives and must be finished,\nwhich consumes the endpoint-owned terminal result.");
     try emitFn(&b, gpa, "pancake_iroh_conn_try_read", &.{ "conn", "buf", "len", "out_read" }, "Non-blocking read of raw inbound bytes into buf: PANCAKE_OK with the byte count\nin out_read, PANCAKE_ERR_WOULD_BLOCK when nothing is buffered yet,\nPANCAKE_ERR_CLOSED on a clean end of stream, or PANCAKE_ERR_IO on a fault\n(out_read untouched on any non-OK return). Feed these bytes to a PancakeHost\nsession, the same shape the TCP path uses.");
-    try emitFn(&b, gpa, "pancake_iroh_conn_try_write", &.{ "conn", "buf", "len", "out_written" }, "Non-blocking write of len raw bytes from buf: PANCAKE_OK with the count written\n(the whole slice, all-or-nothing) in out_written, PANCAKE_ERR_WOULD_BLOCK when\nthe outbound buffer is at its bound (retry the same bytes after the next\nwritable record), or PANCAKE_ERR_IO on a fault (out_written untouched on any\nnon-OK return).");
+    try emitFn(&b, gpa, "pancake_iroh_conn_try_write", &.{ "conn", "buf", "len", "out_written" }, "Non-blocking write of len raw bytes from buf: PANCAKE_OK with the count written\n(possibly a prefix) in out_written, PANCAKE_ERR_WOULD_BLOCK when the outbound\nbuffer has no room (retry after the next writable record), or PANCAKE_ERR_IO on\na fault (out_written untouched on any non-OK return).");
+
+    try emitFn(&b, gpa, "pancake_iroh_transport_provider", &.{ "netlayer", "out_provider" }, "Fill out_provider with this runtime's one-entry iroh package. Install it with\npancake_driver_add_provider. The driver acquires the provider lease through\nretain and releases it after all transport use retires; release the iroh runtime\nafter the driver is released.");
 
     try emitFn(&b, gpa, "pancake_iroh_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last iroh-transport error into out_buf, the iroh\nsibling of pancake_last_error, reading libpancake_net_transport_iroh's own per-thread slot. A\npancake_iroh_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set.");
     try emitFn(&b, gpa, "pancake_iroh_clear_last_error", &.{}, "Clear the calling thread's iroh-transport last-error slot.");

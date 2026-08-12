@@ -1,0 +1,16 @@
+from pancake import connect, tcp_locator
+
+# Plain TCP uses a cleartext host and port.
+partner = tcp_locator("127.0.0.1", 9099)
+
+session = await connect(partner)
+session.serve()
+
+greeter = await session.fetch("greeter")  # a capability, by name
+try:
+    reply = await session.send(greeter, "greet", ["world"])
+    print(reply)
+except Exception as reason:
+    print(f"the greeter refused: {reason}")
+
+await session.close()

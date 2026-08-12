@@ -118,10 +118,13 @@ export function strokeCurve(
   });
 }
 
+/** Sample count for Bezier → polyline walks (dashes and hit tests). */
+export const CURVE_STROKE_SAMPLES = 24;
+
 /** Dashed stroke along a Bezier — Pixi has no curved-dash primitive,
  * so we sample the curve into a polyline and walk dashes across the
- * segments. Sample count is fixed at 24 (gives ~5 dashes for our
- * dash period at typical edge lengths).
+ * segments. Sample count is {@link CURVE_STROKE_SAMPLES} (gives ~5 dashes
+ * for our dash period at typical edge lengths).
  *
  * Each dash is ONE sub-path, however many sample boundaries it crosses. A dash
  * has to follow the curve, so a long one is several segments, and opening a
@@ -138,7 +141,7 @@ export function strokeDashedCurve(
   pattern: readonly [number, number],
   style: { color: number; width: number; alpha: number },
 ): void {
-  const samples = 24;
+  const samples = CURVE_STROKE_SAMPLES;
   // Walk in cumulative arc length so the dash phase is uniform
   // (uniform-t sampling would bunch dashes near the apex on
   // strongly curved arcs).

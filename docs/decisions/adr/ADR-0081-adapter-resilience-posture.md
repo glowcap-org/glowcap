@@ -6,6 +6,7 @@ tags: [resilience, net, driver, c-abi, error-handling]
 decision: "The adapter layer fails closed with a typed reason a caller can act on: dial faults carry a transient/refused/unreachable/invalid axis, every blocking read on an untrusted partner is bounded, a vanished peer surfaces through on_close, and no path that settles protocol state swallows its error."
 supersedes: []
 superseded_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0081 Adapter resilience posture
@@ -84,7 +85,7 @@ typed reason, never blocks, never times out, holds no socket; `arch-check`'s
 ## Scope (what this does not decide)
 
 - **Retry, backoff, and endpoint rebuild are not in the loop or the core.** They
-  live above the completion loop in `driver` (see the sibling `ResilientClient`
+  live above the completion loop in `driver` (see the sibling `DialRetry`
   work). The loop cannot own the endpoint it borrows, so full-endpoint rebuild is
   inherently a `driver`/consumer concern; this ADR only makes the loop *surface*
   the disconnect a supervisor rebuilds on.
@@ -123,7 +124,7 @@ typed reason, never blocks, never times out, holds no socket; `arch-check`'s
 
 ## Forward compatibility
 
-The typed `DialError` axis is the seam `driver.ResilientClient` branches on to
+The typed `DialError` axis is the seam `driver.DialRetry` branches on to
 classify retry-worthy from fatal. That continuity core, Host-full `SessionLimits`,
 fan-in throttle, park-kill, and the `durable_bootstrap` posture are decided in
 [ADR-0082](ADR-0082-adapter-continuity-and-host-resource-honesty.md). The axis

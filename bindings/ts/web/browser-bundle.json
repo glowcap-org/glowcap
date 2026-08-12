@@ -14,6 +14,7 @@
 		"react-dom/client": "npm:react-dom@19.2.0/client",
 		"@pancake/web": "./mod.ts",
 		"@pancake/stack": "../stack/mod.ts",
+		"@pancake/stack/websocket": "../stack/ws_channel.ts",
 		"@pancake/stack/ffi": "../stack/ffi.ts",
 		"@pancake/iroh": "./browser_iroh_stub.ts",
 		"@pancake/iroh/internal": "./browser_iroh_stub.ts",

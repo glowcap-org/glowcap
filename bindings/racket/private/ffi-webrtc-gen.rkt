@@ -7,15 +7,14 @@
 ;; The keyed table of libpancake_net_transport_webrtc. The archive is
 ;; optional and loads lazily, so this module exports one table-building
 ;; function the hand-written sibling (`ffi-webrtc.rkt`) calls with the
-;; opened library -- the generated module stays below the hand module, so
-;; no require cycle forms. WebRTC handles are opaque and the readiness
-;; record buffer crosses as a raw pointer, so the table takes only the
-;; library. Every row returns immediately; the endpoint fd owns wakeups.
+;; opened library and the config cstruct pointer type it declares -- the
+;; generated module stays below the hand module, so no require cycle
+;; forms. Every row returns immediately; the endpoint fd owns wakeups.
 (require ffi/unsafe
          "ffi-shared.rkt")
 (provide webrtc-ffi-table)
 
-(define (webrtc-ffi-table L)
+(define (webrtc-ffi-table L _PancakeWebrtcConfig-pointer)
   (hasheq
    'last-error
    (get-ffi-obj 'pancake_webrtc_last_error L (_fun _pointer _size -> _size))
@@ -30,20 +29,22 @@
    'netlayer-release
    (get-ffi-obj 'pancake_webrtc_netlayer_release L (_fun _pointer -> _void))
    'peer-new
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_new L (_fun _pointer _int32 _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_new L (_fun #:blocking? #t _pointer _int32 _pointer -> _int32))
               _pointer #f)
+   'peer-authorize-remote
+   (get-ffi-obj 'pancake_webrtc_peer_authorize_remote L (_fun _pointer _pointer _size -> _int32))
    'peer-create-offer
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_create_offer L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_create_offer L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-create-answer
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_create_answer L (_fun _pointer _pointer _size _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_create_answer L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'peer-set-remote-offer
-   (get-ffi-obj 'pancake_webrtc_peer_set_remote_offer L (_fun _pointer _pointer _size -> _int32))
+   (get-ffi-obj 'pancake_webrtc_peer_set_remote_offer L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
    'peer-set-remote-answer
-   (get-ffi-obj 'pancake_webrtc_peer_set_remote_answer L (_fun _pointer _pointer _size -> _int32))
+   (get-ffi-obj 'pancake_webrtc_peer_set_remote_answer L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
    'peer-add-remote-candidate
-   (get-ffi-obj 'pancake_webrtc_peer_add_remote_candidate L (_fun _pointer _pointer _size -> _int32))
+   (get-ffi-obj 'pancake_webrtc_peer_add_remote_candidate L (_fun #:blocking? #t _pointer _pointer _size -> _int32))
    'peer-next-local-candidate
    (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_next_local_candidate L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
@@ -60,4 +61,6 @@
    'peer-close
    (get-ffi-obj 'pancake_webrtc_peer_close L (_fun _pointer -> _void))
    'peer-release
-   (get-ffi-obj 'pancake_webrtc_peer_release L (_fun _pointer -> _void))))
+   (get-ffi-obj 'pancake_webrtc_peer_release L (_fun _pointer -> _void))
+   'transport-provider
+   (get-ffi-obj 'pancake_webrtc_transport_provider L (_fun _pointer _PancakeTransportProvider-pointer -> _int32))))

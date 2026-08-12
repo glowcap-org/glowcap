@@ -1,0 +1,249 @@
+//! Generates `include/pancake_net_transport_onion.h` from the Zig
+//! `c_abi_net_transport_onion` source.
+//!
+//! The onion transport's public C ABI is a separate archive from
+//! `libpancake_ocapn` (ADR-0059), so it gets its own header. As with
+//! `tools/gen/header/ocapn.zig`, the function signatures are *reflected* from the
+//! real `src/c_abi/net_transport/onion/mod.zig` exports, so the header cannot
+//! disagree with the implementation, and the prose lives here.
+//! `zig build gen-header-net-transport-onion-check` is the staleness gate;
+//! `zig build gen-header-net-transport-onion` is the fixer.
+//!
+//! The shared frame/peer/context vocabulary (`PancakeFrame`,
+//! `PancakeManagedFrame`, `PancakeContext`) is declared in `pancake_ocapn.h`,
+//! which this header includes; only the three onion handles, the configuration
+//! struct, and the `pancake_onion_*` prototypes are new here.
+
+const std = @import("std");
+const c = @import("c_abi_net_transport_onion");
+const header_emit = @import("header_emit.zig");
+
+const Output = @import("output").Output;
+pub const outputs = [_]Output{
+    .{ .path = "include/pancake_net_transport_onion.h", .generate = generate },
+};
+pub const step_name = "gen-header-net-transport-onion";
+
+// Every prototype the header emits, in order. `emitFn` refuses a name missing
+// here; the comptime guard below holds the table against the real
+// `c_abi_net_transport_onion` declarations in both directions, so a new
+// `pub export fn pancake_onion_*` cannot silently miss the header while the gate
+// stays green.
+const emitted_fn_names = [_][]const u8{
+    "pancake_onion_netlayer_new",
+    "pancake_onion_netlayer_new_in",
+    "pancake_onion_transport_provider",
+    "pancake_onion_netlayer_shutdown",
+    "pancake_onion_netlayer_release",
+    "pancake_onion_connect",
+    "pancake_onion_connect_with_diagnostic",
+    "pancake_onion_listen",
+    "pancake_onion_listen_with_diagnostic",
+    "pancake_onion_listener_wait",
+    "pancake_onion_listener_wait_with_diagnostic",
+    "pancake_onion_listener_readiness_fd",
+    "pancake_onion_conn_readiness_fd",
+    "pancake_onion_accept",
+    "pancake_onion_accept_with_diagnostic",
+    "pancake_onion_conn_read_frame",
+    "pancake_onion_conn_read_frame_with_diagnostic",
+    "pancake_onion_conn_write_frame",
+    "pancake_onion_conn_write_frame_with_diagnostic",
+    "pancake_onion_conn_shutdown",
+    "pancake_onion_conn_release",
+    "pancake_onion_listener_shutdown",
+    "pancake_onion_listener_release",
+    "pancake_onion_last_error",
+    "pancake_onion_clear_last_error",
+};
+
+const Spec = struct {
+    pub const c = @import("c_abi_net_transport_onion");
+    pub const emitted_fns: []const []const u8 = &emitted_fn_names;
+};
+const E = header_emit.Emit(Spec);
+const Buf = header_emit.Buf;
+const emitDoc = header_emit.emitDoc;
+const emitFn = E.emitFn;
+
+// Coverage guard, both directions: every `pub export fn pancake_onion_*` in
+// `c_abi_net_transport_onion` must be listed, and every listed name must be real.
+comptime {
+    E.guardFns("c_abi_net_transport_onion", "pancake_onion_");
+}
+
+/// Build the full header text. Caller owns the returned bytes.
+fn generate(gpa: std.mem.Allocator) ![]u8 {
+    var b: Buf = .empty;
+    errdefer b.deinit(gpa);
+
+    try b.appendSlice(gpa,
+        \\/* Generated from src/c_abi/net_transport/onion/mod.zig by tools/gen/header/net_onion.zig.
+        \\   Do not edit by hand: run `zig build gen-header-net-transport-onion`.
+        \\   Function signatures are reflected from the Zig source, so this header
+        \\   cannot drift from the implementation.
+        \\
+        \\   The onion transport's public C ABI: a separate archive
+        \\   (libpancake_net_transport_onion) from libpancake_ocapn (ADR-0059). It is
+        \\   a companion, not a superset: it exports only the pancake_onion_* family
+        \\   and shares no core symbol with libpancake_ocapn, so a consumer links
+        \\   BOTH archives and includes BOTH headers. The shared frame, peer, and
+        \\   context vocabulary lives in pancake_ocapn.h (included below) and the
+        \\   archives agree on its layout; only the onion handles, the configuration
+        \\   struct, and the pancake_onion_* prototypes are declared here. The onion
+        \\   family has its own last-error slot, read through
+        \\   pancake_onion_last_error rather than pancake_ocapn's
+        \\   pancake_last_error. */
+        \\#ifndef PANCAKE_NET_TRANSPORT_ONION_H
+        \\#define PANCAKE_NET_TRANSPORT_ONION_H
+        \\
+        \\#include <stddef.h>
+        \\#include <stdint.h>
+        \\#include "pancake_ocapn.h"
+        \\#include "pancake_transport_provider.h"
+        \\
+        \\#ifdef __cplusplus
+        \\extern "C" {
+        \\#endif
+        \\
+    );
+
+    try emitDoc(&b, gpa,
+        \\Orientation: onion is the one netlayer the OCapN draft standardizes, and the
+        \\one upstream Spritely Goblins ships, so it is where a pancake peer and a
+        \\Goblins vat meet on ground neither invented. A locator is
+        \\ocapn://<serviceid>.onion, and the designator this API takes is that bare
+        \\service id: 56 base32 characters with no .onion suffix.
+        \\
+        \\pancake starts no Tor. It talks to a daemon the deployment already runs,
+        \\over that daemon's SOCKS endpoint to dial and its control endpoint to host,
+        \\and it never spawns, supervises, or configures one. A netlayer built against
+        \\endpoints nothing is listening on fails at pancake_onion_netlayer_new's
+        \\first use rather than at some later dial.
+        \\
+        \\Two limits are worth reading before you rely on this. The service id is an
+        \\ADDRESS, not an identity: Tor proves the far end of the circuit holds the key
+        \\the address encodes, but the CapTP peer is whoever holds the local endpoint
+        \\that service forwards to, so nothing here reports a proved peer. And an
+        \\accepted circuit carries no client identity at all, because Tor tells a
+        \\hidden service nothing about who dialed it, so a partner's claimed location
+        \\on this side is unverified. ADR-0108 derives both.
+        \\
+        \\Otherwise the shape is the TCP transport's (pancake_net_transport_tcp.h):
+        \\the host owns the peer, and this family shuttles whole frames. Every call
+        \\that reaches Tor blocks, and a circuit takes seconds rather than
+        \\milliseconds, so size your timeouts for Tor and not for a socket.
+    );
+
+    try b.appendSlice(gpa,
+        \\
+        \\/* An onion netlayer: where Tor listens, how to authenticate to it, and the
+        \\   one owned I/O backend its streams block on. Created by
+        \\   pancake_onion_netlayer_new; released by pancake_onion_netlayer_release
+        \\   after every endpoint is released. */
+        \\typedef struct PancakeOnionNetlayer PancakeOnionNetlayer;
+        \\/* One onion connection carrying one OCapN session, framed on the codec its
+        \\   constructor named. One read and one write may run concurrently; calls
+        \\   in the same direction are serialized by the archive. Created by
+        \\   pancake_onion_connect or pancake_onion_accept; released by
+        \\   pancake_onion_conn_release. */
+        \\typedef struct PancakeOnionConn PancakeOnionConn;
+        \\/* A live onion service: the control session keeping it published plus the
+        \\   local endpoint Tor forwards it to. Created by pancake_onion_listen;
+        \\   released by pancake_onion_listener_release, which also withdraws the
+        \\   service. */
+        \\typedef struct PancakeOnionListener PancakeOnionListener;
+        \\
+        \\/* How the control endpoint expects to be authenticated. These are the three
+        \\   forms a real torrc produces. NONE is what an unauthenticated Unix control
+        \\   socket gives, and what upstream Goblins assumes. COOKIE sends the bytes of
+        \\   the file CookieAuthFile names, as hexadecimal, and is the common default
+        \\   on a distribution's Tor package. PASSWORD sends the cleartext of a
+        \\   HashedControlPassword setup. */
+        \\#define PANCAKE_ONION_AUTH_NONE 0u
+        \\#define PANCAKE_ONION_AUTH_COOKIE 1u
+        \\#define PANCAKE_ONION_AUTH_PASSWORD 2u
+        \\
+        \\/* A version 3 onion service id is always exactly this many characters, so a
+        \\   caller can size a fixed buffer for pancake_onion_listen's out-parameter.
+        \\   The key cap bounds Tor's ED25519-V3: private-key form with room to
+        \\   spare. */
+        \\#define PANCAKE_ONION_SERVICE_ID_LEN 56u
+        \\#define PANCAKE_ONION_SERVICE_KEY_CAP 256u
+        \\
+        \\/* Everything the netlayer needs to reach Tor, and what to ask for when
+        \\   hosting. Zero-initialize the whole struct and set the fields you use, so a
+        \\   field added later reads as zero rather than as stack contents. Every
+        \\   pointer is borrowed for the duration of the constructor call and copied
+        \\   into the handle, so you may free your own strings afterwards.
+        \\
+        \\   Each endpoint is either an absolute Unix socket path (starting with '/')
+        \\   or a host:port. A relative path is refused rather than guessed at.
+        \\
+        \\   socks is required: a netlayer that cannot dial is not a netlayer.
+        \\   control_endpoint empty means dial-only, and pancake_onion_listen then
+        \\   fails rather than pretending to host. auth_secret carries the cookie
+        \\   file's bytes or the password's text per auth_kind, and is unread for
+        \\   PANCAKE_ONION_AUTH_NONE. service_key empty asks Tor for a fresh service;
+        \\   otherwise pass back the exact bytes an earlier pancake_onion_listen
+        \\   reported, which is what brings the same onion address back across a
+        \\   restart. forward empty binds a loopback port and reports it to Tor. */
+        \\typedef struct PancakeOnionConfig {
+        \\  const uint8_t *socks;
+        \\  size_t socks_len;
+        \\  const uint8_t *control_endpoint;
+        \\  size_t control_endpoint_len;
+        \\  uint32_t auth_kind;
+        \\  const uint8_t *auth_secret;
+        \\  size_t auth_secret_len;
+        \\  const uint8_t *service_key;
+        \\  size_t service_key_len;
+        \\  const uint8_t *forward;
+        \\  size_t forward_len;
+        \\} PancakeOnionConfig;
+        \\
+        \\
+    );
+
+    try emitFn(&b, gpa, "pancake_onion_netlayer_new", &.{ "config", "out_netlayer" }, "Create the onion netlayer handle from `config`, allocating through the library\nallocator. The configuration text is copied in, so your strings need not\noutlive this call. PANCAKE_ERR_INVALID_ARGUMENT for a missing socks endpoint or\nan unknown auth_kind. Release with pancake_onion_netlayer_release after\nreleasing every endpoint made from it.");
+    try emitFn(&b, gpa, "pancake_onion_netlayer_new_in", &.{ "context", "config", "out_netlayer" }, "Create an onion netlayer whose configuration copy, backend, and per-connection\nbuffers allocate through `context`.");
+    try emitFn(&b, gpa, "pancake_onion_transport_provider", &.{ "netlayer", "out_provider" }, "Fill out_provider with this runtime's complete onion package. Install it once\nwith pancake_driver_add_provider. The driver acquires the provider lease through\nretain and releases it after all transport use retires; release the onion\nruntime only after the driver is released.");
+    try emitFn(&b, gpa, "pancake_onion_netlayer_shutdown", &.{"netlayer"}, "Seal connect/listen admission and request cancellation of calls already reaching\nTor, without freeing netlayer. Call this before joining foreign threads that may\nbe inside pancake_onion_connect or pancake_onion_listen. Idempotent.");
+    try emitFn(&b, gpa, "pancake_onion_netlayer_release", &.{"netlayer"}, "Release the onion netlayer after every connection and listener made from it is\nreleased. First stop new calls, invoke shutdown, and join the embedding's\noperation leases; release must not race call initiation.");
+    const diagnosed_doc = "The same operation as its unsuffixed sibling, plus an atomic diagnostic\ncapture for runtimes that dispatch native calls to worker threads. out_error_len\nis required and receives the full diagnostic length; out_error receives at most\nerror_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.";
+
+    try emitFn(&b, gpa, "pancake_onion_connect", &.{ "netlayer", "service_id", "service_id_len", "codec", "max_frame_bytes", "out_conn" }, "Dial the onion service `service_id` through the configured Tor and return an\nowned connection framing on `codec`, refusing inbound frames over\nmax_frame_bytes. `service_id` is the bare 56-character designator, borrowed.\nPANCAKE_ERR_INVALID_ARGUMENT for a designator that is not a well-formed version\n3 address, which is refused before any socket opens, and for a bad codec or a\nzero frame cap. PANCAKE_ERR_IO (see pancake_onion_last_error) when Tor is not\nreachable or could not reach the service. Blocking: a circuit takes seconds.\nRelease with pancake_onion_conn_release.");
+    try emitFn(&b, gpa, "pancake_onion_connect_with_diagnostic", &.{ "netlayer", "service_id", "service_id_len", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_onion_listen", &.{ "netlayer", "out_service_id", "out_service_id_cap", "out_service_id_len", "out_service_key", "out_service_key_cap", "out_service_key_len", "out_listener" }, "Ask Tor for an onion service and bind its local end. out_service_id receives\nthe designator with no NUL terminator, always PANCAKE_ONION_SERVICE_ID_LEN\nbytes. out_service_key receives the key that restores this exact service, or\nnothing when the service was restored rather than minted; store those bytes and\npass them back as PancakeOnionConfig.service_key for a durable onion address.\nEvery out-parameter is optional, and a NULL buffer with a non-NULL length\nqueries the length. Requires a configured control endpoint:\nPANCAKE_ERR_INVALID_ARGUMENT without one. Blocking. Release with\npancake_onion_listener_release, which also withdraws the service.");
+    try emitFn(&b, gpa, "pancake_onion_listen_with_diagnostic", &.{ "netlayer", "out_service_id", "out_service_id_cap", "out_service_id_len", "out_service_key", "out_service_key_cap", "out_service_key_len", "out_listener", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_onion_listener_wait", &.{ "listener", "timeout_ms", "out_ready" }, "Wait until pancake_onion_accept would make progress, up to timeout_ms. Writes 1\ninto out_ready when the next accept should proceed and 0 on timeout.\nThis is what lets a blocking accept loop check a stop flag without closing the\nlistener from another thread.");
+    try emitFn(&b, gpa, "pancake_onion_listener_wait_with_diagnostic", &.{ "listener", "timeout_ms", "out_ready", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_onion_listener_readiness_fd", &.{ "listener", "out_fd" }, "Hand back the descriptor this listener's circuits arrive on, so your loop can\npoll instead of blocking. Park on it with whatever your loop uses and call\npancake_onion_accept once it is readable. Readiness means an accept can make\nprogress; it is not a nonblocking guarantee, because another accept consumer or\na close can consume that state first. Serialize accept consumers when a loop must\nnot park. An onion service's forward target is an ordinary local socket, which is\nwhy this is a real descriptor rather than a synthesized readiness fd. Owned by the\nlistener: do not close it, and do not use it after pancake_onion_listener_release.");
+    try emitFn(&b, gpa, "pancake_onion_conn_readiness_fd", &.{ "conn", "out_fd" }, "Hand back the descriptor this connection's bytes flow over. Same contract as\npancake_onion_listener_readiness_fd: poll it, and read only when it is readable.\nA whole frame may still need more than one readable turn, in which case the read\nparks for the remainder, so this makes the common case free rather than every\ncase. Owned by the connection.");
+    try emitFn(&b, gpa, "pancake_onion_accept", &.{ "listener", "codec", "max_frame_bytes", "out_conn" }, "Block until Tor forwards a circuit to this service, returning an owned\nconnection framing on `codec`. Same argument and release contract as\npancake_onion_connect. The partner's claimed location is unverified on this\nside: Tor tells a hidden service nothing about who dialed it.");
+    try emitFn(&b, gpa, "pancake_onion_accept_with_diagnostic", &.{ "listener", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_onion_conn_read_frame", &.{ "conn", "out_frame" }, "Block for one whole frame as an owned managed frame. Returns\nPANCAKE_ERR_CLOSED on graceful EOF.");
+    try emitFn(&b, gpa, "pancake_onion_conn_read_frame_with_diagnostic", &.{ "conn", "out_frame", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_onion_conn_write_frame", &.{ "conn", "frame" }, "Write one frame's borrowed bytes to the partner. Returns PANCAKE_ERR_CLOSED\nafter shutdown begins.");
+    try emitFn(&b, gpa, "pancake_onion_conn_write_frame_with_diagnostic", &.{ "conn", "frame", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_onion_conn_shutdown", &.{"conn"}, "Seal native admission and interrupt blocked reads and writes without freeing\nthe connection. May race operations; join the embedding's leases before release.\nIdempotent and best-effort.");
+    try emitFn(&b, gpa, "pancake_onion_conn_release", &.{"conn"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the handle. Release must not race call initiation.");
+    try emitFn(&b, gpa, "pancake_onion_listener_shutdown", &.{"listener"}, "Seal native accept admission and interrupt a blocked accept without freeing the\nlistener or withdrawing its service. May race operations; join the embedding's\nleases before release. Idempotent and best-effort.");
+    try emitFn(&b, gpa, "pancake_onion_listener_release", &.{"listener"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, withdraw the service and free the listener. Release must not\nrace call initiation. This is the one release in the family with an effect a\npartner can observe: the address stops being published.");
+
+    try emitFn(&b, gpa, "pancake_onion_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last onion-transport error into out_buf, the onion\nsibling of pancake_last_error, reading this archive's own per-thread slot. A\npancake_onion_* call that returns a cause-bearing code records it here. Copies\nat most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0 queries\nthe length. Returns the full message length, or 0 when none is set.");
+    try emitFn(&b, gpa, "pancake_onion_clear_last_error", &.{}, "Clear the calling thread's onion-transport last-error slot.");
+
+    try b.appendSlice(gpa,
+        \\
+        \\#ifdef __cplusplus
+        \\}
+        \\#endif
+        \\
+        \\#endif /* PANCAKE_NET_TRANSPORT_ONION_H */
+        \\
+    );
+
+    try E.assertAllEmitted(&b, "gen-header-net-transport-onion");
+    return b.toOwnedSlice(gpa);
+}

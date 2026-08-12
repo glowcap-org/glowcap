@@ -50,18 +50,18 @@ try {
 	// `connect` completes the keyed handshake; reaching here means Goblins accepted
 	// our signed start-session and we accepted its.
 	const locator = tcpLocator(HOST, PORT);
-	const conn = await connect(locator);
+	const session = await connect(locator);
 	console.log(
 		"deno-goblins-interop: session open, keyed start-session accepted by goblins",
 	);
-	conn.serve().catch(() => {}); // the partner hanging up ends the serve loop
+	session.serve().catch(() => {}); // the partner hanging up ends the serve loop
 
 	// Peer URI host is ignored once the session is open; enliven keys on swiss.
 	// A sturdyref names a peer, and the enliven checks that peer against the
 	// session it rides (ADR-0098). Build it from the very locator this session
 	// dialed, so the two cannot drift apart.
 	const sturdyref = `${locator}/s/${sturdyrefPath}`;
-	const echo = await conn.enliven(sturdyref);
+	const echo = await session.enliven(sturdyref);
 	console.log("deno-goblins-interop: enlivened goblins echo cap, calling it");
 
 	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
@@ -84,11 +84,11 @@ try {
 		}
 	};
 	assertEchoed(
-		await conn.send(echo, "", [new TextEncoder().encode("pancake-ping")]),
+		await session.send(echo, "", [new TextEncoder().encode("pancake-ping")]),
 		"pancake-ping",
 	);
 
-	const again = await conn.enliven(sturdyref);
+	const again = await session.enliven(sturdyref);
 	if (echo.id !== again.id) {
 		fail(
 			"deno-goblins-interop",
@@ -96,7 +96,7 @@ try {
 		);
 	}
 	assertEchoed(
-		await conn.send(again, "", [new TextEncoder().encode("pancake-ping-again")]),
+		await session.send(again, "", [new TextEncoder().encode("pancake-ping-again")]),
 		"pancake-ping-again",
 	);
 	console.log(
@@ -107,7 +107,7 @@ try {
 	console.log(
 		"deno-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins",
 	);
-	conn.close();
+	session.close();
 } finally {
 	try {
 		await stdoutReader.cancel();

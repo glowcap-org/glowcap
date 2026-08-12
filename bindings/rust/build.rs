@@ -55,12 +55,18 @@ fn main() {
 	for archive in [
 		"libpancake_ocapn.a",
 		"libpancake_host.a",
+		"libpancake_driver.a",
 		"libpancake_net_transport_tcp.a",
 		"libpancake_net_transport_inproc.a",
+		"libpancake_net_transport_onion.a",
+		"libpancake_net_transport_relay.a",
 	] {
 		println!("cargo:rerun-if-changed={}", lib_dir.join(archive).display());
 	}
 
+	// Host semantics and transport execution are separate symbol families and
+	// archives. The driver adopts a Host created through libpancake_host.
+	println!("cargo:rustc-link-lib=static=pancake_driver");
 	println!("cargo:rustc-link-lib=static=pancake_host");
 	println!("cargo:rustc-link-lib=static=pancake_ocapn");
 
@@ -69,6 +75,12 @@ fn main() {
 	}
 	if cfg!(feature = "inproc") {
 		println!("cargo:rustc-link-lib=static=pancake_net_transport_inproc");
+	}
+	if cfg!(feature = "onion") {
+		println!("cargo:rustc-link-lib=static=pancake_net_transport_onion");
+	}
+	if cfg!(feature = "relay") {
+		println!("cargo:rustc-link-lib=static=pancake_net_transport_relay");
 	}
 
 	if cfg!(feature = "iroh") {

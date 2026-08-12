@@ -89,7 +89,7 @@ fn serveWidget(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!v
 }
 
 /// The directory host: fetch the widget from the widget host, then publish a
-/// directory that hands that capability out. One `driver.PollHost` holds both
+/// directory that hands that capability out. One `driver.HostRuntime` holds both
 /// sessions, which is what lets a capability from one be introduced over the
 /// other.
 fn serveDirectory(
@@ -100,35 +100,34 @@ fn serveDirectory(
     listener: net.netlayer.Listener,
     done: *std.atomic.Value(bool),
 ) anyerror!void {
-    var designator_buf: [64]u8 = undefined;
-    const bound = listener.localDesignator(&designator_buf);
+    const advertised = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, advertised);
 
-    var host = try driver.PollHost.init(allocator, io, netlayers, .ephemeral, opts);
-    defer host.deinit();
+    var runtime = try driver.HostRuntime.init(allocator, io, netlayers, .ephemeral, opts);
+    defer runtime.deinit();
     // The directory is dialable, so its gives can name it as their gifter.
-    try host.core.setSelfDesignator(bound);
-    try host.core.setAdvertisedLocator(.{
-        .transport = listener.transportName(),
-        .designator = bound,
-        .hints = model.Hints.emptyFalse(),
+    try runtime.core.setAdvertisedLocator(.{
+        .transport = advertised.transport,
+        .designator = advertised.designator,
+        .hints = advertised.hints,
     });
 
     var widget_loc_buf: [tcp.designator_buf_len]u8 = undefined;
-    const to_widget = try host.connectLocator(tcp.locator(
+    const to_widget = try runtime.connectLocator(tcp.locator(
         &widget_loc_buf,
         try tcp.parseDesignator(widget_designator),
     ));
-    var widget_view = driver.Session.view(&host, to_widget);
+    var widget_view = try driver.Session.view(&runtime, to_widget);
     const widget = try widget_view.fetch("widget");
 
-    const accepted = try host.acceptWire(listener, listener.transportName());
-    var client_view = driver.Session.view(&host, accepted);
+    const accepted = try runtime.acceptWire(listener, listener.transportName());
+    var client_view = try driver.Session.view(&runtime, accepted);
     _ = try client_view.publish("directory", Directory, .{ .widget = widget });
 
     while (!done.load(.acquire)) {
         _ = client_view.stepReadable(20) catch break;
     }
-    host.releaseWire(accepted);
+    runtime.releaseWire(accepted);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -150,8 +149,8 @@ pub fn main(init: std.process.Init) !void {
 
     var directory_listener = try tcp_resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
     defer directory_listener.close();
-    var directory_addr_buf: [64]u8 = undefined;
-    const directory_designator = directory_listener.localDesignator(&directory_addr_buf);
+    const directory_locator = try directory_listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, directory_locator);
 
     var widget_future = try io.concurrent(serveWidget, .{ &widget_host, &done });
     var directory_future = try io.concurrent(serveDirectory, .{ allocator, io, &netlayers, widget_designator, directory_listener, &done });
@@ -166,7 +165,7 @@ pub fn main(init: std.process.Init) !void {
     const session = try driver.connect(
         allocator,
         &netlayers,
-        tcp.locator(&dir_loc_buf, try tcp.parseDesignator(directory_designator)),
+        tcp.locator(&dir_loc_buf, try tcp.parseDesignator(directory_locator.designator)),
         .ephemeral,
         opts,
     );

@@ -73,9 +73,10 @@ done
 
 run_handshake_abort_probe() {
   echo "ocapn-conformance: handshake-abort probe (pre-setup abort + invalid signature + invalid version)"
-  # Same dependency pins as run.sh: the probe imports the suite's own message
-  # types, which need cryptography on the uv-provided interpreter.
-  python3 tools/run-with-timeout.py --kill-after 5s "$PROBE_TIMEOUT" uv run --python 3.12 --with 'cryptography>=42' --with 'stem>=1.8' \
+  # Same committed environment as run.sh: the probe imports the suite's own
+  # message types, which need cryptography on the uv-provided interpreter.
+  python3 tools/run-with-timeout.py --kill-after 5s "$PROBE_TIMEOUT" uv run \
+    --project conformance/ocapn-conformance --locked \
     python conformance/ocapn-conformance/handshake_abort_probe.py --port="$PORT"
   probe_code=$?
   if [ "$probe_code" -eq 124 ]; then

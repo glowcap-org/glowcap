@@ -105,10 +105,12 @@ primitive, and the export / import / answer tables each carry `Slot` cells in
 their own position-keyed table, not one conflated map, per the Scope section.
 That is the accepted shape.
 
-**What landed.** Engine-internal promise exports (the V1.0 resolver callbacks and
-the bootstrap-fetch resolver) are minted authoritative as `local_unresolved` at
-allocation (`Session.allocatePromiseExport`), and the render sites that name them
-project via `slot.toReference` instead of hand-typing a kind. With that,
+**What landed.** Engine-internal promise exports are minted authoritative as
+`local_unresolved` at allocation (`Session.allocatePromiseExport`), and render
+sites project via `slot.toReference` instead of hand-typing a kind. V1.0
+`resolve-me-desc` callbacks, including bootstrap fetch, are resolver *objects*
+and therefore mint ordinary local-object slots through `Session.allocateExport`.
+With that,
 `retainSentExportRef`'s already-live branch reduced to pure retain and its dead
 cell reconciliation (`ExportTable.bind` / `fulfill` / `breakSlot`,
 `SlotTable.setCell`) was deleted. `zig build oracle-check` held byte-identical

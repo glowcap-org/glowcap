@@ -172,9 +172,11 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16, barrier: ?*Ba
     defer scaffold.deinit();
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, client_budget);
+    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = client_budget,
+        .settle = client_budget,
+    });
     defer cv.deinit();
-    cv.settle = client_budget;
 
     const greeter = try cv.fetch("greeter");
     var i: usize = 0;
@@ -248,9 +250,11 @@ fn backpressureOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerro
     defer scaffold.deinit();
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, client_budget);
+    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, .{
+        .handshake = client_budget,
+        .settle = client_budget,
+    });
     defer cv.deinit();
-    cv.settle = client_budget;
 
     const greeter = try cv.fetch("greeter");
 
@@ -335,7 +339,9 @@ pub fn main(init: std.process.Init) !void {
     var counting = LiveBytes{ .backing = allocator };
     const server_alloc = counting.allocator();
 
-    var host = driver.core.Host.init(server_alloc, [_]u8{0x42} ** 32, .{
+    var session_root: [32]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = driver.core.Host.init(server_alloc, [_]u8{0x42} ** 32, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
@@ -344,8 +350,9 @@ pub fn main(init: std.process.Init) !void {
     var bridge = TcpBridge.init(server_alloc, &host, io, &loop, .{ .publish = publishGreeter });
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(server_alloc, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
+    loop = try net.TcpLoop.initWithBackendOptions(server_alloc, .{
+        .read_buffer_bytes = frame_cap,
+    }, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .max_conns = conns_per_wave * 2,
         .listen = 0,
         // ADR-0082's resource posture, enabled over real sockets. The unit
@@ -368,9 +375,9 @@ pub fn main(init: std.process.Init) !void {
         .on_park = reportPark,
         // A mark this proof can actually reach.
         //
-        // The default is `frame_cap`, and reaching it from a client means
-        // out-writing the kernel: Linux auto-tunes a receive window to
-        // `net.ipv4.tcp_rmem`'s maximum and a send buffer to `tcp_wmem`'s —
+        // The independent default is 64 KiB, and reaching it from a
+        // client means out-writing the kernel: Linux auto-tunes a receive
+        // window to `net.ipv4.tcp_rmem`'s maximum and a send buffer to `tcp_wmem`'s —
         // tens of megabytes between them on an ordinary machine — and the
         // server's socket is inside this loop where no client can shrink it.
         // Volume alone is therefore an arms race against numbers the host
@@ -382,18 +389,18 @@ pub fn main(init: std.process.Init) !void {
         // ADR-0042 claims is that the queue parks the read once it passes the
         // mark, and that claim is the same at any mark; pinning a low one
         // makes the assertion about pancake rather than about sysctls.
-        .outbound_high_water = 1024,
+        .outbound_high_water_bytes = 1024,
         .fan_in_throttle = true,
         .park_kill_ms = 30_000,
     }));
     // After `hookOptions`, which installs the bridge's own `on_close`.
     loop.on_close = watchClose;
     defer loop.deinit();
-    const port = loop.port.?;
+    const port = loop.port().?;
     var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try net.tcp.parseHostPort("127.0.0.1", port);
     const designator = net.tcp.locator(&designator_buf, designator_addr).designator;
-    try bridge.attach(net.tcp.transport_name, designator, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
     // The two waves plus the one backpressure connection below.
     const total_lifecycles = conns_per_wave * waves + 1;

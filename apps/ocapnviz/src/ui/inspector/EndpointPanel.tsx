@@ -56,6 +56,7 @@ import {
 } from "./shared.tsx";
 import { SessionMoments } from "./SessionTrajectory.tsx";
 import { Identifier } from "../identifier.tsx";
+import { useEngineVersion } from "../useEngineVersion.ts";
 import { isInSelection, peerInfo, sessionInfo } from "./entity-info.ts";
 import type { EntityRefKey } from "../../interactions/types.ts";
 
@@ -86,8 +87,6 @@ function endpointInfo(engine: Engine, id: string) {
       at.side,
       engine.clock.t,
     ).attributedBy,
-    pinned: def.endpointPosition?.[at.side] ?? null,
-    at: live?.position ?? null,
     onStage: live !== undefined,
     // Whether bytes are moving through this end is a separate question from
     // who is on it, and only the second one is open here. Messages on a
@@ -99,6 +98,53 @@ function endpointInfo(engine: Engine, id: string) {
   };
 }
 
+/** Position row that follows mid-drag world coords. The EndpointFields
+ *  shell stays on doc+clock; this row alone wakes on `version`. */
+function EndpointPositionLiveRow(
+  {
+    engine,
+    id,
+    editing,
+    editor,
+  }: {
+    engine: Engine;
+    id: string;
+    editing: boolean;
+    editor: EditorBindings | undefined;
+  },
+) {
+  useEngineVersion(engine);
+  // Read the pin from the live doc here — not from a shell prop.
+  // Mid-drag placement mutates `endpointPosition` inside a transaction
+  // that leaves `docVersion` quiet, so a parent-computed `pinned` stays
+  // at the pre-drag point for the whole gesture.
+  const atEnd = parseEndpointStageId(id);
+  const pinned = atEnd
+    ? engine.doc.entities?.sessions?.[atEnd.sessionId]
+      ?.endpointPosition?.[atEnd.side] ?? null
+    : null;
+  const live = findEndpoint(engine.world, id);
+  const at = pinned ?? live?.position ?? null;
+  return (
+    <PositionRow
+      noun="end"
+      pinned={pinned}
+      at={at}
+      editing={editing}
+      onMove={editor && ((pos) => editor.onRepositionEndpoint(id, pos))}
+      onClear={editor && (() => editor.onUnpinEndpoint(id))}
+      onPinHere={editor && at
+        ? () =>
+          editor.onRepositionEndpoint(id, {
+            x: at.x,
+            y: at.y,
+          })
+        : undefined}
+      editSession={editor}
+    />
+  );
+}
+
 export function EndpointFields(
   { engine, id, editor }: {
     engine: Engine;
@@ -106,6 +152,8 @@ export function EndpointFields(
     editor?: EditorBindings | undefined;
   },
 ) {
+  // Shell wakes on doc + playhead via EntityDetails. Mid-drag pins are
+  // owned by `EndpointPositionLiveRow` below.
   const info = endpointInfo(engine, id);
   if (!info) {
     return (
@@ -176,21 +224,11 @@ export function EndpointFields(
           <Field label="attached to">
             <span style={valueText}>nobody</span>
           </Field>
-          <PositionRow
-            noun="end"
-            pinned={info.pinned}
-            at={info.pinned ?? info.at}
+          <EndpointPositionLiveRow
+            engine={engine}
+            id={id}
             editing={editing}
-            onMove={editor && ((pos) => editor.onRepositionEndpoint(id, pos))}
-            onClear={editor && (() => editor.onUnpinEndpoint(id))}
-            onPinHere={editor && info.at
-              ? () =>
-                editor.onRepositionEndpoint(id, {
-                  x: info.at!.x,
-                  y: info.at!.y,
-                })
-              : undefined}
-            editSession={editor}
+            editor={editor}
           />
         </div>
       </FieldGroup>

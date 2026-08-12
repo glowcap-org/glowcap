@@ -3,7 +3,7 @@
 //!
 //! One of `host.zig`'s responsibilities, kept beside it rather than in it. The
 //! `Host` still owns the state — the vow map, the resolver index, the id
-//! sources — and still presents the `vow*`, `spawnResolver`, and `resolver*`
+//! sources — and still presents the `vow*`, `deferTurn`, and `resolver*`
 //! verbs as its own through decl aliases, so a caller reads one `Host`
 //! surface. What lives here is the row lifecycle those verbs share: mint,
 //! listener chaining, retire-on-settle, and the queued completion for an
@@ -17,13 +17,11 @@ const actors = @import("actors");
 
 const host_mod = @import("host.zig");
 const host_pump = @import("host_pump.zig");
-const served_mod = @import("served.zig");
 const vocab = @import("vocab.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
-const Served = served_mod.Served;
 const asFarRef = host_mod.asFarRef;
 
 /// One live host vow. The row holds the vow's single vat listener slot
@@ -44,7 +42,7 @@ pub const VowRow = struct {
     kind: Kind = .plain,
     inner: ?actors.Listener = null,
     /// The session whose turn deferred its answer onto this resolver vow
-    /// (ADR-0102), recorded by `turnForwardVow` so the settle can mark it
+    /// (ADR-0102), recorded by `deferTurn` so the settle can mark it
     /// dirty — a resolver settle is the one vat settle that runs outside
     /// any `feed`, so nothing else would encode the resolved answer.
     /// Distinct from `peer_id` on purpose: that session's release must
@@ -64,15 +62,17 @@ pub const VowRow = struct {
     }
 };
 
-/// A host resolver pair (ADR-0102): the vow id is the read side — its
-/// whole surface is the turn-scoped forward — and the resolver id is the
-/// settle authority. Separate values, so holding one never confers the
-/// other.
-pub const ResolverPair = struct { vow_id: u64, resolver_id: u64 };
-
 pub const ResolverIndexEntry = struct { vow_id: u64, vat_resolver: u64 };
 
 const Projection = union(enum) { index: i64, untag: []const u8, get: []const u8 };
+
+/// Every fallible resource needed to publish one Host vow after its semantic
+/// operation commits. The row and both queue capacities are Host-owned; the
+/// typed listener reservation belongs to the Vat/Port settlement namespace.
+pub const VowReservation = struct {
+    row: *VowRow,
+    listener: actors.ListenerReservation,
+};
 
 /// Register a one-shot in-process listener on a host vow, which hears
 /// the resolution borrowed (zero-copy) and keeps that vow's settlement
@@ -93,20 +93,29 @@ pub fn vowSession(self: *Host, vow_id: u64) !*HostSession {
     return (try resolveVowSession(self, vow_id)).session;
 }
 
-/// Mint a resolver pair at the host tier (ADR-0102). Legal inside a
-/// behavior callback, which is the primary use: the behavior mints,
-/// defers its answer onto the vow (the turn-scoped forward), hands the
-/// resolver id to whatever completes the work, and returns. The vow row
-/// belongs to no session, so no session's release drops it; it retires
-/// with the resolver settle. On an allocation failure after the vat pair
-/// minted, that pair stays until vat teardown — a bounded remainder, not
-/// a dangling authority.
-pub fn spawnResolver(self: *Host) !ResolverPair {
+/// Atomically mint the resolver authority and defer `turn` onto its vow. Every
+/// Host/Vat row and the forward listener are reserved before either side is
+/// published, so refusal leaves no resolver and no forwarded effect behind.
+pub fn deferTurn(self: *Host, session: *HostSession, turn: *actors.Turn) !u64 {
     self.assertOwner();
-    const pair = try self.vat.spawnVow();
-    const row = try createVowRow(self, null, pair.vow, .plain, self.next_vow);
+    if (session.host != self or self.sessions.get(session.peer_id) != session)
+        return HostError.ForeignTurn;
+    if (turn.vat != &self.vat) return HostError.ForeignTurn;
+    switch (turn.origin) {
+        .local => return actors.Error.NotLocal,
+        .served => |answer| if (answer == null) return HostError.NoAnswer,
+    }
+    if (turn.port != &session.served.port or
+        turn.ingress != session.served.port.ingress)
+        return HostError.ForeignTurn;
+    const row = try reserveVowRow(self, null, .plain, self.next_vow);
     errdefer self.allocator.destroy(row);
     try self.resolver_index.ensureUnusedCapacity(self.allocator, 1);
+    const vat_reservation = try self.vat.reserveResolverPair();
+    const forward_reservation = try turn.reserveForwardVow(.local);
+
+    const pair = self.vat.spawnReservedVow(vat_reservation);
+    row.vow = pair.vow;
     self.vows.putAssumeCapacity(row.id, row);
     self.next_vow += 1;
     const resolver_id = self.next_resolver;
@@ -115,19 +124,23 @@ pub fn spawnResolver(self: *Host) !ResolverPair {
         .vow_id = row.id,
         .vat_resolver = pair.resolver,
     });
-    return .{ .vow_id = row.id, .resolver_id = resolver_id };
+    turn.forwardReservedVow(forward_reservation, pair.vow);
+    row.forwarded_peer = session.peer_id;
+    return resolver_id;
 }
 
 /// Settle a resolver vow fulfilled (ADR-0102). Top-level: the settle
 /// runs the deferred answers' listeners and pumps every session they
 /// dirtied, so it refuses from inside a callback (`ReenteredHost`) — the
 /// worker's completion re-enters between events, on the owning thread.
-/// One attempt: the resolver is consumed up front, so a second settle
-/// and an unknown id refuse alike (`AlreadySettled`). `value` must be
-/// capability-free — plain data is the off-turn contract; an answer that
-/// carries authority takes the existing forward-to-send path instead.
+/// A successful settle consumes the resolver, so a second settle and an
+/// unknown id refuse alike (`AlreadySettled`). Preparation failure leaves the
+/// same resolver authority live for retry. `value` must be capability-free —
+/// plain data is the off-turn contract; an answer that carries authority takes
+/// the existing forward-to-send path instead.
 pub fn resolverFulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
     try self.refuseReentry();
+    if (!model.argumentIsPlainData(&value)) return HostError.ForeignArgument;
     try settleResolverRow(self, resolver_id, .{ .fulfilled = value });
 }
 
@@ -138,32 +151,19 @@ pub fn resolverBreak(self: *Host, resolver_id: u64, reason: []const u8) !void {
     try settleResolverRow(self, resolver_id, .{ .broken = reason });
 }
 
-/// Defer `turn`'s answer onto a resolver vow (ADR-0102): the answer
-/// settles when the resolver fires later, as its own top-level event.
-/// Legal inside a behavior callback — the turn-scoped half of the
-/// resolver pair. Only a resolver vow can carry a deferred answer; a
-/// wire vow's answer belongs to its session (`NotALocalVow`). Records
-/// the turn's session so the later settle can encode the resolved
-/// answer.
-pub fn turnForwardVow(self: *Host, turn: *actors.Turn, vow_id: u64) !void {
-    const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;
-    if (row.peer_id != null) return HostError.NotALocalVow;
-    try turn.forwardVow(row.vow);
-    // forwardVow refused every non-served turn, and every served turn in
-    // this vat runs on a session's Port, so the recovery cannot miss.
-    const served: *Served = @fieldParentPtr("port", turn.port.?);
-    const session: *HostSession = @alignCast(@fieldParentPtr("served", served));
-    row.forwarded_peer = session.peer_id;
-}
-
 /// Promise pipelining: eventual-send `msg` to a host vow before it
 /// resolves, minting a new vow for this call's own answer. A local vow has
 /// no wire answer to pipeline against (`NotPipelineable`).
 pub fn vowSend(self: *Host, vow_id: u64, msg: actors.Message) !u64 {
     const resolved = try resolveVowSession(self, vow_id);
+    try self.checkOutboundAdmission(resolved.session);
+    const reservation = try reserveVow(self, resolved.session, .far, .plain);
+    var reservation_live = true;
+    errdefer if (reservation_live) cancelVowReservation(self, reservation);
     const vow = try resolved.session.served.sendToAnswer(&self.vat, resolved.row.vow, msg);
-    const id = try mintVow(self, resolved.session, vow, .plain);
-    try host_pump.dirtyThenPump(self, resolved.session.peer_id);
+    const id = commitVow(self, resolved.session, reservation, vow);
+    reservation_live = false;
+    host_pump.finishCommittedVow(self, resolved.session);
     return id;
 }
 
@@ -185,45 +185,97 @@ pub fn vowGet(self: *Host, vow_id: u64, field: []const u8) !u64 {
     return vowProjection(self, vow_id, .{ .get = field });
 }
 
-/// Mint the host row for a fresh vow and install its retire listener —
-/// the row is heap-boxed because its address is the listener's ctx and
-/// the map may rehash. The map slot and a completion's action-queue slot
-/// are both reserved before the listener goes in, so a registered fire
-/// always finds its row and always lands its completion.
-pub fn mintVow(self: *Host, session: *HostSession, vow: actors.Vow, kind: VowRow.Kind) !u64 {
-    const row = try createVowRow(self, session, vow, kind, self.next_vow);
+/// Reserve a Host row and the exact Vat/Port listener slot before an operation
+/// that creates a vow becomes visible. Once this succeeds, `commitVow` is
+/// allocation-free and cannot turn a committed send into a retryable OOM.
+pub fn reserveVow(
+    self: *Host,
+    session: *HostSession,
+    location: actors.VowLocation,
+    kind: VowRow.Kind,
+) !VowReservation {
+    return reserveVowAt(self, session, location, kind, self.next_vow);
+}
+
+/// Explicit-id reservation for a continuation whose public vow id was minted
+/// before its eventual session existed (sturdyref select-or-dial).
+pub fn reserveVowAt(
+    self: *Host,
+    session: *HostSession,
+    location: actors.VowLocation,
+    kind: VowRow.Kind,
+    id: u64,
+) !VowReservation {
+    const row = try reserveVowRow(self, session, kind, id);
     errdefer self.allocator.destroy(row);
-    // A fresh vow holds no listener and cannot have settled (nothing has
-    // driven since the send), so `on` can only fail on OOM.
-    try session.served.port.on(&self.vat, vow, .{ .ctx = row, .func = VowRow.fire });
-    self.vows.putAssumeCapacity(row.id, row);
+    const listener = try session.served.port.reserveListener(&self.vat, location);
+    return .{ .row = row, .listener = listener };
+}
+
+/// Release the only owned resource in an uncommitted reservation. Reserved
+/// map/FIFO capacity is intentionally retained for the next operation.
+pub fn cancelVowReservation(self: *Host, reservation: VowReservation) void {
+    self.allocator.destroy(reservation.row);
+}
+
+/// Publish a vow using only resources reserved before its semantic operation.
+pub fn commitVow(
+    self: *Host,
+    session: *HostSession,
+    reservation: VowReservation,
+    vow: actors.Vow,
+) u64 {
+    const id = commitVowWithListener(
+        self,
+        session,
+        reservation,
+        vow,
+        .{ .ctx = reservation.row, .func = VowRow.fire },
+    );
     self.next_vow += 1;
+    return id;
+}
+
+/// Explicit-listener commit for Host-core bridges whose terminal callback does
+/// more than retire and queue the raw resolution. The id counter is deliberately
+/// unchanged; the continuation decides whether its id is fresh or pre-minted.
+pub fn commitVowWithListener(
+    self: *Host,
+    session: *HostSession,
+    reservation: VowReservation,
+    vow: actors.Vow,
+    listener: actors.Listener,
+) u64 {
+    const row = reservation.row;
+    row.vow = vow;
+    session.served.port.onReserved(&self.vat, reservation.listener, vow, listener);
+    self.vows.putAssumeCapacity(row.id, row);
     return row.id;
 }
 
-/// The shared row construction under `mintVow` and the enliven bridges:
-/// allocate the row under the caller-chosen `id` and reserve both the
-/// vow-map slot and action-queue capacity for every live vow plus this
-/// one, so no later fire's completion append can fail — a settled vow with
-/// no completion is unrepresentable. The caller installs the vat listener,
-/// then commits with `putAssumeCapacity`; an id drawn fresh from
-/// `next_vow` is bumped by that caller, while a parked select-or-dial
-/// enliven brings the id it minted when it staged the dial.
-/// `pub` for the Host-core siblings, not for embedders: splitting a Zig
-/// struct across files needs the callee visible. Host-core internal.
-pub fn createVowRow(self: *Host, session: ?*HostSession, vow: actors.Vow, kind: VowRow.Kind, id: u64) !*VowRow {
+/// Resolver-pair row construction. Resolver vows already exist before the
+/// Host publishes them, but no operation can settle them until their resolver
+/// is returned, so this local helper may install after row reservation.
+fn createVowRow(self: *Host, session: ?*HostSession, vow: actors.Vow, kind: VowRow.Kind, id: u64) !*VowRow {
+    const row = try reserveVowRow(self, session, kind, id);
+    row.vow = vow;
+    return row;
+}
+
+fn reserveVowRow(self: *Host, session: ?*HostSession, kind: VowRow.Kind, id: u64) !*VowRow {
     const row = try self.allocator.create(VowRow);
     errdefer self.allocator.destroy(row);
     row.* = .{
         .host = self,
         .peer_id = if (session) |s| s.peer_id else null,
         .id = id,
-        .vow = vow,
+        .vow = undefined,
         .kind = kind,
     };
     try self.vows.ensureUnusedCapacity(self.allocator, 1);
-    // The vow this row is for settles exactly once.
-    try self.reserveActions(1);
+    // A session vow can settle onto the embedder action queue. Resolver rows
+    // settle through their holder and reserve no queue slot they cannot use.
+    if (session != null) try self.reserveActions(1);
     return row;
 }
 
@@ -304,6 +356,10 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
         // A local vow has no wire answer to project against.
         .local => return vocab.Error.NotPipelineable,
     };
+    try self.checkOutboundAdmission(resolved.session);
+    const reservation = try reserveVow(self, resolved.session, .far, .plain);
+    var reservation_live = true;
+    errdefer if (reservation_live) cancelVowReservation(self, reservation);
     const peer = resolved.session.served.port.peer;
     const answer = model.AnswerPosition.from(peer.allocateAnswer());
     const receiver: model.Reference = .{ .promise = .{ .answer_position = source } };
@@ -316,8 +372,9 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
         .untag => |tag| try peer.sendCopying(.{ .untag = .{ .receiver = receiver, .tag = tag, .answer = answer } }),
         .get => |field| try peer.sendCopying(.{ .get = .{ .receiver = receiver, .field = field, .answer = answer } }),
     }
-    const id = try mintVow(self, resolved.session, .{ .far = answer }, .plain);
-    try host_pump.dirtyThenPump(self, resolved.session.peer_id);
+    const id = commitVow(self, resolved.session, reservation, .{ .far = answer });
+    reservation_live = false;
+    host_pump.finishCommittedVow(self, resolved.session);
     return id;
 }
 
@@ -336,21 +393,27 @@ fn resolveVowSession(self: *Host, vow_id: u64) HostError!struct { row: *VowRow, 
 }
 
 fn settleResolverRow(self: *Host, resolver_id: u64, resolution: actors.Resolution) !void {
-    const entry = self.resolver_index.fetchRemove(resolver_id) orelse return actors.Error.AlreadySettled;
-    // Retire the row before the settle, mirroring `settleRow`: every
-    // later verb on the vow id refuses `NoSuchVow` from here on.
-    const row = self.vows.fetchRemove(entry.value.vow_id) orelse unreachable; // index row implies vow row
-    const forwarded_peer = row.value.forwarded_peer;
-    self.allocator.destroy(row.value);
+    const entry = self.resolver_index.get(resolver_id) orelse return actors.Error.AlreadySettled;
+    const row = self.vows.get(entry.vow_id) orelse unreachable; // index row implies vow row
+    const forwarded_peer = row.forwarded_peer;
     switch (resolution) {
-        .fulfilled => |value| try self.vat.fulfillVow(entry.value.vat_resolver, value),
-        .broken => |reason| try self.vat.breakVow(entry.value.vat_resolver, reason),
+        .fulfilled => |value| try self.vat.fulfillVow(entry.vat_resolver, value),
+        .broken => |reason| try self.vat.breakVow(entry.vat_resolver, reason),
         .give => unreachable, // no resolver verb spells a give
     }
+    // The Vat settle is committed and allocation-free from this point. Retire
+    // both Host indexes only after it succeeds, so preparation OOM leaves the
+    // same public resolver retryable.
+    std.debug.assert(self.resolver_index.remove(resolver_id));
+    std.debug.assert(self.vows.remove(entry.vow_id));
+    self.allocator.destroy(row);
     // This settle runs outside any feed, so the deferred answer's session
     // is encoded here or not at all.
-    if (forwarded_peer) |peer_id| host_pump.markDirty(self, peer_id);
-    try host_pump.finishVerb(self);
+    if (forwarded_peer) |peer_id| {
+        const session = self.sessions.get(peer_id) orelse return;
+        host_pump.markDirty(self, peer_id);
+        host_pump.finishCommittedWork(self, session);
+    }
 }
 
 /// The fetch settlement mapping: enroll a fulfilled far capability under

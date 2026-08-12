@@ -11,6 +11,7 @@ const std = @import("std");
 const util = @import("util.zig");
 
 const appendViolation = util.appendViolation;
+const expectFileContains = util.expectFileContains;
 
 /// Apex for one CapTP I/O spine. The forbid/file-absent rows live in
 /// `meta_check/bans.zig` (`captp_io_spine_table`); this keeps the
@@ -27,7 +28,7 @@ pub fn check(
     };
 
     // Every completion Backend must declare the total dial contract.
-    // Transport-bound Locators own OCapN resolve; platform Backends are connect-only.
+    // Transport-bound DialResolvers interpret OCapN locators; platform Backends are connect-only.
     const backend_paths = [_][]const u8{
         "src/net/transport/iroh.zig",
     };
@@ -46,7 +47,7 @@ pub fn check(
         "shutdownFd",
     };
     const locator_paths = [_][]const u8{
-        "src/net/transport/tcp.zig",
+        "src/net/transport/tcp_addressing.zig",
         "src/net/transport/iroh.zig",
     };
     const required_locator = [_][]const u8{
@@ -168,8 +169,12 @@ pub fn check(
         }
     }
 
+    try expectFileContains(io, gpa, root, violations, "src/net/transport/tcp.zig", &.{
+        "pub const DialResolver = addressing.DialResolver",
+    });
+
     // `tcp.connectAddress` is post-admission I/O only. Production `src/` dials
-    // must go through `Locator.resolve` (or `tcp.connect` / netlayer dial) first;
+    // must go through `DialResolver.resolve` (or `tcp.connect` / netlayer dial) first;
     // only the tcp transport modules may call connectAddress.
     {
         var src_dir = try root.openDir(io, "src", .{ .iterate = true });
@@ -182,14 +187,15 @@ pub fn check(
             const rel = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
             defer gpa.free(rel);
             if (std.mem.eql(u8, rel, "src/net/transport/tcp.zig")) continue;
-            if (std.mem.eql(u8, rel, "src/net/transport/tcp_keyed.zig")) continue;
+            if (std.mem.eql(u8, rel, "src/net/transport/tcp_plain.zig")) continue;
+            if (std.mem.eql(u8, rel, "src/net/transport/tcp_key_addressed.zig")) continue;
             const contents = root.readFileAlloc(io, rel, gpa, .limited(2 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: failed to read for connectAddress ban with {s}", .{ rel, @errorName(err) });
                 continue;
             };
             defer gpa.free(contents);
             if (std.mem.indexOf(u8, contents, "connectAddress") != null) {
-                try appendViolation(gpa, violations, "{s}: forbidden `connectAddress` — dial through `Locator.resolve` / `tcp.connect` / netlayer dial; only tcp.zig and tcp_keyed.zig may call the post-admission connect", .{rel});
+                try appendViolation(gpa, violations, "{s}: forbidden `connectAddress` — dial through `DialResolver.resolve` / `tcp.connect` / netlayer dial; only tcp's socket/profile modules may call the post-admission connect", .{rel});
             }
         }
     }
@@ -434,8 +440,8 @@ pub fn check(
         },
         .{
             .path = "test/driver/pluggability_test.zig",
-            .required = "tcp.designatorOnListener(",
-            .banned = &.{ "bufPrint(out, \"{f}\"", "127.0.0.1:{d}" },
+            .required = "tcp.locator(",
+            .banned = &.{ "bufPrint(&designator_buf, \"{f}\"", "127.0.0.1:{d}" },
         },
         .{
             .path = "interop/tcp_loop/driver.zig",
@@ -598,14 +604,14 @@ pub fn check(
         }
     }
 
-    // Binding hint name literal lives only in each language's constant home
-    // (mirrors model.transport.hint_direct_addresses).
+    // Binding transport and hint literals live only in generated projections
+    // of model.transport; production modules import those names.
     {
         const allowed = [_][]const u8{
-            "bindings/python/pancake/_constants.py",
-            "bindings/rust/src/abi_constants.rs",
-            "bindings/ts/stack/locator.ts",
-            "bindings/racket/private/constants.rkt",
+            "bindings/python/pancake/_constants_gen.py",
+            "bindings/rust/src/abi_constants_gen.rs",
+            "bindings/ts/abi/constants.ts",
+            "bindings/racket/private/constants-gen.rkt",
         };
         const roots = [_][]const u8{
             "bindings/python",
@@ -1238,9 +1244,9 @@ pub fn check(
                 break :iroh_public_surface;
             };
             defer gpa.free(rkt_contents);
-            // `connect-iroh/node` is binding-internal, and what keeps it that way
-            // is living in the private tree while the barrel re-exports only the
-            // hosting surface. It must not become a submodule again: Racket's
+            // Provider installation is binding-internal, and what keeps it that
+            // way is living in the private tree while the barrel re-exports only
+            // the hosting surface. It must not become a submodule again: Racket's
             // compile manager does not manage submodule requests, so a program
             // running against compiled bytecode cannot reach one without
             // re-expanding the module it sits in.
@@ -1252,8 +1258,8 @@ pub fn check(
                 break :iroh_public_surface;
             };
             defer gpa.free(rkt_impl);
-            if (std.mem.indexOf(u8, rkt_impl, "(provide connect-iroh/node") == null) {
-                try appendViolation(gpa, violations, "bindings/racket/private/iroh.rkt: must provide `connect-iroh/node` for the binding's dial", .{});
+            if (std.mem.indexOf(u8, rkt_impl, "iroh-adopt-loop!") == null) {
+                try appendViolation(gpa, violations, "bindings/racket/private/iroh.rkt: must provide `iroh-adopt-loop!` for generic driver dials", .{});
             }
             // One owner for reaching the transport, and it loads a plain module.
             const rkt_dial = root.readFileAlloc(io, "bindings/racket/private/iroh-companion.rkt", gpa, .limited(2 << 20)) catch |err| {
@@ -1398,44 +1404,15 @@ pub fn check(
             if (std.mem.indexOf(u8, contents, "socket_addr_designator(&") == null) {
                 try appendViolation(gpa, violations, "{s}: missing socket_addr_designator on listen/accept paths", .{path});
             }
-            if (std.mem.indexOf(u8, contents, "set_self_designator(&local.to_string())") != null or
-                std.mem.indexOf(u8, contents, ".map(|addr| addr.to_string())") != null or
+            if (std.mem.indexOf(u8, contents, ".map(|addr| addr.to_string())") != null or
                 std.mem.indexOf(u8, contents, ".map(|a| a.to_string())") != null)
             {
                 try appendViolation(gpa, violations, "{s}: forbidden SocketAddr::to_string for designators — use socket_addr_designator", .{path});
             }
         }
-        // Constant homes must name the full model.transport table.
-        const must_have = [_]struct { path: []const u8, needles: []const []const u8 }{
-            .{
-                .path = "bindings/python/pancake/_constants.py",
-                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "TRANSPORT_KEYED_RELAY", "TRANSPORT_WEBRTC", "HINT_DIRECT_ADDRESSES" },
-            },
-            .{
-                .path = "bindings/rust/src/abi_constants.rs",
-                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "TRANSPORT_KEYED_RELAY", "TRANSPORT_WEBRTC", "HINT_DIRECT_ADDRESSES" },
-            },
-            .{
-                .path = "bindings/ts/stack/locator.ts",
-                .needles = &.{ "TRANSPORT_TCP", "TRANSPORT_KEYED_TCP", "TRANSPORT_INPROC", "TRANSPORT_IROH", "TRANSPORT_KEYED_RELAY", "TRANSPORT_WEBRTC", "HINT_DIRECT_ADDRESSES" },
-            },
-            .{
-                .path = "bindings/racket/private/constants.rkt",
-                .needles = &.{ "TRANSPORT-TCP", "TRANSPORT-KEYED-TCP", "TRANSPORT-INPROC", "TRANSPORT-IROH", "TRANSPORT-KEYED-RELAY", "TRANSPORT-WEBRTC", "HINT-DIRECT-ADDRESSES" },
-            },
-        };
-        for (must_have) |entry| {
-            const contents = root.readFileAlloc(io, entry.path, gpa, .limited(1 << 20)) catch |err| {
-                try appendViolation(gpa, violations, "{s}: failed to read for transport-constant presence with {s}", .{ entry.path, @errorName(err) });
-                continue;
-            };
-            defer gpa.free(contents);
-            for (entry.needles) |needle| {
-                if (std.mem.indexOf(u8, contents, needle) == null) {
-                    try appendViolation(gpa, violations, "{s}: missing `{s}` — binding transport vocabulary mirrors model.transport", .{ entry.path, needle });
-                }
-            }
-        }
+        // Transport and locator-hint strings are generated directly from
+        // model.transport. The generator staleness gates hold values and
+        // completeness; no hand-maintained presence list belongs here.
     }
 
     // The structural guard against a resident-local serve loop re-growing lives

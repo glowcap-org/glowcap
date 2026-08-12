@@ -20,7 +20,8 @@ Two transports, dispatched by what the WebSocket names:
                      readiness primitives every binding drives.
 
 Run with a WebSocket server provided hermetically by uv:
-    uv run --with websockets python3 bindings/python/relay.py <listen-port>
+    uv run --project bindings/python --extra rendezvous --locked \
+        python3 bindings/python/relay.py <listen-port>
 Prints `PYTHON-RELAY-READY <port>` on stdout once listening.
 """
 

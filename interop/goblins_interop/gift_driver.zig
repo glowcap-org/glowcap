@@ -212,8 +212,10 @@ fn gifterStep(
 ) !void {
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
+    var session_root: [crypto.SEED_BYTES]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
 
-    var host = Host.init(allocator, seed, blk: {
+    var host = Host.init(allocator, seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -237,21 +239,20 @@ fn gifterStep(
     };
 
     loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
     }));
     defer loop.deinit();
-    const gifter_port = loop.port.?;
+    const gifter_port = loop.port().?;
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bound_addr = try tcp.parseHostPort(host_addr, gifter_port);
     const bound = tcp.locator(&designator_buf, bound_addr).designator;
-    try bridge.attach(tcp.transport_name, bound, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
 
     var bob_designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bob_addr = try tcp.parseHostPort(host_addr, bob_port);
-    const bob_designator = tcp.locator(&bob_designator_buf, bob_addr).designator;
-    try bridge.dialOutbound(tcp.transport_name, bob_designator, "");
+    const bob_locator = tcp.locator(&bob_designator_buf, bob_addr);
+    try bridge.dialOutbound(bob_locator);
 
     var loop_done = std.atomic.Value(bool).init(false);
     var loop_err: ?anyerror = null;

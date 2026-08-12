@@ -31,9 +31,9 @@ pub const Handle = struct {
     gpa: std.mem.Allocator,
     /// The listening transport's residents. They live here rather than on
     /// `start`'s frame because the server borrows one for the accept thread's
-    /// whole life; which one is chosen is `ocapn.listenNetlayer`'s decision.
+    /// whole life; which one is chosen is `ocapn.listenTarget`'s decision.
     tcp: pancake.net.tcp.Resident = undefined,
-    relay: pancake.net.keyed_relay.Resident = undefined,
+    relay: ?pancake.net.keyed_relay.Resident = null,
     server: driver.Server,
     thread: std.Thread = undefined,
     stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -43,11 +43,6 @@ pub const Handle = struct {
     once: bool,
     /// Owned copy of the bound locator, for `info` and refusal messages.
     locator: []u8,
-    /// Owned copy of the `--rendezvous` URL. The relay resident's `RelayUrl`
-    /// holds subslices of it and re-reads them on every re-registration, so
-    /// the bytes must outlive the accept thread — and this front's flags do
-    /// not (an MCP request frees them as soon as it is answered).
-    rendezvous_url: ?[]u8,
     /// Why the accept loop stopped, when it stopped by itself — a fault's
     /// error name, or `served_stop` after a `--once`/`--publish` listener
     /// answered its one partner. Read by the fronts so a listener that is no
@@ -72,8 +67,8 @@ pub const Handle = struct {
         handle.stop.store(true, .release);
         handle.thread.join();
         handle.server.close() catch {};
+        if (handle.relay) |*resident| resident.deinit();
         if (handle.publish) |name| handle.gpa.free(name);
-        if (handle.rendezvous_url) |url| handle.gpa.free(url);
         handle.gpa.free(handle.locator);
         handle.gpa.destroy(handle);
     }
@@ -108,37 +103,34 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     // transport residents the server will borrow, and a resident must not
     // move once a netlayer points at it.
     const handle = try ctx.gpa.create(Handle);
+    handle.relay = null;
     // `errdefer` fires only on an error return, and this verb reports its
     // refusals as exit codes — a plain `return`. So ownership is tracked with
     // a flag and released by `defer`, which covers every exit.
     var handed_over = false;
-    var rendezvous_copy: ?[]u8 = null;
     defer if (!handed_over) {
-        if (rendezvous_copy) |url| ctx.gpa.free(url);
+        if (handle.relay) |*resident| resident.deinit();
         ctx.gpa.destroy(handle);
     };
-    if (parsed.flagString("rendezvous")) |url| rendezvous_copy = try ctx.gpa.dupe(u8, url);
-    const netlayer = ocapn.listenNetlayer(ctx, rendezvous_copy, &handle.tcp, &handle.relay) catch |err| switch (err) {
+    const target = ocapn.listenTarget(
+        ctx,
+        bind,
+        parsed.flagString("rendezvous"),
+        parsed.flagString("rendezvous-relay"),
+        &handle.tcp,
+        &handle.relay,
+    ) catch |err| switch (err) {
         error.Usage => return exit_codes.usage,
         else => return err,
     };
-    var server = driver.listen(ctx.gpa, netlayer, .{ .designator = bind }, accept_id, ocapn.sessionOpts()) catch |err| {
+    var server = driver.listen(ctx.gpa, target.netlayer, .{ .designator = target.designator }, accept_id, ocapn.sessionOpts()) catch |err| {
         ctx.logErr("listen: {s}", .{@errorName(err)});
         return exit_codes.dial;
     };
     var server_owned = true;
     defer if (server_owned) server.close() catch {};
 
-    var addr_buf: [128]u8 = undefined;
-    const designator = server.localDesignator(&addr_buf) catch {
-        ctx.logErr("listen: no dialable local designator", .{});
-        return exit_codes.internal;
-    };
-    const uri = try model.uri.writePeer(ctx.gpa, .{
-        .transport = server.listener.transportName(),
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    });
+    const uri = try model.uri.writePeer(ctx.gpa, server.advertisedLocator());
     defer ctx.gpa.free(uri);
 
     // Flag-guarded like the handle: once the thread is live these belong to
@@ -157,7 +149,6 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     handle.publish = publish_copy;
     handle.once = once;
     handle.locator = locator_copy;
-    handle.rendezvous_url = rendezvous_copy;
     handle.stop_reason = .init(null);
     handle.thread = try std.Thread.spawn(.{}, acceptLoop, .{handle});
     // The handle now owns the server and itself; the accept thread is live.
@@ -199,16 +190,16 @@ fn acceptLoop(handle: *Handle) void {
         };
         if (!ready) continue;
         if (handle.stop.load(.acquire)) return;
-        var conn = handle.server.accept() catch continue;
-        defer conn.deinit();
+        var session = handle.server.accept() catch continue;
+        defer session.deinit();
         if (handle.publish) |name| {
             // The name was validated at `start`, so a failure here is a torn
             // connection. Serving a partner with nothing published would only
             // give it a session that answers no fetch, so drop it instead.
-            ocapn.publishBuiltin(conn, name) catch continue;
+            ocapn.publishBuiltin(session, name) catch continue;
         }
         _ = handle.accepted.fetchAdd(1, .monotonic);
-        serveUntilStop(conn, &handle.stop);
+        serveUntilStop(session, &handle.stop);
         if (handle.once or handle.publish != null) {
             handle.stop_reason.store(Handle.served_stop, .release);
             return;
@@ -218,9 +209,9 @@ fn acceptLoop(handle: *Handle) void {
 
 /// Serve until the partner leaves or the stop latch fires — the background
 /// twin of the argv front's signal-latched serve.
-fn serveUntilStop(conn: *driver.Session, stop: *const std.atomic.Value(bool)) void {
+fn serveUntilStop(session: *driver.Session, stop: *const std.atomic.Value(bool)) void {
     while (!stop.load(.acquire)) {
-        const progress = conn.stepReadable(signals.poll_ms) catch return;
+        const progress = session.stepReadable(signals.poll_ms) catch return;
         if (progress) |p| if (p == .closed) return;
     }
 }

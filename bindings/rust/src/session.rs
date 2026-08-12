@@ -5,12 +5,14 @@
 //! [`crate::dial`]; [`Server`] / [`listen`] live in [`crate::listen`]. The
 //! [`RemotePromise`] handle lives in [`crate::promise`]. CapTP action
 //! decode+execute lives in [`crate::action`].
-//! Per-connection [`Caretaker`] / [`SessionShared`] live in [`crate::session_shared`];
+//! Per-session [`Caretaker`] / [`SessionShared`] live in [`crate::session_shared`];
 //! the Host-scoped [`Ref`] lives beside [`Argument`](crate::Argument).
 //! The byte-fed pump choreography — read raw bytes, `pancake_host_session_feed_bytes`,
 //! drain the action queue, write what `take_outbound` drains, feed-refusal /
 //! `last_abort`, EOF / `break_far_vows` — lives in [`crate::pump`]; this module
-//! keeps CapTP verbs and thin wrappers into that path. The host owns everything
+//! keeps CapTP verbs and thin wrappers into that path. A loop-backed session
+//! (ADR-0112) carries the same verbs with no pump at all: the native loop owns
+//! its wire ([`crate::driver_loop`]). The host owns everything
 //! else: routing, redemption, gift origination, far vows.
 //!
 //! Everything runs on one tokio current-thread `LocalSet`; the handles are
@@ -25,12 +27,16 @@ use crate::host::{check_host, Host, HostShared};
 use crate::session_shared::{Caretaker, SessionShared};
 use crate::sys::host as ffi;
 use crate::trampoline::outcome_behavior;
+use crate::uri::OwnedLocator;
 use crate::Ref;
-use crate::{sys, Argument, Error, Result};
+use crate::{sys, Argument, Error, Locator, Result};
 
 use crate::promise::{AsSendTarget, RemotePromise};
 
 pub(crate) use crate::session_shared::io_err;
+
+#[cfg(test)]
+pub(crate) type DesignatorScheme = u32;
 
 /// How long a partner has to finish the keyed handshake once the byte channel
 /// is open, on both halves: what [`connect`](crate::connect) allows a dialed
@@ -49,7 +55,7 @@ pub const HANDSHAKE_TIMEOUT: Duration =
 /// holds, over one byte-fed `PancakeHostSession` the shared [`Host`] minted.
 /// `!Send` by construction; use it on a single task inside a `LocalSet`.
 /// Dropping the handle closes the session, with one exception named on
-/// [`Redeemed::via`]: a handle onto a session the host itself owns is a view,
+/// [`SendRedeemingResult::via`]: a handle onto a session the host itself owns is a view,
 /// and dropping the view leaves the connection running.
 pub struct Session {
 	shared: Rc<SessionShared>,
@@ -82,21 +88,21 @@ impl Session {
 	}
 }
 
-pub struct Redeemed {
+pub struct SendRedeemingResult {
 	/// The value the send settled with, exactly what an ordinary
 	/// [`Session::send`] would have yielded. Lift a capability out of it with
 	/// `Ref::try_from(&reply)`.
 	pub reply: Argument,
-	/// The direct connection the reply's capability lives on, when the reply is
+	/// The direct session the reply's capability lives in, when the reply is
 	/// a capability a three-party-handoff redeem brought in; `None` for an
-	/// ordinary far reply, or when that exporter connection has already gone.
+	/// ordinary far reply, or when that exporter session has already gone.
 	///
-	/// It is a view, not an owner: dropping it leaves the exporter connection
-	/// open, because the host owns that connection and the reply capability
+	/// It is a view, not an owner: dropping it leaves the exporter session
+	/// open, because the host owns that session and the reply capability
 	/// depends on it. Calling [`close`](Session::close) on it is an explicit
-	/// close of that one exporter connection, which severs the reply capability
+	/// close of that one exporter session, which severs the reply capability
 	/// beside it. It reaches no further: the session you sent on, and every
-	/// other exporter connection the host dialed, keep running.
+	/// other exporter session the host dialed, keep running.
 	pub via: Option<Session>,
 }
 
@@ -162,7 +168,7 @@ impl PartnerIdentity {
 	/// Whether the durable identity this partner advertised was
 	/// cryptographically authenticated by the realized channel. This is the
 	/// predicate to ask when an operation requires a proved durable peer; it
-	/// stays correct once each connection draws a fresh session key.
+	/// stays correct once each session draws a fresh signing key.
 	pub fn durable_identity_authenticated(&self) -> bool {
 		self.provenance != DurableProvenance::Unauthenticated
 	}
@@ -250,9 +256,11 @@ impl Session {
 	/// accept loop of its own may want), and overrunning it fails with
 	/// [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut), which an accept loop
 	/// skips like any other bad partner. Binding-internal.
+	#[cfg(test)]
 	pub(crate) async fn establish_accepted<S>(
 		host: Rc<HostShared>,
 		transport_name: &str,
+		designator_scheme: DesignatorScheme,
 		server_designator: &str,
 		stream: S,
 		accepted_local_addr: &str,
@@ -271,8 +279,7 @@ impl Session {
 		};
 		check_host(unsafe {
 			ffi::pancake_host_plan_accept(
-				transport_name.as_ptr(),
-				transport_name.len(),
+				designator_scheme,
 				server_designator.as_ptr(),
 				server_designator.len(),
 				accepted_local_addr.as_ptr(),
@@ -297,9 +304,36 @@ impl Session {
 				)
 			}
 		};
-		let locator =
-			crate::uri::encode_peer_locator_bytes(transport_name.as_bytes(), designator, hint)?;
-		host.set_advertised_locator_record(&locator)?;
+		let designator = std::str::from_utf8(designator).map_err(|_| {
+			Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"host returned a non-UTF-8 accepted locator designator".to_string(),
+			)
+		})?;
+		let mut hints = std::collections::BTreeMap::new();
+		if !hint.is_empty() {
+			let direct_addresses = std::str::from_utf8(hint).map_err(|_| {
+				Error::with_detail(
+					sys::ERR_INVALID_ARGUMENT,
+					"host returned a non-UTF-8 direct-addresses hint".to_string(),
+				)
+			})?;
+			hints.insert(
+				crate::abi_constants::HINT_DIRECT_ADDRESSES.to_string(),
+				crate::HintValue::String(direct_addresses.to_string()),
+			);
+		}
+		let locator = Locator {
+			transport: transport_name.to_string(),
+			designator: designator.to_string(),
+			hints,
+			hint_wire_form: if hint.is_empty() {
+				crate::HintWireForm::BooleanFalse
+			} else {
+				crate::HintWireForm::Map
+			},
+		};
+		host.set_advertised_locator(&locator)?;
 		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
 		check_host(unsafe {
 			ffi::pancake_host_session_open_accepted(
@@ -373,9 +407,8 @@ impl Session {
 		Host::from_shared(Rc::clone(&self.shared.host))
 	}
 
-	/// Record the verbatim exporter-location bytes (from
-	/// [`encode_peer_locator`](crate::encode_peer_locator))
-	/// the gifter embeds when *this* connection is the exporter side of a handoff
+	/// Record the complete exporter locator the gifter embeds when *this*
+	/// session is the exporter side of a handoff
 	/// this host originates (ADR-0009). Needed when the partner's signed location
 	/// is not dialable on its own — an iroh partner signs only its node id, so a
 	/// gifter that learned the exporter's `direct-addresses` out of band sets the
@@ -388,14 +421,15 @@ impl Session {
 	/// origination reverts to the partner's signed location, and the recipient's
 	/// redeem dial fails later, in another process, with an unrelated message.
 	/// The other three bindings raise here.
-	pub fn set_exporter_locator(&self, raw: Vec<u8>) -> Result<()> {
+	pub fn set_exporter_locator(&self, locator: Option<&Locator>) -> Result<()> {
 		self.shared.guard_open()?;
+		let owned = locator.map(OwnedLocator::new).transpose()?;
+		let view = match owned.as_ref() {
+			Some(value) => value.borrow_view()?,
+			None => core::ptr::null(),
+		};
 		check_host(unsafe {
-			ffi::pancake_host_session_set_exporter_location(
-				self.shared.ptr.get(),
-				raw.as_ptr(),
-				raw.len(),
-			)
+			ffi::pancake_host_session_set_exporter_location(self.shared.ptr.get(), view)
 		})?;
 		Ok(())
 	}
@@ -650,7 +684,7 @@ impl Session {
 	/// trip instead of one per link. `args` may contain capabilities via
 	/// `Into<Argument>`. A `Ref` this session spawned runs in process; a
 	/// partner's rides the wire, and a redeemed or fetched token routes to the
-	/// exporter connection that hosts it, transparently.
+	/// exporter session that hosts it, transparently.
 	/// Listen on a far capability this session holds (CapTP `op:listen`,
 	/// ADR-0095): the returned handle settles with the listen notification,
 	/// which may be any value, not only a capability. In 1.0, the target may be
@@ -666,32 +700,32 @@ impl Session {
 	}
 
 	/// Eventual-send `verb(args)` to `target`, await the reply, and also hand
-	/// back the direct connection a three-party-handoff redeem opened to answer
+	/// back the direct session a three-party-handoff redeem opened to answer
 	/// it.
 	///
 	/// When `target` answers with a `desc:handoff-give` — a rooms `introduce`,
 	/// say — the host redeems it by dialing the exporter, and the reply resolves
-	/// to a capability that routes over that fresh direct connection. That
-	/// connection is otherwise internal. This surfaces it as
-	/// [`via`](Redeemed::via), so the caller can host its own objects on the very
-	/// connection the redeemed capability lives on. That is the one place a
+	/// to a capability that routes over a fresh direct session. The byte
+	/// connection is otherwise internal. This surfaces the session as
+	/// [`via`](SendRedeemingResult::via), so the caller can host its own objects in the same
+	/// session as the redeemed capability. That is the one place a
 	/// reply capability handed back to the exporter is valid, because an OCapN
-	/// near export names a position on one specific connection's peer: spawn the
+	/// near export names a position in one specific session: spawn the
 	/// inbox on `via` and the exporter can call it, spawn it on this session and
 	/// the exporter has no route to it.
 	///
 	/// `via` is resolved from the reply's own token, which carries the exporter
-	/// connection it lives on, rather than from watching which dial ran during
+	/// session it lives in, rather than from watching which dial ran during
 	/// the send. So it is right with several redeems in flight at once, and it
-	/// names the exporter even when the redeem reused a connection an earlier
+	/// names the exporter even when the redeem reused a session an earlier
 	/// one already dialed, where there is no fresh dial to observe. `via` is
 	/// `None` when the reply is not a redeemed-handoff capability (an ordinary
-	/// far reply) or when its exporter connection has already gone.
+	/// far reply) or when its exporter session has already gone.
 	///
 	/// ```ignore
-	/// let Redeemed { reply, via } = conn.send_redeeming(&directory, "introduce", &[nick]).await?;
+	/// let SendRedeemingResult { reply, via } = session.send_redeeming(&directory, "introduce", &[nick]).await?;
 	/// let member = Ref::try_from(&reply).expect("introduce answers with a capability");
-	/// let hop = via.as_ref().unwrap_or(&conn);
+	/// let hop = via.as_ref().unwrap_or(&session);
 	/// let inbox = hop.spawn(reply_behavior)?;   // hosted where the reply lives
 	/// hop.send(&member, "dm", &[text, (&inbox).into()]).await?;
 	/// ```
@@ -700,7 +734,7 @@ impl Session {
 		target: T,
 		verb: &str,
 		args: &[Argument],
-	) -> Result<Redeemed> {
+	) -> Result<SendRedeemingResult> {
 		self.shared.guard_open()?;
 		let reply = self.send(target, verb, args).await?;
 		let via = match Ref::try_from(&reply) {
@@ -719,7 +753,7 @@ impl Session {
 			// sturdyref, or a broken reference.
 			Err(()) => None,
 		};
-		Ok(Redeemed { reply, via })
+		Ok(SendRedeemingResult { reply, via })
 	}
 
 	/// Fire-and-forget eventual-send (Goblins `<-np`): no answer is allocated and
@@ -745,8 +779,8 @@ impl Session {
 		}
 	}
 
-	pub(crate) fn raw_conn(&self) -> *mut ffi::PancakeHostSession {
-		self.shared.raw_conn()
+	pub(crate) fn raw_session(&self) -> *mut ffi::PancakeHostSession {
+		self.shared.raw_session()
 	}
 
 	/// Close the session. A running [`serve`](Session::serve) completes; pending
@@ -775,7 +809,7 @@ impl Session {
 
 impl Drop for Session {
 	fn drop(&mut self) {
-		// A view onto a host-owned session (`Redeemed::via`) is not the
+		// A view onto a host-owned session (`SendRedeemingResult::via`) is not the
 		// connection's owner, so its drop is a no-op: closing there would sever
 		// the redeemed capability the caller was handed alongside it.
 		if !self.owns_session {

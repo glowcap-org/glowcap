@@ -179,18 +179,10 @@ quit
 and clipboard behavior are documented in-app, so this page does not repeat
 them.
 
-The lab keeps up with your terminal. It follows resizes (SIGWINCH) and reflows:
-the side rail needs at least 80 columns, and a narrower terminal stacks the
-CapTP counts above the REPL. While the alt screen is up, CLI diagnostics go into
-the transcript instead of to stderr beside the cursor, so nothing prints over
-what you are reading. Idle frames pump an open CapTP session without blocking,
-which is what keeps the rail counts live. Each successful verb appends a CapTP
-gloss, and the prompt dock carries a footer tip pointing at `guide`, the
-optional walkthrough.
-
 Environment variables tune the rest. `PANCAKE_REPL_QUIET=1` skips the one-line
 workbench greeting, `PANCAKE_REPL_NO_MOUSE=1` turns mouse handling off, and
-`PANCAKE_REPL_REDUCED_MOTION=1` shortens the flash and motion.
+`PANCAKE_REPL_REDUCED_MOTION=1` shortens the flash and motion. Resize, reflow,
+and footer tips are covered in-app.
 
 ## Agent control plane
 
@@ -235,23 +227,29 @@ A script picks its identity with `PANCAKE_STATE`, `PANCAKE_IDENTITY`, or
 session summary: the front, the state path, and the partner's `abort_kind` and
 `abort` reason when one was retained.
 
-A `keyed-relay` locator names a peer that holds no listening socket — a
-browser tab, or any process that registered its identity at a relay instead.
-Point `PANCAKE_RENDEZVOUS` at the relay's rendezvous endpoint and the dial
-goes through it, with the keyed handshake still authenticating the peer end
-to end:
+A `keyed-relay` locator names a peer that holds no listening socket (a
+browser tab, or any process that registered its identity at a relay instead).
+Its `rendezvous-relay` hint carries the dial route; `PANCAKE_RENDEZVOUS` is
+the deployment fallback for a bare locator. The relay carries cleartext CapTP
+frames and does not prove who answered; use `noise-relay` when the
+conversation needs a sealed path
+([known limitations](boundaries.md#browser-reachability)):
 
 ```sh
 export PANCAKE_RENDEZVOUS=ws://127.0.0.1:8000/relay
 pancake --json ocapn call "ocapn://<key>.keyed-relay" greeter greet world
 ```
 
-To be that peer rather than dial one, register instead of binding. The
-listener holds an inbound socket at the relay and prints the `keyed-relay`
-locator that names it, so a process behind a NAT is still reachable:
+To be that peer rather than dial one, register instead of binding. Registration
+and dialing may use different relay endpoints, so provide both. The listener
+holds an inbound socket at the registration endpoint and prints a
+`keyed-relay` locator carrying the advertised dial route:
 
 ```sh
-pancake --json ocapn listen --rendezvous ws://127.0.0.1:8000/register --publish greeter
+pancake --json ocapn listen \
+  --rendezvous ws://127.0.0.1:8000/register \
+  --rendezvous-relay ws://relay.example/relay \
+  --publish greeter
 ```
 
 [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md) records the

@@ -1,10 +1,9 @@
 // The shared stand for the keyed-relay rendezvous proof family (ADR-0088):
 // start the reference relay (`bindings/ts/relay/serve.ts`, which owns the
 // `/register` and `?rendezvous=` legs), start the registered non-listening
-// peer, then run one binding's client with `<relay-port> <designator>`
-// appended to its argv. The client cold-dials the registered peer's identity
-// through the relay and asserts the greeting; this harness only sequences the
-// three processes and relays the client's exit code.
+// peer, then run one binding's client with its complete hinted locator appended
+// to argv. Each client configures an unusable local fallback, so success proves
+// the target's advertised relay route selected the bridge.
 //
 // Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts -- <client argv...>
 
@@ -90,14 +89,14 @@ try {
 		stdout: "piped",
 		stderr: "inherit",
 	}).spawn();
-	const designator = await awaitMarker(peer, "REGISTERED-PEER-READY", "peer");
+	const locator = await awaitMarker(peer, "REGISTERED-PEER-READY", "peer");
 	// The registration socket is opened asynchronously after the marker; give
 	// the relay a moment to hold it before the client bridges on. The client
 	// itself retries nothing — a missing registration is a loud refusal.
 	await new Promise((r) => setTimeout(r, 500));
 
 	const client = new Deno.Command(clientArgv[0], {
-		args: [...clientArgv.slice(1), relayPort, designator],
+		args: [...clientArgv.slice(1), locator],
 		cwd: ROOT,
 		stdout: "inherit",
 		stderr: "inherit",

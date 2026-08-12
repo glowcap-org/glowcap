@@ -47,6 +47,7 @@ const bridge: PtrBridge<Deno.PointerValue> = {
 };
 
 const ffi: RuntimeFfi = {
+	offloadsBlockingCalls: () => true,
 	dlopen(path: string, defs: Record<string, SymbolDef>): Symbols {
 		const denoDefs: Record<string, Deno.ForeignFunction> = {};
 		for (const [name, def] of Object.entries(defs)) {

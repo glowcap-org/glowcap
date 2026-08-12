@@ -16,20 +16,6 @@ use crate::sys::host as ffi;
 use crate::trampoline::DeliverGuard;
 use crate::{sys, AbortDomain, AbortInfo, Error, Result};
 
-fn stream_prefix(buf: &mut [u8; 32], mut length: usize) -> &[u8] {
-	let mut start = buf.len();
-	start -= 1;
-	buf[start] = b':';
-	loop {
-		start -= 1;
-		buf[start] = b'0' + (length % 10) as u8;
-		length /= 10;
-		if length == 0 {
-			return &buf[start..];
-		}
-	}
-}
-
 /// Drive a freshly opened connection's keyed handshake to an open session.
 /// The signed `op:start-session` was encoded by the open; its FLUSH is on the
 /// action queue, so the drain puts it on the wire first. The core stops
@@ -137,8 +123,10 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
 /// one borrowed call moves the whole chunk; an empty chunk resumes frames
 /// the session held behind its handshake open.
 pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()> {
-	let mut refusal: Option<i32> = None;
-	if !shared.released.get() {
+	loop {
+		if shared.released.get() {
+			return Ok(());
+		}
 		let _deliver = DeliverGuard::enter(shared);
 		let rc = unsafe {
 			ffi::pancake_host_session_feed_bytes(
@@ -151,12 +139,15 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 				chunk.len(),
 			)
 		};
-		if rc != sys::OK {
-			refusal = Some(rc);
+		drop(_deliver);
+		drain_pending_releases();
+		if rc == sys::OK {
+			break;
 		}
-	}
-	drain_pending_releases();
-	if let Some(rc) = refusal {
+		if rc == sys::WOULD_BLOCK {
+			shared.host.kick_actions().await;
+			continue;
+		}
 		return Err(feed_refusal(shared, rc).await);
 	}
 	shared.host.kick_actions().await;
@@ -226,40 +217,95 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 		return Err(Error::from_code(sys::ERR_CLOSED));
 	}
 	let writer = Rc::clone(&shared.writer);
-	let mut guard = writer.lock().await;
+	let guard = writer.lock().await;
+	let mut guard = WriterLease {
+		inner: guard,
+		shared,
+	};
+	let mut in_flight = None;
 	loop {
 		if shared.released.get() {
 			return Ok(());
 		}
 		let mut raw: sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
-		let rc = unsafe { ffi::pancake_host_session_take_outbound(shared.ptr.get(), &mut raw) };
+		let mut prefix = [0u8; sys::HOST_OUTBOUND_PREFIX_CAP];
+		let mut prefix_len = 0usize;
+		let rc = unsafe {
+			ffi::pancake_host_session_take_outbound(
+				shared.ptr.get(),
+				&mut raw,
+				prefix.as_mut_ptr(),
+				prefix.len(),
+				&mut prefix_len,
+			)
+		};
 		if rc == sys::WOULD_BLOCK {
 			break;
 		}
 		check_host(rc)?;
 		let frame = FrameGuard(raw);
-		let Some(sink) = guard.as_mut() else {
+		let Some(sink) = guard.inner.as_mut() else {
 			return Ok(()); // the transport is gone; the frame is released
 		};
-		// If this future is dropped between here and the line below, some of
-		// the frame is already gone and the rest never will be.
-		let in_flight = TornOnDrop { shared };
-		let mut prefix_buf = [0u8; 32];
-		sink.write_all(stream_prefix(&mut prefix_buf, frame.bytes().len()))
-			.await
-			.map_err(io_err)?;
-		sink.write_all(frame.bytes()).await.map_err(io_err)?;
-		in_flight.finished();
+		// Once a frame leaves the core, cancellation is terminal until the
+		// transport flush confirms every buffered byte was handed onward.
+		if in_flight.is_none() {
+			in_flight = Some(TornOnDrop { shared });
+		}
+		write_all_or_closed(shared, sink, &prefix[..prefix_len]).await?;
+		write_all_or_closed(shared, sink, frame.bytes()).await?;
 	}
-	if let Some(sink) = guard.as_mut() {
-		sink.flush().await.map_err(io_err)?;
+	if let Some(sink) = guard.inner.as_mut() {
+		flush_or_closed(shared, sink).await?;
+	}
+	if let Some(in_flight) = in_flight {
+		in_flight.finished();
 	}
 	Ok(())
 }
 
-// Marks the session torn unless the write it guards runs to completion. A
-// dropped write future is the only way out of `write_all` other than returning,
-// and it is indistinguishable from a partial frame on the wire.
+async fn write_all_or_closed(
+	shared: &SessionShared,
+	sink: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
+	bytes: &[u8],
+) -> Result<()> {
+	tokio::select! {
+		biased;
+		_ = shared.closed.notified() => Err(Error::from_code(sys::ERR_CLOSED)),
+		result = sink.write_all(bytes) => result.map_err(io_err),
+	}
+}
+
+async fn flush_or_closed(
+	shared: &SessionShared,
+	sink: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
+) -> Result<()> {
+	tokio::select! {
+		biased;
+		_ = shared.closed.notified() => Err(Error::from_code(sys::ERR_CLOSED)),
+		result = sink.flush() => result.map_err(io_err),
+	}
+}
+
+// Own the async writer lock for one drain. Session close cannot synchronously
+// take that lock while a write awaits, so the lease itself retires the sink
+// when close raced it or cancellation marked the stream torn.
+struct WriterLease<'a> {
+	inner: tokio::sync::MutexGuard<'a, Option<Box<dyn tokio::io::AsyncWrite + Unpin>>>,
+	shared: &'a SessionShared,
+}
+
+impl Drop for WriterLease<'_> {
+	fn drop(&mut self) {
+		if self.shared.released.get() || self.shared.torn.get() {
+			*self.inner = None;
+		}
+	}
+}
+
+// Marks the session torn unless every transferred frame reaches a successful
+// transport flush. A dropped write future is indistinguishable from a partial
+// frame or a frame stranded in a buffered sink.
 struct TornOnDrop<'a> {
 	shared: &'a Rc<SessionShared>,
 }

@@ -10,6 +10,10 @@ frozen public API, no external consumer locked to a type's shape. That is a
 license, and it sets the default verdict on every design event, **fix the root
 now; do not defer it.**
 
+ABI fields reserve a compatibility mechanism; they do not manufacture history.
+Replacing an unsupported prerelease contract keeps its version at `1`; increment
+only when pancake intentionally supports a distinct older or released contract.
+
 The drift this guards against is importing a post-1.0 instinct into a pre-1.0
 codebase. "It would change a shared type," "it would touch the spine," "it would
 ripple through callers" all name a _migration_ cost, and there is no migration

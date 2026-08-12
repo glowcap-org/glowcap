@@ -19,22 +19,25 @@ whole frames over TCP by hand composes it with the core:
 This is the explicit, synchronous shuttle. The async, transport-neutral
 application surface (:func:`pancake.connect`, :func:`pancake.listen`,
 :class:`pancake.Session`) lives in the core and drives TCP over asyncio
-without this archive, reach here only when you want the blocking endpoints
+without this archive, reach here only when you want the blocking connections
 themselves.
 """
 
 from __future__ import annotations
 
 import ctypes
+import threading
+import weakref
 from typing import Optional
 
 from ._codec import _codec_id
 from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK
 from ._errors import PancakeError
-from ._ffi_ocapn import _Frame, _lib, _ManagedFrame, _read_last_error, _str_buf
+from ._ffi_ocapn import _copy_managed_frame, _Frame, _ManagedFrame, _read_last_error, _str_buf
 from ._ffi_tcp import _tcp_lib
+from ._native import NativeHandle
 
-__all__ = ["TcpNetlayer", "TcpListener", "TcpEndpoint"]
+__all__ = ["TcpNetlayer", "TcpListener", "TcpConnection"]
 
 
 def _tcp_last_error() -> Optional[str]:
@@ -52,45 +55,77 @@ def _check_tcp(code: int) -> None:
         raise PancakeError(code, _tcp_last_error())
 
 
-class TcpEndpoint:
-    """A blocking TCP endpoint: the ``pancake_tcp_*`` frame shuttle over one
+def _release_connection(raw) -> None:
+    _tcp_lib.pancake_tcp_conn_release(raw)
+
+
+def _release_listener(raw) -> None:
+    _tcp_lib.pancake_tcp_listener_release(raw)
+
+
+def _release_netlayer(raw) -> None:
+    _tcp_lib.pancake_tcp_netlayer_release(raw)
+
+
+class TcpConnection:
+    """A blocking TCP connection: the ``pancake_tcp_*`` frame shuttle over one
     socket. Closed on release / context exit."""
 
-    def __init__(self, raw):
-        self._raw = raw
+    def __init__(self, raw, netlayer: "TcpNetlayer"):
+        self._netlayer = netlayer
+        self._native = NativeHandle(
+            raw,
+            _release_connection,
+            _tcp_lib.pancake_tcp_conn_shutdown,
+            label="TCP connection",
+            keepalive=netlayer,
+        )
+        self._reads = threading.Lock()
+        self._writes = threading.Lock()
+        if not netlayer._adopt(self):
+            self._native.close()
+            raise RuntimeError("TCP netlayer is released")
 
-    def __enter__(self) -> "TcpEndpoint":
+    def __enter__(self) -> "TcpConnection":
         return self
 
     def __exit__(self, *exc) -> None:
         self.close()
 
     def close(self) -> None:
-        if self._raw:
-            _tcp_lib.pancake_tcp_conn_release(self._raw)
-            self._raw = None
+        self._native.close()
+        self._netlayer._forget(self)
 
     def read_frame(self) -> bytes:
         """Block for one whole frame. Raises PancakeError(ERR_CLOSED) on clean EOF."""
-        frame = _ManagedFrame()
-        _check_tcp(_tcp_lib.pancake_tcp_conn_read_frame(self._raw, ctypes.byref(frame)))
-        out = ctypes.string_at(frame.bytes, frame.len)
-        # The managed frame is the shared core vocabulary, so it is released
-        # through the core archive even though the read came from the tcp one.
-        _lib.pancake_managed_frame_release(ctypes.byref(frame))
-        return out
+        with self._reads, self._native.lease() as raw:
+            frame = _ManagedFrame()
+            _check_tcp(_tcp_lib.pancake_tcp_conn_read_frame(raw, ctypes.byref(frame)))
+            return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
         buf = ctypes.create_string_buffer(frame, len(frame))
         f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
-        _check_tcp(_tcp_lib.pancake_tcp_conn_write_frame(self._raw, ctypes.byref(f)))
+        with self._writes, self._native.lease() as raw:
+            _check_tcp(_tcp_lib.pancake_tcp_conn_write_frame(raw, ctypes.byref(f)))
 
 
 class TcpListener:
     """A bound TCP listener. Closed on release / context exit."""
 
-    def __init__(self, raw):
-        self._raw = raw
+    def __init__(self, raw, netlayer: "TcpNetlayer"):
+        self._netlayer = netlayer
+        self._native = NativeHandle(
+            raw,
+            _release_listener,
+            _tcp_lib.pancake_tcp_listener_shutdown,
+            label="TCP listener",
+            keepalive=netlayer,
+        )
+        self._accepts = threading.Lock()
+        if not netlayer._adopt(self):
+            self._native.close()
+            raise RuntimeError("TCP netlayer is released")
 
     def __enter__(self) -> "TcpListener":
         return self
@@ -99,29 +134,59 @@ class TcpListener:
         self.close()
 
     def close(self) -> None:
-        if self._raw:
-            _tcp_lib.pancake_tcp_listener_release(self._raw)
-            self._raw = None
+        self._native.close()
+        self._netlayer._forget(self)
 
     def port(self) -> int:
         out = ctypes.c_uint16()
-        _check_tcp(_tcp_lib.pancake_tcp_listener_port(self._raw, ctypes.byref(out)))
+        with self._native.lease() as raw:
+            _check_tcp(_tcp_lib.pancake_tcp_listener_port(raw, ctypes.byref(out)))
         return out.value
 
-    def accept(self, codec: str = "syrup", max_frame_bytes: int = 4096) -> TcpEndpoint:
-        out = ctypes.c_void_p()
-        _check_tcp(_tcp_lib.pancake_tcp_accept(self._raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
-        return TcpEndpoint(out)
+    def readiness_fd(self) -> int:
+        """Return the borrowed listening descriptor for reactor integration.
+
+        The listener owns it; callers must not close it or retain it after
+        :meth:`close`.
+        """
+        out = ctypes.c_int32()
+        with self._native.lease() as raw:
+            _check_tcp(
+                _tcp_lib.pancake_tcp_listener_readiness_fd(raw, ctypes.byref(out))
+            )
+        return out.value
+
+    def accept(self, codec: str = "syrup", max_frame_bytes: int = 4096) -> TcpConnection:
+        with self._accepts, self._native.lease() as raw:
+            out = ctypes.c_void_p()
+            _check_tcp(
+                _tcp_lib.pancake_tcp_accept(
+                    raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out)
+                )
+            )
+            return TcpConnection(out, self._netlayer)
 
 
 class TcpNetlayer:
-    """Owns the blocking-TCP I/O backend; outlives the endpoints made from it.
+    """Owns the blocking-TCP I/O backend; outlives the connections made from it.
     Released on :meth:`release` / context exit."""
 
     def __init__(self):
         out = ctypes.c_void_p()
         _check_tcp(_tcp_lib.pancake_tcp_netlayer_new(ctypes.byref(out)))
-        self._raw = out
+        self._native = NativeHandle(
+            out,
+            _release_netlayer,
+            _tcp_lib.pancake_tcp_netlayer_shutdown,
+            label="TCP netlayer",
+        )
+        # Children borrow this netlayer's pinned std.Io backend. A weak set
+        # lets each child retain the owner without forming an ownership cycle;
+        # explicit release still retires every child before the backend.
+        self._children: "weakref.WeakSet[TcpConnection | TcpListener]" = weakref.WeakSet()
+        self._children_lock = threading.Lock()
+        self._release_lock = threading.Lock()
+        self._release_requested = False
 
     def __enter__(self) -> "TcpNetlayer":
         return self
@@ -130,18 +195,83 @@ class TcpNetlayer:
         self.release()
 
     def release(self) -> None:
-        if self._raw:
-            _tcp_lib.pancake_tcp_netlayer_release(self._raw)
-            self._raw = None
+        with self._release_lock:
+            with self._children_lock:
+                if self._release_requested:
+                    children = []
+                else:
+                    self._release_requested = True
+                    children = list(self._children)
+            for child in children:
+                child.close()
+            self._native.close()
+
+    def _adopt(self, child: "TcpConnection | TcpListener") -> bool:
+        with self._children_lock:
+            if self._release_requested:
+                return False
+            self._children.add(child)
+            return True
+
+    def _forget(self, child: "TcpConnection | TcpListener") -> None:
+        with self._children_lock:
+            self._children.discard(child)
+
+    def _transport_provider(self):
+        """Borrow this runtime's complete tcp/keyed-tcp/noise-tcp package."""
+        from ._ffi_driver import _TransportProvider
+
+        package = _TransportProvider()
+        with self._native.lease() as raw:
+            _check_tcp(_tcp_lib.pancake_tcp_transport_provider(raw, ctypes.byref(package)))
+        return package
+
+    def _relinquish_provider_reference(self) -> None:
+        """Transfer runtime lifetime to an already-retained provider lease."""
+        with self._release_lock:
+            with self._children_lock:
+                if self._release_requested or self._children:
+                    raise RuntimeError("TCP netlayer is not transferable")
+                self._release_requested = True
+            self._native.drop_reference()
 
     def listen(self, host: str, port: int = 0) -> TcpListener:
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
-        _check_tcp(_tcp_lib.pancake_tcp_listen(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)))
-        return TcpListener(out)
+        with self._native.lease() as raw:
+            _check_tcp(
+                _tcp_lib.pancake_tcp_listen(
+                    raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)
+                )
+            )
+            return TcpListener(out, self)
 
-    def connect(self, host: str, port: int, codec: str = "syrup", max_frame_bytes: int = 4096) -> TcpEndpoint:
+    def connect(self, host: str, port: int, codec: str = "syrup", max_frame_bytes: int = 4096) -> TcpConnection:
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
-        _check_tcp(_tcp_lib.pancake_tcp_connect(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
-        return TcpEndpoint(out)
+        with self._native.lease() as raw:
+            _check_tcp(
+                _tcp_lib.pancake_tcp_connect(
+                    raw,
+                    ctypes.cast(buf, ctypes.c_void_p),
+                    n,
+                    port,
+                    _codec_id(codec),
+                    max_frame_bytes,
+                    ctypes.byref(out),
+                )
+            )
+            return TcpConnection(out, self)
+
+
+def install_provider(loop) -> None:
+    """Install this archive's complete TCP package once per native driver."""
+    if loop._has_transport(b"tcp"):
+        return
+    netlayer = TcpNetlayer()
+    try:
+        loop._install_provider(lambda register: register(netlayer._transport_provider()))
+    except BaseException:
+        netlayer.release()
+        raise
+    netlayer._relinquish_provider_reference()

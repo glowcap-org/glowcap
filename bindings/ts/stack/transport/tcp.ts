@@ -7,36 +7,36 @@
 // `libpancake_net_transport_tcp`. The two are symbol-disjoint and share the
 // frame/context types by layout, so this loads alongside the core, never
 // instead of it. A program that drives a peer over the runtime's own networking
-// uses only the core's `connect`/`listen`; this module is the blocking frame shuttle
-// the C ABI exposes directly — a `Netlayer` that binds a `Listener` and dials
-// an `Endpoint`, each a synchronous `readFrame`/`writeFrame` over a real socket.
+// uses only the core's `connect`/`listen`; this module is the native frame shuttle
+// the C ABI exposes directly. Deno offloads every potentially blocking call;
+// runtimes with synchronous FFI refuse those methods before entering native code.
 //
 //   using net = new Netlayer();
 //   using listener = net.listen("127.0.0.1", 0);
-//   using client = net.connect("127.0.0.1", listener.port());
-//   using server = listener.accept();
-//   client.writeFrame(frame);
-//   const got = server.readFrame();
+//   using client = await net.connect("127.0.0.1", listener.port());
+//   using server = await listener.accept();
+//   await client.writeFrame(frame);
+//   const got = await server.readFrame();
 //
-// The TCP family keeps its own thread-local last-error, read through
+// The TCP archive keeps its own thread-local last-error, read through
 // `pancake_tcp_last_error`, so a failed call's diagnostic never scrapes the
 // core's unrelated `pancake_last_error`.
 
 import {
-	FRAME_BYTES_OFF,
-	FRAME_LEN_OFF,
-	FRAME_SHAPE_BYTE,
-	FRAME_SHAPE_OFF,
-	FRAME_SIZE,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
+	TRANSPORT_PROVIDER_SIZE,
 } from "../internal/constants.ts";
+import { type ProviderTarget } from "../driver_loop.ts";
 import { tcpS } from "../internal/ffi/tcp.ts";
-import { ffi, NULL, type Ptr } from "../internal/ffi/runtime.ts";
+import { type Ptr } from "../internal/ffi/runtime.ts";
 import { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "../internal/seam.ts";
 import { type Codec, codecId } from "../value.ts";
 import { PancakeError } from "../errors.ts";
+import { NativeHandle, NativeParent, requireOffThreadFfi, SingleFlight } from "./native_handle.ts";
+import { AsyncFfiWriteQueue, checkedMaxFrameBytes } from "./native_frame.ts";
+import { checkDiagnosedCall, NativeDiagnostic } from "./diagnostic.ts";
 
 const OK = 0;
 
@@ -59,129 +59,216 @@ function checkTcp(code: number): void {
 	}
 }
 
-/** A blocking TCP endpoint: the `pancake_tcp_*` frame shuttle. Closed on
- * `close` / `[Symbol.dispose]`. */
-export class Endpoint {
-	#raw: Ptr;
-	constructor(raw: Ptr) {
-		this.#raw = raw;
+/** A TCP connection whose potentially blocking operations run off-thread. */
+export class Connection {
+	readonly #native: NativeHandle;
+	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #reads = new SingleFlight("tcp read");
+	readonly #writes: AsyncFfiWriteQueue;
+	readonly #readDiagnostic = new NativeDiagnostic("tcp");
+	readonly #writeDiagnostic = new NativeDiagnostic("tcp");
+	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>, maxFrameBytes: number) {
+		this.#parent = parent;
+		this.#writes = new AsyncFfiWriteQueue("tcp", maxFrameBytes);
+		this.#native = new NativeHandle(
+			"tcp connection",
+			raw,
+			(p) => tcpS.pancake_tcp_conn_shutdown(p),
+			(p) => tcpS.pancake_tcp_conn_release(p),
+			(retirement) => this.#parent.retire(this, retirement),
+		);
+		if (!parent.adopt(this)) throw new Error("tcp netlayer is released");
 	}
 	close(): void {
-		if (this.#raw !== NULL) {
-			tcpS.pancake_tcp_conn_release(this.#raw);
-			this.#raw = NULL;
-		}
+		this.#native.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
 	}
-	/** Block for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
-	readFrame(): Uint8Array {
-		const mf = new Uint8Array(MANAGED_FRAME_SIZE);
-		checkTcp(tcpS.pancake_tcp_conn_read_frame(this.#raw, mf));
-		const dv = new DataView(mf.buffer);
-		// `readBytes` already returns JS-owned storage (the seam copies out of
-		// native memory), so it outlives the frame we release next — no extra copy.
-		const out = readBytes(
-			dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
-			dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true),
+	/** Wait for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
+	readFrame(): Promise<Uint8Array> {
+		requireOffThreadFfi("tcp", "readFrame");
+		return this.#reads.run(() =>
+			this.#native.use(async (raw) => {
+				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
+				try {
+					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
+						tcpS.pancake_tcp_conn_read_frame_with_diagnostic(
+							raw,
+							mf,
+							error,
+							cap,
+							errorLen,
+						));
+					const dv = new DataView(mf.buffer);
+					return readBytes(
+						dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
+						dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true),
+					);
+				} finally {
+					releaseManagedFrame(mf);
+				}
+			})
 		);
-		releaseManagedFrame(mf);
-		return out;
 	}
-	writeFrame(frame: Uint8Array): void {
-		const f = new Uint8Array(FRAME_SIZE);
-		const dv = new DataView(f.buffer);
-		dv.setBigUint64(FRAME_BYTES_OFF, ffi.pointerOf(frame), true);
-		dv.setBigUint64(FRAME_LEN_OFF, BigInt(frame.length), true);
-		dv.setUint32(FRAME_SHAPE_OFF, FRAME_SHAPE_BYTE, true);
-		checkTcp(tcpS.pancake_tcp_conn_write_frame(this.#raw, f));
+	writeFrame(frame: Uint8Array): Promise<void> {
+		requireOffThreadFfi("tcp", "writeFrame");
+		return this.#writes.run(frame, (owned) =>
+			this.#native.use(async (raw) => {
+				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
+					tcpS.pancake_tcp_conn_write_frame_with_diagnostic(
+						raw,
+						owned.argument(),
+						error,
+						cap,
+						errorLen,
+					));
+			}));
 	}
 }
 
 /** A bound TCP listener. Closed on `close` / `[Symbol.dispose]`. */
 export class Listener {
-	#raw: Ptr;
-	constructor(raw: Ptr) {
-		this.#raw = raw;
+	readonly #native: NativeHandle;
+	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #accepts = new SingleFlight("tcp accept");
+	readonly #acceptDiagnostic = new NativeDiagnostic("tcp");
+	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>) {
+		this.#parent = parent;
+		this.#native = new NativeHandle(
+			"tcp listener",
+			raw,
+			(p) => tcpS.pancake_tcp_listener_shutdown(p),
+			(p) => tcpS.pancake_tcp_listener_release(p),
+			(retirement) => this.#parent.retire(this, retirement),
+		);
+		if (!parent.adopt(this)) throw new Error("tcp netlayer is released");
 	}
 	close(): void {
-		if (this.#raw !== NULL) {
-			tcpS.pancake_tcp_listener_release(this.#raw);
-			this.#raw = NULL;
-		}
+		this.#native.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
 	}
 	port(): number {
 		const out = new Uint8Array(2);
-		checkTcp(tcpS.pancake_tcp_listener_port(this.#raw, out));
+		checkTcp(tcpS.pancake_tcp_listener_port(this.#native.borrow(), out));
 		return new DataView(out.buffer).getUint16(0, true);
 	}
-	accept(codec: Codec = "syrup", maxFrameBytes = 4096): Endpoint {
-		const out = new Uint8Array(8);
-		checkTcp(
-			tcpS.pancake_tcp_accept(
-				this.#raw,
-				codecId(codec),
-				BigInt(maxFrameBytes),
-				out,
-			),
+	/** Borrowed listening descriptor for integration with an external reactor.
+	 * The listener owns it; do not close it or retain it after `close`. */
+	readinessFd(): number {
+		const out = new Uint8Array(4);
+		checkTcp(tcpS.pancake_tcp_listener_readiness_fd(this.#native.borrow(), out));
+		return new DataView(out.buffer).getInt32(0, true);
+	}
+	accept(codec: Codec = "syrup", maxFrameBytes = 4096): Promise<Connection> {
+		requireOffThreadFfi("tcp", "accept");
+		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
+		return this.#accepts.run(() =>
+			this.#native.use(async (raw) => {
+				const out = new Uint8Array(8);
+				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
+					tcpS.pancake_tcp_accept_with_diagnostic(
+						raw,
+						codecId(codec),
+						BigInt(frameLimit),
+						out,
+						error,
+						cap,
+						errorLen,
+					));
+				return new Connection(outPointer(out), this.#parent, frameLimit);
+			})
 		);
-		return new Endpoint(outPointer(out));
 	}
 }
 
-/** Owns the blocking-TCP I/O backend; outlives the endpoints made from it. */
+/** Owns the blocking-TCP I/O backend; outlives the connections made from it. */
 export class Netlayer {
-	#raw: Ptr;
+	readonly #native: NativeParent<Connection | Listener>;
 	constructor(raw?: Ptr) {
-		if (raw !== undefined) {
-			this.#raw = raw;
-			return;
+		requireOffThreadFfi("tcp", "native transport lifecycle");
+		let native = raw;
+		if (native == null) {
+			const out = new Uint8Array(8);
+			checkTcp(tcpS.pancake_tcp_netlayer_new(out));
+			native = outPointer(out);
 		}
-		const out = new Uint8Array(8);
-		checkTcp(tcpS.pancake_tcp_netlayer_new(out));
-		this.#raw = outPointer(out);
+		this.#native = new NativeParent(
+			"tcp netlayer",
+			native,
+			(p) => tcpS.pancake_tcp_netlayer_shutdown(p),
+			(p) => tcpS.pancake_tcp_netlayer_release(p),
+		);
 	}
 
 	release(): void {
-		if (this.#raw !== NULL) {
-			tcpS.pancake_tcp_netlayer_release(this.#raw);
-			this.#raw = NULL;
-		}
+		this.#native.close();
 	}
 	[Symbol.dispose](): void {
 		this.release();
+	}
+	async [Symbol.asyncDispose](): Promise<void> {
+		this.release();
+		await this.#native.waitClosed();
 	}
 	listen(host: string, port = 0): Listener {
 		const h = new TextEncoder().encode(host);
 		const out = new Uint8Array(8);
 		checkTcp(
-			tcpS.pancake_tcp_listen(this.#raw, h, BigInt(h.length), port, out),
+			tcpS.pancake_tcp_listen(this.#native.borrow(), h, BigInt(h.length), port, out),
 		);
-		return new Listener(outPointer(out));
+		return new Listener(outPointer(out), this.#native);
 	}
 	connect(
 		host: string,
 		port: number,
 		codec: Codec = "syrup",
 		maxFrameBytes = 4096,
-	): Endpoint {
+	): Promise<Connection> {
+		requireOffThreadFfi("tcp", "connect");
+		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		const h = new TextEncoder().encode(host);
-		const out = new Uint8Array(8);
-		checkTcp(
-			tcpS.pancake_tcp_connect(
-				this.#raw,
-				h,
-				BigInt(h.length),
-				port,
-				codecId(codec),
-				BigInt(maxFrameBytes),
-				out,
-			),
-		);
-		return new Endpoint(outPointer(out));
+		return this.#native.use(async (raw) => {
+			const out = new Uint8Array(8);
+			await checkDiagnosedCall(
+				"tcp",
+				"connect",
+				(error, cap, errorLen) =>
+					tcpS.pancake_tcp_connect_with_diagnostic(
+						raw,
+						h,
+						BigInt(h.length),
+						port,
+						codecId(codec),
+						BigInt(frameLimit),
+						out,
+						error,
+						cap,
+						errorLen,
+					),
+			);
+			return new Connection(outPointer(out), this.#native, frameLimit);
+		});
+	}
+}
+
+/** Install this archive's tcp/keyed-tcp/noise-tcp package once per driver.
+ * Registration acquires the native lease before this function drops the
+ * construction reference; no binding-side owner is retained. */
+export function installProvider(loop: ProviderTarget): void {
+	if (loop.hasTransport("tcp")) return;
+	const out = new Uint8Array(8);
+	checkTcp(tcpS.pancake_tcp_netlayer_new(out));
+	const raw = outPointer(out);
+	try {
+		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
+		checkTcp(tcpS.pancake_tcp_transport_provider(raw, packageBytes));
+		loop.installProvider((register) => register(packageBytes));
+	} finally {
+		// This is a reference drop, not connection shutdown. On success the driver
+		// owns the remaining lease; on failure this retires the uninstalled runtime.
+		tcpS.pancake_tcp_netlayer_release(raw);
 	}
 }

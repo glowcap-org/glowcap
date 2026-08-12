@@ -41,7 +41,7 @@ const LoopbackResident = struct {
     }
 
     const vtable: net.netlayer.Netlayer.VTable = .{
-        .transport_name = transport,
+        .profile = .{ .symbol = transport, .designator_scheme = .address },
         .dial = dial,
         .listen = listen,
     };
@@ -54,7 +54,7 @@ const LoopbackResident = struct {
     ) net.netlayer.DialError!net.Connection {
         const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
         // x-loopback reuses tcp hostport I/O; it is not `tcp`/`keyed-tcp`, so
-        // `Locator.resolve` would refuse the transport symbol. Parse the
+        // `DialResolver.resolve` would refuse the transport symbol. Parse the
         // designator, then the post-admission connect.
         const address = tcp.parseDesignator(locator.designator) catch return error.InvalidAddress;
         return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| switch (err) {
@@ -88,7 +88,8 @@ const LoopbackResident = struct {
         .transport_name = transport,
         .accept = accept,
         .waitAcceptable = waitAcceptable,
-        .localDesignator = localDesignator,
+        .localLocator = localLocator,
+        .canonicalizeLocator = canonicalizeLocator,
         .close = close,
     };
 
@@ -105,9 +106,26 @@ const LoopbackResident = struct {
         return tcp.waitAcceptableOnListener(&box.listener, timeout_ms);
     }
 
-    fn localDesignator(ctx: *anyopaque, out: []u8) []const u8 {
+    fn localLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netlayer.ListenError!model.PeerLocator {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-        return tcp.designatorOnListener(&box.listener, out);
+        var designator_buf: [tcp.plain.designator_buf_len]u8 = undefined;
+        const tcp_locator = tcp.locator(&designator_buf, box.listener.localAddress());
+        return model.clonePeerLocator(allocator, .{
+            .transport = transport,
+            .designator = tcp_locator.designator,
+            .hints = tcp_locator.hints,
+        });
+    }
+
+    fn canonicalizeLocator(
+        _: *anyopaque,
+        allocator: std.mem.Allocator,
+        locator: model.PeerLocator,
+    ) net.netlayer.ListenError!model.PeerLocator {
+        model.validatePeerLocator(locator) catch return error.InvalidAddress;
+        if (!std.mem.eql(u8, locator.transport, transport)) return error.InvalidAddress;
+        _ = tcp.parseDesignator(locator.designator) catch return error.InvalidAddress;
+        return model.clonePeerLocator(allocator, locator);
     }
 
     fn close(ctx: *anyopaque) void {
@@ -131,7 +149,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, .unbounded);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -154,7 +172,7 @@ fn callOnce(netlayers: []const net.netlayer.Netlayer, designator: []const u8, al
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .unbounded);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, .{ .handshake = .unbounded, .settle = .unbounded });
     defer cv.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -188,11 +206,11 @@ test "netlayer pluggability: an out-of-core transport dials and hosts through th
     });
     defer listener.close();
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = listener.localDesignator(&designator_buf);
+    const locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, locator);
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
-    const client_result = callOnce(&netlayers, designator, allocator);
+    const client_result = callOnce(&netlayers, locator.designator, allocator);
     const host_result = host_future.await(io);
 
     try client_result;

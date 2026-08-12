@@ -50,15 +50,15 @@
     OK)
   (define arm-cb (function-ptr arm _PancakeHostPumpArmFn))
   (define hooks (make-PancakeHostPumpHooks #f arm-cb arm-cb arm-cb arm-cb arm-cb))
-  (define-values (rc _drained) (pancake_host_pump_drain (host-ptr m) hooks))
+  (define-values (rc _drained yielded) (pancake_host_pump_drain (host-ptr m) hooks))
   (check/host rc)
-  (reverse parked))
+  (values (reverse parked) (not (zero? yielded))))
 
 ;; ── Execute ───────────────────────────────────────────────────────────────────
 ;; Honor one parked action under the host lock: FLUSH/NEED_GIFT_ID run here;
 ;; dial / close / settle / fail park as post-lock fires. Returns updated
 ;; `(values touched fires)`. Kind inventory is generated
-;; `host-dispatch-action!` — a seventh kind fails loud there. Each handler
+;; `host-dispatch-action!` — a new kind fails loud there. Each handler
 ;; returns `(values touched fires)` so the fold stays values-shaped (no box).
 (define (apply-parked-action! m a touched fires)
   (host-dispatch-action!
@@ -103,7 +103,12 @@
     'fail
     (lambda (act)
       (define outcome (cons (if (current-breaking) 'closed 'broken) (caddr act)))
-      (values touched (append (reverse (settle-vow! m (cadr act) outcome)) fires))))))
+      (values touched (append (reverse (settle-vow! m (cadr act) outcome)) fires)))
+    'resume
+    (lambda (_act)
+      ;; The shared C pump reports this separately before dispatch; retain the
+      ;; exhaustive generated handler for direct decoded-action callers.
+      (values touched fires)))))
 
 ;; The one loop rule's drain: park via the shared C wrapper until dry, honoring
 ;; each arm, and return the `drain-effects` — parked writes and listener fires
@@ -111,18 +116,40 @@
 ;; The host lock is held. A NEED_GIFT_ID's provide may queue FLUSH legs, so we
 ;; re-park until the queue is empty (same as the pre-wrapper pull loop). FLUSH
 ;; order is action order, which is how the gifter's deposit leaves on the
-;; exporter connection before the give leaves on the serving one (the host
-;; queues them exporter-first); the per-connection FIFO preserves that order
-;; across threads. SETTLE/FAIL route each vow's outcome to the `conn-vow`
+;; exporter session before the give leaves on the serving one (the host queues
+;; them exporter-first); the per-session FIFO preserves that order across
+;; threads. SETTLE/FAIL route each vow's outcome to the `session-vow`
 ;; awaiting that id — registered at mint under this same lock, so the
 ;; completion always finds its box.
 (define (drain-host-actions! m)
+  ;; A loop-adopted host (ADR-0112) has no byte-fed pump: the loop executes
+  ;; transport-shaped actions inside `pancake_driver_step` and forwards the
+  ;; application-visible ones as events, so the drain is one bracketed step
+  ;; plus the event dispatch, and `pancake_host_pump_drain` never runs
+  ;; beside it.
+  (define lp (host-loop-of m))
+  (if lp
+      ((unbox loop-drain-hook) m lp)
+      (drain-pump-actions! m)))
+
+(define (drain-pump-actions! m)
   (let loop ([touched '()] [fires '()])
-    (define parked (park-host-actions! m))
+    (define-values (parked yielded?) (park-host-actions! m))
+    (define-values (t f)
+      (for/fold ([touched touched] [fires fires]) ([a (in-list parked)])
+        (apply-parked-action! m a touched fires)))
     (cond
-      [(null? parked) (drain-effects (reverse touched) (reverse fires))]
+      [yielded?
+       ;; The continuation reacquires the host lock only after the current
+       ;; effects have run and the Racket scheduler has received a turn.
+       (drain-effects
+        (reverse t)
+        (reverse f)
+        (lambda ()
+          (call-with-host*
+           m
+           (lambda () no-drain-effects)
+           (lambda () (drain-host-actions! m)))))]
+      [(null? parked) (drain-effects (reverse t) (reverse f) #f)]
       [else
-       (define-values (t f)
-         (for/fold ([touched touched] [fires fires]) ([a (in-list parked)])
-           (apply-parked-action! m a touched fires)))
        (loop t f)])))

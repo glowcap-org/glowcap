@@ -21,6 +21,46 @@ fn applyRelayed(peer: *engine.Peer, import_pos: u64, resolution: model.Resolutio
     try peer.applyRelayedResolution(position, row_id, resolution);
 }
 
+test "relayed settlement backpressure restores the store and every listener" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+
+    try peer.session_state.installThirdPartyImport(.from(5), "exporter");
+    try peer.session_state.registerImport(.from(9));
+    try peer.session_state.installImportedPromiseListener(.from(5), .{
+        .listener = model.FarRef.object(9),
+        .mode = .settling_only,
+    });
+
+    peer.outbound_budget = 1;
+    try std.testing.expectError(error.OutboundBackpressure, applyRelayed(
+        &peer,
+        5,
+        .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "first") } },
+    ));
+    try std.testing.expect(peer.session_state.importedPromiseResolution(.from(5)) == null);
+    const restored = try peer.session_state.takeImportedPromiseListeners(.from(5));
+    try std.testing.expectEqual(@as(usize, 1), restored.len);
+    peer.session_state.restoreImportedPromiseListeners(.from(5), restored);
+
+    peer.outbound_budget = std.math.maxInt(usize);
+    try applyRelayed(
+        &peer,
+        5,
+        .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "retry") } },
+    );
+    try std.testing.expectEqualStrings(
+        "retry",
+        peer.session_state.importedPromiseResolution(.from(5)).?.fulfill.bytes,
+    );
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var frame = peer.takeOutbound() orelse return error.MissingListenerFire;
+    frame.deinit();
+    try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
 test "invalid inbound listen roles refuse before listener state mutates" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);

@@ -3,7 +3,7 @@ id: ADR-0042
 status: accepted
 date: 2026-06-10
 tags: [net, resilience, memory, performance]
-decision: "The completion loop bounds each connection's outbound queue with a high-water mark: when pending outbound bytes cross it, the loop stops arming reads on that connection (no new inbound frames means no new replies) and resumes reading when the partner drains the queue. On drain, burst capacity past the steady read-buffer size is freed, mirroring the inbound spill's free-on-drain posture (ADR-0041). The mark defaults to `frame_cap` and is host-tunable via `Options.outbound_high_water`."
+decision: "The completion loop bounds each connection's outbound queue with a high-water mark: when pending outbound bytes cross it, the loop stops arming reads on that connection (no new inbound frames means no new replies) and resumes reading when the partner drains the queue. On drain, capacity past the fixed steady outbound bound is freed. The mark is independent resource policy: 64 KiB by default and replaceable loop-wide through `Options.outbound_high_water_bytes`."
 supersedes: []
 superseded_by: []
 ---
@@ -44,15 +44,17 @@ deliberate hysteresis: a connection never thrashes between the two on a byte
 boundary.
 
 **Burst capacity frees on drain.** A drained queue whose capacity outgrew the
-steady read-buffer size (`loop_read_buf_bytes`) frees its storage rather than
-retaining it, the same posture as the inbound spill: one burst must not pin its
-peak for the connection's lifetime. Steady-sized capacity is retained so
-ordinary reply traffic never reallocates.
+fixed steady outbound bound (`steady_outbound_bytes`) frees its storage rather
+than retaining it, the same posture as the inbound spill: one burst must not
+pin its peak for the connection's lifetime. Steady-sized capacity is retained
+so ordinary reply traffic never reallocates. Read-pool sizing is independent.
 
-**The mark defaults to the frame cap.** One largest-admissible frame of pending
-replies is the natural unit of slack: symmetric with the inbound bound, and it
-admits any single frame without parking on it. `Options.outbound_high_water`
-overrides it for hosts whose reply patterns want a different trade.
+**The mark is independent resource policy.** The 64 KiB default preserves the
+original bounded-slack posture without pretending that this local session's
+inbound admission limit says what its remote partner can receive. A frame may
+cross the mark; the loop then parks further reads until the queued bytes drain.
+`Options.outbound_high_water_bytes` replaces the default loop-wide for hosts
+whose reply patterns want a different trade.
 
 ## Scope (what this does not decide)
 
@@ -60,10 +62,11 @@ overrides it for hosts whose reply patterns want a different trade.
   can head-of-line-block mid-`writeAll`; split read/write fibers above the pump
   are the remaining half of the full-duplex seam (ADR-0030's deferral, settled
   as a refusal in [ADR-0053](ADR-0053-blocking-pump-single-fiber.md)).
-- **Application rate limits and deadlines.** A parked connection holds its
-  bounded memory indefinitely if the partner never drains; killing it on a timer
-  is host policy above pancake (resilience rule).
-- **Shared read-buffer pools.** Unchanged from ADR-0041's named follow-up.
+- **Application rate limits and deadlines.** The initial decision leaves a
+  parked connection holding bounded memory indefinitely; ADR-0082's amendment
+  below adds the optional loop-owned deadline policy.
+- **Shared read-buffer pools.** ADR-0054 owns pool count and buffer sizing;
+  neither changes the outbound mark.
 
 ## Alternatives Considered
 
@@ -82,12 +85,13 @@ overrides it for hosts whose reply patterns want a different trade.
 
 ## Consequences
 
-- `completion.Options` gains `outbound_high_water` (`null` defaults to
-  `frame_cap`); the loop's `Conn` gains a parked flag and the arm/park decision
-  lives in one function the accept and recv paths share.
-- Per-connection memory is now bounded in both directions: read buffer plus
-  bounded spill inbound (ADR-0041), steady queue plus high-water mark outbound
-  (this ADR), both freeing burst storage on drain.
+- `completion.Options.outbound_high_water_bytes` is a loop-wide resource
+  control with a 64 KiB default. The loop's `Conn` gains a parked flag and the
+  arm/park decision lives in one function the accept and recv paths share.
+- Per-connection memory is now bounded in both directions: bounded spill only
+  while a shared-pool frame is incomplete inbound (ADRs 0041 and 0054), steady
+  queue plus high-water mark outbound (this ADR), both freeing burst storage on
+  drain.
 - Evidence: a scripted fake backend journals every submit and the test asserts
   the exact park/resume order: the send release strictly precedes the next
   armed read, twice (accept-time and mid-conversation): with no sockets and no
@@ -102,7 +106,7 @@ overrides it for hosts whose reply patterns want a different trade.
 ## Amendment: fan-in throttle and park-kill (ADR-0082)
 
 Per-connection park (this ADR) remains the default. Opt-in
-`completion.Loop.Options.fan_in_throttle` additionally parks *source* reads
+`completion.Options.fan_in_throttle` additionally parks *source* reads
 while any connection is a true sink park (outbound past high-water). Opt-in
 `park_kill_ms` closes a connection that stays `.parked` past a monotonic
 deadline, reported as `CloseReason.park_kill`.

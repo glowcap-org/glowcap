@@ -19,24 +19,30 @@ import asyncio
 import contextlib
 from typing import Optional
 
+from . import _constants as _abi
 from ._constants import ERR_INVALID_ARGUMENT
 from ._errors import PancakeError
+
+
+# A WebSocket message is a transport chunk and may coalesce several CapTP
+# frames. Keep this independent from DEFAULT_FRAME_CAP; `websockets` enforces
+# it before retaining a hostile message for the binding.
+_WS_MESSAGE_HIGH_WATER = 1 << 20
 
 
 async def connect_websocket(url: str) -> "_WebSocketTransport":
     """Open a WebSocket to ``url`` and adapt it to the byte-transport record.
     Refuses with a typed error when the optional ``websockets`` package is not
-    installed (``pip install pancake[rendezvous]``, or
-    ``uv run --with websockets``)."""
+    installed (``pip install pancake[rendezvous]``)."""
     try:
         import websockets
     except ImportError as exc:
         raise PancakeError(
             ERR_INVALID_ARGUMENT,
             "keyed-relay dial needs the optional websockets package: "
-            "pip install pancake[rendezvous], or uv run --with websockets",
+            "pip install pancake[rendezvous]",
         ) from exc
-    ws = await websockets.connect(url, max_size=None)
+    ws = await websockets.connect(url, max_size=_WS_MESSAGE_HIGH_WATER)
     return _WebSocketTransport(ws)
 
 
@@ -46,6 +52,8 @@ class _WebSocketTransport:
     message and awaits the library's backpressure, and ``close`` schedules the
     close handshake without blocking the caller (the record's ``close`` is
     synchronous, as over TCP)."""
+
+    designator_scheme = _abi.DESIGNATOR_SCHEME_KEY
 
     def __init__(self, ws) -> None:
         self._ws = ws
@@ -61,10 +69,23 @@ class _WebSocketTransport:
             # A dropped socket is a transport error, not a graceful end of
             # stream; the serve loop's teardown classifies it.
             raise
-        return message if isinstance(message, bytes) else message.encode()
+        if not isinstance(message, bytes):
+            await self._ws.close(code=1003, reason="binary messages required")
+            raise PancakeError(
+                ERR_INVALID_ARGUMENT,
+                "keyed-relay WebSocket received a text message",
+            )
+        return message
 
     async def write(self, data: bytes) -> None:
-        await self._ws.send(data)
+        if not data:
+            await self._ws.send(data)
+            return
+        # Keep each WebSocket message within the same transport bound enforced
+        # on receive. Message boundaries carry no CapTP meaning, so splitting
+        # here is byte-transparent and lets large frames traverse the relay.
+        for offset in range(0, len(data), _WS_MESSAGE_HIGH_WATER):
+            await self._ws.send(data[offset : offset + _WS_MESSAGE_HIGH_WATER])
 
     def close(self) -> None:
         with contextlib.suppress(RuntimeError):

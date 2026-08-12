@@ -80,8 +80,8 @@ typedef struct pancake_iroh_sidecar_endpoint pancake_iroh_sidecar_endpoint;
 
 /* One QUIC connection carrying one bidirectional stream — the OCapN session's
  * byte channel. Created by pancake_iroh_sidecar_connect_blocking,
- * pancake_iroh_sidecar_endpoint_finish_connect, or
- * pancake_iroh_sidecar_accept; released by pancake_iroh_sidecar_conn_free. */
+ * pancake_iroh_sidecar_endpoint_finish_connect, or the bounded accept;
+ * released by pancake_iroh_sidecar_conn_free. */
 typedef struct pancake_iroh_sidecar_conn pancake_iroh_sidecar_conn;
 
 /* One endpoint's configuration, passed by pointer so a new setting is a field
@@ -119,8 +119,9 @@ pancake_iroh_sidecar_endpoint *pancake_iroh_sidecar_endpoint_new(
 
 /* Write this endpoint's id — its Ed25519 public key, the dialable designator —
  * into `out` as lowercase hex (64 bytes; iroh's canonical string form, parsed
- * back by either connect surface). No terminator is written. Returns the byte
- * count written, or -1 when `out_cap` is too small. Borrows the handle. */
+ * back by either connect surface). No terminator is written. Returns the
+ * complete byte count and copies only when `out_cap` is large enough; a
+ * zero-capacity call is the size query. Borrows the handle. */
 intptr_t pancake_iroh_sidecar_endpoint_node_id(const pancake_iroh_sidecar_endpoint *ep,
                                                uint8_t *out, size_t out_cap);
 
@@ -128,8 +129,9 @@ intptr_t pancake_iroh_sidecar_endpoint_node_id(const pancake_iroh_sidecar_endpoi
  * comma-separated UTF-8 list (e.g. "127.0.0.1:5000,[::1]:5001"). Wildcard
  * bindings are reported in loopback form so the list is dialable on the local
  * host. This is the hint string a partner passes to either connect surface.
- * No terminator is written. Returns the byte count written, or -1 when
- * `out_cap` is too small. Borrows the handle. */
+ * No terminator is written. Returns the complete byte count and copies only
+ * when `out_cap` is large enough; a zero-capacity call is the size query.
+ * Borrows the handle. */
 intptr_t pancake_iroh_sidecar_endpoint_direct_addrs(const pancake_iroh_sidecar_endpoint *ep,
                                                      uint8_t *out, size_t out_cap);
 
@@ -155,15 +157,11 @@ pancake_iroh_sidecar_conn *pancake_iroh_sidecar_connect_blocking(
     const uint8_t *addr_hints, size_t addr_hints_len,
     int32_t *out_code);
 
-/* Block until a partner dials this endpoint, then accept its connection and
- * its first bidirectional stream. Returns only once the dialer has written
- * its first bytes (QUIC bi streams are lazy; OCapN's dialer writes
- * op:start-session immediately). Returns an owned handle, or NULL on failure
- * or when the endpoint closes. The endpoint must outlive the connection. */
-pancake_iroh_sidecar_conn *pancake_iroh_sidecar_accept(pancake_iroh_sidecar_endpoint *ep);
-
-/* As pancake_iroh_sidecar_accept, but return NULL when timeout_ms elapses.
- * Private blocking-listener primitive; does not arm or drain readiness. */
+/* Wait at most timeout_ms for a partner connection and first bidirectional
+ * stream. Returns only after the dialer has written its first bytes (QUIC bi
+ * streams are lazy; OCapN's dialer writes op:start-session immediately), or
+ * NULL on timeout, failure, endpoint close, or a negative timeout. Private
+ * resident-listener primitive; does not arm or drain readiness. */
 pancake_iroh_sidecar_conn *pancake_iroh_sidecar_accept_timeout(
     pancake_iroh_sidecar_endpoint *ep, int32_t timeout_ms);
 
@@ -190,13 +188,17 @@ intptr_t pancake_iroh_sidecar_conn_write(pancake_iroh_sidecar_conn *conn, const 
  * and -1 once it is closed or lost. Borrows the handle. */
 int32_t pancake_iroh_sidecar_conn_flush(pancake_iroh_sidecar_conn *conn);
 
-/* Gracefully close: finish the send stream (the partner reads a clean end of
- * stream) and queue a QUIC close. Idempotent. Borrows the handle; the handle
- * stays valid until pancake_iroh_sidecar_conn_free. */
+/* Gracefully close. A blocking-surface connection finishes its send stream and
+ * closes QUIC. A readiness-surface connection marks its writer closed so the
+ * writer drains admitted bytes and finishes the stream asynchronously, without
+ * parking the caller's reactor thread. Idempotent. Borrows the handle; the
+ * handle stays valid until pancake_iroh_sidecar_conn_free. */
 void pancake_iroh_sidecar_conn_close(pancake_iroh_sidecar_conn *conn);
 
-/* Release a connection handle, closing the connection first if still open.
- * NULL is a no-op. The handle is invalid afterward. */
+/* Release a connection handle, closing it first if still open. A
+ * readiness-surface connection transfers any admitted final write batch to its
+ * writer task, which drains asynchronously; release never joins that task on
+ * the caller's reactor thread. NULL is a no-op. The handle is invalid afterward. */
 void pancake_iroh_sidecar_conn_free(pancake_iroh_sidecar_conn *conn);
 
 /* ── The event-driven scale superset (ADR-0057) ──────────────────────────── */
@@ -271,17 +273,17 @@ size_t pancake_iroh_sidecar_conn_id(const pancake_iroh_sidecar_conn *conn);
  * have been moved to the readiness surface. Borrows the handle. */
 intptr_t pancake_iroh_sidecar_conn_try_read(pancake_iroh_sidecar_conn *conn, uint8_t *buf, size_t len);
 
-/* Non-blocking write: enqueue all `len` bytes from `buf` for the writer task.
- * Returns `len` on success, -1 if the connection is closed, or
- * PANCAKE_IROH_WOULD_BLOCK when the outbound buffer is at its bound (re-arm on
- * the next EV_WRITABLE). The connection must have been moved to the readiness
- * surface. Borrows the handle. */
+/* Non-blocking write: copy the prefix that fits into the bounded outbound
+ * buffer for the writer task. Returns the admitted byte count, -1 if the
+ * connection is closed, or PANCAKE_IROH_WOULD_BLOCK when no outbound room
+ * remains (re-arm on the next EV_WRITABLE). The connection must have been moved
+ * to the readiness surface. Borrows the handle. */
 intptr_t pancake_iroh_sidecar_conn_try_write(pancake_iroh_sidecar_conn *conn, const uint8_t *buf, size_t len);
 
-/* Close the endpoint without releasing its handle: a blocked
- * pancake_iroh_sidecar_accept returns NULL, subsequent dials fail, and queued
- * connection closes are delivered. Idempotent. Borrows the handle; the handle
- * stays valid until pancake_iroh_sidecar_endpoint_free. */
+/* Close the endpoint without releasing its handle: an in-flight bounded accept
+ * returns NULL, subsequent dials fail, and queued connection closes are
+ * delivered. Idempotent. Borrows the handle; the handle stays valid until
+ * pancake_iroh_sidecar_endpoint_free. */
 void pancake_iroh_sidecar_endpoint_close(pancake_iroh_sidecar_endpoint *ep);
 
 /* Release an endpoint handle. Blocks while iroh delivers queued connection

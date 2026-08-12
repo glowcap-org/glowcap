@@ -5,8 +5,8 @@
 //! partner with a typed `op:abort` rather than swallow a host error and leave
 //! the other side hanging. That's the fail-loud posture. This module is the
 //! pure mapping from a dispatch error to the abort shape; `engine.Peer` plugs
-//! it into both inbound
-//! entry points, `Peer.step` and `Peer.recvBorrowed`. Every projected abort is
+//! it into both inbound entry points, the inbound-dispatch arm of `Peer.step`
+//! and `Peer.recvBorrowed`. Every projected abort is
 //! terminal: CapTP does not admit a corrected message after either side aborts.
 //!
 //! Session `Error` values don't carry a payload, so the abort's `message` is a
@@ -98,6 +98,10 @@ pub fn classify(err: anyerror) Classification {
             .kind = .invalid_start_session_signature,
             .message = "op:start-session claims a key designator this session did not expect",
         } },
+        error.UnknownTransportSemantics => .{ .domain = .session, .abort = .{
+            .kind = .protocol_error,
+            .message = "op:start-session names a transport whose designator semantics are unknown",
+        } },
         error.QueueCapExceeded => .{ .domain = .session, .abort = .{
             .kind = .queue_cap_exceeded,
             .message = "pipelined-call queue cap exceeded on a pending answer",
@@ -130,6 +134,7 @@ pub fn classify(err: anyerror) Classification {
         error.ExportRangeExhausted,
         error.FrameTooLarge,
         error.LocalDeliveryCapExceeded,
+        error.OutboundBackpressure,
         => .{ .domain = .session, .abort = .{
             .kind = .resource_exhausted,
             .message = "inbound message would push a session resource past its cap",

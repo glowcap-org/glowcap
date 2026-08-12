@@ -12,7 +12,7 @@
 //!
 //! This measures core *peer state* only, and since ADR-0054 the core state is
 //! also the dominant per-connection cost: the completion loop's read buffers
-//! are a shared backend-owned pool (`Options.read_buffers`, default 256 x
+//! are a shared backend-owned pool (`BackendOptions.read_buffers`, default 256 x
 //! 16 KiB, about 4 MiB total), so an idle connection holds zero read-buffer
 //! bytes and the 500k extrapolation below is the warmed footprint plus
 //! one pool. Real socket-level RSS and syscall-rate figures under load
@@ -308,7 +308,7 @@ fn liveClientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerror!
     defer allocator.free(write_buf);
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = .unbounded });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -364,7 +364,9 @@ fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, li
         defer threaded.deinit();
         const step_io = threaded.io();
 
-        var host = driver.core.Host.init(allocator, [_]u8{0x42} ** 32, .{
+        var session_root: [32]u8 = undefined;
+        try step_io.randomSecure(&session_root);
+        var host = driver.core.Host.init(allocator, [_]u8{0x42} ** 32, session_root, .{
             .limits = .{ .max_frame_bytes = live_frame_cap },
             .local_turn_budget = actors.Vat.max_batch_local_turns,
         });
@@ -373,17 +375,18 @@ fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, li
         var bridge = TcpBridge.init(allocator, &host, step_io, &loop, .{ .publish = livePublishGreeter });
         defer bridge.deinit();
 
-        loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
-            .frame_cap = live_frame_cap,
+        loop = try net.TcpLoop.initWithBackendOptions(allocator, .{
+            .read_buffer_bytes = live_frame_cap,
+        }, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
             .max_conns = n + 8,
             .listen = 0,
         }));
         defer loop.deinit();
-        const port = loop.port.?;
+        const port = loop.port().?;
         var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
         const designator_addr = try net.tcp.parseHostPort("127.0.0.1", port);
         const designator = net.tcp.locator(&designator_buf, designator_addr).designator;
-        try bridge.attach(net.tcp.transport_name, designator, &.{});
+        try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
         var loop_err: ?anyerror = null;
         var loop_future = try step_io.concurrent(liveRunLoop, .{ &loop, n, &loop_err });
@@ -601,7 +604,7 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\
         \\Since ADR-0054 the core state above is also the dominant
         \\per-connection cost. The completion loop's read buffers are a shared
-        \\backend-owned pool (`Options.read_buffers`, default 256 x 16 KiB,
+        \\backend-owned pool (`BackendOptions.read_buffers`, default 256 x 16 KiB,
         \\about 4 MiB total), so an idle connection holds zero read-buffer
         \\bytes; a frame larger than a pool buffer, or split across reads,
         \\rides the bounded spill that frees on drain (ADR-0041). The warmed

@@ -3,7 +3,9 @@
 //! signature alone.
 //!
 //! Every export has a row here (in the TS loader's reading order) or an
-//! omission reason on its row. Every call returns immediately; outbound dial
+//! omission reason on its row. The steady-state loop surface returns
+//! immediately; endpoint construction and graceful teardown may wait on the
+//! sidecar runtime and are marked for host runtimes accordingly. Outbound dial
 //! completion is correlated by request id through the readiness stream.
 
 const shared = @import("c_abi_shared");
@@ -15,9 +17,18 @@ pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "pancake_iroh_last_error", .out_params = &.{0} },
-    .{ .name = "pancake_iroh_netlayer_new", .out_params = &.{3} },
-    .{ .name = "pancake_iroh_netlayer_close" },
-    .{ .name = "pancake_iroh_netlayer_release" },
+    .{ .name = "pancake_iroh_netlayer_new", .out_params = &.{3}, .nonblocking = true, .blocking = true },
+    .{
+        .name = "pancake_iroh_netlayer_new_with_diagnostic",
+        .out_params = &.{ 3, 4, 6 },
+        .nonblocking = true,
+        .blocking = true,
+        .rust_omit = "unused: Rust calls the synchronous constructor and reads TLS diagnostics on the same thread",
+        .python_omit = "unused: Python reads TLS diagnostics inside the same to_thread worker as construction",
+        .racket_omit = "unused: Racket's blocking FFI call preserves the constructor thread for last-error lookup",
+    },
+    .{ .name = "pancake_iroh_netlayer_close", .nonblocking = true, .blocking = true },
+    .{ .name = "pancake_iroh_netlayer_release", .nonblocking = true, .blocking = true },
     .{ .name = "pancake_iroh_netlayer_node_id", .out_params = &.{ 1, 3 } },
     .{ .name = "pancake_iroh_netlayer_direct_addrs", .out_params = &.{ 1, 3 } },
     .{ .name = "pancake_iroh_conn_release" },
@@ -34,6 +45,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_iroh_netlayer_cancel_connect" },
     .{ .name = "pancake_iroh_conn_try_read", .out_params = &.{ 1, 3 } },
     .{ .name = "pancake_iroh_conn_try_write", .out_params = &.{3} },
+    .{ .name = "pancake_iroh_transport_provider", .out_params = &.{1} },
     // The rows below are omitted from the TypeScript loader, each for the
     // reason on its row.
     .{
@@ -44,7 +56,18 @@ pub const symbols = [_]Symbol{
     },
     .{
         .name = "pancake_iroh_netlayer_new_in",
+        .nonblocking = true,
+        .blocking = true,
         .ts_omit = "unused: the TS binding keeps its transports on the library allocator",
+        .rust_omit = "unused: the Rust binding keeps its transports on the library allocator",
+        .python_omit = "unused: the Python binding keeps its transports on the library allocator",
+        .racket_omit = "unused: the Racket binding keeps its transports on the library allocator",
+    },
+    .{
+        .name = "pancake_iroh_netlayer_new_with_diagnostic_in",
+        .out_params = &.{ 4, 5, 7 },
+        .nonblocking = true,
+        .blocking = true,
         .rust_omit = "unused: the Rust binding keeps its transports on the library allocator",
         .python_omit = "unused: the Python binding keeps its transports on the library allocator",
         .racket_omit = "unused: the Racket binding keeps its transports on the library allocator",

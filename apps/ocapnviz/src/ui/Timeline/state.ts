@@ -125,8 +125,6 @@ export function tToCanvasPx(
 /** deltaY → zoom factor mapping. Empirical: feels like
  * pixi-viewport on the canvas. */
 const WHEEL_ZOOM_RATE = 0.0015;
-/** Multiplier applied to wheel zoom when Shift is held. */
-const WHEEL_FAST_FACTOR = 4;
 
 /**
  * Wheel-event dispatch used by both the Scrubber and Overview
@@ -135,7 +133,12 @@ const WHEEL_FAST_FACTOR = 4;
  *
  *   - `|deltaX| > |deltaY|`  → horizontal pan (trackpad swipe).
  *   - `Shift + deltaY`       → horizontal pan (mouse-wheel users).
- *   - otherwise              → zoom around `cursorPx` (existing).
+ *   - otherwise              → zoom around `cursorPx`.
+ *
+ * Shift is pan here, not a zoom multiplier — the stage's wheel
+ * uses Shift for fast zoom; the timeline already spent Shift on
+ * selection, so the wheel matches Alt+drag's "pan the window"
+ * rather than inventing a third Shift meaning.
  *
  * Returns the next view.
  *
@@ -163,11 +166,10 @@ export function applyWheel(
     const dt = (dx / plotW) * (v.windowEnd - v.windowStart);
     return pan(v, dt, duration, maxWidth, panMaxT);
   }
-  // Zoom (existing behavior).
+  // Zoom.
   const t = canvasPxToT(cursorPx, canvasWidth, v) ??
     (v.windowStart + v.windowEnd) / 2;
-  const fastness = e.shiftKey ? WHEEL_FAST_FACTOR : 1;
-  const zoomDelta = -e.deltaY * WHEEL_ZOOM_RATE * fastness;
+  const zoomDelta = -e.deltaY * WHEEL_ZOOM_RATE;
   const factor = Math.exp(zoomDelta);
   return zoomAround(v, t, factor, duration, maxWidth, panMaxT);
 }

@@ -19,18 +19,17 @@ how you work.
 | [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | You already work in one of those four. |
 | [CapTP CLI]($link.page('cli')) | shell / MCP | You want call, host, REPL, or agent MCP (`zig build`, then `zig-out/bin/pancake`). |
 
-The bindings surface reaches one more place: the TypeScript binding compiles to
-WebAssembly, so a session runs in the browser too ([Bindings]($link.page('bindings'))).
+The TypeScript binding also compiles to WebAssembly, so the same session runs in
+the browser ([In the browser]($link.page('bindings/browser'))).
 [Start building]($link.page('start')) walks the Zig round-trip; each row above
 links its own front door.
 
 ## One engine
 
 A Zig peer, a C consumer, and any binding hold the same OCapN conversation byte
-for byte. The codec and CapTP version come from negotiation against the
-partner's offers, not from the surface you built on
-([Concepts]($link.page('concepts'))). Every artifact comes from `zig build`, and
-`zig build check` runs the in-tree verification. The
-[README](https://github.com/jimisaacs/pancake/blob/main/README.md#build)
-lists the common steps. The `tcp` wire is cleartext, and encrypted channels come
-from the iroh and WebRTC transports ([Transports]($link.page('transports'))).
+for byte. Which codec and CapTP version you speak comes from negotiation with
+the partner, not from which surface you built on
+([Concepts]($link.page('concepts'))). How peers meet on the wire is a separate
+choice: [Choosing a transport]($link.page('transports/choosing')).
+[What you can depend on]($link.page('stability')) separates checked behavior
+from surfaces that still need outside evidence.

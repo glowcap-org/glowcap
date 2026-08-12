@@ -41,17 +41,17 @@ function greeter(verb: string, args: unknown[]): string | null {
 	return `hello ${String(args[0] ?? "")} over iroh discovery`;
 }
 
-/** Serve every connection the server accepts for the life of the run, and
+/** Serve every session the server accepts for the life of the run, and
  * remember it so teardown can close it. Ends when the server closes. */
 async function acceptLoop(server: IrohServer, served: Session[]): Promise<void> {
-	for await (const conn of server) {
-		conn.serve().catch(() => {});
-		served.push(conn);
+	for await (const session of server) {
+		session.serve().catch(() => {});
+		served.push(session);
 	}
 }
 
 // ── Server: a giftable greeter, dialable by node id alone over discovery ────
-const server = listenIroh({ reachability: Reachability.Discovery });
+const server = await listenIroh({ reachability: Reachability.Discovery });
 server.host.publishGiftable("greeter", greeter);
 const serverId = server.nodeId;
 const served: Session[] = [];
@@ -80,7 +80,7 @@ console.log(
 // the server, closing the server ends its accept loop, which we await so no
 // readiness fd reader outlives the endpoint it watches.
 client.close();
-for (const conn of served) conn.close();
+for (const session of served) session.close();
 server.close();
 await serverTask;
 Deno.exit(0);

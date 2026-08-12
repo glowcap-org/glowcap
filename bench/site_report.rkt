@@ -273,7 +273,7 @@
 
 (define (frameview-region fv)
   (html-table '("metric" "value")
-              (list (list "Allocations per delivered turn" (format "~a (gated <code>== 1</code>)" (hash-ref fv 'per_turn)))
+              (list (list "Allocations per delivered turn" (format "~a (build check requires <code>== 1</code>)" (hash-ref fv 'per_turn)))
                     (list "Frame-view projections exercised" (commas (hash-ref fv 'iters)))
                     (list "Argument / Message struct bytes" (format "~a / ~a" (hash-ref fv 'arg) (hash-ref fv 'msg)))
                     (list "Reference / Resolution struct bytes" (format "~a / ~a" (hash-ref fv 'ref) (hash-ref fv 'res))))))

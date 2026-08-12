@@ -59,11 +59,10 @@ fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var session = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, handshake_budget);
-    // The accepting side gets the same budget as the dialing side. It only
-    // serves here, and serving does not wait on an answer, but a reader copies
-    // this block into code that does.
-    session.settle = settle_budget;
+    var session = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, .{
+        .handshake = handshake_budget,
+        .settle = settle_budget,
+    });
     defer session.deinit();
 
     _ = try session.publish("greeter", Greeter, .{});
@@ -105,13 +104,10 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var session = try driver.connectTcp(allocator, io, &peer, listener.localAddress(), read_buf, write_buf, handshake_budget);
-    // The other budget, and the other default. `fetch`, `call`, and `settle`
-    // all wait on the partner to answer, and they wait forever unless this is
-    // set. It is a field rather than a parameter because those waits happen
-    // after the session is open, which is the whole difference from the
-    // handshake budget above.
-    session.settle = settle_budget;
+    var session = try driver.connectTcp(allocator, io, &peer, listener.localAddress(), read_buf, write_buf, .{
+        .handshake = handshake_budget,
+        .settle = settle_budget,
+    });
     const greeter = try session.fetch("greeter");
 
     var reply = Reply{};

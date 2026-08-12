@@ -55,13 +55,13 @@ pub(crate) fn drain(host: &HostShared) {
 }
 
 /// Build an [`ImportGuard`] when GC is on.
-pub(crate) fn guard_for(conn: &Rc<SessionShared>, id: u64) -> Option<Rc<ImportGuard>> {
-	if !conn.gc.get() {
+pub(crate) fn guard_for(session: &Rc<SessionShared>, id: u64) -> Option<Rc<ImportGuard>> {
+	if !session.gc.get() {
 		return None;
 	}
 	Some(Rc::new(ImportGuard {
 		token: id,
-		host: Rc::downgrade(&conn.host),
+		host: Rc::downgrade(&session.host),
 		armed: Cell::new(true),
 	}))
 }

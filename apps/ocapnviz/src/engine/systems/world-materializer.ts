@@ -62,7 +62,7 @@ export function materializeWorldAt(
   world: GameWorld,
   doc: TimelineDocument,
   t: number,
-): void {
+): boolean {
   // What the world already holds, by id, read once.
   //
   // This runs on every frame of playback and asks after every entity the
@@ -75,6 +75,12 @@ export function materializeWorldAt(
   // and a durable index would need every add and remove in the codebase to
   // maintain it. One pass over the world costs what one of these questions used
   // to, and the adds below keep it true for the rest of the pass.
+  //
+  // Returns whether peer / endpoint / session membership (or a session's
+  // endpoint ids) changed. Claim/bundle tables are a function of that set,
+  // not of positions or message flights, so the engine can keep them across
+  // playing frames that only move nodes.
+  let pairTopologyChanged = false;
   const heldPeers = new Map<string, ReturnType<typeof findPeer>>();
   for (const e of world.with("peer")) heldPeers.set(e.peer.id, e);
   const heldSessions = new Map<string, ReturnType<typeof findSession>>();
@@ -121,12 +127,14 @@ export function materializeWorldAt(
           ? { x: def.position.x, y: def.position.y }
           : { x: 0, y: 0 };
         heldPeers.set(peerId, world.add({ peer: next, position: startPos }));
+        pairTopologyChanged = true;
       } else if (!sameFields(existing.peer, next)) {
         existing.peer = next;
       }
     } else if (existing) {
       world.remove(existing);
       heldPeers.delete(peerId);
+      pairTopologyChanged = true;
     }
   }
 
@@ -174,12 +182,14 @@ export function materializeWorldAt(
         if (drawn !== undefined) {
           world.remove(drawn);
           heldEndpoints.delete(nodeId);
+          pairTopologyChanged = true;
         }
       } else if (drawn === undefined) {
         heldEndpoints.set(
           nodeId,
           world.add({ endpoint: next, position: { x: 0, y: 0 } }),
         );
+        pairTopologyChanged = true;
       } else if (!sameFields(drawn.endpoint, next)) {
         drawn.endpoint = next;
       }
@@ -203,15 +213,18 @@ export function materializeWorldAt(
           sessionId,
           world.add({ session: next, endpoints: { a, b } }),
         );
+        pairTopologyChanged = true;
       } else {
         if (!sameFields(existing.session, next)) existing.session = next;
         if (existing.endpoints.a !== a || existing.endpoints.b !== b) {
           existing.endpoints = { a, b };
+          pairTopologyChanged = true;
         }
       }
     } else if (existing) {
       world.remove(existing);
       heldSessions.delete(sessionId);
+      pairTopologyChanged = true;
     }
   }
 
@@ -247,6 +260,7 @@ export function materializeWorldAt(
       existing.messageInFlight = next;
     }
   }
+  return pairTopologyChanged;
 }
 
 function findMessage(world: GameWorld, id: string) {

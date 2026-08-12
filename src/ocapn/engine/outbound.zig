@@ -169,27 +169,31 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
         // is the one spot on this fast path that leaves `message` unrecorded
         // and unqueued, so free it — `recordSend` owns it from the next line
         // on (it frees on refusal), and `pushAssumeCapacity` is infallible.
-        self.pending_send.ensureUnusedCapacityForOne(self.allocator) catch |err| {
+        const reservation = self.reservePending(.{ .settled_answer = .{ .position = answer, .row_id = 0 } }) catch |err| {
             freeMessage(self.allocator, message);
             return err;
         };
-        try self.session_state.recordSend(message);
+        self.session_state.recordSend(message) catch |err| {
+            self.cancelPendingReservation(reservation);
+            return err;
+        };
         // Stamp the carrier with the answer row's identity: `recordSend`
         // stored the resolution in this row, so its `row_id` is live now.
         // If the partner GCs this position and reuses it before `step`
         // encodes, the stamp mismatch makes the stale carrier moot.
         const row_id = self.session_state.inboundAnswerRowId(answer) orelse unreachable;
-        self.pending_send.pushAssumeCapacity(.{ .settled_answer = .{ .position = answer, .row_id = row_id } });
+        self.pushPendingAssume(reservation, .{ .settled_answer = .{ .position = answer, .row_id = row_id } });
         return;
     }
 
     var owned_needs_free = true;
     errdefer if (owned_needs_free) freeMessage(self.allocator, message);
 
-    try self.pending_send.push(self.allocator, .{ .message = message });
+    const reservation = try self.reservePending(.{ .message = message });
+    self.pushPendingAssume(reservation, .{ .message = message });
     owned_needs_free = false;
     var appended = true;
-    errdefer if (appended) self.pending_send.popBack().?.deinit(self.allocator);
+    errdefer if (appended) self.popPendingBack().?.item.deinit(self.allocator);
 
     try self.session_state.recordSend(message);
     appended = false;
@@ -214,11 +218,6 @@ fn enqueueNextAnsweredOperation(
     message: model.Message,
     answer: model.AnswerPosition,
 ) !void {
-    self.pending_send.ensureUnusedCapacityForOne(self.allocator) catch |err| {
-        freeMessage(self.allocator, message);
-        return err;
-    };
-
     const resolver_export = self.session_state.mintMentionedResolverExport(answer, .object) catch |err| {
         freeMessage(self.allocator, message);
         return err;
@@ -227,31 +226,40 @@ fn enqueueNextAnsweredOperation(
     errdefer if (resolver_owned)
         self.session_state.abandonMentionedResolverExport(resolver_export);
 
-    self.session_state.recordSend(message) catch |err| {
-        freeMessage(self.allocator, message);
-        return err;
-    };
-
     const listener: model.Message = .{ .listen = .{
         .target = .{ .promise = .{ .answer_position = answer } },
         .listener = session.slot.toReference(self.session_state.exportSlot(resolver_export).?).?,
         .mode = .shortening_or_settling,
     } };
-    self.pending_send.pushAssumeCapacity(.{ .next_answered = .{
+    const reservation = self.reservePending(.{ .next_answered = .{
+        .operation = message,
+        .listener = listener,
+    } }) catch |err| {
+        freeMessage(self.allocator, message);
+        return err;
+    };
+
+    self.session_state.recordSend(message) catch |err| {
+        self.cancelPendingReservation(reservation);
+        freeMessage(self.allocator, message);
+        return err;
+    };
+    self.pushPendingAssume(reservation, .{ .next_answered = .{
         .operation = message,
         .listener = listener,
     } });
     resolver_owned = false;
 }
 
-/// Encode the front pending-send item during `step`. A store-backed
-/// `settled_answer` remains queued until encode succeeds because its POD
-/// carrier is retry-safe. The other arms transfer ownership before encode:
-/// their path may install session authority, so replay after a later failure
-/// is not generally safe.
+/// Encode the front pending-send item during `step`. Every carrier remains at
+/// the queue front until its complete wire publication succeeds. V1.0
+/// translation may install resolver authority while preparing a message; its
+/// preparation owns rollback until the corresponding frame or frame pair is
+/// queued, so allocator pressure is retryable without losing a carrier or
+/// leaving a partial projection transaction on the wire.
 pub fn stepPending(self: *Peer) !void {
-    const front = self.pending_send.peek().?.*;
-    switch (front) {
+    const pending = self.pending_send.peek() orelse unreachable;
+    switch (pending.item) {
         .settled_answer => |sa| {
             // The resolution lives in the answer store (it moved there at
             // record time); borrow it to encode and to drive the local
@@ -262,7 +270,8 @@ pub fn stepPending(self: *Peer) !void {
             // longer matches: `resolveStoreChecked` guards both, so the
             // reused row's payload is never resolved under this carrier.
             const stored = resolveStoreChecked(self, .{ .answer = .{ .position = sa.position, .row_id = sa.row_id } }) orelse {
-                discardPendingFront(self);
+                const consumed = self.takePending();
+                consumed.item.deinit(self.allocator);
                 return;
             };
             const resolve: model.Resolve = .{ .answer = sa.position, .resolution = stored.* };
@@ -270,90 +279,100 @@ pub fn stepPending(self: *Peer) !void {
             // next profile has no wire op:resolve: its mandatory op:listen is
             // the notification path, so only the local consequence drain runs.
             if (self.session_state.captp_version == .v1_0)
-                try emitOutboundMessage(self, .{ .resolve = resolve });
+                try emitPendingMessage(self, .{ .resolve = resolve }, pending.charge);
             // Once notification is committed (or, on next, deliberately
             // omitted), a consequence-drain failure must not retain the
             // carrier and repeat the settlement on retry.
-            discardPendingFront(self);
             // A sent `op:resolve` also settles one of our inbound answers locally.
+            const consumed = self.takePending();
+            consumed.item.deinit(self.allocator);
             try settleSentResolve(self, resolve);
         },
-        .next_answered => |pair| try stepNextAnswered(self, pair),
-        .message, .listener_fire => try stepConsumedPending(
-            self,
-            self.pending_send.consumeFront(self.allocator),
-        ),
+        .next_answered => |pair| {
+            try stepNextAnswered(self, pending.charge, pair);
+            var consumed = self.takePending();
+            consumed.item.deinit(self.allocator);
+        },
+        .message => |message| {
+            try emitPendingMessage(self, message, pending.charge);
+            var consumed = self.takePending();
+            consumed.item.deinit(self.allocator);
+        },
+        .listener_fire => |fire| {
+            try emitPendingListenerFire(self, pending.charge, fire);
+            const consumed = self.takePending();
+            consumed.item.deinit(self.allocator);
+        },
     }
 }
 
-fn stepNextAnswered(self: *Peer, pair: NextAnswered) !void {
+fn stepNextAnswered(self: *Peer, staged_charge: usize, pair: NextAnswered) !void {
+    try pushEncodedPairFromPending(self, staged_charge, pair.operation, pair.listener);
+}
+
+/// Encode and publish two adjacent frames as one pending-carrier transaction.
+/// Both encodes, the waterline check, and both queue slots are acquired before
+/// either frame becomes visible, so the first half can never escape alone.
+fn pushEncodedPairFromPending(
+    self: *Peer,
+    staged_charge: usize,
+    first: model.Message,
+    second: model.Message,
+) !void {
     var operation_frame = try codec.dispatch.encodeMessageForProfile(
         self.session_state.codec,
         self.allocator,
         self.session_state.captp_version,
-        pair.operation,
+        first,
     );
     errdefer operation_frame.deinit();
     var listener_frame = try codec.dispatch.encodeMessageForProfile(
         self.session_state.codec,
         self.allocator,
         self.session_state.captp_version,
-        pair.listener,
+        second,
     );
     errdefer listener_frame.deinit();
-    try self.outbound.ensureUnusedCapacity(self.allocator, 2);
+    try self.checkOutboundTransferWaterline(staged_charge);
+    try self.ensureOutboundCapacity(2);
 
     self.outbound.pushAssumeCapacity(operation_frame);
     self.outbound.pushAssumeCapacity(listener_frame);
-    self.pending_send.consumeFront(self.allocator).deinit(self.allocator);
 }
 
-fn stepConsumedPending(self: *Peer, item: Outbound) !void {
-    switch (item) {
-        .message => |message| {
-            defer freeMessage(self.allocator, message);
-            try emitOutboundMessage(self, message);
+fn emitPendingListenerFire(self: *Peer, staged_charge: usize, fire: @FieldType(Outbound, "listener_fire")) !void {
+    var args: [2]model.Argument = undefined;
+    const message = switch (fire.target) {
+        // CapTP already-settled object export: the payload is POD
+        // `fulfill(near)` rebuilt from the carrier's position. Moot
+        // when the export row is gone (a partner `op:gc-exports`
+        // between queue and encode) or no longer a live object slot.
+        .near_object => |export_position| blk: {
+            const slot = self.session_state.exportSlot(export_position) orelse return;
+            if (slot != .local_value) return;
+            const resolution: model.Resolution = .{ .fulfill = .{
+                .reference = .{ .near = model.NearRef.object(export_position.int()) },
+            } };
+            break :blk pipeline.borrowedListenerFire(fire.listener_position, resolution, &args);
         },
-        .listener_fire => |fire| {
-            var args: [2]model.Argument = undefined;
-            const message = switch (fire.target) {
-                // CapTP already-settled object export: the payload is POD
-                // `fulfill(near)` rebuilt from the carrier's position. Moot
-                // when the export row is gone (a partner `op:gc-exports`
-                // between queue and encode) or no longer a live object slot.
-                .near_object => |export_position| blk: {
-                    const slot = self.session_state.exportSlot(export_position) orelse return;
-                    if (slot != .local_value) return;
-                    const resolution: model.Resolution = .{ .fulfill = .{
-                        .reference = .{ .near = model.NearRef.object(export_position.int()) },
-                    } };
-                    break :blk pipeline.borrowedListenerFire(fire.listener_position, resolution, &args);
-                },
-                // Borrow the fire's payload from whichever store holds it and
-                // encode, through the same `resolveStoreChecked` guard
-                // `settled_answer` uses. The fire is moot when the row is gone
-                // (an inbound `op:gc-answers` dropped an answer, or GC
-                // co-eviction tore down an imported promise) or when a surviving
-                // row's `row_id` no longer matches — a partner released and
-                // reused an answer position, or an imported row was re-registered
-                // as a *different* third-party promise. Either way the stale
-                // fire's accounting names the dead instance's payload, so nothing
-                // emits. (The queue-time export retains of a dropped fire stay
-                // recorded until session end, the same stranded-retain posture a
-                // GC'd `settled_answer` ships.)
-                .store => |store_target| blk: {
-                    const stored = resolveStoreChecked(self, store_target) orelse return;
-                    break :blk pipeline.borrowedListenerFire(fire.listener_position, stored.*, &args);
-                },
-            };
-            try emitOutboundMessage(self, message);
+        // Borrow the fire's payload from whichever store holds it and
+        // encode, through the same `resolveStoreChecked` guard
+        // `settled_answer` uses. The fire is moot when the row is gone
+        // (an inbound `op:gc-answers` dropped an answer, or GC
+        // co-eviction tore down an imported promise) or when a surviving
+        // row's `row_id` no longer matches — a partner released and
+        // reused an answer position, or an imported row was re-registered
+        // as a *different* third-party promise. Either way the stale
+        // fire's accounting names the dead instance's payload, so nothing
+        // emits. (The queue-time export retains of a dropped fire stay
+        // recorded until session end, the same stranded-retain posture a
+        // GC'd `settled_answer` ships.)
+        .store => |store_target| blk: {
+            const stored = resolveStoreChecked(self, store_target) orelse return;
+            break :blk pipeline.borrowedListenerFire(fire.listener_position, stored.*, &args);
         },
-        .settled_answer, .next_answered => unreachable,
-    }
-}
-
-fn discardPendingFront(self: *Peer) void {
-    self.pending_send.consumeFront(self.allocator).deinit(self.allocator);
+    };
+    try emitPendingMessage(self, message, staged_charge);
 }
 
 /// The current row id and borrowed stored resolution behind a fire target,
@@ -398,7 +417,7 @@ pub fn resolveStoreChecked(self: *Peer, target: StoreTarget) ?*const model.Resol
     return found.resolution;
 }
 
-/// Encode one popped pending message onto `outbound`, applying the V1.0
+/// Encode one pending message onto `outbound`, applying the V1.0
 /// translations that have no wire form under next (`v1_0`, ADR-0010):
 ///   - a semantic `Resolve` ships as a resolver-callback `op:deliver` to the
 ///     partner's resolver import, or is dropped when only `op:listen`
@@ -410,10 +429,10 @@ pub fn resolveStoreChecked(self: *Peer, target: StoreTarget) ?*const model.Resol
 ///     resolution back, since the projection ops carry no inline resolver
 ///     (ADR-0050, ADR-0052). The listen must follow the op that opened the
 ///     answer on the wire, so it is pushed after the encode.
-/// next encodes the message as it stands. Borrows `message`; the caller
-/// owns and frees it. An `op:abort` goes through `commitAbortOutbound`
-/// (close after successful push) so the partner can still take the frame.
-fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
+/// next encodes the message as it stands. Borrows `message`; the pending queue
+/// continues owning it until this returns successfully. An `op:abort` closes
+/// only after its frame is published so the partner can still take it.
+fn emitPendingMessage(self: *Peer, message: model.Message, pending_charge: usize) !void {
     if (message == .abort) {
         try self.commitAbortOutbound(message.abort);
         return;
@@ -428,23 +447,35 @@ fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
         // callback: there is nobody to notify, so the resolve emits nothing —
         // V1.0 has no wire shape to invent for it.
         if (self.session_state.resolverForInboundAnswer(message.resolve.answer)) |resolver_import| {
-            try v1_0.encodeResolveAsCallback(self, message.resolve, resolver_import);
+            try v1_0.encodeResolveAsCallback(self, message.resolve, resolver_import, pending_charge);
         }
         return;
     }
 
-    const wire_message = if (needs_v1_0 and message == .deliver)
-        try v1_0.installResolverForOutboundDeliver(self, message.deliver)
-    else
-        message;
-    try self.pushEncoded(wire_message);
+    if (!needs_v1_0) return self.pushEncodedFromPending(pending_charge, message);
 
-    if (needs_v1_0) switch (message) {
-        .get => |g| try v1_0.installListenerForOutboundProjection(self, g.answer),
-        .index => |i| try v1_0.installListenerForOutboundProjection(self, i.answer),
-        .untag => |u| try v1_0.installListenerForOutboundProjection(self, u.answer),
-        else => {},
-    };
+    switch (message) {
+        .deliver => |deliver| {
+            const prepared = try v1_0.prepareOutboundDeliver(self, deliver);
+            errdefer prepared.rollback(self);
+            try self.pushEncodedFromPending(pending_charge, prepared.message);
+        },
+        .get => |get| try emitV1Projection(self, pending_charge, message, get.answer),
+        .index => |index| try emitV1Projection(self, pending_charge, message, index.answer),
+        .untag => |untag| try emitV1Projection(self, pending_charge, message, untag.answer),
+        else => try self.pushEncodedFromPending(pending_charge, message),
+    }
+}
+
+fn emitV1Projection(
+    self: *Peer,
+    pending_charge: usize,
+    projection: model.Message,
+    answer: model.AnswerPosition,
+) !void {
+    const listener = try v1_0.prepareProjectionListener(self, answer);
+    errdefer listener.rollback(self);
+    try pushEncodedPairFromPending(self, pending_charge, projection, listener.message);
 }
 
 /// Settle the local consequences of a just-sent `op:resolve`: drain the

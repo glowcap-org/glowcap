@@ -10,11 +10,10 @@
 //! The split mirrors the core module it fronts. `model.uri` is the grammar —
 //! the verbs that turn a string into a structure and back; `model.PeerLocator` / `SturdyRef` are the values
 //! it produces (the noun). So the verbs are `pancake_uri_*` (parse/format) and
-//! the nouns are `pancake_locator_*` accessors over one opaque handle. A
-//! sturdyref *is* a locator in OCapN (`model.SturdyRef` embeds a `PeerLocator`
-//! plus a swissnum), so one `PancakeLocator` carries both: a parsed peer has a
-//! zero-length swissnum, a parsed sturdyref has the swiss bytes, and the
-//! accessors are shared.
+//! the nouns are distinct `PancakeLocator` and `PancakeSturdyRef` handles. A
+//! sturdyref embeds a peer locator plus authority-bearing swiss bytes; keeping
+//! those types distinct prevents a peer-view operation from silently dropping
+//! the swissnum.
 //!
 //! Parsing/formatting (here) is separate from dialing (a transport's `connect`):
 //! a binding parses a URI, reads `transport`, then calls the matching transport.
@@ -26,9 +25,13 @@ const engine = @import("engine");
 
 const c = @import("mod.zig");
 const shared = @import("c_abi_shared");
+const locator_abi = shared.locator;
+const locator_adapter = shared.locator_adapter;
 const ctx = @import("context.zig");
 
 const PancakeLocator = c.PancakeLocator;
+const PancakeSturdyRef = c.PancakeSturdyRef;
+const PancakeContext = c.PancakeContext;
 
 const setLastError = c.setLastError;
 
@@ -39,19 +42,104 @@ const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_NOT_FOUND = c.PANCAKE_ERR_NOT_FOUND;
 const PANCAKE_ERR_BUFFER_TOO_SMALL = c.PANCAKE_ERR_BUFFER_TOO_SMALL;
 
-/// What a parse returns: the owned `model.uri` value plus the allocator that
-/// minted it, so `pancake_locator_release` frees through the same policy. A peer
-/// URI leaves `swissnum` empty and `is_sturdyref` false; a sturdyref fills both.
+/// One OCapN-owned locator value. Besides URI parsing, the public constructor
+/// carries every typed hint arm and owns a stable borrowed C projection for
+/// driver/provider archive crossings.
 const LocatorPayload = struct {
     allocator: std.mem.Allocator,
-    peer: model.PeerLocator,
-    swissnum: []const u8,
-    is_sturdyref: bool,
+    transport: []u8,
+    designator: []u8,
+    hints: std.ArrayListUnmanaged(model.HintEntry),
+    hint_views: std.ArrayListUnmanaged(shared.PancakeLocatorHintView),
+    wire_form: model.Hints.WireForm,
+    view: shared.PancakeLocatorView,
+    fn peer(self: *const LocatorPayload) model.PeerLocator {
+        return .{
+            .transport = self.transport,
+            .designator = self.designator,
+            .hints = .{ .entries = self.hints.items, .wire_form = self.wire_form },
+        };
+    }
+
+    fn refreshView(self: *LocatorPayload) !void {
+        self.hint_views.clearRetainingCapacity();
+        try self.hint_views.resize(self.allocator, self.hints.items.len);
+        self.view = try locator_adapter.project(self.peer(), self.hint_views.items);
+    }
+
+    fn deinit(self: *LocatorPayload) void {
+        for (self.hints.items) |entry| model.freeHintEntry(self.allocator, entry);
+        self.hints.deinit(self.allocator);
+        self.hint_views.deinit(self.allocator);
+        self.allocator.free(self.transport);
+        self.allocator.free(self.designator);
+        const allocator = self.allocator;
+        allocator.destroy(self);
+    }
+};
+
+const SturdyRefPayload = struct {
+    allocator: std.mem.Allocator,
+    locator: *LocatorPayload,
+    swissnum: []u8,
+
+    fn deinit(self: *SturdyRefPayload) void {
+        self.locator.deinit();
+        self.allocator.free(self.swissnum);
+        const allocator = self.allocator;
+        allocator.destroy(self);
+    }
 };
 
 fn locFromOpaque(loc: ?*PancakeLocator) ?*LocatorPayload {
     const ptr = loc orelse return null;
     return @ptrCast(@alignCast(ptr));
+}
+
+fn sturdyFromOpaque(sturdyref: ?*PancakeSturdyRef) ?*SturdyRefPayload {
+    const ptr = sturdyref orelse return null;
+    return @ptrCast(@alignCast(ptr));
+}
+
+fn adoptPeer(
+    allocator: std.mem.Allocator,
+    peer: model.PeerLocator,
+) !*LocatorPayload {
+    model.validatePeerLocator(peer) catch {
+        model.freePeerLocator(allocator, peer);
+        return error.InvalidArgument;
+    };
+    const payload = allocator.create(LocatorPayload) catch |err| {
+        model.freePeerLocator(allocator, peer);
+        return err;
+    };
+    payload.* = .{
+        .allocator = allocator,
+        .transport = @constCast(peer.transport),
+        .designator = @constCast(peer.designator),
+        .hints = .fromOwnedSlice(@constCast(peer.hints.entries)),
+        .hint_views = .empty,
+        .wire_form = peer.hints.wire_form,
+        .view = undefined,
+    };
+    payload.refreshView() catch |err| {
+        payload.deinit();
+        return err;
+    };
+    return payload;
+}
+
+fn adoptSturdyRef(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) !*SturdyRefPayload {
+    errdefer allocator.free(sturdyref.swissnum);
+    const locator = try adoptPeer(allocator, sturdyref.peer);
+    errdefer locator.deinit();
+    const payload = try allocator.create(SturdyRefPayload);
+    payload.* = .{
+        .allocator = allocator,
+        .locator = locator,
+        .swissnum = @constCast(sturdyref.swissnum),
+    };
+    return payload;
 }
 
 /// Map a `model.uri` parse failure to a C code. A grammar failure is a bad
@@ -72,46 +160,283 @@ fn parseErrToCode(err: model.uri.Error) i32 {
 /// Parse an `ocapn://` peer URI into an owned locator handle. The bytes are
 /// borrowed for the call. Returns PANCAKE_ERR_INVALID_ARGUMENT (see
 /// pancake_last_error) for a malformed URI. Release with pancake_locator_release.
-pub export fn pancake_uri_parse_peer(uri: ?[*]const u8, uri_len: usize, out_locator: ?*?*PancakeLocator) i32 {
+fn uriParsePeerIn(allocator: std.mem.Allocator, uri: ?[*]const u8, uri_len: usize, out_locator: ?*?*PancakeLocator) i32 {
     const uri_ptr = uri orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
-    const alloc = ctx.library_allocator;
-
-    const peer = model.uri.parsePeer(alloc, uri_ptr[0..uri_len]) catch |err| return parseErrToCode(err);
-    const payload = alloc.create(LocatorPayload) catch {
-        model.uri.freePeer(alloc, peer);
-        return PANCAKE_ERR_INTERNAL;
-    };
-    payload.* = .{ .allocator = alloc, .peer = peer, .swissnum = &.{}, .is_sturdyref = false };
+    const peer = model.uri.parsePeer(allocator, uri_ptr[0..uri_len]) catch |err| return parseErrToCode(err);
+    const payload = adoptPeer(allocator, peer) catch return PANCAKE_ERR_INTERNAL;
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
+}
+
+pub export fn pancake_uri_parse_peer(uri: ?[*]const u8, uri_len: usize, out_locator: ?*?*PancakeLocator) i32 {
+    return uriParsePeerIn(ctx.library_allocator, uri, uri_len, out_locator);
+}
+
+pub export fn pancake_uri_parse_peer_in(
+    context: ?*PancakeContext,
+    uri: ?[*]const u8,
+    uri_len: usize,
+    out_locator: ?*?*PancakeLocator,
+) i32 {
+    const context_payload = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
+    return uriParsePeerIn(context_payload.allocator(), uri, uri_len, out_locator);
 }
 
 /// Parse an `ocapn://…/s/<swiss>` sturdyref URI into an owned locator handle
 /// carrying its swissnum. Same borrow, error, and release contract as
 /// pancake_uri_parse_peer.
-pub export fn pancake_uri_parse_sturdyref(uri: ?[*]const u8, uri_len: usize, out_locator: ?*?*PancakeLocator) i32 {
+fn uriParseSturdyrefIn(allocator: std.mem.Allocator, uri: ?[*]const u8, uri_len: usize, out_sturdyref: ?*?*PancakeSturdyRef) i32 {
     const uri_ptr = uri orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
-    const alloc = ctx.library_allocator;
-
-    const sturdyref = model.uri.parseSturdyref(alloc, uri_ptr[0..uri_len]) catch |err| return parseErrToCode(err);
-    const payload = alloc.create(LocatorPayload) catch {
-        model.uri.freeSturdyref(alloc, sturdyref);
-        return PANCAKE_ERR_INTERNAL;
-    };
-    payload.* = .{ .allocator = alloc, .peer = sturdyref.peer, .swissnum = sturdyref.swissnum, .is_sturdyref = true };
+    const slot = out_sturdyref orelse return PANCAKE_ERR_NULL_POINTER;
+    const sturdyref = model.uri.parseSturdyref(allocator, uri_ptr[0..uri_len]) catch |err| return parseErrToCode(err);
+    const payload = adoptSturdyRef(allocator, sturdyref) catch return PANCAKE_ERR_INTERNAL;
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
+}
+
+pub export fn pancake_uri_parse_sturdyref(uri: ?[*]const u8, uri_len: usize, out_sturdyref: ?*?*PancakeSturdyRef) i32 {
+    return uriParseSturdyrefIn(ctx.library_allocator, uri, uri_len, out_sturdyref);
+}
+
+pub export fn pancake_uri_parse_sturdyref_in(
+    context: ?*PancakeContext,
+    uri: ?[*]const u8,
+    uri_len: usize,
+    out_sturdyref: ?*?*PancakeSturdyRef,
+) i32 {
+    const context_payload = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
+    return uriParseSturdyrefIn(context_payload.allocator(), uri, uri_len, out_sturdyref);
 }
 
 /// Release a locator handle and the parse allocations it owns. NULL is a no-op.
 pub export fn pancake_locator_release(loc: ?*PancakeLocator) void {
     const payload = locFromOpaque(loc) orelse return;
-    const alloc = payload.allocator;
-    model.uri.freePeer(alloc, payload.peer);
-    if (payload.is_sturdyref) alloc.free(payload.swissnum);
-    alloc.destroy(payload);
+    payload.deinit();
+}
+
+/// Release a sturdyref and its embedded peer locator. NULL is a no-op.
+pub export fn pancake_sturdyref_release(sturdyref: ?*PancakeSturdyRef) void {
+    const payload = sturdyFromOpaque(sturdyref) orelse return;
+    payload.deinit();
+}
+
+fn requiredSlice(ptr: ?[*]const u8, len: usize) ![]const u8 {
+    if (len == 0) return error.InvalidArgument;
+    return (ptr orelse return error.NullPointer)[0..len];
+}
+
+fn optionalSlice(ptr: ?[*]const u8, len: usize) ![]const u8 {
+    if (len == 0) return &.{};
+    return (ptr orelse return error.NullPointer)[0..len];
+}
+
+fn locatorErrToCode(err: anyerror) i32 {
+    return switch (err) {
+        error.NullPointer => PANCAKE_ERR_NULL_POINTER,
+        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        else => PANCAKE_ERR_INVALID_ARGUMENT,
+    };
+}
+
+/// Construct one owned peer locator. The handle owns all subsequently added
+/// hints and projects a stable borrowed view until its next mutation.
+fn locatorNewIn(
+    allocator: std.mem.Allocator,
+    transport: ?[*]const u8,
+    transport_len: usize,
+    designator: ?[*]const u8,
+    designator_len: usize,
+    hint_wire_form: u32,
+    out_locator: ?*?*PancakeLocator,
+) i32 {
+    const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
+    const t = requiredSlice(transport, transport_len) catch |err| return locatorErrToCode(err);
+    const d = requiredSlice(designator, designator_len) catch |err| return locatorErrToCode(err);
+    const wire_form: model.Hints.WireForm = switch (hint_wire_form) {
+        locator_abi.PANCAKE_HINTS_MAP => .map,
+        locator_abi.PANCAKE_HINTS_BOOLEAN_FALSE => .boolean_false,
+        else => return PANCAKE_ERR_INVALID_ARGUMENT,
+    };
+    model.validatePeerLocator(.{
+        .transport = t,
+        .designator = d,
+        .hints = .{ .entries = &.{}, .wire_form = wire_form },
+    }) catch return PANCAKE_ERR_INVALID_ARGUMENT;
+    const owned_transport = allocator.dupe(u8, t) catch return PANCAKE_ERR_INTERNAL;
+    const owned_designator = allocator.dupe(u8, d) catch {
+        allocator.free(owned_transport);
+        return PANCAKE_ERR_INTERNAL;
+    };
+    const entries = allocator.alloc(model.HintEntry, 0) catch {
+        allocator.free(owned_designator);
+        allocator.free(owned_transport);
+        return PANCAKE_ERR_INTERNAL;
+    };
+    const payload = adoptPeer(allocator, .{
+        .transport = owned_transport,
+        .designator = owned_designator,
+        .hints = .{ .entries = entries, .wire_form = wire_form },
+    }) catch return PANCAKE_ERR_INTERNAL;
+    slot.* = @ptrCast(payload);
+    return PANCAKE_OK;
+}
+
+pub export fn pancake_locator_new(
+    transport: ?[*]const u8,
+    transport_len: usize,
+    designator: ?[*]const u8,
+    designator_len: usize,
+    hint_wire_form: u32,
+    out_locator: ?*?*PancakeLocator,
+) i32 {
+    return locatorNewIn(ctx.library_allocator, transport, transport_len, designator, designator_len, hint_wire_form, out_locator);
+}
+
+pub export fn pancake_locator_new_in(
+    context: ?*PancakeContext,
+    transport: ?[*]const u8,
+    transport_len: usize,
+    designator: ?[*]const u8,
+    designator_len: usize,
+    hint_wire_form: u32,
+    out_locator: ?*?*PancakeLocator,
+) i32 {
+    const context_payload = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
+    return locatorNewIn(context_payload.allocator(), transport, transport_len, designator, designator_len, hint_wire_form, out_locator);
+}
+
+/// Clone one versioned borrowed locator view into an OCapN-owned handle.
+fn locatorCloneIn(
+    allocator: std.mem.Allocator,
+    view: ?*const shared.PancakeLocatorView,
+    out_locator: ?*?*PancakeLocator,
+) i32 {
+    const source = view orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
+    const peer = locator_adapter.cloneView(allocator, source) catch |err| return locatorErrToCode(err);
+    const payload = adoptPeer(allocator, peer) catch return PANCAKE_ERR_INTERNAL;
+    slot.* = @ptrCast(payload);
+    return PANCAKE_OK;
+}
+
+pub export fn pancake_locator_clone(
+    view: ?*const shared.PancakeLocatorView,
+    out_locator: ?*?*PancakeLocator,
+) i32 {
+    return locatorCloneIn(ctx.library_allocator, view, out_locator);
+}
+
+pub export fn pancake_locator_clone_in(
+    context: ?*PancakeContext,
+    view: ?*const shared.PancakeLocatorView,
+    out_locator: ?*?*PancakeLocator,
+) i32 {
+    const context_payload = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
+    return locatorCloneIn(context_payload.allocator(), view, out_locator);
+}
+
+/// Borrow the handle's complete stable view. It remains valid until the next
+/// hint addition or release.
+pub export fn pancake_locator_borrow_view(
+    loc: ?*const PancakeLocator,
+    out_view: ?*?*const shared.PancakeLocatorView,
+) i32 {
+    const payload = locFromOpaque(@constCast(loc)) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_view orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = &payload.view;
+    return PANCAKE_OK;
+}
+
+/// Borrow the embedded peer locator view without discarding the sturdyref's
+/// swissnum. The sturdyref remains the owner of both views.
+pub export fn pancake_sturdyref_borrow_locator(
+    sturdyref: ?*const PancakeSturdyRef,
+    out_view: ?*?*const shared.PancakeLocatorView,
+) i32 {
+    const payload = sturdyFromOpaque(@constCast(sturdyref)) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_view orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = &payload.locator.view;
+    return PANCAKE_OK;
+}
+
+fn appendHint(payload: *LocatorPayload, name: []const u8, value: model.HintValue) !void {
+    if (name.len == 0 or payload.wire_form == .boolean_false) return error.InvalidArgument;
+    for (payload.hints.items) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) return error.InvalidArgument;
+    }
+    try payload.hints.ensureUnusedCapacity(payload.allocator, 1);
+    try payload.hint_views.ensureUnusedCapacity(payload.allocator, 1);
+    const owned_name = try payload.allocator.dupe(u8, name);
+    errdefer payload.allocator.free(owned_name);
+    const owned_value = try model.cloneHintValue(payload.allocator, value);
+    errdefer model.freeHintValue(payload.allocator, owned_value);
+    payload.hints.appendAssumeCapacity(.{ .name = owned_name, .value = owned_value });
+    payload.refreshView() catch unreachable;
+}
+
+fn addBytesHint(
+    loc: ?*PancakeLocator,
+    name: ?[*]const u8,
+    name_len: usize,
+    value: ?[*]const u8,
+    value_len: usize,
+    comptime kind: enum { string, bytes },
+) i32 {
+    const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
+    const n = requiredSlice(name, name_len) catch |err| return locatorErrToCode(err);
+    const bytes = optionalSlice(value, value_len) catch |err| return locatorErrToCode(err);
+    const hint_value: model.HintValue = switch (kind) {
+        .string => .{ .string = bytes },
+        .bytes => .{ .bytes = bytes },
+    };
+    appendHint(payload, n, hint_value) catch |err| return locatorErrToCode(err);
+    return PANCAKE_OK;
+}
+
+pub export fn pancake_locator_add_string(
+    loc: ?*PancakeLocator,
+    name: ?[*]const u8,
+    name_len: usize,
+    value: ?[*]const u8,
+    value_len: usize,
+) i32 {
+    return addBytesHint(loc, name, name_len, value, value_len, .string);
+}
+
+pub export fn pancake_locator_add_bytes(
+    loc: ?*PancakeLocator,
+    name: ?[*]const u8,
+    name_len: usize,
+    value: ?[*]const u8,
+    value_len: usize,
+) i32 {
+    return addBytesHint(loc, name, name_len, value, value_len, .bytes);
+}
+
+pub export fn pancake_locator_add_boolean(
+    loc: ?*PancakeLocator,
+    name: ?[*]const u8,
+    name_len: usize,
+    value: u8,
+) i32 {
+    const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
+    const n = requiredSlice(name, name_len) catch |err| return locatorErrToCode(err);
+    if (value > 1) return PANCAKE_ERR_INVALID_ARGUMENT;
+    appendHint(payload, n, .{ .boolean = value == 1 }) catch |err| return locatorErrToCode(err);
+    return PANCAKE_OK;
+}
+
+pub export fn pancake_locator_add_integer(
+    loc: ?*PancakeLocator,
+    name: ?[*]const u8,
+    name_len: usize,
+    value: i64,
+) i32 {
+    const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
+    const n = requiredSlice(name, name_len) catch |err| return locatorErrToCode(err);
+    appendHint(payload, n, .{ .integer = value }) catch |err| return locatorErrToCode(err);
+    return PANCAKE_OK;
 }
 
 // ── Locator accessors: borrowed views into the handle ────────────────────────
@@ -127,28 +452,18 @@ fn writeView(bytes: []const u8, out_ptr: ?*?[*]const u8, out_len: ?*usize) i32 {
     return PANCAKE_OK;
 }
 
-/// The string bytes of a hint value. Parsing always yields `string` hints; any
-/// other arm (which a parse never produces) reports absent so a defensive caller
-/// is never handed a misread view.
-fn hintBytes(value: model.HintValue) ?[]const u8 {
-    return switch (value) {
-        .string => |string| string,
-        else => null,
-    };
-}
-
 /// Borrow the locator's transport (e.g. "tcp", "iroh"), the field a dispatcher
 /// reads to pick a netlayer.
 pub export fn pancake_locator_transport(loc: ?*PancakeLocator, out_ptr: ?*?[*]const u8, out_len: ?*usize) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
-    return writeView(payload.peer.transport, out_ptr, out_len);
+    return writeView(payload.transport, out_ptr, out_len);
 }
 
 /// Borrow the locator's designator, the transport-specific address (a TCP
 /// host:port string, an iroh node id, an inproc designator).
 pub export fn pancake_locator_designator(loc: ?*PancakeLocator, out_ptr: ?*?[*]const u8, out_len: ?*usize) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
-    return writeView(payload.peer.designator, out_ptr, out_len);
+    return writeView(payload.designator, out_ptr, out_len);
 }
 
 /// Split the locator's designator as `host:port` — the address grammar a socket
@@ -170,8 +485,8 @@ pub export fn pancake_locator_host_port(
 ) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
     return pancake_designator_host_port(
-        payload.peer.designator.ptr,
-        payload.peer.designator.len,
+        payload.designator.ptr,
+        payload.designator.len,
         out_host,
         out_host_len,
         out_port,
@@ -203,29 +518,32 @@ pub export fn pancake_designator_host_port(
     return PANCAKE_OK;
 }
 
-/// Borrow the locator's swissnum: zero-length for a peer URI, the swiss bytes for
-/// a sturdyref. The discriminator a C caller reads instead of a second handle type.
-pub export fn pancake_locator_swissnum(loc: ?*PancakeLocator, out_ptr: ?*?[*]const u8, out_len: ?*usize) i32 {
-    const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
+/// Borrow the sturdyref's authority-bearing swissnum.
+pub export fn pancake_sturdyref_swissnum(
+    sturdyref: ?*PancakeSturdyRef,
+    out_ptr: ?*?[*]const u8,
+    out_len: ?*usize,
+) i32 {
+    const payload = sturdyFromOpaque(sturdyref) orelse return PANCAKE_ERR_NULL_POINTER;
     return writeView(payload.swissnum, out_ptr, out_len);
 }
 
-/// Borrow the value of the hint named by `key` (e.g. "direct-addresses").
-/// PANCAKE_ERR_NOT_FOUND when no hint carries that key. `key` is borrowed.
+/// Borrow the complete typed hint named by `key`. The view aliases the handle
+/// until its next mutation or release.
 pub export fn pancake_locator_hint(
     loc: ?*PancakeLocator,
     key: ?[*]const u8,
     key_len: usize,
-    out_ptr: ?*?[*]const u8,
-    out_len: ?*usize,
+    out_hint: ?*shared.PancakeLocatorHintView,
 ) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
     const key_ptr = key orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_hint orelse return PANCAKE_ERR_NULL_POINTER;
     const k = key_ptr[0..key_len];
-    for (payload.peer.hints.entries) |entry| {
+    for (payload.hints.items, payload.hint_views.items) |entry, hint_view| {
         if (std.mem.eql(u8, entry.name, k)) {
-            const bytes = hintBytes(entry.value) orelse return PANCAKE_ERR_NOT_FOUND;
-            return writeView(bytes, out_ptr, out_len);
+            slot.* = hint_view;
+            return PANCAKE_OK;
         }
     }
     return PANCAKE_ERR_NOT_FOUND;
@@ -236,27 +554,34 @@ pub export fn pancake_locator_hint(
 pub export fn pancake_locator_hint_count(loc: ?*PancakeLocator, out_count: ?*usize) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_count orelse return PANCAKE_ERR_NULL_POINTER;
-    slot.* = payload.peer.hints.entries.len;
+    slot.* = payload.hints.items.len;
     return PANCAKE_OK;
 }
 
-/// Borrow the key and value of hint `idx` (0-based). PANCAKE_ERR_INVALID_ARGUMENT
-/// when idx is out of range. Both views alias the handle until release.
+/// Borrow one complete typed hint by index.
 pub export fn pancake_locator_hint_at(
     loc: ?*PancakeLocator,
     idx: usize,
-    out_key: ?*?[*]const u8,
-    out_key_len: ?*usize,
-    out_val: ?*?[*]const u8,
-    out_val_len: ?*usize,
+    out_hint: ?*shared.PancakeLocatorHintView,
 ) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (idx >= payload.peer.hints.entries.len) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const entry = payload.peer.hints.entries[idx];
-    const bytes = hintBytes(entry.value) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    const key_rc = writeView(entry.name, out_key, out_key_len);
-    if (key_rc != PANCAKE_OK) return key_rc;
-    return writeView(bytes, out_val, out_val_len);
+    const slot = out_hint orelse return PANCAKE_ERR_NULL_POINTER;
+    if (idx >= payload.hint_views.items.len) return PANCAKE_ERR_INVALID_ARGUMENT;
+    slot.* = payload.hint_views.items[idx];
+    return PANCAKE_OK;
+}
+
+pub export fn pancake_locator_hint_wire_form(
+    loc: ?*PancakeLocator,
+    out_wire_form: ?*u32,
+) i32 {
+    const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_wire_form orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = switch (payload.wire_form) {
+        .map => locator_abi.PANCAKE_HINTS_MAP,
+        .boolean_false => locator_abi.PANCAKE_HINTS_BOOLEAN_FALSE,
+    };
+    return PANCAKE_OK;
 }
 
 // ── Format: structure to string ───────────────────────────────────────────────
@@ -405,31 +730,23 @@ pub export fn pancake_uri_format_sturdyref(
 }
 
 /// Encode the verbatim `<ocapn-peer>` record embedded in a signed handoff
-/// locator. `direct_addresses`, when non-empty, becomes the comma-separated
-/// `direct-addresses` hint. The result is owned and must be released with
+/// locator. The result is owned and must be released with
 /// `pancake_locator_record_bytes_release`.
 pub export fn pancake_locator_record_encode(
-    transport: ?[*]const u8,
-    transport_len: usize,
-    designator: ?[*]const u8,
-    designator_len: usize,
-    direct_addresses: ?[*]const u8,
-    direct_addresses_len: usize,
+    locator: ?*const shared.PancakeLocatorView,
     out: ?*?[*]u8,
     out_len: ?*usize,
 ) i32 {
     const out_slot = out orelse return PANCAKE_ERR_NULL_POINTER;
     const out_len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
-    const transport_slice = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
-    const designator_slice = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
-    const addrs = if (direct_addresses) |ptr| ptr[0..direct_addresses_len] else &.{};
-    var entries_buf: [1]model.HintEntry = undefined;
+    const view = locator orelse return PANCAKE_ERR_NULL_POINTER;
+    var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
+    var borrowed = shared.locator_adapter.BorrowedLocator.init(ctx.library_allocator, view, &hint_stack) catch |err| {
+        return if (err == error.OutOfMemory) PANCAKE_ERR_INTERNAL else PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    defer borrowed.deinit(ctx.library_allocator);
 
-    const bytes = engine.encodePeerLocatorRecord(ctx.library_allocator, .{
-        .transport = transport_slice,
-        .designator = designator_slice,
-        .hints = model.Hints.forDirectAddresses(addrs, &entries_buf),
-    }) catch |err| switch (err) {
+    const bytes = engine.encodePeerLocatorRecord(ctx.library_allocator, borrowed.value) catch |err| switch (err) {
         error.OutOfMemory => return PANCAKE_ERR_INTERNAL,
         else => return c.PANCAKE_ERR_CODEC,
     };

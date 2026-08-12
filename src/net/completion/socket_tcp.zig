@@ -8,6 +8,7 @@
 //! io_uring's accept/connect are completion-based.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const completion = @import("loop.zig");
 
 const linux = std.os.linux;
@@ -63,13 +64,16 @@ pub fn loopbackIp4(port: u16) Ip4 {
     return .{ .bytes = .{ 127, 0, 0, 1 }, .port = port };
 }
 
-/// Open an outbound IPv4 TCP socket. Darwin sets `O_NONBLOCK` (kqueue readiness);
-/// Linux does not (io_uring owns async connect).
+/// Open an outbound IPv4 TCP socket. Darwin sets `O_NONBLOCK` (kqueue readiness)
+/// and `SO_NOSIGPIPE` (no process-global signal on a torn-down peer); Linux
+/// does not because io_uring owns async connect and send SQEs do not raise
+/// SIGPIPE into the process.
 pub fn openSocket(comptime os: Os) !i32 {
     const fd = try openStream(os);
     errdefer closeFd(os, fd);
     if (os == .darwin) {
         if (!setNonblocking(fd)) return error.SocketFailed;
+        if (!setNoSigpipe(fd)) return error.SocketFailed;
     }
     return fd;
 }
@@ -101,6 +105,48 @@ pub fn setNonblocking(fd: i32) bool {
     if (flags < 0) return false;
     const nonblock: c_int = @bitCast(c.O{ .NONBLOCK = true });
     return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
+}
+
+/// Suppress SIGPIPE for Darwin sockets the kqueue backend writes. Linux send
+/// completions do not need a socket option here, and the generic blocking TCP
+/// resident still owns its own stream policy.
+pub fn setNoSigpipe(fd: i32) bool {
+    const c = std.c;
+    const enable: c_int = 1;
+    return c.setsockopt(fd, c.SOL.SOCKET, c.SO.NOSIGPIPE, &enable, @sizeOf(c_int)) >= 0;
+}
+
+pub const SendError = error{ WouldBlock, SendFailed };
+
+/// Send one nonblocking prefix without allowing a torn-down socket to raise
+/// SIGPIPE. Platform syscall details stay in the socket layer; transport
+/// residents see only progress, transient pressure, or terminal failure.
+pub fn sendNonblocking(fd: i32, bytes: []const u8) SendError!usize {
+    while (true) {
+        if (builtin.os.tag == .linux) {
+            const rc = linux.sendto(
+                fd,
+                bytes.ptr,
+                bytes.len,
+                linux.MSG.DONTWAIT | linux.MSG.NOSIGNAL,
+                null,
+                0,
+            );
+            return switch (linux.errno(rc)) {
+                .SUCCESS => @intCast(rc),
+                .AGAIN => error.WouldBlock,
+                .INTR => continue,
+                else => error.SendFailed,
+            };
+        }
+        const rc = std.c.send(fd, bytes.ptr, bytes.len, std.c.MSG.DONTWAIT);
+        if (rc >= 0) return @intCast(rc);
+        return switch (std.c.errno(rc)) {
+            .AGAIN => error.WouldBlock,
+            .INTR => continue,
+            else => error.SendFailed,
+        };
+    }
 }
 
 const af_inet: c_uint = 2;

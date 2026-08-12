@@ -9,12 +9,12 @@
 //
 //   Room   (rendezvous)  serves the directory (TCP).
 //   Bob    (member)      publishes a giftable `dm` that answers over the
-//                        arriving connection (`currentSession()`), listens, and
+//                        arriving session (`currentSession()`), listens, and
 //                        registers his dialable locator.
 //   Carol  (sender)      never listens. She opens a `DirectMessage`, which
 //                        redeems the introduction, hosts a reply inbox on the
-//                        redeemed direct connection, and sends one DM. Bob's
-//                        reply lands on that inbox, over the same connection.
+//                        redeemed direct session, and sends one DM. Bob's
+//                        reply lands on that inbox, over the same session.
 //
 // Run by `zig build demo-rooms-dm-back`.
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_back_demo.ts
@@ -39,7 +39,7 @@ function fail(message: string): never {
 }
 
 async function main(): Promise<void> {
-	// Bob's giftable answers over the connection the DM arrived on, to the reply
+	// Bob's giftable answers over the session the DM arrived on, to the reply
 	// capability the sender handed it. `recordingReplyDm` carries the
 	// eventual-send that answer rides (the reply lands on the next turn).
 	const bobInbox: string[] = [];
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
 
 	// Carol never listens. She registers to claim the name Bob's inbox is minted
 	// for — her keyed identity, not a dial address — then opens a direct line,
-	// which redeems the introduction and hosts a reply inbox on that connection.
+	// which redeems the introduction and hosts a reply inbox on that session.
 	const carolReplies: string[] = [];
 	const carolHost = roomsHost();
 	const carol = await Directory.connect(roomLocator, (l) => dial(l, carolHost));
@@ -91,21 +91,21 @@ async function main(): Promise<void> {
 	await waitUntil(
 		() => carolReplies.includes(`bob: ${REPLY_TEXT}`),
 		10_000,
-		"Bob's reply to reach the non-listening sender over the redeemed connection",
+		"Bob's reply to reach the non-listening sender over the redeemed session",
 	);
 
-	// Bob accepted exactly one inbound connection: Carol's redeem dial. His reply
-	// rode that connection back, never a dial to Carol (who has no listener).
+	// Bob accepted exactly one inbound session: Carol's redeem dial. His reply
+	// rode that session back, never a dial to Carol (who has no listener).
 	if (bobAccepts !== 1) {
-		fail(`expected Bob to accept exactly 1 connection (no dial-back), saw ${bobAccepts}`);
+		fail(`expected Bob to accept exactly 1 session (no dial-back), saw ${bobAccepts}`);
 	}
 
 	console.log("rooms-dm-back demo OK:");
 	console.log(
 		"  • the room introduced Carol to Bob (a desc:handoff-give, redeemed transparently)",
 	);
-	console.log("  • Carol hosted a reply inbox on the redeemed direct connection (sendRedeeming)");
-	console.log("  • Bob answered over that same connection to Carol, who never listened");
+	console.log("  • Carol hosted a reply inbox on the redeemed direct session (sendRedeeming)");
+	console.log("  • Bob answered over that same session to Carol, who never listened");
 
 	await carol.close();
 	await bobDir.close();

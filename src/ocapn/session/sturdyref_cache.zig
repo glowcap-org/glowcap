@@ -100,20 +100,27 @@ pub fn pendingEnlivenSwissnum(self: *const Session, answer_position: model.Answe
 
 /// Record an in-flight enliven so a concurrent enliven for the same
 /// `swissnum` collapses onto `answer_position`. Idempotent: a no-op when one is
-/// already outstanding (the caller checks `pendingEnlivenAnswer` first).
-pub fn notePendingEnliven(self: *Session, swissnum: []const u8, answer_position: model.AnswerPosition) !void {
-    const gop = try self.pending_enlivens.getOrPut(self.allocator, swissnum);
-    if (gop.found_existing) return;
-    // Rows are removed on completion, so the key is gpa-owned and freed then;
-    // replace the borrowed key with an owned copy, undoing the slot on OOM.
-    gop.key_ptr.* = try self.allocator.dupe(u8, swissnum);
-    errdefer {
-        self.allocator.free(gop.key_ptr.*);
-        std.debug.assert(self.pending_enlivens.remove(swissnum));
-    }
+/// already outstanding. An answer position may identify only one pending row;
+/// rejecting a collision keeps the two indexes one-to-one.
+pub fn notePendingEnliven(
+    self: *Session,
+    swissnum: []const u8,
+    answer_position: model.AnswerPosition,
+) error{ OutOfMemory, AnswerAlreadyPending }!void {
+    if (self.pending_enlivens.contains(swissnum)) return;
+    if (self.pending_enliven_by_answer.contains(answer_position))
+        return error.AnswerAlreadyPending;
+    // Own the key before either index can observe it. The errdefers are ordered
+    // so a reverse-index failure removes the forward row before freeing the
+    // slice both maps compare through.
+    const owned = try self.allocator.dupe(u8, swissnum);
+    errdefer self.allocator.free(owned);
+    const gop = try self.pending_enlivens.getOrPut(self.allocator, owned);
+    std.debug.assert(!gop.found_existing); // Session mutation is single-owner.
+    errdefer std.debug.assert(self.pending_enlivens.remove(owned));
     gop.value_ptr.* = answer_position;
     // The reverse index borrows the same owned slice; one owner, two lookups.
-    try self.pending_enliven_by_answer.put(self.allocator, answer_position, gop.key_ptr.*);
+    try self.pending_enliven_by_answer.put(self.allocator, answer_position, owned);
 }
 
 /// Clear the in-flight marker for `swissnum` once its enliven settles. A

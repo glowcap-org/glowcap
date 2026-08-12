@@ -238,11 +238,17 @@ a:focus-visible,
   text-decoration: none;
 }
 
+/* Compact silhouette shared with rooms (`--mark-stack` in tokens.css).
+   The full-colour mark stays on the home hero and in the footer. */
 .brand-mark {
   display: block;
   flex: none;
   width: 26px;
   height: 26px;
+  color: var(--ink);
+  background: currentColor;
+  -webkit-mask: var(--mark-stack) center / contain no-repeat;
+  mask: var(--mark-stack) center / contain no-repeat;
 }
 
 .top-nav {

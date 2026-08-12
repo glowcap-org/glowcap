@@ -200,7 +200,7 @@ fn buildHello(allocator: std.mem.Allocator) void {
     var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
-    client.sendCopying(handshake.startSession(net.tcp.transport_name, "client")) catch return;
+    client.sendCopying(handshake.startSession(net.tcp.plain.transport_name, "client")) catch return;
     var at: usize = 0;
     while ((client.step() catch return) != .idle) {}
     while (client.takeOutbound()) |frame_value| {
@@ -219,8 +219,8 @@ fn buildHello(allocator: std.mem.Allocator) void {
 /// connect completion, a dialed connection's `opened == false` teardown, and
 /// the whole slot-exhaustion path with no input that could run them.
 const DialAnything = struct {
-    pub fn resolve(transport: []const u8, designator: []const u8, hint: []const u8) error{UnsupportedTransport}!void {
-        _ = .{ transport, designator, hint };
+    pub fn resolve(locator: model.PeerLocator) error{UnsupportedTransport}!void {
+        _ = locator;
     }
 };
 const handshake = @import("../support/handshake.zig");
@@ -269,7 +269,7 @@ const LifecycleBackend = struct {
     pub const Fd = i32;
     pub const ConnectTarget = void;
 
-    const Kind = enum { accept, recv, send, close, connect };
+    const Kind = enum { accept, recv, send, close, connect, cancel };
     /// `len` is the submitted byte count, carried so a send can complete as a
     /// *full* write. Without it every send reported a short count, so a queued
     /// connection could only ever shrink toward the outbound mark and never
@@ -338,9 +338,12 @@ const LifecycleBackend = struct {
         return self.next_fd;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
+    pub const ListenerAddress = u16;
+    pub fn listenerAddress(_: *@This(), _: Fd) !ListenerAddress {
         return 1;
+    }
+    pub fn listenerPort(address: ListenerAddress) ?u16 {
+        return address;
     }
 
     pub fn closeFd(self: *@This(), fd: Fd) void {
@@ -391,6 +394,18 @@ const LifecycleBackend = struct {
         // back-swap, neither of which had ever run.
         if (!self.draining and self.draw() % 12 == 7) return error.SubmissionQueueFull;
         self.record(user_data, .send, bytes.len);
+    }
+
+    pub fn submitCancel(
+        self: *LifecycleBackend,
+        cancel_user_data: u64,
+        target_user_data: u64,
+        fd: Fd,
+    ) !void {
+        _ = .{ target_user_data, fd };
+        // The target operation remains in the schedule and therefore still
+        // yields its own completion; this records the second required seat.
+        self.record(cancel_user_data, .cancel, 0);
     }
 
     pub fn submitClose(self: *LifecycleBackend, user_data: u64, fd: Fd) !void {
@@ -495,7 +510,7 @@ const LifecycleBackend = struct {
                 else
                     @min(@as(i32, verdict % 24) + 1, @as(i32, @intCast(op.len))),
             },
-            .close => .{ .user_data = op.user_data, .result = 0 },
+            .close, .cancel => .{ .user_data = op.user_data, .result = 0 },
             // A connect either fails, succeeds carrying no fd (the socket
             // backends' shape, where the fd came back from `startDial`), or
             // succeeds carrying one (iroh's, where the resident assigns it
@@ -534,7 +549,7 @@ fn makeLifecyclePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!en
     // inline from `failConn`, which is the path the adoption-teardown deferral
     // needs, and that dropped to zero when it was unconditional.
     if (schedule.len > 0 and schedule[0] & 2 != 0) {
-        try peer.sendCopying(handshake.startSession(net.tcp.transport_name, "fuzz"));
+        try peer.sendCopying(handshake.startSession(net.tcp.plain.transport_name, "fuzz"));
     }
     return peer;
 }
@@ -594,11 +609,15 @@ fn watchAdoption(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*a
 /// condemned-while-adopting release runs. One byte on the gpa, freed by the
 /// hook below or leaked loudly by the testing allocator if the loop forgets.
 var ctx_allocator: ?std.mem.Allocator = null;
+var contexts_built: usize = 0;
+var contexts_seen_on_close: usize = 0;
+var contexts_freed: usize = 0;
 
 fn makeConnCtx() ?*anyopaque {
     const a = ctx_allocator orelse return null;
     const cell = a.create(u8) catch return null;
     cell.* = 1;
+    contexts_built += 1;
     return @ptrCast(cell);
 }
 
@@ -606,6 +625,7 @@ fn freeConnCtx(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
     _ = ctx;
     const a = ctx_allocator orelse return;
     const cell: *u8 = @ptrCast(@alignCast(conn_ctx orelse return));
+    contexts_freed += 1;
     a.destroy(cell);
 }
 
@@ -680,7 +700,8 @@ var serve_backend: ?*LifecycleBackend = null;
 var close_hook_fires: usize = 0;
 
 fn countClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: completion.CloseReason) void {
-    _ = .{ ctx, slot, conn_ctx, opened, reason };
+    _ = .{ ctx, slot, opened, reason };
+    if (conn_ctx != null) contexts_seen_on_close += 1;
     close_hook_fires += 1;
 }
 
@@ -694,17 +715,17 @@ fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     // rest.
     if (schedule.len < 8) return;
 
-    var loop = completion.Loop(LifecycleBackend, DialAnything).init(
+    var loop = completion.Loop(LifecycleBackend, DialAnything).initWithBackendOptions(
         allocator,
+        .{ .read_buffers = 2 },
         makeLifecyclePeer,
         null,
         .{
-            .frame_cap = frame_cap,
             .max_conns = max_slots,
             .listen = 0,
             // Small enough that an ordinary short write puts a connection over
             // it, so the fan-in accounting is actually reached.
-            .outbound_high_water = 48,
+            .outbound_high_water_bytes = 48,
             // The throttle is a schedule choice, not a constant. With it on,
             // the fan-in release sweep is what un-parks a connection, and the
             // one-connection un-park in `resumeIfDrained` is unreachable —
@@ -716,7 +737,6 @@ fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
             // than being dead code under the fuzzer.
             .park_kill_ms = 1,
             .drain_kill_ms = 1,
-            .read_buffers = 2,
             .make_conn_ctx = watchAdoption,
             .free_conn_ctx = freeConnCtx,
             .serve = serveEvent,
@@ -738,6 +758,9 @@ fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     slot_used = @splat(false);
     generation_repeated = false;
     close_hook_fires = 0;
+    contexts_built = 0;
+    contexts_seen_on_close = 0;
+    contexts_freed = 0;
     var deinited = false;
     defer if (!deinited) {
         loop.backend.draining = true;
@@ -751,7 +774,11 @@ fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     // reaches it.
     var dials: usize = 0;
     while (dials < max_slots and schedule[1] >> @intCast(dials) & 1 != 0) : (dials += 1) {
-        _ = loop.dialLocator("fuzz", "peer", "") catch break;
+        _ = loop.dialLocator(.{
+            .transport = "fuzz",
+            .designator = "peer",
+            .hints = model.Hints.emptyFalse(),
+        }) catch break;
     }
 
     loop.run(.forever) catch {};
@@ -780,6 +807,8 @@ fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
         // released — are the check here.
         loop.deinit();
         deinited = true;
+        try std.testing.expectEqual(contexts_built, contexts_seen_on_close);
+        try std.testing.expectEqual(contexts_built, contexts_freed);
         return;
     }
 
@@ -796,6 +825,8 @@ fn driveLifecycle(_: void, smith: *std.testing.Smith) anyerror!void {
     // The close hook fires once per reclaim, from inside the reclaim, so it is
     // the independent witness that catches exactly that.
     try std.testing.expectEqual(close_hook_fires, loop.closed_count);
+    try std.testing.expectEqual(contexts_built, contexts_seen_on_close);
+    try std.testing.expectEqual(contexts_built, contexts_freed);
 }
 
 /// Whether every live connection has retired its operations, which is what
@@ -856,25 +887,31 @@ fn expectAccountingExact(loop: anytype) !void {
         try std.testing.expect(loop.waiting_count > 0);
     }
 
-    // The free list holds every reclaimed slot exactly once. A slot pushed
-    // twice hands the same connection to two adopters; one never pushed is
-    // capacity the loop can never use again.
+    // The two admission-partitioned free lists hold every reclaimed slot
+    // exactly once. A slot pushed twice hands one connection to two adopters;
+    // one never pushed is capacity the loop can never use again.
     var listed: usize = 0;
-    var walk = loop.free_head;
+    var walk = loop.ordinary_free_head;
     while (walk < loop.conns.len) : (listed += 1) {
         try std.testing.expect(listed <= loop.conns.len);
+        try std.testing.expect(walk < loop.ordinary_capacity);
+        try std.testing.expect(loop.conns[walk].state == .free);
+        walk = loop.conns[walk].next_link;
+    }
+    walk = loop.reserved_free_head;
+    while (walk < loop.conns.len) : (listed += 1) {
+        try std.testing.expect(listed <= loop.conns.len);
+        try std.testing.expect(walk >= loop.ordinary_capacity);
         try std.testing.expect(loop.conns[walk].state == .free);
         walk = loop.conns[walk].next_link;
     }
     try std.testing.expectEqual(free_slots, listed);
 
-    // The other two lists, walked the same way. All three thread one
-    // `next_link` word, and the whole argument that one word can serve three is
-    // that the states are disjoint: a free slot's seat is idle, and starved and
-    // parked are two values of the same enum. Walking each list and checking
-    // every member is in the state that list is for turns that argument into a
-    // check — and a slot on two lists at once, or on one it has left, shows up
-    // here as a member in the wrong state or a walk that does not terminate.
+    // The other two lists, walked the same way. All four thread one `next_link`
+    // word, and that is valid because their states are disjoint: a free slot's
+    // seat is idle, and starved and parked are two values of one enum. Walking
+    // each list and checking its member state catches duplicate membership,
+    // stale membership, and cycles.
     var starved: usize = 0;
     var s = loop.starved_head;
     while (s < loop.conns.len) : (starved += 1) {

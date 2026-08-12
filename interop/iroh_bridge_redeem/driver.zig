@@ -79,7 +79,6 @@ fn initLoop(
     // This driver interposes its own `serve` (it watches the redeem settle),
     // so it overrides the bridge's spliced hook after `hookOptions`.
     var options = IrohBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
     });
@@ -87,11 +86,12 @@ fn initLoop(
     return IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(bridge), options);
 }
 
-fn joinLoop(io: std.Io, resident: *iroh.Resident, loop_done: *std.atomic.Value(bool), loop_future: *std.Io.Future(void), loop_err: *?anyerror) void {
+fn joinLoop(io: std.Io, resident: *iroh.Resident, loop: *IrohLoop, loop_done: *std.atomic.Value(bool), loop_future: *std.Io.Future(void), loop_err: *?anyerror) void {
     const drain_deadline = harness.deadlineAfter(io, deadline_ms);
     while (!loop_done.load(.acquire)) {
         if (harness.expired(io, drain_deadline)) break;
         resident.close();
+        loop.backend.wake();
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
     loop_future.await(io);
@@ -165,7 +165,9 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!vo
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const id = resident.nodeId(&id_buf);
 
-    var host = Host.init(allocator, exporter_seed, blk: {
+    var session_root: [32]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = Host.init(allocator, exporter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -183,18 +185,22 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!vo
 
     loop = try initLoop(allocator, &resident, &bridge, exporterServe);
     defer loop.deinit();
-    try bridge.attach(iroh.transport_name, id, &.{});
+    try bridge.attach(model.transport.Known.iroh.metadata(), id, &.{});
 
     // Dial G on the loop-owner thread before `run` (same affinity as dialOutbound).
     try waitNonEmpty(io, &shared.gifter_id);
-    try bridge.dialOutbound(iroh.transport_name, shared.gifter_id, "");
+    try bridge.dialOutbound(.{
+        .transport = iroh.transport_name,
+        .designator = shared.gifter_id,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
     // Dialed G (deposit) + accept from R (redeem) = 2 closes at teardown.
     var loop_future = try io.concurrent(runLoop, .{ &loop, @as(usize, 2), &loop_err, &loop_done });
     defer {
-        joinLoop(io, &resident, &loop_done, &loop_future, &loop_err);
+        joinLoop(io, &resident, &loop, &loop_done, &loop_future, &loop_err);
     }
 
     try waitFlag(io, &shared.done);
@@ -248,7 +254,11 @@ fn gifterMaybeDialRecipient(state: *GifterState) void {
     if (state.dialed_r or state.widget == null) return;
     if (state.shared.recipient_id.len == 0) return;
     state.dialed_r = true;
-    state.bridge.dialOutbound(iroh.transport_name, state.shared.recipient_id, "") catch |err| {
+    state.bridge.dialOutbound(.{
+        .transport = iroh.transport_name,
+        .designator = state.shared.recipient_id,
+        .hints = model.Hints.emptyFalse(),
+    }) catch |err| {
         std.debug.print("gifter dial R: {s}\n", .{@errorName(err)});
         state.dialed_r = false;
     };
@@ -329,7 +339,9 @@ fn gifterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!void
     defer allocator.free(id_owned);
     shared.gifter_id = id_owned;
 
-    var host = Host.init(allocator, gifter_seed, blk: {
+    var session_root: [32]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = Host.init(allocator, gifter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -348,14 +360,14 @@ fn gifterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!void
 
     loop = try initLoop(allocator, &resident, &bridge, gifterServe);
     defer loop.deinit();
-    try bridge.attach(iroh.transport_name, id, &.{});
+    try bridge.attach(model.transport.Known.iroh.metadata(), id, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
     // Accept E + dialed R = 2 closes at teardown.
     var loop_future = try io.concurrent(runLoop, .{ &loop, @as(usize, 2), &loop_err, &loop_done });
     defer {
-        joinLoop(io, &resident, &loop_done, &loop_future, &loop_err);
+        joinLoop(io, &resident, &loop, &loop_done, &loop_future, &loop_err);
     }
 
     try waitFlag(io, &shared.poked);
@@ -475,7 +487,9 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(recipient_id_owned);
     shared.recipient_id = recipient_id_owned;
 
-    var recipient_host = Host.init(allocator, recipient_seed, blk: {
+    var recipient_session_root: [32]u8 = undefined;
+    io.randomSecure(&recipient_session_root) catch return error.HandshakeEntropyFailed;
+    var recipient_host = Host.init(allocator, recipient_seed, recipient_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -492,7 +506,7 @@ pub fn main(init: std.process.Init) !void {
     loop = try initLoop(allocator, &recipient_resident, &bridge, recipientServe);
     var loop_deinited = false;
     defer if (!loop_deinited) loop.deinit();
-    try bridge.attach(iroh.transport_name, recipient_id, &.{});
+    try bridge.attach(model.transport.Known.iroh.metadata(), recipient_id, &.{});
 
     var loop_err: ?anyerror = null;
     var loop_done = std.atomic.Value(bool).init(false);
@@ -505,7 +519,7 @@ pub fn main(init: std.process.Init) !void {
         shared.done.store(true, .release);
         exporter_future.await(io) catch |err| std.debug.print("exporter: {s}\n", .{@errorName(err)});
         gifter_future.await(io) catch |err| std.debug.print("gifter: {s}\n", .{@errorName(err)});
-        joinLoop(io, &recipient_resident, &loop_done, &loop_future, &loop_err);
+        joinLoop(io, &recipient_resident, &loop, &loop_done, &loop_future, &loop_err);
         loop.deinit();
         loop_deinited = true;
     }

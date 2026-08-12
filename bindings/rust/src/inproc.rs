@@ -3,10 +3,11 @@
 //! This module wraps `libpancake_net_transport_inproc` — the `pancake_inproc_*`
 //! archive that the `inproc` Cargo feature links (ADR-0059). It is the
 //! socket-free sibling of [`tcp`](crate::tcp): two peers in one process are
-//! wired by in-process pipes, with no kernel transport and no file descriptors.
+//! wired by in-process pipes, with no kernel transport. The C listener adds a
+//! wake descriptor for reactor integration; no application bytes flow through it.
 //! A [`Listener`] binds to a string designator (any opaque token, not a
 //! `host:port`) and a dialer names that designator; otherwise the frame shuttle
-//! is identical — an [`Endpoint`] reads and writes one whole CapTP frame at a
+//! is identical — a [`Connection`] reads and writes one whole CapTP frame at a
 //! time, and the frame methods block.
 //!
 //! Errors from a `pancake_inproc_*` call route through the transport archive's
@@ -30,7 +31,7 @@ error_slot!(
 
 /// Owns the in-process switchboard and its one I/O backend. Connections and
 /// listeners borrow it (via `&self`), so the borrow checker rejects an
-/// [`Endpoint`] or [`Listener`] that outlives the netlayer that produced it. The
+/// [`Connection`] or [`Listener`] that outlives the netlayer that produced it. The
 /// `'ctx` lifetime additionally ties a context-backed netlayer to its
 /// [`Context`]; a netlayer on the library-owned allocator is `Netlayer<'static>`.
 pub struct Netlayer<'ctx> {
@@ -53,7 +54,7 @@ impl<'ctx> Netlayer<'ctx> {
 	/// `'ctx` enforces.
 	pub fn new_in(context: &'ctx Context) -> Result<Netlayer<'ctx>> {
 		let mut raw: *mut ffi::PancakeInprocNetlayer = core::ptr::null_mut();
-		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new_in(context.raw, &mut raw) })?;
+		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new_in(context.raw(), &mut raw) })?;
 		Ok(Netlayer {
 			raw,
 			_ctx: PhantomData,
@@ -81,7 +82,7 @@ impl<'ctx> Netlayer<'ctx> {
 		designator: &str,
 		codec: Codec,
 		max_frame_bytes: usize,
-	) -> Result<Endpoint<'_>> {
+	) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeInprocConn = core::ptr::null_mut();
 		check_inproc(unsafe {
 			ffi::pancake_inproc_connect(
@@ -93,7 +94,7 @@ impl<'ctx> Netlayer<'ctx> {
 				&mut raw,
 			)
 		})?;
-		Ok(Endpoint {
+		Ok(Connection {
 			raw,
 			_nl: PhantomData,
 		})
@@ -114,14 +115,22 @@ pub struct Listener<'a> {
 }
 
 impl Listener<'_> {
+	/// Return the borrowed wake descriptor for reactor integration. The
+	/// listener owns it; callers must not close it or retain it after drop.
+	pub fn readiness_fd(&self) -> Result<i32> {
+		let mut fd: i32 = -1;
+		check_inproc(unsafe { ffi::pancake_inproc_listener_readiness_fd(self.raw, &mut fd) })?;
+		Ok(fd)
+	}
+
 	/// Block until a dialer connects. The returned connection borrows this
 	/// listener (and thus the netlayer) and cannot outlive it.
-	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Endpoint<'_>> {
+	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeInprocConn = core::ptr::null_mut();
 		check_inproc(unsafe {
 			ffi::pancake_inproc_accept(self.raw, codec.to_c(), max_frame_bytes, &mut raw)
 		})?;
-		Ok(Endpoint {
+		Ok(Connection {
 			raw,
 			_nl: PhantomData,
 		})
@@ -146,16 +155,17 @@ impl Drop for Listener<'_> {
 	}
 }
 
-/// A blocking in-process endpoint, the `pancake_inproc_*` frame shuttle.
+/// A blocking in-process connection, the `pancake_inproc_*` frame shuttle.
 /// Closed on drop. The frame methods block. Borrows the [`Netlayer`] (or
 /// [`Listener`]) it came from, so that backend outlives it.
-pub struct Endpoint<'a> {
+pub struct Connection<'a> {
 	raw: *mut ffi::PancakeInprocConn,
 	_nl: PhantomData<&'a ()>,
 }
 
-impl Endpoint<'_> {
-	/// Block for one whole frame. An error with `code() == -8` is a clean EOF.
+impl Connection<'_> {
+	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
+	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
 		let mut frame: crate::sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
 		check_inproc(unsafe { ffi::pancake_inproc_conn_read_frame(self.raw, &mut frame) })?;
@@ -175,16 +185,16 @@ impl Endpoint<'_> {
 	}
 }
 
-// SAFETY: an `Endpoint` owns a self-contained payload — its own in-process pipe
+// SAFETY: a `Connection` owns a self-contained payload — its own in-process pipe
 // half plus a copy of the netlayer's allocator — and shares no per-handle
 // mutable state with the netlayer or sibling handles, so moving it to another
 // thread and doing frame I/O on it touches only its own state. The allocator and
 // the switchboard/`std.Io.Threaded` backend it shares are thread-safe under the
 // concurrent blocking calls a borrowed handle makes off-thread (see `Listener`
 // above).
-unsafe impl Send for Endpoint<'_> {}
+unsafe impl Send for Connection<'_> {}
 
-impl Drop for Endpoint<'_> {
+impl Drop for Connection<'_> {
 	fn drop(&mut self) {
 		unsafe { ffi::pancake_inproc_conn_release(self.raw) };
 	}
@@ -223,7 +233,7 @@ mod tests {
 	#[test]
 	fn dialing_an_unbound_designator_reports_the_inproc_error() {
 		let netlayer = Netlayer::new().unwrap();
-		// `Endpoint` is not `Debug` (an opaque connection handle), so match
+		// `Connection` is not `Debug` (an opaque connection handle), so match
 		// rather than `unwrap_err`. The diagnostic comes from the inproc
 		// transport's own last-error slot via `check_inproc`.
 		let dialed = netlayer.connect("nobody-home", Codec::Syrup, 4096);

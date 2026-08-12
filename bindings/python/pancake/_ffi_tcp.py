@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ctypes
 
+from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
 from ._lib_resolve import _lib_path
 
@@ -26,7 +27,7 @@ from ._sigs_gen import tcp_sigs
 def _load():
     tcp = ctypes.CDLL(str(_lib_path("pancake_net_transport_tcp")))
     facade = _Lib(tcp)
-    _bind(facade, tcp, tcp_sigs(_Frame, _ManagedFrame))
+    _bind(facade, tcp, tcp_sigs(_Frame, _ManagedFrame, _TransportProvider))
     return facade
 
 

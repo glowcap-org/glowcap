@@ -10,6 +10,8 @@
 import { connect as netConnect, createServer, type Server, type Socket } from "node:net";
 import type { NetConn, NetListener } from "../runtime.ts";
 
+const maxPendingAccepts = 128;
+
 /** A `NetConn` over one `node:net` socket. Reads pull one chunk at a time. */
 export class SocketConn implements NetConn {
 	#socket: Socket;
@@ -116,7 +118,8 @@ export function socketConnect(host: string, port: number): Promise<NetConn> {
 }
 
 /** A `NetListener` over a `node:net` server. Accepted sockets queue until
- * `accept()` pulls them, so a slow consumer never drops a partner. */
+ * `accept()` pulls them, bounded so a slow consumer cannot grow fd state
+ * without limit. */
 class ServerListener implements NetListener {
 	#server: Server;
 	readonly port: number;
@@ -130,6 +133,14 @@ class ServerListener implements NetListener {
 		this.#hostname = hostname;
 		this.port = port;
 		server.on("connection", (socket: Socket) => {
+			if (this.#closed) {
+				socket.destroy();
+				return;
+			}
+			if (this.#queue.length >= maxPendingAccepts) {
+				socket.destroy();
+				return;
+			}
 			this.#queue.push(socket);
 			const w = this.#wake;
 			if (w !== null) {
@@ -164,6 +175,12 @@ class ServerListener implements NetListener {
 
 	close(): void {
 		this.#closed = true;
+		for (const socket of this.#queue.splice(0)) socket.destroy();
+		const w = this.#wake;
+		if (w !== null) {
+			this.#wake = null;
+			w();
+		}
 		try {
 			this.#server.close();
 		} catch {

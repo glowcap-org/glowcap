@@ -11,7 +11,11 @@
 // everything else: routing, redemption, gift origination, far vows. `mod.ts`
 // re-exports the public members.
 
-import { DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT } from "@pancake/abi";
+import {
+	DESIGNATOR_SCHEME_ADDRESS,
+	DESIGNATOR_SCHEME_KEY,
+	DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
+} from "@pancake/abi";
 import {
 	attenuateProxy,
 	caretakerProxy,
@@ -40,12 +44,13 @@ import {
 	runHandshake,
 	serveLoop,
 } from "./pump.ts";
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer, outU64, readBytes } from "./internal/seam.ts";
 import { type AbortDetail, checkHost, PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
 import { CLOSED, HANDSHAKE_TIMEOUT_MS, INVALID_ARGUMENT, NOT_FOUND, TIMEOUT } from "@pancake/abi";
+import { HINT_DIRECT_ADDRESSES, type Locator, withOwnedLocator } from "./locator.ts";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
@@ -158,17 +163,69 @@ export interface Channel {
 	read(): Promise<Uint8Array | null>;
 	/** Write every byte of `data`, awaiting the runtime's flush/backpressure. */
 	write(data: Uint8Array): Promise<void>;
-	close(): void;
+	/** Stop I/O immediately. A returned promise is the native release barrier. */
+	close(): void | Promise<void>;
+}
+
+/** Generic metadata an embedder-owned listener supplies with one accepted byte
+ * channel. The provider, not the binding core, declares how its designator is
+ * interpreted; adding a transport therefore adds no name dispatch here. */
+export interface AcceptedTransport {
+	readonly transport: string;
+	readonly designatorScheme:
+		| typeof DESIGNATOR_SCHEME_ADDRESS
+		| typeof DESIGNATOR_SCHEME_KEY;
+	readonly serverDesignator: string;
+	readonly channel: Channel;
+	readonly localAddress?: string;
+	readonly verifiedChannelKey?: string | null;
+}
+
+/** Result of {@link Session.sendRedeeming}: the ordinary send reply plus the
+ * direct exporter session selected by that reply's route, when one exists. */
+export interface SendRedeemingResult {
+	reply: Argument;
+	via: Session | null;
+}
+
+/** What a loop-minted `Session` needs from the native loop that owns it
+ * (ADR-0112). Declared here — implemented by `driver_loop.ts`'s `DriverLoop` —
+ * so the Session arms can dispatch on it without importing the loop tier. */
+export interface DriverLoopHandle {
+	/** One zero-timeout step plus an event dispatch, on the driving thread. */
+	stepNow(): void;
+	/** Schedule one step soon — a kick that is legal from inside a turn. */
+	scheduleStep(): void;
+	/** Release one loop-owned session through the loop's own verb. */
+	nativeSessionRelease(ptr: Ptr): void;
+	/** Release the loop and everything it owns, to the native barrier. */
+	close(): Promise<void>;
+	/** Wrap a loop-minted session handle as the public `Session`. */
+	adoptSession(ptr: Ptr): Session;
+}
+
+/** The loop-backed `Channel` (ADR-0112): the native loop owns the wire, so it
+ * carries no byte verbs the pump would drive — only the closed event the serve
+ * promise awaits and the loop back-reference the Session arms dispatch on. */
+export interface LoopChannel extends Channel {
+	readonly driverLoop: DriverLoopHandle;
+	waitClosed(): Promise<void>;
+}
+
+/** Whether `transport` is loop-backed — the branch `serve`, `flushOutbound`,
+ * and teardown dispatch on. */
+function isLoopChannel(transport: Channel): transport is LoopChannel {
+	return (transport as { driverLoop?: unknown }).driverLoop != null;
 }
 
 /** A live CapTP session with one OCapN partner, the one object an application
  * holds, over one byte-fed `PancakeHostSession` the shared `Host` minted.
  *
- *   const conn = await connect(tcpLocator("127.0.0.1", 9099));
- *   conn.serve().catch((e) => console.error(e));
- *   const room = await conn.fetch("room");
- *   const inbox = conn.spawn((verb, args) => { ...; });
- *   await conn.send(room, "subscribe", ["alice", inbox]);
+ *   const session = await connect(tcpLocator("127.0.0.1", 9099));
+ *   session.serve().catch((e) => console.error(e));
+ *   const room = await session.fetch("room");
+ *   const inbox = session.spawn((verb, args) => { ...; });
+ *   await session.send(room, "subscribe", ["alice", inbox]);
  */
 export class Session {
 	#ptr: Ptr;
@@ -181,6 +238,7 @@ export class Session {
 	// own close is a clean shutdown.
 	#closing = false;
 	#released = false;
+	#transportClose: Promise<void> | null = null;
 	// Serializes transport writes. `flushOutbound` runs from the action drain,
 	// the feed-failure choreography, and teardown; chaining each flush behind
 	// the last keeps every frame whole and in submission order.
@@ -313,7 +371,7 @@ export class Session {
 	/** Nonzero once the keyed handshake has completed and the session is open. */
 	get sessionOpen(): boolean {
 		return !this.#released &&
-			driverS.pancake_host_session_is_open(this.#ptr) === 1;
+			hostS.pancake_host_session_is_open(this.#ptr) === 1;
 	}
 
 	// ── Construction: establish, dial, accept ──────────────────────────────────
@@ -324,7 +382,7 @@ export class Session {
 	 * on every dial the binding performs; `0` or `null` waits unbounded), and
 	 * overrunning it rejects with `PancakeError` carrying `TIMEOUT`.
 	 * Binding-internal. */
-	static establishDialedLocator(
+	static async establishDialedLocator(
 		host: Host,
 		transportName: string,
 		designator: string,
@@ -332,97 +390,115 @@ export class Session {
 		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
 		verifiedChannelKey: string | null = null,
 	): Promise<Session> {
-		const t = utf8Encoder.encode(transportName);
-		const d = utf8Encoder.encode(designator);
-		const out = new Uint8Array(8);
-		host.ensureAdvertisedLocator(transportName);
-		checkHost(driverS.pancake_host_session_open_dialed_locator(
-			host.raw,
-			ab(t),
-			BigInt(t.length),
-			ab(d),
-			BigInt(d.length),
-			ab(out),
-		));
-		const conn = new Session(
-			outPointer(out),
-			host,
-			transport,
-		);
-		// Before the first partner byte, which is the only window a realizer's
-		// proof can be weighed in.
-		if (verifiedChannelKey) conn.bindVerifiedChannelKey(verifiedChannelKey);
-		return conn.#establish(handshakeTimeoutMs);
+		let session: Session | null = null;
+		try {
+			const t = utf8Encoder.encode(transportName);
+			const d = utf8Encoder.encode(designator);
+			const out = new Uint8Array(8);
+			host.ensureAdvertisedLocator(transportName);
+			const openCode = hostS.pancake_host_session_open_dialed_locator(
+				host.raw,
+				ab(t),
+				BigInt(t.length),
+				ab(d),
+				BigInt(d.length),
+				ab(out),
+			);
+			checkHost(openCode);
+			session = new Session(outPointer(out), host, transport);
+			// Before the first partner byte, which is the only window a realizer's
+			// proof can be weighed in.
+			if (verifiedChannelKey) session.bindVerifiedChannelKey(verifiedChannelKey);
+			return await session.#establish(handshakeTimeoutMs);
+		} catch (error) {
+			if (session == null) await transport.close();
+			else await session.closeTransport();
+			throw error;
+		}
 	}
 
 	/** Mint the accepting half over a connection the caller's own listener
-	 * produced. `serverDesignator` is the listener's signing designator (key for
-	 * keyed-tcp/iroh; unused for tcp); `acceptedLocalAddr` is what accept
-	 * reported. Signing designator/hint come from `pancake_host_plan_accept`
-	 * (ADR-0078) — no binding-side accept policy. The handshake is bounded by
+	 * produced. `accepted` carries the provider's transport metadata and byte
+	 * channel as one value; signing designator/hint come from
+	 * `pancake_host_plan_accept` (ADR-0078), with no transport-name policy in
+	 * this binding layer. The handshake is bounded by
 	 * `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS` in every accept loop here;
 	 * `0` or `null` waits unbounded, which a caller parking a registration
 	 * rather than running an accept loop wants), and overrunning it rejects
 	 * with `PancakeError` carrying `TIMEOUT`, which an accept loop treats as
 	 * any other bad partner. Binding-internal. */
-	static establishAccepted(
+	static async establishAccepted(
 		host: Host,
-		transportName: string,
-		serverDesignator: string,
-		transport: Channel,
-		acceptedLocalAddr = "",
+		accepted: AcceptedTransport,
 		handshakeTimeoutMs: number | null = HANDSHAKE_TIMEOUT_MS,
-		verifiedChannelKey: string | null = null,
 	): Promise<Session> {
-		const t = utf8Encoder.encode(transportName);
-		const server = utf8Encoder.encode(serverDesignator);
-		const local = utf8Encoder.encode(acceptedLocalAddr);
-		const planBuf = new Uint8Array(L.ACCEPT_PLAN_SIZE);
-		checkHost(driverS.pancake_host_plan_accept(
-			ab(t),
-			BigInt(t.length),
-			ab(server),
-			BigInt(server.length),
-			ab(local),
-			BigInt(local.length),
-			ab(planBuf),
-		));
-		// Plan views borrow t/server/local (or the static unreachable
-		// placeholder). Deno/Bun BufferSource FFI needs a JS TypedArray, so
-		// materialize those views once here — named session-mint FFI cost, not
-		// a second policy encoding (Rust/Python/Racket pass the C pointers).
-		const dv = new DataView(planBuf.buffer);
-		const view = (off: number, lenOff: number): Uint8Array => {
-			const len = Number(L.getUsize(dv, lenOff));
-			if (len === 0) return new Uint8Array(0);
-			return readBytes(L.getPtr(dv, off), BigInt(len));
-		};
-		const designator = view(L.ACCEPT_PLAN_DESIGNATOR_OFF, L.ACCEPT_PLAN_DESIGNATOR_LEN_OFF);
-		const hint = view(
-			L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
-			L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
-		);
-		host.setAdvertisedLocator(
-			transportName,
-			utf8Decoder.decode(designator),
-			utf8Decoder.decode(hint),
-		);
-		const out = new Uint8Array(8);
-		checkHost(driverS.pancake_host_session_open_accepted(
-			host.raw,
-			ab(t),
-			BigInt(t.length),
-			ab(out),
-		));
-		const conn = new Session(
-			outPointer(out),
-			host,
-			transport,
-		);
-		// Before the first partner byte, which is the only window a realizer's
-		// proof can be weighed in.
-		if (verifiedChannelKey) conn.bindVerifiedChannelKey(verifiedChannelKey);
-		return conn.#establish(handshakeTimeoutMs);
+		const {
+			transport: transportName,
+			designatorScheme,
+			serverDesignator,
+			channel: transport,
+			localAddress: acceptedLocalAddr = "",
+			verifiedChannelKey = null,
+		} = accepted;
+		let session: Session | null = null;
+		try {
+			const server = utf8Encoder.encode(serverDesignator);
+			const local = utf8Encoder.encode(acceptedLocalAddr);
+			const planBuf = new Uint8Array(L.ACCEPT_PLAN_SIZE);
+			checkHost(hostS.pancake_host_plan_accept(
+				designatorScheme,
+				ab(server),
+				BigInt(server.length),
+				ab(local),
+				BigInt(local.length),
+				ab(planBuf),
+			));
+			// Plan views borrow server/local (or the static unreachable
+			// placeholder). Deno/Bun BufferSource FFI needs a JS TypedArray, so
+			// materialize those views once here — named session-mint FFI cost, not
+			// a second policy encoding (Rust/Python/Racket pass the C pointers).
+			const dv = new DataView(planBuf.buffer);
+			const view = (off: number, lenOff: number): Uint8Array => {
+				const len = Number(L.getUsize(dv, lenOff));
+				if (len === 0) return new Uint8Array(0);
+				return readBytes(L.getPtr(dv, off), BigInt(len));
+			};
+			const designator = view(L.ACCEPT_PLAN_DESIGNATOR_OFF, L.ACCEPT_PLAN_DESIGNATOR_LEN_OFF);
+			const hint = view(
+				L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
+				L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
+			);
+			const t = utf8Encoder.encode(transportName);
+			host.setAdvertisedLocator({
+				transport: transportName,
+				designator: utf8Decoder.decode(designator),
+				hints: hint.length === 0
+					? new Map()
+					: new Map([[HINT_DIRECT_ADDRESSES, utf8Decoder.decode(hint)]]),
+				hintWireForm: hint.length === 0 ? "boolean-false" : "map",
+			});
+			const out = new Uint8Array(8);
+			const openCode = hostS.pancake_host_session_open_accepted(
+				host.raw,
+				ab(t),
+				BigInt(t.length),
+				ab(out),
+			);
+			checkHost(openCode);
+			session = new Session(
+				outPointer(out),
+				host,
+				transport,
+			);
+			// Before the first partner byte, which is the only window a realizer's
+			// proof can be weighed in.
+			if (verifiedChannelKey) session.bindVerifiedChannelKey(verifiedChannelKey);
+			return await session.#establish(handshakeTimeoutMs);
+		} catch (error) {
+			if (session == null) await transport.close();
+			else await session.closeTransport();
+			throw error;
+		}
 	}
 
 	// Drive the freshly opened connection's keyed handshake to an open session,
@@ -442,9 +518,17 @@ export class Session {
 			await withHandshakeBound(runHandshake(this.#pump), handshakeTimeoutMs);
 			return this;
 		} catch (err) {
-			this.closeTransport();
+			await this.closeTransport();
 			throw err;
 		}
+	}
+
+	/** Wrap a session the driver archive minted and already handshook
+	 * (ADR-0112): the loop is the pump and the release authority, so no
+	 * establish runs here. Binding-internal: `DriverLoop.adoptSession` calls
+	 * it. */
+	static adoptLoopSession(ptr: Ptr, host: Host, transport: LoopChannel): Session {
+		return new Session(ptr, host, transport);
 	}
 
 	// ── The pump (choreography in pump.ts) ──────────────────────────────────────
@@ -453,9 +537,18 @@ export class Session {
 	 * delimiter (behaviors run and vow completions queue inside the feed), and
 	 * drain the action queue. Resolves when the connection closes cleanly;
 	 * rejects on a transport or protocol error. Started once; calling again
-	 * returns the same promise. */
+	 * returns the same promise.
+	 *
+	 * A loop-backed session (ADR-0112) has no byte pump of its own — the
+	 * native loop reads, feeds, and drains — so its serve promise only awaits
+	 * the session's closure, keeping the resolves-on-close contract. */
 	serve(): Promise<void> {
-		if (this.#serving === null) this.#serving = serveLoop(this.#pump);
+		if (this.#serving === null) {
+			const transport = this.#transport;
+			this.#serving = isLoopChannel(transport)
+				? transport.waitClosed()
+				: serveLoop(this.#pump);
+		}
 		return this.#serving;
 	}
 
@@ -468,8 +561,14 @@ export class Session {
 
 	/** Drain every encoded outbound frame on this CapTP session and write it to
 	 * the transport — how a FLUSH action lands. Writes are serialized, so
-	 * frames stay whole and in submission order. Binding-internal. */
+	 * frames stay whole and in submission order. On a loop-backed session one
+	 * loop step is the flush. Binding-internal. */
 	async flushOutbound(): Promise<void> {
+		const transport = this.#transport;
+		if (isLoopChannel(transport)) {
+			transport.driverLoop.stepNow();
+			return;
+		}
 		await pumpFlushOutbound(this.#pump);
 	}
 
@@ -485,14 +584,27 @@ export class Session {
 	 * A session that had to make its own host — `connect(locator)` with no host
 	 * passed, the ordinary case — closes that host with it, so single-session
 	 * code needs no host call. */
-	close(): void {
+	async close(): Promise<void> {
 		this.#closing = true;
-		this.closeTransport();
+		const transport = this.#transport;
+		const transportClosed = this.closeTransport();
 		// A host this session created has no other owner, so it goes too, and
 		// with it every connection it dialed for redeems. A caller-supplied
 		// host stays: sibling sessions on it are still running, and closing
 		// their exporters from here is not this session's call to make.
-		if (this.ownsHost) this.#host.release();
+		if (this.ownsHost) {
+			if (isLoopChannel(transport)) {
+				// A bare loop-routed connect owns its whole stack: closing the
+				// session closes the loop, which releases the adopted host and
+				// any resident transports with it (ADR-0112).
+				await Promise.all([transportClosed, transport.driverLoop.close()]);
+			} else {
+				this.#host.release();
+				await Promise.all([transportClosed, this.#host.releaseAsync()]);
+			}
+		} else {
+			await transportClosed;
+		}
 	}
 
 	/** Close just this session, without touching the host's other sessions:
@@ -501,32 +613,47 @@ export class Session {
 	 * classified as closure), so no foreign call touches a freed session.
 	 * A release refused inside a behavior callback is parked for the next
 	 * drain, never dropped. Binding-internal. */
-	closeTransport(): void {
+	closeTransport(): Promise<void> {
+		if (this.#transportClose != null) return this.#transportClose;
 		this.#closing = true;
+		let transportClose: Promise<void>;
 		try {
-			this.#transport.close();
-		} catch {
-			// already closed
+			transportClose = Promise.resolve(this.#transport.close());
+		} catch (error) {
+			transportClose = Promise.reject(error);
 		}
-		if (this.#released) return;
+		void transportClose.catch(() => {});
+		this.#transportClose = transportClose;
+		if (this.#released) return transportClose;
 		this.#released = true;
 		this.#host.unregisterSession(this.#ptr);
 		// Hosted actors belong to the Host Vat; sibling Ports may still carry
 		// their capabilities. Host.release owns the trampoline sweep.
 		const ptr = this.#ptr;
 		this.#ptr = NULL;
+		// The native loop owns loop-minted sessions: their release is the
+		// loop's own verb, which also drops queued events naming them.
+		const transport = this.#transport;
+		const releaseNative = isLoopChannel(transport)
+			? () => transport.driverLoop.nativeSessionRelease(ptr)
+			: () => hostS.pancake_host_session_release(ptr);
 		if (insideTurn()) {
-			this.#host.parkRelease(() => driverS.pancake_host_session_release(ptr));
+			this.#host.parkRelease(releaseNative);
 		} else {
-			driverS.pancake_host_session_release(ptr);
+			releaseNative();
 		}
 		// The release queued FAIL completions (and sibling withdraws may have
 		// failed closed): route them now.
 		void this.#host.kickActions();
+		return transportClose;
 	}
 
 	[Symbol.dispose](): void {
-		this.close();
+		void this.close();
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		await this.close();
 	}
 
 	#guardOpen(): void {
@@ -548,13 +675,15 @@ export class Session {
 			get hosted() {
 				return s.#hosted;
 			},
+			registerBehavior: (entry) => s.#host.registerHostedBehavior(entry),
+			unregisterBehavior: (id) => s.#host.unregisterHostedBehavior(id),
 			hostOwner: s.#host,
 		};
 	}
 
 	/** Spawn a local actor and return a capability to it. The `Ref`
 	 * auto-marshals when passed as a `send` argument, so handing a partner a
-	 * callback is just `send(target, verb, [..., conn.spawn(behavior)])`. The
+	 * callback is just `send(target, verb, [..., session.spawn(behavior)])`. The
 	 * returned identity is opaque and Host-scoped; wire export positions stay
 	 * inside pancake. Callable from inside a served turn (a factory's `create`
 	 * minting the task it replies with). */
@@ -598,7 +727,7 @@ export class Session {
 		this.#guardOpen();
 		const bytes = utf8Encoder.encode(name);
 		const out = new Uint8Array(8);
-		const code = driverS.pancake_host_session_published_ref(
+		const code = hostS.pancake_host_session_published_ref(
 			this.#ptr,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -654,7 +783,7 @@ export class Session {
 			this.#makeMintAwait(),
 			swiss,
 			name,
-			driverS.pancake_host_session_fetch,
+			hostS.pancake_host_session_fetch,
 		);
 		return this.#gcEnabled ? this.#host.trackGcImport(ref) : ref;
 	}
@@ -676,7 +805,7 @@ export class Session {
 			this.#makeMintAwait(),
 			utf8Encoder.encode(sturdyref),
 			sturdyref,
-			driverS.pancake_host_session_enliven,
+			hostS.pancake_host_session_enliven,
 		);
 	}
 
@@ -689,7 +818,7 @@ export class Session {
 	 * the answer that send will resolve, so a dependent chain costs one round
 	 * trip instead of one per link. `args` may contain `Ref`s. A `Ref` this
 	 * session spawned runs in process; a partner's rides the wire, and a
-	 * redeemed handoff token routes to the exporter connection that hosts it,
+	 * redeemed handoff token routes to the exporter session that hosts it,
 	 * transparently.
 	 *
 	 * The deliver is queued now; its bytes leave the wire when the returned
@@ -732,27 +861,27 @@ export class Session {
 	 *
 	 * When `target` answers with a `desc:handoff-give` (a rooms `introduce`, say),
 	 * the binding redeems it by dialing the exporter, and the reply resolves to a
-	 * capability that routes over that fresh direct connection. That connection is
-	 * otherwise internal. This returns it as `via`, so a caller can host its own
-	 * objects on the very connection the redeemed capability lives on — the one
+	 * capability that routes over a fresh direct session. The byte connection is
+	 * otherwise internal. This returns the session as `via`, so a caller can host
+	 * objects in the same session as the redeemed capability — the one
 	 * place a reply capability handed back to the exporter is valid, since an
-	 * OCapN near export names a position on one specific connection's peer. `via`
+	 * OCapN near export names a position in one specific session. `via`
 	 * is resolved from the reply's own route (the token carries which exporter
-	 * connection it lives on), so it is correct with several redeems in flight at
+	 * session it lives in), so it is correct with several redeems in flight at
 	 * once and it finds an exporter a prior redeem already dialed — a cache hit
-	 * that opens no new connection. `via` is null when the reply is not a
+	 * that opens no new session. `via` is null when the reply is not a
 	 * redeemed-handoff capability (an ordinary far reply) or its exporter
-	 * connection is already gone.
+	 * session is already gone.
 	 *
-	 *   const { reply, via } = await conn.sendRedeeming(directory, "introduce", [nick]);
-	 *   const inbox = (via ?? conn).spawn(replyBehavior);   // hosted where the reply lives
-	 *   await (via ?? conn).send(reply as Ref, "dm", [text, inbox]);
+	 *   const { reply, via } = await session.sendRedeeming(directory, "introduce", [nick]);
+	 *   const inbox = (via ?? session).spawn(replyBehavior);   // hosted where the reply lives
+	 *   await (via ?? session).send(reply as Ref, "dm", [text, inbox]);
 	 */
 	async sendRedeeming(
 		target: Ref | RemotePromise,
 		verb: string,
 		args: Argument[] = [],
-	): Promise<{ reply: Argument; via: Session | null }> {
+	): Promise<SendRedeemingResult> {
 		this.#guardOpen();
 		const reply = await this.send(target, verb, args);
 		let via = reply instanceof Ref ? this.#host.exporterFor(reply) : null;
@@ -781,20 +910,27 @@ export class Session {
 		);
 	}
 
-	/** Record the verbatim exporter-location bytes (from `encodePeerLocator`)
-	 * the gifter embeds when *this* connection is the exporter side of a
+	/** Record the complete exporter locator the gifter embeds when *this*
+	 * session is the exporter side of a
 	 * handoff this host originates. Needed when the partner's signed location
 	 * is not dialable on its own — an iroh partner signs only its node id, so a
 	 * gifter that learned the exporter's `direct-addresses` out of band sets
 	 * the full locator here. Unset, origination falls back to the partner's
 	 * signed location. */
-	setExporterLocator(rawLocator: Uint8Array): void {
+	setExporterLocator(locator: Locator | null): void {
 		this.#guardOpen();
-		checkHost(driverS.pancake_host_session_set_exporter_location(
-			this.#ptr,
-			ab(rawLocator),
-			BigInt(rawLocator.length),
-		));
+		if (locator === null) {
+			checkHost(hostS.pancake_host_session_set_exporter_location(this.#ptr, NULL));
+			return;
+		}
+		withOwnedLocator(
+			locator,
+			(owned) =>
+				checkHost(hostS.pancake_host_session_set_exporter_location(
+					this.#ptr,
+					owned.borrowView(),
+				)),
+		);
 	}
 
 	// ── The partner's session identity and locator claim ───────────────────────
@@ -819,7 +955,7 @@ export class Session {
 	partnerIdentity(): PartnerIdentity {
 		this.#guardOpen();
 		const buf = new Uint8Array(L.PARTNER_IDENTITY_SIZE);
-		checkHost(driverS.pancake_host_session_partner_identity(this.#ptr, ab(buf)));
+		checkHost(hostS.pancake_host_session_partner_identity(this.#ptr, ab(buf)));
 		// The views the call filled in are session-owned and a later call can
 		// invalidate them, so every field is copied here (`readBytes` owns its
 		// result) before this returns.
@@ -866,7 +1002,7 @@ export class Session {
 	bindVerifiedChannelKey(designator: string): void {
 		this.#guardOpen();
 		const bytes = utf8Encoder.encode(designator);
-		checkHost(driverS.pancake_host_session_bind_verified_channel_key(
+		checkHost(hostS.pancake_host_session_bind_verified_channel_key(
 			this.#ptr,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -915,24 +1051,24 @@ export class Session {
 	}
 }
 
-/** The live connection whose inbound call is running right now, or null outside
+/** The live session whose inbound call is running right now, or null outside
  * any hosted turn.
  *
  * A hosted actor can answer calls arriving through any Port on its Host. When
  * behavior must reply to its caller (send to a reply capability it was handed,
- * or hand back a fresh one), it reads the arriving connection here:
+ * or hand back a fresh one), it reads the arriving session here:
  *
  *   host.publishGiftable("dm", (verb, args) => {
  *     const from = String(args[0]), text = String(args[1]);
  *     const reply = args[2];                     // a Ref the caller passed
- *     const session = currentSession();          // the connection it arrived on
+ *     const session = currentSession();          // the session it arrived through
  *     if (session && reply instanceof Ref) {
  *       session.send(reply, "ack", [from]);      // reply on the same session
  *     }
  *   });
  *
- * The reply capability is a far import on the arriving connection, so it must be
- * sent on that same connection. Capture the session synchronously inside the
+ * The reply capability is a far import in the arriving session, so it must be
+ * sent in that same session. Capture the session synchronously inside the
  * turn (it is null once the turn returns) to reply on a later turn. */
 export function currentSession(): Session | null {
 	const s = currentTurnSession();

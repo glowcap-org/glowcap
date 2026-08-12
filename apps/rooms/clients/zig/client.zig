@@ -305,10 +305,9 @@ fn dialVia(
         .ephemeral,
         read_buf,
         write_buf,
-        handshake,
+        .{ .handshake = handshake, .settle = settle },
     );
     defer session.deinit();
-    session.settle = settle;
     try runRoom(io, &session, allocator, state, room_name, nick, line);
 }
 

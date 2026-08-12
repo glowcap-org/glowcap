@@ -27,11 +27,12 @@ import ctypes
 import inspect
 from dataclasses import dataclass
 import threading
+import weakref
 from typing import Callable, Optional
 
 from . import _constants as _abi
 from ._codec import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
-from ._errors import _check_host, _host_last_error, PancakeException, VowBroken
+from ._errors import _check_host, _host_last_error, PancakeError, VowBroken
 from ._ffi_host import _host, _HostBehavior
 from ._ffi_ocapn import _Argument, _byte_buf, _Reference
 from ._promise import RemotePromise, _send_far
@@ -54,10 +55,13 @@ class _BehaviorEntry:
     resolve_local: "Optional[Callable[[int], Optional[_BehaviorEntry]]]"
 
 
-# The registry: ctx id -> entry. Entries live as long as their Host may deliver
-# to them. The C callback has free = NULL, so Host.release sweeps every hosted
-# id after releasing the core Host.
-_registry: "dict[int, _BehaviorEntry]" = {}
+# Process-global callback lookup is weak: the owning Host strongly retains each
+# entry, so a behavior that closes over that Host forms a collectable Host-local
+# cycle rather than a process-global root. The C callback has free = NULL;
+# Host.release removes the weak row deterministically after native teardown.
+_registry: "weakref.WeakValueDictionary[int, _BehaviorEntry]" = (
+    weakref.WeakValueDictionary()
+)
 _next_id = 1
 
 
@@ -84,7 +88,7 @@ def _entry_for(ctx_id: Optional[int]) -> Optional[_BehaviorEntry]:
 def _chase_local_forwards(entry: _BehaviorEntry, result):
     """Chase a behavior's result through the locally hosted :class:`Forward`
     prefix: while it forwards to a near target the current entry's own
-    connection hosts, run that behavior in the same turn (a caretaker over an
+    Host owns, run that behavior in the same turn (a caretaker over an
     attenuator composes exactly as it does over the wire). Returns the
     terminal — a plain value, or the first :class:`Forward` whose target is
     not hosted here (far, promise, or an unknown near id), which each caller
@@ -144,7 +148,7 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
                 # resolver machinery is only for wire-served turns.
                 return await result
             return result
-        except PancakeException:
+        except PancakeError:
             raise
         except Exception as error:  # noqa: BLE001 — a raise breaks the answer
             raise VowBroken(str(error) or type(error).__name__)
@@ -325,7 +329,7 @@ def _attenuate_proxy(spawn, target: Ref, verbs: list) -> Ref:
 
 
 async def _tell_far(session, target: Ref, verb: str, args: list) -> None:
-    # Far tell mint: encode args, enqueue conn_tell, kick the drain. Local
+    # Far tell mint: encode args, call pancake_host_session_tell, kick the drain. Local
     # targets stay behind _dispatch_tell / _tell_local.
     verb_bytes = verb.encode()
     vbuf, vptr = _byte_buf(verb_bytes)
@@ -364,7 +368,7 @@ def _register_actor(session, behavior) -> int:
     # Register `behavior` in the Host-owned trampoline index so local Forward
     # chains compose in process and an arriving Port can run it in a turn.
     hosted = session.hosted
-    return _register_behavior(_BehaviorEntry(
+    return session.host._register_behavior(_BehaviorEntry(
         run=behavior,
         resolve_local=lambda ref_id: _entry_for(hosted.get(ref_id)),
     ))
@@ -389,7 +393,7 @@ def _spawn_hosted(session, behavior) -> Ref:
     except BaseException:
         # free = NULL: the C tier never owns the row, so a refused mint must
         # drop it here or the registry pins the behavior forever.
-        _unregister_behavior(ctx)
+        session.host._unregister_behavior(ctx)
         raise
     session.hosted[ref_id] = ctx
     return _ref_from_id(ref_id)
@@ -410,7 +414,7 @@ def _publish_hosted(session, name: str, behavior) -> Ref:
     except BaseException:
         # free = NULL: the C tier never owns the row, so a refused publish
         # must drop it here or the registry pins the behavior forever.
-        _unregister_behavior(ctx)
+        session.host._unregister_behavior(ctx)
         raise
     ref_id = out.id
     session.hosted[ref_id] = ctx

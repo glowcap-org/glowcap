@@ -40,6 +40,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const engine = @import("engine");
 const frame_stream = @import("frame_stream.zig");
+const poll = @import("poll.zig");
 
 /// One unit of forward progress reported by `pumpOver` / `Connection.pump`.
 pub const Progress = union(enum) {
@@ -140,10 +141,11 @@ pub const Connection = struct {
     /// one peer, so the two still name one stream.
     spill: frame_stream.Spill = .{},
 
-    /// Weld `peer` to a transport's already-built reader/writer interfaces and a
-    /// handle that closes the underlying stream. The transport (e.g. `tcp`)
-    /// owns the concrete stream behind `transport` and keeps `r` / `w` valid for
-    /// the connection's life.
+    /// The close/readiness handle behind this connection's reader and writer.
+    /// Public so resident transports can construct a connection without
+    /// exporting the private vtable name as their own concept.
+    pub const Transport = TransportHandle;
+
     pub fn init(
         io: std.Io,
         peer: *engine.Peer,
@@ -191,18 +193,34 @@ pub const Connection = struct {
         return self.transport.socketHandle();
     }
 
-    /// Whether a read would make progress within `timeout_ms`: true when bytes
-    /// are already buffered, when the transport's fd polls readable, or when
-    /// the transport has no pollable fd at all (a userspace stream multiplexes
-    /// in its own loop, so the caller falls through to its blocking read);
-    /// false only on a poll timeout. A poll failure means the transport is
-    /// gone. The one poll-guard both blocking drivers wait through.
+    /// Whether a read would make progress within `timeout_ms` for an fd-backed
+    /// transport: true when bytes are already buffered or the fd polls readable,
+    /// false only on a poll timeout. A poll failure means the transport is gone.
+    ///
+    /// A transport with no pollable fd returns true after the buffer check. That
+    /// is not a deadline guarantee; it is the blocking-stream fallback for
+    /// userspace transports. Deadline-sensitive multiplexers reject fd-less
+    /// connections before they call this.
     pub fn waitReadable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
         if (self.hasBufferedInbound()) return true;
         const handle = self.socketHandle() orelse return true;
         var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 }};
-        const ready = std.posix.poll(&fds, timeout_ms) catch return error.ConnectionLost;
+        const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
+        if (fds[0].revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
         return ready != 0;
+    }
+
+    /// Whether a write would make progress within `timeout_ms` for an
+    /// fd-backed transport. This is a readiness probe, not a whole-frame
+    /// delivery guarantee: the writer can still report the concrete failure.
+    /// A transport with no pollable fd returns true, matching `waitReadable`'s
+    /// blocking-stream fallback.
+    pub fn waitWritable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
+        const handle = self.socketHandle() orelse return true;
+        var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = std.posix.POLL.OUT, .revents = 0 }};
+        const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
+        if (fds[0].revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
+        return ready != 0 and (fds[0].revents & (std.posix.POLL.OUT | std.posix.POLL.HUP | std.posix.POLL.ERR)) != 0;
     }
 
     /// Whether a raw read on this connection's reader would make progress
@@ -262,32 +280,33 @@ pub const Connection = struct {
 /// Every connection must have a pollable fd — the caller refused fd-less
 /// transports at open, because a blocking multiplex cannot wait on a stream
 /// that reports no readiness — and `pollfds` is caller-owned scratch at least
-/// `conns.len` long, so the wait itself allocates nothing. A negative
-/// `timeout_ms` waits forever (the OS poll convention); the caller's budget
-/// arithmetic keeps an expired deadline from reaching here.
+/// `conns.len + extra_fds.len` long, so the wait itself allocates nothing. A
+/// negative `timeout_ms` waits forever (the OS poll convention); the caller's
+/// budget arithmetic keeps an expired deadline from reaching here.
 pub fn waitAnyReadable(
     conns: []const *Connection,
     pollfds: []std.posix.pollfd,
     timeout_ms: i32,
-    extra_fd: ?std.posix.fd_t,
+    extra_fds: []const std.posix.fd_t,
 ) error{ConnectionLost}!?usize {
-    const rows = conns.len + @intFromBool(extra_fd != null);
+    const rows = conns.len + extra_fds.len;
     std.debug.assert(pollfds.len >= rows);
     for (conns, 0..) |conn, i| {
         if (conn.hasBufferedRaw()) return i;
         const handle = conn.socketHandle() orelse unreachable;
         pollfds[i] = .{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 };
     }
-    // The caller's out-of-band wake (a settle mailbox, ADR-0102) polls as one
-    // more row and reports as index `conns.len` — the one index no
-    // connection occupies.
-    if (extra_fd) |fd| {
-        pollfds[conns.len] = .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 };
+    // The caller's out-of-band descriptors — multiplexed-resident readiness and
+    // the settle-mailbox wake (ADR-0102) — poll as trailing rows and report
+    // as `conns.len + i`, indexes no connection occupies.
+    for (extra_fds, 0..) |fd, i| {
+        pollfds[conns.len + i] = .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 };
     }
     if (rows == 0) return null;
-    const ready = std.posix.poll(pollfds[0..rows], timeout_ms) catch return error.ConnectionLost;
+    const ready = poll.wait(pollfds[0..rows], timeout_ms) catch return error.ConnectionLost;
     if (ready == 0) return null;
     for (pollfds[0..rows], 0..) |fd, i| {
+        if (fd.revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
         if (fd.revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0) return i;
     }
     return null;

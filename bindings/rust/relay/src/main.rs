@@ -51,11 +51,17 @@ const READ_CHUNK: usize = 1 << 16; // 64 KiB
 /// steady figure the Zig side already budgets against, so the relay and the
 /// sessions it carries answer to one number.
 const WS_BUFFER_BYTES: usize = 16 * 1024;
+/// A WebSocket message is a transport chunk, independent from any CapTP frame
+/// limit. The relay never needs to materialize a larger message to stay byte
+/// transparent.
+const WS_MESSAGE_BYTES: usize = 1 << 20;
 
 fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
 	tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
 		.read_buffer_size(WS_BUFFER_BYTES)
 		.write_buffer_size(WS_BUFFER_BYTES)
+		.max_message_size(Some(WS_MESSAGE_BYTES))
+		.max_frame_size(Some(WS_MESSAGE_BYTES))
 }
 
 // The two bounded-resources knobs ADR-0086's contract names, matching the
@@ -174,9 +180,9 @@ where
 		while let Some(Ok(msg)) = ws_read.next().await {
 			let bytes = match msg {
 				Message::Binary(b) => b,
-				// tokio-tungstenite 0.30 carries text as `Utf8Bytes`, which shares the
-				// frame's `Bytes` buffer, so this conversion copies nothing.
-				Message::Text(t) => t.into(),
+				// A byte relay cannot reinterpret a typed text message as protocol
+				// bytes. Ending this leg tears the pair down through the select below.
+				Message::Text(_) => break,
 				Message::Close(_) => break,
 				_ => continue,
 			};
@@ -261,19 +267,21 @@ async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
 	};
 	// The conformance host advertises loopback direct addresses, so the relay
 	// reaches it directly; a deployment relay resolves node ids by discovery.
-	let direct = loc
-		.hints
-		.get("direct-addresses")
-		.cloned()
-		.unwrap_or_default();
-	let netlayer = match IrohNetlayer::new(IrohConfig::new(Reachability::Direct)) {
+	let direct = match loc.string_hint("direct-addresses") {
+		Ok(value) => value.unwrap_or(""),
+		Err(e) => {
+			eprintln!("relay: invalid iroh locator: {e}");
+			return;
+		}
+	};
+	let netlayer = match IrohNetlayer::new(IrohConfig::new(Reachability::Direct)).await {
 		Ok(netlayer) => netlayer,
 		Err(e) => {
 			eprintln!("relay: iroh netlayer: {e}");
 			return;
 		}
 	};
-	match netlayer.connect_owned(&loc.designator, &direct).await {
+	match netlayer.connect_owned(&loc.designator, direct).await {
 		Ok(stream) => pump(ws, stream).await,
 		Err(e) => eprintln!("relay: iroh dial failed: {e}"),
 	}

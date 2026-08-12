@@ -190,7 +190,10 @@ fn answererHalf(
     defer allocator.free(write_buf);
 
     const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn);
+    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer vat.deinit();
 
     const designator = secret.publicKey().toDesignator();
@@ -232,7 +235,10 @@ fn offererHalf(
     defer allocator.free(write_buf);
 
     const conn = try peer.connection(io, &engine_peer, .{ .read = read_buf, .write = write_buf });
-    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn);
+    var vat = driver.BlockingSession.over(allocator, &engine_peer, conn, .{
+        .handshake = .unbounded,
+        .settle = .unbounded,
+    });
     defer vat.deinit();
 
     const designator = secret.publicKey().toDesignator();

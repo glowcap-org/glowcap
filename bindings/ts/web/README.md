@@ -74,7 +74,7 @@ keyed handshake inside the wasm peer, fetches and calls a published object, and 
 into an object the wasm peer hosts. Deno supplies the same `WebAssembly`/`WebSocket` globals a
 browser does, which keeps the check in-tree and socket-real at once.
 
-[`wasm_handshake_smoke.ts`](wasm_handshake_smoke.ts) (`zig build
+[`test/wasm_handshake_smoke.ts`](test/wasm_handshake_smoke.ts) (`zig build
 wasm-driver-test`) is the layer
 below: two wasm Hosts complete the keyed handshake over an in-memory byte pipe, driven through raw
 exports with no binding at all.

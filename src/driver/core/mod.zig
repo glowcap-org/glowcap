@@ -24,8 +24,10 @@ const gc = @import("gc.zig");
 /// introduction balance without constructing a full `Served`.
 pub const emitStatelessAfter = gc.emitStatelessAfter;
 pub const drainActions = action_drain.drainActions;
+pub const DrainResult = action_drain.DrainResult;
 
 pub const Served = served.Served;
+pub const DriveError = served.DriveError;
 pub const ServeOptions = served.ServeOptions;
 pub const BeforeServeHook = served.BeforeServeHook;
 pub const Publish = served.Publish;
@@ -35,6 +37,9 @@ pub const Publish = served.Publish;
 // the C ABI's `libpancake_host` are its embedders.
 pub const Host = host.Host;
 pub const HostSession = host.HostSession;
+/// The sealed byte channel (ADR-0107): the Noise_XK composition a sealed
+/// `HostSession` runs its wire through. Its ephemeral derives from the unique
+/// per-session signing seed; embedders supply one fresh session root per Host.
 pub const HostAction = host_action.HostAction;
 /// The live trace tap: the sink vocabulary a Host reports its own session
 /// opens, message verbs, and closes through (`Host.setTrace`).
@@ -73,7 +78,6 @@ pub const Exported = vocab.Exported;
 pub const Settled = vocab.Settled;
 pub const unreachable_client_designator = vocab.unreachable_client_designator;
 pub const DesignatorScheme = vocab.DesignatorScheme;
-pub const designatorSchemeForTransport = vocab.designatorSchemeForTransport;
 pub const spawnAt = vocab.spawnAt;
 
 pub const DialPlan = dial_plan.DialPlan;
@@ -81,4 +85,5 @@ pub const DialShape = dial_plan.Shape;
 pub const DialPosture = dial_plan.Posture;
 pub const AcceptPlan = dial_plan.AcceptPlan;
 pub const planDial = dial_plan.planDial;
+pub const planDialProfile = dial_plan.planDialProfile;
 pub const planAccept = dial_plan.planAccept;

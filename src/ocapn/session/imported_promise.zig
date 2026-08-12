@@ -34,13 +34,32 @@ pub fn installThirdPartyImport(self: *Session, import_position: model.ImportPosi
         existing.host = try internThirdPartyHost(self, host);
         return;
     }
-    const host_interned = try internThirdPartyHost(self, host);
+    // Reserve the owning row before taking wire authority. Once the import
+    // retain succeeds, every remaining commit step is infallible; a failed
+    // host intern rolls the retain back rather than leaving an import with no
+    // third-party routing row.
+    try self.imported_promises.ensureUnusedCapacity(self.allocator, 1);
     try self.registerImport(import_position);
-    try self.imported_promises.put(self.allocator, import_position, .{
+    errdefer self.releaseImportRetain(import_position);
+    const host_interned = try internThirdPartyHost(self, host);
+    self.imported_promises.putAssumeCapacity(import_position, .{
         .host = host_interned,
         .cell = .{ .row_id = self.nextStoreStamp() },
         .shortening_target = import_position,
     });
+}
+
+/// Roll back a freshly installed third-party import that never became
+/// observable. The row and its single import retain were created together by
+/// `installThirdPartyImport`; listeners or a resolution would prove the caller
+/// crossed the publication boundary and make this operation invalid.
+pub fn abandonUnsharedThirdPartyImport(self: *Session, import_position: model.ImportPosition) void {
+    const row = self.imported_promises.getPtr(import_position) orelse unreachable;
+    std.debug.assert(row.host != null);
+    std.debug.assert(row.cell.listeners.len() == 0 and row.cell.resolution == null);
+    cell_ops.deinit(self.allocator, &row.cell);
+    std.debug.assert(self.imported_promises.remove(import_position));
+    self.releaseImportRetain(import_position);
 }
 
 /// One designator buffer per distinct host string for the session's life.
@@ -104,12 +123,33 @@ pub fn takeImportedPromiseListeners(self: *Session, import_position: model.Impor
     return cell_ops.takeListeners(&entry.cell, self.allocator);
 }
 
+/// Roll back a preparation-time listener take. The row is externally
+/// synchronized and the preparation has not committed its resolution, so the
+/// list is still empty and can retake the owned allocation directly.
+pub fn restoreImportedPromiseListeners(self: *Session, import_position: model.ImportPosition, listeners: []ListenerEntry) void {
+    const entry = findImportedPromise(self, import_position) orelse unreachable;
+    cell_ops.restoreListeners(&entry.cell, listeners);
+}
+
 /// Borrow the stored relayed resolution for third-party import `import_position`,
 /// if one was forwarded. The borrow is valid until the row is mutated or
 /// removed.
 pub fn importedPromiseResolution(self: *Session, import_position: model.ImportPosition) ?*const model.Resolution {
     const entry = findImportedPromise(self, import_position) orelse return null;
     return cell_ops.resolution(&entry.cell);
+}
+
+/// Find one stored relayed resolution whose previously installed listeners
+/// still need carriers. This state exists only when terminal settlement had to
+/// commit under allocator or outbound pressure; ordinary settlement detaches
+/// and reserves every listener before recording the store.
+pub fn pendingImportedPromiseFire(self: *Session) ?model.ImportPosition {
+    var it = self.imported_promises.iterator();
+    while (it.next()) |entry| {
+        if (entry.value_ptr.cell.resolution != null and entry.value_ptr.cell.listeners.len() != 0)
+            return entry.key_ptr.*;
+    }
+    return null;
 }
 
 pub fn findImportedPromise(self: *Session, import_position: model.ImportPosition) ?*ImportedPromise {

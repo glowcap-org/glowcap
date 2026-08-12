@@ -52,16 +52,16 @@ def greeter(verb: str, args: list):
 
 
 async def accept_loop(server, served: list) -> None:
-    """Serve every connection the server accepts for the life of the run. Ends
+    """Serve every session the server accepts for the life of the run. Ends
     when the server closes and ``__anext__`` raises ``StopAsyncIteration``."""
-    async for conn in server:
-        conn.serve()
-        served.append(conn)
+    async for session in server:
+        session.serve()
+        served.append(session)
 
 
 async def run() -> None:
     # ── Server: a giftable greeter, dialable by node id alone over discovery ──────
-    server = listen_iroh(IrohConfig(Reachability.DISCOVERY))
+    server = await listen_iroh(IrohConfig(Reachability.DISCOVERY))
     server.host.publish_giftable("greeter", greeter)
     server_id = server.node_id
     served: list = []
@@ -90,8 +90,8 @@ async def run() -> None:
     # the server, closing a server ends its accept loop, which we await so no
     # readiness fd reader outlives the endpoint it watches.
     await client.close()
-    for conn in served:
-        await conn.close()
+    for session in served:
+        await session.close()
     await server.close()
     await server_task
 

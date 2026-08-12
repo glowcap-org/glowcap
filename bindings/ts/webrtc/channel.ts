@@ -8,12 +8,33 @@
 
 import type { Channel } from "@pancake/stack";
 
-// An RTCDataChannel exposes `bufferedAmount`, so `write` gates outbound flow the
-// same way the WebSocket channel does: hold the next write until the send buffer
-// drains below the high-water, so a fast producer is backpressured rather than
-// growing memory. SCTP's own flow control backs this.
+// An RTCDataChannel exposes `bufferedAmount` and a `bufferedamountlow` event, so
+// `write` gates outbound flow without timer polling: hold the next write until
+// the send buffer drains below the high-water, so a fast producer is
+// backpressured rather than growing memory. SCTP's own flow control backs this.
 const rtcSendHighWaterBytes = 1 << 20; // 1 MiB
-const rtcDrainPollMs = 4;
+
+function waitForDrain(dc: RTCDataChannel): Promise<void> {
+	if (dc.bufferedAmount <= rtcSendHighWaterBytes || dc.readyState !== "open") {
+		return Promise.resolve();
+	}
+	return new Promise((resolve) => {
+		const done = () => {
+			dc.removeEventListener("bufferedamountlow", done);
+			dc.removeEventListener("close", done);
+			dc.removeEventListener("error", done);
+			resolve();
+		};
+		dc.addEventListener("bufferedamountlow", done);
+		dc.addEventListener("close", done);
+		dc.addEventListener("error", done);
+		// If the buffer crossed the threshold between the first check and the
+		// listener installation, finish immediately instead of parking forever.
+		if (dc.bufferedAmount <= rtcSendHighWaterBytes || dc.readyState !== "open") {
+			done();
+		}
+	});
+}
 
 /** Adapt an open, ordered, reliable `dc` to a `Channel`. Inbound messages flow
  * through a `ReadableStream` reader; a close ends the stream and an error faults
@@ -21,6 +42,7 @@ const rtcDrainPollMs = 4;
  * high-water, so a fast producer is backpressured rather than growing memory. */
 export function rtcChannel(dc: RTCDataChannel): Channel {
 	dc.binaryType = "arraybuffer";
+	dc.bufferedAmountLowThreshold = rtcSendHighWaterBytes;
 	const reader = new ReadableStream<Uint8Array>({
 		start(controller) {
 			dc.onmessage = (event: MessageEvent) => {
@@ -50,9 +72,7 @@ export function rtcChannel(dc: RTCDataChannel): Channel {
 		},
 		async write(data: Uint8Array): Promise<void> {
 			dc.send(data as Uint8Array<ArrayBuffer>);
-			while (dc.bufferedAmount > rtcSendHighWaterBytes && dc.readyState === "open") {
-				await new Promise((resolve) => setTimeout(resolve, rtcDrainPollMs));
-			}
+			await waitForDrain(dc);
 		},
 		close(): void {
 			try {

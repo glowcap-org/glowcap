@@ -1,6 +1,6 @@
 ---
 .title = "The modules",
-.description = "Each of pancake's layers and what it owns, from the byte foundation to the driver, with a one-way import table the build enforces.",
+.description = "How pancake's layers fit together: the names you meet first, the socket-free protocol core, and what sits above it.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "modules.shtml",
@@ -8,8 +8,8 @@
 ---
 
 You do not have to keep the layering in your head; the build keeps it for you.
-Each layer is its own module with a one-way import table, so a reach across layers
-is a compile error. The diagram above is the map, and
+Each layer is its own module with a one-way import table, so a reach across
+layers is a compile error. The diagram above is the map, and
 [architecture](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
 is the full account.
 
@@ -22,42 +22,41 @@ is the full account.
 | **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
 | **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_host`. |
 
-Ordinary apps stay on `Session`, introductions included. An introduction settles
-as a live capability inside the call, because every `Session` is backed by a Host:
-`driver.PollHost` in native Zig, or the binding's own host elsewhere. The
-`Bridge` and completion-loop pairing is the scale path.
-Three-party introductions are covered in [Concepts]($link.page('concepts')).
+Ordinary apps stay on `Session`. An introduction settles as a live capability
+inside the call, because every `Session` is backed by a Host. The `Bridge` and
+completion-loop pairing is the path when one thread must serve many
+connections. [Concepts]($link.page('concepts')) covers three-party
+introductions.
 
 ## The protocol core
 
 The core is synchronous. It holds no sockets and starts no background work, so
 you can test it without a host runtime.
 
-- **foundation** owns the shared primitives: a `Frame` owns bytes, a `FrameView`
+- **foundation** owns shared primitives: a `Frame` owns bytes, a `FrameView`
   borrows them, and IDs are plain values.
 - **model** is the CapTP vocabulary, independent of the bytes that carried it.
 - **codec** turns model values into wire bytes and back.
   [Syrup](https://github.com/ocapn/syrup) is the Goblins floor;
-  [Cap'n Proto](https://capnproto.org/) is the second encoding, and the
-  [Codecs]($link.page('codecs')) page compares them. Sibling codecs cannot
-  import each other.
+  [Cap'n Proto](https://capnproto.org/) is the second encoding.
+  [Codecs]($link.page('codecs')) compares them.
 - **session** is the authority: import, export, and answer tables, and what is
   valid. A codec never decides whether a reference is allowed.
 - **engine** is the `Peer` above: feed frames, `step`, drain outbound, read
-  events. It dispatches, and decides nothing.
+  events. It only dispatches; session owns whether a reference is valid.
 
 ## Above the core
 
 - **actors** is a Goblins-shaped `Vat`: near-call `$`, eventual-send `<-`, and
   promises. It adds no protocol semantics the engine lacks.
-- **driver/core** is the multi-session serve core with no sockets of its own:
-  `Served`, and the byte-fed `Host` an embedder drives with raw frames. A build
-  check keeps I/O out of it.
-- **net** is where `std.Io` enters. The residents today are cleartext TCP,
-  keyed-tcp, keyed-relay, inproc, [iroh](https://www.iroh.computer/) QUIC as an
-  optional artifact, and a [WebRTC]($link.page('transports/webrtc')) DataChannel
-  reached by signaling. The [Transports]($link.page('transports')) page covers
-  them all.
+- **driver/core** is the multi-session serve core with no sockets of its own.
+  A build check keeps I/O out of it.
+- **net** is where `std.Io` enters. Residents include cleartext `tcp`,
+  `keyed-tcp`, `noise-tcp`, `inproc`, optional [iroh](https://www.iroh.computer/)
+  QUIC, and [WebRTC]($link.page('transports/webrtc')), among others.
+  [Transports]($link.page('transports')) explains what a netlayer is;
+  [Choosing a transport]($link.page('transports/choosing')) is the decision
+  table.
 
 > **Vat**: one single-threaded container of objects, the unit
 > [Spritely Goblins](https://spritely.institute/goblins/) and the wider ocap
@@ -71,12 +70,13 @@ you can test it without a host runtime.
 
 ## Surfaces out of the core
 
-The [Surfaces]($link.page('surfaces')) page is the consumer's view of these.
+The [Surfaces]($link.page('surfaces')) page is the consumer's view.
 
 - **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
   release. `libpancake_host` is the multi-session host the bindings wrap.
-- **driver** is native Zig above `driver/core`: one-session `Session`, and
-  `Bridge` + Host over `net.TcpLoop` / iroh Backend.
+- **driver** is native Zig above `driver/core`: `Session` and `HostRuntime` for
+  ordinary native use, plus `Bridge` when one readiness loop must carry many
+  connections.
 
 [Bindings]($link.page('bindings')) are that application surface again in Rust,
 TypeScript, Python, and Racket, each over the C ABI.

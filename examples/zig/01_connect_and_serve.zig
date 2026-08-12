@@ -12,9 +12,9 @@
 //! actor by name, and `serve`s until the partner leaves. The client connects,
 //! fetches the actor by name, `call`s it, and switches on the settled outcome.
 //! There are no export positions, no manual flush, and no hand-rolled receive
-//! loop. One `frame_cap` option sizes the owned buffers and the session's
-//! frame limit together; the buffer-explicit form of the same surface
-//! lives in `connect_explicit_buffers.zig`.
+//! loop. `frame_cap` bounds protocol admission independently of the wire
+//! buffers retained by each session; the buffer-explicit form of the same
+//! surface lives in `connect_explicit_buffers.zig`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

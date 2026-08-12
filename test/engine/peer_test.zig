@@ -8,6 +8,60 @@ const engine = pancake.ocapn.engine;
 const session = pancake.ocapn.session;
 const peer_fixture = @import("../support/peer_fixture.zig");
 
+test "originated handoff transaction requires distinct peer sessions" {
+    var peer = engine.Peer.init(std.testing.allocator);
+    defer peer.deinit();
+
+    try std.testing.expectError(error.AliasedHandoffPeers, engine.handoff_gifter.queueOriginatedGive(
+        &peer,
+        &peer,
+        "gift",
+        .{ .far = model.FarRef.object(1) },
+        "give",
+        .{ .answer = .from(1) },
+    ));
+}
+
+test "failed withdraw construction does not consume its handoff count" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
+    defer pair.deinit();
+    const recipient_secret = foundation.crypto.SecretKey.fromSeed([_]u8{0x35} ** foundation.crypto.SEED_BYTES);
+
+    try std.testing.expectError(
+        codec.syrup.Error.MalformedFrame,
+        pair.p1.sendWithdrawGift(recipient_secret, "not a signed give", .from(1)),
+    );
+    try std.testing.expectEqual(@as(u64, 0), pair.p1.giftRegistry().next_emitted_handoff_count);
+
+    const exporter_location = try engine.encodePeerLocatorRecord(allocator, .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9000",
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer allocator.free(exporter_location);
+    const gifter_secret = foundation.crypto.SecretKey.fromSeed([_]u8{0x36} ** foundation.crypto.SEED_BYTES);
+    const give = try engine.handoff_gifter.buildSignedGive(
+        allocator,
+        gifter_secret,
+        recipient_secret.publicKey().asBytes(),
+        exporter_location,
+        &([_]u8{0x37} ** 32),
+        &([_]u8{0x38} ** 32),
+        "gift",
+    );
+    defer allocator.free(give);
+
+    try pair.p1.sendWithdrawGift(recipient_secret, give, .from(1));
+    try std.testing.expectEqual(@as(u64, 1), pair.p1.giftRegistry().next_emitted_handoff_count);
+    try pair.p1.stepToIdle();
+    var frame = pair.p1.takeOutbound().?;
+    defer frame.deinit();
+    const body = try codec.syrup.decodeBodyForProfile(.v1_0, frame.view());
+    const receive = (try body.deliver.args.at(1)).handoff.receive;
+    try std.testing.expectEqual(@as(u64, 0), receive.handoff_count);
+}
+
 const FailAfterAllocator = struct {
     backing: std.mem.Allocator,
     fail_after: usize,
@@ -193,6 +247,226 @@ test "settled-answer encode OOM leaves its carrier queued and emits exactly once
     try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
 }
 
+test "V1.0 answered-deliver encode OOM rolls back resolver authority and retries" {
+    var saw_post_mint_oom = false;
+    var saw_success = false;
+
+    for (0..32) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.Peer.initRawOpenFixture(failing.allocator());
+        defer peer.deinit();
+        defer failing.fail_index = std.math.maxInt(usize);
+        try peer.session_state.registerImport(.from(7));
+
+        const answer = model.AnswerPosition.from(42);
+        const first_resolver = peer.session_state.next_export_position;
+        try peer.sendCopying(.{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &.{.{ .bytes = "payload" }},
+            .answer = answer,
+        } });
+
+        failing.fail_index = failing.alloc_index + offset;
+        const attempt = peer.step();
+        failing.fail_index = std.math.maxInt(usize);
+
+        if (attempt) |outcome| {
+            saw_success = true;
+            try std.testing.expectEqual(engine.StepOutcome.progress, outcome);
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            try std.testing.expect(peer.takeOutbound() == null);
+            try std.testing.expectEqual(
+                @as(?model.ExportPosition, null),
+                peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }),
+            );
+            if (peer.session_state.next_export_position > first_resolver)
+                saw_post_mint_oom = true;
+
+            // The same staged carrier remains authoritative. Retrying mints one
+            // fresh resolver and publishes exactly one answered deliver.
+            try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+        }
+
+        const resolver = peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }) orelse
+            return error.MissingRetriedResolver;
+        try std.testing.expect(peer.session_state.exportRefcount(resolver) != 0);
+        var frame = peer.takeOutbound() orelse return error.MissingRetriedDeliver;
+        frame.deinit();
+        try std.testing.expect(peer.takeOutbound() == null);
+        try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+    }
+
+    try std.testing.expect(saw_post_mint_oom);
+    try std.testing.expect(saw_success);
+}
+
+test "V1.0 projection encode OOM publishes neither half and retries atomically" {
+    var saw_post_mint_oom = false;
+    var saw_success = false;
+
+    for (0..40) |offset| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var peer = engine.Peer.initRawOpenFixture(failing.allocator());
+        defer peer.deinit();
+        defer failing.fail_index = std.math.maxInt(usize);
+        try peer.session_state.registerImport(.from(9));
+
+        const answer = model.AnswerPosition.from(5);
+        const first_resolver = peer.session_state.next_export_position;
+        try peer.sendCopying(.{ .get = .{
+            .receiver = .{ .far = model.FarRef.object(9) },
+            .field = "name",
+            .answer = answer,
+        } });
+
+        failing.fail_index = failing.alloc_index + offset;
+        const attempt = peer.step();
+        failing.fail_index = std.math.maxInt(usize);
+
+        if (attempt) |outcome| {
+            saw_success = true;
+            try std.testing.expectEqual(engine.StepOutcome.progress, outcome);
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            // The projection and mandatory listener are one publication: an
+            // allocator failure may expose neither, and no resolver link may
+            // survive for a mention the partner never received.
+            try std.testing.expect(peer.takeOutbound() == null);
+            try std.testing.expectEqual(
+                @as(?model.ExportPosition, null),
+                peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }),
+            );
+            if (peer.session_state.next_export_position > first_resolver)
+                saw_post_mint_oom = true;
+
+            try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+        }
+
+        _ = peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }) orelse
+            return error.MissingProjectionResolver;
+        var projection = peer.takeOutbound() orelse return error.MissingProjectionFrame;
+        projection.deinit();
+        var listener = peer.takeOutbound() orelse return error.MissingProjectionListener;
+        listener.deinit();
+        try std.testing.expect(peer.takeOutbound() == null);
+        try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+    }
+
+    try std.testing.expect(saw_post_mint_oom);
+    try std.testing.expect(saw_success);
+}
+
+test "outbound waterline refuses one arbitrarily large producer before authority moves" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initRawOpenFixture(allocator);
+    defer peer.deinit();
+    peer.outbound_budget = 256;
+    try peer.session_state.registerImport(.from(7));
+
+    const oversized = [_]u8{0x5a} ** 512;
+    try std.testing.expectError(error.OutboundBackpressure, peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{.{ .bytes = &oversized }},
+        .answer = .from(19),
+    } }));
+
+    try std.testing.expect(peer.session_state.outboundAnswer(.from(19)) == null);
+    try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
+test "one inbound frame admits its maintenance carriers as one outbound producer" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(9));
+    try peer.session_state.registerExport(.from(7));
+
+    // Park an older producer immediately below the waterline. The incoming
+    // frame introduces two promises, so next owes two shortening listeners.
+    // They are one consequence of one accepted frame: the first may cross the
+    // line, but the second must not be mistaken for a new producer and refuse
+    // the otherwise atomic inbound transaction.
+    const ballast = [_]u8{0x5a} ** 512;
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(9) },
+        .args = &.{.{ .bytes = &ballast }},
+    } });
+    peer.outbound_budget = peer.queuedOutboundBytes() + 1;
+
+    var inbound = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{
+            .{ .reference = .{ .near = model.NearRef.promise(5) } },
+            .{ .reference = .{ .near = model.NearRef.promise(6) } },
+        },
+    } });
+    defer inbound.deinit();
+    try peer.recvBorrowed(inbound.view());
+    var event = peer.pollEvent() orelse return error.MissingDeliverEvent;
+    defer event.deinit();
+
+    var shortening_listens: usize = 0;
+    while (true) {
+        const outcome = try peer.step();
+        while (peer.takeOutbound()) |frame_in| {
+            var frame = frame_in;
+            defer frame.deinit();
+            const body = try codec.syrup.decodeBodyForProfile(.next, frame.view());
+            if (body == .listen and body.listen.mode == .shortening_only)
+                shortening_listens += 1;
+        }
+        if (outcome == .idle) break;
+    }
+    try std.testing.expectEqual(@as(usize, 2), shortening_listens);
+}
+
+test "queued inbound backpressure aborts instead of dropping the frame" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+    peer.outbound_budget = 1;
+
+    const inbound = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{.{ .reference = .{ .near = model.NearRef.promise(5) } }},
+    } });
+    try peer.feedOwned(inbound);
+
+    try std.testing.expectError(error.OutboundBackpressure, peer.step());
+    try std.testing.expect(!peer.sessionIsOpen());
+    var abort_frame = peer.takeOutbound() orelse return error.MissingAbort;
+    defer abort_frame.deinit();
+    const abort = try codec.syrup.decodeBodyForProfile(.next, abort_frame.view());
+    try std.testing.expect(abort == .abort);
+    try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.abort.kind);
+    try std.testing.expect(peer.takeOutbound() == null);
+}
+
+test "queued local encode backpressure remains retryable and does not abort" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerImport(.from(7));
+
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{.{ .bytes = "retry" }},
+    } });
+    peer.outbound_budget = 0;
+    try std.testing.expectError(error.OutboundBackpressure, peer.step());
+    try std.testing.expect(peer.sessionIsOpen());
+    try std.testing.expect(peer.lastAbort() == null);
+    try std.testing.expect(peer.takeOutbound() == null);
+
+    peer.outbound_budget = std.math.maxInt(usize);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    var frame = peer.takeOutbound() orelse return error.MissingDeliverFrame;
+    frame.deinit();
+}
+
 test "raw-open v1.0 fixture rejects raw inbound op:resolve" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.initRawOpenFixture(allocator);
@@ -316,6 +590,42 @@ test "peer step uses session CapTP version for outbound encoding" {
     );
 }
 
+test "V1.0 resolver-only registration rolls back its virtual answer on OOM" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    var peer = engine.Peer.init(failing.allocator());
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        peer.deinit();
+    }
+    peer.session_state.captp_version = .v1_0;
+
+    const message: model.Message = .{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(session.BOOTSTRAP_POSITION) },
+        .args = &.{},
+        .resolve_me_desc = .{ .far = model.FarRef.object(7) },
+    } };
+    const deliver = model.view.Body.fromOwned(&message).deliver;
+    const virtual = model.AnswerPosition.from(session.VIRTUAL_INBOUND_ANSWER_BASE);
+
+    // The answer-table allocation succeeds; the following import-table
+    // allocation fails. Neither half of the resolver-only authority may remain.
+    try std.testing.expectError(error.OutOfMemory, engine.v1_0.registerPartnerResolver(&peer, deliver));
+    try std.testing.expect(!peer.session_state.hasInboundAnswer(virtual));
+    try std.testing.expect(!peer.session_state.holdsImport(.from(7)));
+    try std.testing.expect(peer.session_state.resolverForInboundAnswer(virtual) == null);
+
+    // Monotonic positions are not reused after rollback. A clean retry installs
+    // exactly one complete answer/resolver pair at the next virtual position.
+    failing.fail_index = std.math.maxInt(usize);
+    const retried = (try engine.v1_0.registerPartnerResolver(&peer, deliver)).?;
+    try std.testing.expectEqual(virtual.int() + 1, retried.int());
+    try std.testing.expect(peer.session_state.hasInboundAnswer(retried));
+    try std.testing.expectEqual(
+        @as(?model.ImportPosition, .from(7)),
+        peer.session_state.resolverForInboundAnswer(retried),
+    );
+}
+
 test "a rejected next answer reuse preserves the original resolver" {
     const allocator = std.testing.allocator;
     var peer = peer_fixture.openPeer(allocator);
@@ -417,7 +727,7 @@ test "V1_0 runtime translation synthesizes resolve-me-desc for answered deliver"
     // never aliases it (even on this un-opened raw peer).
     try std.testing.expectEqualSlices(
         u8,
-        "<10'op:deliver<11'desc:export7+>[5:hello]42+<19'desc:import-promise1+>>",
+        "<10'op:deliver<11'desc:export7+>[5:hello]42+<18'desc:import-object1+>>",
         outbound.bytes(),
     );
     try std.testing.expect(peer.session_state.hasExport(.from(1)));
@@ -1544,7 +1854,7 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
     try p1.session_state.registerImport(.from(7));
 
     // Sending a deliver that wants an answer on a v1.0 session mints the
-    // resolver export at encode time (`v1_0.installResolverForOutboundDeliver`) and puts
+    // resolver export at encode time (`v1_0.prepareOutboundDeliver`) and puts
     // its mention on the wire, which must carry the same wire-delta retain
     // `recordSend` would have added: local reference + one wire mention.
     const resolver_export = p1.session_state.next_export_position;
@@ -1615,7 +1925,7 @@ test "a gc wave over many answered delivers drops every V1.0 resolver link" {
     try peer.session_state.registerImport(.from(7));
 
     // Send a wave of answered delivers; encoding each mints its resolver
-    // export in order (`v1_0.installResolverForOutboundDeliver`).
+    // export in order (`v1_0.prepareOutboundDeliver`).
     const wave = 64;
     const first_resolver = peer.session_state.next_export_position;
     for (0..wave) |i| {

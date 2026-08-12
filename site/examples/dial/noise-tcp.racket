@@ -1,0 +1,9 @@
+(require "pancake.rkt")
+
+;; Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
+(define partner (noise-tcp-locator "<64 hex chars>" "127.0.0.1" 9099))
+
+(define session (connect partner))
+(define greeter (session-fetch session "greeter")) ; a capability, by name
+(printf "~a\n" (session-send session greeter 'greet "world"))
+(session-close! session)

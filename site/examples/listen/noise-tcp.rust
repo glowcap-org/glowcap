@@ -1,0 +1,17 @@
+use pancake::{listen_noise_tcp, Argument};
+
+// Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
+let seed = [7u8; 32]; // replace with durable secret bytes across restarts
+let server = listen_noise_tcp("127.0.0.1", 9099, Some(seed)).await?;
+println!("{}", server.uri()?); // hand this locator to partners
+loop {
+    let session = server.accept().await?;
+    session.publish("greeter", |_verb, args| {
+        let name = match args.first() {
+            Some(Argument::String(s)) => s.as_str(),
+            _ => "friend",
+        };
+        Ok(Argument::String(format!("hello, {name}").into()))
+    })?;
+    let _ = session.serve();
+}

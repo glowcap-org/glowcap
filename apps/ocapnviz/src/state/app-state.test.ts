@@ -15,7 +15,7 @@ function seed(overrides: Partial<AppState> = {}): AppState {
     scenarioId: "test",
     mode: "play",
     tool: "select",
-    liveUrl: "ws://localhost:9000/",
+    liveSturdyref: "ocapn://localhost%3A9000.tcp/s/trace",
     firstPickNodeId: null,
     autoSizeTimeline: true,
     ...overrides,
@@ -83,12 +83,12 @@ Deno.test("set-mode keeps an observation tool, resets an authoring one", () => {
   assertEquals(resetPeer.tool, "select");
 });
 
-Deno.test("set-live-url is independent of mode (stored across modes)", () => {
+Deno.test("set-live-sturdyref is independent of mode", () => {
   const next = reducer(seed({ mode: "play" }), {
-    type: "set-live-url",
-    url: "ws://other:9000/",
+    type: "set-live-sturdyref",
+    sturdyref: "ocapn://other%3A9000.tcp/s/trace",
   });
-  assertEquals(next.liveUrl, "ws://other:9000/");
+  assertEquals(next.liveSturdyref, "ocapn://other%3A9000.tcp/s/trace");
   assertEquals(next.mode, "play");
 });
 
@@ -101,7 +101,7 @@ Deno.test("persistence migration: legacy liveMode=true maps to mode=live", () =>
   const stored = {
     mode: "play" as const,
     liveMode: true,
-    liveUrl: "ws://x/",
+    liveSturdyref: "ocapn://x.tcp/s/trace",
     scenarioId: "fixture-a",
     tool: "select" as const,
     firstPickNodeId: null,
@@ -113,7 +113,7 @@ Deno.test("persistence migration: legacy liveMode=true maps to mode=live", () =>
   try {
     const init = makeInitialAppState();
     assertEquals(init.mode, "live");
-    assertEquals(init.liveUrl, "ws://x/");
+    assertEquals(init.liveSturdyref, "ocapn://x.tcp/s/trace");
     // Legacy `liveMode` field should NOT survive on the new shape.
     assertEquals(
       (init as unknown as { liveMode?: boolean }).liveMode,
@@ -128,7 +128,7 @@ Deno.test("persistence migration: legacy liveMode=false respects stored mode", (
   const stored = {
     mode: "build" as const,
     liveMode: false,
-    liveUrl: "ws://x/",
+    liveSturdyref: "ocapn://x.tcp/s/trace",
     scenarioId: "fixture-a",
     tool: "select" as const,
     firstPickNodeId: null,

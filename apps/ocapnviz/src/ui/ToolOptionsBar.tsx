@@ -149,9 +149,10 @@ export function ToolOptionsBar(
     /** The App's one draft store. This bar is its only subscriber;
      *  the click handlers that commit a draft read it directly. */
     drafts: ToolDraftStore;
-    /** Display label of the peer a two-click tool is waiting on a second click
-     *  for, or null when no gesture is part-finished. Present makes the row
-     *  below appear, which is the only on-screen way out of the flow. */
+    /** Display label of the node a two-click tool is waiting on a second click
+     *  for (peer or loose end), or null when no gesture is part-finished.
+     *  Present makes the row below appear, which is the only on-screen way
+     *  out of the flow. */
     armedLabel?: string | null;
     /** Abandon the part-finished gesture. The same verb Escape runs, because two
      *  ways to cancel that unwind differently is worse than one that is hard to
@@ -212,9 +213,9 @@ export function ToolOptionsBar(
             {tool === "open-session"
               ? (
                 <>
-                  Waiting on a second peer for{" "}
+                  Waiting on a second node for{" "}
                   <span style={armedWho}>{armedLabel}</span>. Clicking empty
-                  canvas ends the session at a peer nobody has named.
+                  canvas ends the session at an end nobody has attributed.
                 </>
               )
               : (

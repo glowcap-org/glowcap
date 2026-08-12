@@ -3,40 +3,39 @@
 // module (ADR-0059).
 //
 // This is the socket-free sibling of `./tcp.ts`: two peers in one process wired
-// by in-process pipes, no kernel transport and no file descriptors. It rides its
+// by in-process pipes and no kernel transport. The C listener adds a wake
+// descriptor for reactor integration; no application bytes flow through it. It rides its
 // own archive (`libpancake_net_transport_inproc`), symbol-disjoint from the core
 // and from the other transports, sharing the frame/context types by layout. The
 // lifecycle matches TCP — make the netlayer, bind a listener or dial a
-// connection, release the endpoints, then release the netlayer — but a listener
+// connection, release the connections, then release the netlayer — but a listener
 // binds to a string designator (any opaque token, not a host:port) and a dialer
 // names that designator.
 //
 //   using net = new Netlayer();
 //   using listener = net.listen("rooms");
-//   using client = net.connect("rooms");
-//   using server = listener.accept();
-//   client.writeFrame(frame);
-//   const got = server.readFrame();
+//   using client = await net.connect("rooms");
+//   using server = await listener.accept();
+//   await client.writeFrame(frame);
+//   const got = await server.readFrame();
 //
 // The in-process family keeps its own thread-local last-error, read through
 // `pancake_inproc_last_error`, so a failed call's diagnostic never scrapes the
 // core's unrelated `pancake_last_error`.
 
 import {
-	FRAME_BYTES_OFF,
-	FRAME_LEN_OFF,
-	FRAME_SHAPE_BYTE,
-	FRAME_SHAPE_OFF,
-	FRAME_SIZE,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
 } from "../internal/constants.ts";
 import { inprocS } from "../internal/ffi/inproc.ts";
-import { ffi, NULL, type Ptr } from "../internal/ffi/runtime.ts";
+import { type Ptr } from "../internal/ffi/runtime.ts";
 import { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "../internal/seam.ts";
 import { type Codec, codecId } from "../value.ts";
 import { PancakeError } from "../errors.ts";
+import { NativeHandle, NativeParent, requireOffThreadFfi, SingleFlight } from "./native_handle.ts";
+import { AsyncFfiWriteQueue, checkedMaxFrameBytes } from "./native_frame.ts";
+import { checkDiagnosedCall, NativeDiagnostic } from "./diagnostic.ts";
 
 const OK = 0;
 
@@ -59,109 +58,167 @@ function checkInproc(code: number): void {
 	}
 }
 
-/** A blocking in-process endpoint: the `pancake_inproc_*` frame shuttle over a
- * pair of pipes. Closed on `close` / `[Symbol.dispose]`. */
-export class Endpoint {
-	#raw: Ptr;
-	constructor(raw: Ptr) {
-		this.#raw = raw;
+/** An in-process connection whose potentially blocking operations run off-thread. */
+export class Connection {
+	readonly #native: NativeHandle;
+	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #reads = new SingleFlight("inproc read");
+	readonly #writes: AsyncFfiWriteQueue;
+	readonly #readDiagnostic = new NativeDiagnostic("inproc");
+	readonly #writeDiagnostic = new NativeDiagnostic("inproc");
+	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>, maxFrameBytes: number) {
+		this.#parent = parent;
+		this.#writes = new AsyncFfiWriteQueue("inproc", maxFrameBytes);
+		this.#native = new NativeHandle(
+			"inproc connection",
+			raw,
+			(p) => inprocS.pancake_inproc_conn_shutdown(p),
+			(p) => inprocS.pancake_inproc_conn_release(p),
+			(retirement) => this.#parent.retire(this, retirement),
+		);
+		if (!parent.adopt(this)) throw new Error("inproc netlayer is released");
 	}
 	close(): void {
-		if (this.#raw !== NULL) {
-			inprocS.pancake_inproc_conn_release(this.#raw);
-			this.#raw = NULL;
-		}
+		this.#native.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
 	}
-	/** Block for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
-	readFrame(): Uint8Array {
-		const mf = new Uint8Array(MANAGED_FRAME_SIZE);
-		checkInproc(inprocS.pancake_inproc_conn_read_frame(this.#raw, mf));
-		const dv = new DataView(mf.buffer);
-		// `readBytes` already returns JS-owned storage (the seam copies out of
-		// native memory), so it outlives the frame we release next — no extra copy.
-		const out = readBytes(
-			dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
-			dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true),
+	/** Wait for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
+	readFrame(): Promise<Uint8Array> {
+		requireOffThreadFfi("inproc", "readFrame");
+		return this.#reads.run(() =>
+			this.#native.use(async (raw) => {
+				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
+				try {
+					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
+						inprocS.pancake_inproc_conn_read_frame_with_diagnostic(
+							raw,
+							mf,
+							error,
+							cap,
+							errorLen,
+						));
+					const dv = new DataView(mf.buffer);
+					return readBytes(
+						dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
+						dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true),
+					);
+				} finally {
+					releaseManagedFrame(mf);
+				}
+			})
 		);
-		releaseManagedFrame(mf);
-		return out;
 	}
-	writeFrame(frame: Uint8Array): void {
-		const f = new Uint8Array(FRAME_SIZE);
-		const dv = new DataView(f.buffer);
-		dv.setBigUint64(FRAME_BYTES_OFF, ffi.pointerOf(frame), true);
-		dv.setBigUint64(FRAME_LEN_OFF, BigInt(frame.length), true);
-		dv.setUint32(FRAME_SHAPE_OFF, FRAME_SHAPE_BYTE, true);
-		checkInproc(inprocS.pancake_inproc_conn_write_frame(this.#raw, f));
+	writeFrame(frame: Uint8Array): Promise<void> {
+		requireOffThreadFfi("inproc", "writeFrame");
+		return this.#writes.run(frame, (owned) =>
+			this.#native.use(async (raw) => {
+				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
+					inprocS.pancake_inproc_conn_write_frame_with_diagnostic(
+						raw,
+						owned.argument(),
+						error,
+						cap,
+						errorLen,
+					));
+			}));
 	}
 }
 
 /** A bound in-process listener on a string designator. Closed on `close` /
  * `[Symbol.dispose]`. */
 export class Listener {
-	#raw: Ptr;
-	constructor(raw: Ptr) {
-		this.#raw = raw;
+	readonly #native: NativeHandle;
+	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #accepts = new SingleFlight("inproc accept");
+	readonly #acceptDiagnostic = new NativeDiagnostic("inproc");
+	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>) {
+		this.#parent = parent;
+		this.#native = new NativeHandle(
+			"inproc listener",
+			raw,
+			(p) => inprocS.pancake_inproc_listener_shutdown(p),
+			(p) => inprocS.pancake_inproc_listener_release(p),
+			(retirement) => this.#parent.retire(this, retirement),
+		);
+		if (!parent.adopt(this)) throw new Error("inproc netlayer is released");
 	}
 	close(): void {
-		if (this.#raw !== NULL) {
-			inprocS.pancake_inproc_listener_release(this.#raw);
-			this.#raw = NULL;
-		}
+		this.#native.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
 	}
+	/** Borrowed wake descriptor for integration with an external reactor. The
+	 * listener owns it; do not close it or retain it after `close`. */
+	readinessFd(): number {
+		const out = new Uint8Array(4);
+		checkInproc(inprocS.pancake_inproc_listener_readiness_fd(this.#native.borrow(), out));
+		return new DataView(out.buffer).getInt32(0, true);
+	}
 	/** Block until a dialer connects, returning the in-process connection framing
 	 * on `codec`, refusing inbound frames over `maxFrameBytes`. */
-	accept(codec: Codec = "syrup", maxFrameBytes = 4096): Endpoint {
-		const out = new Uint8Array(8);
-		checkInproc(
-			inprocS.pancake_inproc_accept(
-				this.#raw,
-				codecId(codec),
-				BigInt(maxFrameBytes),
-				out,
-			),
+	accept(codec: Codec = "syrup", maxFrameBytes = 4096): Promise<Connection> {
+		requireOffThreadFfi("inproc", "accept");
+		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
+		return this.#accepts.run(() =>
+			this.#native.use(async (raw) => {
+				const out = new Uint8Array(8);
+				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
+					inprocS.pancake_inproc_accept_with_diagnostic(
+						raw,
+						codecId(codec),
+						BigInt(frameLimit),
+						out,
+						error,
+						cap,
+						errorLen,
+					));
+				return new Connection(outPointer(out), this.#parent, frameLimit);
+			})
 		);
-		return new Endpoint(outPointer(out));
 	}
 }
 
 /** Owns the in-process switchboard and its one I/O backend; outlives the
- * endpoints and listeners made from it. */
+ * connections and listeners made from it. */
 export class Netlayer {
-	#raw: Ptr;
+	readonly #native: NativeParent<Connection | Listener>;
 	constructor(raw?: Ptr) {
-		if (raw !== undefined) {
-			this.#raw = raw;
-			return;
+		requireOffThreadFfi("inproc", "native transport lifecycle");
+		let native = raw;
+		if (native == null) {
+			const out = new Uint8Array(8);
+			checkInproc(inprocS.pancake_inproc_netlayer_new(out));
+			native = outPointer(out);
 		}
-		const out = new Uint8Array(8);
-		checkInproc(inprocS.pancake_inproc_netlayer_new(out));
-		this.#raw = outPointer(out);
+		this.#native = new NativeParent(
+			"inproc netlayer",
+			native,
+			undefined,
+			(p) => inprocS.pancake_inproc_netlayer_release(p),
+		);
 	}
 
 	release(): void {
-		if (this.#raw !== NULL) {
-			inprocS.pancake_inproc_netlayer_release(this.#raw);
-			this.#raw = NULL;
-		}
+		this.#native.close();
 	}
 	[Symbol.dispose](): void {
 		this.release();
+	}
+	async [Symbol.asyncDispose](): Promise<void> {
+		this.release();
+		await this.#native.waitClosed();
 	}
 	/** Bind a listener on `designator` (any opaque token). */
 	listen(designator: string): Listener {
 		const d = new TextEncoder().encode(designator);
 		const out = new Uint8Array(8);
 		checkInproc(
-			inprocS.pancake_inproc_listen(this.#raw, d, BigInt(d.length), out),
+			inprocS.pancake_inproc_listen(this.#native.borrow(), d, BigInt(d.length), out),
 		);
-		return new Listener(outPointer(out));
+		return new Listener(outPointer(out), this.#native);
 	}
 	/** Dial the listener bound at `designator` and return an in-process
 	 * connection framing on `codec`, refusing inbound frames over
@@ -170,19 +227,28 @@ export class Netlayer {
 		designator: string,
 		codec: Codec = "syrup",
 		maxFrameBytes = 4096,
-	): Endpoint {
+	): Promise<Connection> {
+		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		const d = new TextEncoder().encode(designator);
-		const out = new Uint8Array(8);
-		checkInproc(
-			inprocS.pancake_inproc_connect(
-				this.#raw,
-				d,
-				BigInt(d.length),
-				codecId(codec),
-				BigInt(maxFrameBytes),
-				out,
-			),
-		);
-		return new Endpoint(outPointer(out));
+		return this.#native.use(async (raw) => {
+			const out = new Uint8Array(8);
+			await checkDiagnosedCall(
+				"inproc",
+				"connect",
+				(error, cap, errorLen) =>
+					inprocS.pancake_inproc_connect_with_diagnostic(
+						raw,
+						d,
+						BigInt(d.length),
+						codecId(codec),
+						BigInt(frameLimit),
+						out,
+						error,
+						cap,
+						errorLen,
+					),
+			);
+			return new Connection(outPointer(out), this.#native, frameLimit);
+		});
 	}
 }

@@ -17,13 +17,15 @@ from __future__ import annotations
 import ctypes
 
 
-def ocapn_sigs(_Allocator, _ManagedFrame):
+def ocapn_sigs(_Allocator, _ManagedFrame, _LocatorHintView, _LocatorView):
     """``libpancake_ocapn`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
     u16 = ctypes.c_uint16
+    u8 = ctypes.c_uint8
     u32 = ctypes.c_uint32
     i32 = ctypes.c_int32
+    i64 = ctypes.c_int64
     size_p = ctypes.POINTER(size)
     u16_p = ctypes.POINTER(u16)
     u32_p = ctypes.POINTER(u32)
@@ -33,17 +35,32 @@ def ocapn_sigs(_Allocator, _ManagedFrame):
         "pancake_context_new_with_allocator": ([ctypes.POINTER(_Allocator), ctypes.POINTER(P)], i32),
         "pancake_context_release": ([P], None),
         "pancake_managed_frame_release": ([ctypes.POINTER(_ManagedFrame)], None),
-        "pancake_locator_record_encode": ([P, size, P, size, P, size, ctypes.POINTER(P), size_p], i32),
+        "pancake_locator_record_encode": ([ctypes.POINTER(_LocatorView), ctypes.POINTER(P), size_p], i32),
         "pancake_locator_record_bytes_release": ([P, size], None),
         "pancake_uri_parse_peer": ([P, size, ctypes.POINTER(P)], i32),
+        "pancake_uri_parse_peer_in": ([P, P, size, ctypes.POINTER(P)], i32),
         "pancake_uri_parse_sturdyref": ([P, size, ctypes.POINTER(P)], i32),
+        "pancake_uri_parse_sturdyref_in": ([P, P, size, ctypes.POINTER(P)], i32),
         "pancake_uri_format_peer": ([P, size, P, size, P, P, P, P, size, P, size, size_p], i32),
+        "pancake_uri_format_sturdyref": ([P, size, P, size, P, size, P, P, P, P, size, P, size, size_p], i32),
+        "pancake_locator_new": ([P, size, P, size, u32, ctypes.POINTER(P)], i32),
+        "pancake_locator_new_in": ([P, P, size, P, size, u32, ctypes.POINTER(P)], i32),
+        "pancake_locator_clone": ([ctypes.POINTER(_LocatorView), ctypes.POINTER(P)], i32),
+        "pancake_locator_clone_in": ([P, ctypes.POINTER(_LocatorView), ctypes.POINTER(P)], i32),
+        "pancake_locator_borrow_view": ([P, ctypes.POINTER(P)], i32),
+        "pancake_sturdyref_borrow_locator": ([P, ctypes.POINTER(P)], i32),
+        "pancake_sturdyref_swissnum": ([P, ctypes.POINTER(P), size_p], i32),
+        "pancake_sturdyref_release": ([P], None),
+        "pancake_locator_add_string": ([P, P, size, P, size], i32),
+        "pancake_locator_add_bytes": ([P, P, size, P, size], i32),
+        "pancake_locator_add_boolean": ([P, P, size, u8], i32),
+        "pancake_locator_add_integer": ([P, P, size, i64], i32),
         "pancake_locator_transport": ([P, ctypes.POINTER(P), size_p], i32),
         "pancake_locator_designator": ([P, ctypes.POINTER(P), size_p], i32),
         "pancake_designator_host_port": ([P, size, ctypes.POINTER(P), size_p, u16_p], i32),
-        "pancake_locator_swissnum": ([P, ctypes.POINTER(P), size_p], i32),
         "pancake_locator_hint_count": ([P, size_p], i32),
-        "pancake_locator_hint_at": ([P, size, ctypes.POINTER(P), size_p, ctypes.POINTER(P), size_p], i32),
+        "pancake_locator_hint_at": ([P, size, ctypes.POINTER(_LocatorHintView)], i32),
+        "pancake_locator_hint_wire_form": ([P, u32_p], i32),
         "pancake_locator_release": ([P], None),
         "pancake_context_new": ([ctypes.POINTER(P)], i32),
     }
@@ -56,8 +73,9 @@ def driver_sigs(
     _LastAbort,
     _DialPlan,
     _AcceptPlan,
-    _PendingDial,
     _HostPumpHooks,
+    _LocatorHintView,
+    _LocatorView,
     _HostBehavior,
     _PartnerIdentity,
     _TraceCallback,
@@ -68,6 +86,7 @@ def driver_sigs(
     u32 = ctypes.c_uint32
     u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
+    size_p = ctypes.POINTER(size)
     u32_p = ctypes.POINTER(u32)
     u64_p = ctypes.POINTER(u64)
     return {
@@ -75,26 +94,26 @@ def driver_sigs(
         "pancake_host_new_in": ([P, P, size, size, u32, u32, u32, u32, u32, ctypes.POINTER(P)], i32),
         "pancake_host_release": ([P], i32),
         "pancake_host_designator_from_seed": ([P, size, P, size], i32),
-        "pancake_host_set_self_designator": ([P, P, size], i32),
-        "pancake_host_set_advertised_locator": ([P, P, size], i32),
+        "pancake_host_set_advertised_locator": ([P, ctypes.POINTER(_LocatorView)], i32),
         "pancake_host_ensure_advertised_locator": ([P, P, size], i32),
         "pancake_host_remove_advertised_locator": ([P, P, size], i32),
-        "pancake_host_set_session_limits": ([P, size, size], i32),
+        "pancake_host_set_session_limits": ([P, size, size, size], i32),
         "pancake_host_session_open_dialed_locator": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
         "pancake_host_session_open_accepted": ([P, P, size, ctypes.POINTER(P)], i32),
         "pancake_host_plan_dial": ([P, size, P, size, P, size, u32, u32, ctypes.POINTER(_DialPlan)], i32),
-        "pancake_host_pending_dial": ([P, u64, ctypes.POINTER(_PendingDial)], i32),
+        "pancake_host_pending_dial": ([P, u64, ctypes.POINTER(_LocatorHintView), size, ctypes.POINTER(_LocatorView), size_p], i32),
         "pancake_host_reference_exporter": ([P, ctypes.POINTER(_Reference), ctypes.POINTER(P)], i32),
-        "pancake_host_plan_accept": ([P, size, P, size, P, size, ctypes.POINTER(_AcceptPlan)], i32),
+        "pancake_host_plan_accept": ([u32, P, size, P, size, ctypes.POINTER(_AcceptPlan)], i32),
         "pancake_host_session_release": ([P], i32),
         "pancake_host_session_is_open": ([P], i32),
         "pancake_host_session_trace_id": ([P, u64_p], i32),
         "pancake_host_session_feed_bytes": ([P, P, size], i32),
-        "pancake_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame)], i32),
-        "pancake_host_pump_drain": ([P, ctypes.POINTER(_HostPumpHooks), u32_p], i32),
+        "pancake_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame), P, size, size_p], i32),
+        "pancake_host_pump_drain": ([P, ctypes.POINTER(_HostPumpHooks), u32_p, u32_p], i32),
         "pancake_host_dialed": ([P, u64, P], i32),
         "pancake_host_dial_failed": ([P, u64, P, size], i32),
         "pancake_host_provide_gift_id": ([P, u64, P, size], i32),
+        "pancake_host_gift_id_failed": ([P, u64], i32),
         "pancake_host_session_publish": ([P, P, size, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
         "pancake_host_session_spawn": ([P, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
         "pancake_host_publish": ([P, P, size, _HostBehavior, P, P], i32),
@@ -105,7 +124,6 @@ def driver_sigs(
         "pancake_host_session_enliven": ([P, P, size, u64_p], i32),
         "pancake_host_enliven": ([P, P, size, u64_p], i32),
         "pancake_host_set_trace": ([P, _TraceCallback, P], i32),
-        "pancake_host_spawn_resolver": ([P, u64_p, u64_p], i32),
         "pancake_host_resolver_fulfill": ([P, u64, ctypes.POINTER(_Argument)], i32),
         "pancake_host_resolver_break": ([P, u64, P, size], i32),
         "pancake_host_session_listen": ([P, ctypes.POINTER(_Reference), u64_p], i32),
@@ -116,13 +134,13 @@ def driver_sigs(
         "pancake_host_vow_untag": ([P, u64, P, size, u64_p], i32),
         "pancake_host_vow_get": ([P, u64, P, size, u64_p], i32),
         "pancake_host_turn_forward": ([P, ctypes.POINTER(_Reference), P, size, ctypes.POINTER(_Argument), size, ctypes.POINTER(_Argument)], i32),
-        "pancake_host_turn_forward_vow": ([P, u64], i32),
+        "pancake_host_turn_defer": ([P, u64_p], i32),
         "pancake_host_turn_spawn": ([P, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
         "pancake_host_turn_break": ([P, P, size], i32),
         "pancake_host_ref_release": ([P, ctypes.POINTER(_Reference), u64], i32),
         "pancake_host_session_published_ref": ([P, P, size, ctypes.POINTER(_Reference)], i32),
         "pancake_host_session_break_far_vows": ([P, P, size], i32),
-        "pancake_host_session_set_exporter_location": ([P, P, size], i32),
+        "pancake_host_session_set_exporter_location": ([P, ctypes.POINTER(_LocatorView)], i32),
         "pancake_host_session_last_abort": ([P, ctypes.POINTER(_LastAbort)], i32),
         "pancake_host_session_partner_identity": ([P, ctypes.POINTER(_PartnerIdentity)], i32),
         "pancake_host_session_bind_verified_channel_key": ([P, P, size], i32),
@@ -130,25 +148,63 @@ def driver_sigs(
     }
 
 
-def tcp_sigs(_Frame, _ManagedFrame):
+def loop_sigs(_DriverOptions, _DriverEvent, _LocatorView, _TransportProvider):
+    """``libpancake_driver`` loop-family signatures, in the inventory's order."""
+    P = ctypes.c_void_p
+    size = ctypes.c_size_t
+    u32 = ctypes.c_uint32
+    u64 = ctypes.c_uint64
+    i32 = ctypes.c_int32
+    i32_p = ctypes.POINTER(i32)
+    u64_p = ctypes.POINTER(u64)
+    return {
+        "pancake_driver_take_host": ([P, ctypes.POINTER(_DriverOptions), ctypes.POINTER(P)], i32),
+        "pancake_driver_release": ([P], i32),
+        "pancake_driver_add_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
+        "pancake_driver_has_transport": ([P, P, size, P], i32),
+        "pancake_driver_dial": ([P, ctypes.POINTER(_LocatorView), u64_p], i32),
+        "pancake_driver_adopt_external": ([P, P, size, u64, u32, u64_p], i32),
+        "pancake_driver_listen": ([P, P, size, P, size, u64_p], i32),
+        "pancake_driver_listener_locator": ([P, u64, ctypes.POINTER(_LocatorView)], i32),
+        "pancake_driver_listener_advertise": ([P, u64, ctypes.POINTER(_LocatorView)], i32),
+        "pancake_driver_listener_select": ([P, u64], i32),
+        "pancake_driver_listener_close": ([P, u64], i32),
+        "pancake_driver_readiness_fd": ([P, i32_p], i32),
+        "pancake_driver_step": ([P, i32], i32),
+        "pancake_driver_detach_thread": ([P], i32),
+        "pancake_driver_wake": ([P], i32),
+        "pancake_driver_next_event": ([P, ctypes.POINTER(_DriverEvent)], i32),
+        "pancake_driver_session_release": ([P, P], i32),
+        "pancake_driver_last_error": ([P, size], size),
+        "pancake_driver_clear_last_error": ([], None),
+    }
+
+
+def tcp_sigs(_Frame, _ManagedFrame, _TransportProvider):
     """``libpancake_net_transport_tcp`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
     u16 = ctypes.c_uint16
     u32 = ctypes.c_uint32
     i32 = ctypes.c_int32
+    i32_p = ctypes.POINTER(i32)
     u16_p = ctypes.POINTER(u16)
     return {
         "pancake_tcp_last_error": ([P, size], size),
         "pancake_tcp_netlayer_new": ([ctypes.POINTER(P)], i32),
+        "pancake_tcp_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
+        "pancake_tcp_netlayer_shutdown": ([P], None),
         "pancake_tcp_netlayer_release": ([P], None),
         "pancake_tcp_connect": ([P, P, size, u16, u32, size, ctypes.POINTER(P)], i32),
         "pancake_tcp_listen": ([P, P, size, u16, ctypes.POINTER(P)], i32),
         "pancake_tcp_listener_port": ([P, u16_p], i32),
+        "pancake_tcp_listener_readiness_fd": ([P, i32_p], i32),
         "pancake_tcp_accept": ([P, u32, size, ctypes.POINTER(P)], i32),
         "pancake_tcp_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], i32),
         "pancake_tcp_conn_write_frame": ([P, ctypes.POINTER(_Frame)], i32),
+        "pancake_tcp_conn_shutdown": ([P], None),
         "pancake_tcp_conn_release": ([P], None),
+        "pancake_tcp_listener_shutdown": ([P], None),
         "pancake_tcp_listener_release": ([P], None),
     }
 
@@ -159,21 +215,55 @@ def inproc_sigs(_Frame, _ManagedFrame):
     size = ctypes.c_size_t
     u32 = ctypes.c_uint32
     i32 = ctypes.c_int32
+    i32_p = ctypes.POINTER(i32)
     return {
         "pancake_inproc_last_error": ([P, size], size),
         "pancake_inproc_netlayer_new": ([ctypes.POINTER(P)], i32),
         "pancake_inproc_netlayer_release": ([P], None),
         "pancake_inproc_connect": ([P, P, size, u32, size, ctypes.POINTER(P)], i32),
         "pancake_inproc_listen": ([P, P, size, ctypes.POINTER(P)], i32),
+        "pancake_inproc_listener_readiness_fd": ([P, i32_p], i32),
         "pancake_inproc_accept": ([P, u32, size, ctypes.POINTER(P)], i32),
         "pancake_inproc_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], i32),
         "pancake_inproc_conn_write_frame": ([P, ctypes.POINTER(_Frame)], i32),
+        "pancake_inproc_conn_shutdown": ([P], None),
         "pancake_inproc_conn_release": ([P], None),
+        "pancake_inproc_listener_shutdown": ([P], None),
         "pancake_inproc_listener_release": ([P], None),
     }
 
 
-def iroh_sigs(_IrohReadyEvent, _IrohConfig):
+def onion_sigs(_Frame, _ManagedFrame, _OnionConfig, _TransportProvider):
+    """``libpancake_net_transport_onion`` signatures, in the inventory's order."""
+    P = ctypes.c_void_p
+    size = ctypes.c_size_t
+    u32 = ctypes.c_uint32
+    i32 = ctypes.c_int32
+    size_p = ctypes.POINTER(size)
+    i32_p = ctypes.POINTER(i32)
+    u32_p = ctypes.POINTER(u32)
+    return {
+        "pancake_onion_last_error": ([P, size], size),
+        "pancake_onion_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
+        "pancake_onion_netlayer_new": ([ctypes.POINTER(_OnionConfig), ctypes.POINTER(P)], i32),
+        "pancake_onion_netlayer_shutdown": ([P], None),
+        "pancake_onion_netlayer_release": ([P], None),
+        "pancake_onion_connect": ([P, P, size, u32, size, ctypes.POINTER(P)], i32),
+        "pancake_onion_listen": ([P, P, size, size_p, P, size, size_p, ctypes.POINTER(P)], i32),
+        "pancake_onion_listener_wait": ([P, i32, u32_p], i32),
+        "pancake_onion_listener_readiness_fd": ([P, i32_p], i32),
+        "pancake_onion_conn_readiness_fd": ([P, i32_p], i32),
+        "pancake_onion_accept": ([P, u32, size, ctypes.POINTER(P)], i32),
+        "pancake_onion_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], i32),
+        "pancake_onion_conn_write_frame": ([P, ctypes.POINTER(_Frame)], i32),
+        "pancake_onion_conn_shutdown": ([P], None),
+        "pancake_onion_conn_release": ([P], None),
+        "pancake_onion_listener_shutdown": ([P], None),
+        "pancake_onion_listener_release": ([P], None),
+    }
+
+
+def iroh_sigs(_IrohReadyEvent, _IrohConfig, _TransportProvider):
     """``libpancake_net_transport_iroh`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
@@ -197,10 +287,11 @@ def iroh_sigs(_IrohReadyEvent, _IrohConfig):
         "pancake_iroh_netlayer_cancel_connect": ([P, size], i32),
         "pancake_iroh_conn_try_read": ([P, P, size, size_p], i32),
         "pancake_iroh_conn_try_write": ([P, P, size, size_p], i32),
+        "pancake_iroh_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
     }
 
 
-def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig):
+def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider):
     """``libpancake_net_transport_webrtc`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
@@ -213,6 +304,7 @@ def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig):
         "pancake_webrtc_netlayer_drain_ready": ([P, ctypes.POINTER(_WebrtcReadyEvent), size, size_p], i32),
         "pancake_webrtc_netlayer_release": ([P], None),
         "pancake_webrtc_peer_new": ([P, i32, ctypes.POINTER(P)], i32),
+        "pancake_webrtc_peer_authorize_remote": ([P, P, size], i32),
         "pancake_webrtc_peer_create_offer": ([P, P, size, size_p], i32),
         "pancake_webrtc_peer_create_answer": ([P, P, size, size_p], i32),
         "pancake_webrtc_peer_set_remote_offer": ([P, P, size], i32),
@@ -225,4 +317,19 @@ def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig):
         "pancake_webrtc_peer_try_write": ([P, P, size, size_p], i32),
         "pancake_webrtc_peer_close": ([P], None),
         "pancake_webrtc_peer_release": ([P], None),
+        "pancake_webrtc_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
+    }
+
+
+def relay_sigs(_RelayConfig, _TransportProvider):
+    """``libpancake_net_transport_relay`` signatures, in the inventory's order."""
+    P = ctypes.c_void_p
+    size = ctypes.c_size_t
+    i32 = ctypes.c_int32
+    return {
+        "pancake_relay_last_error": ([P, size], size),
+        "pancake_relay_clear_last_error": ([], None),
+        "pancake_relay_runtime_new": ([ctypes.POINTER(_RelayConfig), ctypes.POINTER(P)], i32),
+        "pancake_relay_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
+        "pancake_relay_runtime_release": ([P], None),
     }

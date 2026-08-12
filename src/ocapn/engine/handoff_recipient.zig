@@ -1,13 +1,31 @@
-//! Recipient-side handoff helpers (ADR-0009): session/side naming and signed
-//! `desc:handoff-receive` construction. I/O-bound withdraw choreography stays in
-//! the adapter; these are the crypto/session primitives any host needs.
+//! Recipient-side handoff helpers (ADR-0009): session/side naming, signed
+//! `desc:handoff-receive` construction, and the Peer outbound choreography
+//! that withdraws a gift. Crypto/session primitives stay at the top; the
+//! withdraw free function over `*Peer` is the same shape as `inbound.zig` /
+//! `outbound.zig`.
 
 const std = @import("std");
 
 const model = @import("model");
 const codec = @import("codec");
-const crypto = @import("foundation").crypto;
+const foundation = @import("foundation");
+const crypto = foundation.crypto;
 const handoff_names = @import("handoff_names.zig");
+
+const engine = @import("mod.zig");
+const Peer = engine.Peer;
+
+const CountIssuer = union(enum) {
+    session: *engine.bootstrap.GiftRegistry,
+    node_v1: engine.NodeServices,
+
+    fn prepare(self: CountIssuer) !engine.bootstrap.PreparedHandoffCount {
+        return switch (self) {
+            .session => |registry| registry.prepareEmittedCount(),
+            .node_v1 => |services| services.prepareV1EmittedHandoffCount(),
+        };
+    }
+};
 
 /// The side and session naming both handoff ends derive from session keys. The
 /// exporter checks an inbound receive against the same derivation, so they live
@@ -199,4 +217,62 @@ pub fn projectGiveForRedeem(
         error.MalformedLocatorRecord => .malformed,
     };
     return result;
+}
+
+/// Queue the recipient half of a three-party handoff: sign a
+/// `desc:handoff-receive` over `give_bytes` keyed by `secret`, mint the
+/// monotonic handoff-count from this session or its Node's V1 compatibility
+/// issuer, and queue `withdraw-gift` to the exporter's bootstrap under
+/// `answer`. The exporter session must be open — its partner key names the
+/// receive's session — or this fails with `error.NoExporterKey`. This is the
+/// one definition of the withdraw deliver shape; the `Node` redeem path and
+/// the C ABI both drive it. `give_bytes` is borrowed for the call.
+pub fn sendWithdrawGift(
+    peer: *Peer,
+    secret: foundation.crypto.SecretKey,
+    give_bytes: []const u8,
+    answer: model.AnswerPosition,
+) !void {
+    const exporter_key = peer.session_state.partnerSessionKey() orelse return error.NoExporterKey;
+    // Two different keys, deliberately (ADR-0097).
+    //
+    // `secret` signs, and it is the key of the session the *give arrived
+    // on*, because that is the identity the give named as its
+    // `recipient_key` and the exporter verifies this receive against that
+    // name. The side and session names below are this session's — the
+    // recipient–exporter one — because they name where the withdrawal is
+    // happening. Goblins draws the same distinction: its receive is signed
+    // by the coordinator that received the give while its names come from
+    // the exporter session's coordinator. Conflating them works only while
+    // one key serves every session.
+    const local_key = peer.session_state.localSessionKey() orelse
+        return error.NoLocalSessionKey;
+    const our_side_key = foundation.crypto.PeerKey.fromSlice(local_key) catch
+        return error.NoLocalSessionKey;
+    const issuer: CountIssuer = if (peer.session_state.captp_version == .v1_0)
+        if (peer.node_services) |services|
+            .{ .node_v1 = services }
+        else
+            .{ .session = peer.giftRegistry() }
+    else
+        .{ .session = peer.giftRegistry() };
+    const prepared_count = try issuer.prepare();
+    const signed = try signedReceiveFromGiveBytes(
+        peer.allocator,
+        prepared_count.count,
+        secret,
+        our_side_key,
+        exporter_key,
+        give_bytes,
+    );
+    defer signed.deinit(peer.allocator);
+    // `signed.message()` borrows `signed`; both outlive `sendCopying`, which
+    // deep-copies the deliver before this returns.
+    var handoff = model.Handoff{ .receive = signed.message() };
+    try peer.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
+        .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
+        .answer = answer,
+    } });
+    try prepared_count.commit();
 }

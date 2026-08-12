@@ -28,7 +28,7 @@
 
 (ignore-port-args "racket-iroh-reachability")
 
-;; Serve every connection a server accepts, each in its own green thread on the
+;; Serve every session a server accepts, each in its own green thread on the
 ;; one readiness loop; returns the accept thread. The per-connection serve threads
 ;; are pushed to `serves-box` so teardown can join them, they end on their own
 ;; when the server closes (its netlayer release feeds each accepted connection a
@@ -39,8 +39,8 @@
    (lambda ()
      (with-handlers ([exn:fail? (lambda (_) (void))])
        (let loop ()
-         (define conn (iroh-server-accept s))
-         (set-box! serves-box (cons (thread (lambda () (session-serve conn))) (unbox serves-box)))
+         (define session (iroh-server-accept s))
+         (set-box! serves-box (cons (thread (lambda () (session-serve session))) (unbox serves-box)))
          (loop))))))
 
 ;; ── Server: a giftable greeter, dialable by node id alone over discovery ───────

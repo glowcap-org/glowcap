@@ -3,20 +3,19 @@
 //! language binding used to re-express in its own `connect` / `dial_exporter`
 //! and `Server.accept`. It is sans-io — it decides *what* to dial or sign, and
 //! the caller opens the byte channel — so it lives in `driver_core` under the
-//! I/O ban and reuses the one policy table `vocab` already owns
-//! (`designatorSchemeForTransport`, `requiresDirectAddressesHint`), the one
-//! TCP host:port admission `model.uri.tcpConnectHostPort`, and the one key
-//! designator predicate `foundation.crypto.PeerKey.fromDesignator`. Nothing
-//! here parses a URI or re-encodes those rules; it composes them. The native
+//! I/O ban and reuses `model.transport.Known` for transport posture, the one TCP
+//! host:port admission `model.uri.tcpConnectHostPort`, and the one key designator
+//! predicate `foundation.crypto.PeerKey.fromDesignator`. Nothing here parses a
+//! URI or re-encodes those rules; it composes them. The native
 //! `tcp.DialResolver` / `iroh.DialResolver` call the same hostport / key
 //! helpers, so this is that path's byte-fed twin, not a second copy of its
 //! rules.
 //!
-//! Open shapes are `host_port` (tcp / keyed-tcp), `peer_id` (iroh),
+//! Open shapes are `host_port` (tcp / keyed-tcp / noise-tcp), `peer_id` (iroh),
 //! `signaling` (webrtc, which names no dialable address), and `rendezvous`
-//! (keyed-relay, whose byte path is a relay's rendezvous bridge). The product
-//! string stays in the policy table; the plan tag names what to open, not
-//! which netlayer archive opens it.
+//! (keyed-relay, whose byte path is a relay's rendezvous bridge). The one
+//! `model.transport` metadata definition maps product symbols to these shapes;
+//! a plan tag names host integration, not which provider implements it.
 //!
 //! Every returned view borrows the caller's `transport` / `designator` / hint
 //! buffers (or, for a missing accept address, a static placeholder). The plan
@@ -32,17 +31,18 @@ const crypto = foundation.crypto;
 
 pub const Error = error{
     /// The locator names a transport this planner does not dial (only `tcp`,
-    /// `keyed-tcp`, `iroh`, `webrtc`, and `keyed-relay` are admitted here).
+    /// `keyed-tcp`, `noise-tcp`, `iroh`, `webrtc`, and `keyed-relay` are
+    /// admitted here).
     UnknownTransport,
-    /// A `tcp` designator, or the first entry of a `keyed-tcp` direct-addresses
-    /// hint, is not the `host:port` grammar.
+    /// A `tcp` designator, or the first entry of a keyed-transport
+    /// direct-addresses hint, is not the `host:port` grammar.
     DesignatorNotHostPort,
-    /// A `keyed-tcp` or `iroh` designator is not a canonical Ed25519 key
+    /// A key-designator transport's designator is not a canonical Ed25519 key
     /// (lowercase hex of the fixed designator length).
     DesignatorNotPeerKey,
-    /// A `keyed-tcp` dial has no direct-addresses hint to dial: the key
-    /// designator says who to trust, and the hint says where to reach them, so
-    /// a keyed-tcp dial cannot proceed without it.
+    /// A `keyed-tcp` or `noise-tcp` dial has no direct-addresses hint to
+    /// dial: the key designator says who to trust, and the hint says where to
+    /// reach them, so the dial cannot proceed without it.
     MissingDirectAddressesHint,
     /// A peer-id open (`iroh` locator) `connect` named no reachability posture.
     /// There is no default: a caller must choose how the endpoint becomes
@@ -111,53 +111,53 @@ pub fn planDial(
     direct_addresses_hint: []const u8,
     posture: Posture,
 ) Error!DialPlan {
-    if (std.mem.eql(u8, transport, model.transport.tcp) or
-        std.mem.eql(u8, transport, model.transport.keyed_tcp))
-    {
-        if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) {
+    const known = model.transport.parseKnown(transport) orelse return Error.UnknownTransport;
+    return planDialProfile(known.metadata(), designator, direct_addresses_hint, posture);
+}
+
+/// Resolve a dial from the profile registered by the provider that will
+/// realize it. This is the extension-capable authority path; the symbol-only
+/// wrapper above exists for callers deliberately planning canonical built-ins.
+pub fn planDialProfile(
+    metadata: model.transport.Metadata,
+    designator: []const u8,
+    direct_addresses_hint: []const u8,
+    posture: Posture,
+) Error!DialPlan {
+    switch (metadata.dial_shape) {
+        .host_port => {
+            if (metadata.designator_scheme == .key) {
+                if (crypto.PeerKey.fromDesignator(designator) == null)
+                    return Error.DesignatorNotPeerKey;
+            }
+            const hp = model.uri.connectHostPort(metadata, designator, direct_addresses_hint) catch |err| switch (err) {
+                error.UnknownTransport => return Error.UnknownTransport,
+                error.MissingDirectAddressesHint => return Error.MissingDirectAddressesHint,
+                error.InvalidHostPort => return Error.DesignatorNotHostPort,
+                else => unreachable, // helper only returns the three above
+            };
+            return .{ .host_port = .{ .host = hp.host, .port = hp.port } };
+        },
+        .peer_id => {
             if (crypto.PeerKey.fromDesignator(designator) == null)
                 return Error.DesignatorNotPeerKey;
-        }
-        const hp = model.uri.tcpConnectHostPort(transport, designator, direct_addresses_hint) catch |err| switch (err) {
-            error.UnknownTransport => return Error.UnknownTransport,
-            error.MissingDirectAddressesHint => return Error.MissingDirectAddressesHint,
-            error.InvalidHostPort => return Error.DesignatorNotHostPort,
-            else => unreachable, // helper only returns the three above
-        };
-        return .{ .host_port = .{ .host = hp.host, .port = hp.port } };
+            // The key designator is the provider's peer id (caller retains it);
+            // direct addresses ride the hint verbatim, and reachability follows
+            // the caller's policy.
+            const reach: Reach = switch (posture) {
+                .redeem => if (direct_addresses_hint.len != 0) .direct else .configured,
+                .explicit => |v| .{ .explicit = v },
+                .explicit_none => return Error.ReachabilityRequired,
+            };
+            return .{ .peer_id = .{ .addresses = direct_addresses_hint, .reach = reach } };
+        },
+        .signaling, .rendezvous => {
+            if (crypto.PeerKey.fromDesignator(designator) == null)
+                return Error.DesignatorNotPeerKey;
+            return if (metadata.dial_shape == .signaling) .signaling else .rendezvous;
+        },
+        .unsupported => return Error.UnknownTransport,
     }
-
-    if (std.mem.eql(u8, transport, model.transport.iroh)) {
-        if (crypto.PeerKey.fromDesignator(designator) == null)
-            return Error.DesignatorNotPeerKey;
-        // The key designator is the node id (caller retains it); the direct
-        // addresses ride the hint verbatim, and the reachability posture
-        // follows the caller's policy.
-        const reach: Reach = switch (posture) {
-            .redeem => if (direct_addresses_hint.len != 0) .direct else .configured,
-            .explicit => |v| .{ .explicit = v },
-            .explicit_none => return Error.ReachabilityRequired,
-        };
-        return .{ .peer_id = .{ .addresses = direct_addresses_hint, .reach = reach } };
-    }
-
-    if (std.mem.eql(u8, transport, model.transport.webrtc)) {
-        // No dialable address; validate the key designator and hand back the
-        // signaling plan.
-        if (crypto.PeerKey.fromDesignator(designator) == null)
-            return Error.DesignatorNotPeerKey;
-        return .signaling;
-    }
-
-    if (std.mem.eql(u8, transport, model.transport.keyed_relay)) {
-        // No dialable address; validate the key designator and hand back the
-        // rendezvous plan.
-        if (crypto.PeerKey.fromDesignator(designator) == null)
-            return Error.DesignatorNotPeerKey;
-        return .rendezvous;
-    }
-
-    return Error.UnknownTransport;
 }
 
 /// What an accepted CapTP session signs as its own locator: the designator a
@@ -189,11 +189,11 @@ pub const AcceptPlan = struct {
 /// has none to give — `webrtc` and `keyed-relay`, reached by signaling and by
 /// rendezvous — the hint stays empty on its own, with no table here to say so.
 pub fn planAccept(
-    transport: []const u8,
+    scheme: model.transport.DesignatorScheme,
     server_designator: []const u8,
     accepted_local_addr: []const u8,
 ) AcceptPlan {
-    return switch (vocab.designatorSchemeForTransport(transport)) {
+    return switch (scheme) {
         .address => .{
             .designator = if (accepted_local_addr.len != 0)
                 accepted_local_addr
@@ -204,8 +204,7 @@ pub fn planAccept(
             .designator = server_designator,
             // Passed through, not filtered by transport: which hints a locator
             // carries is the netlayer's business, and it has already answered by
-            // what it wrote here. See `vocab`, beside
-            // `requiresDirectAddressesHint`.
+            // what it wrote here.
             .direct_addresses_hint = accepted_local_addr,
         },
     };

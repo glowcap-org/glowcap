@@ -31,8 +31,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use pancake_rust_dogfood::{
-	connect, encode_peer_locator, format_peer_uri, listen_iroh, Argument, IrohConfig, Reachability,
-	Ref, Session, HINT_DIRECT_ADDRESSES, TRANSPORT_IROH,
+	connect, format_peer_uri, listen_iroh, parse_locator, Argument, IrohConfig, Reachability, Ref,
+	Session, HINT_DIRECT_ADDRESSES, TRANSPORT_IROH,
 };
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Fail> {
 
 async fn run() -> Result<(), Fail> {
 	// ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct))?);
+	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct)).await?);
 	exporter
 		.host()
 		.publish_giftable("greeter", || Box::new(greeter()));
@@ -61,7 +61,7 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-handoff: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
-	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct))?);
+	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct)).await?);
 	let gifter_host = gifter.host();
 	// Wait for the gifter endpoint's direct addresses so its `uri()` is dialable
 	// under the relay-less Direct posture.
@@ -95,11 +95,8 @@ async fn run() -> Result<(), Fail> {
 	// The exporter's own signed session record names it by node id alone — not
 	// dialable under the relay-less Direct posture — so record its full dialable
 	// location (id + direct-addresses) as the give's exporter location.
-	to_exporter.set_exporter_locator(encode_peer_locator(
-		pancake_rust_dogfood::TRANSPORT_IROH,
-		&exporter_id,
-		&exporter_addrs,
-	)?)?;
+	let exporter_locator = parse_locator(&exporter_uri)?;
+	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
 	gifter_host.publish_giftable("introducer", move || {
 		let greeter = greeter_ref.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {

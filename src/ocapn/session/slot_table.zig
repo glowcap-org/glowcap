@@ -157,6 +157,14 @@ pub const ExportTable = struct {
         return self.slots.cell(position.int());
     }
 
+    /// Reserve backing capacity for exports a prepared send may establish.
+    /// Existing rows make an overestimate harmless; the caller's commit can
+    /// then register and retain without allocating after authority moves.
+    pub fn ensureUnusedCapacity(self: *ExportTable, allocator: std.mem.Allocator, additional: usize) !void {
+        const count32 = std.math.cast(u32, additional) orelse return error.OutOfMemory;
+        try self.slots.rows.ensureUnusedCapacity(allocator, count32);
+    }
+
     /// Wire-held references to `position`: the refcount minus the local
     /// baseline every live export row carries. This is the most a partner's
     /// `op:gc-exports` may release — validating inbound GC against `count`
@@ -213,12 +221,12 @@ pub const ExportTable = struct {
 /// `register`: imports are only ever retained.
 pub const ImportTable = struct {
     slots: SlotTable = .empty,
-    /// Optional identities attached to live import rows: the old Node routing
+    /// Optional identities attached to live import rows: the Node routing
     /// token (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
     /// with the import row, so partner reuse of one numeric position cannot
     /// revive either identity. One optional map preserves the one-word empty
-    /// session cost while the two application representations overlap during
-    /// migration; the map is bounded by the import table's own cap.
+    /// session cost while the two layer-specific identities coexist; the map
+    /// is bounded by the import table's own cap.
     identities: ?*IdentityMap = null,
 
     const Identity = struct {

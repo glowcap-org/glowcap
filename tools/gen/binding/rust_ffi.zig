@@ -15,10 +15,13 @@ const std = @import("std");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
+const cdr = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
+const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
+const cr = @import("c_abi_net_transport_relay");
 
 pub const step_name = "gen-binding-rust-ffi";
 
@@ -26,11 +29,14 @@ const Output = @import("output").Output;
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/ocapn_fns_gen.rs", .generate = generateOcapn },
-    .{ .path = "bindings/rust/src/sys/host_fns_gen.rs", .generate = generateDriver },
+    .{ .path = "bindings/rust/src/sys/host_fns_gen.rs", .generate = generateHost },
+    .{ .path = "bindings/rust/src/sys/driver_fns_gen.rs", .generate = generateLoop },
     .{ .path = "bindings/rust/src/sys/tcp_fns_gen.rs", .generate = generateTcp },
     .{ .path = "bindings/rust/src/sys/inproc_fns_gen.rs", .generate = generateInproc },
+    .{ .path = "bindings/rust/src/sys/onion_fns_gen.rs", .generate = generateOnion },
     .{ .path = "bindings/rust/src/sys/iroh_fns_gen.rs", .generate = generateIroh },
     .{ .path = "bindings/rust/src/sys/webrtc_fns_gen.rs", .generate = generateWebrtc },
+    .{ .path = "bindings/rust/src/sys/relay_fns_gen.rs", .generate = generateRelay },
 };
 
 /// `module.PancakeIrohNetlayer` → `PancakeIrohNetlayer`.
@@ -71,6 +77,8 @@ fn rustParamType(comptime T: type, comptime specials: []const Special) []const u
         },
         .int => switch (T) {
             i32 => "c_int",
+            i64 => "i64",
+            u8 => "u8",
             u16 => "u16",
             u32 => "c_uint",
             u64 => "u64",
@@ -203,6 +211,27 @@ fn renderArchive(
     return out.toOwnedSlice(gpa);
 }
 
+fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, cdr, "include/pancake_driver.h",
+        \\// The raw extern block of the `pancake_driver_*` loop family (ADR-0112),
+        \\// exported only by `libpancake_driver`. The loop adopts a Host created
+        \\// through the separate `libpancake_host` archive. The hand-written
+        \\// sibling (`driver.rs`) owns the `#[repr(C)]` mirrors and their layout
+        \\// pins, and re-exports this block.
+        \\
+        \\
+    ,
+        \\use core::ffi::{c_int, c_uchar, c_uint};
+        \\
+    ++ "\nuse super::driver::{\n" ++
+        "\tPancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportProvider,\n" ++
+        \\};
+        \\use super::host::{PancakeHost, PancakeHostSession};
+        \\use super::ocapn::PancakeLocatorView;
+        \\
+    , &.{});
+}
+
 fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
     return renderArchive(gpa, c, "include/pancake_ocapn.h",
         \\// The raw extern block of `libpancake_ocapn`. The hand-written sibling
@@ -210,18 +239,18 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
         \\// and re-exports this block, so consumers keep their `sys::pancake_*` paths.
         \\
         \\
-    ,
-        \\use core::ffi::{c_int, c_uchar};
-        \\
-        \\use super::ocapn::{PancakeAllocator, PancakeContext, PancakeLocator, PancakeManagedFrame};
-        \\
-    , &.{});
+    , "use core::ffi::{c_int, c_uchar, c_uint};\n\n" ++
+        "use super::ocapn::{\n" ++
+        "\tPancakeAllocator, PancakeContext, PancakeLocator, PancakeLocatorHintView, PancakeLocatorView,\n" ++
+        "\tPancakeManagedFrame, PancakeSturdyRef,\n" ++
+        "};\n", &.{});
 }
 
-fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
+fn generateHost(gpa: std.mem.Allocator) ![]u8 {
     return renderArchive(gpa, cd, "include/pancake_host.h",
-        \\// The raw extern block of `libpancake_host`. The hand-written sibling
-        \\// (`driver.rs`) owns the `#[repr(C)]` mirrors, the callback `pub type`
+        \\// The raw extern block of the `pancake_host_*` family, exported by the
+        \\// `libpancake_host` archive. The hand-written sibling
+        \\// (`host.rs`) owns the `#[repr(C)]` mirrors, the callback `pub type`
         \\// aliases, and their layout pins, and re-exports this block, so consumers
         \\// keep their `sys::host::pancake_host_*` paths.
         \\
@@ -230,8 +259,9 @@ fn generateDriver(gpa: std.mem.Allocator) ![]u8 {
         "use super::host::{\n" ++
         "\tPancakeAcceptPlan, PancakeDialPlan, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree,\n" ++
         "\tPancakeHostPumpHooks, PancakeHostSession, PancakeHostTurn, PancakePartnerIdentity,\n" ++
-        "\tPancakePendingDial, PancakeTraceCallback,\n" ++
+        "\tPancakeTraceCallback,\n" ++
         "};\n" ++
+        "use super::ocapn::{PancakeLocatorHintView, PancakeLocatorView};\n" ++
         "use crate::sys::{\n" ++
         "\tPancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference,\n" ++
         "};\n", &.{
@@ -252,6 +282,7 @@ fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
         \\use core::ffi::{c_int, c_uchar, c_uint};
         \\
         \\use super::tcp::{PancakeTcpConn, PancakeTcpListener, PancakeTcpNetlayer};
+        \\use crate::sys::driver::PancakeTransportProvider;
         \\use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
         \\
     , &.{});
@@ -273,6 +304,24 @@ fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
     , &.{});
 }
 
+fn generateOnion(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, con, "include/pancake_net_transport_onion.h",
+        \\// The raw extern block of `libpancake_net_transport_onion`. The
+        \\// hand-written sibling (`onion.rs`) owns the opaque types and re-exports
+        \\// this block, so consumers keep their `sys::onion::pancake_onion_*` paths.
+        \\
+        \\
+    ,
+        \\use core::ffi::{c_int, c_uchar, c_uint};
+        \\
+        \\use super::onion::{PancakeOnionConfig, PancakeOnionConn};
+        \\use super::onion::{PancakeOnionListener, PancakeOnionNetlayer};
+        \\use crate::sys::driver::PancakeTransportProvider;
+        \\use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
+        \\
+    , &.{});
+}
+
 fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     return renderArchive(gpa, ci, "include/pancake_net_transport_iroh.h",
         \\// The raw extern block of `libpancake_net_transport_iroh`. The hand-written
@@ -284,6 +333,7 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     ,
         \\use core::ffi::{c_int, c_uchar};
         \\
+        \\use super::driver::PancakeTransportProvider;
         \\use super::iroh::{PancakeIrohConfig, PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent};
         \\
     , &.{});
@@ -297,10 +347,21 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\// `sys::webrtc::pancake_webrtc_*` paths.
         \\
         \\
-    ,
-        \\use core::ffi::{c_int, c_uchar};
+    , "use core::ffi::{c_int, c_uchar};\n\n" ++
+        "use super::webrtc::{\n" ++
+        "\tPancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent,\n" ++
+        "};\n", &.{});
+}
+
+fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, cr, "include/pancake_net_transport_relay.h",
+        \\// The raw extern block of `libpancake_net_transport_relay`. The hand-written
+        \\// sibling (`relay.rs`) owns the config and opaque handle mirrors and
+        \\// re-exports this block, so consumers keep their `sys::relay::*` paths.
         \\
-        \\use super::webrtc::{PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};
         \\
-    , &.{});
+    , "use core::ffi::{c_int, c_uchar};\n\n" ++
+        "use super::driver::PancakeTransportProvider;\n" ++
+        "use super::ocapn::PancakeContext;\n" ++
+        "use super::relay::{PancakeRelayConfig, PancakeRelayRuntime};\n", &.{});
 }

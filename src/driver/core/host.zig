@@ -58,7 +58,7 @@ pub const HostError = error{
     /// The session lost the crossed-hellos tiebreak (ADR-0030) and is
     /// condemned: its typed abort is queued for the embedder to drain, and no
     /// further verb may ride it.
-    ConnectionCondemned,
+    SessionCondemned,
     /// A top-level (host-driving) verb was re-entered from inside a listener
     /// or behavior callback. Every public verb is one of two kinds: top-level
     /// verbs refuse this error under the latch, and the enqueueing verbs —
@@ -84,6 +84,13 @@ pub const HostError = error{
     /// capability appeared in a resolver settle, whose plain-data contract
     /// has no session to home one (ADR-0102). The verb is refused whole.
     ForeignArgument,
+    /// `deferTurn` was given a turn or session not owned by this Host, or a
+    /// turn whose Vat/Port/ingress provenance disagrees with that session.
+    /// Resolver authority is never minted across Host boundaries.
+    ForeignTurn,
+    /// `deferTurn` was called for a served tell. A tell carries no answer to
+    /// defer, so minting a resolver would create authority with no effect.
+    NoAnswer,
     /// The target token's exporter session is gone; the send is dropped,
     /// not mis-sent (the node's fail-closed contract).
     TokenRetired,
@@ -100,9 +107,6 @@ pub const HostError = error{
     /// `Options.verify_partner` off. Nothing about the partner was proved, so
     /// there is no verified identity to report rather than an unchecked one.
     PartnerUnverified,
-    /// `setSelfDesignator` was given a designator longer than the retained
-    /// 64-byte buffer.
-    DesignatorTooLong,
     /// A locator on a key-designator transport named a durable key this host
     /// does not hold (ADR-0105). A peer cannot publish another node's identity.
     UnheldIdentity,
@@ -133,11 +137,15 @@ pub const HostError = error{
     /// positions are Host/session-scoped and must never be resolved through a
     /// caller-selected owner.
     ForeignSession,
+    /// The embedder has not drained enough encoded outbound bytes from this
+    /// session. Drain `takeOutbound`, write those bytes, then retry the
+    /// host-driving verb.
+    OutboundBackpressure,
     /// Lift was called again for an import whose wire retains have all already
     /// been surfaced as Host handles.
     NoUnliftedImportRetain,
-    /// The legacy position release tried to bypass an opaque Host handle that
-    /// now owns release of this import row.
+    /// A position-based release tried to bypass the opaque Host handle that
+    /// owns release of this import row.
     ImportLifted,
     /// A sturdyref's `(transport, designator)` does not name the selected
     /// session. The swiss is never interpreted outside its peer namespace.
@@ -160,28 +168,26 @@ pub const HostError = error{
     /// The mirror of `HandshakeIncomplete`: one names a fact not yet knowable,
     /// this one a fact stated too late to count.
     HandshakeAlreadyApplied,
-};
-
-/// Where a session's signing seed comes from (ADR-0097).
-///
-/// The sans-io core draws no entropy, so this is a supplied source, not a
-/// generator. `rooted` is the shipped posture: the adapter hands the host one
-/// 32-byte root drawn at its own entropy boundary, and each session's seed is
-/// derived from that root and a per-host counter, so every connection signs
-/// with its own key while the core stays deterministic given its inputs.
-///
-/// `reused_durable` is the older posture, kept because it is what a caller
-/// gets when it supplies no root, and because deterministic session keys are
-/// what fixtures want: every session signs with the host's durable seed, so
-/// session identity and durable node identity coincide and a reconnect
-/// recreates a prior session's handoff names.
-pub const SessionSeedSource = union(enum) {
-    /// Every session signs with the host's durable seed.
-    reused_durable: [crypto.SEED_BYTES]u8,
-    /// Each session's seed is derived from this root and the host's session
-    /// counter. A root drawn freshly per process is what makes an old handoff
-    /// certificate fail to resolve after a reconnect.
-    rooted: [crypto.SEED_BYTES]u8,
+    /// `feed` or another whole-frame verb was aimed at a sealed session. The
+    /// sealed channel owns that session's wire: inbound arrives as wire bytes
+    /// through `feedBytes` and outbound leaves through
+    /// `HostSession.takeOutbound` as sealed bytes written verbatim.
+    SealedSessionBytesOnly,
+    /// The session's sealed channel refused — a handshake message or record
+    /// that did not verify, or a seal that could not complete. The session is
+    /// condemned without an `op:abort` echo (no plaintext may follow) and the
+    /// embedder's close action names it.
+    SealedChannelFailed,
+    /// A transport extension was used before a provider registered its
+    /// designation semantics. Unknown symbols never inherit address semantics.
+    UnknownTransport,
+    /// A provider contradicted the built-in semantics of its transport symbol.
+    TransportSemanticsConflict,
+    /// A second provider attempted to own a transport symbol already registered
+    /// on this Host.
+    TransportAlreadyRegistered,
+    /// A provider attempted to register the empty transport symbol.
+    InvalidTransportName,
 };
 
 /// Domain separator for session-seed derivation, so a root can never yield
@@ -272,14 +278,14 @@ pub const HostSession = struct {
     host: *Host,
     peer_id: engine.PeerId,
     served: Served,
-    /// The actual netlayer name this connection was opened through. Owned by
+    /// The actual netlayer name this session was opened through. Owned by
     /// the shell; sturdyref peer equality includes it and never infers it from
     /// a partner's signed claim.
     transport: []const u8,
     role: Role,
     /// Set when either side ended this session: a local verdict queues its
     /// typed abort, while a partner abort closes without an echo. Every later
-    /// verb refuses `ConnectionCondemned` in both cases.
+    /// verb refuses `SessionCondemned` in both cases.
     condemned: bool = false,
     /// The Port's Vat ingress was already removed by condemnation/teardown.
     ingress_cancelled: bool = false,
@@ -301,10 +307,21 @@ pub const HostSession = struct {
     /// and the seam that reads this is what makes drawing a fresh one per
     /// connection a change of one assignment.
     session_seed: [crypto.SEED_BYTES]u8 = undefined,
+    /// The sealed byte channel this session's wire runs through (ADR-0107),
+    /// or null for every unsealed session — one nullable pointer on the
+    /// shell, with the channel itself heap-boxed only when a sealed transport
+    /// is opened. Created by the open verbs in `sessions.zig`, freed with the
+    /// shell.
+    sealed: ?*foundation.sealed.SealedChannel = null,
     /// Partner session key this shell is indexed under in `Host.partner_by_side`,
     /// set in `indexPartnerKey` (before apply writes `partnerSessionKey`).
     /// Lets `unindexSession` stay O(1) without scanning the map.
     indexed_partner_key: ?[crypto.PEER_KEY_BYTES]u8 = null,
+
+    /// Encoded outbound bytes this session may leave parked before another
+    /// application or inbound producer is refused. Minted with the peer's
+    /// other limits: changing Host options later affects only future sessions.
+    outbound_high_water_bytes: usize,
 
     /// The unconsumed stream tail `Host.feedBytes` keeps between chunks: a
     /// partial frame straddling two reads, or the frames one read coalesced
@@ -332,11 +349,59 @@ pub const HostSession = struct {
     /// when the queue is empty. Owned: the caller frees the returned frame.
     /// Top-level: refused under the callback latch — the enclosing verb's
     /// unwind is still encoding, so a mid-callback drain would race it.
+    ///
+    /// On a sealed session (ADR-0107) what drains is wire bytes the embedder
+    /// writes verbatim, with no outer framing of its own: the pending
+    /// handshake message first, then each encoded frame sealed into records
+    /// (the outer Syrup prefix rides inside the plaintext). Until the
+    /// handshake completes, encoded CapTP frames stay queued and this returns
+    /// null once the handshake bytes drain. A frame that cannot be sealed is
+    /// unrecoverable — it has left the queue and no plaintext may follow —
+    /// so the session is condemned without an abort echo and the caller sees
+    /// `SealedChannelFailed` (or the allocation failure that forced it).
     pub fn takeOutbound(self: *HostSession) HostError!?foundation.Frame {
         try self.host.refuseReentry();
-        const frame = self.served.takeOutbound() orelse return null;
+        const channel = self.sealed orelse {
+            const frame = self.served.takeOutbound() orelse return null;
+            self.traceOutboundFrame(&frame);
+            return frame;
+        };
+        if (channel.takeWire(self.host.allocator) catch return HostError.OutOfMemory) |wire| return wire;
+        if (!channel.isOpen()) return null;
+        var frame = self.served.takeOutbound() orelse return null;
         self.traceOutboundFrame(&frame);
-        return frame;
+        defer frame.deinit();
+        return channel.sealFrame(self.host.allocator, frame.bytes()) catch |err| {
+            channel.fail();
+            host_pump.retireSealedSession(self.host, self);
+            return if (err == error.OutOfMemory) HostError.OutOfMemory else HostError.SealedChannelFailed;
+        };
+    }
+
+    /// One transport-ready byte-stream write: `prefixBytes()` followed by the
+    /// owned payload. Clear streams carry the canonical outer Syrup byte-string
+    /// prefix; a sealed channel already put that prefix inside its ciphertext,
+    /// so its prefix is empty. This is the sole authority for that distinction.
+    pub const StreamOutbound = struct {
+        payload: foundation.Frame,
+        prefix: [foundation.stream_framing.prefix_buffer_bytes]u8 = undefined,
+        prefix_len: usize = 0,
+
+        pub fn prefixBytes(self: *const StreamOutbound) []const u8 {
+            return self.prefix[0..self.prefix_len];
+        }
+    };
+
+    pub fn takeStreamOutbound(self: *HostSession) HostError!?StreamOutbound {
+        const payload = (try self.takeOutbound()) orelse return null;
+        var outbound = StreamOutbound{ .payload = payload };
+        if (self.sealed == null) {
+            outbound.prefix_len = foundation.stream_framing.renderPrefix(
+                &outbound.prefix,
+                payload.bytes().len,
+            ).len;
+        }
+        return outbound;
     }
 
     /// The live trace's outbound seat — the mirror of the inbound seat in
@@ -370,25 +435,41 @@ pub const HostSession = struct {
     pub fn sessionSecret(self: *const HostSession) crypto.SecretKey {
         return crypto.SecretKey.fromSeed(self.session_seed);
     }
+
+    /// Whether inbound bytes are parked where no readiness wait can see them:
+    /// paused outer frames in `feed_tail`, or a sealed session's staged
+    /// channel bytes (ADR-0107). An embedder resumes them by calling
+    /// `Host.feedBytes` with an empty chunk; every byte-fed pump asks this
+    /// one question instead of reaching into the two owners separately.
+    pub fn pausedInboundPending(self: *const HostSession) bool {
+        if (self.feed_tail.isActive()) return true;
+        if (self.sealed) |channel| return channel.hasStagedInbound();
+        return false;
+    }
 };
 
-/// Per-connection static-footprint ceiling for the byte-fed host shell. It is
-/// the third per-connection static allocation on the 500k Bridge path (ADR-0076),
+/// Per-session static-footprint ceiling for the byte-fed host shell. It is
+/// the third per-session static allocation on the 500k Bridge path (ADR-0076),
 /// beside `engine.Peer` (gated at 1 KiB in `engine`) and the completion loop's
 /// `Conn` wrapper (gated at 128 bytes of overhead in `net.completion`). One
 /// `HostSession`, and therefore one inline `Served` Port, is minted per adopted
-/// connection in `mintShell`; the Vat is Host-wide and charged once per Host.
+/// session in `mintShell`; the Vat is Host-wide and charged once per Host.
 /// `engine.Peer` itself lives behind a pointer here, gated on its own. Crossing
 /// this ceiling is a design event that raises the budget here and in
 /// `docs/ladder.md` step 2 together, with the bytes justified, never a check to
 /// route around.
 /// 464 rose to 496 for ADR-0097's per-session signing seed: 32 bytes of key
-/// material that is per-session state by definition, weighed at 1.5% of the
-/// warmed 2 KiB per-session ceiling `docs/ladder.md` step 2 records.
-pub const host_session_struct_budget_bytes = 496;
+/// material that is per-session state by definition. The session-minted
+/// outbound high-water adds one machine word, and the resumable local-turn
+/// epoch adds one optional word. ADR-0107's sealed-channel pointer adds the
+/// eight bytes that record budgets explicitly — the channel itself is boxed
+/// and paid only by sealed sessions — bringing the shell to 528 bytes: about
+/// 4 MiB across the 500,000-session target, and 0.5% of its warmed 2 KiB
+/// budget.
+pub const host_session_struct_budget_bytes = 528;
 comptime {
     if (@sizeOf(HostSession) > host_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
-        "driver_core.HostSession is {d} bytes, over the {d}-byte per-connection shell budget (docs/ladder.md step 2). " ++
+        "driver_core.HostSession is {d} bytes, over the {d}-byte per-session shell budget (docs/ladder.md step 2). " ++
             "A larger shell is a withdrawal from the 500k footprint budget; raise the source constant and documented budget together.",
         .{ @sizeOf(HostSession), host_session_struct_budget_bytes },
     ));
@@ -400,12 +481,68 @@ comptime {
 /// growth re-allocation when the next burst begins.
 const steady_feed_tail_bytes: usize = 4096;
 
+/// Apply one borrowed frame, then drive the event and outbound consequences
+/// that frame committed. Only receive/admission errors escape as retryable for
+/// the caller's bytes. Once `recvBorrowed` succeeds, local allocator or
+/// outbound pressure parks the remaining drive on the Host dirty queue instead
+/// of making an applied frame look unconsumed.
+fn feedBorrowedCommitted(session: *HostSession, frame: foundation.FrameView) !void {
+    try session.served.port.peer.recvBorrowed(frame);
+    session.served.driveFed(&session.host.vat) catch |err| switch (err) {
+        error.OutOfMemory, error.OutboundBackpressure => {
+            host_pump.markDirty(session.host, session.peer_id);
+            return;
+        },
+        error.EventServeOutOfMemory => return err,
+        else => {
+            // The frame is authoritative and cannot be replayed. Give a
+            // protocol-shaped failure its typed abort; a host-internal error
+            // has no wire projection, but still closes this consumed session.
+            session.served.port.peer.emitFailure(err);
+            if (session.served.port.peer.sessionIsOpen())
+                session.served.port.peer.closeSession();
+            return err;
+        },
+    };
+}
+
+/// Feed one plaintext stream chunk through the tail-and-parse machinery: with
+/// no pending tail, parse the borrowed chunk in place and retain only an
+/// incomplete suffix; while a tail is active, extend it (the one bounded
+/// copy) and parse from there. The one body both `Host.feedBytes` arms share:
+/// the unsealed verb hands it the caller's bytes, the sealed arm each opened
+/// record's plaintext.
+fn feedStreamChunk(gpa: std.mem.Allocator, session: *HostSession, bytes: []const u8, was_open: bool) !void {
+    const tail = &session.feed_tail;
+    if (!tail.isActive()) {
+        const parsed = try parseOuterStreamPrefix(session, bytes, was_open);
+        if (parsed < bytes.len) {
+            try tail.absorbBytes(gpa, bytes[parsed..]);
+        }
+        return;
+    }
+    try tail.absorbBytes(gpa, bytes);
+    const parsed = parseOuterStreamPrefix(session, tail.bytes(), was_open) catch |err| {
+        // The chunk's bytes already moved into the owned tail. On allocation
+        // pressure leave the complete unapplied prefix there and report the
+        // chunk consumed; retrying the caller's bytes would append them twice.
+        if (err == error.OutOfMemory) return;
+        return err;
+    };
+    tail.consume(gpa, parsed, steady_feed_tail_bytes);
+}
+
 /// Delimit and dispatch complete outer Syrup byte strings from `bytes`. Each
 /// body is exactly one bare codec frame. The opening hello remains the pause
 /// boundary, so any following outer frames stay in the caller-owned tail.
 fn parseOuterStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bool) !usize {
     var consumed: usize = 0;
     while (consumed < bytes.len) {
+        // A prior frame in this same chunk may have crossed the waterline.
+        // Stop before dispatching another frame; the caller retains the suffix
+        // in `feed_tail`, so replay is neither required nor permitted.
+        if (consumed != 0 and session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
+            return consumed;
         const outer = switch (foundation.stream_framing.parsePrefix(
             bytes[consumed..],
             session.served.port.peer.limits().max_frame_bytes,
@@ -428,10 +565,17 @@ fn parseOuterStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bo
             session.served.port.peer.stepToIdle() catch {};
             return error.MalformedFrame;
         };
-        try session.served.feedBorrowed(&session.host.vat, .{
+        feedBorrowedCommitted(session, .{
             .bytes = outer.body,
             .shape = shape,
-        });
+        }) catch |err| {
+            // A prefix already applied makes this chunk committed. Return its
+            // byte count so the caller retains only the unapplied suffix; an
+            // OOM on the first direct frame still leaves the whole borrowed
+            // chunk retryable.
+            if (err == error.OutOfMemory and consumed != 0) return consumed;
+            return err;
+        };
         consumed += outer.consumed;
         if (!was_open and session.served.port.peer.sessionIsOpen()) break;
     }
@@ -506,8 +650,9 @@ pub const Host = struct {
     /// the outbound before its hello moves; accepted CapTP sessions compare
     /// inbound start-sessions against it.
     hellos: CrossedHellos = .{},
-    /// Where `mintShell` draws each session's signing seed (ADR-0097).
-    session_seed_source: SessionSeedSource = undefined,
+    /// Root from which `mintShell` derives each session's signing seed
+    /// (ADR-0097). The embedder supplies a fresh root for each process.
+    session_seed_root: [crypto.SEED_BYTES]u8,
     /// Counter distinguishing successive sessions' derived seeds. Monotonic
     /// for the host's life, so two sessions never share a key.
     session_seed_counter: u64 = 0,
@@ -523,7 +668,7 @@ pub const Host = struct {
     /// key that signed it, which is what a handoff certificate must resolve
     /// against; this names the durable peer a locator designates, which is
     /// what "do I already have a session reaching P" must ask. They differ by
-    /// construction: every connection has a fresh session key, while the
+    /// construction: every session has a fresh signing key, while the
     /// durable peer key is stable across connections. Routing dial dedup
     /// through the side index would therefore miss the existing peer.
     ///
@@ -541,12 +686,12 @@ pub const Host = struct {
     /// complete locator identity prevents one netlayer from satisfying or
     /// shadowing another netlayer's dial.
     dialed_by_target: DialTargetMap = .{},
-    /// The host's own dialable designator, signed into every dial's
-    /// start-session — what a partner's crossed-hellos table looks this host
-    /// up by, and what its gives can name. Empty for a host that never
-    /// listens, which signs the shared unreachable-client placeholder.
-    self_designator: [64]u8 = undefined,
-    self_designator_len: usize = 0,
+    /// Runtime provider occupancy and complete session semantics. Built-in keys
+    /// borrow `model.transport.Known`'s static symbol; extension keys are
+    /// Host-owned copies. One row per symbol makes routing authority unique;
+    /// designation, dial planning, and sealed-channel composition all read the
+    /// same value.
+    transport_profiles: std.StringHashMapUnmanaged(model.transport.Metadata) = .empty,
     /// Host-wide bootstrap aliases. A fetch performs one keyed discovery lookup
     /// and lazily projects the actor onto the requesting Port.
     giftables: std.StringHashMapUnmanaged(Publication) = .empty,
@@ -555,9 +700,14 @@ pub const Host = struct {
     /// The most recently popped action; its byte views stay valid until the
     /// next `nextAction`, which frees them.
     last_action: ?HostAction = null,
+    /// A C convenience-pump arm refused before committing its effect. The
+    /// borrowed action remains `last_action` and must be projected again before
+    /// any later FIFO row; keeping the retry here preserves action order and
+    /// payload ownership without a second queue representation.
+    retry_last_action: bool = false,
     /// Host vow id to its heap row (the row's address is the retire
     /// listener's stable ctx; the map may rehash). A row lives exactly until
-    /// its vow settles: `mintVow` installs the retire listener at mint, the
+    /// its vow settles: the reserve/commit transaction installs the listener, the
     /// fire removes and frees the row, and a later verb on the id refuses
     /// `NoSuchVow` — so the map is bounded by unsettled vows, not by every
     /// vow ever minted.
@@ -593,6 +743,14 @@ pub const Host = struct {
     /// Read cursor for `pending_flush`; the drained queue retains capacity and
     /// compacts a large consumed prefix without front-removing every row.
     pending_flush_head: usize = 0,
+    /// At most one host-global continuation notice may be parked in `actions`.
+    /// This is distinct from per-session flush deduplication because Node work
+    /// may remain with no session that can represent its wake.
+    resume_action_pending: bool = false,
+    /// Next internal work class to inspect. Persisted across finite quanta so a
+    /// continuously runnable session cannot starve Node effects or handoff
+    /// notifications merely because every resumed slice restarted at lane 0.
+    next_work_lane: WorkLane = .session,
     /// The reentrancy latch: true while a top-level verb is firing callbacks
     /// or pumping. Nested verbs enqueue only — the enclosing verb's unwind
     /// encodes and pumps — and the host-driving verbs refuse `ReenteredHost`.
@@ -648,23 +806,25 @@ pub const Host = struct {
         /// support; each session intersects this set with the partner's offer
         /// at handshake.
         features: model.FeatureSet = model.Preference.baseline.features,
-        /// Local-turn amplification cap per drive, applied to every minted
-        /// CapTP session's serve core (see `Served.local_turn_budget`). A loop
-        /// embedder sets it so one message that amplifies without bound cannot
-        /// stall the thread serving every session: the flooded session is
-        /// condemned with a `resource_exhausted` abort and a `close` action
-        /// names it for the embedder. Null (the default) drives unbounded, the
-        /// blocking one-session-per-thread posture.
+        /// Per-session amplification cap. When set, a session that still has
+        /// local work after this many turns is condemned; this is an explicit
+        /// hostile/self-amplification policy, not the Host scheduler quantum.
         local_turn_budget: ?usize = null,
+        /// Host-wide resumable work quantum. Every non-zero finite quantum
+        /// round-robins dirty sessions, Node effects, and handoff notifications,
+        /// requeueing continuation work at the FIFO tail. Null is the explicit
+        /// single-session/blocking escape hatch and drives each session to idle.
+        host_work_quantum: ?usize = 64,
         /// Adapter-owned issuer for capability ids that cross an untyped ABI.
         /// Native `Ref` equality already carries the Registry pointer and leaves
         /// this null; the C adapter supplies its process-scoped opaque source.
         capability_id_issuer: ?capability.IdIssuer = null,
-        /// Where each session's signing seed comes from (ADR-0097). Null keeps
-        /// the durable-key posture, which is what a caller that supplies no
-        /// root gets; an adapter that can draw entropy supplies a `rooted`
-        /// source so every connection signs with its own key.
-        session_seeds: ?SessionSeedSource = null,
+        /// Retained outbound-work waterline for one byte-fed session. A producer
+        /// that starts below it commits atomically and may cross it by one
+        /// bounded operation; the next host-driving producer refuses
+        /// `OutboundBackpressure` until frames drain. Null derives from
+        /// `max_frame_bytes`.
+        outbound_high_water_bytes: ?usize = null,
 
         /// Convenience for the common case: default Options with only the
         /// frame admission cap overridden.
@@ -678,27 +838,62 @@ pub const Host = struct {
         pub fn frameCap(self: Options) usize {
             return self.limits.max_frame_bytes;
         }
+
+        pub fn outboundHighWaterBytes(self: Options) usize {
+            return self.outbound_high_water_bytes orelse
+                std.math.mul(usize, self.limits.max_frame_bytes, 2) catch std.math.maxInt(usize);
+        }
+    };
+
+    pub const WorkLane = enum(u2) {
+        session,
+        node,
+        handoff,
+
+        pub fn next(self: WorkLane) WorkLane {
+            return switch (self) {
+                .session => .node,
+                .node => .handoff,
+                .handoff => .session,
+            };
+        }
     };
 
     /// Override selective session limits before minting peers (ADR-0082).
     /// `null` leaves that field unchanged. Already-open sessions keep the
     /// limits they were minted with.
-    pub fn setSessionLimits(self: *Host, max_frame_bytes: ?usize, queue_cap: ?usize) void {
+    pub fn setSessionLimits(
+        self: *Host,
+        max_frame_bytes: ?usize,
+        queue_cap: ?usize,
+        outbound_high_water_bytes: ?usize,
+    ) void {
+        self.assertOwnerIfClaimed();
         if (max_frame_bytes) |v| self.opts.limits.max_frame_bytes = v;
         if (queue_cap) |v| self.opts.limits.queue_cap = v;
+        if (outbound_high_water_bytes) |v| self.opts.outbound_high_water_bytes = v;
     }
 
-    /// A host bound to the caller-supplied durable identity `seed` (drawn at the
-    /// embedder's entropy boundary; the sans-io host never generates it).
-    /// Session signing keys come from `Options.session_seeds`; omitting that
-    /// option retains the legacy posture that reuses `seed`.
+    /// A host bound to the caller-supplied durable identity `seed` and a
+    /// separate per-process `session_seed_root`. The sans-io host draws no
+    /// entropy: the embedder keeps `seed` stable and replaces the root each
+    /// time the process starts. Every session derives a distinct signing
+    /// key from that root (ADR-0097).
     ///
     /// `bootstrap_durability` must be `.ephemeral` today. Selecting
     /// `.durable_bootstrap` panics: that posture needs an embedder store
     /// (ADR-0082) and must not silently behave as ephemeral.
-    pub fn init(allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8, opts: Options) Host {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        seed: [crypto.SEED_BYTES]u8,
+        session_seed_root: [crypto.SEED_BYTES]u8,
+        opts: Options,
+    ) Host {
         if (opts.bootstrap_durability != .ephemeral) {
             @panic("Host.Options.bootstrap_durability.durable_bootstrap requires an embedder store; use .ephemeral until then");
+        }
+        if (opts.host_work_quantum == 0) {
+            @panic("Host.Options.host_work_quantum must be null or non-zero");
         }
         return .{
             .allocator = allocator,
@@ -706,11 +901,7 @@ pub const Host = struct {
             .opts = opts,
             .vat = actors.Vat.init(allocator),
             .capabilities = capability.Registry.init(opts.capability_id_issuer),
-            // Today's posture, named rather than assumed: every session signs
-            // with the host's durable seed. `Options.session_seeds` overrides
-            // it, and that override is the whole of ADR-0097's fresh-key
-            // switch at this tier.
-            .session_seed_source = opts.session_seeds orelse .{ .reused_durable = seed },
+            .session_seed_root = session_seed_root,
         };
     }
 
@@ -721,6 +912,8 @@ pub const Host = struct {
     /// outcome; the completions those breaks queue are freed here with the
     /// rest of the undrained queue.
     pub fn deinit(self: *Host) void {
+        self.assertOwner();
+        std.debug.assert(!self.in_callback);
         // The break fires listeners that may call nested verbs; the latch
         // makes them enqueue only, and everything they enqueue frees below.
         self.in_callback = true;
@@ -730,12 +923,18 @@ pub const Host = struct {
         }
         var free_it = self.sessions.valueIterator();
         while (free_it.next()) |session| {
+            self.traceClose(session.*);
             // Drop index rows before freeing borrowed dialed-designator keys.
             self.unindexSession(session.*);
             self.cancelSessionIngress(session.*, session.*.served.closeReason("host released")) catch unreachable;
             self.freeSessionShell(session.*);
         }
         self.sessions.deinit(self.allocator);
+        // The Node may still own provisional exporter peers that never reached
+        // a Host session shell. Their gift registries can hold actor roots via
+        // the local-object projection, so retire the Node while the Vat that
+        // projection names is still alive.
+        self.node.deinit();
         self.vat.deinit();
         // Actors outlive every Port and release their own state above. Rows own
         // only the copied bootstrap names.
@@ -746,6 +945,12 @@ pub const Host = struct {
         self.partner_by_side.deinit(self.allocator);
         self.peer_by_durable.deinit(self.allocator);
         self.dialed_by_target.deinit(self.allocator);
+        var transport_it = self.transport_profiles.keyIterator();
+        while (transport_it.next()) |transport| {
+            if (model.transport.parseKnown(transport.*) == null)
+                self.allocator.free(@constCast(transport.*));
+        }
+        self.transport_profiles.deinit(self.allocator);
         if (self.last_action) |last| host_action.freePayload(self.allocator, last);
         for (self.actions.unpopped()) |action| host_action.freePayload(self.allocator, action);
         self.actions.deinit(self.allocator);
@@ -761,35 +966,32 @@ pub const Host = struct {
         self.pending_enlivens.deinit(self.allocator);
         self.pending_flush.deinit(self.allocator);
         self.capabilities.deinit(self.allocator);
-        self.node.deinit();
     }
 
-    /// The sole refusal produced by the bounded address-default setter.
-    pub const SetSelfDesignatorError = error{DesignatorTooLong};
-
-    /// Record the address-designator default used by an explicit
-    /// `ensureAdvertisedLocator` call. This legacy compatibility setter does
-    /// not publish a locator and session opens do not read it directly.
-    pub fn setSelfDesignator(self: *Host, designator: []const u8) SetSelfDesignatorError!void {
-        if (designator.len > self.self_designator.len) return error.DesignatorTooLong;
-        @memcpy(self.self_designator[0..designator.len], designator);
-        self.self_designator_len = designator.len;
+    /// Tear down after an external adapter transfers exclusive terminal
+    /// ownership to its releasing thread. Unlike an ordinary verb, destruction
+    /// cannot leave state for the prior driver to observe; the caller must
+    /// guarantee no Host call is in flight and no later call can begin. This is
+    /// the C ABI's finalizer seam, not permission to drive a live Host from
+    /// several threads.
+    pub fn deinitAfterDriverTransfer(self: *Host) void {
+        if (comptime std.debug.runtime_safety) {
+            std.debug.assert(!self.in_callback);
+            self.owner_tid = null;
+        }
+        self.deinit();
     }
 
-    /// The address default used by `ensureAdvertisedLocator`: a caller-set
-    /// bound address or the unreachable-client placeholder.
-    /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
-    pub fn selfDesignator(self: *const Host) []const u8 {
-        if (self.self_designator_len == 0) return vocab.unreachable_client_designator;
-        return self.self_designator[0..self.self_designator_len];
-    }
-
-    /// Publish and select this node's complete acceptable location. The node
-    /// deep-copies the locator and retains snapshots for other transports so
-    /// deployment policy can select a different route later (ADR-0109).
-    pub fn setAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
+    /// Complete one advertised locator with this Host's profile and identity
+    /// policy, returning caller-owned storage. This is the preparation edge
+    /// used when another owner must project the exact value the Host retains.
+    pub fn prepareAdvertisedLocator(
+        self: *Host,
+        allocator: std.mem.Allocator,
+        locator: model.PeerLocator,
+    ) !model.PeerLocator {
         self.assertOwnerIfClaimed();
-        if (vocab.designatorSchemeForTransport(locator.transport) == .key)
+        if (try self.designatorScheme(locator.transport) == .key)
             try sessions_mod.refuseUnheldIdentity(self, locator.designator);
         var hint_storage: engine.Peer.HelloHints = .{};
         defer hint_storage.deinit(self.allocator);
@@ -798,6 +1000,29 @@ pub const Host = struct {
             .codec = self.opts.codec,
             .features = self.opts.features,
         });
+        return model.clonePeerLocator(allocator, complete);
+    }
+
+    /// Retain an already prepared locator without changing acceptable-location
+    /// policy. The caller retains ownership; the node deep-copies it.
+    pub fn retainPreparedAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
+        self.assertOwnerIfClaimed();
+        try self.node.retainAdvertisedLocator(locator);
+    }
+
+    /// Complete and retain a route without selecting it.
+    pub fn retainAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
+        const complete = try self.prepareAdvertisedLocator(self.allocator, locator);
+        defer model.freePeerLocator(self.allocator, complete);
+        try self.retainPreparedAdvertisedLocator(complete);
+    }
+
+    /// Publish and select this node's complete acceptable location. The node
+    /// retains snapshots for other transports so deployment policy can select
+    /// a different route later (ADR-0109).
+    pub fn setAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
+        const complete = try self.prepareAdvertisedLocator(self.allocator, locator);
+        defer model.freePeerLocator(self.allocator, complete);
         try self.node.setAdvertisedLocator(complete);
     }
 
@@ -805,17 +1030,17 @@ pub const Host = struct {
     /// not already supplied a complete locator. This does not displace an
     /// acceptable location already selected for another transport. It becomes
     /// the selection only when the node has none. Key transports use this
-    /// node's public key, while address transports use `selfDesignator()` and
-    /// its unreachable-client default.
+    /// node's public key. Address transports use the unreachable-client
+    /// placeholder; a reachable adapter must publish its complete locator.
     pub fn ensureAdvertisedLocator(self: *Host, transport: []const u8) !void {
         self.assertOwnerIfClaimed();
         var key_designator: [crypto.PeerKey.designator_len]u8 = undefined;
-        const designator = switch (vocab.designatorSchemeForTransport(transport)) {
+        const designator = switch (try self.designatorScheme(transport)) {
             .key => blk: {
                 key_designator = self.node.secretKey().publicKey().toDesignator();
                 break :blk key_designator[0..];
             },
-            .address => self.selfDesignator(),
+            .address => vocab.unreachable_client_designator,
         };
         var hint_storage: engine.Peer.HelloHints = .{};
         defer hint_storage.deinit(self.allocator);
@@ -840,9 +1065,103 @@ pub const Host = struct {
         self.node.removeAdvertisedLocator(transport);
     }
 
+    /// Select a complete locator already retained for `transport`. This is the
+    /// allocation-free policy operation used when a host has several active
+    /// listener routes. Returns false when no such route is retained.
+    pub fn selectAdvertisedLocator(self: *Host, transport: []const u8) bool {
+        self.assertOwnerIfClaimed();
+        return self.node.selectAdvertisedLocator(transport);
+    }
+
     /// Borrow this node's published locator for `transport`.
     pub fn advertisedLocator(self: *const Host, transport: []const u8) ?model.PeerLocator {
         return self.node.advertisedLocator(transport);
+    }
+
+    /// Define the complete semantics of a transport for this Host. Definitions
+    /// are immutable and live until Host teardown; provider occupancy belongs
+    /// to the I/O-owning driver, so removing a provider cannot erase semantics
+    /// from a still-live session. Repeating the same definition is idempotent.
+    pub fn defineTransport(
+        self: *Host,
+        profile: model.transport.Metadata,
+    ) error{ OutOfMemory, TransportSemanticsConflict, InvalidTransportName }![]const u8 {
+        var canonical: [1][]const u8 = undefined;
+        try self.defineTransports(&.{profile}, &canonical);
+        return canonical[0];
+    }
+
+    /// Define a package's transport semantics as one transaction. Validation,
+    /// map capacity, and owned symbol bytes are complete before the first
+    /// profile becomes visible; `canonical` receives Host-owned names.
+    pub fn defineTransports(
+        self: *Host,
+        profiles: []const model.transport.Metadata,
+        canonical: [][]const u8,
+    ) error{ OutOfMemory, TransportSemanticsConflict, InvalidTransportName }!void {
+        self.assertOwnerIfClaimed();
+        std.debug.assert(canonical.len == profiles.len);
+        const Addition = struct {
+            profile: model.transport.Metadata,
+            owned_symbol: ?[]u8 = null,
+        };
+        const additions = try self.allocator.alloc(Addition, profiles.len);
+        defer self.allocator.free(additions);
+        var addition_count: usize = 0;
+
+        for (profiles) |profile| {
+            model.transport.validateSymbol(profile.symbol) catch return error.InvalidTransportName;
+            if (model.transport.parseKnown(profile.symbol)) |known| {
+                const known_profile = known.metadata();
+                if (!known_profile.eql(profile)) return error.TransportSemanticsConflict;
+                continue;
+            }
+            if (self.transport_profiles.get(profile.symbol)) |existing| {
+                if (!existing.eql(profile)) return error.TransportSemanticsConflict;
+                continue;
+            }
+            var already_added = false;
+            for (additions[0..addition_count]) |addition| {
+                if (!std.mem.eql(u8, addition.profile.symbol, profile.symbol)) continue;
+                if (!addition.profile.eql(profile)) return error.TransportSemanticsConflict;
+                already_added = true;
+                break;
+            }
+            if (already_added) continue;
+            additions[addition_count] = .{ .profile = profile };
+            addition_count += 1;
+        }
+
+        const map_additions = std.math.cast(u32, addition_count) orelse return error.OutOfMemory;
+        try self.transport_profiles.ensureUnusedCapacity(self.allocator, map_additions);
+        var owned_count: usize = 0;
+        errdefer for (additions[0..owned_count]) |addition| self.allocator.free(addition.owned_symbol.?);
+        for (additions[0..addition_count]) |*addition| {
+            addition.owned_symbol = try self.allocator.dupe(u8, addition.profile.symbol);
+            owned_count += 1;
+        }
+        for (additions[0..addition_count]) |addition| {
+            var owned_profile = addition.profile;
+            owned_profile.symbol = addition.owned_symbol.?;
+            self.transport_profiles.putAssumeCapacity(owned_profile.symbol, owned_profile);
+        }
+        for (profiles, canonical) |profile, *name| {
+            if (model.transport.parseKnown(profile.symbol)) |known| {
+                name.* = known.metadata().symbol;
+            } else {
+                name.* = self.transport_profiles.get(profile.symbol).?.symbol;
+            }
+        }
+    }
+
+    pub fn transportProfile(self: *const Host, transport: []const u8) HostError!model.transport.Metadata {
+        if (self.transport_profiles.get(transport)) |profile| return profile;
+        if (model.transport.parseKnown(transport)) |known| return known.metadata();
+        return HostError.UnknownTransport;
+    }
+
+    pub fn designatorScheme(self: *const Host, transport: []const u8) HostError!model.transport.DesignatorScheme {
+        return (try self.transportProfile(transport)).designator_scheme;
     }
 
     /// Borrow the route subsequent hellos advertise, independent of the
@@ -864,11 +1183,17 @@ pub const Host = struct {
     /// queue; the flush action is still queued so the embedder writes it
     /// before closing the transport.
     pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !void {
-        try host_pump.dispatchUnderLatch(self, session, struct {
+        try self.checkSession(session);
+        // A sealed session's wire is the sealed byte stream; a whole plaintext
+        // frame fed around the channel would bypass exactly what the channel
+        // proves, so it is refused rather than admitted unsealed.
+        if (session.sealed != null) return HostError.SealedSessionBytesOnly;
+        try self.checkOutboundAdmission(session);
+        host_pump.dispatchUnderLatch(self, session, struct {
             c: *HostSession,
             f: foundation.FrameView,
             pub fn call(s: @This()) !void {
-                s.c.served.feedBorrowed(&s.c.host.vat, s.f) catch |err| {
+                feedBorrowedCommitted(s.c, s.f) catch |err| {
                     // Condemnation can arise while this very frame is being
                     // dispatched (crossed hellos). It has already cancelled
                     // the Port ingress, so the Served post-batch drive sees an
@@ -878,7 +1203,20 @@ pub const Host = struct {
                     return err;
                 };
             }
-        }{ .c = session, .f = frame });
+        }{ .c = session, .f = frame }) catch |err| {
+            if (err == error.EventServeOutOfMemory) {
+                // `Served` already removed the event. Retrying this frame would
+                // replay protocol authority while the original event is gone.
+                host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+                return;
+            }
+            // The preflight above is the only retryable refusal. Once dispatch
+            // starts, the frame may have committed before its resulting work
+            // crosses the waterline; report it consumed and let the next verb
+            // observe backpressure rather than inviting a replay.
+            if (err == error.OutboundBackpressure) return;
+            return err;
+        };
     }
 
     /// Feed raw bytes from a byte-stream transport. Each bare codec frame must
@@ -891,27 +1229,108 @@ pub const Host = struct {
     /// do not add this envelope.
     pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
         try self.checkOwnedSession(session);
+        try checkLive(session);
+        try self.checkOutboundAdmission(session);
+        if (session.sealed) |channel| return feedSealedBytes(self, session, channel, bytes);
         if (bytes.len == 0 and !session.feed_tail.isActive()) return;
         const was_open = session.served.port.peer.sessionIsOpen();
-        return host_pump.dispatchUnderLatch(self, session, struct {
+        host_pump.dispatchUnderLatch(self, session, struct {
             gpa: std.mem.Allocator,
             c: *HostSession,
             bytes: []const u8,
             was_open: bool,
             pub fn call(s: @This()) !void {
-                const tail = &s.c.feed_tail;
-                if (!tail.isActive()) {
-                    const consumed = try parseOuterStreamPrefix(s.c, s.bytes, s.was_open);
-                    if (consumed < s.bytes.len) {
-                        try tail.absorbBytes(s.gpa, s.bytes[consumed..]);
-                    }
-                    return;
-                }
-                try tail.absorbBytes(s.gpa, s.bytes);
-                const consumed = try parseOuterStreamPrefix(s.c, tail.bytes(), s.was_open);
-                tail.consume(s.gpa, consumed, steady_feed_tail_bytes);
+                try feedStreamChunk(s.gpa, s.c, s.bytes, s.was_open);
             }
-        }{ .gpa = self.allocator, .c = session, .bytes = bytes, .was_open = was_open });
+        }{ .gpa = self.allocator, .c = session, .bytes = bytes, .was_open = was_open }) catch |err| {
+            if (err == error.EventServeOutOfMemory) {
+                host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+                return;
+            }
+            // `call` either dispatched bytes or retained their suffix in the
+            // tail. Mid-dispatch pressure is therefore a successful ownership
+            // transfer; only the next call may return retryable backpressure.
+            if (err == error.OutboundBackpressure) return;
+            return err;
+        };
+    }
+
+    /// The sealed arm of `feedBytes` (ADR-0107): stage the wire bytes on the
+    /// channel, then consume whole handshake messages and records. Handshake
+    /// completion binds the channel's verified remote before any plaintext is
+    /// fed, each opened record's plaintext runs the same tail-and-parse the
+    /// unsealed arm runs, and a produced handshake reply marks the session
+    /// dirty so the embedder is woken to write it. A channel refusal condemns
+    /// the session without an abort echo and surfaces to the caller; the
+    /// session's own hello pause boundary holds — remaining ciphertext stays
+    /// staged and the next `feedBytes` (even with an empty chunk) resumes it.
+    fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.sealed.SealedChannel, bytes: []const u8) !void {
+        if (bytes.len == 0 and !session.feed_tail.isActive() and !channel.hasStagedInbound()) return;
+        const was_open = session.served.port.peer.sessionIsOpen();
+        host_pump.dispatchUnderLatch(self, session, struct {
+            host: *Host,
+            c: *HostSession,
+            channel: *foundation.sealed.SealedChannel,
+            bytes: []const u8,
+            was_open: bool,
+            pub fn call(s: @This()) !void {
+                const gpa = s.host.allocator;
+                var consumed: usize = 0;
+                while (true) {
+                    if (s.channel.pendingPlaintext()) |plain| {
+                        feedStreamChunk(gpa, s.c, plain, s.was_open) catch |err| {
+                            // The Noise record is already authoritative. Keep
+                            // its plaintext borrow and own the unread wire
+                            // suffix before reporting or retrying upper-layer
+                            // pressure; replaying ciphertext would advance the
+                            // receive nonce twice.
+                            s.channel.park(gpa, s.bytes[consumed..]) catch |park_err| {
+                                host_pump.retireSealedSession(s.host, s.c);
+                                return park_err;
+                            };
+                            if (err == error.OutOfMemory or err == error.OutboundBackpressure) return;
+                            return err;
+                        };
+                        s.channel.releasePlaintext();
+                        // The opening hello is the pause boundary, as on the
+                        // unsealed arm. Own later ciphertext before the caller's
+                        // borrowed receive buffer expires.
+                        if (!s.was_open and s.c.served.port.peer.sessionIsOpen()) {
+                            s.channel.park(gpa, s.bytes[consumed..]) catch |err| {
+                                host_pump.retireSealedSession(s.host, s.c);
+                                return err;
+                            };
+                            break;
+                        }
+                        continue;
+                    }
+
+                    const step = s.channel.ingest(gpa, s.bytes[consumed..]) catch |err| {
+                        // The channel retired itself for anything but
+                        // allocation pressure, which leaves the staged bytes
+                        // intact and retryable instead.
+                        if (err != error.OutOfMemory)
+                            host_pump.retireSealedSession(s.host, s.c);
+                        return err;
+                    };
+                    consumed += step.consumed;
+                    switch (step.event) {
+                        .need_input => break,
+                        .handshake => continue,
+                        .completed => |remote| s.c.served.port.peer.bindVerifiedChannelKey(remote),
+                        .plaintext => continue,
+                    }
+                }
+                if (s.channel.hasPendingWire()) host_pump.markDirty(s.host, s.c.peer_id);
+            }
+        }{ .host = self, .c = session, .channel = channel, .bytes = bytes, .was_open = was_open }) catch |err| {
+            if (err == error.EventServeOutOfMemory) {
+                host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+                return;
+            }
+            if (err == error.OutboundBackpressure) return;
+            return err;
+        };
     }
 
     /// Serve one already-polled event under the host — the per-event verb for
@@ -933,13 +1352,31 @@ pub const Host = struct {
     /// nested verb could re-enter the host mid-dispatch) and would skip the
     /// node pump that turns a served reply into a give.
     pub fn serveEvent(self: *Host, session: *HostSession, event: *engine.Event) !void {
-        try host_pump.dispatchUnderLatch(self, session, struct {
+        try self.checkSession(session);
+        try self.checkOutboundAdmission(session);
+        host_pump.dispatchUnderLatch(self, session, struct {
             c: *HostSession,
             e: *engine.Event,
             pub fn call(s: @This()) !void {
                 try s.c.served.serveEvent(&s.c.host.vat, s.e);
             }
-        }{ .c = session, .e = event });
+        }{ .c = session, .e = event }) catch |err| {
+            if (err == error.OutOfMemory) {
+                // The caller already transferred this event with `pollEvent`;
+                // there is no safe replay after a hook or Port may have
+                // committed before allocation failed.
+                host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+                return;
+            }
+            // The caller already removed this event from the Peer. Never make
+            // an applied event look retryable merely because its resulting
+            // outbound work crossed the waterline.
+            if (err == error.OutboundBackpressure) return;
+            session.served.port.peer.emitFailure(err);
+            if (session.served.port.peer.sessionIsOpen())
+                session.served.port.peer.closeSession();
+            return err;
+        };
     }
 
     // ── Application verbs ────────────────────────────────────────────────────
@@ -952,16 +1389,26 @@ pub const Host = struct {
     /// (`ForeignArgument`) rather than mis-encoded.
     pub fn send(self: *Host, session: *HostSession, target: model.Reference, msg: actors.Message) !u64 {
         const routed = try self.routeSend(session, target, msg.args);
+        try self.checkOutboundAdmission(routed.session);
+        const location: actors.VowLocation = switch (routed.target) {
+            .local => .local,
+            .far => .far,
+        };
+        const reservation = try self.reserveVow(routed.session, location, .plain);
+        var reservation_live = true;
+        errdefer if (reservation_live) self.cancelVowReservation(reservation);
         self.node.exporterApplicationOwned(routed.session.peer_id);
         const vow = try routed.session.served.send(&self.vat, routed.target, msg);
-        const id = try self.mintVow(routed.session, vow, .plain);
-        try host_pump.dirtyThenPump(self, routed.session.peer_id);
+        const id = self.commitVow(routed.session, reservation, vow);
+        reservation_live = false;
+        host_pump.finishCommittedVow(self, routed.session);
         return id;
     }
 
     /// Fire-and-forget eventual-send: `send` with no answer and no vow.
     pub fn tell(self: *Host, session: *HostSession, target: model.Reference, msg: actors.Message) !void {
         const routed = try self.routeSend(session, target, msg.args);
+        try self.checkOutboundAdmission(routed.session);
         self.node.exporterApplicationOwned(routed.session.peer_id);
         try routed.session.served.tell(&self.vat, routed.target, msg);
         try host_pump.dirtyThenPump(self, routed.session.peer_id);
@@ -992,10 +1439,15 @@ pub const Host = struct {
     pub fn fetch(self: *Host, session: *HostSession, name: []const u8) !u64 {
         try self.refuseReentry();
         try self.checkSession(session);
+        try self.checkOutboundAdmission(session);
+        const reservation = try self.reserveVow(session, .far, .fetch);
+        var reservation_live = true;
+        errdefer if (reservation_live) self.cancelVowReservation(reservation);
         self.node.exporterApplicationOwned(session.peer_id);
         const vow = try session.served.sendBootstrapFetch(&self.vat, name);
-        const id = try self.mintVow(session, vow, .fetch);
-        try host_pump.dirtyThenPump(self, session.peer_id);
+        const id = self.commitVow(session, reservation, vow);
+        reservation_live = false;
+        host_pump.finishCommittedVow(self, session);
         return id;
     }
 
@@ -1012,6 +1464,11 @@ pub const Host = struct {
     /// reply is. Enqueueing, like `send`: legal inside a callback, because a
     /// settle callback is where you learn the promise to listen on.
     pub fn listenTo(self: *Host, session: *HostSession, target: model.Reference) !u64 {
+        // This verb is callback-safe, so claim the owner without refusing the
+        // callback latch. Ownership still precedes routing, which may inspect
+        // or mutate node/session state for a far target.
+        self.assertOwner();
+        try self.checkOwnedSession(session);
         var home = session;
         var wire = target;
         if (target == .far) {
@@ -1023,10 +1480,15 @@ pub const Host = struct {
             // the `InvalidReference` every tier names, so it flows through.
             try self.checkSession(session);
         }
+        try self.checkOutboundAdmission(home);
+        const reservation = try self.reserveVow(home, .far, .plain);
+        var reservation_live = true;
+        errdefer if (reservation_live) self.cancelVowReservation(reservation);
         self.node.exporterApplicationOwned(home.peer_id);
         const vow = try home.served.listenTo(wire);
-        const id = try self.mintVow(home, vow, .plain);
-        try host_pump.dirtyThenPump(self, home.peer_id);
+        const id = self.commitVow(home, reservation, vow);
+        reservation_live = false;
+        host_pump.finishCommittedVow(self, home);
         return id;
     }
 
@@ -1040,6 +1502,7 @@ pub const Host = struct {
     /// the host's one thread, fields borrowed per call. The embedder's side
     /// stamps time and formats; the core only reports facts.
     pub fn setTrace(self: *Host, sink: ?trace.Sink) void {
+        self.assertOwnerIfClaimed();
         self.trace_sink = sink;
     }
 
@@ -1048,6 +1511,7 @@ pub const Host = struct {
     /// feed) and from the outbound verbs (the dialing side may send before
     /// any further inbound event would notice).
     pub fn traceNoteOpen(self: *Host, session: *HostSession) void {
+        self.assertOwner();
         const sink = self.trace_sink orelse return;
         if (session.trace_open_noted) return;
         if (!session.sessionOpen()) return;
@@ -1096,6 +1560,7 @@ pub const Host = struct {
     /// seat and the outbound drain — so `frame` carries the wire bytes in
     /// both directions.
     pub fn traceMessage(self: *Host, session: *HostSession, outbound: bool, verb: []const u8, frame: []const u8) void {
+        self.assertOwner();
         const sink = self.trace_sink orelse return;
         self.traceNoteOpen(session);
         if (!session.trace_open_noted) return;
@@ -1115,6 +1580,7 @@ pub const Host = struct {
 
     /// Emit the close fact, only for a session whose open was reported.
     pub fn traceClose(self: *Host, session: *HostSession) void {
+        self.assertOwner();
         const sink = self.trace_sink orelse return;
         if (!session.trace_open_noted) return;
         session.trace_open_noted = false;
@@ -1154,20 +1620,21 @@ pub const Host = struct {
     /// Host vows and resolver pairs (`vows.zig`): the read side every
     /// asynchronous verb returns, and the settle machinery behind it.
     const VowRow = vows_mod.VowRow;
-    pub const ResolverPair = vows_mod.ResolverPair;
     const ResolverIndexEntry = vows_mod.ResolverIndexEntry;
     pub const vowOn = vows_mod.vowOn;
     pub const vowSession = vows_mod.vowSession;
-    pub const spawnResolver = vows_mod.spawnResolver;
+    pub const deferTurn = vows_mod.deferTurn;
     pub const resolverFulfill = vows_mod.resolverFulfill;
     pub const resolverBreak = vows_mod.resolverBreak;
-    pub const turnForwardVow = vows_mod.turnForwardVow;
     pub const vowSend = vows_mod.vowSend;
     pub const vowIndex = vows_mod.vowIndex;
     pub const vowUntag = vows_mod.vowUntag;
     pub const vowGet = vows_mod.vowGet;
-    const mintVow = vows_mod.mintVow;
-    pub const createVowRow = vows_mod.createVowRow;
+    const reserveVow = vows_mod.reserveVow;
+    pub const reserveVowAt = vows_mod.reserveVowAt;
+    pub const cancelVowReservation = vows_mod.cancelVowReservation;
+    const commitVow = vows_mod.commitVow;
+    pub const commitVowWithListener = vows_mod.commitVowWithListener;
     pub const fireVow = vows_mod.fireVow;
 
     /// Publication (`publish.zig`): the giftable and durable name registries
@@ -1185,6 +1652,8 @@ pub const Host = struct {
     /// The action queue (`host_action.zig`): the payload shapes and the
     /// borrowed/owned pops over the Host-owned FIFO.
     pub const nextAction = host_action.nextAction;
+    pub const retryBorrowedAction = host_action.retryBorrowedAction;
+    pub const peekAction = host_action.peekAction;
     pub const takeAction = host_action.takeAction;
     pub const freeAction = host_action.freeAdopted;
     pub const reserveActions = host_action.reserveActions;
@@ -1196,6 +1665,7 @@ pub const Host = struct {
     pub const exporterDialed = handoff_mod.exporterDialed;
     pub const dialFailed = handoff_mod.dialFailed;
     pub const provideGiftId = handoff_mod.provideGiftId;
+    pub const giftIdFailed = handoff_mod.giftIdFailed;
     pub const acceptGive = handoff_mod.acceptGive;
     pub const setExporterLocation = handoff_mod.setExporterLocation;
     pub const enrollCapability = handoff_mod.enrollCapability;
@@ -1206,8 +1676,6 @@ pub const Host = struct {
     pub const enlivenSelectOrDial = enliven_mod.enlivenSelectOrDial;
     pub const enlivenWithPolicy = enliven_mod.enlivenWithPolicy;
     const matchSturdyrefPeer = enliven_mod.matchSturdyrefPeer;
-    const mintEnlivenVow = enliven_mod.mintEnlivenVow;
-    const mintEnlivenVowAt = enliven_mod.mintEnlivenVowAt;
     const freeParkedEnliven = enliven_mod.freeParkedEnliven;
     const failParkedEnliven = enliven_mod.failParkedEnliven;
     const continueParkedEnliven = enliven_mod.continueParkedEnliven;
@@ -1354,6 +1822,16 @@ pub const Host = struct {
         try self.checkSession(session);
         const key = crypto.PeerKey.fromDesignator(designator) orelse
             return HostError.InvalidChannelKey;
+        // On a sealed session the channel is this connection's realizer
+        // (ADR-0107), so an embedder's independent assertion is a second
+        // realizer: the statement the completed handshake already made
+        // succeeds as a repeat, and anything else is refused.
+        if (session.sealed != null) {
+            if (session.served.port.peer.verifiedChannelKey()) |existing| {
+                if (existing.eql(key)) return;
+            }
+            return HostError.ChannelKeyConflict;
+        }
         const peer = session.served.port.peer;
         if (peer.session_state.partnerDesignator() != null)
             return HostError.HandshakeAlreadyApplied;
@@ -1377,6 +1855,20 @@ pub const Host = struct {
         }
     }
 
+    /// Relinquish the single-thread driver claim at a quiescent adapter
+    /// boundary. The current owner calls this only after it has stopped
+    /// dispatching Host work; a later public verb may then claim the Host from
+    /// another thread. This is a sequential ownership transfer, not permission
+    /// for concurrent access.
+    pub fn releaseDriverOwnership(self: *Host) void {
+        if (comptime !std.debug.runtime_safety) return;
+        std.debug.assert(!self.in_callback);
+        if (self.owner_tid) |owned| {
+            std.debug.assert(owned == std.Thread.getCurrentId());
+            self.owner_tid = null;
+        }
+    }
+
     /// Setup may publish reachability before the runtime thread starts. Once
     /// a runtime operation claims the Host, locator updates must stay on that
     /// same thread like every other Host mutation.
@@ -1394,7 +1886,7 @@ pub const Host = struct {
     }
 
     pub fn checkLive(session: *const HostSession) HostError!void {
-        if (session.condemned) return HostError.ConnectionCondemned;
+        if (session.condemned) return HostError.SessionCondemned;
     }
 
     /// Prove both halves of the application boundary: the session belongs to
@@ -1403,6 +1895,17 @@ pub const Host = struct {
     pub fn checkSession(self: *const Host, session: *const HostSession) HostError!void {
         try self.checkOwnedSession(session);
         return checkLive(session);
+    }
+
+    /// Core-internal preflight shared with the sibling application-verb
+    /// modules. It must run before any retry-visible state moves. Cleanup and
+    /// terminal traffic deliberately bypass it so a full queue cannot pin
+    /// authority or prevent closure.
+    pub fn checkOutboundAdmission(self: *Host, session: *HostSession) HostError!void {
+        try self.checkOwnedSession(session);
+        if (!session.sessionOpen()) return;
+        if (session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
+            return HostError.OutboundBackpressure;
     }
 
     /// Ownership-only half for teardown and condemned-session no-op paths,
@@ -1897,6 +2400,10 @@ pub const Host = struct {
         host_pump.testingMarkDirty(self, peer_id);
     }
 
+    pub fn testingFinishCommittedWork(self: *Host, session: *HostSession) void {
+        host_pump.finishCommittedWork(self, session);
+    }
+
     // ── Hooks ────────────────────────────────────────────────────────────────
 
     /// The before-serve hook on every host CapTP session. Three arms, in order:
@@ -2041,7 +2548,7 @@ pub const Host = struct {
         // ADR-0030's model, not an oversight, and it is why a designator that
         // *is* an identity is the one that gets checked; see
         // `docs/boundaries.md`.
-        if (vocab.designatorSchemeForTransport(ss.acceptable_location.transport) == .key) {
+        if (try self.designatorScheme(ss.acceptable_location.transport) == .key) {
             const claimed = crypto.PeerKey.fromDesignator(designator) orelse return;
             if (!std.mem.eql(u8, &claimed.bytes, &partner_key.bytes)) return;
         }
@@ -2081,6 +2588,12 @@ pub const HostTurn = struct {
         const ref = try self.turn.vat.spawn(Hosting(Behavior), .{ .inner = initial });
         errdefer self.turn.vat.discardFreshActor(ref);
         return self.host.liftLocalActor(ref);
+    }
+
+    /// Defer this turn's answer and return the one-shot authority that settles
+    /// it later from the Host's owning thread.
+    pub fn deferAnswer(self: *HostTurn) !u64 {
+        return self.host.deferTurn(self.session, self.turn);
     }
 };
 

@@ -25,11 +25,11 @@
 //!   `driver.listen` each hand back an owning `Session`, so a Zig app gets
 //!   `connect`/`listen`/`fetch`/`publish`/`spawn`/`send`/`tell`/`serve`/`close`
 //!   (plus `call`, the blocking send-and-await) instead of a hand-written pump
-//!   loop. A `Session` is a view onto a `driver.PollHost`, which owns the identity
-//!   and the pump; you name the `Host` yourself only when several sessions
-//!   must share one identity, and that sharing is what lets an introduction
-//!   from one partner settle as a live capability from another. It composes;
-//!   it adds no protocol.
+//!   loop. A `Session` is a view onto a `driver.HostRuntime`, which owns the
+//!   transport I/O around one core `Host`; you construct the `HostRuntime`
+//!   explicitly only when several sessions must share one Host identity, and
+//!   that sharing is what lets an introduction from one partner settle as a
+//!   live capability from another. It composes; it adds no protocol.
 //!
 //! Two more layers live under `src/` but not on this namespace, because a Zig
 //! consumer has no use for them here. `c_abi` is the C interface; it is
@@ -68,7 +68,7 @@ pub const Peer = ocapn.engine.Peer;
 /// A vat of local actor objects with near-call and eventual-send above the engine.
 pub const Vat = actors.Vat;
 
-/// The owning application connection `driver.connect` and `driver.listen` hand back.
+/// The owning application session `driver.connect` and `driver.listen` hand back.
 pub const Session = driver.Session;
 
 /// Owned wire bytes for one frame; the borrowed counterpart is `Frame.view`.

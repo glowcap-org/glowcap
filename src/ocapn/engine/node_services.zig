@@ -49,9 +49,10 @@ pub const NodeServices = struct {
         pending_withdraw_removed: *const fn (ctx: *anyopaque, receiver: PeerId, dependency: HandoffDependency) void,
         gift_deposited: *const fn (ctx: *anyopaque, dependency: HandoffDependency) void,
         session_closed: *const fn (ctx: *anyopaque, peer_id: PeerId) void,
-        next_v1_emitted_handoff_count: *const fn (ctx: *anyopaque) HandoffCountError!u64,
+        prepare_v1_emitted_handoff_count: *const fn (ctx: *anyopaque) HandoffCountError!bootstrap.PreparedHandoffCount,
         prepare_promise_shortening: *const fn (ctx: *anyopaque, peer_id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void,
         commit_promise_shortening: *const fn (ctx: *anyopaque, peer_id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) void,
+        designator_scheme: *const fn (ctx: *anyopaque, transport: []const u8) ?model.transport.DesignatorScheme,
     };
 
     /// Bind a concrete node implementation to the erased link stored by a
@@ -98,8 +99,8 @@ pub const NodeServices = struct {
                 implementation.session_closed(context(erased), id);
             }
 
-            fn nextV1EmittedHandoffCountThunk(erased: *anyopaque) HandoffCountError!u64 {
-                return implementation.next_v1_emitted_handoff_count(context(erased));
+            fn prepareV1EmittedHandoffCountThunk(erased: *anyopaque) HandoffCountError!bootstrap.PreparedHandoffCount {
+                return implementation.prepare_v1_emitted_handoff_count(context(erased));
             }
 
             fn preparePromiseShorteningThunk(erased: *anyopaque, id: PeerId, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void {
@@ -110,6 +111,10 @@ pub const NodeServices = struct {
                 implementation.commit_promise_shortening(context(erased), id, source, target, target_listener, converges);
             }
 
+            fn designatorSchemeThunk(erased: *anyopaque, transport: []const u8) ?model.transport.DesignatorScheme {
+                return implementation.designator_scheme(context(erased), transport);
+            }
+
             const vtable: VTable = .{
                 .lower = lowerThunk,
                 .local_object_projection = localObjectProjectionThunk,
@@ -118,9 +123,10 @@ pub const NodeServices = struct {
                 .pending_withdraw_removed = pendingWithdrawRemovedThunk,
                 .gift_deposited = giftDepositedThunk,
                 .session_closed = sessionClosedThunk,
-                .next_v1_emitted_handoff_count = nextV1EmittedHandoffCountThunk,
+                .prepare_v1_emitted_handoff_count = prepareV1EmittedHandoffCountThunk,
                 .prepare_promise_shortening = preparePromiseShorteningThunk,
                 .commit_promise_shortening = commitPromiseShorteningThunk,
+                .designator_scheme = designatorSchemeThunk,
             };
         };
 
@@ -141,9 +147,10 @@ pub const NodeServices = struct {
             pending_withdraw_removed: *const fn (Context, PeerId, HandoffDependency) void,
             gift_deposited: *const fn (Context, HandoffDependency) void,
             session_closed: *const fn (Context, PeerId) void,
-            next_v1_emitted_handoff_count: *const fn (Context) HandoffCountError!u64,
+            prepare_v1_emitted_handoff_count: *const fn (Context) HandoffCountError!bootstrap.PreparedHandoffCount,
             prepare_promise_shortening: *const fn (Context, PeerId, u64, u64, u64, bool) PromiseShorteningError!void,
             commit_promise_shortening: *const fn (Context, PeerId, u64, u64, u64, bool) void,
+            designator_scheme: *const fn (Context, []const u8) ?model.transport.DesignatorScheme,
         };
     }
 
@@ -175,8 +182,8 @@ pub const NodeServices = struct {
         self.vtable.session_closed(self.ctx, self.peer_id);
     }
 
-    pub fn nextV1EmittedHandoffCount(self: NodeServices) HandoffCountError!u64 {
-        return self.vtable.next_v1_emitted_handoff_count(self.ctx);
+    pub fn prepareV1EmittedHandoffCount(self: NodeServices) HandoffCountError!bootstrap.PreparedHandoffCount {
+        return self.vtable.prepare_v1_emitted_handoff_count(self.ctx);
     }
 
     pub fn preparePromiseShortening(self: NodeServices, source: u64, target: u64, target_listener: u64, converges: bool) PromiseShorteningError!void {
@@ -185,5 +192,9 @@ pub const NodeServices = struct {
 
     pub fn commitPromiseShortening(self: NodeServices, source: u64, target: u64, target_listener: u64, converges: bool) void {
         self.vtable.commit_promise_shortening(self.ctx, self.peer_id, source, target, target_listener, converges);
+    }
+
+    pub fn designatorScheme(self: NodeServices, transport: []const u8) ?model.transport.DesignatorScheme {
+        return self.vtable.designator_scheme(self.ctx, transport);
     }
 };

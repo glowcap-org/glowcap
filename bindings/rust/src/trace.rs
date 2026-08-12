@@ -16,6 +16,8 @@
 
 use std::cell::RefCell;
 use std::ffi::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::rc::Rc;
 use std::time::Instant;
 
 use crate::abi_constants_gen::{
@@ -139,6 +141,13 @@ pub struct SessionMeta {
 
 pub type TraceSink = Box<dyn Fn(&TraceEvent)>;
 
+fn emit_record(sink: Rc<dyn Fn(&TraceEvent)>, record: TraceEvent) {
+	// Trace observation must not become protocol control flow. In particular,
+	// Host-driving re-entry is refused by the C ABI, and a panic must never
+	// cross the C callback.
+	let _ = catch_unwind(AssertUnwindSafe(|| sink(&record)));
+}
+
 /// Annotate a session with application metadata — the SET half of the
 /// three-layer annotation channel (set where meaning lives, pass through
 /// dumb, use at the edge): the application that knows what a session MEANS
@@ -152,22 +161,23 @@ pub fn annotate_session(session: &crate::Session, label: &str) {
 	if session_raw.is_null() {
 		return;
 	}
-	STATE.with(|state| {
+	let Some((sink, cookie, sim_t_ns)) = STATE.with(|state| {
 		let state = state.borrow();
-		let Some(sink) = state.sink.as_ref() else {
-			return;
-		};
-		let Some(host) = state.hosts.iter().find(|h| h.raw == host_raw) else {
-			return;
-		};
-		let cookie = host.cookie;
-		let mut id: u64 = 0;
-		let code = unsafe { ffi::pancake_host_session_trace_id(session_raw, &mut id) };
-		if code != 0 {
-			return;
-		}
-		sink(&TraceEvent {
-			sim_t_ns: state.t0.elapsed().as_nanos() as u64,
+		let sink = state.sink.clone()?;
+		let host = state.hosts.iter().find(|h| h.raw == host_raw)?;
+		Some((sink, host.cookie, state.t0.elapsed().as_nanos() as u64))
+	}) else {
+		return;
+	};
+	let mut id: u64 = 0;
+	let code = unsafe { ffi::pancake_host_session_trace_id(session_raw, &mut id) };
+	if code != 0 {
+		return;
+	}
+	emit_record(
+		sink,
+		TraceEvent {
+			sim_t_ns,
 			kind: TraceKind::SessionMeta,
 			session: format!("live-h{cookie}-s{id}"),
 			a: None,
@@ -188,8 +198,8 @@ pub fn annotate_session(session: &crate::Session, label: &str) {
 			meta: Some(SessionMeta {
 				label: label.to_string(),
 			}),
-		});
-	});
+		},
+	);
 }
 
 struct TracedHost {
@@ -203,7 +213,10 @@ struct TracedHost {
 }
 
 struct TraceState {
-	sink: Option<TraceSink>,
+	sink: Option<Rc<dyn Fn(&TraceEvent)>>,
+	/// Identifies the current installation so an older uninstall closure cannot
+	/// disable a replacement sink.
+	generation: u64,
 	/// The display label the application chose for its own endpoint, or None.
 	self_label: Option<String>,
 	t0: Instant,
@@ -214,6 +227,7 @@ struct TraceState {
 thread_local! {
 	static STATE: RefCell<TraceState> = RefCell::new(TraceState {
 		sink: None,
+		generation: 0,
 		self_label: None,
 		t0: Instant::now(),
 		hosts: Vec::new(),
@@ -289,11 +303,9 @@ fn base64(bytes: &[u8]) -> String {
 
 unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::PancakeTraceEvent) {
 	let ev = unsafe { &*event };
-	STATE.with(|state| {
+	let Some((sink, record)) = STATE.with(|state| {
 		let state = state.borrow();
-		let Some(sink) = state.sink.as_ref() else {
-			return;
-		};
+		let sink = state.sink.clone()?;
 		let sim_t_ns = state.t0.elapsed().as_nanos() as u64;
 		let cookie = ctx as usize;
 		let session = format!("live-h{}-s{}", cookie, ev.session);
@@ -396,10 +408,13 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 				digest: None,
 				meta: None,
 			},
-			_ => return,
+			_ => return None,
 		};
-		sink(&record);
-	});
+		Some((sink, record))
+	}) else {
+		return;
+	};
+	emit_record(sink, record);
 }
 
 /// Install the sink (replacing any prior one), start the clock, and register
@@ -410,29 +425,40 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 /// it: the `a` endpoint stays the host's own key designator, which is what a
 /// partner names it by and so the only name two producers can agree on.
 pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() {
-	STATE.with(|state| {
+	let (generation, hosts) = STATE.with(|state| {
 		let mut state = state.borrow_mut();
-		state.sink = Some(sink);
+		state.generation = state
+			.generation
+			.checked_add(1)
+			.expect("trace installation generation exhausted");
+		state.sink = Some(Rc::from(sink));
 		state.self_label = self_label.map(str::to_string);
 		state.t0 = Instant::now();
-		for host in &state.hosts {
-			unsafe {
-				ffi::pancake_host_set_trace(
-					host.raw,
-					Some(on_native_event),
-					host.cookie as *mut c_void,
-				)
-			};
-		}
+		let hosts = state
+			.hosts
+			.iter()
+			.map(|h| (h.raw, h.cookie))
+			.collect::<Vec<_>>();
+		(state.generation, hosts)
 	});
-	|| {
-		STATE.with(|state| {
+	for (raw, cookie) in hosts {
+		unsafe { ffi::pancake_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
+	}
+	move || {
+		let hosts = STATE.with(|state| {
 			let mut state = state.borrow_mut();
-			state.sink = None;
-			for host in &state.hosts {
-				unsafe { ffi::pancake_host_set_trace(host.raw, None, std::ptr::null_mut()) };
+			if state.generation != generation {
+				return None;
 			}
+			state.sink = None;
+			Some(state.hosts.iter().map(|h| h.raw).collect::<Vec<_>>())
 		});
+		let Some(hosts) = hosts else {
+			return;
+		};
+		for raw in hosts {
+			unsafe { ffi::pancake_host_set_trace(raw, None, std::ptr::null_mut()) };
+		}
 	}
 }
 
@@ -440,7 +466,7 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 /// designator at construction so an installed trace covers it, and a trace
 /// installed later finds it.
 pub(crate) fn attach_host(raw: *mut ffi::PancakeHost, designator: String) {
-	STATE.with(|state| {
+	let install = STATE.with(|state| {
 		let mut state = state.borrow_mut();
 		let cookie = state.next_cookie;
 		state.next_cookie += 1;
@@ -449,12 +475,11 @@ pub(crate) fn attach_host(raw: *mut ffi::PancakeHost, designator: String) {
 			cookie,
 			designator,
 		});
-		if state.sink.is_some() {
-			unsafe {
-				ffi::pancake_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void)
-			};
-		}
+		state.sink.is_some().then_some(cookie)
 	});
+	if let Some(cookie) = install {
+		unsafe { ffi::pancake_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
+	}
 }
 
 /// Binding-internal: a released Host leaves the registry. The core dropped

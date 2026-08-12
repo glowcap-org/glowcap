@@ -16,6 +16,11 @@
  * Pure: no DOM, no React, no Pixi.
  */
 
+import {
+  allVisModeOnDoc,
+  categoryVisModeOnDoc,
+  rowVisModeOnDoc,
+} from "../../engine/visibility.ts";
 import { type CSSCursor, cursorFor } from "../../interactions/cursor.ts";
 import {
   type DefaultVerb,
@@ -34,7 +39,7 @@ import {
   hitTestGutter,
   OVERVIEW_EDGE_GRAB_PX,
 } from "./hit-test.ts";
-import { HEADER_EYEBALL_X } from "./gutter-paint.ts";
+import { eyeGlyphStatus, HEADER_EYEBALL_X } from "./gutter-paint.ts";
 import { type RowDescriptor, RULER_HEIGHT } from "./row-layout.ts";
 import {
   canvasPxToT,
@@ -43,6 +48,31 @@ import {
   plotWidthOf,
   type TimelineView,
 } from "./state.ts";
+
+/**
+ * Hover title for a gutter eyeball — current stored mode, same verbs as the
+ * undo label for setting that mode. Null when the pointer is not on an eye.
+ */
+export function eyeballHoverStatus(
+  hit: Hit | null,
+  doc: TimelineDocument,
+): string | null {
+  if (hit?.surface !== "timeline-gutter-eyeball") return null;
+  switch (hit.scope.kind) {
+    case "row":
+      return eyeGlyphStatus(
+        rowVisModeOnDoc(doc, hit.scope.category, hit.scope.entityId),
+        { kind: "row" },
+      );
+    case "category":
+      return eyeGlyphStatus(
+        categoryVisModeOnDoc(doc, hit.scope.category),
+        { kind: "category", category: hit.scope.category },
+      );
+    case "all":
+      return eyeGlyphStatus(allVisModeOnDoc(doc), { kind: "all" });
+  }
+}
 
 /**
  * The gesture a Timeline host is running, named where it starts.

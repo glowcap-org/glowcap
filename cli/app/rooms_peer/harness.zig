@@ -115,6 +115,24 @@ pub fn parseOutboxLine(gpa: Allocator, line: []const u8) ?OutboxLine {
     return .{ .text = text, .is_dm = is_dm, .peer = peer };
 }
 
+/// Append one durable room post or direct message to the peer's outbox. A DM
+/// names its introduction target; the daemon resolves or opens that route
+/// before advancing the outbox cursor.
+pub fn appendOutbox(io: Io, gpa: Allocator, dir: []const u8, text: []const u8, peer: ?[]const u8) !void {
+    var list: std.ArrayList(u8) = .empty;
+    defer list.deinit(gpa);
+    if (peer) |nick| {
+        try list.appendSlice(gpa, "{\"channel\":\"dm\",\"peer\":");
+        try writeJsonString(&list, gpa, nick);
+    } else {
+        try list.appendSlice(gpa, "{\"channel\":\"room\"");
+    }
+    try list.appendSlice(gpa, ",\"text\":");
+    try writeJsonString(&list, gpa, text);
+    try list.append(gpa, '}');
+    try appendLine(io, gpa, dir, "outbox.jsonl", list.items);
+}
+
 /// Write a JSON string literal (quotes and escaping) into an ArrayList.
 ///
 /// This is the CLI's one escaper, reached from here so the inbox records and
@@ -183,46 +201,6 @@ pub fn outboxBacklogBytes(io: Io, gpa: Allocator, dir: []const u8) usize {
     defer gpa.free(contents);
     const offset = clampOutboxOffset(loadOutboxOffset(io, gpa, dir), contents.len);
     return contents.len - offset;
-}
-
-/// Leaf name for the peer-written map of nicks with an ADR-0088 reply-cap
-/// (`dm_back`). `reply --dm` reads this so a bot-first DM cannot look locally
-/// sent when introduce would be the only route (browser false-sent class).
-pub const dm_backchannels_leaf = "dm_backchannels.json";
-
-/// Persist the set of nicks that currently hold a reply-cap back-channel.
-/// Shape: `{"armed":["Jim","Bob"]}`. Best-effort — a failed write leaves the
-/// previous file; `reply --dm` then fails closed until the next persist.
-pub fn persistDmBackchannels(io: Io, gpa: Allocator, dir: []const u8, armed: []const []const u8) void {
-    var list: std.ArrayList(u8) = .empty;
-    defer list.deinit(gpa);
-    list.appendSlice(gpa, "{\"armed\":[") catch return;
-    for (armed, 0..) |nick, i| {
-        if (i > 0) list.append(gpa, ',') catch return;
-        writeJsonString(&list, gpa, nick) catch return;
-    }
-    list.appendSlice(gpa, "]}\n") catch return;
-    overwriteFile(io, dir, dm_backchannels_leaf, list.items) catch {};
-}
-
-/// True when `peer` appears in DIR/dm_backchannels.json's `armed` list.
-/// Missing or corrupt file → false (fail closed: no false-sent --dm).
-pub fn dmBackchannelArmed(io: Io, gpa: Allocator, dir: []const u8, peer: []const u8) bool {
-    if (peer.len == 0) return false;
-    const raw = readFile(io, gpa, dir, dm_backchannels_leaf) catch return false;
-    defer gpa.free(raw);
-    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
-    if (trimmed.len == 0) return false;
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, trimmed, .{}) catch return false;
-    defer parsed.deinit();
-    const root = parsed.value;
-    if (root != .object) return false;
-    const armed_val = root.object.get("armed") orelse return false;
-    if (armed_val != .array) return false;
-    for (armed_val.array.items) |item| {
-        if (item == .string and std.mem.eql(u8, item.string, peer)) return true;
-    }
-    return false;
 }
 
 /// Leaf name for optional team roster used to distinguish human room lines from

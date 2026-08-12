@@ -6,6 +6,7 @@ const std = @import("std");
 
 const model = @import("model");
 const engine = @import("engine");
+const actors = @import("actors");
 
 const host_mod = @import("host.zig");
 const host_action = @import("host_action.zig");
@@ -30,6 +31,32 @@ pub fn markDirty(self: *Host, peer_id: engine.PeerId) void {
     std.debug.assert(self.pending_flush.items.len < self.pending_flush.capacity);
     self.pending_flush.appendAssumeCapacity(peer_id);
     session.flush_pending = true;
+    // Dirty work is also a wake for a byte-fed embedder. This matters when a
+    // finite host quantum expires immediately after a node action or handoff
+    // marks a session: no outbound frame may exist yet, but another Host verb
+    // must still be prompted to resume the dirty FIFO.
+    // A terminal close is already the embedder wake and its executor flushes
+    // any queued abort before closing. Do not leave a redundant flush behind
+    // a condemned session's close action.
+    if (!session.condemned and !session.close_action_pending)
+        queueUniqueSessionAction(self, .flush, peer_id);
+}
+
+/// Wake the embedder when a finite scheduler slice ended on work that belongs
+/// to the Host rather than to one session. A resume action is deliberately
+/// separate from `.flush`: there may be no session and no bytes to write, but
+/// stopping at `nextAction == null` would strand the Node's remaining work.
+fn queueResumeAction(self: *Host) !void {
+    if (self.resume_action_pending) return;
+    try self.reserveActions(1);
+    self.actions.pushReserved(.resume_work);
+    self.resume_action_pending = true;
+}
+
+fn hasInternalWork(self: *const Host) bool {
+    return self.pending_flush_head < self.pending_flush.items.len or
+        self.node.hasAction() or
+        self.node.nextHandoffChange() != null;
 }
 
 /// Test seam for staging already-owned deferred encode work.
@@ -115,78 +142,108 @@ pub fn finishVerb(self: *Host) !void {
 /// dispatch (`feed`'s latched `feedBorrowed`) never reaches here: it
 /// keeps `failDispatch` semantics and fails that feed.
 fn drainWork(self: *Host) !void {
-    while (true) {
-        var progressed = false;
-        while (takeDirty(self)) |peer_id| {
-            progressed = true;
-            const session = self.sessions.get(peer_id) orelse continue;
-            if (session.condemned) {
-                // A condemned Port's ingress is never driven again; its queued
-                // turns died with the verdict. Encode what is
-                // already queued (the typed abort) so the embedder writes
-                // it before closing; best-effort, the session is ending.
-                session.served.port.peer.stepToIdle() catch {};
-                if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
-                continue;
-            }
-            // Backstop: any path that skipped the condemned branch above
-            // and still reached a drive on a condemned session panics loud.
-            std.debug.assert(!session.condemned);
-            session.served.driveFed(&self.vat) catch |err| switch (err) {
-                error.LocalTurnLimitExceeded => {
-                    try condemn(self, session, .resource_exhausted, "local turn budget exceeded");
-                    continue;
-                },
-                error.OutOfMemory => {
-                    // A handoff change may already have been consumed into
-                    // this intrusive row. Requeue before propagating so a
-                    // release-side catch cannot strand the accepted withdraw.
-                    markDirty(self, peer_id);
-                    return error.OutOfMemory;
-                },
-                else => {
-                    // `Peer.step` projects aborts itself; failures from
-                    // `drainEvents` / `vat.serve` (e.g. an outbound resolve
-                    // refused as `UnexpectedMessage`) do not. Record and
-                    // project here so `last_abort` and the partner see the
-                    // same typed cause the feed path already promises.
-                    if (session.served.port.peer.lastAbort() == null) {
-                        session.served.port.peer.emitFailure(err);
+    var remaining = self.opts.host_work_quantum orelse std.math.maxInt(usize);
+    work: while (remaining != 0) {
+        var lanes_checked: u2 = 0;
+        while (lanes_checked < 3) : (lanes_checked += 1) {
+            const lane = self.next_work_lane;
+            self.next_work_lane = lane.next();
+            switch (lane) {
+                .session => if (takeDirty(self)) |peer_id| {
+                    remaining -= 1;
+                    const session = self.sessions.get(peer_id) orelse continue :work;
+                    if (session.condemned) {
+                        // A condemned Port's ingress is never driven again; its queued
+                        // turns died with the verdict. Encode the terminal abort and
+                        // keep its close notification visible to the embedder.
+                        session.served.port.peer.stepToIdle() catch {};
+                        if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
+                        continue :work;
                     }
-                    return err;
+                    std.debug.assert(!session.condemned);
+                    const progress = if (self.opts.host_work_quantum == null) blk: {
+                        session.served.driveFed(&self.vat) catch |err| switch (err) {
+                            error.EventServeOutOfMemory => {
+                                try condemn(self, session, .resource_exhausted, "event serve failed under memory pressure");
+                                continue :work;
+                            },
+                            error.OutOfMemory, error.OutboundBackpressure => {
+                                markDirty(self, peer_id);
+                                return err;
+                            },
+                            else => return err,
+                        };
+                        break :blk actors.Vat.DriveProgress.drained;
+                    } else session.served.driveFedBudgeted(&self.vat) catch |err| switch (err) {
+                        error.EventServeOutOfMemory => {
+                            // The event was already removed from Peer.events before
+                            // serveEvent failed; retrying would silently lose it.
+                            // Condemn instead of replaying a partially applied event.
+                            try condemn(self, session, .resource_exhausted, "event serve failed under memory pressure");
+                            continue :work;
+                        },
+                        error.OutOfMemory => {
+                            // No event was consumed at this boundary, or the failure
+                            // occurred during resumable local driving/encoding.
+                            markDirty(self, peer_id);
+                            return error.OutOfMemory;
+                        },
+                        error.OutboundBackpressure => {
+                            markDirty(self, peer_id);
+                            return error.OutboundBackpressure;
+                        },
+                        error.LocalTurnLimitExceeded => {
+                            try condemn(self, session, .resource_exhausted, "local turn budget exceeded");
+                            continue :work;
+                        },
+                        else => {
+                            if (session.served.port.peer.lastAbort() == null)
+                                session.served.port.peer.emitFailure(err);
+                            return err;
+                        },
+                    };
+                    if (progress == .more_pending) {
+                        // The Host quantum is only a scheduler slice. Per-session
+                        // amplification has its own resumable counter in `Served` and
+                        // reports `LocalTurnLimitExceeded` above.
+                        markDirty(self, peer_id);
+                        queueUniqueSessionAction(self, .flush, peer_id);
+                    }
+                    if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
+                    continue :work;
                 },
-            };
-            // Tell the embedder only when a frame is actually queued: a
-            // feed that encoded nothing must not cost a flush round-trip.
-            if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
-        }
-        while (self.node.hasAction()) {
-            // Reserve the largest Host-side consequence, then execute through
-            // the Node's peek/commit seam. A fulfilled settle may still need a
-            // fallible Vat clone; if it fails, the listener and Node action
-            // both remain parked for the next action drain.
-            try self.reserveActions(1);
-            const action = self.node.peekAction().?;
-            progressed = true;
-            try execNodeAction(self, action);
-            self.node.consumePeekedAction();
-        }
-        if (self.node.nextHandoffChange()) |dependency| {
-            var waiters = self.node.handoffWaiters(dependency);
-            while (waiters.next()) |receiver| {
-                const session = self.sessions.get(receiver) orelse continue;
-                if (session.condemned) continue;
-                session.served.port.peer.noteHandoffChange(dependency);
-                markDirty(self, receiver);
+                .node => if (self.node.hasAction()) {
+                    remaining -= 1;
+                    // Reserve the largest Host-side consequence, then execute through
+                    // the Node's peek/commit seam. A fulfilled settle may still need a
+                    // fallible Vat clone; if it fails, the action remains parked.
+                    try self.reserveActions(1);
+                    const action = self.node.peekAction().?;
+                    try execNodeAction(self, action);
+                    self.node.consumePeekedAction();
+                    continue :work;
+                },
+                .handoff => if (self.node.nextHandoffChange()) |dependency| {
+                    remaining -= 1;
+                    var waiters = self.node.handoffWaiters(dependency);
+                    while (waiters.next()) |receiver| {
+                        const session = self.sessions.get(receiver) orelse continue;
+                        if (session.condemned) continue;
+                        session.served.port.peer.noteHandoffChange(dependency);
+                        markDirty(self, receiver);
+                    }
+                    self.node.consumeHandoffChange(dependency);
+                    continue :work;
+                },
             }
-            self.node.consumeHandoffChange(dependency);
-            // Reach receiver quiescence before accepting another exact wake.
-            // That makes one scalar wake on each Peer sufficient and gives an
-            // OOM retry ownership: the receiver keeps the key until it settles.
-            continue;
         }
-        if (!progressed) return;
+        return;
     }
+    // A finite quantum is a yield point. Preserve liveness even when the
+    // exhausted work was entirely Node-owned and therefore produced neither a
+    // session flush nor an embedder effect.
+    if (self.opts.host_work_quantum != null and hasInternalWork(self))
+        try queueResumeAction(self);
 }
 
 /// The non-blocking executor of node serve-step actions: settles and
@@ -203,7 +260,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
             // inbound hello). ADR-0012 session-pair uniqueness would refuse a
             // duplicate dial and break the redeem.
             const view = self.node.pendingDial(d.pending) orelse return;
-            if (self.liveSessionForDial(view.transport, view.designator)) |existing| {
+            if (try self.liveSessionForDial(view.transport, view.designator)) |existing| {
                 if (existing.sessionOpen()) {
                     return self.node.exporterSelected(d.pending, existing.peer_id);
                 }
@@ -218,10 +275,12 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
                 model.AnswerPosition.from(s.answer),
                 .{ .fulfilled = .{ .reference = .{ .far = model.FarRef.object(s.token) } } },
             );
+            markDirty(self, s.peer_id);
         },
         .fail => |f| {
             const session = self.sessions.get(f.peer_id) orelse return;
             try session.served.port.settleFar(&self.vat, model.AnswerPosition.from(f.answer), .{ .broken = f.reason.bytes() });
+            markDirty(self, f.peer_id);
         },
         .retire_exporter => |peer_id| {
             if (!self.node.claimExporterRetirement(peer_id)) return;
@@ -300,7 +359,13 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
                 self.unindexSession(session);
         }
     }
-    try finishDispatch(self, session);
+    finishDispatch(self, session) catch |err| switch (err) {
+        // `body` has committed its frame/event. Both pressure failures leave
+        // the exact dirty row and its wake parked, so they are continuation
+        // state, not a reason to replay the caller's input.
+        error.OutOfMemory, error.OutboundBackpressure => return,
+        else => return err,
+    };
 }
 
 /// A partner abort is a complete remote verdict, not merely a closed session
@@ -308,27 +373,41 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
 /// held, then tell the embedder to close the transport without echoing an
 /// abort. Notification capacity was reserved when the shell was minted.
 fn retirePartnerAbortedSession(self: *Host, session: *HostSession) !void {
-    if (session.condemned) return;
-    session.condemned = true;
-    self.unindexSession(session);
-    const reason = session.served.closeReason("partner aborted session");
-    session.served.port.breakFarVows(reason);
-    var first_error: ?anyerror = null;
-    self.cancelSessionIngress(session, reason) catch |err| {
-        first_error = err;
-    };
-    queueUniqueSessionAction(self, .close, session.peer_id);
-    if (first_error) |err| return err;
+    return retireQuietly(self, session, session.served.closeReason("partner aborted session"));
 }
 
 /// Retire a session the Host opened only to redeem a handoff that failed. This
 /// is ownership cleanup, not a partner protocol violation, so it closes the
 /// transport without manufacturing an `op:abort`.
 fn retireRedeemOnlyExporter(self: *Host, session: *HostSession) !void {
+    return retireQuietly(self, session, "handoff redemption failed");
+}
+
+/// Retire a session whose sealed channel refused (ADR-0107): a handshake or
+/// record that did not verify. There may be no CapTP session at all yet, and
+/// after one opens no plaintext byte may follow the failure, so no `op:abort`
+/// is manufactured in either case — the embedder is told to close the
+/// transport and every later verb refuses `SessionCondemned`. Best-effort
+/// on ingress-cancel failure, because the caller is already unwinding the
+/// channel's own refusal.
+pub fn retireSealedSession(self: *Host, session: *HostSession) void {
+    const latched = self.in_callback;
+    if (!latched) self.in_callback = true;
+    retireQuietly(self, session, "sealed channel refused") catch {};
+    if (!latched) {
+        self.in_callback = false;
+        finishVerb(self) catch {};
+    }
+}
+
+/// The shared no-abort teardown: condemn, unindex, break parked vows, cancel
+/// the Vat ingress, and queue the embedder's close — everything a terminal
+/// verdict owes except an `op:abort` echo. Runs under the callback latch;
+/// notification capacity was reserved when the shell was minted.
+fn retireQuietly(self: *Host, session: *HostSession, reason: []const u8) !void {
     if (session.condemned) return;
     session.condemned = true;
     self.unindexSession(session);
-    const reason = "handoff redemption failed";
     session.served.port.breakFarVows(reason);
     var first_error: ?anyerror = null;
     self.cancelSessionIngress(session, reason) catch |err| {
@@ -358,6 +437,25 @@ pub fn dirtyThenPump(self: *Host, peer_id: engine.PeerId) !void {
     try finishVerb(self);
 }
 
+/// Finish an asynchronous verb after its vow id and semantic operation are
+/// committed. From this point no failure is retryable as the original verb:
+/// allocator or outbound pressure leaves the dirty row and its wake parked
+/// for the next drain, while any other drive failure condemns the affected
+/// session so the already-returned vow settles through ordinary teardown.
+pub fn finishCommittedVow(self: *Host, session: *HostSession) void {
+    markDirty(self, session.peer_id);
+    finishCommittedWork(self, session);
+}
+
+/// Finish already-committed Host work that did not itself dirty a session
+/// (for example a sturdyref cache hit whose completion is already queued).
+pub fn finishCommittedWork(self: *Host, session: *HostSession) void {
+    finishVerb(self) catch |err| switch (err) {
+        error.OutOfMemory, error.OutboundBackpressure => {},
+        else => condemn(self, session, .other, @errorName(err)) catch {},
+    };
+}
+
 pub fn finishDispatch(self: *Host, session: *HostSession) !void {
     try dirtyThenPump(self, session.peer_id);
 }
@@ -365,7 +463,7 @@ pub fn finishDispatch(self: *Host, session: *HostSession) !void {
 /// Condemn a session the host is done with — a crossed-hellos tiebreak
 /// loser, or one whose local turns amplified past the budget: queue its
 /// typed abort (`kind` names which contract it broke) and mark it so every
-/// later verb refuses `ConnectionCondemned`. The abort rides the ordinary
+/// later verb refuses `SessionCondemned`. The abort rides the ordinary
 /// flush path; the embedder drains and writes it, then releases the session.
 pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) !void {
     if (session.condemned) return;

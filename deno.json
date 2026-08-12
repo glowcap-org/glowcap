@@ -1,6 +1,7 @@
 {
   "imports": {
     "@pancake/stack": "./bindings/ts/stack/mod.ts",
+    "@pancake/stack/driver_loop": "./bindings/ts/stack/driver_loop.ts",
     "@pancake/stack/ffi": "./bindings/ts/stack/ffi.ts",
     "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
     "@pancake/iroh/internal": "./bindings/ts/iroh/internal.ts",

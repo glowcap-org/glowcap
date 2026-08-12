@@ -1,6 +1,6 @@
 // The CapTP host — multi-session CapTP product over the byte-fed host archive
-// (libpancake_host, ADR-0072). Goblins' `mycapn` is two roles: the endpoint
-// ≈ this `Host`, the router tables ≈ `engine.Node` that the host owns — never
+// (libpancake_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// to this `Host`, the router tables map to `engine.Node` that the host owns — never
 // a single-type equation. The `PancakeHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
 // redemption, and the gifter half's origination. What lives here is only what
@@ -12,10 +12,17 @@
 // `pump.ts`; the dial executor lives in `dial.ts`. `session.ts` owns the
 // `Session` they act on. `mod.ts` re-exports the public `Host`.
 
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer, outU64 } from "./internal/seam.ts";
-import { CLOSED, DEFAULT_FRAME_CAP, IROH_REACH_REDEEM_DEFAULT, NOT_FOUND, OK } from "@pancake/abi";
+import {
+	CLOSED,
+	DEFAULT_FRAME_CAP,
+	INVALID_ARGUMENT,
+	IROH_REACH_REDEEM_DEFAULT,
+	NOT_FOUND,
+	OK,
+} from "@pancake/abi";
 import { checkHost, hostLastError, PancakeError } from "./errors.ts";
 import { traceAttachHost, traceDetachHost, traceDrainHost } from "./trace.ts";
 import {
@@ -32,32 +39,70 @@ import {
 } from "./value.ts";
 import { encodeArgs, refStruct } from "./codec.ts";
 import {
+	type BehaviorEntry,
 	insideTurn,
 	registerBehavior,
 	trampolinePointer,
 	unregisterBehavior,
 } from "./trampoline.ts";
-import type { Context } from "./context.ts";
-import { Session } from "./session.ts";
-import { dialExporter as dialExporterFn } from "./dial.ts";
+import { type Context, releaseContext, retainContext } from "./context.ts";
+import { type DriverLoopHandle, Session } from "./session.ts";
 import { asLiveRef } from "./promise.ts";
 import { parkActions, runAction } from "./action.ts";
 import { HostGc } from "./gc.ts";
-import { encodePeerLocator } from "./locator.ts";
-
-// Every connection's maximum admissible frame; mirrors PANCAKE_DEFAULT_FRAME_CAP.
-const HOST_FRAME_CAP = DEFAULT_FRAME_CAP;
+import { type Locator, withOwnedLocator } from "./locator.ts";
 
 // One encoder/decoder pair for the whole module: both are stateless here.
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
-// Frees a raw host whose `Host` wrapper the GC reclaimed. The host owns every
-// still-open session, the vow map, parked actions, and the giftable rows,
-// so a dropped wrapper must not leak the native handle. Mid-turn releases park
-// on the live Host instead; the finalizer path only runs after the wrapper is gone.
-const hostFinalizer = new FinalizationRegistry<Ptr>((raw) => {
-	driverS.pancake_host_release(raw);
+interface HostFinalizerState {
+	raw: Ptr;
+	/** Every process-global trampoline row owned by this Host. Bigints only:
+	 * the held state must never retain the Host wrapper or a behavior closure. */
+	behaviorIds: Set<bigint>;
+	/** Keep a caller-supplied allocation scope alive until native Host release.
+	 * The Context does not retain this Host, so this cannot create a cycle. */
+	context: Context | null;
+}
+
+// Finalizers cannot report release refusal. Keep the native allocation policy
+// alive in that impossible-by-contract arm rather than freeing it under the
+// still-live Host.
+const refusedHostFinalizers = new Set<HostFinalizerState>();
+
+function releaseHostState(state: HostFinalizerState): void {
+	if (state.raw === NULL) return;
+	const raw = state.raw;
+	if (hostS.pancake_host_release(raw) !== OK) {
+		refusedHostFinalizers.add(state);
+		return;
+	}
+	state.raw = NULL;
+	for (const ctx of state.behaviorIds) unregisterBehavior(ctx);
+	state.behaviorIds.clear();
+	const context = state.context;
+	state.context = null;
+	if (context != null) releaseContext(context);
+}
+
+class HostedBehaviorMap extends Map<bigint, bigint> {
+	constructor(readonly behaviorIds: Set<bigint>) {
+		super();
+	}
+
+	override set(refId: bigint, ctx: bigint): this {
+		this.behaviorIds.add(ctx);
+		return super.set(refId, ctx);
+	}
+}
+
+// Release everything whose authority survives the wrapper. Mid-turn releases
+// park on the live Host instead; this path runs only after the wrapper is gone.
+const hostFinalizer = new FinalizationRegistry<HostFinalizerState>((state) => {
+	traceDrainHost(state.raw);
+	traceDetachHost(state.raw);
+	releaseHostState(state);
 });
 
 // A host vow's pending state: exactly three shapes, so the illegal "settled AND
@@ -112,13 +157,17 @@ export interface SignalingAuthority {
 }
 
 export class Host {
-	/** The host's retained durable identity seed (32 bytes). */
-	readonly seed: Uint8Array;
+	/** The host's retained durable identity seed. Each read returns a copy. */
+	readonly #seed: Uint8Array;
 	/** The wire grammar every session this host mints negotiates in. */
 	readonly codec: Codec;
 	readonly captpVersion: CaptpVersion;
 	readonly features: FeatureSet;
 	#raw: Ptr;
+	// Set before trace draining because a sink may recursively release this Host.
+	#releaseStarted = false;
+	#releasePromise: Promise<void> | null = null;
+	readonly #finalizerState: HostFinalizerState;
 	/** Host-owned finalizer registry and release queue. */
 	readonly #gc: HostGc;
 	// Every live session by its PancakeHostSession address, so a FLUSH action
@@ -130,6 +179,14 @@ export class Host {
 	readonly #vows = new Map<bigint, VowRow>();
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	readonly #unobserved: bigint[] = [];
+	// DIAL actions are asynchronous after the C queue has consumed them. Retain
+	// their executors until they report a terminal result; otherwise a detached
+	// promise can disappear while its ticket and half-open channel remain live.
+	readonly #dialTasks = new Map<Promise<void>, AbortController>();
+	// Action drains may await transport I/O after popping native actions. Keep
+	// every admitted drain under Host teardown so none can resume after native
+	// Host storage is released.
+	readonly #actionDrains = new Set<Promise<void>>();
 	// The iroh reachability posture this host uses to redeem a *hint-less*
 	// handoff give — one whose exporter location names the exporter by node id
 	// alone. Starts at the generated ABI default (`Discovery`: n0 relays +
@@ -161,10 +218,19 @@ export class Host {
 	// Every Session.spawn/publish trampoline on this Host. Actors live in the
 	// Host Vat and remain callable through sibling Ports after the Port that
 	// first projected them closes.
-	readonly hosted = new Map<bigint, bigint>();
+	readonly hosted: Map<bigint, bigint>;
+	// Strong ownership behind the weak process-global trampoline lookup. This
+	// may contain a behavior that captures this Host; that cycle is local and
+	// therefore collectable.
+	readonly #behaviorEntries = new Map<bigint, BehaviorEntry>();
 	// Ctx ids a re-publish displaced. Existing capabilities and gifts still reach
 	// the old Host-Vat actor, so its behavior stays registered until `release()`.
 	readonly #displacedGiftables: bigint[] = [];
+	// The native loop that owns this Host's handle, when this wrapper was
+	// adopted over a loop's host (ADR-0112). In that mode the C loop is the
+	// action drain — the kick verbs nudge a loop step instead of running the
+	// binding drain — and release belongs to `DriverLoop.close`.
+	#driverLoop: DriverLoopHandle | null = null;
 
 	/** A host with identity `seed` (32 bytes; omitted draws a fresh random one —
 	 * entropy at the binding boundary, never inside the sans-io host). `codec`,
@@ -182,13 +248,27 @@ export class Host {
 			captpVersion?: CaptpVersion;
 			features?: FeatureSet;
 			context?: Context;
+			frameCap?: number;
 			localTurnBudget?: number;
 		} = {},
 	) {
-		this.seed = seed ?? crypto.getRandomValues(new Uint8Array(32));
+		if (seed != null && seed.length !== 32) {
+			throw new PancakeError(INVALID_ARGUMENT, "Host: seed must be 32 bytes");
+		}
+		const durableSeed = seed ?? crypto.getRandomValues(new Uint8Array(32));
+		// Keep the binding's own copy: callers can reuse or mutate their input
+		// without changing the identity native Host already retained.
+		this.#seed = new Uint8Array(durableSeed);
 		this.codec = opts.codec ?? "syrup";
 		this.captpVersion = opts.captpVersion ?? "v1_0";
 		this.features = opts.features ?? "full";
+		const frameCap = opts.frameCap ?? DEFAULT_FRAME_CAP;
+		if (!Number.isSafeInteger(frameCap) || frameCap <= 0) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"Host: frameCap must be a positive safe integer",
+			);
+		}
 		// The durable identity followed by a session-key root drawn here, at
 		// this binding's entropy boundary, because the library draws none
 		// (ADR-0097). The root is fresh per process, so every CapTP session
@@ -196,28 +276,37 @@ export class Host {
 		// session's handoff names; the durable half stays exactly `seed`,
 		// since a keyed locator's designator derives from it.
 		const seedWithRoot = new Uint8Array(64);
-		seedWithRoot.set(this.seed, 0);
+		seedWithRoot.set(this.#seed, 0);
 		crypto.getRandomValues(seedWithRoot.subarray(32));
 		const out = new Uint8Array(8);
 		const localTurnBudget = opts.localTurnBudget ?? 0;
-		if (opts.context != null) {
-			checkHost(driverS.pancake_host_new_in(
-				opts.context.pointer,
-				ab(seedWithRoot),
-				64n,
-				BigInt(HOST_FRAME_CAP),
-				1,
-				codecId(this.codec),
-				captpVersionId(this.captpVersion),
-				featureMask(this.features),
-				localTurnBudget,
-				ab(out),
-			));
+		const context = opts.context ?? null;
+		let contextRetained = false;
+		if (context != null) {
+			const contextRaw = retainContext(context);
+			contextRetained = true;
+			try {
+				checkHost(hostS.pancake_host_new_in(
+					contextRaw,
+					ab(seedWithRoot),
+					64n,
+					BigInt(frameCap),
+					1,
+					codecId(this.codec),
+					captpVersionId(this.captpVersion),
+					featureMask(this.features),
+					localTurnBudget,
+					ab(out),
+				));
+			} catch (err) {
+				releaseContext(context);
+				throw err;
+			}
 		} else {
-			checkHost(driverS.pancake_host_new(
+			checkHost(hostS.pancake_host_new(
 				ab(seedWithRoot),
 				64n,
-				BigInt(HOST_FRAME_CAP),
+				BigInt(frameCap),
 				1,
 				codecId(this.codec),
 				captpVersionId(this.captpVersion),
@@ -227,39 +316,96 @@ export class Host {
 			));
 		}
 		this.#raw = outPointer(out);
-		// The host's own key designator, which is what a partner names it by:
-		// the live trace reports it as this host's endpoint so one peer stays
-		// one node in a feed several producers share.
-		traceAttachHost(this.#raw, this.designator());
-		this.#gc = new HostGc();
-		// deno-lint-ignore no-this-alias -- GcHandle object closes over Host fields
-		const host = this;
-		this.#gc.bind({
-			get released() {
-				return host.#raw === NULL;
-			},
-			get hostRaw() {
-				return host.#raw;
-			},
-			kick: () => {
-				void host.kickActions();
-			},
-			scheduleDrain: (run) => setTimeout(run, 0),
-		});
-		hostFinalizer.register(this, this.#raw, this);
+		this.#finalizerState = {
+			raw: this.#raw,
+			behaviorIds: new Set(),
+			context: contextRetained ? context : null,
+		};
+		this.hosted = new HostedBehaviorMap(this.#finalizerState.behaviorIds);
+		hostFinalizer.register(this, this.#finalizerState, this);
+		try {
+			// The host's own key designator, which is what a partner names it by:
+			// the live trace reports it as this host's endpoint so one peer stays
+			// one node in a feed several producers share.
+			traceAttachHost(this.#raw, this.designator());
+			this.#gc = new HostGc();
+			// deno-lint-ignore no-this-alias -- GcHandle object closes over Host fields
+			const host = this;
+			this.#gc.bind({
+				get released() {
+					return host.#raw === NULL;
+				},
+				get hostRaw() {
+					return host.#raw;
+				},
+				kick: () => {
+					void host.kickActions();
+				},
+				scheduleDrain: (run) => setTimeout(run, 0),
+			});
+		} catch (err) {
+			hostFinalizer.unregister(this);
+			traceDetachHost(this.#raw);
+			releaseHostState(this.#finalizerState);
+			this.#raw = NULL;
+			throw err;
+		}
+	}
+
+	/** Return a defensive copy of the durable identity seed. */
+	get seed(): Uint8Array {
+		return new Uint8Array(this.#seed);
 	}
 
 	/** The raw PancakeHost handle. Binding-internal: `Session` mints and
 	 * drives sessions against it. */
 	get raw(): Ptr {
+		if (this.#raw === NULL) throw new PancakeError(CLOSED, "host released");
 		return this.#raw;
 	}
 
-	/** Release the host and everything it owns — every still-open session
-	 * (each parked vow breaks inside), the vow map, parked actions, and the
-	 * giftable rows. Usually unnecessary (a dropped `Host` is reclaimed by the
-	 * runtime's collector), but a host created in a caller-supplied `Context`
-	 * must be released before that context. Idempotent. */
+	/** Whether terminal Host teardown has invalidated the native handle. */
+	get released(): boolean {
+		return this.#raw === NULL;
+	}
+
+	/** The native loop that owns this Host, or null for a byte-fed Host.
+	 * Binding-internal: the dial executor routes a dial on a loop-owned Host
+	 * onto that same loop (ADR-0112). */
+	get driverLoop(): DriverLoopHandle | null {
+		return this.#driverLoop;
+	}
+
+	/** Transfer native ownership to a DriverLoop after its ABI claim succeeds.
+	 * The wrapper remains the sole JavaScript Host authority; only the loop may
+	 * release the native handle after this point. Binding-internal. */
+	attachDriverLoop(driverLoop: DriverLoopHandle): void {
+		if (this.#raw === NULL || this.#releaseStarted || this.#driverLoop != null) {
+			throw new PancakeError(INVALID_ARGUMENT, "host is not transferable");
+		}
+		hostFinalizer.unregister(this);
+		this.#finalizerState.raw = NULL;
+		this.#driverLoop = driverLoop;
+	}
+
+	/** Run one popped DIAL executor under this Host's terminal lifetime. The
+	 * signal owns transport cancellation; retention alone is not ownership. */
+	startDialTask(run: (signal: AbortSignal) => Promise<void>): void {
+		if (this.#raw === NULL) return;
+		const controller = new AbortController();
+		// Defer invocation until after the task is registered. A callback that
+		// synchronously releases this Host can therefore never create untracked
+		// work between `run` entering and the map insertion below.
+		const retained = Promise.resolve().then(() => {
+			if (controller.signal.aborted) return;
+			return run(controller.signal);
+		}).catch(() => {})
+			.finally(() => {
+				this.#dialTasks.delete(retained);
+			});
+		this.#dialTasks.set(retained, controller);
+	}
+
 	/** Binding-internal (the trampoline's async-behavior arm): defer `turn`'s
 	 * answer onto a fresh resolver vow and settle it when `pending` does
 	 * (ADR-0102). The settle re-enters on the runtime's microtask queue — the
@@ -268,12 +414,8 @@ export class Host {
 	 * breaks the answer with the refusal's reason instead of stranding it.
 	 * False when the deferral itself refused; the caller breaks the turn. */
 	deferTurnToPromise(turn: Ptr, pending: PromiseLike<Argument | void>): boolean {
-		const vowOut = new Uint8Array(8);
 		const resolverOut = new Uint8Array(8);
-		if (driverS.pancake_host_spawn_resolver(this.#raw, ab(vowOut), ab(resolverOut)) !== OK) {
-			return false;
-		}
-		if (driverS.pancake_host_turn_forward_vow(turn, outU64(vowOut)) !== OK) return false;
+		if (hostS.pancake_host_turn_defer(turn, ab(resolverOut)) !== OK) return false;
 		const resolver = outU64(resolverOut);
 		void Promise.resolve(pending).then(
 			(value) => this.#settleResolver(resolver, value === undefined ? null : value),
@@ -286,8 +428,14 @@ export class Host {
 	#settleResolver(resolver: bigint, value: Argument): void {
 		if (this.#raw === NULL) return; // released hosts freed their rows
 		const keep: Uint8Array[] = [];
-		const buf = encodeArgs([value], keep);
-		if (driverS.pancake_host_resolver_fulfill(this.#raw, resolver, ab(buf)) !== OK) {
+		let buf: Uint8Array;
+		try {
+			buf = encodeArgs([value], keep);
+		} catch (error) {
+			this.#breakResolver(resolver, error instanceof Error ? error.message : String(error));
+			return;
+		}
+		if (hostS.pancake_host_resolver_fulfill(this.#raw, resolver, ab(buf)) !== OK) {
 			this.#breakResolver(resolver, hostLastError() ?? "deferred settle refused");
 			return;
 		}
@@ -298,40 +446,107 @@ export class Host {
 		if (this.#raw === NULL) return;
 		const msg = new TextEncoder().encode(message);
 		// Best-effort: a resolver already consumed has nothing left to break.
-		driverS.pancake_host_resolver_break(this.#raw, resolver, ab(msg), BigInt(msg.length));
+		hostS.pancake_host_resolver_break(this.#raw, resolver, ab(msg), BigInt(msg.length));
 		void this.kickActions();
 	}
 
 	release(): void {
-		if (this.#raw === NULL) return;
+		if (this.#raw === NULL || this.#releaseStarted) return;
+		if (this.#driverLoop != null) {
+			// The loop owns this handle: its close releases loop, sessions, and
+			// host together, then runs `loopTeardown` on this wrapper.
+			void this.#driverLoop.close();
+			return;
+		}
+		this.#releaseStarted = true;
+		const raw = this.#raw;
 		// Whatever the ring still holds reaches the sink before the ring dies
 		// with the host.
-		traceDrainHost(this.#raw);
-		traceDetachHost(this.#raw);
+		traceDrainHost(raw);
+		traceDetachHost(raw);
 		hostFinalizer.unregister(this);
+		// Teardown revokes callback reachability immediately. Native storage has
+		// a longer lifetime: it remains behind every admitted async task below,
+		// but no worker admitted before that barrier may begin another JS turn.
+		for (const ctx of this.#finalizerState.behaviorIds) unregisterBehavior(ctx);
+		this.#finalizerState.behaviorIds.clear();
+		const dialTasks = [...this.#dialTasks.keys()];
+		for (const controller of this.#dialTasks.values()) controller.abort();
+		const actionDrains = [...this.#actionDrains];
 		// Sessions first: each releases its own handle, and a handle outliving
 		// the host it belongs to is a free of freed memory.
-		this.closeSessions();
-		const raw = this.#raw;
+		const sessionCloses = this.closeSessions();
+		this.#failOutstandingVows("host released");
 		this.#raw = NULL;
-		const releaseHost = (): void => {
-			driverS.pancake_host_release(raw);
-			for (const ctx of this.#giftables.values()) unregisterBehavior(ctx);
+		this.#releasePromise = (async () => {
+			const settled = await Promise.allSettled([
+				...dialTasks,
+				...actionDrains,
+				...sessionCloses,
+			]);
+			// A handshake that was already minting when cancellation began may
+			// briefly have registered a Session. Its admission task now owns no
+			// work, so this second sweep closes that last possible child.
+			const lateSessions = await Promise.allSettled(this.closeSessions());
+			this.drainParkedReleases();
+			// `state.raw` is authoritative for native and Context ownership. The
+			// wrapper's raw pointer was cleared above to reject further calls.
+			if (this.#finalizerState.raw !== raw) return;
+			releaseHostState(this.#finalizerState);
+			this.#behaviorEntries.clear();
 			this.#giftables.clear();
-			for (const ctx of this.#displacedGiftables) unregisterBehavior(ctx);
 			this.#displacedGiftables.length = 0;
-			for (const ctx of this.hosted.values()) unregisterBehavior(ctx);
 			this.hosted.clear();
-		};
-		if (insideTurn()) {
-			this.parkRelease(releaseHost);
-		} else {
-			releaseHost();
+			const failure = [...settled, ...lateSessions].find(
+				(result): result is PromiseRejectedResult => result.status === "rejected",
+			);
+			if (failure != null) throw failure.reason;
+		})();
+	}
+
+	/** Request terminal teardown and wait until every action drain, dial, and
+	 * admission worker has stopped before the native Host is released. */
+	async releaseAsync(): Promise<void> {
+		if (this.#driverLoop != null) {
+			await this.#driverLoop.close();
+			return;
 		}
+		this.release();
+		if (this.#releasePromise != null) await this.#releasePromise;
+	}
+
+	/** Retire callback reachability while the native Host is still readable.
+	 * The allocation Context deliberately remains pinned until
+	 * `finishLoopTeardown`, after the driver has freed the Host through it. */
+	prepareLoopTeardown(): void {
+		if (this.#raw === NULL) return;
+		const raw = this.#raw;
+		this.#releaseStarted = true;
+		traceDrainHost(raw);
+		traceDetachHost(raw);
+		for (const ctx of this.#finalizerState.behaviorIds) unregisterBehavior(ctx);
+		this.#finalizerState.behaviorIds.clear();
+		this.#failOutstandingVows("host released");
+		this.#raw = NULL;
+		this.#behaviorEntries.clear();
+		this.#giftables.clear();
+		this.#displacedGiftables.length = 0;
+		this.hosted.clear();
+	}
+
+	/** Release the Host's allocation Context after native driver release. */
+	finishLoopTeardown(): void {
+		const context = this.#finalizerState.context;
+		this.#finalizerState.context = null;
+		if (context != null) releaseContext(context);
 	}
 
 	[Symbol.dispose](): void {
 		this.release();
+	}
+
+	async [Symbol.asyncDispose](): Promise<void> {
+		await this.releaseAsync();
 	}
 
 	/** The iroh reachability posture used to redeem a hint-less handoff give
@@ -375,7 +590,7 @@ export class Host {
 	async enliven(sturdyref: string): Promise<Ref> {
 		const swiss = utf8Encoder.encode(sturdyref);
 		const out = new Uint8Array(8);
-		checkHost(driverS.pancake_host_enliven(
+		checkHost(hostS.pancake_host_enliven(
 			this.#raw,
 			ab(swiss),
 			BigInt(swiss.length),
@@ -407,36 +622,22 @@ export class Host {
 		this.#signaling = signaling;
 	}
 
-	/** Record the designator this host's dials sign as their own dialable
-	 * address (a host that also listens); `listen`/`listenIroh` set it to the
-	 * bound address so a partner's crossed-hellos table can recognize this
-	 * host. Binding-internal. */
-	setSelfDesignator(designator: string): void {
-		const bytes = utf8Encoder.encode(designator);
-		checkHost(driverS.pancake_host_set_self_designator(
-			this.#raw,
-			ab(bytes),
-			BigInt(bytes.length),
-		));
-	}
-
 	/** Retain and select this Host's complete acceptable location. Later
 	 * sessions advertise it regardless of their transport; existing sessions
 	 * retain the locator their hello signed. */
-	setAdvertisedLocator(transport: string, designator: string, directAddresses = ""): void {
-		const locator = encodePeerLocator({ transport, designator, directAddresses });
-		checkHost(driverS.pancake_host_set_advertised_locator(
-			this.#raw,
-			ab(locator),
-			BigInt(locator.length),
-		));
+	setAdvertisedLocator(locator: Locator): void {
+		withOwnedLocator(
+			locator,
+			(owned) =>
+				checkHost(hostS.pancake_host_set_advertised_locator(this.#raw, owned.borrowView())),
+		);
 	}
 
-	/** Install this Host's dial fallback for `transport` without displacing an
+	/** Install this Host's default advertised locator for `transport` without displacing an
 	 * acceptable location selected for another transport. Binding-internal. */
 	ensureAdvertisedLocator(transport: string): void {
 		const bytes = utf8Encoder.encode(transport);
-		checkHost(driverS.pancake_host_ensure_advertised_locator(
+		checkHost(hostS.pancake_host_ensure_advertised_locator(
 			this.#raw,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -446,7 +647,7 @@ export class Host {
 	/** Remove this Host's retained locator for `transport`. */
 	removeAdvertisedLocator(transport: string): void {
 		const bytes = utf8Encoder.encode(transport);
-		checkHost(driverS.pancake_host_remove_advertised_locator(
+		checkHost(hostS.pancake_host_remove_advertised_locator(
 			this.#raw,
 			ab(bytes),
 			BigInt(bytes.length),
@@ -455,11 +656,16 @@ export class Host {
 
 	/** Selective session-limit knobs (ADR-0082). Pass `0n` / `0` to leave a
 	 * field unchanged. Affects peers minted after this call. */
-	setSessionLimits(maxFrameBytes: bigint | number = 0, queueCap: bigint | number = 0): void {
-		checkHost(driverS.pancake_host_set_session_limits(
+	setSessionLimits(
+		maxFrameBytes: bigint | number = 0,
+		queueCap: bigint | number = 0,
+		outboundHighWaterBytes: bigint | number = 0,
+	): void {
+		checkHost(hostS.pancake_host_set_session_limits(
 			this.#raw,
 			BigInt(maxFrameBytes),
 			BigInt(queueCap),
+			BigInt(outboundHighWaterBytes),
 		));
 	}
 
@@ -468,9 +674,9 @@ export class Host {
 	 * (ADR-0075). */
 	designator(): string {
 		const out = new Uint8Array(64);
-		checkHost(driverS.pancake_host_designator_from_seed(
-			ab(this.seed),
-			BigInt(this.seed.length),
+		checkHost(hostS.pancake_host_designator_from_seed(
+			ab(this.#seed),
+			32n,
 			ab(out),
 			BigInt(out.length),
 		));
@@ -485,10 +691,10 @@ export class Host {
 		// A giftable is bound to no single session: its forwards always go
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
-		const ctx = registerBehavior({ run: behavior, resolveLocal: null });
+		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null });
 		const bytes = utf8Encoder.encode(name);
 		try {
-			checkHost(driverS.pancake_host_publish(
+			checkHost(hostS.pancake_host_publish(
 				this.#raw,
 				ab(bytes),
 				BigInt(bytes.length),
@@ -499,7 +705,7 @@ export class Host {
 		} catch (err) {
 			// Nothing else drops a trampoline row, so a refused publish has to
 			// take its own back or it pins the behavior for the process's life.
-			unregisterBehavior(ctx);
+			this.unregisterHostedBehavior(ctx);
 			throw err;
 		}
 		// Replacement moves discovery only. Existing capabilities and deposited
@@ -516,12 +722,12 @@ export class Host {
 	 * disjoint from every mutable alias, removable only through
 	 * {@link unpublishDurable}. Entropy is drawn here, from the platform RNG. */
 	publishDurable(behavior: Behavior): string {
-		const ctx = registerBehavior({ run: behavior, resolveLocal: null });
+		const ctx = this.registerHostedBehavior({ run: behavior, resolveLocal: null });
 		const entropy = crypto.getRandomValues(new Uint8Array(16));
 		const swiss = new Uint8Array(64);
 		let written: number;
 		try {
-			written = driverS.pancake_host_publish_durable(
+			written = hostS.pancake_host_publish_durable(
 				this.#raw,
 				ab(entropy),
 				BigInt(entropy.length),
@@ -533,7 +739,7 @@ export class Host {
 			);
 			if (written <= 0) checkHost(written);
 		} catch (err) {
-			unregisterBehavior(ctx);
+			this.unregisterHostedBehavior(ctx);
 			throw err;
 		}
 		const name = utf8Decoder.decode(swiss.subarray(0, written));
@@ -542,12 +748,27 @@ export class Host {
 		return name;
 	}
 
+	/** Retain one callback entry for this Host's native lifetime. */
+	registerHostedBehavior(entry: BehaviorEntry): bigint {
+		const ctx = registerBehavior(entry);
+		this.#behaviorEntries.set(ctx, entry);
+		this.#finalizerState.behaviorIds.add(ctx);
+		return ctx;
+	}
+
+	/** Undo a refused callback mint before it joins Host authority. */
+	unregisterHostedBehavior(ctx: bigint): void {
+		this.#behaviorEntries.delete(ctx);
+		this.#finalizerState.behaviorIds.delete(ctx);
+		unregisterBehavior(ctx);
+	}
+
 	/** Remove a minted durable publication (ADR-0098): the old sturdyref
 	 * misses from now on, while issued `Ref`s and deposited gifts keep the
 	 * exact actor. Returns false when no such durable name exists. */
 	unpublishDurable(swiss: string): boolean {
 		const bytes = utf8Encoder.encode(swiss);
-		const rc = driverS.pancake_host_remove_durable(this.#raw, ab(bytes), BigInt(bytes.length));
+		const rc = hostS.pancake_host_remove_durable(this.#raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
 		const prior = this.#giftables.get(swiss);
@@ -565,7 +786,7 @@ export class Host {
 	 * when no such alias exists. */
 	unpublishGiftable(name: string): boolean {
 		const bytes = utf8Encoder.encode(name);
-		const rc = driverS.pancake_host_unpublish(this.#raw, ab(bytes), BigInt(bytes.length));
+		const rc = hostS.pancake_host_unpublish(this.#raw, ab(bytes), BigInt(bytes.length));
 		if (rc === NOT_FOUND) return false;
 		checkHost(rc);
 		// The alias is gone but the actor is not: its trampoline row moves to
@@ -615,26 +836,26 @@ export class Host {
 	exporterFor(ref: Ref): Session | null {
 		const refBuf = refStruct(ref);
 		const out = new Uint8Array(8);
-		checkHost(driverS.pancake_host_reference_exporter(this.#raw, ab(refBuf), ab(out)));
+		checkHost(hostS.pancake_host_reference_exporter(this.#raw, ab(refBuf), ab(out)));
 		const ptr = outPointer(out);
-		return ptr === NULL ? null : this.#sessions.get(ptr) ?? null;
+		if (ptr === NULL) return null;
+		const found = this.#sessions.get(ptr) ?? null;
+		if (found == null && this.#driverLoop != null) {
+			// A loop-owned Host redeems inside its own steps (ADR-0112), so the
+			// exporter session it dialed exists with no wrapper yet. Wrap it
+			// lazily — adoption registers it, so a repeat lookup returns this
+			// same object — and the loop stays its release authority.
+			return this.#driverLoop.adoptSession(ptr);
+		}
+		return found;
 	}
 
 	/** Close every session this host holds — the ones an application opened
 	 * and the ones the host dialed for redeems alike. Each close releases that
 	 * session's handle, so this must run before the host handle goes.
 	 * Binding-internal: `release` sweeps them. */
-	closeSessions(): void {
-		for (const session of [...this.#sessions.values()]) session.closeTransport();
-	}
-
-	/** Dial an exporter for a redeem (ActionHost). Binding-internal. */
-	dialExporter(
-		transport: string,
-		designator: string,
-		directAddressesHint: string,
-	): Promise<Session> {
-		return dialExporterFn(transport, designator, directAddressesHint, this);
+	closeSessions(): Promise<void>[] {
+		return [...this.#sessions.values()].map((session) => session.closeTransport());
 	}
 
 	// ── The vow table ──────────────────────────────────────────────────────────
@@ -696,6 +917,16 @@ export class Host {
 		}
 	}
 
+	#failOutstandingVows(message: string): void {
+		for (const row of this.#vows.values()) {
+			if (row.state.tag === "awaited") {
+				row.state.waiter.reject(new PancakeError(CLOSED, message));
+			}
+		}
+		this.#vows.clear();
+		this.#unobserved.length = 0;
+	}
+
 	/** Whether the vow's home connection is closing — used by the FAIL arm to
 	 * classify disconnect breaks as CLOSED. Binding-internal. */
 	vowSessionClosing(vow: bigint): boolean {
@@ -740,11 +971,9 @@ export class Host {
 		return this.#parkedReleases.length;
 	}
 
-	/** Pop and honor every pending embedder action. Reentrant on purpose, the
-	 * async counterpart of the Racket binding's reentrant host lock: the DIAL
-	 * arm's dial executor establishes a whole new session *inside* an action,
-	 * and that establish must itself drain (its start-session FLUSH), so a
-	 * single-flighted drain would await its own completion there. Actions are
+	/** Pop and honor every pending embedder action. Reentrant on purpose: DIAL
+	 * starts its connection task without awaiting establishment, and that task's
+	 * start-session FLUSH re-enters this drain independently. Actions are
 	 * popped and decoded first (`parkActions` over `pancake_host_next_action`,
 	 * each copied out before the next pop frees its views) and awaited after
 	 * the pops, so async I/O never runs while a borrowed view is live.
@@ -753,20 +982,50 @@ export class Host {
 	 * no-op inside a hosted turn: the host refuses the driving verbs there,
 	 * and everything the turn enqueued pumps when the enclosing feed unwinds
 	 * into this same drain. Binding-internal. */
-	async kickActions(): Promise<void> {
-		if (insideTurn()) return;
+	kickActions(): Promise<void> {
+		if (this.#driverLoop != null) {
+			// The native loop is the one drain on an adopted Host (ADR-0112):
+			// the kick becomes a scheduled loop step, which runs the parked
+			// releases and the GC drain at its own head — legal even from
+			// inside a turn, because the step defers past the enclosing feed.
+			if (!insideTurn()) this.drainParkedReleases();
+			this.#driverLoop.scheduleStep();
+			return Promise.resolve();
+		}
+		if (insideTurn()) return Promise.resolve();
 		// Parked releases run first — before the raw-handle check, because a
 		// mid-turn Host.release cleared `#raw` while parking the actual free.
 		this.drainParkedReleases();
-		if (this.#raw === NULL) return;
+		if (this.#releaseStarted || this.#raw === NULL) return Promise.resolve();
+
+		// Register before execution starts. A drain can synchronously cause Host
+		// teardown through an action it runs; deferring its body to a microtask
+		// closes the admission window before that body can make progress.
+		const drain = Promise.resolve().then(() => this.#drainActions());
+		this.#actionDrains.add(drain);
+		const retire = () => {
+			this.#actionDrains.delete(drain);
+		};
+		void drain.then(retire, retire);
+		// Detached kicks are common at effect-producing sync APIs. Mark their
+		// rejection observed without changing the promise awaited by direct
+		// callers, which still receives a genuine drain failure.
+		void drain.catch(() => {});
+		return drain;
+	}
+
+	async #drainActions(): Promise<void> {
+		if (this.#releaseStarted || this.#raw === NULL) return;
 		// The live trace's capture ring drains on the same unwind as the action
 		// queue: both are host effects the embedder pops, and popping them
 		// together is what keeps a queued fact from waiting on the next verb.
 		traceDrainHost(this.#raw);
 		while (true) {
-			const parked = parkActions(this);
-			if (parked.length === 0) return;
-			for (const action of parked) {
+			if (this.#releaseStarted || this.#raw === NULL) return;
+			const { actions, yielded } = parkActions(this);
+			if (actions.length === 0 && !yielded) return;
+			for (const action of actions) {
+				if (this.#releaseStarted || this.#raw === NULL) return;
 				// One failing action must not strand the rest of the drain: a
 				// FLUSH to a session whose socket just died throws here while
 				// the actions behind it belong to other, live sessions. The
@@ -777,6 +1036,17 @@ export class Host {
 				} catch {
 					// swallowed so the drain reaches every remaining action
 				}
+			}
+			if (yielded) {
+				if (this.#releaseStarted || this.#raw === NULL) return;
+				// Prefer the scheduler API where it exists; the timer fallback is
+				// portable across browsers, Deno, and Node and yields to I/O rather
+				// than chaining an unbounded microtask run.
+				const scheduler = (globalThis as {
+					scheduler?: { yield?: () => Promise<void> };
+				}).scheduler;
+				if (scheduler?.yield != null) await scheduler.yield();
+				else await new Promise<void>((resolve) => setTimeout(resolve, 0));
 			}
 		}
 	}

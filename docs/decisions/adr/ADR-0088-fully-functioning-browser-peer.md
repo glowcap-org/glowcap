@@ -7,7 +7,7 @@ decision: "A browser tab is a first-class OCapN peer. It dials, hosts objects, a
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0088 Fully functioning browser peer
@@ -101,23 +101,23 @@ synchronous call a behavior fires inside — the inbound feed — with the arriv
 // The name is illustrative; the rooms app publishes one inbox per peer.
 host.publishGiftable(inboxName, (verb, args) => {
 	const [text, reply] = args; // `reply` is a Ref the caller passed
-	const session = currentSession(); // the connection this call arrived on
+	const session = currentSession(); // the session this call arrived on
 	if (session && reply instanceof Ref) {
-		session.send(reply, "dm", [`re: ${text}`]); // answer over that connection
+		session.send(reply, "dm", [`re: ${text}`]); // answer over that session
 	}
 });
 ```
 
-The reply rides the connection the caller opened, so the caller never has to be
+The reply rides the session the caller opened, so the caller never has to be
 dialable. This is the receiver half of full bidirectionality, and it is C-ABI-
 neutral TypeScript in the shared stack, so it covers both the browser (wasm
 Host) and every native runtime (Deno, Bun) that runs the same `trampoline.ts`.
 Built and proven: `zig build demo-rooms-dm-reply` stands a non-listening caller
-up against a giftable that replies over the arriving connection, asserting the
-reply lands and that the giftable's host accepted exactly one connection — no
+up against a giftable that replies over the arriving session, asserting the
+reply lands and that the giftable's host accepted exactly one session — no
 dial back.
 
-## The reply capability must ride the connection it answers on
+## The reply capability must ride the session it answers on
 
 The reply above works because the reply capability the caller hands over is
 hosted on the very session the call travels on. That is a real constraint, not
@@ -129,9 +129,9 @@ than mis-encode a capability that belongs to a different session onto the wire �
 the resilience contract that keeps a partner from being handed a reference it
 cannot interpret. So a reply capability handed over a **redeemed handoff give**
 does not route: `session.send(redeemedGive, "dm", [text, replyCap])` addresses
-the exporter connection the give resolved to, while `replyCap` (a
+the exporter session the give resolved to, while `replyCap` (a
 `session.spawn` export) lives on the caller's *directory* session. The near
-position is not a live export on the exporter connection, and the core refuses
+position is not a live export in the exporter session, and the core refuses
 the send. This is verified behavior, characterized here so it is not
 rediscovered: the receiver-side `currentSession()` primitive is complete, and
 the remaining work is entirely on the sender side.
@@ -143,14 +143,15 @@ exporter session is born while the introduce send is still in flight, before the
 send's reply settles. `Session.sendRedeeming` awaits the introduce reply and
 returns both it and the direct exporter `Session` (`via`) the redeemed token
 routes to. The application hosts its reply inbox on `via` and sends the DM over
-`via`, so the reply capability is a valid near export on the connection the
-redeemed token routes to, and the member answers over it with no dial back.
+`via`, so the reply capability is a valid near export in the session the
+redeemed token routes to, and the member answers over that session's connection
+with no dial back.
 `via` is resolved from the reply's own token, not from watching which dial ran
 during the send: `pancake_host_reference_exporter` maps the redeemed token to
 the exporter session the node's routing table already holds. That makes the
 attribution deterministic — it is correct with several redeems in flight at
-once, and it resolves the exporter even when the reply reused a connection a
-prior redeem already dialed, a case that runs no fresh dial for a
+once, and it resolves the exporter even when the reply reused a session a prior
+redeem already dialed, a case that runs no fresh dial for a
 which-dial-ran heuristic to observe. The rooms client's `DirectMessage`
 opens on `via` and surfaces the member's replies; the browser renders them.
 Built and proven end to end: `zig build rooms-web-dm` (a real Chromium sends a
@@ -218,15 +219,13 @@ silently:
   reclaims it if no pong lands within the idle timeout, so a browser that died
   without a clean close (a slept phone, a dropped network) never lingers as false
   presence a dialer would bridge onto and hang.
-- **The locator names the identity, not the relay.** An
-  `ocapn://<designator>.keyed-relay` locator carries the browser's key, not the
-  address of the relay it registered at. A redeemer reaches it only through a
-  relay it is already configured for (`Host.setRendezvousUrl`) — in practice
-  the same relay and the same app. A cross-relay cold-dial would need the
-  locator to name its relay, either as deployment-local shared-relay
-  configuration or a future self-describing `?rendezvous-relay=` hint. Neither
-  is built.
-- **The dialer must be configured for a rendezvous relay.** The core
+- **The locator separates identity from route.** The designator remains the
+  browser's durable key. A `rendezvous-relay` string hint carries provider-owned
+  route advice, so a dialer can reach a peer registered at a different relay.
+  The route does not become peer identity and is not covered by the keyed
+  handshake's target claim. A bare locator still uses deployment-local relay
+  configuration.
+- **The dialer needs locator route advice or a configured fallback.** The core
   classifies a `keyed-relay` locator as the `rendezvous` dial shape
   (`PANCAKE_DIAL_SHAPE_RENDEZVOUS`), and a binding's dial executor answers it
   by opening the WebSocket rendezvous leg the dialing host was configured
@@ -234,27 +233,36 @@ silently:
   because `WebSocket` is a web-standard global), `Host.rendezvous_url` in the
   Python binding (the optional `websockets` extra), `set-host-rendezvous-url!`
   in the Racket binding (`net/rfc6455`), `Host::set_rendezvous_url` in the
-  Rust binding (the opt-in `rendezvous` feature over tokio-tungstenite), and
-  natively the `net.keyed_relay` resident — an in-tree RFC 6455 client over
-  TCP sockets whose relay URL is resident state, joined to the CLI's dial set
-  by `PANCAKE_RENDEZVOUS`. The same resident serves the registration half
-  through the netlayer listener contract, so a native non-listener can be
-  cold-dialed too. A host with no configured mapping fails loud. Proof
-  family: `zig build bindings-keyed-relay-rendezvous`, whose zig row drives
-  the installed CLI.
+  Rust binding, and natively the relay provider archive. Every binding prefers
+  the locator hint and uses its Host mapping only when the hint is absent. A
+  host with neither fails loud. `zig build bindings-keyed-relay-rendezvous`
+  proves all four bindings and the installed CLI against a dead fallback. The
+  same provider serves registration, so a native process with no listening
+  socket can publish the complete routed locator too. Native scale embeddings
+  can also put outbound keyed-relay
+  rendezvous on `net.KeyedRelayLoop`, where TCP connect, WebSocket upgrade,
+  control frames, reads, masked writes, and close are completion-backend state
+  rather than a blocking resident dial. That adapter lends ordinary inbound
+  payload directly from the platform's shared recv pool; only parser fragments
+  and a coalesced next-frame tail enter its bounded spill, so a warmed relay
+  session does not retain one platform-sized read buffer. Outbound writes keep
+  the Loop-owned byte slice borrowed through one completion and mask one bounded
+  FIN binary message at a time; WebSocket message boundaries remain invisible
+  to the byte stream, and Ping/Close controls run between chunks. The
+  generic provider carries both dial and registration through one endpoint
+  runtime.
 - **The relay is on the inbound path.** A deployment that does not trust its relay
   runs TLS to it and keeps the keyed CapTP end to end on top, as `ADR-0086`
   already prescribes.
 
-**Status:** built for any dialer on a shared relay. `zig build
+**Status:** built for same-relay and cross-relay dialers. `zig build
 rooms-web-dm-tabs` proves the browser-to-browser form (two tabs: one registers
 its identity, the other redeems a room introduction by cold-dialing it, the
 keyed session opens tab-to-tab through the relay off-room, and a reply rides
 back over the arriving connection). `zig build rooms-web-dm-native` proves the
 native form: a Deno peer on the dlopen stack redeems a room introduction and
-cold-dials the tab through the rendezvous mapping its host was configured with.
-Still designed, not built: a *cross-relay* cold-dial (the locator names no
-relay).
+cold-dials the tab. `zig build bindings-keyed-relay-rendezvous` proves each
+native binding follows the locator's route instead of its dead local mapping.
 
 ## Status and proof matrix
 
@@ -267,7 +275,7 @@ relay).
 | Redeemed-introduction back-channel reply | relay-less | shipped | `rooms-web-dm`, `demo-rooms-dm-back` |
 | Cold-dialed by another browser (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-tabs` |
 | Cold-dialed by a native peer (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-native` |
-| Cold-dialed across relays | necessary (rendezvous) | designed | — |
+| Cold-dialed across relays | necessary (rendezvous) | shipped | `bindings-keyed-relay-rendezvous` |
 
 ## Alternatives Considered
 
@@ -301,7 +309,7 @@ it is what `currentSession()` enables.
   over the `pancake_host_reference_exporter` query, which the core answers with
   `Node.exporterPeerFor` / `Host.exporterSessionFor` from its routing table
   (`src/ocapn/engine/node.zig`, `src/driver/core/host.zig`,
-  `src/c_abi/driver/host.zig`); the rooms client's `DirectMessage`
+  `src/c_abi/host/host.zig`); the rooms client's `DirectMessage`
   (`apps/rooms/lib/room_client.ts`); proofs `apps/rooms/demos/dm_back_demo.ts`
   (native), `apps/rooms/test/dm_reredeem_test.ts` (deterministic re-redeem
   attribution), and `apps/rooms/test/web_dm_test.ts` (browser).
@@ -319,6 +327,6 @@ it is what `currentSession()` enables.
   `apps/rooms/test/web_dm_tabs_test.ts` (`zig build rooms-web-dm-tabs`) and
   `apps/rooms/test/web_dm_native_dial_test.ts`
   (`zig build rooms-web-dm-native`).
-- Remaining work: cross-relay cold-dial (above), a rendezvous dial for the
-  non-TypeScript bindings, and the relay items in
-  [`docs/roadmap.md`](../../roadmap.md).
+- Cross-runtime route proof: `bindings/proofs/keyed_relay_rendezvous/`, run by
+  `zig build bindings-keyed-relay-rendezvous`; native registration proof:
+  `zig build zig-keyed-relay-register`.

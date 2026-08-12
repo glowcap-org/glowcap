@@ -3,9 +3,10 @@ id: ADR-0076
 status: accepted
 date: 2026-07-11
 tags: [driver, net, host, completion-loop, handoff]
-decision: "Feed the byte-fed Host from a completion loop through a translator (`driver.Bridge`): adoption via Host.openAcceptedAdvertisedOver / openDialedOver, per-event serving via Host.serveEvent, cross-connection flushes via Loop.armOutbound, and a budgeted drive whose breach condemns the flooded connection and queues a close action. TCP uses `net.TcpLoop`; iroh uses `completion.Loop(iroh.Backend, iroh.DialResolver)`: one CapTP spine (ADR-0057). Outbound dials use `Loop.dialLocator` over OCapN locator parts; a netlayer `Locator` owns resolve, the Backend owns `startDial` (platform Backends are connect-only). `Loop.dial` is private."
+decision: "Feed the byte-fed Host from a completion loop through a translator (`driver.Bridge`): adoption via Host.openAcceptedAdvertisedOver / openDialedOver, per-event serving via Host.serveEvent, cross-connection flushes via Loop.armOutbound, and a budgeted drive whose breach condemns the flooded connection and queues a close action. TCP uses `net.TcpLoop`; iroh uses `completion.Loop(iroh.Backend, iroh.DialResolver)`: one CapTP spine (ADR-0057). Outbound dials use `Loop.dialLocator` over OCapN locator parts; a netlayer `DialResolver` owns resolve, the Backend owns `startDial` (platform Backends are connect-only). `Loop.dial` is private."
 supersedes: []
 superseded_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0076 The loop-fed host bridge
@@ -66,6 +67,15 @@ Three verbs and one carrier, each at the layer that owns it:
   condemned a connection mid-pump. `condemned` alone only refuses future
   verbs. Mirrored end to end as `PANCAKE_HOST_ACTION_CLOSE` and an arm in
   every binding's action drain.
+- **`HostAction.resume_work`** is the continuation signal for a finite
+  `host_work_quantum`. A quantum may end with Node actions, handoff changes, or
+  dirty session work remaining. When no ordinary action already wakes the next
+  drain, the Host deduplicates one host-global resume notice. Consuming that
+  notice ends the current drain turn. Completion-loop embedders resume through
+  `Options.on_loop_turn`, which forces one nonblocking backend poll between
+  Host slices; async language bindings yield through their native scheduler.
+  The action carries no session, ticket, bytes, or I/O operation and is
+  mirrored as `PANCAKE_HOST_ACTION_RESUME`.
 
 `driver.Bridge` (`src/driver/bridge.zig`) composes them: the loop's
 hooks adopt (`makeConnCtx`), serve (`serve`), and release (`freeConnCtx`),
@@ -78,6 +88,13 @@ the registration. The consumers land with it: the
 three-party-handoff-across-one-loop test (the deposit leaves on a connection
 only `armOutbound` can reach) and the `zig build tcp-loop` scale harness.
 
+The loop and Host are unsynchronized single-owner objects, but ownership is
+sequential rather than permanently tied to the first OS thread. Every public
+loop drive releases its thread claim at the quiescent return boundary and calls
+the Bridge's ownership-transfer hook on that same thread. A caller may join a
+background drive and then tear down or resume the pair from its own thread;
+touching either object while the drive is still running remains a data race.
+
 ## Scope (what this does not decide)
 
 - ~~**No loop-global fan-in backpressure.**~~ **Amended (ADR-0082).** ADR-0042
@@ -87,34 +104,33 @@ only `armOutbound` can reach) and the `zig build tcp-loop` scale harness.
   below).** `iroh.LoopHost` is deleted; iroh scale is
   `completion.Loop(iroh.Backend, iroh.DialResolver)` + `driver.Bridge` + Host.
 - ~~**No deadline on blocking answer-waits.**~~ **Shipped (amendment
-  below).** `BlockingSession.settle_timeout_ms` / `SessionOptions.settle_timeout_ms`
-  and `Loop.runUntil(…, deadline_ms)` bound post-handshake waits; the handshake
-  budget remains `handshake_timeout_ms` (not a phantom `finishOpen`).
+  below).** `BlockingSession.Options.settle`, `SessionOptions.settle`, and the
+  completion loop's run deadline bound post-handshake waits; keyed handshakes
+  use the sibling `handshake` budget (not a phantom `finishOpen`).
 
 ## Amendment: settle / `runUntil` deadlines
 
-Blocking answer-waits no longer park forever on a partner that opens then
-stalls. `BlockingSession.settle_timeout_ms` (default `0` = unbounded) is a
-wall-clock budget for `settle` / `call` / `fetch`; expiry returns
-`Error.WaitTimedOut` after breaking the stack-bound far listener.
-`SessionOptions.settle_timeout_ms` threads the same knob onto owned
-`Session`/`Server` paths. Completion-`Loop.runUntil` takes `deadline_ms`
-(same `0` = unbounded convention) and returns `error.Timeout` when the flag
-is still clear at the deadline. Backends' `poll` accepts a millisecond
-timeout so the loop can wake to check it. Gated by the silent-partner settle
-scenario in `test/driver/blocking_session_test.zig`.
+Blocking answer-waits need not park forever on a partner that opens then
+stalls. `BlockingSession.Options` requires callers to choose both `handshake`
+and `settle` budgets before construction; `SessionOptions` requires the same
+pair for owned `Session`/`Server` paths. A caller that deliberately means
+forever spells `.unbounded`. Settle expiry returns `Error.WaitTimedOut` after
+breaking the stack-bound far listener. The completion loop's run deadline
+returns `error.Timeout` when its flag is still clear at expiry, and backend
+polling accepts a timeout so the loop can wake to check it. Gated by the
+silent-partner settle scenario in `test/driver/blocking_session_test.zig`.
 
 ## Amendment: loop-side dial executor
 
 A bridged host redeems three-party handoffs on one loop thread. `Exec.dial`
 borrows the pending dial view (`Host.pendingDial(ticket)`: no re-parse) and
 forwards transport / designator / hint through `Loop.dialLocator`; the Loop's
-`Locator` resolves them into the Backend's `ConnectTarget` and the Backend
+`DialResolver` resolves them into the Backend's `ConnectTarget` and the Backend
 `startDial`s. The bridge parks only the node's ticket under the slot
 (`OutboundConnect.redeem`) until connect completes; adoption re-borrows the
 view for `Host.openDialedOver`. Session open reports `exporterDialed`; refused
 connect fires `on_close(slot, …, opened=false)` and `dialFailed`. Netlayers
-own networking (`tcp.DialResolver.resolve`; iroh's `Locator` resolves node-id
+own networking (`tcp.DialResolver.resolve`; iroh's `DialResolver` resolves node-id
 designators); Bridge stays above that boundary. Gated by the redeem theorem in
 `test/driver/bridge_test.zig`.
 
@@ -135,18 +151,31 @@ on the same bridge; gated by `zig build iroh-bridge-redeem`.
 Each completion Backend owns dial *start* end to end: an associated
 `ConnectTarget` type, `startDial` (mint handle if needed, submit connect, clean
 up on failure), and required `shutdownFd`. OCapN locator resolve is a separate
-comptime `Locator` on `completion.Loop(Backend, Locator)`. `tcp.DialResolver` or
-`iroh.DialResolver`, never a platform Backend concern. Platform Backends
-(io_uring/kqueue) speak only `IpAddress` connect ops. `net.TcpLoop` is
-`completion.Loop(platform, tcp.DialResolver)`. There is no shared `ConnectTarget`
-union, no forwarding TCP Backend wrapper, no public `Loop.dial(ConnectTarget)`,
-no socket-shaped `openDialFd`/`submitDial` Loop choreography, and no `@hasDecl`
-soft optionality,
-`validateBackend` / `validateLocator` compile-check the total contract. Above
+comptime `DialResolver` on `completion.Loop(Backend, DialResolver)`. `tcp.DialResolver`,
+`iroh.DialResolver`, or `keyed_relay.DialResolver`, never a platform Backend
+concern. Platform Backends (io_uring/kqueue) speak only `IpAddress` connect ops.
+`net.TcpLoop` is `completion.Loop(platform, tcp.DialResolver)`. `net.KeyedRelayLoop`
+is a deliberate composite backend over the same platform backend: TCP stays
+delegated, while keyed-relay dials are WebSocket state machines below the Loop
+contract, so Bridge still speaks one `dialLocator` surface. There is no public
+`Loop.dial(ConnectTarget)`, no socket-shaped `openDialFd`/`submitDial` Loop
+choreography, and no `@hasDecl` soft optionality;
+`validateBackend` / `validateDialResolver` compile-check the total contract. Above
 the net boundary, callers (including Bridge) speak only
 `Loop.dialLocator(transport, designator, hint)`. Blocking residents use the
-same `Locator.resolve` before connect (`tcp_keyed` / `iroh` `residentDial`);
+same `DialResolver.resolve` before connect (`tcp_keyed` / `iroh` `residentDial`);
 transport symbols and `direct-addresses` live in `model.transport`.
+
+Completion adapters compose below that contract. Each layer derives disjoint
+synthetic-handle, private-`user_data`, and receive-token tags from the wrapped
+backend's `adapter_depth`; a second adapter cannot consume the first one's
+completion or recycle its buffer. `iroh.CompletionBackend(Platform)` feeds its
+sidecar readiness and stopper descriptors through `Platform` and delegates
+non-iroh targets to it. `rooms-peer` wraps `net.KeyedRelayBackend` this way, so
+its room leg and direct iroh/keyed-relay legs share one Loop connection ceiling
+and one Bridge action map. The former Bridge-owned blocking rendezvous side
+wire is deleted: a transport the Loop cannot resolve fails at `dialLocator`
+rather than creating a second I/O lifecycle outside Loop admission.
 
 ## Alternatives Considered
 

@@ -42,6 +42,14 @@ const Budget = driver.Budget;
 /// the replies it asked for. The vat verbs delegate to the core; the socket
 /// verbs (`step`/`serve`/`flush`/`call`/`fetch`) fold I/O over it.
 pub const BlockingSession = struct {
+    /// Wait policy for the two phases that can park this blocking embedding.
+    /// Neither field has a default: callers that intentionally run an
+    /// in-process pair forever spell `.unbounded` for that phase.
+    pub const Options = struct {
+        handshake: Budget,
+        settle: Budget,
+    };
+
     vat: actors.Vat,
     served: Served,
     conn: net.Connection,
@@ -52,21 +60,25 @@ pub const BlockingSession = struct {
     /// and then goes silent — the slowloris a one-connection-per-thread accept
     /// must not park on (ADR-0081). The value is the caller's policy. It binds
     /// fd-backed transports (tcp, keyed-tcp); a userspace-multiplexed
-    /// transport (iroh) has no pollable fd to bound here. The `.unbounded`
-    /// default is reachable only through `over`, the raw in-process binding;
-    /// every dialing and accepting constructor takes the budget positionally.
-    handshake: Budget = .unbounded,
+    /// transport (iroh) has no pollable fd to bound here.
+    handshake: Budget,
 
     /// Wall-clock deadline for blocking answer-waits (`settle` / `call` /
     /// `fetch`). When bounded, a partner that opens then never settles breaks
     /// with `Error.WaitTimedOut` instead of parking the fiber forever
     /// (ADR-0076). Same fd-backed binding as `handshake`.
-    settle: Budget = .unbounded,
+    settle: Budget,
 
     /// Bind a vat to an existing `net.Connection` over `peer`. Transport-neutral:
     /// the stream may ride any netlayer.
-    pub fn over(allocator: std.mem.Allocator, peer: *engine.Peer, conn: net.Connection) BlockingSession {
-        return .{ .vat = actors.Vat.init(allocator), .served = Served.over(allocator, peer), .conn = conn };
+    pub fn over(allocator: std.mem.Allocator, peer: *engine.Peer, conn: net.Connection, options: Options) BlockingSession {
+        return .{
+            .vat = actors.Vat.init(allocator),
+            .served = Served.over(allocator, peer),
+            .conn = conn,
+            .handshake = options.handshake,
+            .settle = options.settle,
+        };
     }
 
     /// Tear down the serve core and close the connection. Does not free the
@@ -105,7 +117,7 @@ pub const BlockingSession = struct {
         return progress;
     }
 
-    /// Serve the connection until the partner leaves: run `step` until the pump
+    /// Serve the session until the partner leaves: run `step` until the pump
     /// reports `.closed`. A partner that drops the socket without a clean shutdown
     /// (`error.ConnectionLost`, `error.TruncatedFrame`) has still left, so serve
     /// breaks the waiting far vows and returns normally, as it does for a graceful
@@ -399,13 +411,12 @@ fn sessionOpenPred(peer: *engine.Peer) bool {
 /// `read_buf` / `write_buf` and the `peer`: the buffers size the steady state,
 /// not the largest admissible frame. An inbound frame larger than `read_buf`
 /// assembles once in the connection's bounded spill (ADR-0041); an outbound
-/// frame larger than `write_buf` streams straight through. The one-call
-/// `connect` derives buffers and the session limit from a single `frame_cap`.
+/// frame larger than `write_buf` streams straight through.
 ///
-/// The handshake budget is a parameter rather than a field because the keyed
-/// handshake completes before this returns: setting the field on the value it
-/// hands back is too late to bound it. `.unbounded` means a partner that
-/// finishes connect and then goes silent parks this call forever.
+/// `options` requires both blocking budgets up front because the keyed
+/// handshake completes before this returns and answer waits happen afterward.
+/// An `.unbounded` handshake means a partner that finishes connect and then
+/// goes silent parks this call forever.
 pub fn connectTcp(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -413,23 +424,23 @@ pub fn connectTcp(
     address: std.Io.net.IpAddress,
     read_buf: []u8,
     write_buf: []u8,
-    handshake: Budget,
+    options: BlockingSession.Options,
 ) !BlockingSession {
     // Same spine as `connectVia`: netlayer dial + Identity.ephemeral hello.
     // The Resident only needs to outlive the dial call; the connection owns
     // the stream afterward.
-    var resident = net.tcp.Resident{ .io = io };
+    var resident = net.tcp.plain.Resident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
-    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
+    var designator_buf: [net.tcp.plain.designator_buf_len]u8 = undefined;
     return connectVia(
         allocator,
         &netlayers,
         peer,
-        net.tcp.locator(&designator_buf, address),
+        net.tcp.plain.locator(&designator_buf, address),
         .ephemeral,
         read_buf,
         write_buf,
-        handshake,
+        options,
     );
 }
 
@@ -445,19 +456,18 @@ pub fn connectTcp(
 /// accepting peer does not choose who connects to it, so `.unbounded` means a
 /// stranger who completes the TCP connect and then says nothing parks this
 /// accept for as long as it likes. That is the slowloris ADR-0081 bounds.
-/// Like `connectTcp`, it is a parameter rather than a field because the
-/// handshake completes before this returns.
+/// Like `connectTcp`, both wait budgets are supplied before construction.
 pub fn acceptTcp(
     allocator: std.mem.Allocator,
     peer: *engine.Peer,
-    listener: *net.tcp.Listener,
+    listener: *net.tcp.plain.Listener,
     read_buf: []u8,
     write_buf: []u8,
-    handshake: Budget,
+    options: BlockingSession.Options,
 ) !BlockingSession {
     // Same spine as `acceptVia`: contract listener + AcceptIdentity.ephemeral.
     // The typed tcp.Listener is borrowed for the call; the caller still owns it.
-    return acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf, handshake);
+    return acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf, options);
 }
 
 /// Dial a locator through the netlayer contract, signing the keyed handshake
@@ -469,7 +479,7 @@ pub fn acceptTcp(
 /// with a caller-held key over the dialer's own designator. The caller owns
 /// `peer`, `read_buf`, and `write_buf`; `netlayers` must outlive the returned
 /// vat. `connectTcp` is the tcp-named convenience over this same path.
-/// `handshake` bounds each handshake read; see `BlockingSession.handshake`
+/// `options.handshake` bounds each handshake read; see `BlockingSession.handshake`
 /// (ADR-0081).
 pub fn connectVia(
     allocator: std.mem.Allocator,
@@ -479,9 +489,13 @@ pub fn connectVia(
     identity: Identity,
     read_buf: []u8,
     write_buf: []u8,
-    handshake: Budget,
+    options: BlockingSession.Options,
 ) !BlockingSession {
     const nl = net.netlayer.resolve(netlayers, locator.transport) orelse return Error.UnknownTransport;
+    // Provider metadata, not the built-in symbol table, decides whether this
+    // tier would otherwise speak cleartext under a sealed transport name.
+    if (nl.transportProfile().sealed_channel) return Error.SealedChannelRequiresHost;
+    if (!nl.supportsBlockingDial()) return Error.UnknownTransport;
     // The dial-side identity demand: on a key-designator transport the dialed
     // designator *is* the partner's durable identity, so record it before the
     // handshake pump. A selected key route in the partner's hello must match;
@@ -494,12 +508,11 @@ pub fn connectVia(
         peer.demandPartnerDurableKey(expected);
     }
     const conn = try nl.dial(peer, locator, .{ .read = read_buf, .write = write_buf });
-    var vat = BlockingSession.over(allocator, peer, conn);
-    vat.handshake = handshake;
+    var vat = BlockingSession.over(allocator, peer, conn, options);
     errdefer vat.deinit();
     // A dialer signs no dial-address hint of its own: an ephemeral one has no
     // address to give, and a keyed one is named by its key. The session still
-    // draws a fresh signing key per connection.
+    // draws a fresh signing key per session.
     const session_secret = try drawSessionSecret(conn.io);
     const self_locator: model.PeerLocator = .{
         .transport = locator.transport,
@@ -518,11 +531,9 @@ pub fn connectVia(
 /// takes. The parsed locator is freed before returning, because `connectVia`
 /// copies what the session retains during the handshake.
 ///
-/// The handshake budget is a parameter for the same reason its siblings take
-/// one: the keyed handshake completes before this returns, so setting the
-/// field on the value it hands back is too late to bound it. `.unbounded`
-/// means a partner that finishes connect and then goes silent parks this call
-/// forever.
+/// The required options carry both wait budgets for the same reason its
+/// siblings do: the keyed handshake completes before this returns, while
+/// answer settlement happens later.
 pub fn connectUri(
     allocator: std.mem.Allocator,
     netlayers: []const net.netlayer.Netlayer,
@@ -531,11 +542,11 @@ pub fn connectUri(
     identity: Identity,
     read_buf: []u8,
     write_buf: []u8,
-    handshake: Budget,
+    options: BlockingSession.Options,
 ) !BlockingSession {
     const locator = try model.uri.parsePeer(allocator, uri_str);
     defer model.freePeerLocator(allocator, locator);
-    return connectVia(allocator, netlayers, peer, locator, identity, read_buf, write_buf, handshake);
+    return connectVia(allocator, netlayers, peer, locator, identity, read_buf, write_buf, options);
 }
 
 /// Accept one partner through a contract `net.netlayer.Listener`, bind a vat, and
@@ -554,7 +565,7 @@ pub fn connectUri(
 /// produce the durable designator the transport advertises. The accept side is
 /// the slowloris target — a dialer that completes connect and then never speaks
 /// would park a one-connection-per-thread accepter for the connection's life —
-/// so `handshake` bounds each handshake read; `Server.accept` threads it from
+/// so `options.handshake` bounds each handshake read; `Server.accept` threads it from
 /// `SessionOptions.handshake` (ADR-0081).
 pub fn acceptVia(
     allocator: std.mem.Allocator,
@@ -563,41 +574,28 @@ pub fn acceptVia(
     identity: driver.AcceptIdentity,
     read_buf: []u8,
     write_buf: []u8,
-    handshake: Budget,
+    options: BlockingSession.Options,
 ) !BlockingSession {
+    // The accept half of the sealed-channel refusal in `connectVia`, derived
+    // from the listener contract so extension transports fail closed too.
+    if (listener.sealedChannel()) return Error.SealedChannelRequiresHost;
     const conn = try listener.accept(peer, .{ .read = read_buf, .write = write_buf });
-    var vat = BlockingSession.over(allocator, peer, conn);
-    vat.handshake = handshake;
+    var vat = BlockingSession.over(allocator, peer, conn, options);
     errdefer vat.deinit();
-    // Signing designator/hint come from the one accept resolver (ADR-0078),
-    // same table the bindings call through `pancake_host_plan_accept`.
-    var local_buf: [net.tcp.designator_buf_len]u8 = undefined;
-    var key_designator: [crypto.PeerKey.designator_len]u8 = undefined;
-    const transport = listener.transportName();
-    const server_designator: []const u8, const accepted_local_addr: []const u8 = switch (listener.designatorScheme()) {
-        .address => .{ "", listener.localDesignator(&local_buf) },
-        .key => blk: {
-            const secret = switch (identity) {
-                .keyed => |secret| secret,
-                .ephemeral => return Error.EphemeralIdentityOnKeyedTransport,
-            };
-            // Derive the listener's durable designator from the identity the
-            // caller supplied rather than trusting a second spelling.
-            key_designator = secret.publicKey().toDesignator();
-            break :blk .{ key_designator[0..], try listener.localDirectAddresses(&local_buf) };
-        },
-    };
-    const plan = driver.core.planAccept(transport, server_designator, accepted_local_addr);
-    // Every listener signs the dial address it is reachable at. A keyed one
-    // also advertises its key designator.
-    var entry_buf: [1]model.HintEntry = undefined;
+    const self_locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, self_locator);
+    if (!std.mem.eql(u8, self_locator.transport, listener.transportName()))
+        return error.ProviderContract;
+    if (listener.designatorScheme() == .key) {
+        const secret = switch (identity) {
+            .keyed => |secret| secret,
+            .ephemeral => return Error.EphemeralIdentityOnKeyedTransport,
+        };
+        const expected = secret.publicKey().toDesignator();
+        if (!std.mem.eql(u8, self_locator.designator, &expected)) return Error.UnheldIdentity;
+    }
     // As on the dial side, the accepted session signs with its own key.
     const session_secret = try drawSessionSecret(conn.io);
-    const self_locator: model.PeerLocator = .{
-        .transport = transport,
-        .designator = plan.designator,
-        .hints = model.Hints.forDirectAddresses(plan.direct_addresses_hint, &entry_buf),
-    };
     try vat.startKeyedSessionWithSecret(self_locator, session_secret);
     return vat;
 }

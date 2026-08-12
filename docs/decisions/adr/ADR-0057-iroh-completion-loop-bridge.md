@@ -6,6 +6,8 @@ tags: [net, netlayer, iroh, transport, driver, completion-loop, performance]
 decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) (N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only) `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface: and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom; `zig build bindings-iroh-loop` gates Deno, Python, Rust, and Racket together."
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0112]
 ---
 
 # ADR-0057 Scaling iroh: an event-driven sidecar bridge to the completion loop
@@ -62,8 +64,10 @@ netlayer is constructed. The sidecar exposes a readiness-based surface:
   record carries the caller's nonzero request id. `finish_connect` consumes the
   sole terminal result and transfers the connection on success.
   `cancel_connect` turns a pending request into that same terminal lifecycle;
-  it does not create a second completion. No worker thread, second pipe, or
-  result array exists in Zig or the bindings.
+  it does not create a second completion. The sidecar bounds pending plus
+  unconsumed terminal dials and refuses a full table synchronously, with no
+  completion owed. No worker thread, second pipe, or result array exists in Zig
+  or the bindings.
 - **A drained ready-queue.** When any connection becomes readable, writable, or
   closed, the sidecar enqueues a `(stable ConnId, direction)` event and writes the wakeup
   fd. When the loop wakes, it calls a non-blocking
@@ -115,18 +119,34 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
   sender; a full outbound buffer returns `WOULD_BLOCK` to the loop, which
   re-arms on the next `EV_WRITABLE`. A slow reader throttles its partner rather
   than tripping an error, so overflow needs no typed abort.
+- **Readiness is lossless and coalesced.** The queue holds at most one row per
+  subject and merges event bits into that row. It has no unrelated fixed cap:
+  dropping the one readable, writable, closed, or connect edge for an admitted
+  subject can strand it forever. Its population is therefore proportional to
+  endpoint work already admitted by the loop, while accepted connections keep
+  their separate fixed queue bound.
 - **The sidecar's steady per-connection memory is bounded, in the Rust heap
   where the Zig footprint gates cannot see it.** The 1 MiB `NB_BUFFER_BOUND` is
   a burst ceiling, not a resident cost: the reader task holds no scratch buffer
-  (it borrows each QUIC segment zero-copy via `read_chunk`), the writer takes
-  each outbound batch by move and drops its storage once flushed, and the
-  inbound buffer frees burst capacity down to a 16 KiB steady bound
-  (`NB_STEADY_BYTES`) when the loop drains it empty: the same
+  (it borrows each QUIC segment zero-copy via `read_chunk`), queued and in-flight
+  outbound bytes share that one ceiling, and the writer swaps each batch with
+  one spare allocation retained at no more than 16 KiB. The inbound buffer also
+  frees burst capacity down to that `NB_STEADY_BYTES` bound when the loop drains
+  it empty: the same
   burst-frees-on-drain posture as the Zig loop (ADR-0042/0054). Steady state
-  per non-blocking connection is therefore at most 16 KiB of retained inbound
-  capacity plus the two tokio tasks and their `NbConn` state (order 1 KiB), so
-  500k connections bound the sidecar's steady buffer bill near 8 GiB worst
-  case, paid only by connections whose traffic ever reached the bound.
+  per non-blocking connection is therefore at most 16 KiB each of retained
+  inbound and outbound capacity plus the two tokio tasks and their `NbConn`
+  state (order 1 KiB), so 500k connections bound the sidecar's steady buffer
+  bill near 16 GiB worst case, paid only by connections whose traffic reached
+  the steady bound.
+- **Loop-thread release never enters Tokio or discards accepted bytes.** Once a
+  connection is non-blocking, its reader and writer own their streams and only
+  `Arc` state. Releasing the raw handle aborts the reader and transfers the
+  writer task to the endpoint; connection release still never joins on the loop
+  thread, while endpoint release joins every transferred writer before closing
+  QUIC and dropping Tokio. Thus runtime shutdown cannot discard bytes for which
+  `conn_try_write` already reported success. The old blocking compatibility
+  calls keep their close-and-fence teardown outside the completion path.
 - **Native Zig QUIC stays rejected.** ADR-0055's flip condition is unchanged:
   this bridge makes the _sidecar_ scale, which removes the main reason to chase
   a native rewrite. A native path still waits on iroh's protocols stabilizing

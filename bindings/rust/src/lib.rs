@@ -5,33 +5,42 @@
 //! What you use is the application surface every pancake binding speaks —
 //! [`connect`]/[`listen`], a [`Session`] with `fetch`/`send`/`tell`/
 //! `spawn`/`publish`, one opaque [`Ref`] capability type, a Rust [`Argument`]
-//! enum, and `Result` for fallible calls — over the
-//! byte-fed host archive `libpancake_host` (ADR-0072). The [`Host`] owns
+//! enum, and `Result` for fallible calls — over the symbol-disjoint
+//! `libpancake_host` and `libpancake_driver` archives (ADR-0112). The Host
+//! archive owns `pancake_host_*`; the driver exports only `pancake_driver_*`
+//! and adopts a quiescent Host. Bounded `tcp`, `keyed-tcp`, `noise-tcp`, `iroh`, and routed relay dials and
+//! listeners ride the loop ([`driver_loop`]); a quiescent caller-supplied Host
+//! transfers to that same runtime before its first network operation. The
+//! byte-fed pump serves explicit externally supplied channels such as a bare
+//! relay locator's configured WebSocket fallback. The [`Host`] owns
 //! `engine.Node` (router) and every CapTP decision; Goblins' `mycapn` is two
-//! roles — endpoint ≈ Host, router tables ≈ `engine.Node` (ADR-0079). This
-//! crate moves bytes and honors the host's action queue. This is the dogfood
-//! consumer `zig build rust-dogfood` runs, so the ergonomic surface stays
-//! honest.
+//! roles — product maps to Host, router tables map to `engine.Node` (ADR-0079). This
+//! crate moves bytes and honors the host's action queue on the byte-fed
+//! path. This is the dogfood consumer `zig build rust-dogfood` runs, so the
+//! ergonomic surface stays honest.
 //!
 //! # Composable modules, à la carte
 //!
 //! pancake's C ABI ships as a set of symbol-disjoint archives (ADR-0059), and
 //! this crate mirrors that shape: the core value/locator vocabulary and the
-//! byte-fed host are always available at the crate root, and each transport is
-//! a module behind a Cargo feature that links exactly its archive — you pay
+//! Host ABI is always available at the crate root, and each optional transport
+//! is a module behind a Cargo feature that links exactly its archive — you pay
 //! (in linked archive and symbols) only for the transports you enable. The
 //! core stands alone; the transport modules build on it but never on each
 //! other.
 //!
 //! | Feature | Module | Archive linked | Default |
 //! | --- | --- | --- | --- |
-//! | (always) | crate root + [`Locator`] | `libpancake_ocapn` + `libpancake_host` | yes |
+//! | (always) | crate root + [`Locator`] | `libpancake_ocapn` + `libpancake_host` + `libpancake_driver` | yes |
 //! | `tcp` | [`tcp`] | `libpancake_net_transport_tcp` | yes |
 //! | `inproc` | [`inproc`] | `libpancake_net_transport_inproc` | yes |
+//! | `onion` | [`onion`] | `libpancake_net_transport_onion` | no |
 //! | `iroh` | [`iroh`] | `libpancake_net_transport_iroh` (dynamic) | no |
+//! | `relay` | [`relay`] | `libpancake_net_transport_relay` | no |
 //! | `async` | [`Session`], [`Host`], [`connect`]/[`listen`] | (none — native tokio) | no |
 //!
-//! `tcp` and `inproc` are on by default. `iroh` is opt-in and implies `async`
+//! `tcp` and `inproc` are on by default. `onion` is opt-in because it needs a Tor
+//! daemon the deployment runs; pancake starts none. `iroh` is opt-in and implies `async`
 //! (the tokio driver it rides); it needs the companion library built by
 //! `zig build iroh-abi`. The `async` feature adds the tokio-driven
 //! [`Session`] over native sockets and links no transport archive of its
@@ -47,7 +56,7 @@ mod session;
 #[cfg(feature = "async")]
 mod session_shared;
 #[cfg(feature = "async")]
-pub use session::{PartnerIdentity, Redeemed, Session, HANDSHAKE_TIMEOUT};
+pub use session::{PartnerIdentity, SendRedeemingResult, Session, HANDSHAKE_TIMEOUT};
 #[cfg(feature = "async")]
 pub use session_shared::Caretaker;
 #[cfg(feature = "async")]
@@ -68,6 +77,7 @@ mod pump;
 // Host action decode + execute: pop / run (crate-private).
 #[cfg(feature = "async")]
 mod action;
+#[cfg(feature = "async")]
 // RemotePromise + send-target plumbing (Pass 3a).
 #[cfg(feature = "async")]
 mod promise;
@@ -83,7 +93,12 @@ mod dial;
 #[cfg(feature = "async")]
 mod listen;
 #[cfg(feature = "async")]
-pub use listen::{listen, listen_keyed_tcp, listen_with_host, KeyedTcpServer, Server};
+pub use listen::{
+	listen, listen_advertised, listen_keyed_tcp, listen_keyed_tcp_advertised,
+	listen_keyed_tcp_with_options, listen_noise_tcp, listen_noise_tcp_advertised, listen_with_host,
+	listen_with_host_advertised, listen_with_host_options, listen_with_options, KeyedTcpServer,
+	ListenOptions, NoiseTcpServer, Server,
+};
 // Generated HostAction kinds + decode (`zig build gen-binding-host-action`).
 #[cfg(feature = "async")]
 mod host_action_gen;
@@ -101,7 +116,7 @@ mod host_action_gen;
 #[cfg(feature = "async")]
 pub use dial::{connect, connect_with_timeout, Reachability};
 #[cfg(feature = "iroh")]
-pub use iroh::{listen_iroh, listen_iroh_with_seed, IrohConfig, IrohServer};
+pub use iroh::{listen_iroh, listen_iroh_with_host, listen_iroh_with_seed, IrohConfig, IrohServer};
 
 // Every pancake archive keeps its own thread-local last-error slot (ADR-0059);
 // this macro mints each family's checker/reader pair over its archive's extern
@@ -109,16 +124,28 @@ pub use iroh::{listen_iroh, listen_iroh_with_seed, IrohConfig, IrohServer};
 // transport in its module. Unconditional: the core pair below is its first user.
 mod error_slot;
 
+#[cfg(any(feature = "relay", feature = "rendezvous"))]
+mod relay_route;
+
 // The blocking transports, each its own à-la-carte archive, linked only when
 // its feature is on (ADR-0059). They share the core value layout but never
 // each other; the core stands alone without any of them.
 #[cfg(feature = "inproc")]
 pub mod inproc;
+#[cfg(feature = "onion")]
+pub mod onion;
+#[cfg(feature = "relay")]
+pub mod relay;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 
 // The iroh transport (its own optional companion library, ADR-0055): the
 // encrypted-QUIC byte-stream bridge the `Session` pump carries a session over.
+/// The native loop tier (ADR-0112): `DriverLoop` over `libpancake_driver`'s
+/// `pancake_driver_*` family, and the loop route the public
+/// [`connect`]/[`listen`] ride for the shapes the loop carries.
+#[cfg(feature = "async")]
+pub mod driver_loop;
 #[cfg(feature = "iroh")]
 pub mod iroh;
 #[cfg(feature = "rendezvous")]
@@ -130,14 +157,15 @@ mod ws_stream;
 // the always-linked core too, so they ship in every build, async or not.
 mod uri;
 pub use uri::{
-	designator_host_port, encode_peer_locator, format_peer_uri, keyed_tcp_locator, parse_locator,
-	parse_sturdyref, socket_addr_designator, tcp_locator, Locator,
+	designator_host_port, encode_peer_locator, format_peer_uri, format_sturdyref,
+	keyed_tcp_locator, noise_tcp_locator, parse_locator, parse_sturdyref, socket_addr_designator,
+	tcp_locator, HintValue, HintWireForm, Locator, SturdyRef,
 };
 
 /// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
 pub use abi_constants::{
 	HINT_DIRECT_ADDRESSES, TRANSPORT_INPROC, TRANSPORT_IROH, TRANSPORT_KEYED_RELAY,
-	TRANSPORT_KEYED_TCP, TRANSPORT_TCP, TRANSPORT_WEBRTC,
+	TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP, TRANSPORT_WEBRTC,
 };
 
 mod sys;
@@ -310,8 +338,7 @@ impl Error {
 
 	/// A binding-side failure with an explicit message, for a refusal the C ABI
 	/// never saw (e.g. an `ocapn://` URI naming a transport this build cannot dial).
-	#[cfg(feature = "async")]
-	fn with_detail(code: i32, detail: String) -> Error {
+	pub(crate) fn with_detail(code: i32, detail: String) -> Error {
 		Error {
 			code,
 			detail: Some(detail),
@@ -426,14 +453,23 @@ unsafe extern "C" fn free_trampoline(
 	}));
 }
 
-/// An allocation scope. Hosts and netlayers created in a context route every
-/// allocation through it. Release order matters: drop the context only after
-/// every handle created in it. Released on drop.
-pub struct Context {
+/// Shared native allocation policy retained by every high-level handle family
+/// that cannot express the borrow in its public type.
+pub(crate) struct ContextInner {
 	pub(crate) raw: *mut sys::PancakeContext,
 	// Kept alive (and freed after `pancake_context_release`) for the custom
 	// allocator path; null for the default-allocator context.
 	allocator: *mut Box<dyn ContextAllocator>,
+}
+
+/// An allocation scope. Hosts and netlayers created in a context route every
+/// allocation through it. Borrowing netlayers carry the Context lifetime in
+/// their type; shared Host state retains the native policy directly.
+pub struct Context {
+	// The no-feature build still exposes Context construction as a standalone
+	// RAII policy proof, even though no optional handle family can borrow it.
+	#[allow(dead_code)]
+	inner: std::rc::Rc<ContextInner>,
 }
 
 impl Context {
@@ -442,8 +478,10 @@ impl Context {
 		let mut raw: *mut sys::PancakeContext = core::ptr::null_mut();
 		check(unsafe { sys::pancake_context_new(&mut raw) })?;
 		Ok(Context {
-			raw,
-			allocator: core::ptr::null_mut(),
+			inner: std::rc::Rc::new(ContextInner {
+				raw,
+				allocator: core::ptr::null_mut(),
+			}),
 		})
 	}
 
@@ -462,13 +500,25 @@ impl Context {
 			return Err(Error::from_code(rc));
 		}
 		Ok(Context {
-			raw,
-			allocator: user_data,
+			inner: std::rc::Rc::new(ContextInner {
+				raw,
+				allocator: user_data,
+			}),
 		})
+	}
+
+	#[cfg(any(feature = "tcp", feature = "inproc", feature = "onion"))]
+	pub(crate) fn raw(&self) -> *mut sys::PancakeContext {
+		self.inner.raw
+	}
+
+	#[cfg(feature = "async")]
+	pub(crate) fn retain_inner(&self) -> std::rc::Rc<ContextInner> {
+		std::rc::Rc::clone(&self.inner)
 	}
 }
 
-impl Drop for Context {
+impl Drop for ContextInner {
 	fn drop(&mut self) {
 		// Release the context first — it frees its tables through the allocator —
 		// then drop the host allocator the trampolines borrowed.
@@ -869,7 +919,7 @@ pub(crate) unsafe fn args_from_sys(ptr: *const sys::PancakeArgument, len: usize)
 	(0..len).map(|i| arg_from_sys(&*ptr.add(i))).collect()
 }
 
-/// The wire codec a host's sessions speak and a TCP endpoint frames with. Both
+/// The wire codec a host's sessions speak and a TCP connection frames with. Both
 /// ends of a connection must use the same value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Codec {

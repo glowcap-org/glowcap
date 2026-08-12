@@ -23,12 +23,13 @@ where the name comes from: you can't have pancakes without syrup.
 It is a library, not a framework. You link it and manage its memory. The
 protocol core is synchronous and does no I/O of its own; sockets, scheduling,
 and encryption belong to the transport adapters. The plain TCP transport below
-is cleartext and authenticates nobody, so use it to learn the API and to talk to
-[Spritely Goblins](https://spritely.institute/goblins/), not to deploy.
-[iroh](https://www.iroh.computer/) carries the same sessions over encrypted
-QUIC, and [`docs/boundaries.md`](docs/boundaries.md) says what each transport
-proves. Every place a frame is copied, allocated, or borrowed is visible in the
-API.
+is cleartext and authenticates nobody, so use it to learn the API and for
+cleartext testing against
+[Spritely Goblins](https://spritely.institute/goblins/). For unmodified Goblins
+over Tor, use onion; [iroh](https://www.iroh.computer/) carries the same
+sessions over encrypted QUIC.
+[`docs/boundaries.md`](docs/boundaries.md) says what each transport proves.
+Every place a frame is copied, allocated, or borrowed is visible in the API.
 
 If capabilities are new to you,
 [`docs/capabilities.md`](docs/capabilities.md) starts from zero and carries
@@ -107,7 +108,9 @@ sessions with [Spritely Goblins](https://spritely.institute/goblins/):
 
 ```sh
 zig build ocapn-conformance  # the upstream OCapN test suite, against a pancake peer
-zig build goblins-interop    # a live session with a real Goblins vat, both directions
+zig build goblins-interop    # live Goblins over cleartext TCP (repo testing adapter)
+zig build goblins-iroh       # live Goblins over iroh (repo adapter; needs cargo)
+zig build goblins-onion      # live Goblins over Tor (upstream onion netlayer; needs tor)
 ```
 
 Set up the submodules once with `bash conformance/bootstrap-submodules.sh`.
@@ -140,12 +143,17 @@ workflow.
 
 ## Documentation
 
-Start with [capabilities](docs/capabilities.md) for the concepts or the
-[architecture](docs/architecture.md) for the implementation.
+The website is the front door. Run `zig build docs-serve` and open
+`http://127.0.0.1:1990/pancake/` for Why OCapN, Start building, transports,
+bindings, and the rest of the guided path.
+
+Docs kept in step with today's code own the inventory:
 
 - [What ships](docs/shipped.md) lists the usable surfaces.
 - [Known limitations](docs/boundaries.md) lists deployment and API constraints.
 - [Stability](docs/stability.md) says what recurring evidence supports them.
+- [Architecture](docs/architecture.md) explains the layers.
+- [Capabilities](docs/capabilities.md) is the glossary when the ideas are new.
 - [The roadmap](docs/roadmap.md) lists the work that remains.
 
 The [protocol diagrams](docs/protocol-diagrams/README.md) and

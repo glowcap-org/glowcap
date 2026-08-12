@@ -20,10 +20,10 @@ and the same five shapes appear in every language's relay.
 2. **The pump**, `relayBytes(source, sink, channel, config, closeSource)`: moves bytes between the
    two legs with pair-atomic teardown, an idle timeout, a byte cap, and awaited-write backpressure.
 3. **A WebSocket adapter**, `webSocketRelay(socket, getChannel, dialFailReason,
-   config)`: wires
+   config, options?)`: wires
    an accepted WebSocket to the pump, buffering the browser's first handshake bytes across the async
-   dial and gating outbound flow on the socket's send buffer. The embedder supplies the accepted
-   socket from its own HTTP server.
+   dial, admitting those early inbound bytes under a bounded queue, and gating outbound flow on the
+   socket's send buffer. The embedder supplies the accepted socket from its own HTTP server.
 4. **A dial dispatcher** (the embedder's): open the matching channel for the target. This reference
    relay dispatches on which query parameter the browser set — `?to=host:port` opens a socket,
    `?locator=<uri>` an iroh channel — and deliberately stays dependency-light, reading no locator
@@ -61,10 +61,22 @@ a high-water. A relay in another runtime must gate the browser-bound leg the sam
 contract clause, and the cross-runtime matrix asserts it directly: `zig build bindings-relay` stalls
 a reader through each runtime's relay and fails if the far sender is not backpressured.
 
+The browser-to-relay direction has the opposite problem: an accepted WebSocket can deliver the first
+handshake bytes before the far-side dial finishes, and browser WebSockets cannot be paused. The
+adapter installs handlers synchronously, but admits inbound messages only while its byte budget has
+room; overflow closes the WebSocket with code 1009 instead of growing process memory.
+
+The relay adapter names and enforces a `MAX_RELAY_WEBSOCKET_MESSAGE_BYTES` bound of 1 MiB. A smaller
+`inboundHighWaterBytes` is allowed for a deployment, but a larger one is refused. This is a
+WebSocket transport-message bound: the WebSocket implementation reassembles fragments before
+delivering `message`, and the relay deliberately does not parse or impose a second CapTP frame
+bound. Text messages are refused with WebSocket code 1003; only binary `ArrayBuffer` messages enter
+the byte channel.
+
 ## Scaling
 
 The relay holds no CapTP session state, so one more relayed connection costs only runtime and socket
-overhead, not pancake buffers. `zig build relay-scaling` (`scaling_bench.ts`) measures that cost the
+overhead, not pancake buffers. `zig build relay-scaling` (`test/scaling_bench.ts`) measures that cost the
 way `bench-peer-scaling` measures the core's: it stands up the real reference relay, opens thousands
 of live relayed connections through it, and divides the resident-memory delta by the count. The
 figure is about 80 KiB per connection, so a host serves tens of thousands of connections per

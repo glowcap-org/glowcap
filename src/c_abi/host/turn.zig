@@ -11,7 +11,7 @@ const c = @import("mod.zig");
 const common = @import("common.zig");
 
 const turnFrom = common.turnFrom;
-const connOfTurn = common.connOfTurn;
+const sessionOfTurn = common.sessionOfTurn;
 const instOf = common.instOf;
 const errToCode = common.errToCode;
 const msgFromC = common.msgFromC;
@@ -25,32 +25,33 @@ const PancakeHostTurn = c.PancakeHostTurn;
 const PANCAKE_OK = shared.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 
+/// Atomically defer this turn's answer onto a fresh resolver vow (ADR-0102).
+/// `*out_resolver_id` receives the one-shot settle authority used by
+/// pancake_host_resolver_fulfill / _break. All rows and the forward listener
+/// are reserved before publication, so refusal leaves no live resolver and no
+/// forwarded effect. The behavior returns normally after success; its return
+/// value resolves nothing once the turn is deferred.
+pub export fn pancake_host_turn_defer(
+    turn: ?*PancakeHostTurn,
+    out_resolver_id: ?*u64,
+) i32 {
+    const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_resolver_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const session = sessionOfTurn(t);
+    const inst = instOf(session.host);
+    slot.* = inst.core.deferTurn(session, t) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
 /// From inside a behavior callback, forward this turn's call to `target` and
 /// let this object's own answer settle on the forwarded result — the
 /// caretaker/attenuator primitive. `target` is an opaque Host-scoped
 /// capability; the Host resolves local and remote delivery itself (and refuses
 /// stale or foreign-Host identities rather than reading them as wire names).
-/// In a wire-served turn the real
-/// answer rides the forwarded vow and `*out_reply` gets a void placeholder;
-/// pass your behavior's own `out_reply` and return `PANCAKE_OK`. The written
-/// reply is BORROWED — valid until the next turn verb or drive on this host.
-/// From inside a behavior callback, defer this turn's answer onto a resolver
-/// vow (ADR-0102): the answer settles when pancake_host_resolver_fulfill /
-/// _break fires later, as its own top-level event. vow_id must be the read
-/// side of pancake_host_spawn_resolver's pair — a wire vow's answer belongs
-/// to its session and refuses here. The behavior still returns normally; its
-/// return value resolves nothing once the turn is forwarded.
-pub export fn pancake_host_turn_forward_vow(
-    turn: ?*PancakeHostTurn,
-    vow_id: u64,
-) i32 {
-    const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
-    const session = connOfTurn(t);
-    const inst = instOf(session.host);
-    inst.core.turnForwardVow(t, vow_id) catch |err| return errToCode(err);
-    return PANCAKE_OK;
-}
-
+/// In a wire-served turn the real answer rides the forwarded vow and
+/// `*out_reply` gets a void placeholder; pass your behavior's own `out_reply`
+/// and return `PANCAKE_OK`. The written reply is BORROWED — valid until the
+/// next turn verb or drive on this host.
 pub export fn pancake_host_turn_forward(
     turn: ?*PancakeHostTurn,
     target: ?*const shared.PancakeReference,
@@ -63,7 +64,7 @@ pub export fn pancake_host_turn_forward(
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_reply orelse return PANCAKE_ERR_NULL_POINTER;
-    const session = connOfTurn(t);
+    const session = sessionOfTurn(t);
     const inst = instOf(session.host);
     const msg = msgFromC(inst, session, verb, verb_len, args, args_len) catch |err| return errToCode(err);
     const reference = common.hostRefFromC(inst, session, target_ptr.*) catch |err| return errToCode(err);
@@ -90,7 +91,7 @@ pub export fn pancake_host_turn_send(
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
-    const session = connOfTurn(t);
+    const session = sessionOfTurn(t);
     const inst = instOf(session.host);
     const msg = msgFromC(inst, session, verb, verb_len, args, args_len) catch |err| return errToCode(err);
     const reference = common.hostRefFromC(inst, session, target_ptr.*) catch |err| return errToCode(err);
@@ -110,7 +111,7 @@ pub export fn pancake_host_turn_tell(
 ) i32 {
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
-    const session = connOfTurn(t);
+    const session = sessionOfTurn(t);
     const inst = instOf(session.host);
     const msg = msgFromC(inst, session, verb, verb_len, args, args_len) catch |err| return errToCode(err);
     const reference = common.hostRefFromC(inst, session, target_ptr.*) catch |err| return errToCode(err);
@@ -134,7 +135,7 @@ pub export fn pancake_host_turn_spawn(
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const b = behavior orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_ref orelse return PANCAKE_ERR_NULL_POINTER;
-    const session = connOfTurn(t);
+    const session = sessionOfTurn(t);
     const inst = instOf(session.host);
     reserveHostedCapability(inst, session, ctx, free) catch |err| return errToCode(err);
     const position = publishHosted(session, inst.allocator, null, b, ctx, free) catch |err| return errToCode(err);

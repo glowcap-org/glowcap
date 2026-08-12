@@ -26,7 +26,7 @@ const unavailable = (): never => {
 
 export const listenIroh = unavailable;
 export const Reachability = {} as Record<string, never>;
-export class IrohConn {
+export class IrohConnection {
 	constructor() {
 		unavailable();
 	}

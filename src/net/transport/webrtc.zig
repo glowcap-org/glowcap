@@ -58,11 +58,12 @@ const Buffers = net.netlayer.Buffers;
 /// The transport symbol this resident signs into `op:start-session`. The dial
 /// classifier recognizes it; the resident is not registered as a `Netlayer`
 /// (see "Dial posture" above).
-pub const transport_name = model.transport.webrtc;
+const known_transport = model.transport.Known.webrtc;
+pub const transport_name = known_transport.metadata().symbol;
 
 /// WebRTC locators name peers by keyed-session identity even though this
 /// resident intentionally exposes no address-based `Netlayer` vtable.
-pub const designator_scheme: net.netlayer.DesignatorScheme = .key;
+pub const designator_scheme: net.netlayer.DesignatorScheme = known_transport.metadata().designator_scheme;
 
 /// The peer's Ed25519 designator length, the same key width keyed-tcp and iroh
 /// name their peers by.
@@ -88,6 +89,8 @@ const CEndpointConfig = extern struct {
 extern fn pancake_webrtc_sidecar_endpoint_new(config: *const CEndpointConfig) ?*CEndpoint;
 extern fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const CEndpoint) i32;
 extern fn pancake_webrtc_sidecar_endpoint_drain_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
+extern fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(endpoint: *const CEndpoint) i32;
+extern fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
 extern fn pancake_webrtc_sidecar_endpoint_free(endpoint: *CEndpoint) void;
 extern fn pancake_webrtc_sidecar_peer_new(endpoint: *CEndpoint, is_offerer: i32) ?*CPeer;
 extern fn pancake_webrtc_sidecar_peer_create_offer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
@@ -333,7 +336,8 @@ pub const Peer = struct {
         return @intCast(n);
     }
 
-    /// Copy a prefix into the bounded sidecar send queue and return immediately.
+    /// Hand a bounded prefix to the sidecar's outbound staging buffer and return
+    /// immediately.
     /// Advance by the returned count. `WouldBlock` means re-arm on `ev_writable`
     /// and retry the remaining slice.
     pub fn tryWrite(self: *Peer, bytes: []const u8) TryByteError!usize {
@@ -405,6 +409,19 @@ pub const Resident = struct {
         return @intCast(count);
     }
 
+    /// Borrow the generic driver's independent subscription. Calling this
+    /// lazily creates the second sidecar queue; raw signaling continues to use
+    /// `readinessFd`/`drainReady` and cannot lose events to the driver.
+    pub fn driverReadinessFd(self: *const Resident) i32 {
+        return pancake_webrtc_sidecar_endpoint_driver_readiness_fd(self.endpoint);
+    }
+
+    pub fn drainDriverReady(self: *const Resident, out: []ReadyEvent) error{ReadinessFailed}!usize {
+        const count = pancake_webrtc_sidecar_endpoint_drain_driver_ready(self.endpoint, out.ptr, out.len);
+        if (count < 0) return error.ReadinessFailed;
+        return @intCast(count);
+    }
+
     /// Park on the readiness fd for at most `timeout_ms`, then perform the same
     /// ordered wake-byte and record drain as `drainReady`. This is the blocking
     /// embedding helper; reactors register `readinessFd` and call `drainReady`
@@ -413,7 +430,7 @@ pub const Resident = struct {
         const fd = self.readinessFd();
         if (fd < 0) return error.ReadinessFailed;
         var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
-        const ready = std.posix.poll(&fds, timeout_ms) catch return error.ReadinessFailed;
+        const ready = net.poll.wait(&fds, timeout_ms) catch return error.ReadinessFailed;
         if (ready == 0) return 0;
         if (fds[0].revents & (std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP) == 0) return error.ReadinessFailed;
         return self.drainReady(out);
@@ -430,6 +447,52 @@ const crypto = foundation.crypto;
 /// same bound the in-tree signaling scenarios hold (`interop/webrtc_common.zig`).
 const signal_frame_cap: usize = 16 * 1024;
 
+/// Cross-thread signaling bytes cannot use the caller's allocator: a Zig
+/// allocator may be single-threaded even when the API carrying the bytes is
+/// thread-safe. Allocate one fixed endpoint-level transfer store during
+/// `initBound`, then copy answers and candidates into an exclusively held slot
+/// before publishing their queue row. The loop returns the slot after applying
+/// the row. This keeps allocator calls on the owner thread and puts a hard
+/// 4 MiB ceiling on signaling bytes, independent of session count.
+const max_signal_payloads = 256;
+const SignalPayloadPool = struct {
+    storage: [][signal_frame_cap]u8,
+    free_slots: [max_signal_payloads]u8 = undefined,
+    free_len: usize = max_signal_payloads,
+
+    fn init(allocator: std.mem.Allocator) !SignalPayloadPool {
+        const storage = try allocator.alloc([signal_frame_cap]u8, max_signal_payloads);
+        var pool: SignalPayloadPool = .{ .storage = storage };
+        for (&pool.free_slots, 0..) |*slot, i| slot.* = @intCast(i);
+        return pool;
+    }
+
+    fn deinit(self: *SignalPayloadPool, allocator: std.mem.Allocator) void {
+        std.debug.assert(self.free_len == max_signal_payloads);
+        allocator.free(self.storage);
+        self.* = undefined;
+    }
+
+    /// The caller serializes pool access with `Backend.signal_mutex`.
+    fn acquire(self: *SignalPayloadPool) ?u8 {
+        if (self.free_len == 0) return null;
+        self.free_len -= 1;
+        return self.free_slots[self.free_len];
+    }
+
+    /// The caller serializes pool access with `Backend.signal_mutex`.
+    fn release(self: *SignalPayloadPool, slot: u8) void {
+        std.debug.assert(self.free_len < max_signal_payloads);
+        self.free_slots[self.free_len] = slot;
+        self.free_len += 1;
+    }
+
+    fn bytes(self: *SignalPayloadPool, slot: u8, len: usize) []u8 {
+        std.debug.assert(len <= signal_frame_cap);
+        return self.storage[slot][0..len];
+    }
+};
+
 const backend_connect_target = struct {
     designator: []const u8,
 };
@@ -441,14 +504,11 @@ const backend_connect_target = struct {
 /// ignored, exactly as the core planner ignores it.
 pub const DialResolver = struct {
     pub fn resolve(
-        transport: []const u8,
-        designator: []const u8,
-        direct_addresses_hint: []const u8,
+        locator: model.PeerLocator,
     ) !backend_connect_target {
-        _ = direct_addresses_hint;
-        if (!std.mem.eql(u8, transport, model.transport.webrtc)) return error.UnknownTransport;
-        if (crypto.PeerKey.fromDesignator(designator) == null) return error.InvalidAddress;
-        return .{ .designator = designator };
+        if (!std.mem.eql(u8, locator.transport, model.transport.webrtc)) return error.UnknownTransport;
+        if (crypto.PeerKey.fromDesignator(locator.designator) == null) return error.InvalidAddress;
+        return .{ .designator = locator.designator };
     }
 };
 
@@ -486,13 +546,19 @@ pub const SignalingAuthority = struct {
 ///   any accepted connection.
 ///
 /// `adoptAnswerer`, `provideAnswer`, and `provideRemoteCandidate` are the
-/// three thread-safe entries, queued under one mutex and applied at the head
-/// of the next harvest; everything else is loop-thread state. The resident
-/// must outlive the backend and be drained by no other consumer
-/// (`Resident.pollReady` and the backend cannot share one resident).
+/// three thread-safe entries, queued under one mutex, nudged through an
+/// ordinary wake fd, and applied at the head of the next harvest; everything
+/// else is loop-thread state. `wake` is only the stopper half of that same fd:
+/// it records no work and exists because this userspace backend's `poll` owns
+/// its fd set directly, unlike socket backends that can use `Loop.armWake`.
+/// The resident must outlive the backend and be drained by no other consumer
+/// (`Resident.pollReady` and the backend cannot share one resident). Threads
+/// that can call the thread-safe entries or `wake` must stop before `deinit`
+/// closes the wake fd.
 pub const Backend = struct {
     pub const Fd = i32;
     pub const ConnectTarget = backend_connect_target;
+    pub const ListenerAddress = void;
 
     /// Sentinel listen handle: not an OS fd; there is nothing to arm because
     /// reachability is a registered signaling inbox, not a socket.
@@ -528,9 +594,11 @@ pub const Backend = struct {
     /// One queued thread-safe entry, applied on the loop thread.
     const SignalIn = union(enum) {
         adopt: struct { fd: Fd, peer: Peer },
-        answer: struct { fd: Fd, sdp: []u8 },
-        candidate: struct { fd: Fd, ice: []u8 },
+        answer: struct { fd: Fd, slot: u8, len: u16 },
+        candidate: struct { fd: Fd, slot: u8, len: u16 },
     };
+    const max_accept_stash = 128;
+    const max_signal_in = 256;
 
     allocator: std.mem.Allocator,
     /// Borrowed; must outlive the backend.
@@ -552,12 +620,27 @@ pub const Backend = struct {
     /// Adopted answerers not yet open, by their reserved fd.
     adopting: std.AutoHashMap(Fd, AdoptRow),
     /// Guards `next_fd` and `signal_in`: the three thread-safe entries mint
-    /// fds and queue rows from outside the loop thread.
+    /// fds and queue rows from outside the loop thread. No `std.Io` token
+    /// crosses this foreign-thread signaling seam, so this stays a spinlock;
+    /// reserve signal queue capacity before taking it so the critical section is
+    /// only integer and slice-header mutation.
     signal_mutex: net.sync.SpinLock = .{},
     signal_in: std.ArrayList(SignalIn) = .empty,
+    /// Queue seats claimed while a producer copies into its exclusive payload
+    /// slot. A row is not visible until the copy is complete, while this count
+    /// prevents other producers or adoptions from oversubscribing the inbox.
+    signal_reservations: usize = 0,
+    signal_payloads: SignalPayloadPool,
+    /// Wake fd for `signal_in`: the loop polls it beside the sidecar readiness
+    /// fd, so cross-thread answers, candidates, and adopted peers are events
+    /// rather than a timeout-polled side channel.
+    signal_wake: net.wake_channel.WakeChannel,
+    /// Loop-thread work queue swapped with `signal_in` during a drain. Keeping
+    /// a second pre-reserved list preserves the thread-safe inbox capacity
+    /// without allocating or deallocating at each wake.
+    signal_work: std.ArrayList(SignalIn) = .empty,
     next_fd: Fd = 1,
     scratch_pool: ScratchPool,
-    poll_timeout_ms: i32 = 200,
 
     /// Bind a backend to `resident` and the signaling authority its dials
     /// speak through. The readiness fd is latched here, not in `openListener`:
@@ -569,8 +652,18 @@ pub const Backend = struct {
         read_buffers: u16,
         read_buffer_bytes: u32,
     ) !Backend {
+        const signal_wake = try net.wake_channel.WakeChannel.open();
+        errdefer signal_wake.deinit();
         var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
         errdefer scratch_pool.deinit();
+        var signal_in = std.ArrayList(SignalIn).empty;
+        errdefer signal_in.deinit(allocator);
+        try signal_in.ensureTotalCapacity(allocator, max_signal_in);
+        var signal_work = std.ArrayList(SignalIn).empty;
+        errdefer signal_work.deinit(allocator);
+        try signal_work.ensureTotalCapacity(allocator, max_signal_in);
+        var signal_payloads = try SignalPayloadPool.init(allocator);
+        errdefer signal_payloads.deinit(allocator);
         const fd = resident.readinessFd();
         if (fd < 0) return error.ListenFailed;
         return .{
@@ -582,6 +675,10 @@ pub const Backend = struct {
             .by_id = std.AutoHashMap(usize, Fd).init(allocator),
             .pending_dials = std.AutoHashMap(Fd, DialRow).init(allocator),
             .adopting = std.AutoHashMap(Fd, AdoptRow).init(allocator),
+            .signal_in = signal_in,
+            .signal_payloads = signal_payloads,
+            .signal_wake = signal_wake,
+            .signal_work = signal_work,
             .scratch_pool = scratch_pool,
         };
     }
@@ -611,6 +708,11 @@ pub const Backend = struct {
         self.accept_stash.deinit(self.allocator);
         for (self.signal_in.items) |queued| self.freeQueued(queued);
         self.signal_in.deinit(self.allocator);
+        for (self.signal_work.items) |queued| self.freeQueued(queued);
+        self.signal_work.deinit(self.allocator);
+        std.debug.assert(self.signal_reservations == 0);
+        self.signal_payloads.deinit(self.allocator);
+        self.signal_wake.deinit();
         self.ready.deinit(self.allocator);
         self.scratch_pool.deinit();
     }
@@ -621,9 +723,15 @@ pub const Backend = struct {
                 var peer = a.peer;
                 peer.deinit();
             },
-            .answer => |a| self.allocator.free(a.sdp),
-            .candidate => |c| self.allocator.free(c.ice),
+            .answer => |a| self.releaseSignalPayload(a.slot),
+            .candidate => |c| self.releaseSignalPayload(c.slot),
         }
+    }
+
+    fn releaseSignalPayload(self: *Backend, slot: u8) void {
+        self.signal_mutex.lock();
+        defer self.signal_mutex.unlock();
+        self.signal_payloads.release(slot);
     }
 
     /// Nothing to arm: reachability is a registered signaling inbox. The
@@ -634,9 +742,12 @@ pub const Backend = struct {
         return listen_fd;
     }
 
-    pub fn boundPort(fd: Fd) !u16 {
-        _ = fd;
-        return 0;
+    pub fn listenerAddress(_: *Backend, fd: Fd) !ListenerAddress {
+        if (fd != listen_fd) return error.InvalidListener;
+    }
+
+    pub fn listenerPort(_: ListenerAddress) ?u16 {
+        return null;
     }
 
     fn reserveFdLocked(self: *Backend) !Fd {
@@ -646,6 +757,24 @@ pub const Backend = struct {
         if (fd == std.math.maxInt(Fd)) return error.OutOfFds;
         self.next_fd += 1;
         return fd;
+    }
+
+    fn reserveSignalPayload(self: *Backend) !u8 {
+        self.signal_mutex.lock();
+        defer self.signal_mutex.unlock();
+        if (self.signal_in.items.len + self.signal_reservations >= max_signal_in) return error.WouldBlock;
+        const slot = self.signal_payloads.acquire() orelse return error.WouldBlock;
+        self.signal_reservations += 1;
+        return slot;
+    }
+
+    fn publishSignalPayload(self: *Backend, item: SignalIn) void {
+        self.signal_mutex.lock();
+        defer self.signal_mutex.unlock();
+        std.debug.assert(self.signal_reservations > 0);
+        std.debug.assert(self.signal_in.items.len < max_signal_in);
+        self.signal_reservations -= 1;
+        self.signal_in.appendAssumeCapacity(item);
     }
 
     /// Start an offerer bring-up: create the peer, produce its offer, and hand
@@ -678,35 +807,55 @@ pub const Backend = struct {
     /// Adopt an answerer peer a signaling owner brought up against an inbound
     /// offer. Thread-safe. Returns the exchange fd: route the offerer's later
     /// candidates to it with `provideRemoteCandidate`, and expect the
-    /// backend's own `sendCandidate` calls under it. The peer (with its
-    /// `authorizeRemote` identity already recorded) belongs to the backend
-    /// from here on; it surfaces through the accept completion once open.
+    /// backend's own `sendCandidate` calls under it. Ownership of `peer`
+    /// transfers to the backend on entry, including failure: overload or fd
+    /// exhaustion closes it here rather than returning a half-owned sidecar
+    /// peer to the signaling layer.
     pub fn adoptAnswerer(self: *Backend, peer: Peer) !Fd {
+        var owned = peer;
         self.signal_mutex.lock();
-        defer self.signal_mutex.unlock();
         const fd = self.next_fd;
-        if (fd == std.math.maxInt(Fd)) return error.OutOfFds;
+        if (fd == std.math.maxInt(Fd)) {
+            self.signal_mutex.unlock();
+            owned.deinit();
+            return error.OutOfFds;
+        }
+        if (self.signal_in.items.len + self.signal_reservations >= max_signal_in) {
+            self.signal_mutex.unlock();
+            owned.deinit();
+            return error.WouldBlock;
+        }
         self.next_fd += 1;
-        try self.signal_in.append(self.allocator, .{ .adopt = .{ .fd = fd, .peer = peer } });
+        self.signal_in.appendAssumeCapacity(.{ .adopt = .{ .fd = fd, .peer = owned } });
+        self.signal_mutex.unlock();
+        self.signal_wake.nudge();
         return fd;
     }
 
     /// Deliver the far answerer's SDP for the exchange `fd` names. Thread-safe.
     pub fn provideAnswer(self: *Backend, fd: Fd, sdp: []const u8) !void {
-        const owned = try self.allocator.dupe(u8, sdp);
-        errdefer self.allocator.free(owned);
-        self.signal_mutex.lock();
-        defer self.signal_mutex.unlock();
-        try self.signal_in.append(self.allocator, .{ .answer = .{ .fd = fd, .sdp = owned } });
+        if (sdp.len > signal_frame_cap) return error.SignalTooLarge;
+        const slot = try self.reserveSignalPayload();
+        @memcpy(self.signal_payloads.bytes(slot, sdp.len), sdp);
+        self.publishSignalPayload(.{ .answer = .{ .fd = fd, .slot = slot, .len = @intCast(sdp.len) } });
+        self.signal_wake.nudge();
     }
 
     /// Deliver one far ICE candidate for the exchange `fd` names. Thread-safe.
     pub fn provideRemoteCandidate(self: *Backend, fd: Fd, ice: []const u8) !void {
-        const owned = try self.allocator.dupe(u8, ice);
-        errdefer self.allocator.free(owned);
-        self.signal_mutex.lock();
-        defer self.signal_mutex.unlock();
-        try self.signal_in.append(self.allocator, .{ .candidate = .{ .fd = fd, .ice = owned } });
+        if (ice.len > signal_frame_cap) return error.SignalTooLarge;
+        const slot = try self.reserveSignalPayload();
+        @memcpy(self.signal_payloads.bytes(slot, ice.len), ice);
+        self.publishSignalPayload(.{ .candidate = .{ .fd = fd, .slot = slot, .len = @intCast(ice.len) } });
+        self.signal_wake.nudge();
+    }
+
+    /// Wake a parked `poll` so an owner-thread stop flag can be observed without
+    /// timeout polling. Carries no authority and records no work; the next
+    /// harvest drains the nudge and then finds the normal state the caller
+    /// already changed.
+    pub fn wake(self: *Backend) void {
+        self.signal_wake.nudge();
     }
 
     pub fn closeFd(self: *Backend, fd: Fd) void {
@@ -716,6 +865,12 @@ pub const Backend = struct {
             std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
             row.peer.deinit();
             self.allocator.free(row.designator);
+            return;
+        }
+        if (self.adopting.fetchRemove(fd)) |kv| {
+            var row = kv.value;
+            std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
+            row.peer.deinit();
             return;
         }
         if (self.conns.fetchRemove(fd)) |kv| {
@@ -747,11 +902,14 @@ pub const Backend = struct {
 
     pub fn submitAccept(self: *Backend, user_data: u64, listen: Fd) !void {
         if (listen != listen_fd) return error.InvalidListenFd;
+        if (self.accept_ud != null) return error.AlreadyAccepting;
+        try self.ready.ensureUnusedCapacity(self.allocator, 1);
         self.accept_ud = user_data;
-        try self.takeAccept();
+        self.takeAccept();
     }
 
-    fn takeAccept(self: *Backend) !void {
+    /// Requires one unused ready-queue seat when an accept is stashed.
+    fn takeAccept(self: *Backend) void {
         const ud = self.accept_ud orelse return;
         if (self.accept_stash.items.len == 0) return;
         const held = self.accept_stash.orderedRemove(0);
@@ -759,11 +917,11 @@ pub const Backend = struct {
             var peer = held.peer;
             std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
             peer.deinit();
-            try self.ready.append(self.allocator, .{ .user_data = ud, .result = -1 });
+            self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
             self.accept_ud = null;
             return;
         };
-        try self.ready.append(self.allocator, .{ .user_data = ud, .result = held.fd });
+        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = held.fd });
         self.accept_ud = null;
     }
 
@@ -771,7 +929,9 @@ pub const Backend = struct {
         return self.conns.getPtr(fd) orelse error.InvalidFd;
     }
 
-    fn completeRecv(self: *Backend, entry: *ConnEntry) !void {
+    /// Requires one unused ready-queue seat. A would-block attempt consumes no
+    /// seat and keeps the caller's read pending.
+    fn completeRecv(self: *Backend, entry: *ConnEntry) void {
         const ud = entry.pending.read_ud orelse return;
         var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
         if (self.scratch_pool.acquire()) |idx| {
@@ -806,10 +966,12 @@ pub const Backend = struct {
             // Keep the hint: the loop re-arms once a buffer recycles.
         }
         entry.pending.read_ud = null;
-        try self.ready.append(self.allocator, comp);
+        self.ready.appendAssumeCapacity(comp);
     }
 
-    fn completeSend(self: *Backend, entry: *ConnEntry) !void {
+    /// Requires one unused ready-queue seat. A would-block attempt consumes no
+    /// seat and keeps the caller's write pending.
+    fn completeSend(self: *Backend, entry: *ConnEntry) void {
         const ud = entry.pending.write_ud orelse return;
         const bytes = entry.pending.write_bytes orelse return;
         var result: i32 = -1;
@@ -827,22 +989,49 @@ pub const Backend = struct {
         }
         entry.pending.write_ud = null;
         entry.pending.write_bytes = null;
-        try self.ready.append(self.allocator, .{ .user_data = ud, .result = result });
+        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = result });
     }
 
     pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
         const entry = try self.entryPtr(fd);
+        if (entry.pending.read_ud != null) return error.AlreadyReading;
+        try self.ready.ensureUnusedCapacity(self.allocator, 1);
         entry.pending.read_ud = user_data;
-        if (entry.pending.readable_hint) try self.completeRecv(entry);
+        if (entry.pending.readable_hint) self.completeRecv(entry);
     }
 
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         const entry = try self.entryPtr(fd);
+        if (entry.pending.write_ud != null) return error.AlreadyWriting;
+        try self.ready.ensureUnusedCapacity(self.allocator, 1);
         entry.pending.write_ud = user_data;
         entry.pending.write_bytes = bytes;
         // Always attempt once: a seeded writable_hint or a live edge may
         // already allow the write; would_block parks until the next edge.
-        try self.completeSend(entry);
+        self.completeSend(entry);
+    }
+
+    pub fn submitCancel(
+        self: *Backend,
+        cancel_user_data: u64,
+        target_user_data: u64,
+        fd: Fd,
+    ) !void {
+        const entry = try self.entryPtr(fd);
+        const target_pending = if (entry.pending.read_ud) |ud| blk: {
+            if (ud != target_user_data) return error.InvalidCancelTarget;
+            break :blk true;
+        } else false;
+        try self.ready.ensureUnusedCapacity(
+            self.allocator,
+            1 + @as(usize, @intFromBool(target_pending)),
+        );
+        if (target_pending) {
+            entry.pending.read_ud = null;
+            self.ready.appendAssumeCapacity(.{ .user_data = target_user_data, .result = -1 });
+        }
+        // With no pending row, completeRecv already queued the target.
+        self.ready.appendAssumeCapacity(.{ .user_data = cancel_user_data, .result = 0 });
     }
 
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
@@ -867,6 +1056,14 @@ pub const Backend = struct {
             std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
             row.peer.deinit();
             self.allocator.free(row.designator);
+            self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1 });
+            self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
+            return;
+        }
+        if (self.adopting.fetchRemove(fd)) |kv| {
+            var row = kv.value;
+            std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
+            row.peer.deinit();
             self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
             return;
         }
@@ -896,26 +1093,37 @@ pub const Backend = struct {
         }
     }
 
-    fn failDial(self: *Backend, fd: Fd) !void {
+    /// Requires one unused ready-queue seat. The row is removed before the
+    /// completion is published, so callers reserve that seat first.
+    fn failDial(self: *Backend, fd: Fd) void {
         const kv = self.pending_dials.fetchRemove(fd) orelse return;
         var row = kv.value;
         std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
         row.peer.deinit();
         self.allocator.free(row.designator);
-        try self.ready.append(self.allocator, .{ .user_data = kv.value.user_data, .result = -1 });
+        self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1 });
     }
 
     /// Move an adopted answerer whose channel opened into the accept stash and
     /// let a parked accept claim it.
-    fn openAdopted(self: *Backend, fd: Fd) !void {
+    fn openAdopted(self: *Backend, fd: Fd) void {
         const kv = self.adopting.fetchRemove(fd) orelse return;
+        if (self.accept_stash.items.len >= max_accept_stash) {
+            var peer = kv.value.peer;
+            std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
+            // Overload policy: the accept stash is the ownership boundary for
+            // open adopted peers. Once full, shed this already-open channel and
+            // keep the backend live; a full backlog is not a loop-fatal error.
+            peer.deinit();
+            return;
+        }
         self.accept_stash.append(self.allocator, .{ .fd = fd, .peer = kv.value.peer }) catch {
             var peer = kv.value.peer;
             std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
             peer.deinit();
-            return error.OutOfMemory;
+            return;
         };
-        try self.takeAccept();
+        self.takeAccept();
     }
 
     /// Apply the thread-safe queue on the loop thread: register adopted
@@ -923,14 +1131,25 @@ pub const Backend = struct {
     /// open state because the open edge may have been drained before the row
     /// was visible (`checkOpen` is level, the event is edge).
     fn drainSignalIn(self: *Backend) !void {
-        var queued: std.ArrayList(SignalIn) = .empty;
-        {
+        if (self.signal_work.items.len == 0) {
             self.signal_mutex.lock();
             defer self.signal_mutex.unlock();
-            std.mem.swap(std.ArrayList(SignalIn), &queued, &self.signal_in);
+            std.mem.swap(std.ArrayList(SignalIn), &self.signal_work, &self.signal_in);
         }
-        defer queued.deinit(self.allocator);
-        for (queued.items) |item| {
+        // A queued answer or adoption can complete one Loop operation. Reserve
+        // publication before consuming or freeing any queue row; on OOM the
+        // work list remains intact for a caller that retries the backend.
+        try self.ready.ensureUnusedCapacity(self.allocator, self.signal_work.items.len);
+        var consumed: usize = 0;
+        defer {
+            while (consumed < self.signal_work.items.len) : (consumed += 1) {
+                self.freeQueued(self.signal_work.items[consumed]);
+            }
+            self.signal_work.clearRetainingCapacity();
+        }
+        while (consumed < self.signal_work.items.len) {
+            const item = self.signal_work.items[consumed];
+            consumed += 1;
             switch (item) {
                 .adopt => |a| {
                     var peer = a.peer;
@@ -945,7 +1164,7 @@ pub const Backend = struct {
                     };
                     self.pumpLocalCandidates(a.fd, &self.adopting.getPtr(a.fd).?.peer);
                     if (peer.checkOpen()) |_| {
-                        try self.openAdopted(a.fd);
+                        self.openAdopted(a.fd);
                     } else |err| switch (err) {
                         error.WouldBlock => {},
                         error.Closed => {
@@ -957,27 +1176,42 @@ pub const Backend = struct {
                     }
                 },
                 .answer => |a| {
-                    defer self.allocator.free(a.sdp);
+                    defer self.releaseSignalPayload(a.slot);
+                    const sdp = self.signal_payloads.bytes(a.slot, a.len);
                     const row = self.pending_dials.getPtr(a.fd) orelse continue;
-                    row.peer.setRemoteAnswer(a.sdp) catch {
-                        try self.failDial(a.fd);
+                    row.peer.setRemoteAnswer(sdp) catch {
+                        self.failDial(a.fd);
                         continue;
                     };
                     // The open edge may already have fired while the answer sat
                     // queued; re-check the level.
                     if (row.peer.checkOpen()) |_| {
-                        try self.finishDial(a.fd);
-                    } else |_| {}
+                        self.finishDial(a.fd);
+                    } else |err| switch (err) {
+                        error.WouldBlock => {},
+                        error.Closed => self.failDial(a.fd),
+                    }
                 },
                 .candidate => |c| {
-                    defer self.allocator.free(c.ice);
+                    defer self.releaseSignalPayload(c.slot);
+                    const ice = self.signal_payloads.bytes(c.slot, c.len);
                     if (self.pending_dials.getPtr(c.fd)) |row| {
-                        row.peer.addRemoteCandidate(c.ice) catch {};
+                        row.peer.addRemoteCandidate(ice) catch {
+                            // A candidate refusal while the exchange is still
+                            // negotiating is terminal: no later readiness edge
+                            // can complete this dial honestly.
+                            self.failDial(c.fd);
+                        };
                     } else if (self.adopting.getPtr(c.fd)) |row| {
-                        row.peer.addRemoteCandidate(c.ice) catch {};
+                        row.peer.addRemoteCandidate(ice) catch {
+                            const kv = self.adopting.fetchRemove(c.fd).?;
+                            var dead = kv.value.peer;
+                            std.debug.assert(self.by_id.remove(@intFromEnum(dead.id())));
+                            dead.deinit();
+                        };
                     } else if (self.conns.getPtr(c.fd)) |entry| {
                         // A late candidate for an open channel is harmless.
-                        entry.peer.addRemoteCandidate(c.ice) catch {};
+                        entry.peer.addRemoteCandidate(ice) catch {};
                     }
                 },
             }
@@ -985,20 +1219,22 @@ pub const Backend = struct {
     }
 
     /// Move an opened dial into the connection table and complete the connect.
-    fn finishDial(self: *Backend, fd: Fd) !void {
+    /// Requires one unused ready-queue seat. The row is removed before the
+    /// completion is published, so callers reserve that seat first.
+    fn finishDial(self: *Backend, fd: Fd) void {
         const kv = self.pending_dials.fetchRemove(fd) orelse return;
         var row = kv.value;
         self.allocator.free(row.designator);
         self.conns.put(fd, .{ .peer = row.peer, .pending = .{ .writable_hint = true } }) catch {
             std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
             row.peer.deinit();
-            try self.ready.append(self.allocator, .{ .user_data = row.user_data, .result = -1 });
+            self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1 });
             return;
         };
-        try self.ready.append(self.allocator, .{ .user_data = row.user_data, .result = 0 });
+        self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = 0 });
     }
 
-    fn dispatchReady(self: *Backend, ev: ReadyEvent) !void {
+    fn dispatchReady(self: *Backend, ev: ReadyEvent) void {
         const fd = self.by_id.get(ev.subject) orelse return;
         if (self.pending_dials.getPtr(fd)) |row| {
             if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &row.peer);
@@ -1022,23 +1258,31 @@ pub const Backend = struct {
         if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &entry.peer);
         if (ev.events & (ev_readable | ev_closed) != 0) {
             entry.pending.readable_hint = true;
-            if (entry.pending.read_ud != null) try self.completeRecv(entry);
+            if (entry.pending.read_ud != null) self.completeRecv(entry);
         }
         if (ev.events & ev_writable != 0) {
             entry.pending.writable_hint = true;
-            if (entry.pending.write_ud != null) try self.completeSend(entry);
+            if (entry.pending.write_ud != null) self.completeSend(entry);
         }
     }
 
-    /// Non-blocking harvest: apply the thread-safe queue first (so a row
-    /// registered this round can claim the events drained this round), then
-    /// drain resident readiness records.
-    fn harvestReadiness(self: *Backend) !void {
+    /// Non-blocking harvest: drain the signaling wake and apply the thread-safe
+    /// queue first (so a row registered this round can claim the events drained
+    /// this round), then drain resident readiness records.
+    fn harvestReadiness(self: *Backend) !bool {
+        var pfds = [_]std.posix.pollfd{
+            .{ .fd = self.signal_wake.read, .events = std.posix.POLL.IN, .revents = 0 },
+            .{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 },
+        };
+        _ = net.poll.wait(&pfds, 0) catch |err| return err;
+        var woke = false;
+        if (pfds[0].revents & (std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP) != 0) {
+            self.signal_wake.drain();
+            woke = true;
+        }
         try self.drainSignalIn();
 
-        var pfds = [_]std.posix.pollfd{.{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 }};
-        _ = std.posix.poll(&pfds, 0) catch 0;
-        if (pfds[0].revents & (std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP) != 0) {
+        if (pfds[1].revents & (std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP) != 0) {
             var events_buf: [256]ReadyEvent = undefined;
             // One readiness record can complete both a pending read and write;
             // reserve before consuming any record.
@@ -1046,31 +1290,36 @@ pub const Backend = struct {
             while (true) {
                 const n = try self.resident.drainReady(&events_buf);
                 if (n == 0) break;
-                for (events_buf[0..n]) |ev| try self.dispatchReady(ev);
+                for (events_buf[0..n]) |ev| self.dispatchReady(ev);
                 if (n < events_buf.len) break;
                 try self.ready.ensureUnusedCapacity(self.allocator, events_buf.len * 2);
             }
         }
+        return woke;
     }
 
     pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
-        try self.harvestReadiness();
+        const pre_wake = try self.harvestReadiness();
         {
             const n = self.ready.drain(out);
             if (n > 0) return n;
         }
+        // The wake may have carried only loop-external state (stop) or
+        // signaling work that did not complete a connection yet. Either way,
+        // the owner loop must get a turn before this backend blocks again.
+        if (pre_wake) return 0;
 
-        var pfds = [_]std.posix.pollfd{.{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 }};
-        // Bound the park even under a negative timeout: the thread-safe queue
-        // has no wake fd of its own, so an adoption or answer queued while the
-        // loop parks waits at most one `poll_timeout_ms` round.
-        const poll_ms: i32 = if (timeout_ms < 0)
-            self.poll_timeout_ms
-        else
-            @min(timeout_ms, self.poll_timeout_ms);
-        _ = std.posix.poll(&pfds, poll_ms) catch 0;
+        var pfds = [_]std.posix.pollfd{
+            .{ .fd = self.signal_wake.read, .events = std.posix.POLL.IN, .revents = 0 },
+            .{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 },
+        };
+        _ = net.poll.wait(&pfds, timeout_ms) catch |err| return err;
 
-        try self.harvestReadiness();
-        return self.ready.drain(out);
+        const post_wake = try self.harvestReadiness();
+        const n = self.ready.drain(out);
+        if (n > 0) return n;
+        // Do not consume a wake and then immediately re-enter a backend wait.
+        if (post_wake) return 0;
+        return 0;
     }
 };

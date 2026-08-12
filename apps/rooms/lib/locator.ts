@@ -18,6 +18,7 @@ import {
 	type Server,
 	type Session as SessionType,
 	socketAddrDesignator,
+	stringHint,
 	tcpLocator,
 	TRANSPORT_IROH,
 } from "@pancake/stack";
@@ -78,7 +79,7 @@ export async function readAnnouncedLocator(
 // is stubbed there).
 function dialIroh(locator: string, host?: Host): Promise<SessionType> {
 	const loc = parseLocator(locator);
-	const hints = loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "";
+	const hints = stringHint(loc, HINT_DIRECT_ADDRESSES) ?? "";
 	const fallback = host ? host.redeemReachability : Reachability.Discovery;
 	const reach = hints.length > 0 ? Reachability.Direct : fallback;
 	return connect(locator, reach, host ?? roomsHost());

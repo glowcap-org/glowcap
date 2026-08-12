@@ -64,6 +64,7 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
 /// Replacement changes discovery only; existing capabilities keep reaching
 /// the displaced actor until Host teardown.
 pub fn publishGiftable(self: *Host, name: []const u8, comptime Behavior: type, initial: Behavior) !actors.Ref {
+    try self.refuseReentry();
     const actor = try self.vat.spawn(Behavior, initial);
     errdefer self.vat.discardFreshActor(actor);
     try bindPublication(self, name, actor);
@@ -73,6 +74,7 @@ pub fn publishGiftable(self: *Host, name: []const u8, comptime Behavior: type, i
 /// Foreign-callback twin of `publishGiftable`. `hosted` transfers into the
 /// Vat on every outcome, preserving one owner for its context.
 pub fn publishHostedGiftable(self: *Host, name: []const u8, hosted: actors.HostedActor) !actors.Ref {
+    try self.refuseReentry();
     const actor = try self.vat.spawnHosted(hosted);
     errdefer self.vat.discardFreshActor(actor);
     try bindPublication(self, name, actor);
@@ -140,7 +142,7 @@ pub fn publishDurable(
     comptime Behavior: type,
     initial: Behavior,
 ) !DurableSwiss {
-    self.assertOwner();
+    try self.refuseReentry();
     const actor = try self.vat.spawn(Behavior, initial);
     errdefer self.vat.discardFreshActor(actor);
     return bindDurable(self, entropy, actor);
@@ -153,13 +155,14 @@ pub fn publishHostedDurable(
     entropy: [engine.durable_swiss_entropy_len]u8,
     hosted: actors.HostedActor,
 ) !DurableSwiss {
-    self.assertOwner();
+    try self.refuseReentry();
     const actor = try self.vat.spawnHosted(hosted);
     errdefer self.vat.discardFreshActor(actor);
     return bindDurable(self, entropy, actor);
 }
 
 pub fn bindDurable(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, actor: actors.Ref) !DurableSwiss {
+    self.assertOwner();
     const minted = mintDurableSwiss(entropy);
     if (self.giftables.contains(minted.slice())) return error.DurableNameCollision;
     const owned = try self.allocator.dupe(u8, minted.slice());

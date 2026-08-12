@@ -10,6 +10,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const test_host = @import("../support/core_host.zig");
 const promise_capture = @import("../support/capture.zig");
 
 const model = pancake.ocapn.model;
@@ -48,9 +49,9 @@ fn pumpToQuiescence(client_host: *Host, client: *HostSession, server_host: *Host
 test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetch, per-event serve, release without freeing" {
     const allocator = std.testing.allocator;
 
-    var server = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
+    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var client = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
 
     // The embedder-pinned peer: owned by this frame, adopted by the host,

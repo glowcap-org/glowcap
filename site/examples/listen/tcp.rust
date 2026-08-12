@@ -1,0 +1,15 @@
+use pancake::{listen, Argument};
+
+// Plain TCP binds the host and port you choose.
+let server = listen(("127.0.0.1", 9099)).await?;
+loop {
+    let session = server.accept().await?;
+    session.publish("greeter", |_verb, args| {
+        let name = match args.first() {
+            Some(Argument::String(s)) => s.as_str(),
+            _ => "friend",
+        };
+        Ok(Argument::String(format!("hello, {name}").into()))
+    })?;
+    let _ = session.serve();
+}

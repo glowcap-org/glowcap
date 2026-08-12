@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import deno from "@deno/vite-plugin";
 
@@ -20,8 +20,57 @@ import deno from "@deno/vite-plugin";
 //
 // `optimizeDeps.include` pre-bundles the heavy deps at server start;
 // combined with `server.warmup`, the dev server boots hot.
+const pancakeHostWasm = new URL(
+  "../../zig-out/wasm/pancake_host.wasm",
+  import.meta.url,
+);
+
+/** Add the canonical wasm Host without replacing Vite's `public/` directory.
+ * Development serves the build artifact directly; production emits the same
+ * bytes as a root asset beside the public font, favicon, and service worker. */
+function pancakeHostWasmPlugin(): Plugin {
+  return {
+    name: "pancake-host-wasm",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (
+          new URL(req.originalUrl ?? "/", "http://localhost").pathname !==
+            "/pancake_host.wasm"
+        ) {
+          next();
+          return;
+        }
+        try {
+          const bytes = await Deno.readFile(pancakeHostWasm);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/wasm");
+          res.setHeader("Content-Length", String(bytes.byteLength));
+          res.end(bytes);
+        } catch (error) {
+          next(error);
+        }
+      });
+    },
+    async generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "pancake_host.wasm",
+        source: await Deno.readFile(pancakeHostWasm),
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [deno(), react()],
+  plugins: [pancakeHostWasmPlugin(), deno(), react()],
+  resolve: {
+    alias: {
+      "virtual:pancake-web": new URL(
+        "../../bindings/ts/web/mod.ts",
+        import.meta.url,
+      ).pathname,
+    },
+  },
   server: {
     host: "127.0.0.1",
     port: 5173,

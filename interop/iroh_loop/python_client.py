@@ -32,7 +32,12 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 insert_bindings_path()
 
 from pancake import TRANSPORT_IROH, connect, format_peer_uri  # noqa: E402
-from pancake.iroh import IrohConfig, Reachability, listen_iroh  # noqa: E402
+from pancake.iroh import (  # noqa: E402
+    IrohConfig,
+    Reachability,
+    dial_locator_for_relay,
+    listen_iroh,
+)
 
 # Concurrent connections, each served on the one server loop; calls each makes
 # before closing, several turns per connection so the proof is sustained
@@ -54,10 +59,10 @@ def _greeter(verb: str, args: list):
 async def _run_accepts(server, served: list) -> None:
     """Accept every dial, publish this connection's greeter, and serve it, all
     from the server's one readiness loop. Ends when the server closes."""
-    async for conn in server:
-        conn.publish("greeter", _greeter)
-        conn.serve()
-        served.append(conn)
+    async for session in server:
+        session.publish("greeter", _greeter)
+        session.serve()
+        served.append(session)
 
 
 async def _client_once(server_id: str) -> None:
@@ -65,24 +70,42 @@ async def _client_once(server_id: str) -> None:
     local-discovery book resolves it), fetch the greeter, and call it
     ``CALLS_PER_CONN`` times, checking every reply."""
     locator = format_peer_uri(TRANSPORT_IROH, server_id)
-    conn = await connect(locator, Reachability.LOCAL_DISCOVERY)
+    session = await connect(locator, Reachability.LOCAL_DISCOVERY)
     try:
-        greeter = await conn.fetch("greeter")
+        greeter = await session.fetch("greeter")
         for _ in range(CALLS_PER_CONN):
-            reply = await conn.send(greeter, "greet", ["world"])
+            reply = await session.send(greeter, "greet", ["world"])
             if reply != GREETING:
                 raise RuntimeError(f"wrong reply: {reply!r}")
     finally:
-        await conn.close()
+        await session.close()
 
 
 async def main() -> None:
-    server = listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY))
+    server = await listen_iroh(
+        IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
+    )
     server_id = server.node_id
     print(f"python-iroh-loop: server endpoint id {server_id}")
 
     served: list = []
     accept_task = asyncio.create_task(_run_accepts(server, served))
+
+    # An accepted QUIC stream that sends no CapTP hello must consume one bounded
+    # handshake seat, not serialize every later admission behind its timeout.
+    silent = await dial_locator_for_relay(
+        format_peer_uri(TRANSPORT_IROH, server_id),
+        Reachability.LOCAL_DISCOVERY,
+    )
+    try:
+        # QUIC streams are lazy: a valid but incomplete outer length prefix makes
+        # the stream visible while leaving the CapTP frame delimiter waiting.
+        await silent.write(b"1")
+        await asyncio.wait_for(_client_once(server_id), timeout=8)
+    except TimeoutError:
+        fail("python-iroh-loop", "silent peer serialized iroh admission")
+    finally:
+        silent.close()
 
     # Fan out all clients at once: they share nothing, so the only thing that can
     # serve them all is the one server loop multiplexing.
@@ -93,14 +116,30 @@ async def main() -> None:
 
     # Bring the server-side connections and the server down so the gate never
     # hangs and no fd reader outlives the endpoint it watches.
-    for conn in served:
-        await conn.close()
+    for session in served:
+        await session.close()
     await server.close()
     await accept_task
 
     errors = [r for r in results if isinstance(r, BaseException)]
     if errors:
         fail("python-iroh-loop", f"{len(errors)}/{NUM_CONNS} client(s) failed; first: {errors[0]!r}")
+
+    # Native-loop server teardown owns admission and resident release. A waiter
+    # parked on the generic ACCEPTED queue must wake terminally rather than
+    # retaining the endpoint.
+    closing = await listen_iroh(
+        IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
+    )
+    pending_accept = asyncio.create_task(closing.__anext__())
+    await asyncio.sleep(0)
+    await closing.close()
+    try:
+        await asyncio.wait_for(pending_accept, timeout=2)
+        fail("python-iroh-loop", "a released Host admitted an iroh session")
+    except StopAsyncIteration:
+        pass
+    await closing.close()
 
     print(
         f"python-iroh-loop: OK, {NUM_CONNS} concurrent iroh connections, "

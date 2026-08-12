@@ -7,7 +7,7 @@ decision: "The three-party redeem and origination sequencing sinks into a sans-i
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0079]
+amended_by: [ADR-0079, ADR-0113]
 ---
 
 # ADR-0067 The three-party redeem sequencing is a sans-io serve step on the node
@@ -19,7 +19,7 @@ amended_by: [ADR-0079]
 > Decision and Consequences text below that names that C family describes the
 > shape at acceptance time, not the current public C surface.
 >
-> **Vocabulary amendment (ADR-0079).** The multi-conn product is binding
+> **Vocabulary amendment (ADR-0079).** The multi-session product is binding
 > `Host` / `PancakeHost`, not binding `Node`. Read historical binding-`Node`
 > framing as acceptance-time vocabulary.
 

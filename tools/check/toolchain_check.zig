@@ -3,9 +3,8 @@
 //! `check` is hermetic in the sense that matters: no network, no submodules, no
 //! live peer, no authority outside pancake. That is the axis `check-external`
 //! divides on. It is *not* Zig-only, and the [cli rule](../../.agents/rules/cli.md)
-//! promised for a long time that it was, because three members need a program on
-//! PATH: the hermetic CLI tests link the iroh sidecar staticlib, the visualizer's
-//! suite is TypeScript, and the C-ABI extract matrix drives real extractors.
+//! promised for a long time that it was, even though the hermetic CLI tests link
+//! the iroh sidecar staticlib and two gated harnesses invoke host tools.
 //!
 //! Each of those was a deliberate call by its author, and each was right — a
 //! soft-green extract matrix is a footgun, and the CLI goldens are worth having
@@ -18,10 +17,11 @@
 //! interpreter may only run the scripts its row names. Requiring a fourth
 //! runtime becomes a one-line, reviewed edit to that table.
 //!
-//! **What this cannot see.** The graph carries `argv[0]` only, so a runtime a
-//! declared script reaches *inside* itself is invisible here: the extract matrix
-//! reaches `python3`, `deno`, and `tar` through bash, and nothing mechanical
-//! holds that list. Its row says so, and that prose is the only record.
+//! **What this cannot see.** The graph carries `argv[0]` only, so a program a
+//! declared script reaches *inside* itself is invisible here. The extract matrix
+//! requires `tar`; its Python and Deno validators and the visualizer's Deno suite
+//! are optional coverage that reports an explicit skip. The Bash row records
+//! that contract because the graph can only see Bash.
 //!
 //! Wired as the `zig build toolchain-check` step and into `zig build check`.
 

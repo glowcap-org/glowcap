@@ -25,10 +25,12 @@ the vision itself when a tradeoff between them is unclear.
 - **No hidden runtime.** The protocol core is deterministic, sync, and no-I/O.
   Adapters own host integration.
 - **Boring public surface.** The C ABI ships as a small declared set of
-  composable archives linked à la carte — `libpancake_ocapn`, `libpancake_net`,
-  and one per transport (`libpancake_net_transport_tcp`,
-  `libpancake_net_transport_inproc`, `libpancake_net_transport_iroh`) — each
-  with its own header naming only the family it exports (ADR-0059). Each archive
+  composable archives linked à la carte — `libpancake_ocapn`,
+  `libpancake_host`, optional `libpancake_driver`, and provider archives such
+  as `libpancake_net_transport_tcp` and `libpancake_net_transport_iroh` — each
+  with its own header naming only the family it exports (ADR-0059, ADR-0112).
+  The standalone provider header is shared vocabulary, not another runtime.
+  Each archive
   is itself boring: fixed-width types, `ptr + len` views, opaque handles,
   callbacks, return codes, and explicit release functions.
 - **Examples must compile.** Public examples are part of the contract. If a

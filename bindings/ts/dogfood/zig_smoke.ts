@@ -5,11 +5,13 @@
 // Cross-runtime dogfood of the Zig pancake C ABI archives, through the
 // idiomatic composable modules (`mod.ts` core over the byte-fed host archive +
 // `tcp.ts`/`inproc.ts` transports): drive OCapN with native values, no FFI in
-// sight. It runs identically on Deno and Bun, which is the proof the binding
-// is runtime-neutral. This is the consumer `zig build bindings` runs.
+// sight. Deno proves the complete native-loop application surface and raw
+// blocking companions. Bun proves the synchronous Host/locator surface and
+// that every API which would park its event loop refuses before allocating a
+// native runtime. This is the consumer `zig build bindings` runs.
 
 import process from "node:process";
-import { INVALID_ARGUMENT, TIMEOUT } from "@pancake/abi";
+import { DESIGNATOR_SCHEME_ADDRESS, INVALID_ARGUMENT, TIMEOUT } from "@pancake/abi";
 import { connectTcp, listenTcp, type NetConn } from "../stack/internal/seam.ts";
 import {
 	abiVersion,
@@ -21,13 +23,16 @@ import {
 	encodePeerLocator,
 	ensureRuntimeReady,
 	FetchFailed,
+	formatSturdyRef,
 	Host,
 	Kw,
 	listen,
 	PancakeError,
+	parseSturdyRef,
 	PSet,
 	Ref,
-	type Session,
+	Session,
+	socketAddrDesignator,
 	Sym,
 	Tagged,
 	tagged,
@@ -36,6 +41,8 @@ import {
 } from "../stack/mod.ts";
 import { Netlayer as TcpNetlayer } from "../stack/transport/tcp.ts";
 import { Netlayer as InprocNetlayer } from "../stack/transport/inproc.ts";
+import { entryFor } from "../stack/trampoline.ts";
+import { _connectIroh, IrohNetlayer, Reachability } from "../iroh/impl.ts";
 
 const runtime = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
 	? "bun"
@@ -58,6 +65,83 @@ function eqBytes(a: Uint8Array, b: Uint8Array): boolean {
 	return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
+// Bun resolves its FFI adapter asynchronously; make it ready before every
+// synchronous locator/FFI call. A no-op on Deno (resolved at import).
+await ensureRuntimeReady();
+
+const parsedSturdyRef = parseSturdyRef(
+	"ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU",
+);
+assert(
+	parsedSturdyRef.locator.transport === "onion",
+	"sturdyref locator transport survives parsing",
+);
+assert(
+	eqBytes(
+		parsedSturdyRef.swissnum,
+		Uint8Array.of(
+			0x79,
+			0x08,
+			0xcf,
+			0xe2,
+			0x74,
+			0x76,
+			0xf1,
+			0xf7,
+			0xd7,
+			0xe5,
+			0xea,
+			0x0d,
+			0x08,
+			0xae,
+			0x43,
+			0x58,
+			0x7e,
+			0x83,
+			0x4f,
+			0xf7,
+			0x7b,
+			0x04,
+			0x8a,
+			0x83,
+			0xdf,
+			0xe3,
+			0x32,
+			0xe3,
+			0x9f,
+			0x42,
+			0x51,
+			0xb5,
+		),
+	),
+	"sturdyref swiss authority survives parsing",
+);
+const formattedSturdyRef = formatSturdyRef(
+	"ocapn://127.0.0.1%3A9045.tcp",
+	new TextEncoder().encode("durable:0123456789abcdef"),
+);
+assert(
+	eqBytes(
+		parseSturdyRef(formattedSturdyRef).swissnum,
+		new TextEncoder().encode("durable:0123456789abcdef"),
+	),
+	"sturdyref formatting round-trips opaque authority",
+);
+
+async function within<T>(promise: Promise<T>, milliseconds: number, label: string): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<T>((_resolve, reject) => {
+				timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds);
+			}),
+		]);
+	} finally {
+		if (timer != null) clearTimeout(timer);
+	}
+}
+
 // A byte-level TCP relay between a client and a server that are both real
 // pancake connections: it shuttles raw bytes both ways, optionally rewriting
 // the client->server stream and observing the traffic. This is how the smoke
@@ -66,7 +150,7 @@ function eqBytes(a: Uint8Array, b: Uint8Array): boolean {
 async function startRelay(
 	targetPort: number,
 	rewriteToServer: (chunk: Uint8Array) => Uint8Array = (c) => c,
-	observe: (chunk: Uint8Array) => void = () => {},
+	observe: (chunk: Uint8Array, toServer: boolean) => void = () => {},
 ): Promise<{ port: number; close: () => void }> {
 	const listener = await listenTcp("127.0.0.1", 0);
 	const open: NetConn[] = [];
@@ -84,7 +168,7 @@ async function startRelay(
 				while (true) {
 					const chunk = await client.read().catch(() => null);
 					if (chunk === null) break;
-					observe(chunk);
+					observe(chunk, true);
 					await server.write(rewriteToServer(chunk)).catch(() => {});
 				}
 				server.close();
@@ -93,7 +177,7 @@ async function startRelay(
 				while (true) {
 					const chunk = await server.read().catch(() => null);
 					if (chunk === null) break;
-					observe(chunk);
+					observe(chunk, false);
 					await client.write(chunk).catch(() => {});
 				}
 				client.close();
@@ -109,16 +193,92 @@ async function startRelay(
 	};
 }
 
-// Bun resolves its FFI adapter asynchronously; make it ready before the first
-// synchronous FFI call below. A no-op on Deno (resolved at import).
-await ensureRuntimeReady();
-
 // The linked library reports a real ABI version.
 const [major, minor, patch] = abiVersion();
 assert(
 	major + minor + patch > 0,
 	`abiVersion is nonzero, got ${major}.${minor}.${patch}`,
 );
+
+for (const invalidSeed of [new Uint8Array(31), new Uint8Array(33)]) {
+	let refused = false;
+	try {
+		new Host(invalidSeed);
+	} catch (error) {
+		refused = error instanceof PancakeError && error.code === INVALID_ARGUMENT;
+	}
+	assert(refused, "Host must reject a seed that is not 32 bytes");
+}
+
+{
+	const callerSeed = Uint8Array.from({ length: 32 }, (_, i) => i);
+	const ownedSeedHost = new Host(callerSeed);
+	try {
+		const expectedDesignator = ownedSeedHost.designator();
+		callerSeed[0] ^= 0xff;
+		const exposedSeed = ownedSeedHost.seed;
+		exposedSeed[0] ^= 0xff;
+		assert(
+			ownedSeedHost.designator() === expectedDesignator,
+			"Host identity must not follow caller or returned seed mutation",
+		);
+	} finally {
+		ownedSeedHost.release();
+	}
+}
+
+// A hosted behavior may close over its own Host. The live Host retains that
+// callback, while the process-global trampoline lookup stays weak so the cycle
+// remains collectable; deterministic release removes the lookup immediately.
+{
+	const host = new Host();
+	host.publishGiftable("cycle", () => host.designator());
+	const ctx = host.giftableCtx("cycle");
+	assert(ctx != null && entryFor(ctx) != null, "a live Host retains its callback entry");
+	host.release();
+	assert(entryFor(ctx) == null, "Host release retires its callback entry");
+}
+
+// Bun's FFI runs native calls on the JavaScript thread. It can use the
+// byte-fed client path, but it cannot host a native-driver listener or own a
+// blocking transport lifecycle until its adapter gains a worker executor.
+// Prove that boundary before the Deno-only listener scenarios below.
+if (runtime === "bun") {
+	const server = listen("127.0.0.1", 0);
+	let listenerRefusal: PancakeError | null = null;
+	try {
+		await server.ready();
+	} catch (error) {
+		if (error instanceof PancakeError) listenerRefusal = error;
+	}
+	assert(
+		listenerRefusal?.code === INVALID_ARGUMENT &&
+			listenerRefusal.message.includes("runtime that can park the loop"),
+		"Bun refuses native driver listeners before allocating a loop",
+	);
+
+	for (
+		const [name, open] of [
+			["TCP", () => new TcpNetlayer()],
+			["inproc", () => new InprocNetlayer()],
+		] as const
+	) {
+		let transportRefusal: Error | null = null;
+		try {
+			open();
+		} catch (error) {
+			if (error instanceof Error) transportRefusal = error;
+		}
+		assert(
+			transportRefusal?.message.includes(
+				"requires native calls to run off the JavaScript event loop",
+			) ?? false,
+			`Bun refuses the native ${name} lifecycle before allocating a handle`,
+		);
+	}
+	ok("proved Host and locator ABI surfaces and refused parking native lifecycles");
+	process.exit(0);
+}
 
 // A counter behavior reused by the round-trip tests: "add" adds args[0] to the
 // count and returns it, "get" reads it, anything else throws (a break).
@@ -142,21 +302,37 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // (node before context).
 {
 	let allocs = 0;
+	let frees = 0;
 	const allocator: ContextAllocator = {
 		alloc(size, _alignment) {
 			allocs++;
 			return new Uint8Array(size);
 		},
-		free(_block, _size, _alignment) {},
+		free(_block, _size, _alignment) {
+			frees++;
+		},
 	};
 	using ctx = Context.withAllocator(allocator);
 	const captpHost = new Host(undefined, { context: ctx });
+	// Release is a close request, not permission to invalidate a live native
+	// handle. It refuses new families immediately and retires the allocator only
+	// after the Host gives back its lease.
+	ctx.release();
+	let acceptedAfterRelease = false;
+	try {
+		const refused = new Host(undefined, { context: ctx });
+		acceptedAfterRelease = true;
+		refused.release();
+	} catch {
+		// Expected: a closing Context cannot mint another handle family.
+	}
+	assert(!acceptedAfterRelease, "a released Context refuses a new Host");
+	captpHost.publishGiftable("counter", counterBehavior(10n));
 	const server = listen("127.0.0.1", 0, captpHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("counter", counterBehavior(10n));
 			session.serve().catch(() => {});
 			break; // one client is the proof; ending the loop closes the listener
 		}
@@ -171,12 +347,13 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		assert(grown === 15n, `counter.add(5) returns 15, got ${String(grown)}`);
 		const read = await session.send(counter, "get", []);
 		assert(read === 15n, `counter.get() returns 15, got ${String(read)}`);
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
-	captpHost.release(); // before the context that owns its allocations
+	await captpHost.releaseAsync();
 	assert(allocs > 0, `custom allocator served the host's allocations, got ${allocs}`);
+	assert(frees === allocs, `Context released every custom allocation: ${frees}/${allocs}`);
 	ok("drove a published counter round-trip from a context-backed host");
 }
 
@@ -193,11 +370,12 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		selfLabel: "smoke",
 	});
 
-	const server = listen("127.0.0.1", 0);
+	await using traceHost = new Host();
+	traceHost.publishGiftable("greeter", (verb) => `hello ${verb}`);
+	const server = listen("127.0.0.1", 0, traceHost);
 	const port = await server.ready();
 	const hosted = (async () => {
 		for await (const session of server) {
-			session.publish("greeter", (verb) => `hello ${verb}`);
 			session.serve().catch(() => {});
 			break;
 		}
@@ -210,7 +388,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	// The annotation channel: the application states which partner a
 	// session carries, named for the same session row the tap names.
 	annotateSession(session, { label: "greeter-server" });
-	session.close();
+	await session.close();
 	await hosted;
 	uninstall();
 
@@ -300,16 +478,18 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // turn loop never blocks on it. A rejection crosses as the caller's break
 // carrying the behavior's own words.
 {
-	const server = listen("127.0.0.1", 0);
+	await using workerHost = new Host();
+	workerHost.publishGiftable("worker", async (verb) => {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		if (verb === "fail") throw new Error("worker gave up");
+		if (verb === "unsupported") return { unsupported: true } as unknown as Argument;
+		return "computed off-turn";
+	});
+	const server = listen("127.0.0.1", 0, workerHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("worker", async (verb) => {
-				await new Promise((resolve) => setTimeout(resolve, 5));
-				if (verb === "fail") throw new Error("worker gave up");
-				return "computed off-turn";
-			});
 			session.serve().catch(() => {});
 			break;
 		}
@@ -332,7 +512,17 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			broke.includes("worker gave up"),
 			`async rejection carries the reason, got "${broke}"`,
 		);
-		session.close();
+		broke = "";
+		try {
+			await session.send(worker, "unsupported", []);
+		} catch (err) {
+			broke = err instanceof Error ? err.message : String(err);
+		}
+		assert(
+			broke.toLowerCase().includes("unsupported"),
+			`async marshal failure carries the reason, got "${broke}"`,
+		);
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -345,25 +535,26 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // (keyword) included, so the two rare marshal arms are witnessed alongside the
 // codec.
 {
-	const server = listen("127.0.0.1", 0, new Host(undefined, { codec: "capnp" }));
+	await using capnpHost = new Host(undefined, { codec: "capnp" });
+	capnpHost.publishGiftable("svc", (verb, args) => {
+		assert(verb === "probe", `capnp server expected probe, got ${verb}`);
+		assert(args[0] === 2n ** 80n, `big integer survives capnp: ${String(args[0])}`);
+		assert(
+			args[1] instanceof Kw && args[1].value === "prio",
+			"a keyword survives capnp as a Kw",
+		);
+		assert(
+			args[2] instanceof Uint8Array &&
+				new TextDecoder().decode(args[2] as Uint8Array) === "hi",
+			"bytes survive capnp",
+		);
+		return new Kw("done");
+	});
+	const server = listen("127.0.0.1", 0, capnpHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("svc", (verb, args) => {
-				assert(verb === "probe", `capnp server expected probe, got ${verb}`);
-				assert(args[0] === 2n ** 80n, `big integer survives capnp: ${String(args[0])}`);
-				assert(
-					args[1] instanceof Kw && args[1].value === "prio",
-					"a keyword survives capnp as a Kw",
-				);
-				assert(
-					args[2] instanceof Uint8Array &&
-						new TextDecoder().decode(args[2] as Uint8Array) === "hi",
-					"bytes survive capnp",
-				);
-				return new Kw("done");
-			});
 			session.serve().catch(() => {});
 			break;
 		}
@@ -388,7 +579,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			reply instanceof Kw && reply.value === "done",
 			"the capnp reply keyword survived",
 		);
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -400,7 +591,9 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // call and then closes; the client's next awaited `send` must settle broken
 // once the disconnect lands, whichever side of the race it hits.
 {
-	const server = listen("127.0.0.1", 0);
+	await using closeHost = new Host();
+	closeHost.publishGiftable("svc", () => null);
+	const server = listen("127.0.0.1", 0, closeHost);
 	const port = await server.ready();
 	let serverClosed!: () => void;
 	const closed = new Promise<void>((r) => (serverClosed = r));
@@ -409,12 +602,11 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("svc", () => null);
 			session.serve().catch(() => {});
 			// Close only after the client observed the first reply. A timer makes
 			// this a scheduler race, not a disconnect contract test.
 			await firstReply;
-			session.close();
+			await session.close();
 			serverClosed();
 			break;
 		}
@@ -438,7 +630,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			rejected = true;
 		}
 		assert(rejected, "an outstanding send rejects when the connection drops");
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -451,6 +643,8 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 {
 	const server = listen("127.0.0.1", 0);
 	const port = await server.ready();
+	let markPublished!: () => void;
+	const published = new Promise<void>((resolve) => (markPublished = resolve));
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
@@ -460,8 +654,8 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 				const probeSet = args[0];
 				assert(probeSet instanceof PSet, "a Set argument arrives as a PSet");
 				const items = (probeSet as PSet<Argument>).items;
-				assert(items[0] === 1n, "the set's plain item survived");
-				const nested = items[1];
+				assert(items.some((item) => item === 1n), "the set's plain item survived");
+				const nested = items.find((item) => item instanceof Ref);
 				assert(
 					nested instanceof Ref,
 					"a capability inside a PSet lifts to a Ref",
@@ -476,6 +670,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 				session.tell(nested as Ref, "poke", []).catch(() => {});
 				return new PSet([new Sym("ok"), 7n]);
 			});
+			markPublished();
 			session.serve().catch(() => {});
 			break;
 		}
@@ -485,6 +680,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	async function client(): Promise<void> {
 		const session = await connect(tcpLocator("127.0.0.1", port));
 		session.serve().catch(() => {});
+		await published;
 		let pokeArrived!: () => void;
 		const poked = new Promise<void>((resolve) => (pokeArrived = resolve));
 		const inbox = session.spawn((verb, _args) => {
@@ -501,10 +697,10 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		);
 		const items = (reply as PSet<Argument>).items;
 		assert(
-			items[0] instanceof Sym && (items[0] as Sym).value === "ok",
+			items.some((item) => item instanceof Sym && item.value === "ok"),
 			"the set's symbol survived",
 		);
-		assert(items[1] === 7n, "the set's integer survived");
+		assert(items.some((item) => item === 7n), "the set's integer survived");
 		await poked;
 
 		// A partner break is the typed VowBroken, catchable by type.
@@ -519,7 +715,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			broke!.reason.includes("kaboom"),
 			`the break carries the reason, got ${broke!.reason}`,
 		);
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -534,15 +730,16 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // before the minting call returns), and the enlivened cap is sendable both
 // times.
 {
-	const server = listen("127.0.0.1", 0);
+	await using serverHost = new Host();
+	serverHost.publishGiftable("greeter", (verb) => {
+		assert(verb === "hello", `enliven server expected hello, got ${verb}`);
+		return new Sym("alive");
+	});
+	const server = listen("127.0.0.1", 0, serverHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("greeter", (verb) => {
-				assert(verb === "hello", `enliven server expected hello, got ${verb}`);
-				return new Sym("alive");
-			});
 			session.serve().catch(() => {});
 			break;
 		}
@@ -575,7 +772,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			greeting2 instanceof Sym && (greeting2 as Sym).value === "alive",
 			"cached enliven answers hello",
 		);
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -589,12 +786,13 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // this arm settles over that live session — the dial arm is the same verb
 // with an unreached peer, driven by the host's own DIAL action.
 {
-	const server = listen("127.0.0.1", 0);
+	await using serverHost = new Host();
+	serverHost.publishGiftable("beacon", () => new Sym("lit"));
+	const server = listen("127.0.0.1", 0, serverHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("beacon", () => new Sym("lit"));
 			session.serve().catch(() => {});
 			break;
 		}
@@ -603,7 +801,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 
 	async function client(): Promise<void> {
 		const locator = tcpLocator("127.0.0.1", port);
-		const shared = new Host();
+		await using shared = new Host();
 		const session = await connect(locator, undefined, shared);
 		session.serve().catch(() => {});
 		const cap = await shared.enliven(`${locator}/s/YmVhY29u`);
@@ -612,7 +810,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			greeting instanceof Sym && (greeting as Sym).value === "lit",
 			"the select-or-dial enlivened cap answers",
 		);
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -624,12 +822,13 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // listen on an already-settled capability answers at once, proving the round
 // trip rather than a pending promise.
 {
-	const server = listen("127.0.0.1", 0);
+	await using listenHost = new Host();
+	listenHost.publishGiftable("beacon", () => new Sym("lit"));
+	const server = listen("127.0.0.1", 0, listenHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("beacon", () => new Sym("lit"));
 			session.serve().catch(() => {});
 			break;
 		}
@@ -642,7 +841,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		const beacon = await session.fetch("beacon");
 		const settled = await session.listen(beacon);
 		assert(settled instanceof Ref, "the listen settles naming the capability");
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -655,7 +854,9 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // between them watches the wire for the release frame. The client drops its
 // only handle and forces collection until the relay sees it.
 {
-	const server = listen("127.0.0.1", 0);
+	await using gcHost = new Host();
+	gcHost.publishGiftable("svc", () => null);
+	const server = listen("127.0.0.1", 0, gcHost);
 	const targetPort = await server.ready();
 	let sawGc = false;
 	const relay = await startRelay(targetPort, (c) => c, (chunk) => {
@@ -664,7 +865,6 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("svc", () => null);
 			session.serve().catch(() => {});
 			break;
 		}
@@ -689,7 +889,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			force();
 			await new Promise((r) => setTimeout(r, 5));
 		}
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -713,6 +913,8 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 {
 	const server = listen("127.0.0.1", 0);
 	const port = await server.ready();
+	let markPublished!: () => void;
+	const published = new Promise<void>((resolve) => (markPublished = resolve));
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
@@ -730,6 +932,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 				});
 			});
 			session.serve().catch(() => {});
+			markPublished();
 			break; // one client is the proof; ending the loop closes the listener
 		}
 	}
@@ -738,6 +941,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	async function client(): Promise<void> {
 		const session = await connect(tcpLocator("127.0.0.1", port));
 		session.serve().catch(() => {});
+		await published;
 		const root = await session.fetch("root");
 		// The four verbs leave together: none awaits `create`'s reply, and
 		// `assign` / `complete` / `status` target the `create` answer directly.
@@ -749,11 +953,10 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			status === "done",
 			`pipelined status should be done, got ${String(status)}`,
 		);
-		session.close();
+		await session.close();
 	}
 
-	await Promise.race([client(), hosted]);
-	await hosted;
+	await Promise.all([client(), hosted]);
 	ok("promise pipelining drives create->assign->complete->status as one batch");
 }
 
@@ -791,7 +994,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 				if (verb === "get") return introduced;
 				throw new Error(`no such method: ${verb}`);
 			});
-			origin.close();
+			await origin.close();
 			readyResolve();
 			await session.serve();
 			break;
@@ -811,8 +1014,8 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		const child = await sibling.send(root, "create", []);
 		assert(child instanceof Ref, "create returns the turn-spawned child");
 		assert(await sibling.send(child, "ping", []) === "alive", "the child is callable");
-		sibling.close();
-		origin.close();
+		await sibling.close();
+		await origin.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -830,17 +1033,19 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // from the recorded outcome.
 {
 	const nextHost = () => new Host(undefined, { captpVersion: "next" });
-	const server = listen("127.0.0.1", 0, nextHost());
+	await using serverHost = nextHost();
+	await using clientHost = nextHost();
+	serverHost.publishGiftable("root", (verb, args) => {
+		if (verb !== "make") throw new Error(`no such method: ${verb}`);
+		const label = String(args[0] ?? "anon");
+		// A Tagged wrapping a single list value: untag unwraps to that row.
+		return tagged("task", [["assigned", label, 7n]]);
+	});
+	const server = listen("127.0.0.1", 0, serverHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("root", (verb, args) => {
-				if (verb !== "make") throw new Error(`no such method: ${verb}`);
-				const label = String(args[0] ?? "anon");
-				// A Tagged wrapping a single list value: untag unwraps to that row.
-				return tagged("task", [["assigned", label, 7n]]);
-			});
 			session.serve().catch(() => {});
 			break;
 		}
@@ -851,7 +1056,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		const session = await connect(
 			tcpLocator("127.0.0.1", port),
 			undefined,
-			nextHost(),
+			clientHost,
 		);
 		session.serve().catch(() => {});
 		const root = await session.fetch("root");
@@ -871,7 +1076,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			full instanceof Tagged && full.tag === "task",
 			`awaited source should be the tagged task, got ${String(full)}`,
 		);
-		session.close();
+		await session.close();
 	}
 
 	await client();
@@ -895,15 +1100,16 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	};
 	globalThis.addEventListener("unhandledrejection", onUnhandled);
 
-	const server = listen("127.0.0.1", 0);
+	await using anchorHost = new Host();
+	anchorHost.publishGiftable("root", (verb) => {
+		if (verb === "ping") return "pong";
+		throw new Error(`boom: ${verb}`);
+	});
+	const server = listen("127.0.0.1", 0, anchorHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("root", (verb) => {
-				if (verb === "ping") return "pong";
-				throw new Error(`boom: ${verb}`);
-			});
 			session.serve().catch(() => {});
 			break;
 		}
@@ -926,12 +1132,11 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			unhandled === 0,
 			`unawaited break must not surface, saw ${unhandled}`,
 		);
-		session.close();
+		await session.close();
 	}
 
 	try {
-		await Promise.race([client(), hosted]);
-		await hosted;
+		await Promise.all([client(), hosted]);
 	} finally {
 		globalThis.removeEventListener("unhandledrejection", onUnhandled);
 	}
@@ -968,8 +1173,8 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	let pending = new Uint8Array();
 	const decoder = new TextDecoder();
 	const encoder = new TextEncoder();
-	function observe(chunk: Uint8Array): void {
-		if (!capturing || plainExport >= 0n) return;
+	function observe(chunk: Uint8Array, toServer: boolean): void {
+		if (toServer || !capturing || plainExport >= 0n) return;
 		observedWire += decoder.decode(chunk, { stream: true });
 		const match = /desc:import-object(\d+)\+/.exec(observedWire);
 		if (match !== null) plainExport = BigInt(match[1]);
@@ -1075,7 +1280,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			failed!.capabilityName === "not-a-capability",
 			`FetchFailed names the capability, got ${failed!.capabilityName}`,
 		);
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -1088,12 +1293,13 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // handshake and keep accepting; without the skip, one port scan takes a
 // long-lived server down.
 {
-	const server = listen("127.0.0.1", 0);
+	await using probeHost = new Host();
+	probeHost.publishGiftable("svc", () => new Sym("alive"));
+	const server = listen("127.0.0.1", 0, probeHost);
 	const port = await server.ready();
 
 	async function serveOne(): Promise<void> {
 		for await (const session of server) {
-			session.publish("svc", () => new Sym("alive"));
 			session.serve().catch(() => {});
 			break; // one real client is the proof; ending the loop closes the listener
 		}
@@ -1112,13 +1318,206 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			reply instanceof Sym && (reply as Sym).value === "alive",
 			"the listener survived the rude probe and served the next client",
 		);
-		session.close();
+		await session.close();
 	}
-	// Race the client against the serve loop: on a regression the loop rejects
-	// with the probe's handshake error instead of the client hanging silently.
-	await Promise.race([client(), served]);
-	await served;
+	// Join both owners: the serve loop must survive the probe and the real client
+	// must complete before this scenario can release their loops.
+	await Promise.all([client(), served]);
 	ok("a rude probe cannot close the listener");
+}
+
+// Bind policy and reachability are different facts. A wildcard address needs
+// an explicit dialable advertisement; the native driver owns admission.
+{
+	const refused = listen("0.0.0.0", 0);
+	let wildcardError: PancakeError | null = null;
+	try {
+		await refused.ready();
+	} catch (error) {
+		if (error instanceof PancakeError) wildcardError = error;
+	}
+	refused.close();
+	assert(
+		wildcardError?.code === INVALID_ARGUMENT,
+		"a wildcard bind without advertisedHost must fail typed",
+	);
+
+	const server = listen("0.0.0.0", 0, undefined, undefined, {
+		advertisedHost: "127.0.0.1",
+	});
+	const port = await server.ready();
+	let published!: () => void;
+	const ready = new Promise<void>((resolve) => {
+		published = resolve;
+	});
+	const served = (async () => {
+		for await (const session of server) {
+			session.publish("svc", () => new Sym("alive"));
+			session.serve().catch(() => {});
+			published();
+			break;
+		}
+	})();
+	const silent = await connectTcp("127.0.0.1", port);
+	let session: Session | null = null;
+	try {
+		session = await within(
+			connect(tcpLocator("127.0.0.1", port)),
+			2_000,
+			"listener behind a silent peer",
+		);
+		await within(ready, 2_000, "listener publication");
+		const seen = session.partnerIdentity();
+		assert(
+			seen.designator === socketAddrDesignator("127.0.0.1", port),
+			`listener advertised ${seen.designator} instead of its explicit reachability`,
+		);
+		const svc = await session.fetch("svc");
+		const reply = await session.send(svc, "ping", []);
+		assert(reply instanceof Sym && reply.value === "alive", "the real peer was served");
+		await within(served, 2_000, "listener serve loop");
+	} finally {
+		if (session != null) await session.close();
+		silent.close();
+		await server.closeAsync();
+	}
+	ok("the native driver bypasses a silent peer and wildcard reachability is explicit");
+}
+
+// Host teardown owns listener admission: an accept already parked for the next
+// partner must finish terminally instead of retaining the Host or event loop.
+{
+	const server = listen("127.0.0.1", 0);
+	await server.ready();
+	const iterator = server[Symbol.asyncIterator]();
+	const pending = iterator.next();
+	await Promise.resolve();
+	server.host.release();
+	const result = await within(pending, 1_000, "Host-close listener admission");
+	assert(result.done === true, "a released Host cannot admit another session");
+	ok("Host release stops listener admission");
+}
+
+// Endpoint creation runs in an offloaded FFI call that cannot be interrupted.
+// An abort during that await must release the endpoint before dialing starts.
+{
+	let finishOpen: ((netlayer: IrohNetlayer) => void) | undefined;
+	let released = false;
+	const opened = new Promise<IrohNetlayer>((resolve) => {
+		finishOpen = resolve;
+	});
+	const netlayer = {
+		release: () => {
+			released = true;
+			return Promise.resolve();
+		},
+	} as unknown as IrohNetlayer;
+	const netlayerType = IrohNetlayer as unknown as {
+		open: typeof IrohNetlayer.open;
+	};
+	const originalOpen = netlayerType.open;
+	netlayerType.open = () => opened;
+	const abort = new AbortController();
+	const host = new Host();
+	try {
+		const dialing = _connectIroh(
+			"00".repeat(32),
+			"",
+			Reachability.Direct,
+			host,
+			null,
+			abort.signal,
+		);
+		abort.abort();
+		finishOpen?.(netlayer);
+		try {
+			await dialing;
+			throw new Error("an aborted iroh endpoint open continued into dialing");
+		} catch (error) {
+			assert(error instanceof PancakeError, "iroh open abort lost its typed error");
+		}
+		assert(released, "iroh open abort did not release the constructed endpoint");
+	} finally {
+		netlayerType.open = originalOpen;
+		await host.releaseAsync();
+	}
+	ok("an iroh abort during endpoint creation releases before dialing");
+}
+
+// A popped FLUSH may await byte-channel I/O. Host release waits for that
+// admitted drain to return instead of freeing the action queue under it. This
+// deliberately uses raw runtime sockets plus Session.establish* so the proof
+// stays on the byte-fed Host seam; a DriverLoop owns its own drain.
+{
+	const listener = await listenTcp("127.0.0.1", 0);
+	const designator = socketAddrDesignator("127.0.0.1", listener.port);
+	await using serverHost = new Host();
+	const host = new Host();
+	const accepting = (async () =>
+		Session.establishAccepted(serverHost, {
+			transport: "tcp",
+			designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
+			serverDesignator: designator,
+			channel: await listener.accept(),
+		}))();
+	const dialing = Session.establishDialedLocator(
+		host,
+		"tcp",
+		designator,
+		await connectTcp("127.0.0.1", listener.port),
+	);
+	const [serverSession, session] = await Promise.all([accepting, dialing]);
+	serverSession.publish("svc", () => new Sym("alive"));
+	const servingServer = serverSession.serve().catch(() => {});
+	const servingClient = session.serve().catch(() => {});
+	const svc = await session.fetch("svc");
+	let enteredFlush!: () => void;
+	const flushEntered = new Promise<void>((resolve) => enteredFlush = resolve);
+	let finishFlush!: () => void;
+	const flushGate = new Promise<void>((resolve) => finishFlush = resolve);
+	const flushOutbound = session.flushOutbound.bind(session);
+	session.flushOutbound = async () => {
+		enteredFlush();
+		await flushGate;
+		await flushOutbound();
+	};
+	const reply = Promise.resolve(session.send(svc, "ping", [])).catch(() => null);
+	await within(flushEntered, 1_000, "action drain FLUSH");
+	let released = false;
+	const releasing = host.releaseAsync().then(() => released = true);
+	await Promise.resolve();
+	assert(!released, "Host release passed an in-flight action drain");
+	finishFlush();
+	await releasing;
+	await reply;
+	listener.close();
+	await serverHost.releaseAsync();
+	await Promise.all([servingServer, servingClient]);
+	ok("Host release joins admitted action drains");
+}
+
+// Detached DIAL work belongs to the Host just as listeners do. Close aborts
+// its transport scope before releasing native state, rather than merely
+// retaining a promise that can resume after teardown.
+{
+	const host = new Host();
+	let aborted = false;
+	let markStarted!: () => void;
+	const started = new Promise<void>((resolve) => markStarted = resolve);
+	host.startDialTask((signal) =>
+		new Promise<void>((resolve) => {
+			markStarted();
+			signal.addEventListener("abort", () => {
+				aborted = true;
+				resolve();
+			}, { once: true });
+		})
+	);
+	await started;
+	host.release();
+	await Promise.resolve();
+	assert(aborted, "Host release must abort detached DIAL work");
+	ok("Host release cancels detached dial work");
 }
 
 // The dial-side twin of the rude probe: a partner that accepts the connection
@@ -1151,45 +1550,62 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	ok("a silent partner times the dial out rather than parking it");
 }
 
-// The blocking TCP transport is its own composable module
+// The native TCP transport is its own composable module
 // (`./transport/tcp.ts`, riding libpancake_net_transport_tcp). Bind a
 // listener, dial it, accept the peer, and shuttle one whole frame through the
-// `pancake_tcp_*` endpoints intact.
+// `pancake_tcp_*` endpoints intact. The Bun branch exited at its explicit
+// refusal proof above, so this is the Deno application path.
 {
 	using net = new TcpNetlayer();
 	using listener = net.listen("127.0.0.1", 0);
 	const port = listener.port();
-	using client = net.connect("127.0.0.1", port);
-	using server = listener.accept();
+	using client = await net.connect("127.0.0.1", port);
+	using server = await listener.accept();
 	const frame = new TextEncoder().encode(
 		"<10'op:deliver<11'desc:export7+>[5:hello]11+f>",
 	);
-	client.writeFrame(frame);
-	const got = server.readFrame();
+	await client.writeFrame(frame);
+	const got = await server.readFrame();
 	assert(eqBytes(got, frame), "the TCP endpoint shuttled the frame intact");
-	ok("the blocking TCP transport shuttled a frame");
+	ok("the off-thread TCP transport shuttled a frame");
 }
 
 // The in-process transport is its own composable module
 // (`./transport/inproc.ts`, riding libpancake_net_transport_inproc): the
 // socket-free sibling of TCP, two peers in one process wired by pipes. Bind a
 // listener on a string designator, dial it, accept, and shuttle one whole
-// frame, no kernel transport, no fd.
+// frame, no kernel transport and no fd.
 {
 	using net = new InprocNetlayer();
 	using listener = net.listen("zig-smoke");
-	using client = net.connect("zig-smoke");
-	using server = listener.accept();
+	using client = await net.connect("zig-smoke");
+	using server = await listener.accept();
 	const frame = new TextEncoder().encode(
 		"<10'op:deliver<11'desc:export7+>[5:hello]11+f>",
 	);
-	client.writeFrame(frame);
-	const got = server.readFrame();
+	await client.writeFrame(frame);
+	const got = await server.readFrame();
 	assert(
 		eqBytes(got, frame),
 		"the in-process endpoint shuttled the frame intact",
 	);
 	ok("the in-process transport shuttled a frame socket-free");
+}
+
+// Dynamic bindings cannot express Rust's lifetime borrow in the type system.
+// Releasing a netlayer therefore closes its still-live children before freeing
+// the std.Io backend; a later child close is an idempotent no-op, never a use of
+// the freed runtime.
+{
+	const tcp = new TcpNetlayer();
+	const listener = tcp.listen("127.0.0.1", 0);
+	tcp.release();
+	listener.close();
+	const inproc = new InprocNetlayer();
+	const inprocListener = inproc.listen("owner-lifetime");
+	inproc.release();
+	inprocListener.close();
+	ok("netlayer release retires live transport children before their backend");
 }
 
 // Object-capability forwarding proxies over the wire (ADR-0064). The server
@@ -1278,7 +1694,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			"a revoked proxy breaks Revoked",
 		);
 
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -1292,15 +1708,16 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 // a revoke breaks the local call too, no second-class behavior on the hosting
 // side.
 {
-	const server = listen("127.0.0.1", 0);
+	await using proxyHost = new Host();
+	proxyHost.publishGiftable("tool", (verb) => {
+		if (verb === "ping") return "pong";
+		throw new Error(`no such method: ${verb}`);
+	});
+	const server = listen("127.0.0.1", 0, proxyHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
-			session.publish("tool", (verb) => {
-				if (verb === "ping") return "pong";
-				throw new Error(`no such method: ${verb}`);
-			});
 			session.serve().catch(() => {});
 			break;
 		}
@@ -1343,7 +1760,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 			"revoke breaks a local call too",
 		);
 
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -1358,6 +1775,8 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 {
 	const server = listen("127.0.0.1", 0);
 	const port = await server.ready();
+	let markPublished!: () => void;
+	const published = new Promise<void>((resolve) => (markPublished = resolve));
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
@@ -1370,6 +1789,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 				}
 				return "pong";
 			});
+			markPublished();
 			session.serve().catch(() => {});
 			break;
 		}
@@ -1379,6 +1799,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	async function client(): Promise<void> {
 		const session = await connect(tcpLocator("127.0.0.1", port));
 		session.serve().catch(() => {});
+		await published;
 		const svc = await session.fetch("svc");
 		let broke: VowBroken | null = null;
 		try {
@@ -1390,7 +1811,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		// The turn unwound cleanly: the same session still answers.
 		const pong = await session.send(svc, "ping");
 		assert(pong === "pong", `the connection survives the refused turn, got ${pong}`);
-		session.close();
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -1398,7 +1819,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 }
 
 // Mid-turn close parks the C release (parity with Python/Rust): a behavior that
-// closes its own Session inside a local turn must not free the native conn
+// closes its own Session inside a local turn must not free the native session
 // while the trampoline frame is still on the stack. The release runs after the
 // turn unwinds; the next verb is the typed CLOSED.
 {
@@ -1418,7 +1839,7 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 		session.serve().catch(() => {});
 		const me = session.spawn((verb) => {
 			if (verb === "die") {
-				session.close();
+				void session.close();
 				return "closing";
 			}
 			return null;
@@ -1446,8 +1867,9 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 }
 
 // Host release closes every Session before freeing the native Host. When the
-// request comes from a behavior callback, all three releases park; FIFO order
-// is the lifetime proof for two live Session handles followed by their Host.
+// request comes from a behavior callback, the two Session releases park and
+// drain in FIFO order; native Host release waits outside the turn behind the
+// admission/dial barrier.
 {
 	const captpHost = new Host();
 	const server = listen("127.0.0.1", 0, captpHost);
@@ -1486,14 +1908,15 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 	} catch (_) {
 		// Releasing the server Host closes the wire before this answer must land.
 	}
-	assert(await during === 3, "two Session releases and their Host park in order");
+	assert(await during === 2, "two Session releases park in order");
 	assert(
 		captpHost.pendingReleaseCount() === 0,
 		"the callback unwind drains every parked release",
 	);
-	first.close();
-	second.close();
-	server.close();
+	await captpHost.releaseAsync();
+	await first.close();
+	await second.close();
+	await server.closeAsync();
 	await hosted;
 	ok("a callback-time Host release frees two Sessions before their Host");
 }
@@ -1508,6 +1931,10 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 {
 	const server = listen("127.0.0.1", 0);
 	const port = await server.ready();
+	let markServerObserved!: () => void;
+	const serverObserved = new Promise<void>((resolve) => (markServerObserved = resolve));
+	let markClientObserved!: () => void;
+	const clientObserved = new Promise<void>((resolve) => (markClientObserved = resolve));
 
 	async function host(): Promise<void> {
 		for await (const session of server) {
@@ -1541,7 +1968,9 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 				dishonest !== seen.designator,
 				"partner identity: a claim the caller never signed is refused",
 			);
-			session.close();
+			markServerObserved();
+			await clientObserved;
+			await session.close();
 			break;
 		}
 	}
@@ -1549,32 +1978,39 @@ function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Arg
 
 	async function client(): Promise<void> {
 		const session = await connect(tcpLocator("127.0.0.1", port));
-		const seen = session.partnerIdentity();
-		// The dialer verified the listener's fresh session key and the locator
-		// claim signed by that key.
-		assert(
-			seen.sessionKey.length === 32,
-			"partner identity: the client sees the server's verified session key",
-		);
-		assert(
-			seen.designator === `127.0.0.1:${port}`,
-			`partner identity: expected the listener's signed address, got "${seen.designator}"`,
-		);
-		assert(
-			seen.locatorRecord.length > 0,
-			"partner identity: the verbatim location record came back",
-		);
-		assert(
-			eqBytes(
-				seen.locatorRecord,
-				encodePeerLocator({
-					transport: "tcp",
-					designator: `127.0.0.1:${port}`,
-				}),
-			),
-			"partner identity: the listener advertises the accept plan's complete locator",
-		);
-		session.close();
+		try {
+			const seen = session.partnerIdentity();
+			// The dialer verified the listener's fresh session key and the locator
+			// claim signed by that key.
+			assert(
+				seen.sessionKey.length === 32,
+				"partner identity: the client sees the server's verified session key",
+			);
+			assert(
+				seen.designator === `127.0.0.1:${port}`,
+				`partner identity: expected the listener's signed address, got "${seen.designator}"`,
+			);
+			assert(
+				seen.locatorRecord.length > 0,
+				"partner identity: the verbatim location record came back",
+			);
+			assert(
+				eqBytes(
+					seen.locatorRecord,
+					encodePeerLocator({
+						transport: "tcp",
+						designator: `127.0.0.1:${port}`,
+						hints: new Map(),
+						hintWireForm: "boolean-false",
+					}),
+				),
+				"partner identity: the listener advertises the accept plan's complete locator",
+			);
+		} finally {
+			markClientObserved();
+		}
+		await serverObserved;
+		await session.close();
 	}
 
 	await Promise.all([client(), hosted]);

@@ -34,8 +34,8 @@
 use std::rc::Rc;
 
 use pancake_rust_dogfood::{
-	connect, encode_peer_locator, format_peer_uri, listen_iroh, Argument, IrohConfig, Reachability,
-	Ref, Session, TRANSPORT_IROH,
+	connect, format_peer_uri, listen_iroh, parse_locator, Argument, IrohConfig, Reachability, Ref,
+	Session, TRANSPORT_IROH,
 };
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Fail> {
 
 async fn run() -> Result<(), Fail> {
 	// ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
-	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery))?);
+	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
 	exporter
 		.host()
 		.publish_giftable("greeter", || Box::new(greeter));
@@ -64,7 +64,7 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-redeem-posture: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery))?);
+	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
 	let gifter_host = gifter.host();
 	let gifter_id = gifter.node_id().to_string();
 	let exporter_uri = format_peer_uri(TRANSPORT_IROH, &exporter_id, &Default::default())?;
@@ -78,11 +78,8 @@ async fn run() -> Result<(), Fail> {
 	// Record the exporter's location by **node id alone** — no direct-addresses.
 	// This is what forces the recipient down the configured-posture redeem path
 	// instead of a Direct dial.
-	to_exporter.set_exporter_locator(encode_peer_locator(
-		pancake_rust_dogfood::TRANSPORT_IROH,
-		&exporter_id,
-		"",
-	)?)?;
+	let exporter_locator = parse_locator(&exporter_uri)?;
+	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
 	gifter_host.publish_giftable("introducer", move || {
 		let greeter = greeter_ref.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {

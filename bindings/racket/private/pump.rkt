@@ -35,10 +35,15 @@
    session-async
    session-host
    session-pending-writes
+   pending-writes-channel
+   pending-writes-bytes
+   pending-writes-lock
+   pending-writes-high-water
    session-write-gate
    session-released?
    session-open?
    guard-open
+   abandon-session!
    with-host-drain
    with-breaking-drain
    drain-host!
@@ -47,14 +52,16 @@
   (drain-host-actions!)])
 
 (provide drain-effects
-         drain-effects-touched
-         drain-effects-fires
+   drain-effects-touched
+   drain-effects-fires
+   drain-effects-resume
          drain-effects?
          no-drain-effects
          current-defer-drain-effects
          current-deliver-session
          HANDSHAKE-TIMEOUT-MS
          drain-outbound!
+         pending-writes-clear!
          write-pending!
          feed-bytes!
          capture-feed-refusal
@@ -80,8 +87,8 @@
 ;; that may pump. When the feed runs under the reader gate,
 ;; `current-defer-drain-effects` parks this record until the gate releases —
 ;; writes and fires never share the reader window with a blocking TCP write.
-(struct drain-effects (touched fires))
-(define no-drain-effects (drain-effects '() '()))
+(struct drain-effects (touched fires resume))
+(define no-drain-effects (drain-effects '() '() #f))
 
 ;; When non-#f, a box of `drain-effects`. `with-host-drain` parks writes and
 ;; fires into it instead of running them, and does not bump progress — the
@@ -122,11 +129,15 @@
 ;; shared `PancakeLastAbort` layout. Feed-refusal owns the reader; Session
 ;; re-exports the name for dogfood/plumbing.
 (define (session-last-abort c)
-  (define out (make-PancakeLastAbort 0 0 #f 0 #f 0 #f 0))
-  (define rc (pancake_host_session_last_abort (session-ptr c) out))
-  (cond
-    [(= rc WOULD-BLOCK) #f]
-    [else (check/host rc) (abort-info<-c out)]))
+  (call-with-host
+   (session-host c)
+   (lambda ()
+     (guard-open 'session-last-abort c)
+     (define out (make-PancakeLastAbort 0 0 #f 0 #f 0 #f 0))
+     (define rc (pancake_host_session_last_abort (session-ptr c) out))
+     (cond
+       [(= rc WOULD-BLOCK) #f]
+       [else (check/host rc) (abort-info<-c out)]))))
 
 ;; Host FFI for breaking far vows parked on `c`. Caller owns the
 ;; `with-breaking-drain` window so FAIL completions classify as closure.
@@ -134,26 +145,79 @@
   (check/host (pancake_host_session_break_far_vows
                (session-ptr c) (pin-immobile bs) (bytes-length bs))))
 
-;; Pop every encoded outbound frame on `c` into its pending-writes FIFO as a
-;; canonical Syrup byte-string prefix followed by the bare frame. Caller holds
-;; the host lock (`take_outbound` is a host verb); the socket write happens
-;; after the lock releases, through `write-pending!`.
+(define (pending-writes-has-room? q)
+  (call-with-semaphore
+   (pending-writes-lock q)
+   (lambda () (< (unbox (pending-writes-bytes q)) (pending-writes-high-water q)))))
+
+(define (pending-writes-put-pair! q a b)
+  (call-with-semaphore
+   (pending-writes-lock q)
+   (lambda ()
+     (define next (+ (unbox (pending-writes-bytes q)) (bytes-length a) (bytes-length b)))
+     (set-box! (pending-writes-bytes q) next)
+     (async-channel-put (pending-writes-channel q) a)
+     (async-channel-put (pending-writes-channel q) b)
+     (< next (pending-writes-high-water q)))))
+
+(define (pending-writes-try-get! q)
+  (define out (async-channel-try-get (pending-writes-channel q)))
+  (when out
+    (call-with-semaphore
+     (pending-writes-lock q)
+     (lambda ()
+       (set-box! (pending-writes-bytes q)
+                 (max 0 (- (unbox (pending-writes-bytes q)) (bytes-length out)))))))
+  out)
+
+(define (pending-writes-clear! q)
+  ;; Teardown owns every staged byte the writer did not already take. Drain the
+  ;; channel as well as the accounting so a closed but application-retained
+  ;; session cannot pin a whole high-water batch.
+  (let loop ()
+    (when (pending-writes-try-get! q) (loop))))
+
+;; Pop transport-ready prefix/payload vectors on `c` into its pending-writes
+;; FIFO. The host returns canonical outer framing for clear sessions and an
+;; empty prefix for wire-ready sealed payloads. Admission is checked before
+;; `take_outbound` transfers ownership, so a full FIFO never drops an already
+;; popped frame. One admitted frame may carry the FIFO over its high-water; the
+;; drain then stops until `write-pending!` debits it. Caller holds the host lock
+;; (`take_outbound` is a host verb); the socket write happens after the lock
+;; releases, through `write-pending!`. Returns `empty` only when the core queue
+;; was observed empty; every other result means the writer must refill after it
+;; drains this bounded batch.
 (define (drain-outbound! c)
-  (unless (session-released? c)
-    (let loop ()
-      (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
-      (define rc (pancake_host_session_take_outbound (session-ptr c) mf))
-      (cond
-        [(= rc WOULD-BLOCK) (void)]
-        [else
-         (check/host rc)
-         (define out (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
-         (pancake_managed_frame_release mf)
-         (async-channel-put
-          (session-pending-writes c)
-          (string->bytes/utf-8 (format "~a:" (bytes-length out))))
-         (async-channel-put (session-pending-writes c) out)
-         (loop)]))))
+  ;; A loop-owned host's wire belongs to the loop (ADR-0112): its steps
+  ;; flush queued outbound themselves, and `take_outbound` must not compete
+  ;; with them, so a loop-hosted session drains nothing here.
+  (if (or (session-released? c) (host-loop-of (session-host c)))
+      'empty
+      (let loop ([queued? #f])
+        (if (pending-writes-has-room? (session-pending-writes c))
+            (let* ([mf (make-PancakeManagedFrame #f 0 0 #f #f)]
+                   [prefix (make-bytes HOST-OUTBOUND-PREFIX-CAP)])
+              (define-values (rc prefix-len)
+                (pancake_host_session_take_outbound
+                 (session-ptr c) mf prefix (bytes-length prefix)))
+              (cond
+                [(= rc WOULD-BLOCK) (if queued? 'queued-drained 'empty)]
+                [else
+                 (check/host rc)
+                 (define out
+                   (dynamic-wind
+                    void
+                    (lambda ()
+                      (bytes<-c (PancakeManagedFrame-bytes mf)
+                                (PancakeManagedFrame-len mf)))
+                    (lambda () (pancake_managed_frame_release mf))))
+                 (if (pending-writes-put-pair!
+                      (session-pending-writes c)
+                      (subbytes prefix 0 prefix-len)
+                      out)
+                     (loop #t)
+                     'queued-bounded)]))
+            (if queued? 'queued-bounded 'bounded)))))
 
 ;; Write everything parked on `c`'s pending-writes FIFO to the transport,
 ;; flushing once, serialized by the connection's write gate. Runs outside the
@@ -162,17 +226,31 @@
 ;; `drain-effects` via `current-defer-drain-effects`, and `pump-until` writes
 ;; only after the gate clears.
 (define (write-pending! c)
-  (unless (session-released? c)
+  ;; The loop-owned early-out above holds here too: the loop writes its own
+  ;; wire, and this session's FIFO stays empty.
+  (unless (or (session-released? c) (host-loop-of (session-host c)))
     (define tr (async-connection-transport (session-async c)))
     (call-with-semaphore
      (session-write-gate c)
      (lambda ()
-       (let loop ([wrote? #f])
-         (define out (async-channel-try-get (session-pending-writes c)))
-         (cond
-           [out ((async-transport-write-frame! tr) out) (loop #t)]
-           [wrote? ((async-transport-flush! tr))]
-           [else (void)]))))))
+       (let batch-loop ()
+         (define wrote?
+           (let write-loop ([wrote? #f])
+             (define out (pending-writes-try-get! (session-pending-writes c)))
+             (if out
+                 (begin
+                   ((async-transport-write-frame! tr) out)
+                   (write-loop #t))
+                 wrote?)))
+         (when wrote? ((async-transport-flush! tr)))
+         ;; The binding FIFO is only a bounded staging batch. Refill it under
+         ;; the host lock after the socket write, then release the lock before
+         ;; writing that batch. `empty` is the sole proof that no core frame was
+         ;; stranded behind the high-water stop.
+         (unless (session-released? c)
+           (define status
+             (call-with-host (session-host c) (lambda () (drain-outbound! c))))
+           (unless (eq? status 'empty) (batch-loop))))))))
 
 ;; Feed freshly read bytes into the host through the core's stream delimiter
 ;; (`pancake_host_session_feed_bytes`): the session's codec splits each
@@ -187,29 +265,38 @@
 ;; connection's `abort-info`. The FFI pin (`pin-immobile`) is a named Racket
 ;; collector cost on every feed.
 (define (feed-bytes! c got)
-  (guard-open 'session-serve c)
   (define m (session-host c))
-  ;; The refusal is captured under the lock: it parks the abort on the FIFO
-  ;; and marks `c` touched so `run-drain-effects!` writes it — under the
-  ;; reader that runs after the gate clears; outside the reader it runs
-  ;; before this returns. Then raise.
-  (define refusal
-    (with-host-drain m
-      (lambda ()
-        (define buf (pin-immobile got))
-        (define rc
-          (parameterize ([current-deliver-session c])
-            (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
-        (define captured (and (not (= rc OK)) (capture-feed-refusal c rc)))
-        (host-drain-parked-releases! m)
-        (cond
-          [(= rc OK)
-           (values (drain-host-actions! m) #f)]
-          [else
-           ;; Park the abort on the FIFO and mark `c` touched so the shared
-           ;; drain spine writes it — refusal is a flush, not a private exit.
-           (values (drain-effects (list c) '()) captured)]))))
-  (when refusal (raise-feed-refusal refusal)))
+  (let loop ()
+    ;; The refusal is captured under the lock: it parks the abort on the FIFO
+    ;; and marks `c` touched so `run-drain-effects!` writes it — under the
+    ;; reader that runs after the gate clears; outside the reader it runs
+    ;; before this returns. Then raise.
+    (define result
+      (with-host-drain m
+        (lambda ()
+          ;; Release and feed serialize on this same host lock. The guard must
+          ;; live here, not before lock acquisition, or close can free the
+          ;; native handle while this thread is waiting to feed it.
+          (guard-open 'session-serve c)
+          (define buf (pin-immobile got))
+          (define rc
+            (parameterize ([current-deliver-session c])
+              (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length got))))
+          (host-drain-parked-releases! m)
+          (cond
+            [(= rc OK)
+             (values (drain-host-actions! m) 'done)]
+            [(= rc WOULD-BLOCK)
+             (values (drain-host-actions! m) 'retry)]
+            [else
+             (define captured (capture-feed-refusal c rc))
+             ;; Park the abort on the FIFO and mark `c` touched so the shared
+             ;; drain spine writes it — refusal is a flush, not a private exit.
+             (values (drain-effects (list c) '() #f) captured)]))))
+    (cond
+      [(eq? result 'done) (void)]
+      [(eq? result 'retry) (loop)]
+      [else (raise-feed-refusal result)])))
 
 ;; The feed refusal choreography, split around the host lock. Under the lock
 ;; (`capture-feed-refusal`): read the typed cause before another verb can
@@ -250,7 +337,13 @@
     ;; closure.
     (with-breaking-drain c
       (lambda ()
-        (break-far-vows-bytes! c #"connection closed")))))
+        (break-far-vows-bytes! c #"connection closed")))
+    ;; EOF is terminal ownership, not only a promise notification. Retire the
+    ;; native session so the Host's strong session registry cannot retain one
+    ;; dead row per disconnected partner.
+    (with-handlers ([(lambda (_) #t) void])
+      ((async-transport-close! (async-connection-transport ac))))
+    (abandon-session! c)))
 
 ;; One reader step. The first step on an open session resumes the frames the
 ;; core held behind the handshake hello (an empty feed) and returns without

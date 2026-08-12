@@ -17,6 +17,7 @@
                      pancake_tcp_connect*
                      pancake_tcp_listen*
                      pancake_tcp_listener_port*
+                     pancake_tcp_listener_readiness_fd*
                      pancake_tcp_accept*))
 
 (define tcp-lib (open-pancake-archive "pancake_net_transport_tcp"))
@@ -28,7 +29,10 @@
   (_fun _pointer -> _int32)
   #:c-id pancake_tcp_netlayer_new)
 (define pancake_tcp_netlayer_new (wrap-out1 pancake_tcp_netlayer_new* _pointer #f))
-(define-pancake-tcp pancake_tcp_netlayer_release (_fun _pointer -> _void))
+(define-pancake-tcp pancake_tcp_transport_provider
+  (_fun _pointer _PancakeTransportProvider-pointer -> _int32))
+(define-pancake-tcp pancake_tcp_netlayer_shutdown (_fun _pointer -> _void))
+(define-pancake-tcp pancake_tcp_netlayer_release (_fun #:blocking? #t _pointer -> _void))
 (define-pancake-tcp pancake_tcp_connect*
   (_fun #:blocking? #t _pointer _pointer _size _uint16 _uint32 _size _pointer -> _int32)
   #:c-id pancake_tcp_connect)
@@ -41,6 +45,10 @@
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_tcp_listener_port)
 (define pancake_tcp_listener_port (wrap-out1 pancake_tcp_listener_port* _uint16 0))
+(define-pancake-tcp pancake_tcp_listener_readiness_fd*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id pancake_tcp_listener_readiness_fd)
+(define pancake_tcp_listener_readiness_fd (wrap-out1 pancake_tcp_listener_readiness_fd* _int32 0))
 (define-pancake-tcp pancake_tcp_accept*
   (_fun #:blocking? #t _pointer _uint32 _size _pointer -> _int32)
   #:c-id pancake_tcp_accept)
@@ -49,5 +57,7 @@
   (_fun #:blocking? #t _pointer _PancakeManagedFrame-pointer -> _int32))
 (define-pancake-tcp pancake_tcp_conn_write_frame
   (_fun #:blocking? #t _pointer _PancakeFrame-pointer -> _int32))
-(define-pancake-tcp pancake_tcp_conn_release (_fun _pointer -> _void))
-(define-pancake-tcp pancake_tcp_listener_release (_fun _pointer -> _void))
+(define-pancake-tcp pancake_tcp_conn_shutdown (_fun _pointer -> _void))
+(define-pancake-tcp pancake_tcp_conn_release (_fun #:blocking? #t _pointer -> _void))
+(define-pancake-tcp pancake_tcp_listener_shutdown (_fun _pointer -> _void))
+(define-pancake-tcp pancake_tcp_listener_release (_fun #:blocking? #t _pointer -> _void))

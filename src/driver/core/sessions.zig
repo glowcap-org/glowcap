@@ -86,6 +86,12 @@ pub fn openDialedWith(
         .mint => try mint(self, .{ .dialed = partner_designator }, transport),
         .over => |peer| try mintOver(self, peer, .{ .dialed = partner_designator }, transport),
     };
+    if ((try self.transportProfile(transport)).sealed_channel) {
+        attachSealedChannel(self, session, .initiator) catch |err| {
+            failOpen(self, session);
+            return err;
+        };
+    }
     // Register the outbound before any bytes move: a crossed inbound
     // start-session from the same partner must find this dial (ADR-0030).
     // The mint above moves none, so this is still ahead of the hello.
@@ -93,12 +99,12 @@ pub fn openDialedWith(
     // Two identities, two roles (ADR-0097). `partner_designator` is the
     // durable peer this dial races for, which is what decides *which two
     // attempts are racing*. The identifier beside it is this outbound
-    // connection's own session identity, which is what decides *which of
+    // session attempt's own identity, which is what decides *which of
     // the two survives*. Registering after the mint is what lets the
     // second one be the session's key rather than the host's: they are the
     // same value only when a host signs every session with its durable
     // key, and reading the wrong one would order the tiebreak by a
-    // quantity both connections to a peer share.
+    // quantity both connection attempts to a peer share.
     const our_session_id = crypto.derivePublicIdentifier(session.sessionSecret().publicKey());
     const dial_target = target(session.transport, session.role.dialed);
     self.hellos.registerOutbound(self.allocator, dial_target, our_session_id) catch |err| {
@@ -108,7 +114,7 @@ pub fn openDialedWith(
     errdefer self.hellos.unregister(self.allocator, dial_target);
     // The dial's own demand, before the hello; on failure unwind the mint. The
     // shared open tail's `errdefer failOpen` covers hello failures.
-    if (vocab.designatorSchemeForTransport(transport) == .key) {
+    if (try self.designatorScheme(transport) == .key) {
         const expected = crypto.PeerKey.fromDesignator(partner_designator) orelse {
             failOpen(self, session);
             return error.InvalidAddress;
@@ -124,7 +130,14 @@ pub fn openDialedWith(
 pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession {
     try self.refuseReentry();
     const advertised = try requireAcceptableLocator(self);
-    return helloAndEnroll(self, try mint(self, .accepted, transport), advertised);
+    const session = try mint(self, .accepted, transport);
+    if ((try self.transportProfile(transport)).sealed_channel) {
+        attachSealedChannel(self, session, .responder) catch |err| {
+            failOpen(self, session);
+            return err;
+        };
+    }
+    return helloAndEnroll(self, session, advertised);
 }
 
 /// `openAcceptedAdvertised` over an embedder-owned, pinned peer. The node
@@ -132,7 +145,60 @@ pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession 
 pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []const u8) !*HostSession {
     try self.refuseReentry();
     const advertised = try requireAcceptableLocator(self);
-    return helloAndEnroll(self, try mintOver(self, peer, .accepted, transport), advertised);
+    const session = try mintOver(self, peer, .accepted, transport);
+    if ((try self.transportProfile(transport)).sealed_channel) {
+        attachSealedChannel(self, session, .responder) catch |err| {
+            failOpen(self, session);
+            return err;
+        };
+    }
+    return helloAndEnroll(self, session, advertised);
+}
+
+/// Box the sealed byte channel onto a freshly minted shell (ADR-0107): derive
+/// the ephemeral seed from this session's unique signing seed under a separate
+/// KDF domain, borrow the host's durable key while the channel derives and
+/// signs its identity proof, and start the role's half. The dialing side reads
+/// the responder key off the shell's own
+/// dialed designator and turns it into the same demand a key-scheme dial
+/// makes, so the chokepoint weighs the partner's claim against what was
+/// dialed. The caller unwinds a refusal with `failOpen`; the shell frees the
+/// channel in `freeSessionShell`.
+fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiator, responder }) !void {
+    var ephemeral_seed: [crypto.SEED_BYTES]u8 = undefined;
+    defer std.crypto.secureZero(u8, &ephemeral_seed);
+    var hasher = std.crypto.hash.Blake3.initKdf("pancake noise ephemeral v1", .{});
+    hasher.update(&session.session_seed);
+    hasher.final(&ephemeral_seed);
+    var identity = self.node.secretKey();
+    defer std.crypto.secureZero(u8, std.mem.asBytes(&identity));
+    const channel = try self.allocator.create(foundation.sealed.SealedChannel);
+    errdefer self.allocator.destroy(channel);
+    channel.* = switch (role) {
+        .initiator => blk: {
+            const remote = crypto.PeerKey.fromDesignator(session.role.dialed) orelse
+                return error.InvalidAddress;
+            session.served.port.peer.demandPartnerDurableKey(remote);
+            break :blk foundation.sealed.SealedChannel.initInitiator(
+                &identity,
+                remote,
+                ephemeral_seed,
+                session.transport,
+            ) catch |err| switch (err) {
+                // A designator whose key is degenerate for Diffie-Hellman
+                // names a peer no handshake can reach: an undialable address.
+                error.InvalidRemoteKey, error.IdentityElement => return error.InvalidAddress,
+                error.InvalidEphemeral => return HostError.SealedChannelFailed,
+                else => return HostError.SealedChannelFailed,
+            };
+        },
+        .responder => foundation.sealed.SealedChannel.initResponder(
+            &identity,
+            ephemeral_seed,
+            session.transport,
+        ) catch return HostError.SealedChannelFailed,
+    };
+    session.sealed = channel;
 }
 
 /// The live, non-condemned session that already reaches `partner_designator`
@@ -141,7 +207,7 @@ pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []
 /// reuses that session to redeem a give rather than dial a duplicate it would
 /// then refuse. Match set: our dialed designator (bytes we chose), or a live
 /// session whose partner proved that same *durable* key. Never the partner's
-/// session key, which every connection draws fresh and which names an
+/// signing key, which every session draws fresh and which names an
 /// incarnation rather than a peer.
 ///
 /// A partner-declared `acceptable_location.designator`
@@ -151,21 +217,21 @@ pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []
 /// still runs after the newcomer's start-session via `refuseDuplicatePartnerKey`
 /// (verified key); an accepted session racing an in-flight dial stays legal
 /// for crossed hellos until start-session (ADR-0068).
-pub fn liveSessionForDial(self: *const Host, transport: []const u8, partner_designator: []const u8) ?*HostSession {
+pub fn liveSessionForDial(self: *const Host, transport: []const u8, partner_designator: []const u8) HostError!?*HostSession {
     if (liveIndexedSession(self, self.dialed_by_target.get(target(transport, partner_designator)))) |session| return session;
     // The durable-peer directory, never the side index (ADR-0097): this
     // asks "which live session reaches peer P", and P is a durable
     // identity. Deriving a side name from P instead would be asking the
     // session-incarnation directory a question it only answers while
     // every session reuses its host's key.
-    if (vocab.designatorSchemeForTransport(transport) != .key) return null;
+    if (try self.designatorScheme(transport) != .key) return null;
     const want = crypto.PeerKey.fromDesignator(partner_designator) orelse return null;
     return liveIndexedSession(self, self.peer_by_durable.get(want.bytes));
 }
 
 /// Refuse a new dial when a live session already reaches this partner.
 pub fn refuseDuplicateDial(self: *const Host, transport: []const u8, partner_designator: []const u8) HostError!void {
-    if (liveSessionForDial(self, transport, partner_designator) != null) return HostError.SessionPairExists;
+    if (try liveSessionForDial(self, transport, partner_designator) != null) return HostError.SessionPairExists;
 }
 
 /// After crossed-hellos tiebreak, keep at most one non-condemned session to
@@ -187,11 +253,11 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     const partner_key = crypto.PeerKey.fromSlice(ss.session_pubkey) catch return;
     const side = try engine.handoff_names.sideName(&partner_key.bytes);
     // Two questions, and only the second identifies a *peer* once each
-    // connection draws its own key (ADR-0097). A matching session key means
+    // session draws its own key (ADR-0097). A matching session key means
     // the same session incarnation, which is a duplicate of the narrowest
     // kind. A matching proved durable identity means the same peer reached
     // twice, which is the duplicate ADR-0068 exists to collapse — and it is
-    // the only one that survives fresh keys, because two connections to one
+    // the only one that survives fresh keys, because two sessions with one
     // peer no longer share a session key.
     //
     // Only a *proved* durable identity counts: `peer_by_durable` indexes
@@ -229,8 +295,8 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     }
 
     // Ordered by the two *session* identities, as crossed hellos are
-    // (ADR-0097): ours on this connection against the partner's on it. The
-    // durable keys are equal on both racing connections by definition, so
+    // (ADR-0097): ours on this session against the partner's on it. The
+    // durable keys are equal on both racing connection attempts by definition, so
     // they cannot order anything.
     const our_pid = crypto.derivePublicIdentifier(session.sessionSecret().publicKey());
     const partner_pid = crypto.derivePublicIdentifier(partner_key);
@@ -309,23 +375,19 @@ fn durablePeerKeyFor(session: *const HostSession, designator: []const u8) ?[cryp
 /// no session key material, so this is where a give learns which key names
 /// its session.
 /// The signing seed for the session being minted (ADR-0097). Under
-/// `rooted` each call derives a distinct seed from the host's root and a
+/// Each call derives a distinct seed from the host's root and a
 /// monotonic counter, so two sessions never sign with the same key and a
 /// host restarted with a fresh root cannot recreate a prior session's
 /// handoff names. The derivation is keyed and domain-separated, so the
 /// root is not recoverable from a session key and these bytes cannot
 /// collide with another use of the same material.
 pub fn nextSessionSeed(self: *Host) [crypto.SEED_BYTES]u8 {
-    const root = switch (self.session_seed_source) {
-        .reused_durable => |seed| return seed,
-        .rooted => |root| root,
-    };
     self.session_seed_counter += 1;
     var counter_bytes: [8]u8 = undefined;
     std.mem.writeInt(u64, &counter_bytes, self.session_seed_counter, .little);
     var out: [crypto.SEED_BYTES]u8 = undefined;
     var hasher = std.crypto.hash.Blake3.initKdf(session_seed_domain, .{});
-    hasher.update(&root);
+    hasher.update(&self.session_seed_root);
     hasher.update(&counter_bytes);
     hasher.final(&out);
     return out;
@@ -437,15 +499,19 @@ pub fn helloAndEnroll(self: *Host, session: *HostSession, advertised: model.Peer
 /// fail-closed sweep queues the fail actions that break *sibling*
 /// sessions' answers — and free the shell. The sibling fails fire
 /// inside this call, through the same pump every verb ends with.
-pub fn releaseSession(self: *Host, session: *HostSession) !void {
-    self.traceClose(session);
+pub fn releaseSession(self: *Host, session: *HostSession) HostError!void {
     try self.refuseReentry();
     try self.checkOwnedSession(session);
+    self.traceClose(session);
     self.in_callback = true;
     {
         defer self.in_callback = false;
         session.served.port.breakFarVows(session.served.closeReason("connection released"));
-        try cancelSessionIngress(self, session, session.served.closeReason("connection released"));
+        // The preflight above proves this is the owning thread and outside a
+        // callback. A live owned shell therefore has one inactive ingress;
+        // UnknownIngress or IngressBusy here is an internal lifecycle defect,
+        // not a retryable public refusal after teardown began.
+        cancelSessionIngress(self, session, session.served.closeReason("connection released")) catch unreachable;
     }
 
     if (session.role == .dialed)
@@ -532,6 +598,7 @@ pub fn negotiatingOptions(self: *const Host) engine.Peer.NegotiatingOptions {
         .features = self.opts.features,
         .verify_partner_handshake = self.opts.verify_partner,
         .limits = self.opts.limits,
+        .outbound_high_water_bytes = self.opts.outboundHighWaterBytes(),
     };
 }
 
@@ -572,6 +639,7 @@ pub fn mintShell(self: *Host, peer: *engine.Peer, peer_id: engine.PeerId, spec: 
         .served = Served.over(self.allocator, peer),
         .transport = owned_transport,
         .role = role,
+        .outbound_high_water_bytes = self.opts.outboundHighWaterBytes(),
     };
     // `Host.init` returns by value, so only a live Host method knows the
     // object's stable address. Store the seam once per Node (reassigning
@@ -580,9 +648,15 @@ pub fn mintShell(self: *Host, peer: *engine.Peer, peer_id: engine.PeerId, spec: 
     // handoff code in `host.zig`; the wiring is theirs too.
     handoff_mod.wireNodeServices(self);
     self.node.setSessionSecretResolver(.{ .ctx = self, .resolve = resolveSessionSecret });
+    self.node.setTransportDesignatorResolver(.{ .ctx = self, .resolve = resolveTransportDesignator });
     session.served.port.ingress = try self.vat.openIngress();
     session.served.local_turn_budget = self.opts.local_turn_budget;
     return session;
+}
+
+fn resolveTransportDesignator(ctx: ?*anyopaque, transport: []const u8) ?model.transport.DesignatorScheme {
+    const self: *Host = @ptrCast(@alignCast(ctx.?));
+    return self.designatorScheme(transport) catch null;
 }
 
 pub fn enroll(self: *Host, session: *HostSession) void {
@@ -610,11 +684,17 @@ pub fn freeSessionShell(self: *Host, session: *HostSession) void {
     host_pump.removeDirtySession(self, session);
     session.served.deinit(&self.vat);
     session.feed_tail.deinit(self.allocator);
+    if (session.sealed) |channel| {
+        channel.deinit(self.allocator);
+        self.allocator.destroy(channel);
+        session.sealed = null;
+    }
     const identity_len = session.transport.len + switch (session.role) {
         .dialed => |designator| designator.len,
         .accepted => 0,
     };
     self.allocator.free(session.transport.ptr[0..identity_len]);
+    std.crypto.secureZero(u8, &session.session_seed);
     self.allocator.destroy(session);
 }
 

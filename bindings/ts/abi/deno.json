@@ -4,6 +4,14 @@
 	"exports": {
 		".": "./constants.ts"
 	},
+	"publish": {
+		"include": [
+			"**/*.ts"
+		],
+		"exclude": [
+			"test/**"
+		]
+	},
 	"tasks": {
 		"check": "deno check constants.ts"
 	}

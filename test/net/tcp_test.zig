@@ -141,3 +141,27 @@ test "tcp.locator formats a host:port designator into fixed-width caller storage
     const back6 = try tcp.parseDesignator(loc6.designator);
     try std.testing.expect(back6.eql(&v6));
 }
+
+fn acceptUntilListenerClose(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void {
+    var peer = stubNegotiatingPeer(allocator);
+    defer peer.deinit();
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+    try std.testing.expectError(
+        error.ConnectionLost,
+        listener.accept(&peer, &read_buf, &write_buf, .{}),
+    );
+}
+
+test "tcp listener close wakes and joins a blocked accept" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    var accept = try io.concurrent(acceptUntilListenerClose, .{ &listener, allocator });
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    listener.deinit();
+    try accept.await(io);
+}

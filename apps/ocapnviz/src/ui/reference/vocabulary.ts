@@ -60,6 +60,10 @@ export type TransportRow = ReferenceEntry & {
    * demand does bind an identity. That conditional is the whole content of
    * `standing: "trusted-network"`, and `tcp` does not reach it even on a
    * perfect network, because an address says nothing about who holds it.
+   * `onion` is production and still answers no: Tor proves the service id on
+   * the dial, but CapTP does not report that as `authenticated-transport`.
+   * `noise-tcp` and `noise-relay` answer yes because their Noise handshake is
+   * that proof.
    *
    * It sits beside the sentence that explains it so the two cannot disagree
    * quietly, which they did: these rows told a reader that `keyed-tcp` proved
@@ -78,8 +82,8 @@ export type TransportRow = ReferenceEntry & {
  *
  * The verdict, and one sentence each for who is proved and what a stranger on
  * the path can do. The reasoning behind the verdicts is the project's
- * transports page, which the section links to. Restating it here would be a
- * second copy of an assessment that already has a home.
+ * choosing-a-transport page, which the section links to. Restating it here
+ * would be a second copy of an assessment that already has a home.
  */
 export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
   iroh: {
@@ -88,6 +92,8 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
     says: "The node id is a key, so dialing the name proves who answered. " +
       "The QUIC channel is encrypted, so nobody on the path can read the " +
       "frames.",
+    aside: "Goblins ships no iroh netlayer; live Goblins-over-iroh uses an " +
+      "adapter this repository wrote.",
   },
   webrtc: {
     standing: "production",
@@ -95,6 +101,30 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
     says: "The DataChannel is encrypted, so nobody on the path can read the " +
       "frames. Who the peer is comes from the signaling authority that " +
       "introduced it, so it is only as good as that authority.",
+  },
+  "noise-tcp": {
+    standing: "production",
+    authenticatesPeer: true,
+    says: "The name is a key, and the Noise handshake proves the far end " +
+      "holds it. The channel is encrypted end to end, so nobody on the path " +
+      "can read the frames.",
+    aside: "Same sockets as keyed-tcp, sealed. Pancake to pancake only.",
+  },
+  "noise-relay": {
+    standing: "production",
+    authenticatesPeer: true,
+    says: "The CapTP peers run the same Noise handshake with each other; " +
+      "the relay only forwards ciphertext. Completing it proves the dialed " +
+      "key.",
+  },
+  onion: {
+    standing: "production",
+    authenticatesPeer: false,
+    says: "The name is a Tor service id. Tor proves the dialed service holds " +
+      "that address's key and hides both ends' network location. The " +
+      "accepting side learns nothing about the caller, and CapTP does not " +
+      "treat the circuit as a channel-authenticated peer proof.",
+    aside: "It is the netlayer the OCapN draft standardizes and Goblins ships.",
   },
   "keyed-tcp": {
     standing: "trusted-network",
@@ -116,7 +146,8 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
     authenticatesPeer: false,
     says: "The name is a socket address rather than a key, so nothing about " +
       "the peer is proved. Nothing is encrypted either.",
-    aside: "It is here to reach peers that speak nothing else.",
+    aside: "Goblins testing uses an adapter this repository wrote; Goblins " +
+      "ships onion, not TCP.",
   },
   inproc: {
     standing: "testing",
@@ -129,12 +160,12 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 
 /** Where the reasoning behind the verdicts lives. */
 export const TRANSPORTS_PAGE_URL =
-  "https://jimisaacs.github.io/pancake/transports/";
+  "https://jimisaacs.github.io/pancake/transports/choosing/";
 export const TRANSPORTS_PAGE_NOTE =
-  "The project's transports page carries the assessment behind these " +
-  "verdicts. It goes through what each netlayer's name designates, what " +
-  "proves the peer, whether the channel is encrypted, and what someone on " +
-  "the path can do.";
+  "The project's choosing-a-transport page carries the assessment behind " +
+  "these verdicts: when to reach for each netlayer, how far it can be " +
+  "trusted, and what the path proves. The rows here are the same claims, " +
+  "said for the words this app shows on a session.";
 
 export const CODEC_ROWS: Record<CodecReferenceOption, ReferenceEntry> = {
   syrup: {

@@ -17,6 +17,7 @@ import {
 	TRANSPORT_KEYED_TCP,
 } from "@pancake/stack";
 import { webSocketChannel } from "@pancake/stack";
+import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 
 const tcpOnly = Deno.args.includes("--tcp-only");
 const addressArg = Deno.args.find((a) => !a.startsWith("-"));
@@ -61,10 +62,13 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 				void (async () => {
 					const session = await Session.establishAccepted(
 						acceptingHost,
-						TRANSPORT_KEYED_TCP,
-						hostDesignator,
-						webSocketChannel(socket),
-						socketAddrDesignator("127.0.0.1", server.addr.port),
+						{
+							transport: TRANSPORT_KEYED_TCP,
+							designatorScheme: DESIGNATOR_SCHEME_KEY,
+							serverDesignator: hostDesignator,
+							channel: webSocketChannel(socket),
+							localAddress: socketAddrDesignator("127.0.0.1", server.addr.port),
+						},
 					);
 					// The browser peer fetches this by name, and its `greet`
 					// exercises the reverse direction too: the callback ref the
@@ -105,10 +109,16 @@ async function serveTcpHost(
 				try {
 					const session = await Session.establishAccepted(
 						acceptingHost,
-						TRANSPORT_KEYED_TCP,
-						hostDesignator,
-						wrapTcpConn(conn),
-						socketAddrDesignator(host, (listener.addr as Deno.NetAddr).port),
+						{
+							transport: TRANSPORT_KEYED_TCP,
+							designatorScheme: DESIGNATOR_SCHEME_KEY,
+							serverDesignator: hostDesignator,
+							channel: wrapTcpConn(conn),
+							localAddress: socketAddrDesignator(
+								host,
+								(listener.addr as Deno.NetAddr).port,
+							),
+						},
 					);
 					session.publish("greeter", (verb, args) => {
 						if (verb !== "greet") throw new Error(`unknown verb ${verb}`);

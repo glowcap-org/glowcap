@@ -16,11 +16,11 @@
 import { assert, assertEquals } from "@std/assert";
 import { Container } from "pixi.js";
 import { Engine } from "../engine/engine.ts";
-import { claimTargets } from "../engine/session-geometry.ts";
 import type { TimelineDocument } from "../engine/timeline.ts";
 import { attachedEndpoint } from "../schema/topology.ts";
 import { installHeadlessCanvas } from "./headless-canvas.fixture.ts";
 import { themedColors } from "./palette.ts";
+import { EdgeStrokeBatch } from "./edge-stroke-batch.ts";
 import {
   type EdgeSprite,
   type EndpointSprite,
@@ -39,8 +39,11 @@ function scene() {
   const endpointSprites = new Map<string, EndpointSprite>();
   const edgeSprites = new Map<string, EdgeSprite>();
   const messageSprites = new Map<string, MessageSprite>();
+  const edgeStrokeBatch = new EdgeStrokeBatch();
+  const edgeLayer = new Container();
+  edgeLayer.addChild(edgeStrokeBatch.gfx);
   const layers = {
-    edgeLayer: new Container(),
+    edgeLayer,
     peerLayer: new Container(),
     messageLayer: new Container(),
     peerLabelLayer: new Container(),
@@ -59,6 +62,7 @@ function scene() {
     endpointSprites,
     edgeSprites,
     messageSprites,
+    edgeStrokeBatch,
     /** `scale` is the camera's, which the selection marks divide by. */
     paint(
       engine: Engine,
@@ -71,6 +75,7 @@ function scene() {
         peerSprites,
         endpointSprites,
         edgeSprites,
+        edgeStrokeBatch,
         messageSprites,
         onSelect: undefined,
         selection: selection as ReadonlySet<never>,
@@ -83,11 +88,13 @@ function scene() {
         counterScale: 1 / scale,
         scale,
         startNodeDrag: () => {},
-        claimsToward: claimTargets(engine.world, engine.claims),
+        claimsToward: engine.frameGeometry.claimsToward,
+        sessionCurves: engine.frameGeometry.sessionCurves,
         ...scratch,
       });
     },
     dispose(): void {
+      edgeStrokeBatch.destroy();
       for (const layer of Object.values(layers)) {
         layer.destroy({ children: true });
       }
@@ -345,3 +352,106 @@ Deno.test("a mark that goes away is cleared, and an absent one is not repainted"
     s.dispose();
   }
 });
+
+Deno.test(
+  `"body" vis mode clears stroked geometry and unhide restores it`,
+  () => {
+    // Invisible = no retained tessellated buffers. Mode `"body"` keeps the
+    // label and drops the mark; sync* must clear Graphics and invalidate
+    // dirty keys so the next visible frame cannot early-out on a stale
+    // stroke. Validated by injection: skipping the clear leaves bounds
+    // warm, and skipping the invalidate leaves the body empty after unhide.
+    const s = scene();
+    try {
+      const engine = new Engine(oneOfEach());
+      engine.seekTo(15);
+      s.paint(engine);
+
+      const peer = s.peerSprites.get("rooms");
+      const end = s.endpointSprites.get("s1::b");
+      const edge = s.edgeSprites.get("s1");
+      const message = s.messageSprites.get("m1");
+      assert(peer && end && edge && message, "expected one of each sprite");
+
+      assert(peer.bodyGfx.getLocalBounds().width > 0, "peer body drew");
+      assert(end.bodyGfx.getLocalBounds().width > 0, "end body drew");
+      assert(
+        s.edgeStrokeBatch.gfx.getLocalBounds().width > 0,
+        "edge stroked",
+      );
+      assert(message.body.getLocalBounds().width > 0, "message body drew");
+      const hit = edge.hitArea.hitArea;
+      assert(
+        hit != null && typeof (hit as { contains?: unknown }).contains ===
+            "function",
+        "edge has a curve hit proxy",
+      );
+      const curve = engine.frameGeometry.sessionCurves.get("s1");
+      assert(curve, "session curve for hit check");
+      assert(
+        (hit as { contains: (x: number, y: number) => boolean }).contains(
+          (curve.ax + curve.bx) / 2,
+          (curve.ay + curve.by) / 2,
+        ),
+        "mid-chord is pickable",
+      );
+      assert(
+        edge.hitArea.boundsArea != null &&
+          edge.hitArea.boundsArea.width > 0,
+        "cull bounds cover the wire, not the empty origin",
+      );
+
+      engine.setRowVisMode("peers", "rooms", "body");
+      engine.setRowVisMode("sessions", "s1", "body");
+      engine.setRowVisMode("messages", "m1", "body");
+      s.paint(engine);
+
+      assertEquals(peer.bodyGfx.getLocalBounds().width, 0, "peer body cleared");
+      assertEquals(peer.haloGfx.getLocalBounds().width, 0, "peer halo cleared");
+      assertEquals(peer.lastColor, -1, "peer body dirty-key invalidated");
+      assertEquals(end.bodyGfx.getLocalBounds().width, 0, "end body cleared");
+      assertEquals(
+        s.edgeStrokeBatch.gfx.getLocalBounds().width,
+        0,
+        "edge line cleared",
+      );
+      assert(
+        Number.isNaN(edge.lastAx),
+        "edge curve dirty-key invalidated",
+      );
+      assertEquals(
+        message.body.getLocalBounds().width,
+        0,
+        "message body cleared",
+      );
+      assert(
+        message.lastBodyCleared,
+        "message body-clear flag set for unhide",
+      );
+      // Labels stay: that is what `"body"` mode means.
+      assert(peer.label.visible, "peer label kept");
+      assert(edge.label.visible, "edge label kept");
+      assert(message.label.visible, "message label kept");
+
+      engine.setRowVisMode("peers", "rooms", "visible");
+      engine.setRowVisMode("sessions", "s1", "visible");
+      engine.setRowVisMode("messages", "m1", "visible");
+      s.paint(engine);
+
+      assert(peer.bodyGfx.getLocalBounds().width > 0, "peer body restored");
+      assert(end.bodyGfx.getLocalBounds().width > 0, "end body restored");
+      assert(
+        s.edgeStrokeBatch.gfx.getLocalBounds().width > 0,
+        "edge stroke restored",
+      );
+      assert(message.body.getLocalBounds().width > 0, "message body restored");
+      assertEquals(
+        message.lastBodyCleared,
+        false,
+        "message body-clear flag consumed",
+      );
+    } finally {
+      s.dispose();
+    }
+  },
+);

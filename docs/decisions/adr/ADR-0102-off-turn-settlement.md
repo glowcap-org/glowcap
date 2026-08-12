@@ -3,11 +3,11 @@ id: ADR-0102
 status: accepted
 date: 2026-08-02
 tags: [actors, host, driver, scheduling, threads, c-abi]
-decision: "A behavior defers its answer onto a resolver vow: a Vat promise minted without a send, settled by an explicit top-level verb. Each driving tier names how a worker's settle call reaches the owning thread — the completion loop and PollHost through a bounded mailbox with an fd wake, the byte-fed Host through the embedder's own scheduler, and BlockingSession not at all. Off-thread settles carry plain data only; capability transfer stays on the owning thread."
+decision: "A behavior defers its answer onto a resolver vow: a Vat promise minted without a send, settled by an explicit top-level verb. Each driving tier names how a worker's settle call reaches the owning thread — the completion loop and HostRuntime through a bounded mailbox with an fd wake, the byte-fed Host through the embedder's own scheduler, and BlockingSession not at all. Off-thread settles carry plain data only; capability transfer stays on the owning thread."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0102 Off-turn settlement
@@ -17,24 +17,24 @@ amended_by: []
 Accepted. Stage 1 — the resolver vow (`Vat.spawnVow` / `Vat.fulfillVow` /
 `Vat.breakVow`) and the behavior-side deferral (`Turn.forwardVow`) — is
 implemented and held by `test/actors/resolver_vow_test.zig`. Stage 2 — the
-Host-tier resolver rows (`Host.spawnResolver`, `Host.turnForwardVow`, the
-settle verbs, and the session-less vow row beneath them) and their C exports
+Host-tier atomic deferral (`Host.deferTurn`, the settle verbs, and the hidden
+session-less vow row beneath them) and its C exports
 — is implemented and held by the resolver scenarios in
 `test/driver/core_host_test.zig` and `test/c_abi/host_test.zig`. Stage 3 —
 the binding veneers — is implemented with a live proof per binding: the
 TypeScript and Python bindings auto-defer a behavior that returns a promise
 or awaitable (their smokes' async-worker scenes, on Deno, Bun, and asyncio),
 and the Rust and Racket bindings carry the explicit resolver
-(`Host::spawn_resolver` with consuming settle verbs;
-`host-spawn-resolver` with `resolver-forward-turn!` and the settle bangs),
+(`Host::defer_turn` with retryable settle verbs;
+`host-defer-turn` with the settle bangs),
 each proven by a deferred round-trip with both settle arms. Stage 4 — the
 native thread transport — is implemented and held by
 `test/driver/off_turn_settle_test.zig`: `driver.SettleMailbox` (fixed slots,
-allocation-free posts, a socketpair wake honoring the nudge invariant),
-polled beside `PollHost`'s wires and armed as an ordinary recv on the
-completion loop (`Loop.armWake`, which `Bridge.attachSettleMailbox` wires),
-with a real worker thread settling a deferred answer over each tier. The
-decision is fully implemented.
+allocation-free posts, an io-aware mutex around the bounded capture, and a
+socketpair wake honoring the nudge invariant), polled beside `HostRuntime`'s wires
+and armed as an ordinary recv on the completion loop (`Loop.armWake`, which
+`Bridge.attachSettleMailbox` wires), with a real worker thread settling a
+deferred answer over each tier. The decision is fully implemented.
 
 ## Context
 
@@ -57,7 +57,7 @@ and its shape is the authority for ours: the read side and the settle
 authority are separate values.
 
 Two in-tree precedents shape the thread story. The WebRTC endpoint already
-crosses threads safely: entries recorded under a spinlock, applied at
+crosses threads safely: entries recorded into bounded staging, applied at
 harvest, with a self-pipe nudge whose `WouldBlock` means a wake is already
 pending (ADR-0089). And the completion loop's `runUntil` documents today's
 only cross-thread wake as "a connect-and-drop against the bound port is
@@ -87,10 +87,10 @@ tier that owns threads.
    `Turn.forward` parks. The resolver id is a bare integer in the minting
    Vat's namespace and dies with it.
 
-2. **Host tier and C ABI (stage 2).** `driver_core.Host` mints resolver rows
-   over the same machinery its vows already use, and the C archive exports
-   them in the `pancake_host_*` family: a resolver spawn, the fulfilled and
-   broken settles, and a turn-scoped forward-to-vow. These are owning-thread
+2. **Host tier and C ABI (stage 2).** `driver_core.Host` atomically reserves a
+resolver row and defers the current turn over the same machinery its vows
+already use, and the C archive exports that transaction in the
+`pancake_host_*` family with fulfilled and broken settle verbs. These are owning-thread
    verbs like every other export; the Host's one-thread contract does not
    change. A resolver vow belongs to no session, so its row is the
    session-less vow row — the same prerequisite the Racket select-or-dial
@@ -99,31 +99,31 @@ tier that owns threads.
 3. **The embedder's scheduler carries the hop at the byte-fed tier (stage
    3).** Every binding runtime already owns a thread-safe way onto its loop
    (`call_soon_threadsafe`, a channel to the reactor, a posted task). A
-   binding behavior kicks work off, returns after `forwardVow`, and the
+   binding behavior kicks work off, returns after atomic deferral, and the
    completion settles the resolver from the loop. pancake does not duplicate
    the runtime's cross-thread machinery; each binding ships the recipe and a
    proof in which a behavior answers after real asynchronous work.
 
 4. **The native transport is a bounded mailbox with an fd wake (stage 4).**
-   `completion.Loop` and `driver.PollHost` — the two native tiers that own a
+   `completion.Loop` and `driver.HostRuntime` — the two native tiers that own a
    wait — gain a settle mailbox: entries recorded under a lock from any
-   thread, applied at the top of the owning thread's iteration, woken by an
-   eventfd (io_uring) or self-pipe (kqueue, poll) whose write follows the
-   ADR-0089 nudge invariant. The mailbox is bounded in rows and bytes; a
-   full mailbox refuses the worker's settle loudly rather than blocking the
-   loop or growing without bound. This replaces the connect-and-drop wake as
-   the sanctioned cross-thread entry.
+   thread using that thread's `std.Io`, applied at the top of the owning
+   thread's iteration, woken by a socketpair fd whose write follows the
+   ADR-0089 nudge invariant. The mailbox is bounded in rows and bytes; a full
+   mailbox refuses the worker's settle loudly rather than blocking the loop or
+   growing without bound. This replaces the connect-and-drop wake as the
+   sanctioned cross-thread entry.
 
 5. **Off-thread settles carry plain data only.** A settle recorded from
    another thread clones a capability-free resolution (strings, numbers,
-   structure over them) into the mailbox under its lock. A resolution that
-   introduces a capability must be performed on the owning thread, where
+   structure over them) into the mailbox under its io-aware mutex. A resolution
+   that introduces a capability must be performed on the owning thread, where
    every existing verb already is. Authority never crosses threads inside
    pancake.
 
 `BlockingSession` stays out: it parks in a read with nothing to wake, and
 its contract is one connection on one fiber. An application that needs
-off-turn completion uses `PollHost` or the loop; `docs/boundaries.md` says
+off-turn completion uses `HostRuntime` or the loop; `docs/boundaries.md` says
 so beside the advice this mechanism completes.
 
 ## Scope (what this does not decide)

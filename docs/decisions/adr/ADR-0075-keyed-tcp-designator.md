@@ -57,9 +57,9 @@ shared verification seam:
   table, because the sans-io core holds transport strings, never vtables. The
   netlayer vtable is authoritative on I/O paths; the string table is its
   byte-fed mirror, and a transport added to one is added to the other.
-- **The resident.** `net.tcp_keyed` (`src/net/transport/tcp_keyed.zig`, symbol
-  `keyed-tcp`) reuses the plain TCP resident's sockets, streams, and pinned
-  wrapper wholesale; it owns only the grammar. A dial requires a canonical key
+- **The resident.** `net.tcp.keyed` (implemented with `net.tcp.noise` in
+  `src/net/transport/tcp_key_addressed.zig`) reuses the plain TCP resident's
+  sockets, streams, and pinned wrapper wholesale; it owns only the grammar. A dial requires a canonical key
   designator and a `direct-addresses` hint (TCP has no discovery, so a hint-less
   dial refuses before any I/O). A listener binds an ordinary `host:port`,
   reports the key as `localDesignator`, and exposes the bound address through

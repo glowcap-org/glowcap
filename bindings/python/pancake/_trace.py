@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import base64 as _b64
 import ctypes
+import threading
 import time
-from typing import Callable, Optional
+import weakref
+from typing import Callable, NamedTuple, Optional
 
 from . import _constants as _abi
 from ._ffi_host import _TraceCallback, _host
@@ -55,24 +57,35 @@ _native_cb = None  # type: ignore[assignment]  # ctypes CFUNCTYPE product, not a
 # ctypes callback argtypes reject Python ``None`` on Python 3.13. This is the
 # correctly typed null function pointer the C API's nullable callback expects.
 _null_native_cb = _TraceCallback()
-# Every live Host's raw pointer value, mapped to ``(cookie, designator)`` -- the
-# one row per host, looked up by pointer where a caller has one and scanned by
-# cookie where a callback has that instead. The cookie is the small integer
-# passed as the callback ctx so a record can carry which host it came from: a
-# core session id is host-scoped (the Names rule: a bare id needs its namespace
-# named), so two hosts in one process would otherwise collide on the same
-# session row. The designator is the host's own key designator, reported as the
-# session's ``a`` endpoint.
-_hosts: dict = {}
+# Every live Host is held weakly beside its cookie and designator. Native trace
+# installation always goes through the Host owner, never a raw pointer retained
+# in this process-global registry: that keeps installation on the Host's thread
+# and makes a stale registry row incapable of calling freed storage. The cookie
+# is the callback ctx because a core session id is Host-scoped.
+class _TraceHost(NamedTuple):
+    owner: weakref.ReferenceType
+    cookie: int
+    designator: str
+
+
+_hosts: dict[int, _TraceHost] = {}
+_hosts_lock = threading.RLock()
 _next_cookie = 1
 
 
 def _designator_of(cookie: int) -> str:
     """The key designator of the host a callback ctx names. A scan over the
     live hosts, which a process holds one or two of."""
-    for row_cookie, designator in _hosts.values():
-        if row_cookie == cookie:
-            return designator
+    with _hosts_lock:
+        dead = []
+        for key, row in _hosts.items():
+            if row.owner() is None:
+                dead.append(key)
+                continue
+            if row.cookie == cookie:
+                return row.designator
+        for key in dead:
+            _hosts.pop(key, None)
     return ""
 # Payload bytes forwarded per message (whole frame under the cap, head +
 # true length above it). The TypeScript veneer exposes this as an
@@ -98,6 +111,19 @@ def _captp_version_from_abi(version: int) -> str:
     if version == _abi.CAPTP_V1_0:
         return "1.0"
     return "unknown"
+
+
+def _emit(sink: TraceSink, record: dict) -> None:
+    """Keep observer failure outside protocol control flow.
+
+    This is especially load-bearing for the ctypes callback: no Python
+    exception may cross a native callback frame. An annotation uses the same
+    observer-only contract even though it originates on the application side.
+    """
+    try:
+        sink(record)
+    except BaseException:
+        pass
 
 
 def _on_native_event(ctx: int, event_ptr) -> None:
@@ -137,7 +163,7 @@ def _on_native_event(ctx: int, event_ptr) -> None:
             record["session_id"] = ctypes.string_at(
                 ev.session_id, ev.session_id_len,
             ).decode("utf-8", "replace")
-        sink(record)
+        _emit(sink, record)
         return
     if ev.kind == _abi.TRACE_MESSAGE:
         record = {
@@ -175,10 +201,10 @@ def _on_native_event(ctx: int, event_ptr) -> None:
                 }
         elif total_len:
             record["len"] = total_len
-        sink(record)
+        _emit(sink, record)
         return
     if ev.kind == _abi.TRACE_SESSION_CLOSE:
-        sink({
+        _emit(sink, {
             "v": 1,
             "sim_t_ns": _now_ns(),
             "kind": "ocapn.session-closed",
@@ -206,19 +232,23 @@ def enable_trace(
     which is what a partner names it by and so the only name two producers can
     agree on."""
     global _sink, _self_label, _t0
-    _sink = sink
-    _self_label = self_label
-    _t0 = time.monotonic()
-    for raw, (cookie, _designator) in _hosts.items():
-        _host.pancake_host_set_trace(raw, _callback(), cookie)
+    with _hosts_lock:
+        _sink = sink
+        _self_label = self_label
+        _t0 = time.monotonic()
+        owners = _live_hosts_locked()
+    for owner in owners:
+        _refresh_host(owner)
 
     def uninstall() -> None:
         global _sink
-        if _sink is not sink:
-            return
-        _sink = None
-        for raw in _hosts:
-            _host.pancake_host_set_trace(raw, _null_native_cb, None)
+        with _hosts_lock:
+            if _sink is not sink:
+                return
+            _sink = None
+            owners = _live_hosts_locked()
+        for owner in owners:
+            _refresh_host(owner)
 
     return uninstall
 
@@ -235,19 +265,18 @@ def annotate_session(session, *, label: str) -> None:
     sink = _sink
     if sink is None:
         return
-    host_raw = session._host.raw_or_none
-    if host_raw is None:
-        return
-    host_value = host_raw.value if hasattr(host_raw, "value") else host_raw
-    row = _hosts.get(host_value)
-    if row is None or session._ptr is None:
-        return
-    cookie = row[0]
+    owner = session._host
+    owner._assert_owner()
+    with _hosts_lock:
+        row = _hosts.get(id(owner))
+        if row is None or session._ptr is None:
+            return
+        cookie = row.cookie
     out = ctypes.c_uint64(0)
     code = _host.pancake_host_session_trace_id(session._ptr, ctypes.byref(out))
     if code != 0:
         return
-    sink({
+    _emit(sink, {
         "v": 1,
         "sim_t_ns": _now_ns(),
         "kind": "ocapn.session-meta",
@@ -256,22 +285,61 @@ def annotate_session(session, *, label: str) -> None:
     })
 
 
-def _attach_host(raw, designator: str = "") -> None:
-    """Binding-internal: a Host reports its raw pointer and its own key
-    designator at construction so an installed trace covers it, and a trace
-    installed later finds it. Keyed by the pointer's integer value
-    (``c_void_p`` objects are unhashable, and ctypes accepts the integer
-    wherever the pointer parameter goes)."""
+def _live_hosts_locked() -> list:
+    owners = []
+    dead = []
+    for key, row in _hosts.items():
+        owner = row.owner()
+        if owner is None:
+            dead.append(key)
+        else:
+            owners.append(owner)
+    for key in dead:
+        _hosts.pop(key, None)
+    return owners
+
+
+def _current_install(owner):
+    """Read the latest configuration for ``owner`` at execution time.
+
+    Scheduled installs deliberately do not capture a sink generation: an older
+    owner-loop callback that runs after uninstall reads the new disabled state
+    and therefore cannot restore stale configuration.
+    """
+    with _hosts_lock:
+        row = _hosts.get(id(owner))
+        if row is None or row.owner() is not owner:
+            return None
+        callback = _callback() if _sink is not None else _null_native_cb
+        return callback, row.cookie if _sink is not None else None
+
+
+def _refresh_host(owner) -> None:
+    """Apply the latest trace state on a Host's owner thread when possible."""
+    def install() -> None:
+        current = _current_install(owner)
+        raw = owner.raw_or_none
+        if current is None or raw is None:
+            return
+        callback, cookie = current
+        _host.pancake_host_set_trace(raw, callback, cookie)
+
+    owner._run_trace_install(install)
+
+
+def _attach_host(owner, designator: str = "") -> None:
+    """Binding-internal: weakly register a Host and reconcile its native tap."""
     global _next_cookie
-    value = raw.value if hasattr(raw, "value") else raw
-    cookie = _next_cookie
-    _next_cookie += 1
-    _hosts[value] = (cookie, designator)
-    if _sink is not None:
-        _host.pancake_host_set_trace(value, _callback(), cookie)
+    with _hosts_lock:
+        cookie = _next_cookie
+        _next_cookie += 1
+        _hosts[id(owner)] = _TraceHost(weakref.ref(owner), cookie, designator)
+    _refresh_host(owner)
 
 
-def _detach_host(raw) -> None:
-    """Binding-internal: a released Host leaves the registry. The core
-    dropped its own sink row with the host, so no native call is needed."""
-    _hosts.pop(raw.value if hasattr(raw, "value") else raw, None)
+def _detach_host(owner) -> None:
+    """Binding-internal: a releasing Host leaves the weak registry."""
+    with _hosts_lock:
+        row = _hosts.get(id(owner))
+        if row is not None and row.owner() is owner:
+            _hosts.pop(id(owner), None)

@@ -21,6 +21,13 @@ const Exported = vocab.Exported;
 /// the driver surface that drove the serve loop.
 pub const BeforeServeHook = *const fn (ctx: ?*anyopaque, served: *Served, event: *engine.Event) anyerror!bool;
 
+/// A drive polled an event and then could not serve it. The event is
+/// already owned by (and deinitialized with) the drive, so retrying the drive
+/// cannot replay it. The Host must condemn the session rather than treating
+/// this as retryable allocator pressure. OOM after this boundary — local-turn
+/// driving or outbound encoding — remains the ordinary retryable `OutOfMemory`.
+pub const DriveError = error{EventServeOutOfMemory};
+
 /// A loop driver's per-session setup callback: publish the objects this
 /// fresh CapTP session serves (e.g. `try served.publish(vat, "name", App, .{})`). One
 /// declaration shared by every loop host, so an application's publish function
@@ -56,6 +63,11 @@ pub const Served = struct {
     /// that serves every other connection. Null (the default) drives
     /// unbounded, the blocking one-connection-per-thread posture.
     local_turn_budget: ?usize = null,
+    /// Turns consumed in the current resumable local-work epoch. `null` means
+    /// no local work is currently being resumed; a finite Host scheduler may
+    /// yield between these turns, but it must not confuse that yield with a
+    /// fresh batch or reset the per-session amplification cap.
+    budgeted_local_turns: ?usize = null,
     /// The partner's most recent `op:abort`, retained so a close can name the
     /// partner's actual diagnostic instead of a generic "connection closed".
     /// Bounded and inline: the message is copied into a fixed buffer, so
@@ -129,6 +141,73 @@ pub const Served = struct {
         try self.port.peer.stepToIdle();
     }
 
+    /// One bounded Host continuation. It serves one queued event only when no
+    /// local-work epoch is already being resumed, then drives one turn and
+    /// encodes the work those operations produced. A `.more_pending` result is
+    /// resumable: the Host puts this session at the dirty FIFO's tail, so
+    /// siblings receive their own quantum before this session runs again.
+    /// `local_turn_budget` is checked against the epoch carried here, never
+    /// against the Host scheduler's unrelated quantum.
+    pub fn driveFedBudgeted(self: *Served, vat: *actors.Vat) !actors.Vat.DriveProgress {
+        if (self.budgeted_local_turns) |used| {
+            if (self.local_turn_budget) |limit| {
+                if (used >= limit) {
+                    // A previous permitted turn may have committed and then
+                    // failed while encoding its outbound. Preserve that turn's
+                    // charge across the retry: finish encoding, but never run
+                    // an extra turn before reporting the exhausted epoch.
+                    const pending = try vat.driveIngressBudgeted(self.port.ingress, 0);
+                    if (pending == .more_pending) {
+                        try self.port.peer.stepToIdle();
+                        return error.LocalTurnLimitExceeded;
+                    }
+                    self.budgeted_local_turns = null;
+                }
+            }
+        }
+        if (self.budgeted_local_turns == null) {
+            if (self.port.peer.pollEvent()) |event_value| {
+                self.budgeted_local_turns = 0;
+                var event = event_value;
+                defer event.deinit();
+                self.serveEvent(vat, &event) catch |err| switch (err) {
+                    // `pollEvent` transferred ownership above. There is no
+                    // replay-safe queue operation after a serve hook or Port
+                    // may have committed part of the event's effects.
+                    error.OutOfMemory => return DriveError.EventServeOutOfMemory,
+                    else => return err,
+                };
+            }
+        }
+        const event_pending = self.port.peer.hasEvent();
+        // A zero local-turn budget is a probe, not an implicit one-turn
+        // allowance. The Vat reports pending work without consuming it, so a
+        // Host can condemn the session before any local turn runs.
+        const turn_budget: usize = if (self.local_turn_budget) |limit| if (limit == 0) 0 else 1 else 1;
+        const turn_progress = try vat.driveIngressBudgeted(self.port.ingress, turn_budget);
+        if (turn_progress == .more_pending) {
+            if (turn_budget == 0) {
+                try self.port.peer.stepToIdle();
+                return error.LocalTurnLimitExceeded;
+            }
+            const used = (self.budgeted_local_turns orelse 0) + 1;
+            self.budgeted_local_turns = used;
+            if (self.local_turn_budget) |limit| {
+                if (used >= limit) {
+                    // Encode the work already committed by the turn before
+                    // the caller condemns the session. The caller then adds
+                    // the terminal abort through the same outbound path.
+                    try self.port.peer.stepToIdle();
+                    return error.LocalTurnLimitExceeded;
+                }
+            }
+        } else {
+            self.budgeted_local_turns = null;
+        }
+        try self.port.peer.stepToIdle();
+        return if (event_pending or turn_progress == .more_pending) .more_pending else .drained;
+    }
+
     /// Drain one encoded outbound frame for the caller to write to its
     /// transport, or null when the outbound queue is empty. Owned: the caller
     /// frees the returned frame.
@@ -140,6 +219,11 @@ pub const Served = struct {
     /// probe a pump reads before telling its embedder to flush.
     pub fn hasOutbound(self: *const Served) bool {
         return self.port.peer.hasOutbound();
+    }
+
+    /// Encoded outbound bytes waiting for the embedder to drain.
+    pub fn queuedOutboundBytes(self: *const Served) usize {
+        return self.port.peer.queuedOutboundBytes();
     }
 
     /// Serve one already-polled event: retain a partner abort, run the
@@ -189,7 +273,13 @@ pub const Served = struct {
         while (self.port.peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            try self.serveEvent(vat, &event);
+            self.serveEvent(vat, &event) catch |err| switch (err) {
+                // `pollEvent` transferred ownership above. There is no
+                // replay-safe queue operation after a serve hook or Port may
+                // have committed part of the event's effects.
+                error.OutOfMemory => return DriveError.EventServeOutOfMemory,
+                else => return err,
+            };
         }
         // Run any queued local turns so a local-target `send` settles through the
         // same drive that settles far sends. Nothing else calls `drive`, so a
@@ -293,6 +383,7 @@ pub const Served = struct {
     /// deliver with a host vow instead of a blocking wait.
     pub fn sendBootstrapFetch(self: *Served, vat: *actors.Vat, name: []const u8) !actors.Vow {
         try self.port.peer.importObject(engine.BOOTSTRAP_POSITION);
+        errdefer self.port.peer.session_state.releaseImportRetain(.from(engine.BOOTSTRAP_POSITION));
         return self.port.send(
             vat,
             .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },

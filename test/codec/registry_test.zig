@@ -81,6 +81,12 @@ test "an id no registered codec claims fails closed with UnknownCodec" {
     try std.testing.expectError(error.UnknownCodec, dispatch.decodeBody(unclaimed, frame));
 }
 
+test "registry membership distinguishes open wire ids from built implementations" {
+    try std.testing.expect(registry.contains(.syrup));
+    try std.testing.expect(registry.contains(.capnp));
+    try std.testing.expect(!registry.contains(@enumFromInt(0xfffe)));
+}
+
 test "an unregistered codec frames as malformed and has no shape, never an unreachable" {
     // `CodecId` is non-exhaustive (open registry, ADR-0026), so an unregistered
     // id is a representable input. The prefix framer and shape lookup must fail

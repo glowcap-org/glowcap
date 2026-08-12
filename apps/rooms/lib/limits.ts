@@ -28,6 +28,10 @@ export const MAX_DM_INBOXES = 256;
  * caller experiences as a failed dial, not a wedged directory. */
 export const MAX_SIGNAL_EXCHANGES = 64;
 
+/** A directory exchange that has not been explicitly retired by its offerer
+ * cannot retain routing capability state forever. */
+export const SIGNAL_EXCHANGE_TIMEOUT_MS = 30_000;
+
 /** How long a member may pause mid-draft before we stop telling the room they
  * are typing. */
 export const TYPING_IDLE_MS = 4_000;

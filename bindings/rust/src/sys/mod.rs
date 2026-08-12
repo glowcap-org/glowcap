@@ -22,11 +22,15 @@
 //! their *layout* rather than re-exporting the symbols.
 
 #[cfg(feature = "async")]
+pub mod driver;
+#[cfg(feature = "async")]
 pub mod host;
 mod layouts_gen;
 mod ocapn;
 pub use ocapn::*;
 
+#[cfg(feature = "async")]
+mod driver_fns_gen;
 #[cfg(feature = "async")]
 mod host_fns_gen;
 mod ocapn_fns_gen;
@@ -41,6 +45,14 @@ mod inproc_fns_gen;
 pub mod iroh;
 #[cfg(feature = "iroh")]
 mod iroh_fns_gen;
+#[cfg(feature = "onion")]
+pub mod onion;
+#[cfg(feature = "onion")]
+mod onion_fns_gen;
+#[cfg(feature = "relay")]
+pub mod relay;
+#[cfg(feature = "relay")]
+mod relay_fns_gen;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 #[cfg(feature = "tcp")]

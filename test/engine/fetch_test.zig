@@ -29,7 +29,7 @@ test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (next)" 
     try std.testing.expectEqual(@as(?model.ExportPosition, null), prepared.resolver_export);
 }
 
-test "prepareFetchSwissnum carries a promise resolver desc on V1.0" {
+test "prepareFetchSwissnum carries an object resolver desc on V1.0" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .captp_version = model.CaptpVersion.v1_0,
@@ -43,7 +43,27 @@ test "prepareFetchSwissnum carries a promise resolver desc on V1.0" {
     const rmd = prepared.message.deliver.resolve_me_desc orelse return error.TestUnexpectedResult;
     try std.testing.expect(rmd == .near);
     try std.testing.expectEqual(prepared.resolver_export.?, rmd.near.export_position);
-    try std.testing.expectEqual(model.RefKind.promise, rmd.near.kind);
+    try std.testing.expectEqual(model.RefKind.object, rmd.near.kind);
+}
+
+test "sendPreparedFetch rolls back an unpublished V1.0 resolver on backpressure" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initRawOpenFixture(allocator);
+    defer peer.deinit();
+    peer.outbound_budget = 1;
+
+    const prepared = try fetch.prepareFetchSwissnum(allocator, &peer.session_state, "abc");
+    const resolver_export = prepared.resolver_export orelse return error.TestUnexpectedResult;
+    try std.testing.expectError(error.OutboundBackpressure, peer.sendPreparedFetch(prepared));
+
+    try std.testing.expect(!peer.session_state.hasExport(resolver_export));
+    try std.testing.expectEqual(
+        @as(?model.ExportPosition, null),
+        peer.session_state.outbound_resolver_link.getByValue(.{
+            .application_answer = prepared.answer_position,
+        }),
+    );
+    try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
 }
 
 test "tryMatchFetchOutcome settles on an op:resolve keyed to the answer" {

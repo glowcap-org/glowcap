@@ -131,15 +131,13 @@ export type ContentBounds = {
 };
 
 /**
- * The rectangle covering all of `rects`, or null when there are none.
+ * The rectangle covering all of `rects`, or null when none have extent.
  *
- * Fit measures several layers rather than the viewport whole, so it needs to add
- * them up. An EMPTY layer must not be one of them, and that is the trap this
- * exists to make visible: an empty Pixi container reports bounds at the origin,
- * which is a real point, so folding one in stretches the fit back to (0, 0) and
- * a document whose nodes all sit far from the origin fits mostly empty space.
- * Callers pass only the layers that drew something, and no rectangles at all
- * means there is nothing to fit.
+ * Empty rectangles (zero width and height) are skipped. An empty Pixi
+ * container reports bounds at the origin, which is a real point — folding
+ * one in stretches the fit back to `(0, 0)`. The shared edge-stroke batch
+ * under `edgeLayer` is always present, so this skip is what keeps fit from
+ * answering the empty batch instead of the drawn peers.
  */
 export function unionBounds(
   rects: readonly ContentBounds[],
@@ -151,6 +149,9 @@ export function unionBounds(
   for (const r of rects) {
     if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) continue;
     if (!Number.isFinite(r.width) || !Number.isFinite(r.height)) continue;
+    // A point has no extent to fit; keeping it would pin the AABB to its
+    // origin the way an empty Pixi layer does.
+    if (r.width <= 0 && r.height <= 0) continue;
     minX = Math.min(minX, r.x);
     minY = Math.min(minY, r.y);
     maxX = Math.max(maxX, r.x + r.width);

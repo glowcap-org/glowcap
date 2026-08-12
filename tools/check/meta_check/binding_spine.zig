@@ -37,16 +37,31 @@ const binding_constants_files = [_]ConstantsFile{
     .{ .path = "bindings/racket/private/ffi-iroh.rkt", .racket = true },
 };
 
-/// The per-binding spellings of "raise this ABI error code". A numeric literal
-/// at one of these sites bypasses the constant mirror that
-/// `checkBindingConstants` keeps honest, so the code can drift from
-/// `pancake_ocapn.h` without any gate noticing. Error sites must name the mirrored
-/// constant; the literal lives in the constants file alone.
-const binding_error_raise_patterns = [_][]const u8{
+/// Handwritten binding contexts that discuss, inspect, or raise an ABI error.
+/// A negative integer on one of these lines restates generated ABI vocabulary.
+const binding_error_context_patterns = [_][]const u8{
+    "PANCAKE_ERR_",
+    "code()", // Rust Error::code()
+    ".code", // Python and TypeScript error properties
+    "exn:fail:pancake-code",
     "from_code(-", // Rust: Error::from_code(sys::ERR_…)
     "PancakeError(-", // Python / Deno: PancakeError(_ERR_… / ERR-less mirror name)
     "(check -", // Racket: (check ERR-…)
 };
+
+const generated_binding_constant_files = [_][]const u8{
+    "python/pancake/_constants_gen.py",
+    "racket/private/constants-gen.rkt",
+    "rust/src/abi_constants_gen.rs",
+    "ts/abi/constants.ts",
+};
+
+fn isGeneratedBindingConstantFile(path: []const u8) bool {
+    for (generated_binding_constant_files) |generated| {
+        if (std.mem.eql(u8, path, generated)) return true;
+    }
+    return false;
+}
 
 /// The iroh sidecar C ABI is spelled three times by hand — the Rust
 /// definitions (`transports/iroh/src/lib.rs`), the C header
@@ -592,22 +607,27 @@ pub fn checkBindingHostActionSpine(
     try expectFileContains(io, gpa, root, violations, "bindings/racket/private/host-action-gen.rkt", &.{
         "host-dispatch-action!",
     });
-    // Ticket-only DIAL: each dial module borrows the pending view (no URI re-parse).
+    // Ticket-only DIAL: each dial module clones the complete pending locator
+    // before reporting the ticket (no URI re-parse or hint projection).
     try expectFileContains(io, gpa, root, violations, "bindings/ts/stack/dial.ts", &.{
         "pancake_host_pending_dial",
         "runDialTicket",
+        "OwnedLocator.cloneView",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/python/pancake/_dial.py", &.{
         "pancake_host_pending_dial",
         "run_dial_ticket",
+        "_OwnedLocator.clone_view",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/rust/src/dial.rs", &.{
         "pancake_host_pending_dial",
         "run_dial_ticket",
+        "OwnedLocator::clone_view",
     });
     try expectFileContains(io, gpa, root, violations, "bindings/racket/private/dial.rkt", &.{
         "pancake_host_pending_dial",
         "run-dial!",
+        "clone-locator-view",
     });
     // Shared codec order spine: both encode paths must import codec_order.
     try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/syrup/encode.zig", &.{
@@ -633,8 +653,8 @@ pub fn checkBindingHostActionSpine(
             try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: stale DIAL prose `{s}` — ticket-only; drop dead locator fields", .{needle});
         }
     }
-    // Dead dial-view fields must stay deleted on PancakeHostAction (parts live
-    // on PancakePendingDial only — no verbatim locator field).
+    // Dead dial-view fields stay deleted on PancakeHostAction; the complete
+    // locator remains on the pending Node row and is projected on demand.
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/mod.zig", &.{
         \\pub const PancakeHostAction = extern struct {
         \\    kind: u32,
@@ -645,30 +665,31 @@ pub fn checkBindingHostActionSpine(
         \\    message_len: usize,
         \\};
     });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/mod.zig", &.{
-        \\pub const PancakePendingDial = extern struct {
-        \\    transport: ?[*]const u8,
-        \\    transport_len: usize,
-        \\    designator: ?[*]const u8,
-        \\    designator_len: usize,
-        \\    hint: ?[*]const u8,
-        \\    hint_len: usize,
-        \\};
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node.zig", &.{
+        "pub const PendingDialView = model.PeerLocator;",
     });
-    // Verbatim locator must stay deleted from pending dial views (parts alone).
-    if (try fileContains(io, gpa, root, "src/ocapn/engine/node.zig", "pub const PendingDialView = struct {\n        locator:")) {
-        try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: PendingDialView must not carry locator — transport/designator/hint only", .{});
-    }
-    if (try fileContains(io, gpa, root, "src/c_abi/host/host.zig", ".locator = view.locator")) {
-        try appendViolation(gpa, violations, "src/c_abi/host/host.zig: pancake_host_pending_dial must not fill a locator field", .{});
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host.zig", &.{
+        "hint_storage: ?[*]c.PancakeLocatorHintView",
+        "out_locator: ?*c.PancakeLocatorView",
+        "out_hint_count: ?*usize",
+        "shared.locator_adapter.project(view, hints)",
+    });
+    for ([_][]const u8{
+        "src/c_abi/host/mod.zig",
+        "bindings/racket/private/ffi-shared.rkt",
+        "bindings/rust/src/sys/host.rs",
+    }) |path| {
+        if (try fileContains(io, gpa, root, path, "PancakePendingDial")) {
+            try appendViolation(gpa, violations, "{s}: fixed fragment pending-dial struct must stay deleted — project PancakeLocatorView", .{path});
+        }
     }
     // One TCP host:port admission; DialResolver / planDial compose it.
     try expectFileContains(io, gpa, root, violations, "src/ocapn/model/uri.zig", &.{
         "pub fn tcpConnectHostPort",
         "pub fn firstDirectAddress",
     });
-    try expectFileContains(io, gpa, root, violations, "src/net/transport/tcp.zig", &.{
-        "tcpConnectHostPort",
+    try expectFileContains(io, gpa, root, violations, "src/net/transport/tcp_addressing.zig", &.{
+        "model.uri.connectHostPort",
     });
     try expectFileContains(io, gpa, root, violations, "src/driver/core/dial_plan.zig", &.{
         "tcpConnectHostPort",
@@ -1032,22 +1053,19 @@ pub fn checkBindingListenSpine(
     }{
         .{
             .path = "bindings/ts/stack/listen.ts",
-            .markers = &.{ "class Server", "class KeyedTcpServer", "function listen", "listenKeyedTcp", "establishAccepted", "socketAddrDesignator" },
+            .markers = &.{ "class Server", "class KeyedTcpServer", "DriverListener", "function listen", "listenKeyedTcp", "installTcpProvider", "socketAddrDesignator" },
         },
         .{
             .path = "bindings/python/pancake/_listen.py",
-            .markers = &.{ "class Server", "class KeyedTcpServer", "async def listen", "listen_keyed_tcp", "establish_accepted", "socket_addr_designator" },
+            .markers = &.{ "class Server", "class KeyedTcpServer", "async def listen", "listen_keyed_tcp", "accept_session", "install_provider", "socket_addr_designator" },
         },
         .{
             .path = "bindings/rust/src/listen.rs",
-            .markers = &.{ "struct Server", "KeyedTcpServer", "pub async fn listen", "listen_keyed_tcp", "establish_accepted", "socket_addr_designator" },
+            .markers = &.{ "struct Server", "KeyedTcpServer", "struct LoopListener", "pub async fn listen", "listen_keyed_tcp", "ensure_loop_provider", "socket_addr_designator" },
         },
         .{
             .path = "bindings/racket/private/listen.rkt",
-            // Racket reaches the establish spine through `accept-next-session`,
-            // which owns the handshake bound and the close-on-failure rule for
-            // every accept surface; this module supplies only the socket.
-            .markers = &.{ "(struct server", "listen-keyed-tcp", "(define (listen", "(define (accept", "accept-next-session", "socket-addr-designator" },
+            .markers = &.{ "make-loop-server", "driver-loop-add-tcp!", "loop-listen!", "(define (server?", "listen-keyed-tcp", "(define (listen", "(define (accept", "socket-addr-designator" },
         },
     };
     for (mods) |mod| {
@@ -1066,6 +1084,58 @@ pub fn checkBindingListenSpine(
             }
         }
     }
+
+    // The native loop is multi-listener and ACCEPTED carries the listener id.
+    // Every binding must preserve that routing key through its queue and into
+    // the server's accept call; flattening to one global accept queue silently
+    // hands a session to the wrong server as soon as one Host listens on two
+    // transports.
+    const loop_accept_routing = [_]struct {
+        path: []const u8,
+        markers: []const []const u8,
+    }{
+        .{
+            .path = "bindings/ts/stack/driver_loop.ts",
+            .markers = &.{ "listener: ticket", "#accepts.get(event.listener)" },
+        },
+        .{
+            .path = "bindings/ts/stack/listen.ts",
+            .markers = &.{"this.#listener.accept()"},
+        },
+        .{
+            .path = "bindings/python/pancake/_loop.py",
+            .markers = &.{"self._accepts.get(event.ticket)"},
+        },
+        .{
+            .path = "bindings/python/pancake/_listen.py",
+            .markers = &.{"accept_session(self._listener)"},
+        },
+        .{
+            .path = "bindings/rust/src/driver_loop.rs",
+            .markers = &.{ "LoopEvent::Accepted { listener, session }", "accepts.borrow_mut().push_back((listener, session))" },
+        },
+        .{
+            .path = "bindings/rust/src/listen.rs",
+            .markers = &.{"self.lp.accept(self.listener)"},
+        },
+        .{
+            .path = "bindings/racket/private/loop.rkt",
+            .markers = &.{ "(hash-ref (driver-loop-accepts lp) ticket #f)", "(loop-server-listener s)" },
+        },
+    };
+    for (loop_accept_routing) |binding| {
+        const contents = root.readFileAlloc(io, binding.path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for listener-id routing check with {s}", .{ binding.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        for (binding.markers) |marker| {
+            if (std.mem.indexOf(u8, contents, marker) == null) {
+                try appendViolation(gpa, violations, "{s}: missing `{s}` — ACCEPTED must remain routed by listener id", .{ binding.path, marker });
+            }
+        }
+    }
+
     // Session must not re-export dial/listen — the barrel owns that graph.
     const reexport_bans = [_]struct {
         path: []const u8,
@@ -1240,11 +1310,16 @@ pub fn checkBindingEmbedderPump(
         }
     }
 
-    const park = [_]struct { path: []const u8, inside: []const u8, park: []const u8 }{
-        .{ .path = "bindings/ts/stack/session.ts", .inside = "insideTurn", .park = "parkRelease" },
-        .{ .path = "bindings/python/pancake/_session.py", .inside = "_inside_turn", .park = "park_release" },
-        .{ .path = "bindings/rust/src/session_shared.rs", .inside = "inside_turn", .park = "park_session_release" },
-        .{ .path = "bindings/racket/private/session.rkt", .inside = "inside-turn?", .park = "host-park-release!" },
+    const park = [_]struct { path: []const u8, inside: []const u8, park: []const u8, release: []const u8 }{
+        .{ .path = "bindings/ts/stack/session.ts", .inside = "insideTurn", .park = "parkRelease", .release = "pancake_host_session_release" },
+        .{ .path = "bindings/python/pancake/_session.py", .inside = "_inside_turn", .park = "park_release", .release = "pancake_host_session_release" },
+        .{ .path = "bindings/rust/src/session_shared.rs", .inside = "inside_turn", .park = "park_session_release", .release = "pancake_host_session_release" },
+        // Racket's close path releases through host.rkt's
+        // `native-session-release!`, the one owner of the loop-vs-byte-fed
+        // branch (`pancake_driver_session_release` beside
+        // `pancake_host_session_release`, ADR-0112); host.rkt is held to
+        // both spellings below.
+        .{ .path = "bindings/racket/private/session.rkt", .inside = "inside-turn?", .park = "host-park-release!", .release = "native-session-release!" },
     };
     for (park) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(2 << 20)) catch |err| {
@@ -1258,8 +1333,28 @@ pub fn checkBindingEmbedderPump(
         if (std.mem.indexOf(u8, contents, row.park) == null) {
             try appendViolation(gpa, violations, "{s}: missing `{s}` — mid-turn park gate", .{ row.path, row.park });
         }
-        if (std.mem.indexOf(u8, contents, "pancake_host_session_release") == null) {
-            try appendViolation(gpa, violations, "{s}: missing pancake_host_session_release — close path", .{row.path});
+        if (std.mem.indexOf(u8, contents, row.release) == null) {
+            try appendViolation(gpa, violations, "{s}: missing `{s}` — close path release", .{ row.path, row.release });
+        }
+    }
+    // The Racket release branch's own authorities: host.rkt owns the branch
+    // and the byte-fed spelling, loop.rkt fills the hook with the loop
+    // spelling, so a rename cannot quietly point `native-session-release!`
+    // at nothing.
+    const release_branch = [_]struct { path: []const u8, needles: []const []const u8 }{
+        .{ .path = "bindings/racket/private/host.rkt", .needles = &.{ "native-session-release!", "pancake_host_session_release" } },
+        .{ .path = "bindings/racket/private/loop.rkt", .needles = &.{"pancake_driver_session_release"} },
+    };
+    for (release_branch) |row| {
+        const contents = root.readFileAlloc(io, row.path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for release-branch check with {s}", .{ row.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        for (row.needles) |needle| {
+            if (std.mem.indexOf(u8, contents, needle) == null) {
+                try appendViolation(gpa, violations, "{s}: missing `{s}` — the session-release branch (ADR-0112)", .{ row.path, needle });
+            }
         }
     }
 
@@ -1603,9 +1698,9 @@ pub fn checkBindingEmbedderSpineDocs(
     }
 }
 
-/// Reject numeric error-code literals at binding raise sites. Scans every
-/// binding source file (skipping generated trees) for a raise pattern followed
-/// by a digit — `from_code(-9)` fails, `from_code(sys::ERR_IO)` passes.
+/// Reject numeric error-code literals in handwritten binding claims and raise
+/// sites. Generated constant files are the sole numeric mirrors of the C ABI;
+/// binding code, tests, and docs must name those constants or typed errors.
 pub fn checkBindingMagicErrorCodes(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -1628,6 +1723,7 @@ pub fn checkBindingMagicErrorCodes(
             std.mem.endsWith(u8, entry.path, ".ts") or
             std.mem.endsWith(u8, entry.path, ".rkt");
         if (!is_source) continue;
+        if (isGeneratedBindingConstantFile(entry.path)) continue;
         const path = try std.fmt.allocPrint(gpa, "bindings/{s}", .{entry.path});
         defer gpa.free(path);
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
@@ -1635,15 +1731,28 @@ pub fn checkBindingMagicErrorCodes(
             continue;
         };
         defer gpa.free(contents);
-        for (binding_error_raise_patterns) |pattern| {
+
+        var lines = std.mem.splitScalar(u8, contents, '\n');
+        var line_number: usize = 0;
+        while (lines.next()) |line| {
+            line_number += 1;
+            var has_error_context = false;
+            for (binding_error_context_patterns) |pattern| {
+                if (std.mem.indexOf(u8, line, pattern) != null) {
+                    has_error_context = true;
+                    break;
+                }
+            }
+            if (!has_error_context) continue;
+
             var search: usize = 0;
-            while (std.mem.indexOfPos(u8, contents, search, pattern)) |start| {
-                search = start + pattern.len;
-                if (search >= contents.len) break;
-                const c = contents[search];
-                if (c < '0' or c > '9') continue;
-                const line = 1 + std.mem.count(u8, contents[0..start], "\n");
-                try appendViolation(gpa, violations, "{s}:{d}: numeric error code at a raise site (`{s}{c}…`) — name the mirrored ABI constant instead", .{ path, line, pattern, c });
+            while (std.mem.indexOfPos(u8, line, search, "-")) |minus| {
+                search = minus + 1;
+                if (search >= line.len) break;
+                const digit = line[search];
+                if (digit < '0' or digit > '9') continue;
+                try appendViolation(gpa, violations, "{s}:{d}: numeric ABI error code (`-{c}…`) — name the generated constant or typed error instead", .{ path, line_number, digit });
+                break;
             }
         }
     }

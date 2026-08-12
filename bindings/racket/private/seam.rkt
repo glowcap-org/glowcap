@@ -9,7 +9,7 @@
 ;; `codec-id`, the session-construction seam (`async-transport`,
 ;; `establish-dialed-locator-session`,
 ;; `establish-accepted-session`, `accept-next-session`,
-;; `make-fresh-host`, `make-host`, `host-set-self-designator!`,
+;; `make-fresh-host`, `make-host`,
 ;; `host-set-advertised-locator!`), the handshake
 ;; bound both halves default to (`HANDSHAKE-TIMEOUT-MS`), and the shared frame
 ;; cstructs with their managed-frame release. Not a public API: `pancake.rkt`'s

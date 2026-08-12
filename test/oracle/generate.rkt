@@ -88,7 +88,7 @@
 
 ;; <op:listen <desc:answer 7> <desc:import-object 9>>.
 ;;
-;; op:listen wire-shape per ADR-0007 § Decision 4 — two
+;; Legacy op:listen wire-shape per ADR-0007 § Decision 4 — two
 ;; desc:* reference operands. `to-desc` may be `desc:answer`
 ;; (pipelining target case) or `desc:export` (local-export target
 ;; case). `listen-desc` is `desc:import-object` or
@@ -96,10 +96,9 @@
 ;; `desc:import-object` for `Reference::Near` listener arguments
 ;; via the standard payload-position perspective flip.
 ;;
-;; Same shape on next and V1_0 — adding a new record is wire-
-;; additive. The V1_0 Goblins-canonical 3-operand `wants-partial?`
-;; extension lives in a separate fixture once the Goblins-canonical
-;; wire profile lands.
+;; V1.0 accepts this omitted third operand only as settling-only
+;; compatibility with the earlier OCapN text. Pancake canonically emits the
+;; Goblins three-operand form below. Next always carries its integer mode.
 (define (op-listen-promise-target)
   (record* 'op:listen
            (record* 'desc:answer 7)

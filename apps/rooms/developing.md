@@ -22,8 +22,8 @@ zig build demo-rooms -Dport=9099 -Dattach=true
 
 The room server can broadcast its own protocol activity as a timeline the [ocapnviz](../ocapnviz/)
 viewer draws. Set `ROOMS_VIZ_PORT` when starting the server, switch the viewer to
-**Live**, and point the Source URL field at the printed `ROOMS-VIZ-LISTENING`
-address:
+**Live**, and point the Source sturdyref field at the printed
+`ROOMS-VIZ-LISTENING` capability:
 
 ```sh
 ROOMS_VIZ_PORT=9300 deno run --allow-ffi --allow-net --allow-read --allow-env \
@@ -54,8 +54,8 @@ ROOMS_VIZ_PORT=9300 zig build rooms-web-tcp
 Cargo must be on `PATH` for the iroh transport sidecar; Deno is required for the UI either way. The
 TCP form drops the Cargo requirement and the encryption with it. Either command prints a
 `ROOMS-VIZ-LISTENING` line once the room server is up. Open [ocapnviz](../ocapnviz/)
-(`cd apps/ocapnviz && bash dev.sh`), switch the top bar to **Live**, and point the Source URL at
-that address (for port 9300, `ws://127.0.0.1:9300/`).
+(`cd apps/ocapnviz && bash dev.sh`), switch the top bar to **Live**, and give
+the Source field that sturdyref.
 
 Attach mode is the one caveat: if an orphaned room server already holds the room port, the web
 server attaches to it instead of spawning its own child, and tracing follows however that orphan was
@@ -87,8 +87,8 @@ ROOMS_VIZ_PORT=9300 zig build rooms-web-tcp
 Open `http://localhost:8000`, enter the room `general`, and pick a nickname. That is your pancake
 member.
 
-In a second terminal, start the viewer, switch the top bar to **Live**, and point the URL field at
-`ws://127.0.0.1:9300/`:
+In a second terminal, start the viewer, switch the top bar to **Live**, and give
+the Source field the `ROOMS-VIZ-LISTENING` sturdyref:
 
 ```sh
 cd apps/ocapnviz && bash dev.sh

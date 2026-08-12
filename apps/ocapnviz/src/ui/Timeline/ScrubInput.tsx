@@ -145,8 +145,39 @@ export function ScrubInput(
       typeof source.current === "function" ? source.current() : source.current,
     [],
   );
-  const value = readValue();
+  // Gesture-local value. Inspector hosts often subscribe to `docVersion`,
+  // which stays quiet inside an edit transaction, so the controlled prop
+  // does not move mid-scrub. Wheel ticks must accumulate from THIS, not
+  // from the stale prop — otherwise each event recomputes from the
+  // pre-gesture number and the field fights itself.
+  const liveRef = useRef<number | null>(null);
+  const [liveDisplay, setLiveDisplay] = useState<number | null>(null);
+  const value = liveDisplay ?? readValue();
   const classes = className ? `${NUMERIC_CLASS} ${className}` : NUMERIC_CLASS;
+  // Bumped on every publish so a deferred clear from a prior gesture
+  // cannot wipe a newer overlay still in flight.
+  const liveGenRef = useRef(0);
+
+  const publishLive = useCallback((next: number, emit: (n: number) => void) => {
+    liveGenRef.current += 1;
+    liveRef.current = next;
+    setLiveDisplay(next);
+    emit(next);
+  }, []);
+
+  /** Drop the overlay after the controlled prop has had a chance to
+   *  absorb the gesture. Clearing in the same turn as `onScrubEnd`
+   *  flashes the pre-gesture digits for a frame. A generation token
+   *  keeps a stale rAF from clearing a newer scrub that started in
+   *  between. */
+  const clearLiveSoon = useCallback(() => {
+    const gen = liveGenRef.current;
+    requestAnimationFrame(() => {
+      if (liveGenRef.current !== gen) return;
+      liveRef.current = null;
+      setLiveDisplay(null);
+    });
+  }, []);
 
   const dragRef = useRef<DragState>(null);
   // At rest the element advertises vertical scrub (the dominant
@@ -256,7 +287,9 @@ export function ScrubInput(
       dragRef.current = {
         startX: e.clientX,
         startY: e.clientY,
-        startValue: readValue(),
+        // Prefer the gesture-local overlay: a recent wheel tick can
+        // leave `liveRef` ahead of the still-quiet controlled prop.
+        startValue: liveRef.current ?? readValue(),
         moved: false,
         axis: null,
         bodyCursorPrev,
@@ -298,9 +331,10 @@ export function ScrubInput(
       } else {
         next = drag.startValue * Math.pow(2, raw / effectivePxPerDoubling);
       }
-      onChange(clamp(next));
+      const clamped = clamp(next);
+      publishLive(clamped, onChange);
     },
-    [linear, clamp, onChange, pxPerDoubling, onScrubStart],
+    [linear, clamp, onChange, pxPerDoubling, onScrubStart, publishLive],
   );
 
   // Idempotent — called from pointerup (synchronous),
@@ -318,8 +352,15 @@ export function ScrubInput(
     dragRef.current = null;
     // After the ref clears so a re-render inside the callback can't
     // observe a half-torn-down drag.
-    if (scrubbed) onScrubEnd?.();
-  }, [onScrubEnd, surface]);
+    if (scrubbed) {
+      onScrubEnd?.();
+      clearLiveSoon();
+    } else {
+      liveGenRef.current += 1;
+      liveRef.current = null;
+      setLiveDisplay(null);
+    }
+  }, [onScrubEnd, surface, clearLiveSoon]);
 
   // Cleanup happens here synchronously (not deferred to
   // lostpointercapture): `setEditing(true)` re-renders and
@@ -349,8 +390,9 @@ export function ScrubInput(
   // diagonal trackpad gestures sum cleanly.
   //
   // Ref-reads keep the listener attached for the component's
-  // lifetime — wheel fires faster than React renders. The value comes through
-  // `readValue`, which is the same ref read.
+  // lifetime — wheel fires faster than React renders. Accumulation
+  // reads `liveRef` so successive ticks stack instead of rebasing
+  // on the still-stale controlled prop.
   const onScrubStartRef = useRef(onScrubStart);
   onScrubStartRef.current = onScrubStart;
   const onScrubEndRef = useRef(onScrubEnd);
@@ -362,10 +404,17 @@ export function ScrubInput(
   onChangeRef.current = onChange;
   const clampRef = useRef(clamp);
   clampRef.current = clamp;
+  const clearLiveSoonRef = useRef(clearLiveSoon);
+  clearLiveSoonRef.current = clearLiveSoon;
   useEffect(() => {
     if (editing) return;
     const el = displayRef.current;
     if (!el) return;
+    const endWheelSession = () => {
+      wheelSessionRef.current = null;
+      onScrubEndRef.current?.();
+      clearLiveSoonRef.current();
+    };
     const onWheel = (e: WheelEvent) => {
       const delta = -e.deltaY + e.deltaX;
       if (delta === 0) return;
@@ -378,25 +427,28 @@ export function ScrubInput(
       } else {
         clearTimeout(wheelSessionRef.current);
       }
-      wheelSessionRef.current = setTimeout(() => {
-        wheelSessionRef.current = null;
-        onScrubEndRef.current?.();
-      }, WHEEL_SESSION_QUIET_MS);
+      wheelSessionRef.current = setTimeout(
+        endWheelSession,
+        WHEEL_SESSION_QUIET_MS,
+      );
       const fineness = e.shiftKey ? 0.1 : e.altKey ? 10 : 1;
       const effectivePxPerDoubling = (pxPerDoubling * WHEEL_DAMPING) / fineness;
-      const cur = readValue();
+      const cur = liveRef.current ?? readValue();
       const next = linear
         ? cur + (delta / effectivePxPerDoubling)
         : cur * Math.pow(2, delta / effectivePxPerDoubling);
-      onChangeRef.current(clampRef.current(next));
+      const clamped = clampRef.current(next);
+      liveGenRef.current += 1;
+      liveRef.current = clamped;
+      setLiveDisplay(clamped);
+      onChangeRef.current(clamped);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("wheel", onWheel);
       if (wheelSessionRef.current !== null) {
         clearTimeout(wheelSessionRef.current);
-        wheelSessionRef.current = null;
-        onScrubEndRef.current?.();
+        endWheelSession();
       }
     };
   }, [editing, linear, pxPerDoubling, readValue]);

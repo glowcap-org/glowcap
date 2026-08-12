@@ -737,6 +737,15 @@ pub const Session = struct {
         return self.admitExportPosition(id);
     }
 
+    /// Prove a first-marshaled export position belongs to this session without
+    /// mutating its allocator cursor. Send validation calls this before apply;
+    /// `admitExportPosition` reuses it at the commit boundary.
+    pub fn validateExportPositionForMarshal(self: *const Session, id: model.ExportPosition) Error!void {
+        if (id.int() == BOOTSTRAP_POSITION or self.exports.contains(id)) return;
+        if (id.int() < self.export_base or id.int() >= self.export_position_end)
+            return Error.InvalidReference;
+    }
+
     /// Admit an export position that did not come from this session's own
     /// allocator, and advance past it.
     ///
@@ -752,10 +761,8 @@ pub const Session = struct {
     /// The bootstrap position sits below every range by construction and is
     /// always this session's own.
     fn admitExportPosition(self: *Session, id: model.ExportPosition) Error!void {
-        if (id.int() == BOOTSTRAP_POSITION) return;
-        if (id.int() < self.export_base or id.int() >= self.export_position_end) {
-            return Error.InvalidReference;
-        }
+        try self.validateExportPositionForMarshal(id);
+        if (id.int() == BOOTSTRAP_POSITION or self.exports.contains(id)) return;
         if (id.int() >= self.next_export_position) {
             self.next_export_position = id.int() + 1;
         }
@@ -884,12 +891,14 @@ pub const Session = struct {
     /// (`Peer.maybeEnqueuePipelinedCall`).
     ///
     /// The rarer kinds that validate or apply over sub-structure the borrowed
-    /// walkers do not yet read (`gc_*`'s position vectors, `handoff`'s deep
-    /// record) fall back to one owned materialization for the existing owned
-    /// validate / apply. The projection ops (`get`/`index`/`untag`) stay
-    /// borrowed: the session reads only their receiver and answer position,
-    /// and the engine re-reads the field or tag from the frame itself, so an
-    /// owned copy here would materialize bytes nobody reads.
+    /// walkers do not yet read (`gc_*`'s position vectors) fall back to one
+    /// owned materialization for the existing owned validate / apply.
+    /// Handoff arrives as a deliver/resolve *argument*, not a top-level body
+    /// kind, and validates on the borrowed walk. The projection ops
+    /// (`get`/`index`/`untag`) stay borrowed: the session reads only their
+    /// receiver and answer position, and the engine re-reads the field or tag
+    /// from the frame itself, so an owned copy here would materialize bytes
+    /// nobody reads.
     pub fn recordRecvView(self: *Session, body: model.view.Body) !void {
         try self.admitInState(body);
         // Everything both branches bump into `recv_scratch` is turn-scratch —
@@ -1009,9 +1018,20 @@ pub const Session = struct {
     /// (the relayed-resolution seam). Engine caller:
     /// `engine.Peer.applyRelayedResolution`.
     pub const validateStoredResolution = validate.validateStoredResolution;
+    pub const validateListenerFireTarget = validate.validateListenerFireTarget;
     /// Retain the wire mention of a sent export reference that bypasses
-    /// `recordSend`. Engine caller: `engine.v1_0.installResolverForOutboundDeliver`.
+    /// `recordSend`. Engine caller: `engine.v1_0.prepareOutboundDeliver`.
     pub const retainSentExportRef = apply.retainSentExportRef;
+    pub const ensureSentResolutionExportCapacity = apply.ensureSentResolutionExportCapacity;
+
+    /// Commit one listener fire whose target, payload, export capacity, and
+    /// outbound carrier were all prepared before settlement. No validation or
+    /// allocation remains here; a failure would violate that preparation
+    /// contract and is deliberately loud.
+    pub fn commitPreparedListenerFire(self: *Session, message: model.Message) void {
+        std.debug.assert(message == .deliver and message.deliver.answer == null);
+        applySend(self, message) catch unreachable;
+    }
 
     const installAnswer = apply.installAnswer;
 
@@ -1162,6 +1182,18 @@ pub const Session = struct {
         self.outbound_answers.remove(id);
     }
 
+    /// Unwind one freshly installed virtual inbound answer that a failed V1.0
+    /// resolver registration never made observable. This is deliberately not a
+    /// general inbound-answer deletion API: partner-visible rows leave through
+    /// `op:gc-answers`. The caller owns a new pending count-1 row by construction;
+    /// the monotonic virtual position allocator remains advanced on rollback.
+    pub fn abandonUnsharedInboundAnswer(self: *Session, id: model.AnswerPosition) void {
+        const entry = self.inbound_answers.getPtr(id) orelse unreachable;
+        std.debug.assert(entry.status() == .pending and entry.count == 1);
+        deinitAnswerCell(self.allocator, entry);
+        self.inbound_answers.remove(id);
+    }
+
     /// The node-unique token this session's import `position` was enrolled
     /// under (ADR-0069), or null when it has none yet. Enrolling the same
     /// import twice must name it by the same token, or one capability would
@@ -1202,8 +1234,8 @@ pub const Session = struct {
         self.imports.releaseHostRetains(position, ref, delta);
     }
 
-    /// Forget the expected Host identity without disturbing a Node token that
-    /// may coexist on the row during migration.
+    /// Forget the expected Host identity without disturbing the orthogonal
+    /// Node routing token that may coexist on the row.
     pub fn forgetHostCapability(self: *Session, position: model.ImportPosition, ref: u64) void {
         self.imports.forgetHostRef(position, ref);
     }
@@ -1474,11 +1506,14 @@ pub const Session = struct {
     // next profile's shortening and settling claims. Bodies live in
     // `imported_promise.zig` and are aliased here.
     pub const installThirdPartyImport = imported_promise.installThirdPartyImport;
+    pub const abandonUnsharedThirdPartyImport = imported_promise.abandonUnsharedThirdPartyImport;
     pub const isThirdPartyImport = imported_promise.isThirdPartyImport;
     pub const installImportedPromiseListener = imported_promise.installImportedPromiseListener;
     pub const recordRelayedResolution = imported_promise.recordRelayedResolution;
     pub const takeImportedPromiseListeners = imported_promise.takeImportedPromiseListeners;
+    pub const restoreImportedPromiseListeners = imported_promise.restoreImportedPromiseListeners;
     pub const importedPromiseResolution = imported_promise.importedPromiseResolution;
+    pub const pendingImportedPromiseFire = imported_promise.pendingImportedPromiseFire;
     pub const importedPromiseRowId = imported_promise.importedPromiseRowId;
     pub const findImportedPromise = imported_promise.findImportedPromise;
     pub const claimPromiseSettlingListener = imported_promise.claimSettlingListener;

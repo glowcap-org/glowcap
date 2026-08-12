@@ -17,6 +17,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  eyeGlyphStatus,
   GUTTER_LABEL_RIGHT_PAD_PX,
   gutterLabelText,
   HEADER_EYEBALL_X,
@@ -25,6 +26,7 @@ import {
 import { monoAdvance } from "./label-layout.ts";
 import { GUTTER_MAX_PX, GUTTER_MIN_PX } from "./state.ts";
 import { SIZE } from "../tokens.ts";
+import { intentLabel } from "../../engine/intent-labels.ts";
 
 /** A name long enough that no gutter width can hold all of it. */
 const LONG = "3c3c3c3c…3c3c3c3c · 3c3c3c3c…3c3c3c3c";
@@ -36,6 +38,36 @@ Deno.test("one character of the timeline's mono face is six pixels", () => {
   // 5.625, and a row label ten characters long would then be measured
   // four pixels narrower than it draws.
   assertEquals(monoAdvance(SIZE.xs), 6);
+});
+
+Deno.test("eyeball hover status uses the same verbs as intent labels", () => {
+  // The gutter comment claims a tooltip; the verbs must stay locked to
+  // undo copy so the eye does not invent a second vocabulary.
+  for (
+    const mode of ["visible", "label", "body", "both"] as const
+  ) {
+    assertEquals(
+      eyeGlyphStatus(mode, { kind: "row" }),
+      intentLabel({
+        kind: "set-row-vis-mode",
+        category: "peers",
+        id: "x",
+        mode,
+      }),
+    );
+    assertEquals(
+      eyeGlyphStatus(mode, { kind: "category", category: "sessions" }),
+      intentLabel({
+        kind: "set-category-vis-mode",
+        category: "sessions",
+        mode,
+      }),
+    );
+    assertEquals(
+      eyeGlyphStatus(mode, { kind: "all" }),
+      intentLabel({ kind: "set-all-vis-mode", mode }),
+    );
+  }
 });
 
 Deno.test("a label stops inside the gutter at every width it can have", () => {

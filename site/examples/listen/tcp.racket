@@ -1,0 +1,9 @@
+(require "pancake.rkt")
+
+;; Plain TCP binds the host and port you choose.
+(define server (listen "127.0.0.1" 9099))
+(define session (accept server))
+(session-publish session "greeter"
+                 (lambda (verb args)
+                   (format "hello, ~a" (car args))))
+(session-serve session)

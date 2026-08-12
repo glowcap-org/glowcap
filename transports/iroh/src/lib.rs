@@ -68,6 +68,12 @@ const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 /// the timeout beside it, so it is stated rather than assumed.
 const IROH_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Maximum lifetime of an admitted non-blocking write after local close. The
+/// loop-facing free remains immediate, while a peer that never restores QUIC
+/// flow-control credit cannot strand a detached task and its bounded batch for
+/// the endpoint's remaining lifetime.
+const CLOSE_DRAIN_TIMEOUT: std::time::Duration = IDLE_TIMEOUT;
+
 /// Worker threads for one endpoint's runtime when the caller names none. It is a
 /// per-endpoint cost, so a process holding many endpoints, or one endpoint
 /// holding many connections, should say what it wants instead.
@@ -111,10 +117,10 @@ const REACH_LOCAL_DISCOVERY: u32 = 3;
 
 /// `conn_try_read` / `conn_try_write` return this when the operation cannot make
 /// progress without blocking: no inbound bytes are buffered yet, or the outbound
-/// buffer is at its bound. The loop yields the connection and re-arms it on the
-/// next readiness event. Distinct from `0` (clean end of stream) and `-1`
-/// (error). Mirrors `PANCAKE_IROH_WOULD_BLOCK` in the header and the Zig
-/// resident.
+/// buffer has no room. The loop yields the connection and re-arms it on the next
+/// readiness event. Distinct from `0` (clean end of stream or zero-length write)
+/// and `-1` (error). Mirrors `PANCAKE_IROH_WOULD_BLOCK` in the header and the
+/// Zig resident.
 const WOULD_BLOCK: isize = -2;
 
 /// Readiness event bits packed into `PancakeIrohReadyEvent.events`. A single
@@ -133,18 +139,20 @@ const DIAL_UNREACHABLE: i32 = 3;
 const DIAL_LOST: i32 = 4;
 const DIAL_CANCELED: i32 = 5;
 const DIAL_PENDING: i32 = 6;
+const DIAL_BUSY: i32 = 7;
 
 /// The non-blocking inbound/outbound buffer bound, per connection and direction
 /// (ADR-0057's back-pressure policy). A reader that fills the inbound buffer
 /// stops reading the QUIC stream until the loop drains it, so a slow consumer
 /// applies QUIC flow control to its partner rather than letting the sidecar
-/// buffer without limit; a `conn_try_write` past the outbound bound returns
-/// `WOULD_BLOCK`. One largest-admissible CapTP frame fits well within this, so
-/// steady traffic never blocks on it.
+/// buffer without limit; a `conn_try_write` admits only the prefix that fits
+/// under the outbound bound and returns `WOULD_BLOCK` only when no byte can fit.
+/// One largest-admissible CapTP frame fits well within this, so steady traffic
+/// never blocks on it.
 const NB_BUFFER_BOUND: usize = 1 << 20;
 
 /// The steady per-direction buffer capacity a connection retains once a burst
-/// drains, mirroring the Zig posture (`loop_read_buf_bytes` in
+/// drains, mirroring the Zig posture (`default_read_buffer_bytes` in
 /// `src/net/completion/loop.zig` and `steady_outbound_bytes` in
 /// `src/net/frame_stream.zig`, both 16 KiB):
 /// burst capacity frees on drain so one slow episode never pins its high-water
@@ -153,11 +161,21 @@ const NB_BUFFER_BOUND: usize = 1 << 20;
 const NB_STEADY_BYTES: usize = 16 * 1024;
 
 /// Cap on one `read_chunk` segment in the reader task. The chunk is a zero-copy
-/// borrow of the QUIC reassembly buffer, so the cap costs no memory; it bounds
-/// how far one read may overshoot `NB_BUFFER_BOUND` (the bound is checked
-/// before the read, so pending bytes never exceed `NB_BUFFER_BOUND +
-/// READ_CHUNK_BYTES`), matching the previous 64 KiB read granularity.
+/// borrow of the QUIC reassembly buffer, so the cap costs no memory. The reader
+/// further limits every request to the queue's exact remaining budget, keeping
+/// `NB_BUFFER_BOUND` an actual bound rather than a threshold with overshoot.
 const READ_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Accepted loop connections retained by the sidecar before Zig claims them.
+/// This mirrors `src/net/transport/iroh.zig`'s accept stash: both producer and
+/// consumer queues have the same admission posture.
+const ACCEPT_QUEUE_BOUND: usize = 128;
+
+/// Outbound dials retained as Tokio tasks or terminal results until the caller
+/// consumes them. A caller controls request ids and completion consumption, so
+/// this boundary must refuse admission rather than turn either behavior into an
+/// unbounded endpoint-owned task/map queue.
+const DIAL_ADMISSION_BOUND: usize = 32;
 
 /// One drained readiness record. `subject` is zero for `EV_ACCEPT`, a caller
 /// request id for `EV_CONNECT`, and otherwise a stable endpoint-scoped
@@ -230,7 +248,49 @@ pub struct PancakeIrohEndpoint {
 	readiness: OnceLock<Arc<Readiness>>,
 	accept: OnceLock<Arc<AcceptState>>,
 	dials: OnceLock<Arc<DialState>>,
+	/// Terminal ownership for non-blocking writers. Completed tasks retain no
+	/// endpoint row; release waits only on the active count.
+	writers: Arc<WriterTasks>,
 	next_conn_id: AtomicUsize,
+}
+
+struct WriterTasks {
+	active: AtomicUsize,
+	drained: Notify,
+}
+
+impl WriterTasks {
+	fn new() -> Self {
+		Self {
+			active: AtomicUsize::new(0),
+			drained: Notify::new(),
+		}
+	}
+
+	fn acquire(self: &Arc<Self>) -> WriterPermit {
+		self.active.fetch_add(1, Ordering::Relaxed);
+		WriterPermit(self.clone())
+	}
+
+	async fn wait(&self) {
+		loop {
+			let drained = self.drained.notified();
+			if self.active.load(Ordering::Acquire) == 0 {
+				return;
+			}
+			drained.await;
+		}
+	}
+}
+
+struct WriterPermit(Arc<WriterTasks>);
+
+impl Drop for WriterPermit {
+	fn drop(&mut self) {
+		if self.0.active.fetch_sub(1, Ordering::AcqRel) == 1 {
+			self.0.drained.notify_waiters();
+		}
+	}
 }
 
 /// Opaque connection handle: one QUIC connection carrying one bidirectional
@@ -245,10 +305,17 @@ pub struct PancakeIrohConn {
 	conn: Connection,
 	send: Mutex<Option<SendStream>>,
 	recv: Mutex<Option<RecvStream>>,
+	/// Serializes the one ownership transition that takes both streams. The
+	/// steady read/write path still locks each direction independently.
+	nonblocking_transition: Mutex<()>,
 	nb: OnceLock<Arc<NbConn>>,
-	/// The reader/writer task handles. `conn_free` aborts and joins them before
-	/// returning, so no task outlives its connection.
+	/// The reader/writer task handles. `conn_free` aborts the reader and detaches
+	/// the writer without joining: each task owns only its streams, `Arc<NbConn>`,
+	/// and one endpoint writer permit. Connection release stays non-blocking while
+	/// the permit gives endpoint release its terminal drain barrier.
 	nb_tasks: OnceLock<(JoinHandle<()>, JoinHandle<()>)>,
+	/// Endpoint-scoped terminal owner for a writer detached at conn release.
+	writers: Arc<WriterTasks>,
 }
 
 /// One endpoint's readiness channel: the self-pipe the loop polls plus the queue
@@ -261,7 +328,44 @@ struct Readiness {
 	/// The write end, set non-blocking so a coalesced wakeup never parks a task;
 	/// the queue, not the byte count, is the source of truth.
 	writer: Mutex<UnixStream>,
-	queue: Mutex<VecDeque<PancakeIrohReadyEvent>>,
+	queue: Mutex<ReadyQueue>,
+}
+
+struct ReadyQueue {
+	order: VecDeque<usize>,
+	events: HashMap<usize, u32>,
+}
+
+impl ReadyQueue {
+	fn new() -> ReadyQueue {
+		ReadyQueue {
+			order: VecDeque::new(),
+			events: HashMap::new(),
+		}
+	}
+
+	fn len(&self) -> usize {
+		self.order.len()
+	}
+
+	fn is_empty(&self) -> bool {
+		self.order.is_empty()
+	}
+
+	fn push_or_coalesce(&mut self, subject: usize, events: u32) {
+		if let Some(existing) = self.events.get_mut(&subject) {
+			*existing |= events;
+			return;
+		}
+		self.order.push_back(subject);
+		self.events.insert(subject, events);
+	}
+
+	fn pop_front(&mut self) -> Option<PancakeIrohReadyEvent> {
+		let subject = self.order.pop_front()?;
+		let events = self.events.remove(&subject)?;
+		Some(PancakeIrohReadyEvent { subject, events })
+	}
 }
 
 impl Readiness {
@@ -275,7 +379,7 @@ impl Readiness {
 		Some(Arc::new(Readiness {
 			reader,
 			writer: Mutex::new(writer),
-			queue: Mutex::new(VecDeque::new()),
+			queue: Mutex::new(ReadyQueue::new()),
 		}))
 	}
 
@@ -299,10 +403,10 @@ impl Readiness {
 
 	/// Enqueue one readiness record and nudge the self-pipe.
 	fn signal(&self, subject: usize, events: u32) {
-		self.queue
-			.lock()
-			.unwrap()
-			.push_back(PancakeIrohReadyEvent { subject, events });
+		{
+			let mut queue = self.queue.lock().unwrap();
+			queue.push_or_coalesce(subject, events);
+		}
 		self.nudge();
 	}
 
@@ -449,6 +553,9 @@ struct NbConn {
 	/// Woken when the loop enqueues outbound bytes or closes the connection: the
 	/// writer parks here when the outbound buffer is empty.
 	write_work: Notify,
+	/// Wakes a writer already suspended inside QUIC flow control so its graceful
+	/// drain acquires a deadline without making `conn_free` wait.
+	close_work: Notify,
 }
 
 /// The inbound bytes as the Zig side treats them: one contiguous buffer with a
@@ -473,17 +580,70 @@ impl Inbound {
 	fn pending(&self) -> usize {
 		self.buf.len() - self.off
 	}
+
+	fn read_budget(&self) -> usize {
+		NB_BUFFER_BOUND
+			.saturating_sub(self.pending())
+			.min(READ_CHUNK_BYTES)
+	}
 }
 
 #[derive(Default)]
 struct Outbound {
-	/// The queued batch. The writer task takes the whole buffer (a move, no
-	/// copy) and drops its storage once flushed, so outbound burst capacity
-	/// never outlives the batch that needed it.
+	/// Bytes queued behind the writer's current batch.
 	buf: Vec<u8>,
+	/// Cleared allocation returned by the writer for the next batch. Keeping one
+	/// steady-sized spare removes allocation churn without retaining a burst.
+	spare: Vec<u8>,
+	/// Bytes currently borrowed by the QUIC write future. Queue admission counts
+	/// these too, so staging plus in-flight work share one `NB_BUFFER_BOUND`.
+	in_flight: usize,
 	/// Set by `conn_close` / `conn_free`: the writer finishes the send stream
 	/// and exits once the buffer drains.
 	closed: bool,
+}
+
+impl Outbound {
+	fn pending(&self) -> usize {
+		self.buf.len() + self.in_flight
+	}
+
+	fn take_batch(&mut self) -> Vec<u8> {
+		debug_assert_eq!(self.in_flight, 0);
+		let mut batch = std::mem::take(&mut self.spare);
+		std::mem::swap(&mut batch, &mut self.buf);
+		self.in_flight = batch.len();
+		batch
+	}
+
+	fn finish_batch(&mut self, mut batch: Vec<u8>, succeeded: bool) {
+		debug_assert_eq!(self.in_flight, batch.len());
+		self.in_flight = 0;
+		if !succeeded {
+			self.closed = true;
+		}
+		batch.clear();
+		if batch.capacity() > NB_STEADY_BYTES {
+			batch.shrink_to(NB_STEADY_BYTES);
+		}
+		self.spare = batch;
+	}
+}
+
+fn enqueue_outbound(out: &mut Outbound, src: &[u8]) -> isize {
+	if out.closed {
+		return -1;
+	}
+	if src.is_empty() {
+		return 0;
+	}
+	let room = NB_BUFFER_BOUND.saturating_sub(out.pending());
+	if room == 0 {
+		return WOULD_BLOCK;
+	}
+	let accepted = room.min(src.len());
+	out.buf.extend_from_slice(&src[..accepted]);
+	accepted as isize
 }
 
 /// Create an endpoint. `secret_seed32` is either null (generate a fresh random
@@ -587,6 +747,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 			readiness: OnceLock::new(),
 			accept: OnceLock::new(),
 			dials: OnceLock::new(),
+			writers: Arc::new(WriterTasks::new()),
 			next_conn_id: AtomicUsize::new(1),
 		})))
 	}));
@@ -596,22 +757,22 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 	}
 }
 
-/// Write a UTF-8 string into a caller buffer. Returns the byte count written,
-/// or -1 when the buffer is too small.
+/// Return a UTF-8 string's complete byte count, copying it only when the
+/// caller's buffer can hold the whole value. A zero-capacity call is a query.
 fn write_str(s: &str, out: *mut u8, out_cap: usize) -> isize {
 	let bytes = s.as_bytes();
-	if bytes.len() > out_cap {
-		return -1;
+	if bytes.len() <= out_cap {
+		// Safety: the contract requires `out_cap` writable bytes at `out`.
+		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
 	}
-	// Safety: the contract requires `out_cap` writable bytes at `out`.
-	unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
 	bytes.len() as isize
 }
 
 /// Write the endpoint's id — its Ed25519 public key, the dialable designator —
 /// into `out` as lowercase hex (64 bytes; iroh's canonical string form, which
-/// its parser accepts alongside base32). Returns the byte count written, or -1
-/// when `out_cap` is too small. Borrows the handle; writes no terminator.
+/// its parser accepts alongside base32). Returns the complete byte count and
+/// copies only when `out_cap` is large enough. Borrows the handle; writes no
+/// terminator.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_endpoint_node_id(
 	ep: *const PancakeIrohEndpoint,
@@ -630,8 +791,8 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_node_id(
 /// wildcard addresses are reported as their loopback form, so the list is
 /// dialable on the local host; concretely discovered addresses are included
 /// as-is. This is the hint string a partner passes to either connect surface.
-/// Returns the byte count written, or -1 when `out_cap` is too small. Borrows the
-/// handle; writes no terminator.
+/// Returns the complete byte count and copies only when `out_cap` is large
+/// enough. Borrows the handle; writes no terminator.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_endpoint_direct_addrs(
 	ep: *const PancakeIrohEndpoint,
@@ -723,8 +884,10 @@ fn make_conn(ep: &PancakeIrohEndpoint, raw: AcceptedRaw) -> Option<*mut PancakeI
 		conn: raw.conn,
 		send: Mutex::new(Some(raw.send)),
 		recv: Mutex::new(Some(raw.recv)),
+		nonblocking_transition: Mutex::new(()),
 		nb: OnceLock::new(),
 		nb_tasks: OnceLock::new(),
+		writers: ep.writers.clone(),
 	})))
 }
 
@@ -773,7 +936,8 @@ pub extern "C" fn pancake_iroh_sidecar_connect_blocking(
 }
 
 /// Admit one outbound dial without blocking. Borrowed target bytes are parsed
-/// before return; the endpoint owns the Tokio task and terminal result.
+/// before return; the endpoint owns the Tokio task and terminal result. The
+/// bounded request table returns `DIAL_BUSY` without minting an event when full.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_endpoint_start_connect(
 	ep: *mut PancakeIrohEndpoint,
@@ -794,6 +958,9 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_start_connect(
 			let mut entries = dials.entries.lock().unwrap();
 			if entries.contains_key(&request_id) {
 				return Err(DIAL_INVALID);
+			}
+			if entries.len() >= DIAL_ADMISSION_BOUND {
+				return Err(DIAL_BUSY);
 			}
 			entries.insert(request_id, DialEntry::Pending { abort: None });
 		}
@@ -912,46 +1079,31 @@ async fn accept_one(ep: &PancakeIrohEndpoint) -> Option<AcceptedRaw> {
 	}
 }
 
-/// Block until a partner dials this endpoint, accept its connection and first
-/// bidirectional stream, and return an owned connection handle, or null on
-/// failure or endpoint close. The endpoint must outlive every connection.
-#[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_accept(
-	ep: *mut PancakeIrohEndpoint,
-) -> *mut PancakeIrohConn {
-	let result = catch_unwind(AssertUnwindSafe(|| {
-		let ep = unsafe { &*ep };
-		ep.rt
-			.block_on(accept_one(ep))
-			.and_then(|raw| make_conn(ep, raw))
-	}));
-	match result {
-		Ok(Some(handle)) => handle,
-		_ => std::ptr::null_mut(),
-	}
-}
-
-/// As `pancake_iroh_sidecar_accept`, but return null when `timeout_ms` elapses.
-/// This is the blocking listener's private wait primitive; it never arms or
-/// drains the endpoint readiness queue.
+/// Wait at most `timeout_ms` for a partner connection and first bidirectional
+/// stream, returning an owned connection handle or null on timeout, failure, or
+/// endpoint close. A negative timeout is invalid and returns null. This is the
+/// resident listener's private bounded primitive; it never arms or drains the
+/// endpoint readiness queue.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
 	ep: *mut PancakeIrohEndpoint,
 	timeout_ms: i32,
 ) -> *mut PancakeIrohConn {
-	if timeout_ms < 0 {
-		return pancake_iroh_sidecar_accept(ep);
+	if ep.is_null() || timeout_ms < 0 {
+		return std::ptr::null_mut();
 	}
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
-		ep.rt
-			.block_on(tokio::time::timeout(
+		ep.rt.block_on(async {
+			tokio::time::timeout(
 				std::time::Duration::from_millis(timeout_ms as u64),
 				accept_one(ep),
-			))
+			)
+			.await
 			.ok()
 			.flatten()
 			.and_then(|raw| make_conn(ep, raw))
+		})
 	}));
 	match result {
 		Ok(Some(handle)) => handle,
@@ -1070,14 +1222,18 @@ pub extern "C" fn pancake_iroh_sidecar_conn_flush(conn: *mut PancakeIrohConn) ->
 pub extern "C" fn pancake_iroh_sidecar_conn_close(conn: *mut PancakeIrohConn) {
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
-		// Non-blocking: the writer task owns the send stream, so signal it to
-		// finish and let it drain whatever is still queued before exiting.
+		// On the readiness surface, ownership has already transferred to the
+		// tasks. Let the writer drain every admitted byte and finish its stream;
+		// closing the QUIC connection here would discard the final owned batch.
 		if let Some(nb) = conn.nb.get() {
 			if let Ok(mut out) = nb.outbound.lock() {
 				out.closed = true;
 			}
+			nb.close_work.notify_one();
 			nb.write_work.notify_one();
-		} else if let Ok(mut send) = conn.send.try_lock() {
+			return;
+		}
+		if let Ok(mut send) = conn.send.try_lock() {
 			// Best-effort graceful finish, but only when no writer is mid-call:
 			// blocking on `send` here would deadlock a writer parked on QUIC
 			// flow control, which the `conn.close()` below is what unblocks.
@@ -1085,7 +1241,8 @@ pub extern "C" fn pancake_iroh_sidecar_conn_close(conn: *mut PancakeIrohConn) {
 				let _ = send.finish();
 			}
 		}
-		// Unblock any parked blocking read/write without holding a stream lock.
+		// The compatibility surface may have a thread parked in a blocking call;
+		// close the connection to wake it without waiting on its stream lock.
 		conn.conn.close(0u32.into(), b"");
 	}));
 }
@@ -1107,26 +1264,27 @@ pub extern "C" fn pancake_iroh_sidecar_conn_free(conn: *mut PancakeIrohConn) {
 	// Unblock any parked blocking read/write (closes the connection without
 	// taking a stream lock, so a writer parked on flow control cannot deadlock).
 	pancake_iroh_sidecar_conn_close(conn);
-	let _ = catch_unwind(AssertUnwindSafe(|| {
-		let conn_ref = unsafe { &*conn };
-		// Fence: wait out an in-flight blocking call. A reader/writer holds
-		// `recv`/`send` for the whole `block_on`; once close has unblocked it,
-		// acquiring both locks proves the call has returned its borrow. The
-		// guards drop at the end of this block, before the box is freed.
-		let _recv = conn_ref.recv.lock();
-		let _send = conn_ref.send.lock();
-	}));
+	let nonblocking = unsafe { (&*conn).nb.get().is_some() };
+	if !nonblocking {
+		let _ = catch_unwind(AssertUnwindSafe(|| {
+			let conn_ref = unsafe { &*conn };
+			// Fence: wait out an in-flight blocking call. A reader/writer holds
+			// `recv`/`send` for the whole `block_on`; once close has unblocked it,
+			// acquiring both locks proves the call has returned its borrow. The
+			// guards drop at the end of this block, before the box is freed.
+			let _recv = conn_ref.recv.lock();
+			let _send = conn_ref.send.lock();
+		}));
+	}
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let inner = *unsafe { Box::from_raw(conn) };
-		// Stop the reader/writer tasks before returning. Readiness uses a stable
-		// id, but joining still prevents work from outliving ownership.
+		// The reader has no useful work after local release; abort it. The writer
+		// owns every byte `conn_try_write` admitted, so detach it. Its writer permit
+		// remains the endpoint's explicit barrier before runtime shutdown, without
+		// retaining one completed JoinHandle per lifetime connection.
 		if let Some((reader, writer)) = inner.nb_tasks.into_inner() {
 			reader.abort();
-			writer.abort();
-			inner.rt.block_on(async {
-				let _ = reader.await;
-				let _ = writer.await;
-			});
+			drop(writer);
 		}
 	}));
 }
@@ -1149,21 +1307,23 @@ fn endpoint_readiness(ep: &PancakeIrohEndpoint) -> Option<&Arc<Readiness>> {
 async fn nb_reader(nb: Arc<NbConn>, mut recv: RecvStream) {
 	use iroh::endpoint::{ConnectionError, ReadError};
 	loop {
-		// Back-pressure: wait while the inbound buffer is at its bound. Register
-		// the notify before re-checking so a drain that frees room cannot be
-		// missed between the check and the await.
-		loop {
+		// Back-pressure: wait while the inbound buffer is at its bound, then ask
+		// QUIC for no more than the exact remaining budget. Register the notify
+		// before re-checking so a drain that frees room cannot be missed between
+		// the check and the await.
+		let read_budget = loop {
 			let notified = nb.read_room.notified();
-			if nb.inbound.lock().unwrap().pending() < NB_BUFFER_BOUND {
-				break;
+			let budget = nb.inbound.lock().unwrap().read_budget();
+			if budget > 0 {
+				break budget;
 			}
 			notified.await;
-		}
+		};
 		// `read_chunk` lends the next segment zero-copy out of the stream's
 		// reassembly buffer, so this task holds no resident scratch (the old
 		// shape was a 64 KiB read buffer held for the connection's lifetime).
 		// The one copy is the append into the connection's inbound buffer.
-		match recv.read_chunk(READ_CHUNK_BYTES).await {
+		match recv.read_chunk(read_budget).await {
 			Ok(Some(chunk)) => {
 				nb.inbound.lock().unwrap().buf.extend_from_slice(&chunk);
 				nb.readiness.signal(nb.id, EV_READABLE);
@@ -1198,15 +1358,26 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) {
 		let notified = nb.write_work.notified();
 		let (chunk, closed) = {
 			let mut out = nb.outbound.lock().unwrap();
-			// Take the whole batch by move — no allocation, no copy — so the
-			// lock is released before the await below. The taken storage drops
-			// at the end of this iteration, which also returns a burst's
-			// capacity instead of pinning the high-water mark for the
-			// connection's lifetime.
-			(std::mem::take(&mut out.buf), out.closed)
+			// Swap the whole batch with the spare allocation: no copy, and the
+			// lock is released before QUIC flow control can suspend this task.
+			let chunk = out.take_batch();
+			(chunk, out.closed)
 		};
 		if !chunk.is_empty() {
-			if send.write_all(&chunk).await.is_err() {
+			let succeeded = {
+				let write = send.write_all(&chunk);
+				tokio::pin!(write);
+				tokio::select! {
+					result = &mut write => result.is_ok(),
+					_ = nb.close_work.notified() => {
+						tokio::time::timeout(CLOSE_DRAIN_TIMEOUT, &mut write)
+							.await
+							.is_ok_and(|result| result.is_ok())
+					}
+				}
+			};
+			nb.outbound.lock().unwrap().finish_batch(chunk, succeeded);
+			if !succeeded {
 				nb.readiness.signal(nb.id, EV_CLOSED);
 				return;
 			}
@@ -1246,11 +1417,18 @@ async fn nb_acceptor(
 		else {
 			continue;
 		};
-		acc.ready
-			.lock()
-			.unwrap()
-			.push_back(AcceptedRaw { conn, send, recv });
-		readiness.signal(0, EV_ACCEPT);
+		let queued = {
+			let mut ready = acc.ready.lock().unwrap();
+			if ready.len() >= ACCEPT_QUEUE_BOUND {
+				false
+			} else {
+				ready.push_back(AcceptedRaw { conn, send, recv });
+				true
+			}
+		};
+		if queued {
+			readiness.signal(0, EV_ACCEPT);
+		}
 	}
 }
 
@@ -1372,6 +1550,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_set_nonblocking(
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		let conn_ref = unsafe { &*conn };
+		let _transition = conn_ref.nonblocking_transition.lock().unwrap();
 		if conn_ref.nb.get().is_some() {
 			return 0;
 		}
@@ -1392,12 +1571,17 @@ pub extern "C" fn pancake_iroh_sidecar_conn_set_nonblocking(
 			outbound: Mutex::new(Outbound::default()),
 			read_room: Notify::new(),
 			write_work: Notify::new(),
+			close_work: Notify::new(),
 		});
 		if conn_ref.nb.set(nb.clone()).is_err() {
-			return 0; // raced; the other set won, leave the streams to it
+			unreachable!("transition lock owns the OnceLock");
 		}
 		let reader = ep.rt.spawn(nb_reader(nb.clone(), recv));
-		let writer = ep.rt.spawn(nb_writer(nb.clone(), send));
+		let writer_permit = conn_ref.writers.acquire();
+		let writer = ep.rt.spawn(async move {
+			let _writer_permit = writer_permit;
+			nb_writer(nb, send).await;
+		});
 		let _ = conn_ref.nb_tasks.set((reader, writer));
 		// The connection starts writable: the loop may flush as soon as it has
 		// bytes to send.
@@ -1484,11 +1668,11 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_read(
 	result.unwrap_or(-1)
 }
 
-/// Non-blocking write: enqueue all `len` bytes from `buf` for the writer task.
-/// Returns `len` on success, -1 if the connection is closed, or
-/// `PANCAKE_IROH_WOULD_BLOCK` (-2) when the outbound buffer is at its bound, the
-/// loop re-arms on the next `EV_WRITABLE`. The connection must have been moved to
-/// the readiness surface with `conn_set_nonblocking`. Borrows the handle.
+/// Non-blocking write: copy the prefix that fits into the bounded outbound
+/// buffer and wake the writer task. Returns the admitted byte count,
+/// `PANCAKE_IROH_WOULD_BLOCK` (-2) when no outbound room remains, and -1 on
+/// error. The connection must have been moved to the readiness surface with
+/// `conn_set_nonblocking`. Borrows the handle.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_conn_try_write(
 	conn: *mut PancakeIrohConn,
@@ -1501,26 +1685,26 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_write(
 			Some(nb) => nb,
 			None => return -1,
 		};
-		let mut out = nb.outbound.lock().unwrap();
-		if out.closed {
-			return -1;
-		}
-		if out.buf.len() >= NB_BUFFER_BOUND {
-			return WOULD_BLOCK;
+		if len == 0 {
+			return 0;
 		}
 		let src = unsafe { std::slice::from_raw_parts(buf, len) };
-		out.buf.extend_from_slice(src);
-		drop(out);
-		nb.write_work.notify_one();
-		len as isize
+		let accepted = {
+			let mut out = nb.outbound.lock().unwrap();
+			enqueue_outbound(&mut out, src)
+		};
+		if accepted > 0 {
+			nb.write_work.notify_one();
+		}
+		accepted
 	}));
 	result.unwrap_or(-1)
 }
 
-/// Close the endpoint without releasing its handle: a blocked
-/// `pancake_iroh_sidecar_accept` returns null, subsequent dials fail, and queued
-/// connection closes are delivered. Idempotent. Borrows the handle; the
-/// handle stays valid until `pancake_iroh_sidecar_endpoint_free`.
+/// Close the endpoint without releasing its handle: an in-flight bounded accept
+/// returns null, subsequent dials fail, and queued connection closes are
+/// delivered. Idempotent. Borrows the handle; the handle stays valid until
+/// `pancake_iroh_sidecar_endpoint_free`.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_endpoint_close(ep: *mut PancakeIrohEndpoint) {
 	let _ = catch_unwind(AssertUnwindSafe(|| {
@@ -1545,6 +1729,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_free(ep: *mut PancakeIrohEndpoin
 		if let Some(dials) = handle.dials.get() {
 			dials.cancel_all();
 		}
+		handle.rt.block_on(handle.writers.wait());
 		handle.rt.block_on(handle.ep.close());
 		// Dropping the runtime outside an async context shuts it down cleanly.
 		drop(handle);
@@ -1556,6 +1741,7 @@ mod tests {
 	use super::*;
 	use std::io::{Read, Write};
 	use std::net::UdpSocket;
+	use std::sync::atomic::AtomicBool;
 	use std::time::{Duration, Instant};
 
 	fn direct_endpoint(connect_timeout_ms: u64) -> *mut PancakeIrohEndpoint {
@@ -1612,17 +1798,113 @@ mod tests {
 	}
 
 	#[test]
+	fn readiness_queue_coalesces_without_losing_distinct_subjects() {
+		let readiness = Readiness::new().unwrap();
+		const SUBJECTS: usize = 20_000;
+		for subject in 1..=SUBJECTS {
+			readiness.signal(subject, EV_READABLE);
+		}
+		assert_eq!(readiness.queue.lock().unwrap().len(), SUBJECTS);
+
+		readiness.signal(7, EV_WRITABLE);
+		assert_eq!(readiness.queue.lock().unwrap().len(), SUBJECTS);
+
+		let mut events = vec![
+			PancakeIrohReadyEvent {
+				subject: 0,
+				events: 0,
+			};
+			SUBJECTS
+		];
+		assert_eq!(readiness.drain(&mut events), SUBJECTS);
+		assert_eq!(events[6].subject, 7);
+		assert_eq!(events[6].events, EV_READABLE | EV_WRITABLE);
+		assert_eq!(events.last().unwrap().subject, SUBJECTS);
+	}
+
+	#[test]
+	fn outbound_bound_admits_a_prefix_and_blocks_only_when_full() {
+		let mut outbound = Outbound::default();
+		outbound.in_flight = NB_BUFFER_BOUND - 4;
+
+		let bytes = [9u8; 16];
+		assert_eq!(enqueue_outbound(&mut outbound, &bytes), 4);
+		assert_eq!(outbound.pending(), NB_BUFFER_BOUND);
+		assert_eq!(enqueue_outbound(&mut outbound, &bytes), WOULD_BLOCK);
+	}
+
+	#[test]
+	fn inbound_read_budget_never_exceeds_remaining_capacity() {
+		let mut inbound = Inbound::default();
+		assert_eq!(inbound.read_budget(), READ_CHUNK_BYTES);
+
+		inbound.buf.resize(NB_BUFFER_BOUND - 7, 0);
+		assert_eq!(inbound.read_budget(), 7);
+
+		inbound.buf.resize(NB_BUFFER_BOUND, 0);
+		assert_eq!(inbound.read_budget(), 0);
+	}
+
+	#[test]
+	fn outbound_reuses_one_steady_spare_without_double_spending_the_bound() {
+		let mut outbound = Outbound::default();
+		let bytes = vec![9u8; NB_STEADY_BYTES];
+		assert_eq!(
+			enqueue_outbound(&mut outbound, &bytes),
+			NB_STEADY_BYTES as isize
+		);
+
+		let batch = outbound.take_batch();
+		assert_eq!(outbound.pending(), NB_STEADY_BYTES);
+		assert_eq!(
+			enqueue_outbound(&mut outbound, &bytes),
+			NB_STEADY_BYTES as isize
+		);
+		outbound.finish_batch(batch, true);
+
+		let spare_ptr = outbound.spare.as_ptr();
+		let second = outbound.take_batch();
+		assert_eq!(outbound.buf.as_ptr(), spare_ptr);
+		assert_eq!(outbound.pending(), NB_STEADY_BYTES);
+		outbound.finish_batch(second, true);
+		assert!(outbound.spare.capacity() <= NB_STEADY_BYTES);
+	}
+
+	#[test]
 	fn blocking_accept_timeout_does_not_arm_or_drain_readiness() {
 		let ep = direct_endpoint(200);
 		assert!(!ep.is_null(), "endpoint_new");
 		let started = Instant::now();
 		let conn = pancake_iroh_sidecar_accept_timeout(ep, 20);
 		assert!(conn.is_null());
+		assert!(started.elapsed() >= Duration::from_millis(5));
 		assert!(started.elapsed() < Duration::from_secs(1));
 		let endpoint = unsafe { &*ep };
 		assert!(endpoint.readiness.get().is_none());
 		assert!(endpoint.accept.get().is_none());
 		pancake_iroh_sidecar_endpoint_free(ep);
+	}
+
+	#[test]
+	fn endpoint_release_joins_writers_detached_by_connection_release() {
+		let ep = direct_endpoint(200);
+		assert!(!ep.is_null(), "endpoint_new");
+		let finished = Arc::new(AtomicBool::new(false));
+		let task_finished = finished.clone();
+		let endpoint = unsafe { &*ep };
+		let permit = endpoint.writers.acquire();
+		let writer = endpoint.rt.spawn(async move {
+			let _permit = permit;
+			tokio::time::sleep(Duration::from_millis(20)).await;
+			task_finished.store(true, Ordering::Release);
+		});
+		drop(writer);
+
+		pancake_iroh_sidecar_endpoint_free(ep);
+		assert!(
+			finished.load(Ordering::Acquire),
+			"runtime shutdown abandoned a writer whose connection transferred ownership"
+		);
 	}
 
 	fn black_hole_target() -> (UdpSocket, String, String) {
@@ -1733,6 +2015,73 @@ mod tests {
 		assert_eq!(
 			pancake_iroh_sidecar_endpoint_drain_ready(ep, &mut event, 1),
 			0
+		);
+		pancake_iroh_sidecar_endpoint_free(ep);
+	}
+
+	#[test]
+	fn evented_connect_admission_is_bounded_and_reclaimed() {
+		let (_black_hole, unreachable_id, hint) = black_hole_target();
+		let ep = direct_endpoint(5_000);
+		assert!(!ep.is_null(), "endpoint_new");
+
+		for request_id in 1..=DIAL_ADMISSION_BOUND {
+			assert_eq!(
+				pancake_iroh_sidecar_endpoint_start_connect(
+					ep,
+					request_id,
+					unreachable_id.as_ptr(),
+					unreachable_id.len(),
+					hint.as_ptr(),
+					hint.len(),
+				),
+				DIAL_OK
+			);
+		}
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_start_connect(
+				ep,
+				DIAL_ADMISSION_BOUND + 1,
+				unreachable_id.as_ptr(),
+				unreachable_id.len(),
+				hint.as_ptr(),
+				hint.len(),
+			),
+			DIAL_BUSY
+		);
+
+		for request_id in 1..=DIAL_ADMISSION_BOUND {
+			assert_eq!(
+				pancake_iroh_sidecar_endpoint_cancel_connect(ep, request_id),
+				DIAL_OK
+			);
+			let mut conn = std::ptr::null_mut();
+			assert_eq!(
+				pancake_iroh_sidecar_endpoint_finish_connect(ep, request_id, &mut conn),
+				DIAL_CANCELED
+			);
+		}
+
+		let replacement_id = DIAL_ADMISSION_BOUND + 2;
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_start_connect(
+				ep,
+				replacement_id,
+				unreachable_id.as_ptr(),
+				unreachable_id.len(),
+				hint.as_ptr(),
+				hint.len(),
+			),
+			DIAL_OK
+		);
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_cancel_connect(ep, replacement_id),
+			DIAL_OK
+		);
+		let mut conn = std::ptr::null_mut();
+		assert_eq!(
+			pancake_iroh_sidecar_endpoint_finish_connect(ep, replacement_id, &mut conn),
+			DIAL_CANCELED
 		);
 		pancake_iroh_sidecar_endpoint_free(ep);
 	}

@@ -1,7 +1,7 @@
-//! Per-connection capability support and shared state: [`Caretaker`] and
+//! Per-session capability support and shared state: [`Caretaker`] and
 //! [`SessionShared`]. [`Session`](crate::Session) is the application handle
 //! over one `SessionShared`; pump/host/trampoline/gc borrow `SessionShared` directly.
-//! Binding spine Pass 5 (conn extraction).
+//! Binding spine Pass 5 (session extraction).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -73,7 +73,7 @@ impl Caretaker {
 	}
 }
 
-/// The per-connection state the handle, the serve task, and the host's action
+/// The per-session state the handle, the serve task, and the host's action
 /// drain share. Fields the [`crate::pump`] path reads are `pub(crate)`.
 pub(crate) struct SessionShared {
 	pub(crate) ptr: Cell<*mut ffi::PancakeHostSession>,
@@ -83,8 +83,15 @@ pub(crate) struct SessionShared {
 	// FLUSH drains serialize on the write half's async lock, which keeps frames
 	// in submission order. Order is all the lock gives: a write dropped
 	// mid-frame still leaves a partial one on the wire, which `torn` records.
+	// Both stay `None` on a loop-backed session, whose wire the native loop
+	// owns (`loop_wire`).
 	pub(crate) reader: RefCell<Option<Box<dyn AsyncRead + Unpin>>>,
 	pub(crate) writer: Rc<tokio::sync::Mutex<Option<Box<dyn AsyncWrite + Unpin>>>>,
+	// The native loop that owns this session's wire and its release (ADR-0112),
+	// or `None` for a byte-fed session this binding pumps itself. A loop-backed
+	// session has no byte pump: the loop reads, feeds, and flushes inside its
+	// steps, and `pancake_driver_session_release` is its one release verb.
+	pub(crate) loop_wire: Option<Rc<crate::driver_loop::LoopShared>>,
 	// Set the moment teardown begins (an application close, or the transport
 	// reporting EOF), so the serve loop can tell a read cancelled by our own
 	// close from a real fault.
@@ -122,6 +129,7 @@ impl SessionShared {
 			host: Rc::clone(&host),
 			reader: RefCell::new(Some(Box::new(reader))),
 			writer: Rc::new(tokio::sync::Mutex::new(Some(Box::new(writer)))),
+			loop_wire: None,
 			closing: Cell::new(false),
 			released: Cell::new(false),
 			torn: Cell::new(false),
@@ -135,7 +143,35 @@ impl SessionShared {
 		shared
 	}
 
-	pub(crate) fn raw_conn(&self) -> *mut ffi::PancakeHostSession {
+	/// The loop-backed shell (ADR-0112): a real `PancakeHostSession` the native
+	/// loop minted (dial, accept, or an internal redeem), with no byte halves —
+	/// the loop owns the wire, the pumping, and the release. Registered in the
+	/// host's session directory like any other shell, so the loop's
+	/// SESSION_CLOSED dispatch and `exporter_for` both find it.
+	pub(crate) fn new_loop(
+		ptr: *mut ffi::PancakeHostSession,
+		host: Rc<HostShared>,
+		loop_wire: Rc<crate::driver_loop::LoopShared>,
+	) -> Rc<SessionShared> {
+		let shared = Rc::new(SessionShared {
+			ptr: Cell::new(ptr),
+			key: ptr as usize,
+			host: Rc::clone(&host),
+			reader: RefCell::new(None),
+			writer: Rc::new(tokio::sync::Mutex::new(None)),
+			loop_wire: Some(loop_wire),
+			closing: Cell::new(false),
+			released: Cell::new(false),
+			torn: Cell::new(false),
+			closed: Notify::new(),
+			gc: Cell::new(false),
+			serving: Cell::new(None),
+		});
+		host.register_session(shared.key, Rc::clone(&shared));
+		shared
+	}
+
+	pub(crate) fn raw_session(&self) -> *mut ffi::PancakeHostSession {
 		self.ptr.get()
 	}
 
@@ -176,11 +212,28 @@ impl SessionShared {
 	// Spawn the inbound serve loop as its own task. Runs from establish, so a
 	// connection pumps from birth: an accepted partner's traffic and a dialed
 	// exporter's withdraw both arrive without an explicit `serve()` call.
+	// A loop-backed session has no byte pump of its own — the native loop
+	// reads, feeds, and drains — so its serve task only awaits the session's
+	// closure, keeping the completes-on-close contract.
 	pub(crate) fn spawn_serve(self: &Rc<SessionShared>) {
 		let shared = Rc::clone(self);
-		let handle = tokio::task::spawn_local(async move {
-			crate::pump::serve_loop(shared).await;
-		});
+		let handle = if self.loop_wire.is_some() {
+			tokio::task::spawn_local(async move {
+				let notified = shared.closed.notified();
+				tokio::pin!(notified);
+				// Register before checking, so a close between the check and
+				// the await cannot strand this task.
+				notified.as_mut().enable();
+				if shared.released.get() {
+					return;
+				}
+				notified.await;
+			})
+		} else {
+			tokio::task::spawn_local(async move {
+				crate::pump::serve_loop(shared).await;
+			})
+		};
 		self.serving.set(Some(handle));
 	}
 
@@ -210,7 +263,10 @@ impl SessionShared {
 			if inside_turn() {
 				park_session_release(ptr, Rc::clone(&self.host));
 			} else {
-				unsafe { ffi::pancake_host_session_release(ptr) };
+				// The host routes to the owning release verb: the loop's own
+				// `pancake_driver_session_release` for a loop-minted session,
+				// `pancake_host_session_release` for a byte-fed one.
+				self.host.release_native_session(ptr);
 			}
 		}
 		// The release queued FAIL completions (and sibling withdraws may have
@@ -327,7 +383,7 @@ impl SessionShared {
 		args: Vec<Argument>,
 	) {
 		let shared = Rc::clone(self);
-		try_spawn_local(async move {
+		let _ = try_spawn_local(async move {
 			if let Some(TurnOutcome::Forward { target, verb, args }) =
 				crate::trampoline::run_hosted(&shared, ref_id, &verb, &args)
 			{

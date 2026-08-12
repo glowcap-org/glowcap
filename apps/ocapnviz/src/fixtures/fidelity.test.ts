@@ -38,15 +38,19 @@ const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 const DESIGNATOR_SHAPE: Record<string, RegExp> = {
   // Address netlayers: the designator says where to dial.
   tcp: /^[0-9.]+:\d+$/,
+  // Tor version 3 service id, without the `.onion` suffix.
+  onion: /^[a-z2-7]{56}$/,
   // `inproc` dials a switchboard entry rather than a socket, so its
   // designator is the name a listener registered under.
   inproc: /^.+$/,
   // Key netlayers: the designator IS the peer's public key, and the keyed
   // handshake pins the session to it.
   "keyed-tcp": KEY_DESIGNATOR,
+  "noise-tcp": KEY_DESIGNATOR,
   iroh: KEY_DESIGNATOR,
   webrtc: KEY_DESIGNATOR,
   "keyed-relay": KEY_DESIGNATOR,
+  "noise-relay": KEY_DESIGNATOR,
 };
 
 function opensOf(doc: (typeof scenarios)[number]) {

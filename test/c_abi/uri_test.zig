@@ -1,8 +1,7 @@
 //! C ABI OCapN locator-URI contract, proves the `pancake_uri_*` verbs and the
-//! `pancake_locator_*` accessors round-trip a peer and a sturdyref through the
-//! one core grammar (`model.uri`), so a binding never hand-rolls a percent
-//! codec. Parse yields one owned `PancakeLocator`; format renders it back;
-//! hints enumerate; a malformed URI is a named invalid argument.
+//! distinct locator and sturdyref handles round-trip through the one core
+//! grammar (`model.uri`), so a binding never hand-rolls a percent codec or
+//! silently drops sturdyref authority.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -18,6 +17,19 @@ fn view(rc_fn: anytype, loc: ?*c.PancakeLocator) ![]const u8 {
     return (ptr orelse return error.NullView)[0..len];
 }
 
+fn sturdySwiss(sturdyref: ?*c.PancakeSturdyRef) ![]const u8 {
+    var ptr: ?[*]const u8 = null;
+    var len: usize = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_sturdyref_swissnum(sturdyref, &ptr, &len));
+    return (ptr orelse return error.NullView)[0..len];
+}
+
+fn sturdyLocator(sturdyref: ?*c.PancakeSturdyRef) !*const c.PancakeLocatorView {
+    var locator: ?*const c.PancakeLocatorView = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_sturdyref_borrow_locator(sturdyref, &locator));
+    return locator orelse error.NullView;
+}
+
 test "parse a peer URI and read its fields" {
     const uri = "ocapn://abcd.tcp";
     var loc: ?*c.PancakeLocator = null;
@@ -26,12 +38,48 @@ test "parse a peer URI and read its fields" {
 
     try std.testing.expectEqualStrings("tcp", try view(c.pancake_locator_transport, loc));
     try std.testing.expectEqualStrings("abcd", try view(c.pancake_locator_designator, loc));
-    // A peer URI carries no swissnum: zero-length view.
-    try std.testing.expectEqualStrings("", try view(c.pancake_locator_swissnum, loc));
 
     var count: usize = 0;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint_count(loc, &count));
     try std.testing.expectEqual(@as(usize, 0), count);
+}
+
+test "locator constructors return every context allocation" {
+    const CountingHost = @import("../support/c_abi_counting_alloc.zig").CountingHost;
+    var counting: CountingHost = .{};
+    const spec = counting.spec();
+    var context: ?*c.PancakeContext = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new_with_allocator(&spec, &context));
+
+    const peer_uri = "ocapn://abcd.tcp";
+    var parsed_peer: ?*c.PancakeLocator = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_peer_in(context, peer_uri.ptr, peer_uri.len, &parsed_peer));
+
+    const sturdy_uri = "ocapn://abcd.tcp/s/d2lkZ2V0";
+    var parsed_sturdy: ?*c.PancakeSturdyRef = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_sturdyref_in(context, sturdy_uri.ptr, sturdy_uri.len, &parsed_sturdy));
+
+    var constructed: ?*c.PancakeLocator = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_new_in(
+        context,
+        "tcp".ptr,
+        "tcp".len,
+        "host:1".ptr,
+        "host:1".len,
+        c.PANCAKE_HINTS_MAP,
+        &constructed,
+    ));
+    var borrowed: ?*const c.PancakeLocatorView = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_borrow_view(constructed, &borrowed));
+    var cloned: ?*c.PancakeLocator = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_clone_in(context, borrowed, &cloned));
+
+    c.pancake_locator_release(cloned);
+    c.pancake_locator_release(constructed);
+    c.pancake_sturdyref_release(parsed_sturdy);
+    c.pancake_locator_release(parsed_peer);
+    c.pancake_context_release(context);
+    try std.testing.expect(counting.balanced());
 }
 
 test "parse a peer URI with hints; look up and enumerate them" {
@@ -45,34 +93,32 @@ test "parse a peer URI with hints; look up and enumerate them" {
 
     // Looked up by key, the percent-encoded brackets decode.
     const key = "direct-addresses";
-    var vptr: ?[*]const u8 = null;
-    var vlen: usize = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint(loc, key.ptr, key.len, &vptr, &vlen));
-    try std.testing.expectEqualStrings("127.0.0.1:5000,[::1]:5001", vptr.?[0..vlen]);
+    var hint: c.PancakeLocatorHintView = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint(loc, key.ptr, key.len, &hint));
+    try std.testing.expectEqual(c.PANCAKE_HINT_STRING, hint.kind);
+    try std.testing.expectEqualStrings("127.0.0.1:5000,[::1]:5001", hint.bytes.?[0..hint.bytes_len]);
 
     // Enumerated by index.
     var count: usize = 0;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint_count(loc, &count));
     try std.testing.expectEqual(@as(usize, 1), count);
 
-    var kptr: ?[*]const u8 = null;
-    var klen: usize = 0;
-    var avptr: ?[*]const u8 = null;
-    var avlen: usize = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint_at(loc, 0, &kptr, &klen, &avptr, &avlen));
-    try std.testing.expectEqualStrings("direct-addresses", kptr.?[0..klen]);
-    try std.testing.expectEqualStrings("127.0.0.1:5000,[::1]:5001", avptr.?[0..avlen]);
+    var indexed: c.PancakeLocatorHintView = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint_at(loc, 0, &indexed));
+    try std.testing.expectEqualStrings("direct-addresses", indexed.name.?[0..indexed.name_len]);
+    try std.testing.expectEqual(c.PANCAKE_HINT_STRING, indexed.kind);
+    try std.testing.expectEqualStrings("127.0.0.1:5000,[::1]:5001", indexed.bytes.?[0..indexed.bytes_len]);
 
     // An absent key is a named not-found, not a malformed request.
     const missing = "no-such-hint";
     try std.testing.expectEqual(
         c.PANCAKE_ERR_NOT_FOUND,
-        c.pancake_locator_hint(loc, missing.ptr, missing.len, &vptr, &vlen),
+        c.pancake_locator_hint(loc, missing.ptr, missing.len, &hint),
     );
     // Index past the end is an invalid argument.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        c.pancake_locator_hint_at(loc, 1, &kptr, &klen, &avptr, &avlen),
+        c.pancake_locator_hint_at(loc, 1, &indexed),
     );
 }
 
@@ -84,12 +130,13 @@ test "parse a sturdyref URI and read its swissnum" {
         0x7e, 0x83, 0x4f, 0xf7, 0x7b, 0x04, 0x8a, 0x83,
         0xdf, 0xe3, 0x32, 0xe3, 0x9f, 0x42, 0x51, 0xb5,
     };
-    var loc: ?*c.PancakeLocator = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_sturdyref(uri.ptr, uri.len, &loc));
-    defer c.pancake_locator_release(loc);
+    var sturdyref: ?*c.PancakeSturdyRef = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_sturdyref(uri.ptr, uri.len, &sturdyref));
+    defer c.pancake_sturdyref_release(sturdyref);
 
-    try std.testing.expectEqualStrings("onion", try view(c.pancake_locator_transport, loc));
-    try std.testing.expectEqualSlices(u8, &swiss, try view(c.pancake_locator_swissnum, loc));
+    const locator = try sturdyLocator(sturdyref);
+    try std.testing.expectEqualStrings("onion", locator.transport.?[0..locator.transport_len]);
+    try std.testing.expectEqualSlices(u8, &swiss, try sturdySwiss(sturdyref));
 }
 
 test "format a peer URI with a hint, then parse it back" {
@@ -126,10 +173,10 @@ test "format a peer URI with a hint, then parse it back" {
     try std.testing.expectEqualStrings("node-id-abc", try view(c.pancake_locator_designator, loc));
 
     const key = "direct-addresses";
-    var vptr: ?[*]const u8 = null;
-    var vlen: usize = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint(loc, key.ptr, key.len, &vptr, &vlen));
-    try std.testing.expectEqualStrings("127.0.0.1:5000", vptr.?[0..vlen]);
+    var hint: c.PancakeLocatorHintView = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_hint(loc, key.ptr, key.len, &hint));
+    try std.testing.expectEqual(c.PANCAKE_HINT_STRING, hint.kind);
+    try std.testing.expectEqualStrings("127.0.0.1:5000", hint.bytes.?[0..hint.bytes_len]);
 }
 
 test "format a sturdyref URI round-trips through parse" {
@@ -158,12 +205,13 @@ test "format a sturdyref URI round-trips through parse" {
     const rendered = buf[0..out_len];
     try std.testing.expectEqualStrings("ocapn://127.0.0.1%3A9000.tcp/s/c3dpc3MtNDI", rendered);
 
-    var loc: ?*c.PancakeLocator = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_sturdyref(rendered.ptr, rendered.len, &loc));
-    defer c.pancake_locator_release(loc);
-    try std.testing.expectEqualStrings("tcp", try view(c.pancake_locator_transport, loc));
-    try std.testing.expectEqualStrings("127.0.0.1:9000", try view(c.pancake_locator_designator, loc));
-    try std.testing.expectEqualStrings("swiss-42", try view(c.pancake_locator_swissnum, loc));
+    var sturdyref: ?*c.PancakeSturdyRef = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_sturdyref(rendered.ptr, rendered.len, &sturdyref));
+    defer c.pancake_sturdyref_release(sturdyref);
+    const locator = try sturdyLocator(sturdyref);
+    try std.testing.expectEqualStrings("tcp", locator.transport.?[0..locator.transport_len]);
+    try std.testing.expectEqualStrings("127.0.0.1:9000", locator.designator.?[0..locator.designator_len]);
+    try std.testing.expectEqualStrings("swiss-42", try sturdySwiss(sturdyref));
 }
 
 test "format reports the needed length when the buffer is too small" {

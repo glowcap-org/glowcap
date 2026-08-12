@@ -10,6 +10,16 @@ const pancake = @import("pancake");
 
 const tcp = pancake.net.tcp;
 const crypto = pancake.foundation.crypto;
+const model = pancake.ocapn.model;
+
+fn resolve(transport: []const u8, designator: []const u8, direct: []const u8) !std.Io.net.IpAddress {
+    var entry: [1]model.HintEntry = undefined;
+    return tcp.DialResolver.resolve(.{
+        .transport = transport,
+        .designator = designator,
+        .hints = model.Hints.forDirectAddresses(direct, &entry),
+    });
+}
 
 test "parseDesignator accepts a bracketed IPv6 designator" {
     const addr = try tcp.parseDesignator("[::1]:9000");
@@ -29,20 +39,38 @@ test "parseDesignator rejects a non-address host" {
     try std.testing.expectError(error.InvalidAddress, tcp.parseDesignator("not-an-ip:9000"));
 }
 
-test "Locator.resolve: tcp uses the designator; keyed-tcp uses the hint" {
-    const plain = try tcp.DialResolver.resolve("tcp", "127.0.0.1:8080", &.{});
+test "DialResolver.resolve: tcp uses the designator; keyed-tcp uses the hint" {
+    const plain = try resolve("tcp", "127.0.0.1:8080", "");
     try std.testing.expectEqual(@as(u16, 8080), plain.getPort());
 
     const key = crypto.SecretKey.fromSeed([_]u8{0x5d} ** crypto.SEED_BYTES).publicKey();
     const designator = key.toDesignator();
-    const keyed = try tcp.DialResolver.resolve("keyed-tcp", &designator, "127.0.0.1:9000");
+    const keyed = try resolve("keyed-tcp", &designator, "127.0.0.1:9000");
     try std.testing.expectEqual(@as(u16, 9000), keyed.getPort());
 }
 
-test "Locator.resolve: keyed-tcp multi-address hint dials the first entry, trimmed" {
+test "profile resolution needs no transport-name dispatch" {
+    const plain = try tcp.resolveProfile(
+        pancake.ocapn.model.transport.Known.tcp.metadata(),
+        "127.0.0.1:8081",
+        &.{},
+    );
+    try std.testing.expectEqual(@as(u16, 8081), plain.getPort());
+
+    const key = crypto.SecretKey.fromSeed([_]u8{0x5f} ** crypto.SEED_BYTES).publicKey();
+    const designator = key.toDesignator();
+    const sealed = try tcp.resolveProfile(
+        pancake.ocapn.model.transport.Known.noise_tcp.metadata(),
+        &designator,
+        "127.0.0.1:9002",
+    );
+    try std.testing.expectEqual(@as(u16, 9002), sealed.getPort());
+}
+
+test "DialResolver.resolve: keyed-tcp multi-address hint dials the first entry, trimmed" {
     const key = crypto.SecretKey.fromSeed([_]u8{0x5e} ** crypto.SEED_BYTES).publicKey();
     const designator = key.toDesignator();
-    const keyed = try tcp.DialResolver.resolve(
+    const keyed = try resolve(
         "keyed-tcp",
         &designator,
         " 127.0.0.1:9001 , 10.0.0.1:9002 ",
@@ -50,21 +78,21 @@ test "Locator.resolve: keyed-tcp multi-address hint dials the first entry, trimm
     try std.testing.expectEqual(@as(u16, 9001), keyed.getPort());
 }
 
-test "Locator.resolve refuses unknown transports, empty hostports, and non-key keyed designators" {
+test "DialResolver.resolve refuses unknown transports, empty hostports, and non-key keyed designators" {
     try std.testing.expectError(
         error.UnknownTransport,
-        tcp.DialResolver.resolve("iroh", "abc", "127.0.0.1:1"),
+        resolve("iroh", "abc", "127.0.0.1:1"),
     );
     try std.testing.expectError(
         error.InvalidAddress,
-        tcp.DialResolver.resolve("tcp", "", &.{}),
+        resolve("tcp", "", ""),
     );
     try std.testing.expectError(
         error.InvalidAddress,
-        tcp.DialResolver.resolve("keyed-tcp", "some-key", &.{}),
+        resolve("keyed-tcp", "some-key", ""),
     );
     try std.testing.expectError(
         error.InvalidAddress,
-        tcp.DialResolver.resolve("keyed-tcp", "not-a-canonical-key", "127.0.0.1:9000"),
+        resolve("keyed-tcp", "not-a-canonical-key", "127.0.0.1:9000"),
     );
 }

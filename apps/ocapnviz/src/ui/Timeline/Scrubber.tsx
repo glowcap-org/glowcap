@@ -6,9 +6,15 @@
  * DOM marker is layout + React event capture only.
  *
  * Interactions:
- *  - Wheel: zoom around cursor's t. Shift = fast zoom.
- *  - Click / drag: seek + scrub (engine pauses during scrub).
- *  - Shift / alt + drag: pan the window.
+ *  - Wheel over the plot: zoom around the cursor's t.
+ *  - Shift+wheel over the plot: pan the window (trackpad deltaX
+ *    pans without Shift).
+ *  - Wheel over the gutter: scroll the lane stack vertically.
+ *  - Drag in the scrub zone (ruler / below the last row): seek.
+ *  - Alt+drag on empty lane space: pan the view — horizontal
+ *    slides the time window, vertical scrolls the lane stack, so
+ *    one gesture feels like grabbing the whole strip. Shift alone
+ *    is for selection (marquee add), so it is not the pan key.
  *  - Double-click: fit-all.
  */
 
@@ -26,6 +32,7 @@ import type {
   MoveSpanIntent,
 } from "../../engine/authoring/events.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
+import { observationsOf } from "../../engine/temporal/recording-access.ts";
 import { applyRowOrder, momentOf } from "../../engine/event-helpers.ts";
 import { momentEffective } from "../../engine/temporal/doc-resolver.ts";
 import {
@@ -80,11 +87,16 @@ import {
   type ScrubberHit,
 } from "./hit-test.ts";
 import {
+  eyeballHoverStatus,
   scrubberHoverAt,
   timelineCursor,
   type TimelineGesture,
 } from "./timeline-cursor.ts";
 import { drawScrubberScene } from "./scrubber-paint.ts";
+
+/** Default host `title` when the pointer is not on a gutter eyeball. */
+const SCRUBBER_HOST_TITLE =
+  "Wheel = zoom · Shift+wheel = pan · gutter wheel = scroll · drag ruler = scrub · Alt+drag = pan (time + rows) · double-click = fit";
 
 /** Maximum visible window width in Live mode — the zoom-out
  *  floor expressed as "what fits in the timeline at min zoom."
@@ -115,6 +127,9 @@ export const MAX_LIVE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
  *
  * Measured at `MIN_LANE_HEIGHT` because this is the floor. The paint pass asks
  * the same function at whatever lane height the panel actually has.
+ *
+ * Pass `expandedCategories: new Set()` for the collapsed-fit height — the
+ * drag clamp's floor. Fit / auto-size pass the live expansion set instead.
  */
 export function scrubberHeight(
   expanded: ReadonlySet<LaneKind>,
@@ -133,6 +148,22 @@ export function scrubberHeight(
       rows,
       MIN_LANE_HEIGHT,
     );
+}
+
+/** Categories fully collapsed — the scrubber height a drag may shrink to. */
+const COLLAPSED_CATEGORIES: ReadonlySet<Exclude<LaneKind, "ruler">> = new Set();
+
+/** Scrubber height with every category collapsed (lanes still as toggled).
+ *  That is the panel's drag floor: expand a category, and you can drag
+ *  between this and the live intrinsic; you cannot drag below this. */
+export function scrubberCollapsedHeight(
+  expandedLanes: ReadonlySet<LaneKind>,
+  orderedEntities: Record<Exclude<LaneKind, "ruler">, readonly string[]>,
+): number {
+  return scrubberHeight(expandedLanes, {
+    expandedCategories: COLLAPSED_CATEGORIES,
+    orderedEntities,
+  });
 }
 
 // Hit-test geometry (entity/gutter pickers, drag plans, rubber-band
@@ -246,16 +277,20 @@ export type ScrubberProps = {
    * minimum pixels needed to render the current expansion
    * state with compact rows. The parent panel adds its own
    * chrome (control row + overview) and forwards an aggregated
-   * intrinsic to App so the bottom pane can grow to fit. */
+   * intrinsic to App so the bottom pane can Fit / auto-size. */
   onIntrinsicHeightChange?: ((px: number) => void) | undefined;
+  /** Reports the collapsed-fit scrubber height (every category
+   *  collapsed, lanes as currently toggled). The parent uses this
+   *  — not the live intrinsic — as the drag floor. */
+  onCollapsedHeightChange?: ((px: number) => void) | undefined;
   /** Flash-grade timeline — per-category row management. */
   expandedCategories: ReadonlySet<Exclude<LaneKind, "ruler">>;
   /** Doc-side row ordering override (read-through to the
    * renderer). Undefined ⇒ default first-event-t order. */
   rowOrder: TimelineDocument["rowOrder"];
-  /** Doc-side per-row visibility (read-through, three exclusive
-   * buckets — see engine's `setRowVisMode`). Undefined ⇒ all
-   * rows fully visible in that bucket. */
+  /** Doc-side per-row visibility (read-through, 4-state model —
+   * visible / label / body / both — see engine's `setRowVisMode`).
+   * Undefined ⇒ all rows fully visible. */
   rowHidden: TimelineDocument["rowHidden"];
   rowLabelHidden: TimelineDocument["rowLabelHidden"];
   rowBodyHidden: TimelineDocument["rowBodyHidden"];
@@ -355,6 +390,7 @@ export function Scrubber(
     selectionSet,
     onEditSelection,
     onIntrinsicHeightChange,
+    onCollapsedHeightChange,
   }: ScrubberProps,
 ) {
   // View-bounds (all three read by `clampView`): `clock.duration`
@@ -385,13 +421,20 @@ export function Scrubber(
     expandedCategories,
     orderedEntities,
   });
-  // Bubble intrinsic height upward via layout-effect (not effect)
-  // so the intrinsic → TimelinePanel → App.autoSize → pane-resize
-  // chain runs synchronously, collapsing what would otherwise be
-  // 2-3 paints into one at the final geometry.
+  const collapsedHeight = scrubberCollapsedHeight(
+    expandedLanes,
+    orderedEntities,
+  );
+  // Bubble heights upward via layout-effect (not effect) so the
+  // Scrubber → TimelinePanel → App.autoSize / drag-floor chain
+  // runs synchronously, collapsing what would otherwise be 2-3
+  // paints into one at the final geometry.
   useLayoutEffect(() => {
     onIntrinsicHeightChange?.(intrinsicHeight);
   }, [intrinsicHeight, onIntrinsicHeightChange]);
+  useLayoutEffect(() => {
+    onCollapsedHeightChange?.(collapsedHeight);
+  }, [collapsedHeight, onCollapsedHeightChange]);
   const laneHeight = MIN_LANE_HEIGHT;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragMode>(null);
@@ -423,7 +466,7 @@ export function Scrubber(
       p.rowHidden,
       p.laneHeight,
     )];
-    const { cursor, hoverKey } = computeHoverState({
+    const { cursor, hoverKey, statusTitle } = computeHoverState({
       px: at.px,
       py: at.py,
       rect,
@@ -437,6 +480,7 @@ export function Scrubber(
       gestureCtx: gestureCtxRef.current,
     });
     host.style.cursor = cursor;
+    host.title = statusTitle ?? SCRUBBER_HOST_TITLE;
     hoverGutterRowRef.current = hoverKey;
     // Keyed on the context's VALUES, not its identity: App rebuilds the
     // object each render, and this effect hit-tests.
@@ -693,12 +737,22 @@ export function Scrubber(
           }
           : null;
       const rowDragActive = rowDrag !== null;
+      // Event retimes mutate `doc` inside a transaction without
+      // bumping `docVersion`, so React props stay stale until
+      // release. Read the live document here — `bumpEntities` and
+      // in-place event edits are what the pills must follow mid-drag.
+      const liveEntities = p.doc.entities;
+      const liveEvents = observationsOf(p.doc) as readonly TimelineEvent[];
+      // An in-flight event drag (diamond / span edge / body) must
+      // repaint even when the bail's prop snapshot has not moved.
+      const eventDragActive = drag?.kind === "event" && drag.moved &&
+        !drag.selectOnly;
       const curGutter = gutterWidthOf(p.view);
       const curHoverRow = hoverGutterRowRef.current;
       const curScrollY = scrollYRef.current;
       const curHoverT = hoverTRef.current;
       if (
-        !bandActive && !snapActive && !rowDragActive &&
+        !bandActive && !snapActive && !rowDragActive && !eventDragActive &&
         curScrollY === lastScrollY &&
         theme === lastTheme &&
         p.view.windowStart === lastWindowStart &&
@@ -706,8 +760,8 @@ export function Scrubber(
         p.expandedLanes === lastExpanded &&
         p.clock.t === lastClockT &&
         p.clock.duration === lastDuration &&
-        p.events === lastEvents &&
-        p.events.length === lastEventsLen &&
+        liveEvents === lastEvents &&
+        liveEvents.length === lastEventsLen &&
         regionWidth === lastWidth &&
         regionHeight === lastHeight &&
         p.laneHeight === lastLaneHeight &&
@@ -721,14 +775,14 @@ export function Scrubber(
         p.rowBodyHidden === lastRowBodyHidden &&
         p.categoryVisMode === lastCategoryVisMode &&
         p.selectionSet === lastSelectionSet &&
-        p.entities === lastEntities &&
+        liveEntities === lastEntities &&
         p.doc === lastDoc &&
         curGutter === lastGutterWidth &&
         curHoverRow === lastHoverGutterRow
       ) {
         return;
       }
-      lastEntities = p.entities;
+      lastEntities = liveEntities;
       lastDoc = p.doc;
       lastGutterWidth = curGutter;
       lastHoverGutterRow = curHoverRow;
@@ -739,8 +793,8 @@ export function Scrubber(
       lastExpanded = p.expandedLanes;
       lastClockT = p.clock.t;
       lastDuration = p.clock.duration;
-      lastEvents = p.events;
-      lastEventsLen = p.events.length;
+      lastEvents = liveEvents;
+      lastEventsLen = liveEvents.length;
       lastWidth = regionWidth;
       lastHeight = regionHeight;
       lastLaneHeight = p.laneHeight;
@@ -767,7 +821,7 @@ export function Scrubber(
         p.view,
         p.clock,
         p.doc,
-        p.events,
+        liveEvents,
         p.expandedLanes,
         p.expandedCategories,
         p.rowOrder,
@@ -937,17 +991,17 @@ export function Scrubber(
         scrollYRef.current,
       );
       if (hit && (onSelectEvent || onMoveEvent)) {
-        // Gate drag-to-move on prior selection. Clicking an
-        // unselected entity is a select-only intent: the gesture
-        // captures the hit so endDrag can dispatch the select on
-        // release, but the move handler ignores displacement so
-        // an unselected pill cannot translate or resize. The user
-        // must click a second time once the entity is selected to
-        // drag — matches the "select then act" convention used
-        // across the Inspector and Stage halo. Add/remove/toggle
-        // gestures skip this gate: a modifier-click is unambiguously
-        // a selection-set edit, not a drag intent, so it doesn't
-        // need to wait for a prior single-select.
+        // Gate drag-to-move on prior selection for body translates.
+        // Clicking an unselected entity is a select-only intent: the
+        // gesture captures the hit so endDrag can dispatch the select
+        // on release, but the move handler ignores displacement so an
+        // unselected pill body cannot translate. The user must click a
+        // second time once the entity is selected to drag — matches
+        // the "select then act" convention used across the Inspector
+        // and Stage halo. Add/remove/toggle gestures skip this gate: a
+        // modifier-click is unambiguously a selection-set edit, not a
+        // drag intent, so it doesn't need to wait for a prior
+        // single-select.
         const hitEntityKey = entityKey(hit.entity);
         // One selection grammar across surfaces: the stage's
         // modifier map (shift = add, shift+option = remove).
@@ -955,19 +1009,19 @@ export function Scrubber(
         // `drag === null` = no observation event to retime. The
         // gesture must remain select-only regardless of selection
         // state, otherwise the move handler would have no plan.
-        // Edge handles (span-edge / message-edge) are an unambiguous
-        // resize intent — they bypass the "click first to select"
-        // gate so a user can grab a 6px hot zone and start resizing
-        // in one motion (and discover the affordance via the
-        // col-resize cursor without first having to click). Modifier
-        // gestures stay select-only: a modifier-click is a selection-
-        // set edit, not authoring.
-        const isEdgePlan = hit.drag?.kind === "span-edge" ||
+        // Precise hotspots bypass the "click first to select" gate
+        // so a user can grab a 6px edge or diamond and start retiming
+        // in one motion (and discover the affordance via the cursor
+        // without first having to click). Modifier gestures stay
+        // select-only: a modifier-click is a selection-set edit, not
+        // authoring.
+        const isDirectActPlan = hit.drag?.kind === "span-edge" ||
           hit.drag?.kind === "entity-span-edge" ||
-          hit.drag?.kind === "message-edge";
+          hit.drag?.kind === "message-edge" ||
+          hit.drag?.kind === "moment";
         const selectOnly = hit.drag === null ||
           selectMode !== "replace" ||
-          (!isEdgePlan && !selectionSetRef.current.has(hitEntityKey));
+          (!isDirectActPlan && !selectionSetRef.current.has(hitEntityKey));
         dragRef.current = {
           kind: "event",
           hit,
@@ -980,10 +1034,10 @@ export function Scrubber(
         // A select-only press moves nothing, so it names no gesture: the
         // pill's own cursor stays the honest answer until the release.
         inFlightRef.current = selectOnly ? null : {
-          surface: isEdgePlan
+          surface: isDirectActPlan && hit.drag?.kind !== "moment"
             ? "timeline-lane-event-right-edge"
             : "timeline-lane-event",
-          verb: isEdgePlan
+          verb: isDirectActPlan && hit.drag?.kind !== "moment"
             ? {
               kind: "drag-event-right-edge",
               eventId: eventIdOfPlan(hit),
@@ -997,14 +1051,19 @@ export function Scrubber(
         };
         return;
       }
-      // No entity under the pointer. Alt alone = pan; a shifted
-      // gesture falls through to the rubber-band branch, where the
-      // stage's modifier map decides the commit (shift = add,
-      // shift+option = remove). Pan losing the bare-shift modifier
-      // is the price of giving shift back to "add to selection" —
-      // alt alone is the timeline's pan key.
+      // No entity under the pointer. Alt alone = pan the whole
+      // strip (time + lane scroll); a shifted gesture falls through
+      // to the rubber-band branch, where the stage's modifier map
+      // decides the commit (shift = add, shift+option = remove).
+      // Pan losing the bare-shift modifier is the price of giving
+      // shift back to "add to selection" — alt alone is the
+      // timeline's pan key.
       if (e.altKey && !e.shiftKey) {
-        dragRef.current = { kind: "pan", lastClientX: e.clientX };
+        dragRef.current = {
+          kind: "pan",
+          lastClientX: e.clientX,
+          lastClientY: e.clientY,
+        };
         inFlightRef.current = {
           surface: "timeline-lane-empty",
           verb: { kind: "pan-view" },
@@ -1254,7 +1313,7 @@ export function Scrubber(
           laneHeight,
         )];
         lastHoverRef.current = { px, py: e.clientY - rect.top };
-        const { cursor, hoverKey } = computeHoverState({
+        const { cursor, hoverKey, statusTitle } = computeHoverState({
           px,
           py: e.clientY - rect.top,
           rect,
@@ -1268,6 +1327,7 @@ export function Scrubber(
           gestureCtx: gestureCtxRef.current,
         });
         e.currentTarget.style.cursor = cursor;
+        e.currentTarget.title = statusTitle ?? SCRUBBER_HOST_TITLE;
         hoverGutterRowRef.current = hoverKey;
         return;
       }
@@ -1300,22 +1360,42 @@ export function Scrubber(
         }
         case "pan": {
           const dx = e.clientX - drag.lastClientX;
+          const dy = e.clientY - drag.lastClientY;
           drag.lastClientX = e.clientX;
-          // Updater form so `dt` derives from the CURRENT window
-          // width — without this, multiple moves per frame all pan
-          // against the original window and the drag feels weak.
-          onSetView((current) => {
-            const dt = plotWidth > 0
-              ? -(dx / plotWidth) * (current.windowEnd - current.windowStart)
-              : 0;
-            return panView(
-              current,
-              dt,
-              clock.duration,
-              viewMaxWidth,
-              viewPanMaxT,
+          drag.lastClientY = e.clientY;
+          // Vertical: grab-the-paper — content follows the pointer,
+          // so dragging down reveals rows that were above.
+          if (dy !== 0) {
+            const next = Math.max(
+              0,
+              Math.min(
+                scrollYMaxRef.current,
+                scrollYRef.current - dy,
+              ),
             );
-          });
+            if (next !== scrollYRef.current) {
+              scrollYRef.current = next;
+              hoverTRef.current = null;
+            }
+          }
+          // Horizontal: updater form so `dt` derives from the CURRENT
+          // window width — without this, multiple moves per frame all
+          // pan against the original window and the drag feels weak.
+          if (dx !== 0) {
+            onSetView((current) => {
+              const dt = plotWidth > 0
+                ? -(dx / plotWidth) *
+                  (current.windowEnd - current.windowStart)
+                : 0;
+              return panView(
+                current,
+                dt,
+                clock.duration,
+                viewMaxWidth,
+                viewPanMaxT,
+              );
+            });
+          }
           return;
         }
         case "scrub": {
@@ -1507,14 +1587,14 @@ export function Scrubber(
         position: "relative",
         zIndex: 1,
       }}
-      title="Wheel = zoom (Shift = fast)  ·  drag = scrub  ·  Shift+drag = pan  ·  double-click = fit"
+      title={SCRUBBER_HOST_TITLE}
     />
   );
 }
 
 type DragMode =
   | { kind: "scrub"; lastClientX: number }
-  | { kind: "pan"; lastClientX: number }
+  | { kind: "pan"; lastClientX: number; lastClientY: number }
   | {
     kind: "event";
     /** What was hit; carried so we can dispatch select on a
@@ -1638,7 +1718,7 @@ function computeHoverState(
      *  the click or marquee would commit, exactly as it does on the Stage. */
     gestureCtx: SurfaceGestureCtx;
   },
-): { cursor: string; hoverKey: string | null } {
+): { cursor: string; hoverKey: string | null; statusTitle: string | null } {
   const { hit, hoverKey } = scrubberHoverAt({
     point: { px: args.px, py: args.py },
     size: { width: args.rect.width, height: args.rect.height },
@@ -1656,6 +1736,7 @@ function computeHoverState(
       gestureCtx: args.gestureCtx,
     }),
     hoverKey,
+    statusTitle: eyeballHoverStatus(hit, args.doc),
   };
 }
 

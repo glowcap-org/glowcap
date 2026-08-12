@@ -26,15 +26,20 @@ import {
 	annotateSession,
 	currentSession,
 	enableTrace,
+	formatLocatorUri,
 	formatPeerUri,
 	Host,
 	Ref,
 	type Session,
-	TRANSPORT_KEYED_RELAY,
+	TRANSPORT_NOISE_RELAY,
 	TRANSPORT_WEBRTC,
 } from "@pancake/stack";
 import { publishViz, type VizPublisher } from "../../lib/viz_publish.ts";
-import { directorySignalingAuthority, serveWebrtcSignaling } from "../../lib/signaling.ts";
+import {
+	directorySignalingAuthority,
+	serveWebrtcSignaling,
+	type WebrtcSignalingServer,
+} from "../../lib/signaling.ts";
 import { MAX_LINE, MAX_NICK, TYPING_CLEAR_MS } from "../../lib/limits.ts";
 import { DirectMessage, Directory, Room } from "../../lib/room_client.ts";
 import { type InboxOfferer, inboxOfferer } from "../../lib/dm_inbox.ts";
@@ -87,6 +92,8 @@ interface Live {
 	deferredOffers: Set<string>;
 	/** Fires once this session has lasted long enough to count as stable. */
 	stable: ReturnType<typeof setTimeout> | null;
+	/** Pending WebRTC offer bring-ups filed through this directory session. */
+	signaling: WebrtcSignalingServer | null;
 }
 let live: Live | null = null;
 
@@ -133,10 +140,10 @@ export const directoryReady: Promise<void> = new Promise((resolve) => {
 // rendezvous identity by default, or a `webrtc` identity when the page is
 // opened with `?dm=webrtc` — the DataChannel then carries the DM directly and
 // the room directory carries only the signaling (ADR-0089).
-const DM_TRANSPORT: typeof TRANSPORT_KEYED_RELAY | typeof TRANSPORT_WEBRTC =
+const DM_TRANSPORT: typeof TRANSPORT_NOISE_RELAY | typeof TRANSPORT_WEBRTC =
 	new URLSearchParams(location.search).get("dm") === "webrtc"
 		? TRANSPORT_WEBRTC
-		: TRANSPORT_KEYED_RELAY;
+		: TRANSPORT_NOISE_RELAY;
 // The live timeline endpoint this tab publishes its own trace to. The page
 // asks its own server for one (`/viz`, answered when the room was started with
 // ROOMS_VIZ_PORT), and `?viz=ws://host:port/` on the page URL overrides that
@@ -279,9 +286,16 @@ function ensureInbox(): Host {
 	const host = roomsHost();
 	// This Host owns the locator advertised in handoff gives. The directory
 	// relays that signed claim; it does not replace it with registration input.
-	host.setAdvertisedLocator(DM_TRANSPORT, host.designator());
+	if (DM_TRANSPORT === TRANSPORT_WEBRTC) {
+		host.setAdvertisedLocator({
+			transport: DM_TRANSPORT,
+			designator: host.designator(),
+			hints: new Map(),
+			hintWireForm: "map",
+		});
+	}
 	// Reaching other members is this host's deployment configuration, whatever
-	// we advertise ourselves: a `keyed-relay` identity bridges through
+	// we advertise ourselves: a `noise-relay` identity bridges through
 	// `/relay?rendezvous=` (ADR-0088), and a `webrtc` identity is signaled
 	// through the room directory (ADR-0089).
 	host.setRendezvousUrl(relayRendezvousUrl);
@@ -290,15 +304,18 @@ function ensureInbox(): Host {
 	// Being reachable ourselves takes only the advertised transport's half: a
 	// rendezvous registration holds sockets at the relay, a webrtc member
 	// answers offers on the directory session instead (`advertisePresence`).
-	if (DM_TRANSPORT === TRANSPORT_KEYED_RELAY) {
-		rendezvous = serveRendezvous(host, relayRegisterUrl, {
+	if (DM_TRANSPORT === TRANSPORT_NOISE_RELAY) {
+		rendezvous = serveRendezvous(host, DM_TRANSPORT, {
+			registerUrl: relayRegisterUrl,
+			relayUrl: pageSocketBase("/relay"),
+		}, {
 			onError: (err) => console.error("rooms: rendezvous registration error:", reason(err)),
 		});
 	}
 	return host;
 }
 
-// Advertise our inbox host's keyed-relay locator to the directory so we appear
+// Advertise our inbox host's noise-relay locator to the directory so we appear
 // in the DM-able roster and a peer can introduce+redeem us. Registered once per
 // nick on the current directory session; a reconnect re-advertises because the
 // new directory has no memory of the old introduction.
@@ -309,7 +326,9 @@ function advertisePresence(): void {
 	if (session.advertised === nick) return;
 	session.advertised = nick;
 	const host = inboxHost;
-	const locator = formatPeerUri(DM_TRANSPORT, host.designator());
+	const locator = rendezvous === null
+		? formatPeerUri(DM_TRANSPORT, host.designator())
+		: formatLocatorUri(rendezvous.locator);
 	session.dir.register(nick, locator, offerInboxFor)
 		.then(() => {
 			// The session may have died while the room was answering it; a dead one
@@ -324,6 +343,9 @@ function advertisePresence(): void {
 					host,
 					dir: () => live?.dir ?? null,
 					onError: (err) => console.error("rooms: webrtc signaling error:", reason(err)),
+				}).then((signaling) => {
+					if (live === session) session.signaling = signaling;
+					else void signaling.close();
 				}).catch((err) => console.error("rooms: could not offer signaling:", reason(err)));
 			}
 			flushDeferredOffers();
@@ -369,8 +391,12 @@ const ADVERTISE_RETRY_LIMIT = 4;
 // blocks the insecure socket as mixed content. Every dial the wasm peer makes
 // rides one of these to the page's own server, which relays the opaque bytes.
 function pageSocketUrl(path: string, param: string, value: string): string {
+	return `${pageSocketBase(path)}?${param}=${encodeURIComponent(value)}`;
+}
+
+function pageSocketBase(path: string): string {
 	const proto = location.protocol === "https:" ? "wss://" : "ws://";
-	return `${proto}${location.host}${path}?${param}=${encodeURIComponent(value)}`;
+	return `${proto}${location.host}${path}`;
 }
 
 // A dial rides `/relay?target=<locator>`: the room dial names a `host:port`
@@ -723,7 +749,7 @@ async function enterRoom(name: string, nick: string, attempt = 0): Promise<strin
 		// persisted nick, so a collision may have suffixed it below; reflect the
 		// real name in the store so a member never sees a stale one.
 		store.setNick(nick);
-		// Now that we hold a nick in a room, advertise our keyed-relay locator so
+		// Now that we hold a nick in a room, advertise our noise-relay locator so
 		// others can introduce+redeem us for direct messages (ADR-0088 cold-dial).
 		advertisePresence();
 		enteredRoom(name);
@@ -943,7 +969,7 @@ function dmFailureText(peer: string, err: unknown): string {
 
 // The introduced direct line to a peer, opened once and reused. `DirectMessage.open`
 // asks the directory to introduce us and wraps the handoff-give; the redeem dial
-// opens the direct connection, riding the relay's iroh path to the member. The
+// opens the direct connection over the member's advertised transport. The
 // line hosts a reply inbox on that connection, so a member's reply lands here and
 // paints in the peer's DM thread — the member never dials us.
 function openDm(conv: DmConv): Promise<DirectMessage> {
@@ -1118,6 +1144,7 @@ async function openSession(): Promise<void> {
 			registered: false,
 			deferredOffers: new Set(),
 			stable: null,
+			signaling: null,
 		};
 		live = session;
 		const seen = await next.watch((event) => {
@@ -1230,6 +1257,9 @@ function endSession(which: Live): void {
 	if (live !== which) return; // already replaced by a newer session
 	live = null;
 	if (which.stable !== null) clearTimeout(which.stable);
+	void which.signaling?.close().catch((err) =>
+		console.error("rooms: WebRTC signaling would not stop:", reason(err))
+	);
 	// A redeemed introduction holds a connection open and an inbox exported on
 	// it, so these are handed back rather than merely forgotten.
 	for (const key of [...which.lines.keys()]) dropLine(which, key);

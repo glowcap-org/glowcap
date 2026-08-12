@@ -72,6 +72,33 @@ pub const Spill = struct {
         self.len += incoming.len;
     }
 
+    /// The exact-growth sibling for a caller whose retained bytes are a hard
+    /// per-connection budget. Exact growth keeps allocator capacity from
+    /// silently exceeding the logical ceiling through geometric doubling.
+    pub fn absorbBytesPrecise(self: *Spill, allocator: std.mem.Allocator, incoming: []const u8) std.mem.Allocator.Error!void {
+        if (incoming.len == 0) return;
+        const needed = self.len + incoming.len;
+        if (self.buf.len < needed) self.buf = try allocator.realloc(self.buf, needed);
+        @memcpy(self.buf[self.len..][0..incoming.len], incoming);
+        self.len += incoming.len;
+    }
+
+    /// Reserve exact room for one borrowed append without committing any of
+    /// its bytes. A caller with another fallible preflight can reserve both
+    /// resources first, then use `absorbBytesAssumeCapacity` as one atomic
+    /// ownership transfer.
+    pub fn ensureUnusedCapacityPrecise(self: *Spill, allocator: std.mem.Allocator, incoming_len: usize) std.mem.Allocator.Error!void {
+        const needed = self.len + incoming_len;
+        if (self.buf.len < needed) self.buf = try allocator.realloc(self.buf, needed);
+    }
+
+    /// Commit bytes after `ensureUnusedCapacityPrecise` succeeds.
+    pub fn absorbBytesAssumeCapacity(self: *Spill, incoming: []const u8) void {
+        std.debug.assert(incoming.len <= self.buf.len - self.len);
+        @memcpy(self.buf[self.len..][0..incoming.len], incoming);
+        self.len += incoming.len;
+    }
+
     /// Drop `n` consumed bytes (one decoded frame) off the front. Leftover bytes
     /// — the start of the next frame — compact forward and keep the spill
     /// active.

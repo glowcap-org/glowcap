@@ -36,7 +36,8 @@ each surface and what it leaves open.
 </nav>
 ```
 
-The [ladder](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md)
-orders the climb to 1.0; the
+The [1.0 ladder](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md)
+orders the steps toward release; the
 [roadmap](https://github.com/jimisaacs/pancake/blob/main/docs/roadmap.md) lists
-the remaining work. To try the current surface, [start building]($link.page('start')).
+the remaining work. Status claims live in those linked pages rather than here.
+To try the current surface, [start building]($link.page('start')).

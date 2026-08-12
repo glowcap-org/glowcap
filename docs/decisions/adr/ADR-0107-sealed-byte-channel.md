@@ -1,16 +1,20 @@
 ---
 id: ADR-0107
-status: proposed
+status: accepted
 date: 2026-08-05
 tags: [captp, handshake, identity, transport, relay, keyed-tcp, noise, browser]
 decision: "One end-to-end sealed channel, Noise_XK over any byte pipe, carried by two new netlayer symbols. The two CapTP peers run the handshake themselves, so a relay in the path forwards ciphertext and proves nothing. The core Host owns the channel and is its own realizer, so every tier above it and every binding inherits the proof without wiring."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0113]
 ---
 
 # ADR-0107 A sealed byte channel for the cleartext netlayers
+
+`noise-tcp` and `noise-relay` ship through the native Host tiers, the generic C
+driver, and all four native bindings. Browser wasm peers use `noise-relay`
+through the rendezvous path and report authenticated transport provenance.
 
 ## Context
 
@@ -74,12 +78,17 @@ completing, through the same seam every other realizer uses, which is what keeps
 this consistent with ADR-0105 rather than reintroducing the transport table it
 deleted.
 
-The core Host owns the channel (`src/driver/core/`), so it is its own realizer.
-Every tier above the byte-fed core inherits the proof with no wiring: the native
-`driver.PollHost`, the `driver.Bridge` loop tier
-([ADR-0076](ADR-0076-loop-fed-host-bridge.md)), all four language bindings, and
-the wasm Host a browser runs
-([ADR-0070](ADR-0070-browser-binding-via-wasm.md)).
+The channel composition is one type, `foundation.sealed.SealedChannel`, and
+each stream tier is a thin owner and its own realizer. The byte-fed core Host
+boxes one per sealed session, so the native `driver.HostRuntime`, the language
+bindings' byte pumps, and the wasm Host a browser runs
+([ADR-0070](ADR-0070-browser-binding-via-wasm.md)) inherit the proof with no
+wiring. The completion-loop tier ([ADR-0076](ADR-0076-loop-fed-host-bridge.md))
+drives `engine.Peer` directly and holds no `HostSession`, so its owner is its
+one byte-transform seam, the completion backend: a sealing adapter completes
+the handshake before the loop hears the dial connected and answers
+`verifiedChannelKey`, the same realizer seam the iroh backend uses, so
+`driver.Bridge` binds the proof unchanged.
 
 ## The handshake, exactly
 
@@ -106,6 +115,19 @@ X25519 by the standard birational map. The initiator derives the responder's
 X25519 public key from the designator it already holds, which is what lets `XK`
 work against locators that exist today and keeps dial-by-key working for
 relay rendezvous and sturdyrefs.
+
+**Exact identity binding.** The map drops the Edwards sign bit, so equality of
+X25519 images is not proof of one exact Ed25519 encoding. Messages two and
+three therefore carry the sender's 32-byte Ed25519 key and a 64-byte Ed25519
+signature. The signed statement domain-separately binds that exact key, the
+sender's authenticated X25519 static, its initiator/responder role, and the
+initial Noise transcript after the protocol name, prologue, and responder
+pre-message. The initiator additionally requires message two's key to equal
+the locator's responder designator. Both payloads ride encrypted and
+authenticated inside the handshake, cost no extra round trip, and reveal the
+initiator's identity to no one the handshake does not. The channel borrows the
+signing key only while constructing its local proof and retains no Ed25519
+secret.
 
 **Prologue.** The Noise prologue is the transport symbol and the responder's
 designator, joined by a separator that cannot occur in either. Both sides
@@ -135,14 +157,34 @@ it.
   cipherstates over caller buffers, no allocation beyond what the caller
   supplies, no I/O. It belongs in `foundation` for the same reason
   `foundation.Spill` does: two tiers need it and neither imports the other.
-- **`driver_core`**: the per-session owner. `HostSession` gains one nullable
-  boxed channel. `feedBytes` runs the handshake before any CapTP byte reaches
-  the engine and decrypts afterwards; `takeOutbound` emits handshake messages
-  first and seals afterwards. On completion the Host calls
-  `bindVerifiedChannelKey` itself. `driver_core` is `core = true`, and Noise is
-  sans-io, so `arch-check` stays satisfied.
-- **`net`**: nothing new. `noise-tcp` reuses the `tcp` sockets exactly as
-  `keyed-tcp` does, and `noise-relay` reuses the relay's WebSocket pipe.
+- **`foundation.sealed`**: the channel composed over it — handshake framing,
+  the prologue, exact identity proofs, record framing, and prefix-consuming
+  stream ingestion. Complete units are read from the transport's borrowed
+  buffer. Only an incomplete unit enters spill staging. The same
+  homing argument as the state machine, and it is the derivation that placed
+  it: threading `HostSession` sealing through the loop's peer-centric seams
+  would invert the contract the Bridge preserves, and duplicating channel
+  state into the loop's `Conn` would split channel authority, so the
+  transport-agnostic machine moved down to where both tiers can compose it
+  and each tier keeps one thin owner.
+- **`driver_core`**: the byte-fed tier's owner. `HostSession` gains one
+  nullable boxed channel. `feedBytes` runs the handshake before any CapTP
+  byte reaches the engine and decrypts afterwards; `takeOutbound` emits
+  handshake messages first and seals afterwards. On completion the Host calls
+  `bindVerifiedChannelKey` itself. `driver_core` is `core = true`, and Noise
+  is sans-io, so `arch-check` stays satisfied.
+- **`net`**: the loop tier's owner, and the only new I/O-side code. For
+  `noise-tcp` nothing changes: the resident reuses the `tcp` sockets exactly
+  as `keyed-tcp` does, and the byte-fed Host seals. For `noise-relay` the
+  sealing completion-backend adapter (`net.noise_completion`) wraps the
+  keyed-relay backend: a sealed dial completes the handshake before the
+  connect completion is reported — as the relay adapter completes its
+  WebSocket upgrade first — then seals submitted sends into records and lends
+  opened record plaintext to the recv seat. A coalesced ciphertext suffix stays
+  in the inner backend's borrowed receive buffer until another seat consumes
+  it, so the adapter does not copy whole records into a second queue. The loop
+  and Bridge are untouched and their budget equalities hold; the sealed leg
+  pays its own pinned per-connection state instead.
 
 `driver.BlockingSession`, the no-router single-connection tier, does not get
 sealed transports, because it does not stand on the core Host. That is a present
@@ -151,20 +193,27 @@ boundary rather than a plan.
 ## Per-session footprint
 
 The 500k-connection budget is a gate
-(`host_session_struct_budget_bytes`, 496 today), so the shell pays **one
+(`host_session_struct_budget_bytes`, 528 today), so the shell pays **one
 nullable pointer, eight bytes**, and an unsealed session pays nothing else. The
 channel itself is heap-allocated only for a sealed session.
 
-Handshake state is transient. The ephemeral secret, chaining key, and running
-hash live in the boxed channel during the handshake and are zeroed and freed at
-completion, leaving two transport cipherstates of a 32-byte key and an 8-byte
-nonce each. Steady per-sealed-session cost is therefore about 80 bytes of key
-material plus the box header, not the handshake's working set.
+Handshake secrets are transient. The ephemeral secret, chaining key, HKDF
+intermediates, and static-secret copy are zeroed at completion. The box then
+holds the two transport cipherstates plus fixed public proof/context storage.
+Ordinary staging is bounded by one incomplete Noise record. A byte-fed Host may
+also retain the unread suffix of one caller-owned read across the CapTP hello
+pause, just as its plaintext stream parser retains coalesced frames; no Ed25519
+signing secret survives construction. The
+completion adapter's whole per-connection state is pinned by
+`test/net/noise_relay_test.zig`, so proof growth or new queue state changes a
+checked number rather than an estimate in prose.
 
-Sealing adds one copy per record in each direction, because AEAD cannot encrypt
-in place across the borrowed-frame boundary the engine already relies on. That
-copy is bounded by the record size and is named here rather than discovered
-later, per the memory rule. It is paid only by sealed sessions.
+Sealing writes ciphertext and opened plaintext into separate record-sized
+storage because AEAD cannot operate in place across the borrowed boundaries the
+engine and completion loop rely on. Complete inbound ciphertext itself is not
+copied: the channel consumes borrowed prefixes, and the completion adapter keeps
+the underlying receive-buffer borrow across seats. This cost is paid only by
+sealed sessions.
 
 ## Wire compatibility and interop
 
@@ -201,51 +250,63 @@ and does not forbid others.
 
 ## Required evidence
 
-1. **The state machine matches the specification.** The published Noise test
-   vectors for `Noise_XK_25519_ChaChaPoly_BLAKE2s` pass, byte for byte, as an
-   in-tree corpus. This is an external authority, which is what the tests rule
-   asks for on a semantic claim.
+Each item names what carries it, or says plainly that nothing does yet.
+
+1. **The state machine matches the pinned external transcript.** One published
+   Snow/Cacophony vector for `Noise_XK_25519_ChaChaPoly_BLAKE2s` passes byte for
+   byte, both roles and every handshake and transport message, in
+   [`test/foundation/noise_test.zig`](../../../test/foundation/noise_test.zig).
+   In-tree refusal, nonce, rekey, framing, and key-conversion scenarios cover
+   the state transitions that fixed transcript cannot. This is strong evidence
+   for the selected suite, not a claim of exhaustive Noise specification
+   conformance or independent live interoperability.
 2. **A sealed session reports the stronger fact.** Two peers over `noise-tcp`
    both report `authenticated_transport`, and the same pair over `keyed-tcp`
-   reports `unauthenticated`. One scenario, both rows, so the difference
-   is the assertion.
+   reports `unauthenticated`. Held by
+   [`test/driver/sealed_channel_test.zig`](../../../test/driver/sealed_channel_test.zig)
+   and live over loopback by
+   [`test/driver/noise_tcp_live_test.zig`](../../../test/driver/noise_tcp_live_test.zig).
+   The C driver-loop projection repeats the live proof through only exported
+   ABI verbs, including both listener-locator halves and an application fetch,
+   in [`test/c_abi/driver_loop_test.zig`](../../../test/c_abi/driver_loop_test.zig).
 3. **Replay is refused.** A recorded handshake replayed onto a fresh connection
-   fails, and no CapTP session opens.
-4. **A substituted key is refused.** A relay that answers with its own static
+   fails, and no CapTP session opens. Held by
+   [`test/driver/sealed_channel_test.zig`](../../../test/driver/sealed_channel_test.zig).
+4. **The exact Ed25519 identity is proved.** A second Ed25519 encoding with the
+   opposite Edwards sign bit maps to the same X25519 point but is refused as an
+   initiator identity. Held by
+   [`test/driver/sealed_channel_test.zig`](../../../test/driver/sealed_channel_test.zig).
+5. **A substituted key is refused.** A relay that answers with its own static
    key fails the handshake rather than establishing a session it could read.
-5. **The relay sees ciphertext.** The forwarded bytes contain no CapTP frame
-   preamble, asserted against the relay's own view rather than inferred.
-6. **A browser holds one.** A wasm peer completes a `noise-relay` session
-   through the reference relay and reports `authenticated_transport`.
+   Held by
+   [`test/net/noise_relay_test.zig`](../../../test/net/noise_relay_test.zig).
+6. **The relay sees ciphertext.** The forwarded bytes contain no CapTP frame
+   preamble, asserted against the relay's own view rather than inferred. The
+   dial-side mock pipe and the live registered-resident scenario in
+   [`test/net/noise_relay_test.zig`](../../../test/net/noise_relay_test.zig)
+   both hold this for their plaintext probes. The C driver repeats the live
+   registered-provider path in
+   [`test/c_abi/driver_loop_test.zig`](../../../test/c_abi/driver_loop_test.zig).
+7. **A browser holds one.** Browser wasm peers complete `noise-relay` sessions
+   through the reference relay in the Rooms direct-message proofs. A real
+   Chromium peer reads `authenticated_transport` through
+   `Session.partnerIdentity()` before fetching a capability under
+   `zig build rooms-web-noise-relay-provenance`.
 
-Item 4 is the one that would be tempting to skip, and it is the claim the whole
-record exists to make.
+Items 2 and 4 are the load-bearing identity claims: the channel reports a
+stronger fact only after proving the exact key it reports.
 
-## Migration order
+## Implementation
 
-Each step is green on its own gate before the next begins.
-
-1. **The state machine.** `foundation.noise`, with the published vectors as its
-   corpus and the Ed25519-to-X25519 conversion beside them. No transport, no
-   session, no wire. Gate: `zig build test`, `zig build arch-check`.
-2. **The signing-domain invariant.** The `meta-check` rule that holds the
-   durable key to fixed-shape records under a domain label, so the key reuse
-   this record accepts stays bounded by something mechanical. Gate:
-   `zig build meta-check`.
-3. **The channel on the core Host.** The boxed per-session channel, the
-   handshake in `feedBytes` and `takeOutbound`, and the Host's own
-   `bindVerifiedChannelKey` call. Symbols not yet dialable. Gate:
-   `zig build test`, and the footprint budget in
-   `test/engine/footprint_budget_test.zig` and its Host sibling.
-4. **`noise-tcp`.** The symbol, its designator scheme, and evidence items 2, 3,
-   and 4. Gate: `zig build test`, `zig build check`.
-5. **`noise-relay`.** The symbol over the relay pipe, and evidence item 5. Gate:
-   the relay matrix, `zig build bindings-relay`.
-6. **The browser row.** Evidence item 6, and the transports table verdict moved
-   for both symbols. Gate: `zig build rooms-web-dm`, `zig build check-external`.
-7. **Records.** `docs/boundaries.md`, `docs/architecture.md`,
-   `site/content/transports.smd`, and `docs/shipped.md`. Gate:
-   `zig build meta-check`.
+`foundation.noise` owns the state machine, published vectors, and
+Ed25519-to-X25519 conversion. The core Host owns one boxed channel per sealed
+session and binds the verified channel key to session provenance. Transport
+packages only supply byte pipes and profile metadata: the TCP archive owns
+`noise-tcp`, and the relay archive owns `noise-relay`. The generic driver and
+bindings therefore select the sealed channel without implementing Noise or
+transport policy themselves. Footprint tests pin the per-session and
+completion-adapter state, while the evidence above holds the wire and identity
+claims.
 
 ## Scope (what this does not decide)
 

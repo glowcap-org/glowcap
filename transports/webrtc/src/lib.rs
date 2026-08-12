@@ -17,10 +17,12 @@
 //!   capability. The sidecar only produces and consumes them; it never transports
 //!   them. Peer creation and signaling submissions are synchronous control-plane
 //!   calls; the readiness path begins once those inputs are submitted.
-//! * The `RTCDataChannel` is callback-based (`on_message`), not a pollable
-//!   stream, so bounded inbound and outbound queues bridge callbacks to
-//!   non-blocking try-I/O. The private blocking byte calls remain only for the
-//!   Zig `BlockingSession` connection; public evented consumers use readiness.
+//! * The `RTCDataChannel` is pollable and exposes send-side backpressure.
+//!   C-facing try-writes admit into a bounded sidecar staging buffer, then an
+//!   async drain task sends through `DataChannel::send` without parking the
+//!   caller's reactor thread. The private blocking byte calls remain only for
+//!   the Zig `BlockingSession` connection; public evented consumers use
+//!   readiness.
 //! * One channel, labelled `ocapn`, ordered and reliable, carries the whole
 //!   OCapN session byte-for-byte. The offerer creates it; the answerer receives
 //!   it through `on_data_channel`.
@@ -35,23 +37,18 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
-use bytes::{Bytes, BytesMut};
-use tokio::runtime::Runtime;
+use bytes::BytesMut;
+use tokio::runtime::{Handle, Runtime};
 use tokio::sync::Notify;
-use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::MediaEngine;
-use webrtc::api::setting_engine::SettingEngine;
-use webrtc::api::APIBuilder;
-use webrtc::data_channel::data_channel_init::RTCDataChannelInit;
-use webrtc::data_channel::data_channel_message::DataChannelMessage;
-use webrtc::data_channel::RTCDataChannel;
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::interceptor::registry::Registry;
-use webrtc::peer_connection::configuration::RTCConfiguration;
-use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::data_channel::{DataChannel, DataChannelEvent, RTCDataChannelInit};
+use webrtc::error::{Error as WebrtcError, Result as WebrtcResult};
+use webrtc::peer_connection::{
+	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder,
+	PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer,
+	RTCPeerConnectionIceEvent, RTCPeerConnectionState, RTCSessionDescription, Registry,
+	SettingEngine,
+};
+use webrtc::runtime::TokioRuntime;
 
 /// The label of the one data channel a pancake `webrtc` session runs over. Both
 /// peers agree on it out of band; the offerer creates it under this name.
@@ -202,21 +199,18 @@ impl Readiness {
 	}
 }
 
-/// How many unread inbound bytes may pile up before the sidecar stops taking
-/// more off the channel. The far peer can send faster than the resident reads,
-/// and without this the buffer grows for as long as it keeps sending: one
-/// partner could exhaust the process's memory. Matches the iroh sidecar's
-/// bound, and is far above any single admissible frame, so a peer that is being
-/// read at all never reaches it.
-///
-/// The bound is checked before a message is taken, so buffered bytes never
-/// exceed it by more than one message, and the `webrtc` crate caps a message at
-/// 64 KiB. The iroh sidecar accounts for its own overshoot the same way.
+/// How many unread inbound bytes may pile up in the C-facing staging buffer
+/// before the sidecar pauses its channel poller.
 const INBOUND_BUFFER_BOUND: usize = 1 << 20;
 
-/// Pending outbound bytes are bounded independently of the WebRTC crate's
-/// internal SCTP buffer. A caller that reaches this limit re-arms on
-/// `EV_WRITABLE` instead of growing memory or parking its reactor thread.
+/// The SCTP receive window bound passed to `webrtc` 0.20. It is separate from
+/// the C-facing staging bound above: the crate may hold bytes it has received
+/// but not yet yielded as `DataChannelEvent::OnMessage`.
+const SCTP_RECEIVE_BUFFER_BOUND: usize = 1 << 20;
+
+/// Per-peer outbound byte bound. C-facing try-writes may stage up to this much
+/// in the sidecar, and the crate's own send buffer is configured to the same
+/// limit so the async drain task is backpressured too.
 const OUTBOUND_BUFFER_BOUND: usize = 1 << 20;
 
 /// Capacity retained after an inbound burst drains, and the largest DataChannel
@@ -226,10 +220,9 @@ const OUTBOUND_BUFFER_BOUND: usize = 1 << 20;
 /// messages and concatenated again by the inbound queue.
 const STEADY_BUFFER_BYTES: usize = 16 * 1024;
 
-/// Inbound bytes buffered from the data channel's `on_message` callback, drained
-/// by a blocking `conn_read`. `closed` latches when the channel closes or the
-/// peer tears down, so a reader parked on the condvar wakes and returns clean
-/// end of stream.
+/// Inbound bytes staged from polled data-channel messages, drained by C-facing
+/// reads. `closed` latches when the channel closes or the peer tears down, so a
+/// reader parked on the condvar wakes and returns clean end of stream.
 struct Inbound {
 	buf: VecDeque<u8>,
 	closed: bool,
@@ -243,12 +236,35 @@ struct OpenGate {
 }
 
 struct Outbound {
-	/// Bytes accepted from try-writers but not yet handed to SCTP. The writer
-	/// takes a whole batch by move, so burst capacity dies with that batch instead
-	/// of staying pinned for this peer's lifetime.
+	/// Bytes accepted from C try-writers but not yet handed to WebRTC. The C ABI
+	/// is synchronous, while `DataChannel::try_send` still awaits the crate's
+	/// async core lock, so this queue is the nonblocking boundary.
 	buf: BytesMut,
+	/// Includes bytes currently being sent by the async drain task, so the bound
+	/// covers both queued and in-flight sidecar storage.
 	queued_bytes: usize,
 	closed: bool,
+}
+
+struct PeerShared {
+	endpoint: Arc<EndpointInner>,
+	id: usize,
+	/// Created immediately for an offerer, installed by the event handler for an
+	/// answerer. Blocking writers clone it for direct `DataChannel::send`;
+	/// try-writers use the bounded outbound staging queue.
+	dc: Mutex<Option<Arc<dyn DataChannel>>>,
+	inbound: Arc<(Mutex<Inbound>, Condvar)>,
+	/// Signalled whenever a C read frees space in `inbound`, so the channel
+	/// poller can resume after pausing at `INBOUND_BUFFER_BOUND`.
+	drained: Arc<Notify>,
+	outbound: Arc<Mutex<Outbound>>,
+	/// Signalled when C try-write admits bytes, and when close releases a drain
+	/// task waiting for work.
+	outbound_ready: Arc<Notify>,
+	open: Arc<Mutex<OpenGate>>,
+	/// Locally gathered ICE candidates, serialized as JSON, awaiting the caller
+	/// to drain and ferry to the far peer.
+	local_candidates: Arc<Mutex<VecDeque<String>>>,
 }
 
 /// Own the Tokio runtime behind an endpoint. `Runtime::drop` panics when it runs
@@ -276,7 +292,11 @@ impl Drop for RuntimeOwner {
 /// tasks, though the public contract still requires peers to be released first.
 struct EndpointInner {
 	rt: RuntimeOwner,
+	/// The signaling/raw-peer subscription. Its event stream remains independent
+	/// from the generic driver's subscription so neither consumer can steal the
+	/// other's wake or readiness record.
 	readiness: Arc<Readiness>,
+	driver_readiness: Mutex<Option<Arc<Readiness>>>,
 	next_peer_id: AtomicUsize,
 	/// ICE server URLs every peer this endpoint creates offers to ICE. Empty is
 	/// host candidates only, which reaches a peer on the same host or the same
@@ -291,6 +311,23 @@ impl EndpointInner {
 	fn runtime(&self) -> &Runtime {
 		self.rt.get()
 	}
+
+	fn signal(&self, subject: usize, events: u32) {
+		self.readiness.signal(subject, events);
+		if let Ok(slot) = self.driver_readiness.lock() {
+			if let Some(readiness) = slot.as_ref() {
+				readiness.signal(subject, events);
+			}
+		}
+	}
+
+	fn driver_readiness(&self) -> Option<Arc<Readiness>> {
+		let mut slot = self.driver_readiness.lock().ok()?;
+		if slot.is_none() {
+			*slot = Readiness::new();
+		}
+		slot.clone()
+	}
 }
 
 /// Opaque endpoint handle. One resident owns one of these and creates every
@@ -302,23 +339,8 @@ pub struct PancakeWebrtcEndpoint {
 /// One WebRTC peer: its shared endpoint, peer connection, the single data
 /// channel once it exists, and the buffers the async callbacks feed. Opaque to C.
 pub struct PancakeWebrtcPeer {
-	endpoint: Arc<EndpointInner>,
-	id: usize,
-	pc: Arc<RTCPeerConnection>,
-	/// The data channel: created immediately for an offerer, installed by
-	/// `on_data_channel` for an answerer. `conn_write` reads it; a write before
-	/// the answerer's channel arrives returns `ERR`.
-	dc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
-	inbound: Arc<(Mutex<Inbound>, Condvar)>,
-	/// Signalled whenever `conn_read` frees space in `inbound`, so a message
-	/// handler parked on `INBOUND_BUFFER_BOUND` can take the next message.
-	drained: Arc<Notify>,
-	open: Arc<Mutex<OpenGate>>,
-	/// Locally gathered ICE candidates, serialized as JSON, awaiting the caller
-	/// to drain and ferry to the far peer.
-	local_candidates: Arc<Mutex<VecDeque<String>>>,
-	outbound: Arc<Mutex<Outbound>>,
-	outbound_ready: Arc<Notify>,
+	shared: Arc<PeerShared>,
+	pc: Arc<dyn PeerConnection>,
 }
 
 /// Build the data-channel-only WebRTC API: default codecs and interceptors,
@@ -330,147 +352,192 @@ pub struct PancakeWebrtcPeer {
 /// endpoint's config.
 fn build_peer_connection(
 	rt: &Runtime,
+	handler: Arc<dyn PeerConnectionEventHandler>,
 	ice_servers: &[String],
 	include_loopback: bool,
-) -> Result<Arc<RTCPeerConnection>, webrtc::Error> {
+) -> WebrtcResult<Arc<dyn PeerConnection>> {
 	let mut setting_engine = SettingEngine::default();
 	setting_engine.set_include_loopback_candidate(include_loopback);
 
 	let mut media_engine = MediaEngine::default();
 	media_engine.register_default_codecs()?;
-	let mut registry = Registry::new();
-	registry = register_default_interceptors(registry, &mut media_engine)?;
-
-	let api = APIBuilder::new()
-		.with_media_engine(media_engine)
-		.with_interceptor_registry(registry)
-		.with_setting_engine(setting_engine)
-		.build();
-
-	let config = RTCConfiguration {
-		ice_servers: if ice_servers.is_empty() {
+	let registry = register_default_interceptors(Registry::new(), &mut media_engine)?;
+	let config = RTCConfigurationBuilder::new()
+		.with_ice_servers(if ice_servers.is_empty() {
 			Vec::new()
 		} else {
 			vec![RTCIceServer {
 				urls: ice_servers.to_vec(),
 				..Default::default()
 			}]
-		},
-		..Default::default()
+		})
+		.build();
+	let udp_addrs = udp_bind_addrs(include_loopback);
+	let pc = rt.block_on(async move {
+		let pc = PeerConnectionBuilder::new()
+			.with_configuration(config)
+			.with_media_engine(media_engine)
+			.with_interceptor_registry(registry)
+			.with_setting_engine(setting_engine)
+			.with_handler(handler)
+			.with_runtime(Arc::new(TokioRuntime))
+			.with_udp_addrs(udp_addrs)
+			.with_sctp_receive_buffer_size(SCTP_RECEIVE_BUFFER_BOUND as u32)
+			.with_data_channel_send_buffer_limit(OUTBOUND_BUFFER_BOUND)
+			.build()
+			.await?;
+		Ok::<Arc<dyn PeerConnection>, WebrtcError>(Arc::new(pc))
+	})?;
+	Ok(pc)
+}
+
+fn udp_bind_addrs(include_loopback: bool) -> Vec<String> {
+	let mut addrs = vec!["0.0.0.0:0".to_owned()];
+	if include_loopback {
+		addrs.push("127.0.0.1:0".to_owned());
+	}
+	addrs
+}
+
+#[derive(Clone)]
+struct PeerEvents {
+	shared: Arc<PeerShared>,
+	runtime: Handle,
+}
+
+#[async_trait::async_trait]
+impl PeerConnectionEventHandler for PeerEvents {
+	async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+		let init = match event.candidate.to_json() {
+			Ok(init) => init,
+			Err(_) => return,
+		};
+		if init.candidate.is_empty() {
+			return;
+		}
+		if let Ok(text) = serde_json::to_string(&init) {
+			self.shared.local_candidates.lock().unwrap().push_back(text);
+			self.shared.endpoint.signal(self.shared.id, EV_CANDIDATE);
+		}
+	}
+
+	async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+		// This is the only terminal path for a peer that never opens a channel:
+		// ICE can fail before any DataChannel close event exists. The once-only
+		// publication path is unit-tested; forcing a real ICE timeout would make
+		// the sidecar suite wait on network retry timers.
+		if matches!(
+			state,
+			RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
+		) {
+			publish_peer_closed(&self.shared);
+		}
+	}
+
+	async fn on_data_channel(&self, dc: Arc<dyn DataChannel>) {
+		let shared = self.shared.clone();
+		self.runtime.spawn(async move {
+			install_remote_channel(shared, dc).await;
+		});
+	}
+}
+
+async fn install_remote_channel(shared: Arc<PeerShared>, dc: Arc<dyn DataChannel>) {
+	let label = match dc.label().await {
+		Ok(label) => label,
+		Err(_) => {
+			publish_peer_closed(&shared);
+			return;
+		}
 	};
-	let pc = rt.block_on(api.new_peer_connection(config))?;
-	Ok(Arc::new(pc))
+	if label != CHANNEL_LABEL {
+		// Only the `ocapn` channel is this transport. Any other label is a
+		// peer-created side channel, not a CapTP byte source.
+		let _ = dc.close().await;
+		return;
+	}
+	let claimed = {
+		let mut slot = shared.dc.lock().unwrap();
+		if slot.is_some() {
+			false
+		} else {
+			*slot = Some(dc.clone());
+			true
+		}
+	};
+	if claimed {
+		wire_channel(dc, shared);
+	} else {
+		// A peer owns exactly one `ocapn` channel. A second one would interleave
+		// bytes into the same inbound queue and compete for the one outbound writer,
+		// so refuse it at the transport edge.
+		let _ = dc.close().await;
+	}
 }
 
 /// Wire one channel to the peer's blocking latches and endpoint readiness
 /// surface. Used for both the offerer's created channel and the answerer's
 /// received one.
-fn wire_channel(
-	dc: &Arc<RTCDataChannel>,
-	endpoint: Arc<EndpointInner>,
-	id: usize,
-	inbound: Arc<(Mutex<Inbound>, Condvar)>,
-	open: Arc<Mutex<OpenGate>>,
-	drained: Arc<Notify>,
-	outbound: Arc<Mutex<Outbound>>,
-	outbound_ready: Arc<Notify>,
-) {
-	let open_for_cb = open.clone();
-	let inbound_for_open = inbound.clone();
-	let readiness_for_open = endpoint.readiness.clone();
-	dc.on_open(Box::new(move || {
-		let open = open_for_cb.clone();
-		let inbound = inbound_for_open.clone();
-		let readiness = readiness_for_open.clone();
-		Box::pin(async move {
-			if inbound.0.lock().unwrap().closed {
-				return;
-			}
-			let mut gate = open.lock().unwrap();
-			if gate.closed {
-				return;
-			}
-			gate.open = true;
-			drop(gate);
-			readiness.signal(id, EV_OPEN | EV_WRITABLE);
-		})
-	}));
-
-	let inbound_for_msg = inbound.clone();
-	let drained_for_msg = drained.clone();
-	let readiness_for_msg = endpoint.readiness.clone();
-	dc.on_message(Box::new(move |msg: DataChannelMessage| {
-		let inbound = inbound_for_msg.clone();
-		let drained = drained_for_msg.clone();
-		let readiness = readiness_for_msg.clone();
-		Box::pin(async move {
-			if !await_inbound_room(&inbound, &drained).await {
-				return;
-			}
-			let (lock, cvar) = &*inbound;
-			lock.lock().unwrap().buf.extend(msg.data.iter().copied());
-			cvar.notify_all();
-			readiness.signal(id, EV_READABLE);
-		})
-	}));
-
-	// The far peer closing its channel unblocks a parked reader with end of
-	// stream, the same as a local `conn_close`.
-	let inbound_for_close = inbound.clone();
-	let open_for_close = open.clone();
-	let drained_for_close = drained.clone();
-	let outbound_for_close = outbound.clone();
-	let outbound_ready_for_close = outbound_ready.clone();
-	let readiness_for_close = endpoint.readiness.clone();
-	dc.on_close(Box::new(move || {
-		let inbound = inbound_for_close.clone();
-		let open = open_for_close.clone();
-		let drained = drained_for_close.clone();
-		let outbound = outbound_for_close.clone();
-		let outbound_ready = outbound_ready_for_close.clone();
-		let readiness = readiness_for_close.clone();
-		Box::pin(async move {
-			publish_peer_closed(
-				&inbound,
-				&open,
-				&drained,
-				&outbound,
-				&outbound_ready,
-				&readiness,
-				id,
-			);
-		})
-	}));
-
-	endpoint.runtime().handle().spawn(drain_outbound(
-		dc.clone(),
-		endpoint.readiness.clone(),
-		id,
-		inbound,
-		open,
-		drained,
-		outbound,
-		outbound_ready,
-	));
+fn wire_channel(dc: Arc<dyn DataChannel>, shared: Arc<PeerShared>) {
+	let handle = shared.endpoint.runtime().handle().clone();
+	handle.spawn(pump_channel(dc.clone(), shared.clone()));
+	handle.spawn(drain_outbound(dc, shared));
 }
 
-/// Move queued writes through the async WebRTC API without parking the caller's
-/// reactor thread. `queued_bytes` includes the in-flight item until its send
-/// finishes, so the bound covers both queue and active send storage.
-async fn drain_outbound(
-	dc: Arc<RTCDataChannel>,
-	readiness: Arc<Readiness>,
-	id: usize,
-	inbound: Arc<(Mutex<Inbound>, Condvar)>,
-	open: Arc<Mutex<OpenGate>>,
-	drained: Arc<Notify>,
-	outbound: Arc<Mutex<Outbound>>,
-	ready: Arc<Notify>,
-) {
+async fn pump_channel(dc: Arc<dyn DataChannel>, shared: Arc<PeerShared>) {
+	while let Some(event) = dc.poll().await {
+		match event {
+			DataChannelEvent::OnOpen => {
+				if shared.inbound.0.lock().unwrap().closed {
+					return;
+				}
+				{
+					let mut gate = shared.open.lock().unwrap();
+					if gate.closed {
+						return;
+					}
+					gate.open = true;
+				}
+				shared.endpoint.signal(shared.id, EV_OPEN | EV_WRITABLE);
+			}
+			DataChannelEvent::OnMessage(msg) => {
+				let incoming_len = msg.data.len();
+				if incoming_len == 0 {
+					continue;
+				}
+				if incoming_len > INBOUND_BUFFER_BOUND {
+					publish_peer_closed(&shared);
+					let _ = dc.close().await;
+					return;
+				}
+				if !await_inbound_room(&shared.inbound, &shared.drained, incoming_len).await {
+					return;
+				}
+				let (lock, cvar) = &*shared.inbound;
+				lock.lock().unwrap().buf.extend(msg.data.iter().copied());
+				cvar.notify_all();
+				shared.endpoint.signal(shared.id, EV_READABLE);
+			}
+			DataChannelEvent::OnBufferedAmountLow => {}
+			DataChannelEvent::OnClose | DataChannelEvent::OnClosing | DataChannelEvent::OnError => {
+				publish_peer_closed(&shared);
+				return;
+			}
+			DataChannelEvent::OnBufferedAmountHigh => {}
+		}
+	}
+	publish_peer_closed(&shared);
+}
+
+/// Move C-admitted writes through the async WebRTC API without parking the
+/// caller's reactor thread. `queued_bytes` includes each in-flight batch until
+/// the send finishes, so the sidecar bound covers both queued and active send
+/// storage.
+async fn drain_outbound(dc: Arc<dyn DataChannel>, shared: Arc<PeerShared>) {
 	loop {
 		let mut batch = loop {
 			let next = {
-				let mut state = outbound.lock().unwrap();
+				let mut state = shared.outbound.lock().unwrap();
 				if state.closed {
 					return;
 				}
@@ -483,39 +550,46 @@ async fn drain_outbound(
 			if let Some(batch) = next {
 				break batch;
 			}
-			ready.notified().await;
+			shared.outbound_ready.notified().await;
 		};
 
 		while !batch.is_empty() {
 			let len = batch.len().min(STEADY_BUFFER_BYTES);
-			let bytes: Bytes = batch.split_to(len).freeze();
-			let sent = dc.send(&bytes).await.is_ok();
-			let mut state = outbound.lock().unwrap();
-			state.queued_bytes = state.queued_bytes.saturating_sub(len);
-			if !sent {
-				drop(state);
-				publish_peer_closed(&inbound, &open, &drained, &outbound, &ready, &readiness, id);
+			let bytes = batch.split_to(len);
+			if dc.send(bytes).await.is_err() {
+				publish_peer_closed(&shared);
 				return;
 			}
-			let writable = state.queued_bytes < OUTBOUND_BUFFER_BOUND;
-			drop(state);
+			let writable = {
+				let mut state = shared.outbound.lock().unwrap();
+				state.queued_bytes = state.queued_bytes.saturating_sub(len);
+				state.queued_bytes < OUTBOUND_BUFFER_BOUND
+			};
 			if writable {
-				readiness.signal(id, EV_WRITABLE);
+				shared.endpoint.signal(shared.id, EV_WRITABLE);
 			}
 		}
 	}
 }
 
-/// Park until the reader has taken enough out of `inbound` to leave room under
-/// `INBOUND_BUFFER_BOUND`. Returns false once the channel has closed, since
-/// nobody is left to drain it and waiting would park this task forever.
+/// Park until the reader has taken enough out of `inbound` to leave room for the
+/// whole incoming message under `INBOUND_BUFFER_BOUND`. Returns false once the
+/// channel has closed, or when a single message is larger than the inbound
+/// budget and cannot be admitted without breaking the bound.
 ///
-/// The pinned `webrtc` 0.14 read loop awaits this handler before reading its next
-/// message. That serialization is the invariant which makes the check and later
-/// append one-message-at-a-time: parking here stops reads from the far peer, and
-/// SCTP flow control slows the sender. This is the iroh sidecar's shape too:
-/// check for room before the read, rather than buffer whatever arrives.
-async fn await_inbound_room(inbound: &Arc<(Mutex<Inbound>, Condvar)>, drained: &Notify) -> bool {
+/// The `webrtc` 0.20 channel pump awaits this before appending the message it
+/// just polled and before polling another one. That serialization is the
+/// invariant which makes the check and later append one-message-at-a-time:
+/// parking here stops draining the crate's event stream, and the SCTP receive
+/// window bounds the bytes the far peer can have in flight.
+async fn await_inbound_room(
+	inbound: &Arc<(Mutex<Inbound>, Condvar)>,
+	drained: &Notify,
+	incoming_len: usize,
+) -> bool {
+	if incoming_len > INBOUND_BUFFER_BOUND {
+		return false;
+	}
 	loop {
 		{
 			let (lock, _) = &**inbound;
@@ -523,7 +597,7 @@ async fn await_inbound_room(inbound: &Arc<(Mutex<Inbound>, Condvar)>, drained: &
 			if guard.closed {
 				return false;
 			}
-			if guard.buf.len() < INBOUND_BUFFER_BOUND {
+			if guard.buf.len() <= INBOUND_BUFFER_BOUND - incoming_len {
 				return true;
 			}
 		}
@@ -534,53 +608,40 @@ async fn await_inbound_room(inbound: &Arc<(Mutex<Inbound>, Condvar)>, drained: &
 	}
 }
 
-/// Close both bounded queues and wake every blocking or async waiter. Returns
-/// true only for the first terminal transition, so `EV_CLOSED` is emitted once.
-fn mark_peer_closed(
-	inbound: &Arc<(Mutex<Inbound>, Condvar)>,
-	open: &Arc<Mutex<OpenGate>>,
-	drained: &Arc<Notify>,
-	outbound: &Arc<Mutex<Outbound>>,
-	outbound_ready: &Arc<Notify>,
-) -> bool {
+/// Close the inbound staging area and wake every blocking or async waiter.
+/// Returns true only for the first terminal transition, so `EV_CLOSED` is
+/// emitted once.
+fn mark_peer_closed(shared: &PeerShared) -> bool {
 	let first = {
-		let mut state = open.lock().unwrap();
+		let mut state = shared.open.lock().unwrap();
 		let first = !state.closed;
 		state.closed = true;
 		first
 	};
 	{
-		let (lock, cvar) = &**inbound;
+		let (lock, cvar) = &*shared.inbound;
 		let mut state = lock.lock().unwrap();
 		state.closed = true;
 		cvar.notify_all();
 	}
-	drained.notify_waiters();
-	drained.notify_one();
-	outbound.lock().unwrap().closed = true;
-	outbound_ready.notify_waiters();
-	outbound_ready.notify_one();
+	shared.drained.notify_waiters();
+	shared.drained.notify_one();
+	shared.outbound.lock().unwrap().closed = true;
+	shared.outbound_ready.notify_waiters();
+	shared.outbound_ready.notify_one();
 	first
 }
 
 /// Publish the peer's terminal readiness exactly once, regardless of whether
-/// close arrives from the channel callback, a failed send, explicit close, or
+/// close arrives from the channel poller, a failed send, explicit close, or
 /// handle release. `OpenGate.closed` is the single terminal authority.
-fn publish_peer_closed(
-	inbound: &Arc<(Mutex<Inbound>, Condvar)>,
-	open: &Arc<Mutex<OpenGate>>,
-	drained: &Arc<Notify>,
-	outbound: &Arc<Mutex<Outbound>>,
-	outbound_ready: &Arc<Notify>,
-	readiness: &Arc<Readiness>,
-	id: usize,
-) {
-	if mark_peer_closed(inbound, open, drained, outbound, outbound_ready) {
-		readiness.signal(id, EV_CLOSED);
+fn publish_peer_closed(shared: &PeerShared) {
+	if mark_peer_closed(shared) {
+		shared.endpoint.signal(shared.id, EV_CLOSED);
 	}
 }
 
-/// Copy a contiguous prefix out of the callback-fed deque. When a burst drains,
+/// Copy a contiguous prefix out of the inbound staging deque. When a burst drains,
 /// return its excess capacity so one slow-reader episode does not pin the
 /// 1 MiB high-water mark for the peer's lifetime.
 fn take_inbound(state: &mut Inbound, dest: &mut [u8]) -> usize {
@@ -599,14 +660,18 @@ fn take_inbound(state: &mut Inbound, dest: &mut [u8]) -> usize {
 }
 
 /// Admit as much of one try-write as currently fits. Returning a prefix instead
-/// of rejecting every slice larger than the 1 MiB bound guarantees that a
-/// caller which advances by the returned count can always make progress.
+/// of rejecting every slice larger than the bound guarantees that a caller which
+/// advances by the returned count can always make progress once the drain frees
+/// room.
 fn enqueue_outbound(state: &mut Outbound, bytes: &[u8]) -> isize {
 	if state.closed {
 		return ERR as isize;
 	}
+	if bytes.is_empty() {
+		return 0;
+	}
 	let room = OUTBOUND_BUFFER_BOUND.saturating_sub(state.queued_bytes);
-	if room == 0 && !bytes.is_empty() {
+	if room == 0 {
 		return WOULD_BLOCK as isize;
 	}
 	let accepted = room.min(bytes.len());
@@ -620,7 +685,7 @@ fn enqueue_outbound(state: &mut Outbound, bytes: &[u8]) -> isize {
 /// WebRTC teardown; it owns an `Arc` to the connection until that finishes.
 fn close_peer_async(peer: &PancakeWebrtcPeer) {
 	let pc = peer.pc.clone();
-	peer.endpoint.runtime().handle().spawn(async move {
+	peer.shared.endpoint.runtime().handle().spawn(async move {
 		let _ = pc.close().await;
 	});
 }
@@ -682,6 +747,7 @@ pub extern "C" fn pancake_webrtc_sidecar_endpoint_new(
 			inner: Arc::new(EndpointInner {
 				rt: RuntimeOwner(Some(rt)),
 				readiness,
+				driver_readiness: Mutex::new(None),
 				next_peer_id: AtomicUsize::new(1),
 				ice_servers,
 				include_loopback: cfg.include_loopback_candidates != 0,
@@ -726,6 +792,48 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_drain_ready(
 	.unwrap_or(ERR as isize)
 }
 
+/// Borrow an independent readiness descriptor for a generic driver provider.
+/// The subscription is created lazily so raw-only endpoints pay no second
+/// queue. Events published after this call are copied into both subscriptions.
+#[no_mangle]
+pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(
+	endpoint: *const PancakeWebrtcEndpoint,
+) -> i32 {
+	catch_unwind(AssertUnwindSafe(|| {
+		endpoint
+			.as_ref()
+			.and_then(|endpoint| endpoint.inner.driver_readiness())
+			.map(|readiness| readiness.reader.as_raw_fd())
+			.unwrap_or(-1)
+	}))
+	.unwrap_or(-1)
+}
+
+/// Drain the generic driver's independent readiness subscription.
+#[no_mangle]
+pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(
+	endpoint: *const PancakeWebrtcEndpoint,
+	out: *mut PancakeWebrtcReadyEvent,
+	out_cap: usize,
+) -> isize {
+	catch_unwind(AssertUnwindSafe(|| {
+		let endpoint = match endpoint.as_ref() {
+			Some(endpoint) => endpoint,
+			None => return ERR as isize,
+		};
+		if out.is_null() || out_cap == 0 {
+			return 0;
+		}
+		let readiness = match endpoint.inner.driver_readiness() {
+			Some(readiness) => readiness,
+			None => return ERR as isize,
+		};
+		let dest = std::slice::from_raw_parts_mut(out, out_cap);
+		readiness.drain(dest) as isize
+	}))
+	.unwrap_or(ERR as isize)
+}
+
 /// Release an endpoint. Peers retain the runtime defensively, but callers must
 /// still release every peer first so no readiness can outlive its owner.
 #[no_mangle]
@@ -759,8 +867,37 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 			Some(id) => id,
 			None => return std::ptr::null_mut(),
 		};
+		let shared = Arc::new(PeerShared {
+			endpoint: endpoint.clone(),
+			id,
+			dc: Mutex::new(None),
+			inbound: Arc::new((
+				Mutex::new(Inbound {
+					buf: VecDeque::new(),
+					closed: false,
+				}),
+				Condvar::new(),
+			)),
+			drained: Arc::new(Notify::new()),
+			outbound: Arc::new(Mutex::new(Outbound {
+				buf: BytesMut::new(),
+				queued_bytes: 0,
+				closed: false,
+			})),
+			outbound_ready: Arc::new(Notify::new()),
+			open: Arc::new(Mutex::new(OpenGate {
+				open: false,
+				closed: false,
+			})),
+			local_candidates: Arc::new(Mutex::new(VecDeque::new())),
+		});
+		let handler = Arc::new(PeerEvents {
+			shared: shared.clone(),
+			runtime: endpoint.runtime().handle().clone(),
+		});
 		let pc = match build_peer_connection(
 			endpoint.runtime(),
+			handler,
 			&endpoint.ice_servers,
 			endpoint.include_loopback,
 		) {
@@ -768,48 +905,9 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 			Err(_) => return std::ptr::null_mut(),
 		};
 
-		let inbound = Arc::new((
-			Mutex::new(Inbound {
-				buf: VecDeque::new(),
-				closed: false,
-			}),
-			Condvar::new(),
-		));
-		let open = Arc::new(Mutex::new(OpenGate {
-			open: false,
-			closed: false,
-		}));
-		let drained = Arc::new(Notify::new());
-		let local_candidates: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
-		let dc_slot: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
-		let outbound = Arc::new(Mutex::new(Outbound {
-			buf: BytesMut::new(),
-			queued_bytes: 0,
-			closed: false,
-		}));
-		let outbound_ready = Arc::new(Notify::new());
-
-		// Trickle locally gathered ICE candidates into the drain queue as JSON.
-		let cand_queue = local_candidates.clone();
-		let readiness_for_candidate = endpoint.readiness.clone();
-		pc.on_ice_candidate(Box::new(move |candidate| {
-			let cand_queue = cand_queue.clone();
-			let readiness = readiness_for_candidate.clone();
-			Box::pin(async move {
-				if let Some(candidate) = candidate {
-					if let Ok(init) = candidate.to_json() {
-						if let Ok(text) = serde_json::to_string(&init) {
-							cand_queue.lock().unwrap().push_back(text);
-							readiness.signal(id, EV_CANDIDATE);
-						}
-					}
-				}
-			})
-		}));
-
 		if is_offerer != 0 {
 			let init = RTCDataChannelInit {
-				ordered: Some(true),
+				ordered: true,
 				..Default::default()
 			};
 			let dc = match endpoint
@@ -819,121 +917,11 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_new(
 				Ok(dc) => dc,
 				Err(_) => return std::ptr::null_mut(),
 			};
-			wire_channel(
-				&dc,
-				endpoint.clone(),
-				id,
-				inbound.clone(),
-				open.clone(),
-				drained.clone(),
-				outbound.clone(),
-				outbound_ready.clone(),
-			);
-			*dc_slot.lock().unwrap() = Some(dc);
-		} else {
-			let endpoint_for_dc = endpoint.clone();
-			let inbound_for_dc = inbound.clone();
-			let open_for_dc = open.clone();
-			let drained_for_dc = drained.clone();
-			let outbound_for_dc = outbound.clone();
-			let outbound_ready_for_dc = outbound_ready.clone();
-			let slot_for_dc = dc_slot.clone();
-			pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
-				let endpoint = endpoint_for_dc.clone();
-				let inbound = inbound_for_dc.clone();
-				let open = open_for_dc.clone();
-				let drained = drained_for_dc.clone();
-				let outbound = outbound_for_dc.clone();
-				let outbound_ready = outbound_ready_for_dc.clone();
-				let slot = slot_for_dc.clone();
-				Box::pin(async move {
-					// One channel, labelled `ocapn`, carries the whole session.
-					// A second would interleave its bytes into the same inbound
-					// buffer and take over what `conn_write` sends to, so refuse
-					// it here rather than trust the far peer to open just one.
-					if dc.label() != CHANNEL_LABEL {
-						let _ = dc.close().await;
-						return;
-					}
-					let claimed = {
-						let mut slot = slot.lock().unwrap();
-						if slot.is_some() {
-							false
-						} else {
-							*slot = Some(dc.clone());
-							true
-						}
-					};
-					if !claimed {
-						let _ = dc.close().await;
-						return;
-					}
-					wire_channel(
-						&dc,
-						endpoint,
-						id,
-						inbound,
-						open,
-						drained,
-						outbound,
-						outbound_ready,
-					);
-				})
-			}));
+			*shared.dc.lock().unwrap() = Some(dc.clone());
+			wire_channel(dc, shared.clone());
 		}
 
-		// The connection's own terminal state, which is the only thing that ever
-		// reports a peer that never connects at all.
-		//
-		// Every other terminal path runs through the data channel: it opens,
-		// then something closes it. ICE failing before a channel exists closes
-		// nothing, so without this a caller waits on readiness that will never
-		// come. `Failed` is terminal; `Disconnected` is not, because ICE
-		// recovers from it, and reporting it would end sessions that were about
-		// to resume.
-		//
-		// What the suite proves here is the publish, which `publish_peer_closed`
-		// and its once-only test already cover. Reaching this arm through a real
-		// ICE failure is not proven: making ICE give up takes tens of seconds of
-		// connectivity checks, which no hermetic test should wait for.
-		{
-			let inbound_for_state = inbound.clone();
-			let open_for_state = open.clone();
-			let drained_for_state = drained.clone();
-			let outbound_for_state = outbound.clone();
-			let outbound_ready_for_state = outbound_ready.clone();
-			let readiness_for_state = endpoint.readiness.clone();
-			pc.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
-				if matches!(
-					state,
-					RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
-				) {
-					publish_peer_closed(
-						&inbound_for_state,
-						&open_for_state,
-						&drained_for_state,
-						&outbound_for_state,
-						&outbound_ready_for_state,
-						&readiness_for_state,
-						id,
-					);
-				}
-				Box::pin(async {})
-			}));
-		}
-
-		let peer = Box::new(PancakeWebrtcPeer {
-			endpoint,
-			id,
-			pc,
-			dc: dc_slot,
-			inbound,
-			drained,
-			open,
-			local_candidates,
-			outbound,
-			outbound_ready,
-		});
+		let peer = Box::new(PancakeWebrtcPeer { shared, pc });
 		Box::into_raw(peer)
 	}))
 	.unwrap_or(std::ptr::null_mut())
@@ -974,11 +962,17 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_offer(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		let offer = match peer.endpoint.runtime().block_on(peer.pc.create_offer(None)) {
+		let offer = match peer
+			.shared
+			.endpoint
+			.runtime()
+			.block_on(peer.pc.create_offer(None))
+		{
 			Ok(offer) => offer,
 			Err(_) => return ERR,
 		};
 		if peer
+			.shared
 			.endpoint
 			.runtime()
 			.block_on(peer.pc.set_local_description(offer.clone()))
@@ -1010,6 +1004,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_answer(
 			None => return ERR,
 		};
 		let answer = match peer
+			.shared
 			.endpoint
 			.runtime()
 			.block_on(peer.pc.create_answer(None))
@@ -1018,6 +1013,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_answer(
 			Err(_) => return ERR,
 		};
 		if peer
+			.shared
 			.endpoint
 			.runtime()
 			.block_on(peer.pc.set_local_description(answer.clone()))
@@ -1066,6 +1062,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_set_remote(
 			Err(_) => return ERR,
 		};
 		if peer
+			.shared
 			.endpoint
 			.runtime()
 			.block_on(peer.pc.set_remote_description(desc))
@@ -1107,6 +1104,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_add_remote_candidate(
 			Err(_) => return ERR,
 		};
 		if peer
+			.shared
 			.endpoint
 			.runtime()
 			.block_on(peer.pc.add_ice_candidate(init))
@@ -1137,7 +1135,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_next_local_candidate(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		let mut queue = peer.local_candidates.lock().unwrap();
+		let mut queue = peer.shared.local_candidates.lock().unwrap();
 		let text = match queue.front() {
 			Some(text) => text.clone(),
 			None => return WOULD_BLOCK,
@@ -1156,7 +1154,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_next_local_candidate(
 #[no_mangle]
 pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_id(peer: *const PancakeWebrtcPeer) -> usize {
 	catch_unwind(AssertUnwindSafe(|| {
-		peer.as_ref().map(|peer| peer.id).unwrap_or(0)
+		peer.as_ref().map(|peer| peer.shared.id).unwrap_or(0)
 	}))
 	.unwrap_or(0)
 }
@@ -1172,7 +1170,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_is_open(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		let gate = peer.open.lock().unwrap();
+		let gate = peer.shared.open.lock().unwrap();
 		if gate.closed {
 			return ERR;
 		}
@@ -1205,7 +1203,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_read(
 		if buf.is_null() || len == 0 {
 			return ERR as isize;
 		}
-		let (lock, cvar) = &*peer.inbound;
+		let (lock, cvar) = &*peer.shared.inbound;
 		let mut guard = lock.lock().unwrap();
 		while guard.buf.is_empty() && !guard.closed {
 			guard = cvar.wait(guard).unwrap();
@@ -1213,15 +1211,14 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_read(
 		if guard.buf.is_empty() {
 			return 0; // closed, drained
 		}
-		// The one inherent copy of the callback-to-blocking bridge: `on_message`
-		// buffered these bytes into the deque, and a blocking read has to hand a
-		// contiguous slice back to its caller. Copy the deque's (up to two)
-		// contiguous runs in bulk, then drop the drained prefix, rather than
-		// popping a byte at a time.
+		// The C ABI exposes a contiguous read buffer while WebRTC delivers
+		// message-owned storage. Copy the staging deque's (up to two) contiguous
+		// runs in bulk, then drop the drained prefix, rather than popping a byte
+		// at a time.
 		let dst = std::slice::from_raw_parts_mut(buf, len);
 		let n = take_inbound(&mut guard, dst);
 		drop(guard);
-		peer.drained.notify_one();
+		peer.shared.drained.notify_one();
 		n as isize
 	}))
 	.unwrap_or(ERR as isize)
@@ -1243,7 +1240,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_read(
 		if buf.is_null() || len == 0 {
 			return ERR as isize;
 		}
-		let mut guard = peer.inbound.0.lock().unwrap();
+		let mut guard = peer.shared.inbound.0.lock().unwrap();
 		if guard.buf.is_empty() {
 			return if guard.closed {
 				0
@@ -1254,16 +1251,17 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_read(
 		let dst = std::slice::from_raw_parts_mut(buf, len);
 		let n = take_inbound(&mut guard, dst);
 		drop(guard);
-		peer.drained.notify_one();
+		peer.shared.drained.notify_one();
 		n as isize
 	}))
 	.unwrap_or(ERR as isize)
 }
 
 /// Non-blocking write for readiness owners. The call copies into the bounded
-/// sidecar buffer and returns immediately. A successful call may admit a prefix;
-/// the caller advances by the returned count. `WOULD_BLOCK` means no capacity is
-/// available, so re-arm on `EV_WRITABLE`. The async writer owns admitted bytes.
+/// sidecar staging buffer and returns immediately, without entering the async
+/// runtime. A successful call may admit a prefix; the caller advances by the
+/// returned count. `WOULD_BLOCK` means no sidecar capacity is available, so
+/// re-arm on `EV_WRITABLE`.
 #[no_mangle]
 pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_write(
 	peer: *mut PancakeWebrtcPeer,
@@ -1278,15 +1276,22 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_write(
 		if buf.is_null() || len > isize::MAX as usize {
 			return ERR as isize;
 		}
-		if !peer.open.lock().unwrap().open {
+		if !peer.shared.open.lock().unwrap().open {
+			return WOULD_BLOCK as isize;
+		}
+		if len == 0 {
+			return 0;
+		}
+		if peer.shared.dc.lock().unwrap().is_none() {
 			return WOULD_BLOCK as isize;
 		}
 		let bytes = std::slice::from_raw_parts(buf, len);
-		let mut outbound = peer.outbound.lock().unwrap();
-		let accepted = enqueue_outbound(&mut outbound, bytes);
-		drop(outbound);
+		let accepted = {
+			let mut outbound = peer.shared.outbound.lock().unwrap();
+			enqueue_outbound(&mut outbound, bytes)
+		};
 		if accepted > 0 {
-			peer.outbound_ready.notify_one();
+			peer.shared.outbound_ready.notify_one();
 		}
 		accepted
 	}))
@@ -1312,14 +1317,26 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_write(
 		if buf.is_null() {
 			return ERR as isize;
 		}
-		let dc = match peer.dc.lock().unwrap().clone() {
+		let dc = match peer.shared.dc.lock().unwrap().clone() {
 			Some(dc) => dc,
 			None => return ERR as isize,
 		};
-		let bytes = Bytes::copy_from_slice(std::slice::from_raw_parts(buf, len));
-		match peer.endpoint.runtime().block_on(dc.send(&bytes)) {
-			Ok(_) => len as isize,
-			Err(_) => ERR as isize,
+		let src = std::slice::from_raw_parts(buf, len);
+		let sent = peer.shared.endpoint.runtime().block_on(async {
+			let mut offset = 0usize;
+			while offset < src.len() {
+				let next = (src.len() - offset).min(STEADY_BUFFER_BYTES);
+				dc.send(BytesMut::from(&src[offset..offset + next])).await?;
+				offset += next;
+			}
+			Ok::<(), WebrtcError>(())
+		});
+		match sent {
+			Ok(()) => len as isize,
+			Err(_) => {
+				publish_peer_closed(&peer.shared);
+				ERR as isize
+			}
 		}
 	}))
 	.unwrap_or(ERR as isize)
@@ -1334,19 +1351,10 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_write(
 pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_close(peer: *mut PancakeWebrtcPeer) {
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		if let Some(peer) = peer.as_ref() {
-			// Release a handler parked for room first. Nobody will drain the
-			// buffer now, and closing while a runtime task still holds a
-			// message makes the shutdown depend on the crate's own internals
-			// to not deadlock.
-			publish_peer_closed(
-				&peer.inbound,
-				&peer.open,
-				&peer.drained,
-				&peer.outbound,
-				&peer.outbound_ready,
-				&peer.endpoint.readiness,
-				peer.id,
-			);
+			// Release a poller parked for room first. Nobody will drain the
+			// buffer now, and closing while a runtime task still holds a message
+			// makes shutdown depend on the crate's internals to make progress.
+			publish_peer_closed(&peer.shared);
 			close_peer_async(peer);
 		}
 	}));
@@ -1364,16 +1372,8 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_free(peer: *mut PancakeWebr
 	}
 	let _ = catch_unwind(AssertUnwindSafe(|| {
 		let peer = Box::from_raw(peer);
-		// Same ordering as `conn_close`: free a parked handler before closing.
-		publish_peer_closed(
-			&peer.inbound,
-			&peer.open,
-			&peer.drained,
-			&peer.outbound,
-			&peer.outbound_ready,
-			&peer.endpoint.readiness,
-			peer.id,
-		);
+		// Same ordering as `conn_close`: free a parked poller before closing.
+		publish_peer_closed(&peer.shared);
 		close_peer_async(&peer);
 		// `peer` drops here; the endpoint owns the shared runtime.
 	}));
@@ -1395,6 +1395,42 @@ mod tests {
 		))
 	}
 
+	fn test_shared(
+		id: usize,
+		inbound: Arc<(Mutex<Inbound>, Condvar)>,
+		open: Arc<Mutex<OpenGate>>,
+		drained: Arc<Notify>,
+		readiness: Arc<Readiness>,
+	) -> Arc<PeerShared> {
+		let rt = tokio::runtime::Builder::new_multi_thread()
+			.worker_threads(1)
+			.enable_all()
+			.build()
+			.unwrap();
+		Arc::new(PeerShared {
+			endpoint: Arc::new(EndpointInner {
+				rt: RuntimeOwner(Some(rt)),
+				readiness,
+				driver_readiness: Mutex::new(None),
+				next_peer_id: AtomicUsize::new(id + 1),
+				ice_servers: Vec::new(),
+				include_loopback: true,
+			}),
+			id,
+			dc: Mutex::new(None),
+			inbound,
+			drained,
+			outbound: Arc::new(Mutex::new(Outbound {
+				buf: BytesMut::new(),
+				queued_bytes: 0,
+				closed: false,
+			})),
+			outbound_ready: Arc::new(Notify::new()),
+			open,
+			local_candidates: Arc::new(Mutex::new(VecDeque::new())),
+		})
+	}
+
 	#[tokio::test]
 	async fn a_full_buffer_makes_the_next_message_wait_for_the_reader() {
 		// Without this the far peer could send for as long as it liked and the
@@ -1405,7 +1441,7 @@ mod tests {
 		let waiting = tokio::spawn({
 			let inbound = inbound.clone();
 			let drained = drained.clone();
-			async move { await_inbound_room(&inbound, &drained).await }
+			async move { await_inbound_room(&inbound, &drained, 1).await }
 		});
 
 		// Still parked: nothing has read yet.
@@ -1419,6 +1455,47 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn a_message_waits_until_the_whole_message_fits_under_the_inbound_bound() {
+		let inbound = Arc::new((
+			Mutex::new(Inbound {
+				buf: std::iter::repeat(0u8)
+					.take(INBOUND_BUFFER_BOUND - 8)
+					.collect(),
+				closed: false,
+			}),
+			Condvar::new(),
+		));
+		let drained = Arc::new(Notify::new());
+
+		let waiting = tokio::spawn({
+			let inbound = inbound.clone();
+			let drained = drained.clone();
+			async move { await_inbound_room(&inbound, &drained, 16).await }
+		});
+
+		tokio::time::sleep(Duration::from_millis(50)).await;
+		assert!(!waiting.is_finished());
+
+		inbound.0.lock().unwrap().buf.drain(..8);
+		drained.notify_one();
+		assert!(waiting.await.unwrap());
+	}
+
+	#[tokio::test]
+	async fn an_oversized_message_cannot_enter_inbound_staging() {
+		let inbound = Arc::new((
+			Mutex::new(Inbound {
+				buf: VecDeque::new(),
+				closed: false,
+			}),
+			Condvar::new(),
+		));
+		let drained = Notify::new();
+
+		assert!(!await_inbound_room(&inbound, &drained, INBOUND_BUFFER_BOUND + 1).await);
+	}
+
+	#[tokio::test]
 	async fn closing_releases_a_message_that_was_waiting_for_room() {
 		// Otherwise the handler parks forever on a channel nobody will drain.
 		let inbound = full_inbound();
@@ -1427,7 +1504,7 @@ mod tests {
 		let waiting = tokio::spawn({
 			let inbound = inbound.clone();
 			let drained = drained.clone();
-			async move { await_inbound_room(&inbound, &drained).await }
+			async move { await_inbound_room(&inbound, &drained, 1).await }
 		});
 
 		tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1437,22 +1514,9 @@ mod tests {
 			open: false,
 			closed: false,
 		}));
-		let outbound = Arc::new(Mutex::new(Outbound {
-			buf: BytesMut::new(),
-			queued_bytes: 0,
-			closed: false,
-		}));
-		let outbound_ready = Arc::new(Notify::new());
 		let readiness = Readiness::new().unwrap();
-		publish_peer_closed(
-			&inbound,
-			&open,
-			&drained,
-			&outbound,
-			&outbound_ready,
-			&readiness,
-			7,
-		);
+		let shared = test_shared(7, inbound.clone(), open, drained, readiness);
+		publish_peer_closed(&shared);
 		assert!(!waiting.await.unwrap());
 	}
 
@@ -1466,7 +1530,7 @@ mod tests {
 			Condvar::new(),
 		));
 		let drained = Notify::new();
-		assert!(await_inbound_room(&inbound, &drained).await);
+		assert!(await_inbound_room(&inbound, &drained, 1).await);
 	}
 
 	#[test]
@@ -1485,6 +1549,38 @@ mod tests {
 		);
 		assert_eq!(state.subjects.pop_front(), Some(9));
 		assert_eq!(state.events.remove(&9), Some(EV_READABLE));
+	}
+
+	#[test]
+	fn signaling_and_driver_readiness_are_independent_subscriptions() {
+		let signaling = Readiness::new().unwrap();
+		let shared = test_shared(
+			7,
+			Arc::new((
+				Mutex::new(Inbound {
+					buf: VecDeque::new(),
+					closed: false,
+				}),
+				Condvar::new(),
+			)),
+			Arc::new(Mutex::new(OpenGate {
+				open: false,
+				closed: false,
+			})),
+			Arc::new(Notify::new()),
+			signaling.clone(),
+		);
+		let driver = shared.endpoint.driver_readiness().unwrap();
+
+		shared.endpoint.signal(7, EV_CANDIDATE | EV_OPEN);
+		let mut event = [PancakeWebrtcReadyEvent {
+			subject: 0,
+			events: 0,
+		}];
+		assert_eq!(signaling.drain(&mut event), 1);
+		assert_eq!(event[0].events, EV_CANDIDATE | EV_OPEN);
+		assert_eq!(driver.drain(&mut event), 1);
+		assert_eq!(event[0].events, EV_CANDIDATE | EV_OPEN);
 	}
 
 	#[test]
@@ -1543,6 +1639,15 @@ mod tests {
 	}
 
 	#[test]
+	fn loopback_binding_is_additive() {
+		assert_eq!(udp_bind_addrs(false), vec!["0.0.0.0:0".to_owned()]);
+		assert_eq!(
+			udp_bind_addrs(true),
+			vec!["0.0.0.0:0".to_owned(), "127.0.0.1:0".to_owned()]
+		);
+	}
+
+	#[test]
 	fn outbound_bound_admits_a_prefix_and_retry_makes_progress() {
 		let mut state = Outbound {
 			buf: BytesMut::new(),
@@ -1593,23 +1698,10 @@ mod tests {
 			closed: false,
 		}));
 		let drained = Arc::new(Notify::new());
-		let outbound = Arc::new(Mutex::new(Outbound {
-			buf: BytesMut::new(),
-			queued_bytes: 0,
-			closed: false,
-		}));
-		let outbound_ready = Arc::new(Notify::new());
 		let readiness = Readiness::new().unwrap();
+		let shared = test_shared(7, inbound.clone(), open.clone(), drained, readiness.clone());
 
-		publish_peer_closed(
-			&inbound,
-			&open,
-			&drained,
-			&outbound,
-			&outbound_ready,
-			&readiness,
-			7,
-		);
+		publish_peer_closed(&shared);
 		let mut events = [PancakeWebrtcReadyEvent {
 			subject: 0,
 			events: 0,
@@ -1618,21 +1710,13 @@ mod tests {
 		assert_eq!(events[0].subject, 7);
 		assert_eq!(events[0].events, EV_CLOSED);
 
-		publish_peer_closed(
-			&inbound,
-			&open,
-			&drained,
-			&outbound,
-			&outbound_ready,
-			&readiness,
-			7,
-		);
+		publish_peer_closed(&shared);
 		let ready = readiness.state.lock().unwrap();
 		assert!(ready.subjects.is_empty());
 		assert!(ready.events.is_empty());
 		assert!(inbound.0.lock().unwrap().closed);
 		assert!(open.lock().unwrap().closed);
-		assert!(outbound.lock().unwrap().closed);
+		assert!(shared.outbound.lock().unwrap().closed);
 	}
 
 	/// The ICE servers a caller names reach the endpoint, and a caller that

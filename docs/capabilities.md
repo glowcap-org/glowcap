@@ -1,7 +1,9 @@
 # Capabilities, CapTP, and OCapN
 
-Start here if object-capability security is new to you. If the terms already
-feel familiar, go to the [quick start](../README.md#quick-start).
+Start here if object-capability security is new to you and you want a short
+glossary. For the guided story with pictures, open the website
+(`zig build docs-serve`) and read Why OCapN. If the terms already feel
+familiar, go to the [quick start](../README.md#quick-start).
 
 ## A capability is a reference with authority
 
@@ -87,16 +89,17 @@ wire.
 | turn | One message delivery processed to completion inside a vat. |
 | reference | A name for an object: *near* in your vat, *far* across a session. |
 | export / import | The session-table positions for an object on its owning and receiving sides. |
-| promise | A reference to an answer that has not settled yet. |
-| vow | Another name for a promise that may later fulfill or break. |
+| promise | An OCapN passable reference representing an eventual fulfillment or break. |
+| vow | In Goblins, a passable eventual reference. pancake's `Vow` is instead a local host/actor-layer observation and send-result handle over an OCapN promise; it is not the passable reference or its wire position. |
+| answer position | The sender-chosen CapTP session slot (`desc:answer`) used to pipeline sends against a promise. |
 | promise pipelining | Calling through a promise before it settles so dependent calls share a flight. |
 | bootstrap object | The one well-known capability available when a session opens. |
 | swiss number | A high-entropy name registered under the bootstrap object for later lookup. |
-| sturdyref | Durable data naming a peer and swiss number. Redemption still depends on that host preserving its identity and registration and continuing to honor it. |
-| locator | An `ocapn://` URI naming a peer, and optionally a sturdyref, for a netlayer to dial. |
-| designator | The part of a locator naming the peer, usually a public key. Hints say how to reach it. |
+| sturdyref | Durable data containing a peer locator and swiss number. Redemption still depends on that peer continuing to answer at the locator and honor the registration. |
+| locator | An `ocapn://` URI identifying an OCapN peer, and optionally one of its objects, for the selected netlayer to reach. |
+| designator | The netlayer-defined part of a peer locator that, together with the transport, distinguishes the peer's location. It is conventionally self-authenticating but need not be: examples are a public key, onion service id, iroh node id, or cleartext TCP `host:port`. Hints say how to reach it but are not identity. |
 | handoff | A signed three-party introduction that moves a capability without keeping the introducer as proxy. |
 | give | The signed introduction presented to the exporting peer during handoff. |
-| netlayer | A transport bound to a byte stream. pancake ships TCP, keyed TCP, keyed relay, in-process, iroh, and WebRTC netlayers. |
+| netlayer | The locator-selected OCapN channel contract. pancake realizes some netlayers as per-stream `net.Connection` values and others through multiplexed residents; [known limitations](boundaries.md) says what each shipped profile proves. |
 | codec | A wire encoding for the message model. pancake ships Syrup and Cap'n Proto. |
 | Syrup | The S-expression-shaped binary encoding used by OCapN and Goblins. |

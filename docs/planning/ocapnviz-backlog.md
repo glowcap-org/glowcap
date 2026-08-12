@@ -1,7 +1,9 @@
 # ocapnviz backlog
 
-Status: active plan. One open item. Timeline click-below-fold and fit half-row
-defects from the earlier list are done; other landed work lives in git history.
+Status: active plan. Edge upload batch has landed; the open remainder is a
+real-GPU re-measure and a frame-budget ratchet. Timeline click-below-fold and
+fit half-row defects from the earlier list are done; other landed work lives
+in git history.
 
 ## Performance: playback and editing cost too much
 
@@ -22,8 +24,7 @@ these cheap wins have landed:
   one cold `recompute` or one world rematerialize *per member*. Inside a
   transaction, layout/seek defer to `endTransaction` (one anneal, one seek).
   Deletes also refresh keyframes so removed peers do not linger in the solver.
-
-What remains when many wires move at once is the edge path below.
+- **Session wires share one stroke batch** (same path playback uses below).
 
 **Playback.** On some machines the same corpus drops frames; when a group of
 sessions appears, the playhead jumps instead of advancing smoothly. A PixiJS
@@ -47,12 +48,24 @@ entity (quadratic). Indexing that cut the 2,768-entity case from 51ms to 29ms.
 Headless Chromium readings are not usable: SwiftShader rasterizes on the CPU
 and makes every frame look like the app's fault.
 
-**What is left.** At 2,768 entities, about 42% of playback time is in
-`bufferSubData` under Pixi's `updateBuffer`: a moving peer re-tessellates and
-re-uploads its wires. Editing pays that same path when many nodes move at once.
-Cutting it means batching edges into one geometry, or carrying the curve in a
-shader. Neither is a small change. Smaller leftovers: Sidebar still wakes on
-`useEngineVersion` mid-drag; claims/bundles are built twice per playing frame.
+**Edge upload batch (landed; re-measure pending).** At 2,768 entities, about
+42% of playback time was in `bufferSubData` under Pixi's `updateBuffer`: a
+moving peer re-tessellated and re-uploaded each of its wires. Session wires
+now share one `EdgeStrokeBatch` Graphics
+(`apps/ocapnviz/src/render/edge-stroke-batch.ts`): any dirty wire marks the
+batch, and one clear+restroke uploads once. Per-edge hit proxies and chips
+stay as they were; selection/hover halos paint above the shared wire layer
+so a mark stays visible at crossings. Shader-carried curves remain an option
+if a real-GPU pass still shows the tessellation itself as the cliff.
+
+Smaller leftovers that have landed: the engine builds one `frameGeometry`
+(claims + session bundles + time bundles + per-session curves) per stage
+pass for flight and the Stage to share; claim/bundle tables stay memoized
+while the standing set is stable; time bundles stay memoized across playback
+ticks and mid-drag; settled layout eras skip per-node writes; hidden-body
+session wires skip Bezier stroke/upload; Inspector shells subscribe to
+`docVersion` + clock so mid-drag no longer re-reconciles Connections and the
+Details chrome (field panels that track live pins still follow `version`).
 
 **Done when** kids masterpiece (and smaller compositions) can be edited with
 multi-node moves and Unpin all without the tool fighting the user, playback on

@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const test_host = @import("../support/core_host.zig");
 const promise_capture = @import("../support/capture.zig");
 
 const model = pancake.ocapn.model;
@@ -25,6 +26,258 @@ const frame_cap = 4096;
 const budget: usize = 4;
 /// One more turn than the budget admits, queued by a single inbound message.
 const flood_turns: usize = budget + 2;
+
+const EventServeOutOfMemory = struct {
+    pub fn hook(ctx: ?*anyopaque, _: *driver.core.Served, _: *engine.Event) anyerror!bool {
+        const calls = @as(*usize, @ptrCast(@alignCast(ctx.?)));
+        calls.* += 1;
+        return error.OutOfMemory;
+    }
+};
+
+test "finite host quantum emits resume actions for host-global internal work" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x0d} ** 32, .{ .host_work_quantum = 1 });
+    defer host.deinit();
+
+    // These no-op retirement actions model the Node's internal action chain:
+    // none names a live session, so no FLUSH/CLOSE or other external action is
+    // created. The action queue itself is the only remaining work.
+    try host.node.actions.reserve(allocator, 3);
+    const absent = engine.PeerId.from(999);
+    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+
+    var resumes: usize = 0;
+    while (try host.nextAction()) |action| {
+        switch (action) {
+            .resume_work => resumes += 1,
+            else => return error.UnexpectedExternalAction,
+        }
+    }
+
+    // The first quantum is entered by the initial nextAction call; only the
+    // two subsequent slices require an explicit continuation notice.
+    try std.testing.expectEqual(@as(usize, 2), resumes);
+    try std.testing.expect(!host.node.hasAction());
+}
+
+test "finite host quantum does not starve Node work behind a hot session" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x2d} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var host = test_host.init(allocator, [_]u8{0x2e} ** 32, .{
+        .limits = .{ .max_frame_bytes = frame_cap },
+        .host_work_quantum = 1,
+    });
+    defer host.deinit();
+    const pair = try openPair(&client, &host, "127.0.0.1:7100");
+
+    const counter = try host.vat.spawn(Counter, .{});
+    for (0..4) |_| try host.vat.tellFromIngress(
+        pair.b.served.port.ingress,
+        counter,
+        .{ .verb = "hit", .args = &.{} },
+    );
+    host.next_work_lane = .session;
+    host.testingMarkDirty(pair.b.peer_id);
+
+    try host.node.actions.reserve(allocator, 1);
+    host.node.actions.pushReserved(.{ .retire_exporter = engine.PeerId.from(1234) });
+
+    // The first slice serves one local turn. The persisted lane cursor makes
+    // the next slice retire the Node action even though three turns remain.
+    try std.testing.expectEqual(
+        driver.core.DrainResult.yielded,
+        try driver.core.drainActions(&host, NoopActionIo{}, NoopActionExec{}),
+    );
+    try std.testing.expect(host.node.hasAction());
+    try std.testing.expectEqual(
+        driver.core.DrainResult.yielded,
+        try driver.core.drainActions(&host, NoopActionIo{}, NoopActionExec{}),
+    );
+    try std.testing.expect(!host.node.hasAction());
+}
+
+const NoopActionIo = struct {
+    pub fn randomSecure(_: @This(), _: []u8) !void {
+        return error.UnexpectedEntropyRequest;
+    }
+};
+
+const RetryEntropy = struct {
+    fail_next: *bool,
+
+    pub fn randomSecure(self: @This(), bytes: []u8) !void {
+        if (self.fail_next.*) {
+            self.fail_next.* = false;
+            return error.EntropyUnavailable;
+        }
+        @memset(bytes, 0x5a);
+    }
+};
+
+const NoopActionExec = struct {
+    pub fn flush(_: @This(), _: engine.PeerId) !void {}
+    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
+    pub fn complete(_: @This(), _: driver.core.HostAction) !void {}
+};
+
+const RetryDialExec = struct {
+    fail_next: *bool,
+
+    pub fn flush(_: @This(), _: engine.PeerId) !void {}
+    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn dial(self: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {
+        if (self.fail_next.*) {
+            self.fail_next.* = false;
+            return error.DialUnavailable;
+        }
+    }
+    pub fn complete(_: @This(), _: driver.core.HostAction) !void {}
+};
+
+test "standard host action drain yields between finite-quantum slices" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x0e} ** 32, .{ .host_work_quantum = 1 });
+    defer host.deinit();
+
+    try host.node.actions.reserve(allocator, 3);
+    const absent = engine.PeerId.from(1000);
+    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+    host.node.actions.pushReserved(.{ .retire_exporter = absent });
+
+    // One drain turn consumes exactly one continuation boundary. The
+    // embedder can return to its reactor before asking for the next slice.
+    try std.testing.expectEqual(
+        driver.core.DrainResult.yielded,
+        try driver.core.drainActions(&host, NoopActionIo{}, NoopActionExec{}),
+    );
+    try std.testing.expect(host.node.hasAction());
+    try std.testing.expectEqual(
+        driver.core.DrainResult.yielded,
+        try driver.core.drainActions(&host, NoopActionIo{}, NoopActionExec{}),
+    );
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, NoopActionIo{}, NoopActionExec{}),
+    );
+    try std.testing.expect(!host.node.hasAction());
+}
+
+test "standard host action drain retains a gift-id request when entropy fails" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x1e} ** 32, .{});
+    defer host.deinit();
+
+    // A node gift request is transferred onto the Host queue by the ordinary
+    // finite work pump. The ticket is intentionally stale: this test owns the
+    // executor's retry boundary, while Node ticket settlement is covered by
+    // the handoff scenarios.
+    try host.node.actions.reserve(allocator, 1);
+    host.node.actions.pushReserved(.{ .need_gift_id = .{ .ticket = 77 } });
+
+    var fail_next = true;
+    try std.testing.expectError(
+        error.EntropyUnavailable,
+        driver.core.drainActions(&host, RetryEntropy{ .fail_next = &fail_next }, NoopActionExec{}),
+    );
+    const parked = (try host.peekAction()) orelse return error.MissingGiftIdAction;
+    try std.testing.expectEqual(@as(u64, 77), parked.need_gift_id.ticket);
+
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, RetryEntropy{ .fail_next = &fail_next }, NoopActionExec{}),
+    );
+    try std.testing.expect((try host.peekAction()) == null);
+}
+
+test "standard host action drain retries a dial whose executor fails" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x1f} ** 32, .{});
+    defer host.deinit();
+
+    try host.actions.reserve(allocator, 1);
+    host.actions.pushReserved(.{ .dial = .{ .ticket = 91 } });
+
+    var fail_next = true;
+    try std.testing.expectError(
+        error.DialUnavailable,
+        driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &fail_next }),
+    );
+    const parked = (try host.peekAction()) orelse return error.MissingDialAction;
+    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), parked.dial.ticket);
+
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &fail_next }),
+    );
+    try std.testing.expect((try host.peekAction()) == null);
+}
+
+test "borrowed action refusal retries in place without reordering" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x20} ** 32, .{});
+    defer host.deinit();
+
+    try host.actions.reserve(allocator, 2);
+    host.actions.pushReserved(.{ .dial = .{ .ticket = 91 } });
+    host.actions.pushReserved(.{ .dial = .{ .ticket = 92 } });
+
+    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), (try host.nextAction()).?.dial.ticket);
+    try std.testing.expect(host.retryBorrowedAction());
+    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), (try host.peekAction()).?.dial.ticket);
+    const retried = (try host.takeAction()) orelse return error.MissingRetriedAction;
+    defer host.freeAction(retried);
+    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), retried.dial.ticket);
+    try std.testing.expectEqual(@as(engine.Node.PendingId, 92), (try host.nextAction()).?.dial.ticket);
+    try std.testing.expect((try host.nextAction()) == null);
+}
+
+test "event serve OOM condemns the consumed event instead of retrying it" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x0f} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var host = test_host.init(allocator, [_]u8{0x10} ** 32, .{
+        .limits = .{ .max_frame_bytes = frame_cap },
+        .host_work_quantum = 1,
+    });
+    defer host.deinit();
+    const pair = try openPair(&client, &host, "127.0.0.1:7099");
+
+    _ = try pair.b.served.publish(&host.vat, "counter", Counter, .{});
+    const target = try fetchRef(pair, "counter");
+    var serve_attempts: usize = 0;
+    pair.b.served.serve_options = .{
+        .hook_ctx = &serve_attempts,
+        .before_serve = EventServeOutOfMemory.hook,
+    };
+
+    try client.tell(pair.a, target, .{ .verb = "hit", .args = &.{} });
+    var frame = (try pair.a.takeOutbound()) orelse return error.MissingDeliver;
+    defer frame.deinit();
+    try pair.b.served.port.peer.recvBorrowed(frame.view());
+
+    // `flushSession` enters the finite Host pump. The event has already been
+    // removed by pollEvent when the hook fails, so the Host must condemn it.
+    try host.flushSession(pair.b);
+    try std.testing.expectEqual(@as(usize, 1), serve_attempts);
+    try std.testing.expect(!pair.b.served.port.peer.hasEvent());
+    try std.testing.expect(pair.b.condemned);
+
+    var saw_close = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .close => |peer_id| {
+            try std.testing.expectEqual(pair.b.peer_id, peer_id);
+            saw_close = true;
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_close);
+}
 
 /// The amplification target: each queued `hit` is one local turn.
 const Counter = struct {
@@ -88,9 +341,9 @@ fn fetchRef(pair: Pair, name: []const u8) !model.Reference {
 
 test "a fed frame whose own dispatch amplifies past the budget fails that feed" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = Host.init(allocator, [_]u8{0x0b} ** 32, .{
+    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
@@ -116,11 +369,11 @@ test "a fed frame whose own dispatch amplifies past the budget fails that feed" 
 
 test "a fed connection flooding a sibling condemns the sibling with a close action; the fed verb and connection survive" {
     const allocator = std.testing.allocator;
-    var client_a = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client_a = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client_a.deinit();
-    var client_b = Host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
+    var client_b = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client_b.deinit();
-    var server = Host.init(allocator, [_]u8{0x0b} ** 32, .{
+    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
@@ -167,7 +420,7 @@ test "a fed connection flooding a sibling condemns the sibling with a close acti
     }
     try std.testing.expect(saw_close);
     try std.testing.expectError(
-        driver.core.HostError.ConnectionCondemned,
+        driver.core.HostError.SessionCondemned,
         server.fetch(pair_b.b, "amp"),
     );
 

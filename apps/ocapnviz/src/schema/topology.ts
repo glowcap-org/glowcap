@@ -99,10 +99,13 @@ export type Transport = z.infer<typeof Transport>;
 const KNOWN_TRANSPORTS = [
   "tcp",
   "keyed-tcp",
+  "noise-tcp",
   "keyed-relay",
-  "inproc",
+  "noise-relay",
   "iroh",
   "webrtc",
+  "onion",
+  "inproc",
 ] as const;
 
 export const TRANSPORT_OPTIONS: readonly Transport[] = KNOWN_TRANSPORTS;

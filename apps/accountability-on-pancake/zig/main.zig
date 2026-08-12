@@ -64,7 +64,10 @@ fn hostServe(args: HostArgs) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var vat = try driver.acceptTcp(allocator, &peer, args.listener, read_buf, write_buf, handshake_budget);
+    var vat = try driver.acceptTcp(allocator, &peer, args.listener, read_buf, write_buf, .{
+        .handshake = handshake_budget,
+        .settle = .{ .ms = 10_000 },
+    });
     defer vat.deinit();
 
     _ = try vat.publish(AFFORDANCE_NAME, affordance.Affordance, .{
@@ -193,7 +196,10 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, handshake_budget);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, .{
+        .handshake = handshake_budget,
+        .settle = .{ .ms = 10_000 },
+    });
     std.debug.print("      session open over TCP {f}\n", .{address});
 
     const affordance_ref = try cv.fetch(AFFORDANCE_NAME);

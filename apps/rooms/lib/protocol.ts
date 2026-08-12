@@ -76,13 +76,13 @@ export const LEAVE = "leave";
  *
  * `locator` is a claim, and how far the directory can stand behind it depends on
  * the registering connection. Keyed — `keyed-tcp`, `iroh`, `webrtc`,
- * `keyed-relay` — and the handshake has verified the partner holds the key its
+ * `keyed-relay`, `noise-relay` — and the handshake has verified the partner holds the key its
  * designator names, so a locator naming a different designator is refused
  * `not-your-locator`. Unkeyed and there is nothing to check it against, so the
  * directory repeats a claim it cannot vouch for: everyone it introduces will
  * dial what the registrant asked them to. The transport a member reaches the
  * directory over is not the one others reach the member over — a browser peer
- * arrives over relayed TCP while being reachable at a keyed-relay designator —
+ * arrives over relayed TCP while being reachable at a noise-relay designator —
  * so this is not a property of the member's own transport, and keying the
  * directory's connections is what would close it. */
 export const REGISTER = "register";
@@ -129,28 +129,32 @@ export const OFFER_INBOX = "offerInbox";
  * `signalOffer(toDesignator, sdp, reply)` starts one exchange: the directory
  * mints an exchange id, remembers `reply` (a capability the caller hosts on
  * this same directory session), and forwards the offer. Every message back to
- * the caller rides `reply`: `answer(sdp)` once, then `candidate(ice)` as the
- * far peer trickles. Behaviors are synchronous, so nothing here returns a
- * value; the whole exchange is eventual sends.
+ * the caller rides `reply`: `accepted(id)` after admission, `answer(sdp)` once,
+ * then `candidate(ice)` as the far peer trickles. Behaviors are synchronous,
+ * so nothing here returns a value; the whole exchange is eventual sends.
  *
  * `signalAnswer(id, sdp)` is the answering member's reply, accepted only from
  * the connection whose registration owns the exchange's target.
  *
- * `signalCandidate(key, ice)` trickles one ICE candidate either way. The
- * offering side passes the target's designator as `key` (it holds no exchange
- * id); the answering side passes the exchange id. The directory resolves which
- * side is calling from the session the call arrived on. */
+ * Both sides use the admitted id for `signalCandidate(id, ice)`; the directory
+ * resolves the direction from the calling session.
+ * `signalDone(id)` retires that exact exchange after channel bring-up or
+ * failure, so a late retirement cannot close a newer dial to the same peer. */
 export const OFFER_SIGNALING = "offerSignaling";
 export const SIGNAL_OFFER = "signalOffer";
 export const SIGNAL_ANSWER = "signalAnswer";
 export const SIGNAL_CANDIDATE = "signalCandidate";
+export const SIGNAL_DONE = "signalDone";
 
 /** The verbs a signaling inbox and a signaling reply capability answer:
  * `offer(id, sdp)` and `candidate(id, ice)` on the member's filed inbox;
- * `answer(sdp)` and `candidate(ice)` on the offerer's `reply`. */
+ * `accepted(id)`, `answer(sdp)`, `candidate(ice)`, and `reject(reason)` on the
+ * offerer's `reply`. */
 export const SIG_OFFER = "offer";
+export const SIG_ACCEPTED = "accepted";
 export const SIG_ANSWER = "answer";
 export const SIG_CANDIDATE = "candidate";
+export const SIG_REJECT = "reject";
 
 /** The verb a member's exported inbox answers: `dm(text, reply?)`
  *

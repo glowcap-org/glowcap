@@ -23,10 +23,9 @@
 //! Blocking uses `std.Io.Mutex` / `std.Io.Condition`, the io-aware primitives, so
 //! one handshake half parks until the other produces bytes under whatever `std.Io`
 //! backs the conversation (a threaded backend blocks the thread; a fiber backend
-//! yields). The two places a vtable callback runs without an `io` in hand — the
-//! transport-handle `close` and the listener `close` — use a tiny non-blocking
-//! spinlock (`net.sync.SpinLock`) over short critical sections only (a refcount, a
-//! map removal), never to wait.
+//! yields). Teardown callbacks recover the resident's stored `std.Io` and use the
+//! same primitives, so the mock transport does not carry a separate spin-lock
+//! discipline from the production adapters.
 
 const std = @import("std");
 
@@ -37,10 +36,11 @@ const codec = @import("codec");
 const netlayer = @import("../netlayer.zig");
 const connection = @import("../connection.zig");
 const frame_stream = @import("../frame_stream.zig");
+const poll = @import("../poll.zig");
+const wake_channel = @import("../wake_channel.zig");
 
 const Io = std.Io;
 
-const SpinLock = @import("../sync.zig").SpinLock;
 const Connection = connection.Connection;
 const Netlayer = netlayer.Netlayer;
 const Listener = netlayer.Listener;
@@ -53,7 +53,22 @@ const AcceptError = netlayer.AcceptError;
 
 /// The transport symbol this resident registers under and signs into
 /// `op:start-session`. Matches the `pancake_inproc_*` C ABI family.
-pub const transport_name = model.transport.inproc;
+const known_transport = model.transport.Known.inproc;
+pub const transport_name = known_transport.metadata().symbol;
+
+/// An adapter-owned edge notification for a listener arrival, in addition to
+/// the listener's own pollable readiness channel. Used when an embedding needs
+/// a callback edge rather than a borrowed descriptor.
+pub const ArrivalNotifier = struct {
+    ctx: *anyopaque,
+    notify_fn: *const fn (*anyopaque) void,
+
+    /// Must return promptly and must not synchronously close or re-enter its
+    /// listener. The listener pins this call across concurrent close.
+    fn notify(self: ArrivalNotifier) void {
+        self.notify_fn(self.ctx);
+    }
+};
 
 // ── The byte pipe ────────────────────────────────────────────────────────────
 
@@ -69,10 +84,11 @@ const Channel = struct {
     pos: usize = 0,
     closed: bool = false,
 
-    fn write(self: *Channel, bytes: []const u8) std.mem.Allocator.Error!void {
+    fn write(self: *Channel, bytes: []const u8) (std.mem.Allocator.Error || error{Closed})!void {
         if (bytes.len == 0) return;
         self.mutex.lockUncancelable(self.io);
         defer self.mutex.unlock(self.io);
+        if (self.closed) return error.Closed;
         try self.data.appendSlice(self.allocator, bytes);
         self.not_empty.signal(self.io);
     }
@@ -116,15 +132,17 @@ const Channel = struct {
 /// before the storage disappears.
 const Duplex = struct {
     allocator: std.mem.Allocator,
+    io: Io,
     dial_to_listen: Channel,
     listen_to_dial: Channel,
-    refs_lock: SpinLock = .{},
+    refs_lock: Io.Mutex = .init,
     refs: usize = 2,
 
     fn create(allocator: std.mem.Allocator, io: Io) std.mem.Allocator.Error!*Duplex {
         const self = try allocator.create(Duplex);
         self.* = .{
             .allocator = allocator,
+            .io = io,
             .dial_to_listen = .{ .allocator = allocator, .io = io },
             .listen_to_dial = .{ .allocator = allocator, .io = io },
         };
@@ -132,10 +150,10 @@ const Duplex = struct {
     }
 
     fn release(self: *Duplex) void {
-        self.refs_lock.lock();
+        self.refs_lock.lockUncancelable(self.io);
         self.refs -= 1;
         const remaining = self.refs;
-        self.refs_lock.unlock();
+        self.refs_lock.unlock(self.io);
         if (remaining == 0) {
             self.dial_to_listen.deinit();
             self.listen_to_dial.deinit();
@@ -178,6 +196,11 @@ const InprocContext = struct {
     pub fn closeStream(self: InprocContext) void {
         self.write_chan.close();
         self.duplex.release();
+    }
+
+    fn shutdown(self: InprocContext) void {
+        self.duplex.dial_to_listen.close();
+        self.duplex.listen_to_dial.close();
     }
 };
 
@@ -255,6 +278,12 @@ pub const InprocFrameStream = struct {
         self.spill.deinit(self.allocator);
         Endpoint.close(self.endpoint);
     }
+
+    /// Interrupt blocked reads and writes without freeing the endpoint.
+    /// Release remains a separate operation after every caller has returned.
+    pub fn shutdown(self: *InprocFrameStream) void {
+        self.endpoint.context.shutdown();
+    }
 };
 
 // ── The switchboard ──────────────────────────────────────────────────────────
@@ -267,7 +296,7 @@ pub const InprocFrameStream = struct {
 pub const Network = struct {
     allocator: std.mem.Allocator,
     io: Io,
-    lock: SpinLock = .{},
+    lock: Io.Mutex = .init,
     listeners: std.StringHashMapUnmanaged(*InprocListener) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, io: Io) Network {
@@ -318,7 +347,9 @@ pub const Network = struct {
         errdefer allocator.destroy(ml);
         const owned = allocator.dupe(u8, designator) catch return error.OutOfMemory;
         errdefer allocator.free(owned);
-        ml.* = .{ .network = self, .allocator = allocator, .designator = owned };
+        const wake = wake_channel.WakeChannel.open() catch return error.BindFailed;
+        errdefer wake.deinit();
+        ml.* = .{ .network = self, .allocator = allocator, .designator = owned, .wake = wake };
         try self.register(owned, ml);
         return ml;
     }
@@ -362,8 +393,8 @@ pub const Network = struct {
     /// freeing anything, so the returned pointer stays alive for the dial in
     /// flight. Every successful acquire must be paired with `releaseDial`.
     fn acquire(self: *Network, designator: []const u8) ?*InprocListener {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lockUncancelable(self.io);
+        defer self.lock.unlock(self.io);
         const listener = self.listeners.get(designator) orelse return null;
         listener.dialing += 1;
         return listener;
@@ -376,23 +407,23 @@ pub const Network = struct {
     fn releaseDial(self: *Network, listener: *InprocListener) void {
         const io = self.io;
         listener.mutex.lockUncancelable(io);
-        self.lock.lock();
+        self.lock.lockUncancelable(io);
         listener.dialing -= 1;
-        self.lock.unlock();
+        self.lock.unlock(io);
         listener.dial_drained.signal(io);
         listener.mutex.unlock(io);
     }
 
     fn register(self: *Network, designator: []const u8, listener: *InprocListener) error{ BindFailed, OutOfMemory }!void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lockUncancelable(self.io);
+        defer self.lock.unlock(self.io);
         if (self.listeners.contains(designator)) return error.BindFailed;
         self.listeners.put(self.allocator, designator, listener) catch return error.OutOfMemory;
     }
 
     fn unregister(self: *Network, designator: []const u8) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lockUncancelable(self.io);
+        defer self.lock.unlock(self.io);
         // idempotent: deregister teardown, tolerant of a designator that was
         // never registered or already removed.
         _ = self.listeners.remove(designator);
@@ -405,7 +436,7 @@ fn networkIo(ctx: *anyopaque) ?std.Io {
 }
 
 const netlayer_vtable = Netlayer.VTable{
-    .transport_name = transport_name,
+    .profile = known_transport.metadata(),
     .dial = dial,
     .listen = listen,
     .io = networkIo,
@@ -434,9 +465,12 @@ fn listen(
 
 const listener_vtable = Listener.VTable{
     .transport_name = transport_name,
+    .designator_scheme = known_transport.metadata().designator_scheme,
+    .sealed_channel = known_transport.metadata().sealed_channel,
     .accept = listenerAccept,
     .waitAcceptable = listenerWaitAcceptable,
-    .localDesignator = listenerLocalDesignator,
+    .localLocator = listenerLocalLocator,
+    .canonicalizeLocator = listenerCanonicalizeLocator,
     .close = listenerClose,
 };
 
@@ -446,16 +480,16 @@ pub const InprocListener = struct {
     network: *Network,
     allocator: std.mem.Allocator,
     designator: []u8,
+    /// No application bytes flow here. It turns in-process queue arrival and
+    /// shutdown into the same pollable readiness contract socket listeners use.
+    wake: wake_channel.WakeChannel,
     mutex: Io.Mutex = .init,
     arrived: Io.Condition = .init,
-    /// Accepters currently parked inside `listenerAccept`'s wait. `listenerClose`
-    /// must not free this listener while any of them could still reacquire the
-    /// mutex or read the pending list, so it waits on `drained` until this
-    /// returns to zero before tearing anything down.
-    waiters: usize = 0,
-    /// Signaled by the last parked accepter to leave the wait, releasing a
-    /// closing `listenerClose` to free the listener.
-    drained: Io.Condition = .init,
+    /// Accept and readiness operations that may still touch this listener.
+    /// This counts the whole operation, including finite waits that sleep with
+    /// the mutex released; close joins it before freeing listener storage.
+    operations: usize = 0,
+    operations_drained: Io.Condition = .init,
     /// Dials currently pinning this listener (between `Network.acquire` and
     /// `releaseDial`), guarded by the *network* lock so the pin is atomic with
     /// the registry lookup. `listenerClose` unregisters first — no new pin can
@@ -466,17 +500,63 @@ pub const InprocListener = struct {
     dial_drained: Io.Condition = .init,
     pending: std.ArrayList(*Duplex) = .empty,
     closed: bool = false,
+    arrival_notifier: ?ArrivalNotifier = null,
+    /// Notifier callbacks currently outside the listener mutex. Close waits
+    /// for this pin before the adapter-owned callback context may be freed.
+    notifying: usize = 0,
+    notify_drained: Io.Condition = .init,
+
+    /// Install one adapter-owned readiness edge. A pending dial is signaled
+    /// immediately, so attaching after registration cannot lose an arrival.
+    /// The notifier owner must outlive this listener and may release it only
+    /// after `close` returns.
+    pub fn setArrivalNotifier(self: *InprocListener, notifier: ArrivalNotifier) void {
+        const io = self.network.io;
+        self.mutex.lockUncancelable(io);
+        std.debug.assert(self.arrival_notifier == null);
+        self.arrival_notifier = notifier;
+        const pending = self.pending.items.len != 0;
+        if (pending) self.notifyArrivalPinned();
+        self.mutex.unlock(io);
+    }
+
+    /// Borrowed readiness descriptor. The listener owns it through `close`.
+    pub fn readinessFd(self: *const InprocListener) i32 {
+        return self.wake.read;
+    }
+
+    /// Invoke the installed notifier without holding the listener mutex while
+    /// retaining an in-flight pin that `listenerClose` drains. Called with the
+    /// mutex held and returns with it held.
+    fn notifyArrivalPinned(self: *InprocListener) void {
+        const notifier = self.arrival_notifier orelse return;
+        const io = self.network.io;
+        self.notifying += 1;
+        self.mutex.unlock(io);
+        notifier.notify();
+        self.mutex.lockUncancelable(io);
+        self.notifying -= 1;
+        if (self.notifying == 0) self.notify_drained.signal(io);
+    }
 
     fn enqueue(self: *InprocListener, duplex: *Duplex) error{ ConnectionLost, OutOfMemory }!void {
         const io = self.network.io;
         self.mutex.lockUncancelable(io);
-        defer self.mutex.unlock(io);
         // A pinned dial can land after `listenerClose` swept the pending
         // list; admitting it would strand a duplex no accept ever drains, so
         // a closed listener refuses the connection instead.
-        if (self.closed) return error.ConnectionLost;
-        try self.pending.append(self.allocator, duplex);
+        if (self.closed) {
+            self.mutex.unlock(io);
+            return error.ConnectionLost;
+        }
+        self.pending.append(self.allocator, duplex) catch |err| {
+            self.mutex.unlock(io);
+            return err;
+        };
         self.arrived.signal(io);
+        self.wake.nudge();
+        self.notifyArrivalPinned();
+        self.mutex.unlock(io);
     }
 
     /// Block until a dialed duplex is queued and dequeue it, or return
@@ -484,9 +564,9 @@ pub const InprocListener = struct {
     /// accept-wait core of both the driver-path `accept` and the frame-stream
     /// `acceptFrameStream`, so the parked-waiter / close handshake lives once.
     /// A dequeued duplex plus the listener fields the caller needs after the
-    /// mutex is released. Once the duplex is off the pending list and the mutex
-    /// is unlocked, this accept is counted by neither `waiters` nor `dialing`, so
-    /// a concurrent `listenerClose` may free the listener out from under it.
+    /// mutex is released. Once the duplex is off the pending list and the
+    /// operation lease is retired, a concurrent `listenerClose` may free the
+    /// listener out from under the remaining endpoint construction.
     /// Snapshotting `allocator` and `network` (both outlive the listener struct)
     /// under the mutex lets the caller finish the accept without touching `self`.
     const Accepted = struct {
@@ -495,20 +575,24 @@ pub const InprocListener = struct {
         network: *Network,
     };
 
+    fn waitUntilPendingOrClosed(self: *InprocListener) void {
+        const io = self.network.io;
+        while (self.pending.items.len == 0 and !self.closed) {
+            self.arrived.waitUncancelable(io, &self.mutex);
+        }
+    }
+
     fn waitForDuplex(self: *InprocListener) netlayer.AcceptError!Accepted {
         const io = self.network.io;
         self.mutex.lockUncancelable(io);
-        while (self.pending.items.len == 0 and !self.closed) {
-            self.waiters += 1;
-            self.arrived.waitUncancelable(io, &self.mutex);
-            self.waiters -= 1;
-            // A closing `listenerClose` parks until every waiter has left the
-            // wait and re-checked `closed` under the mutex; the last one out
-            // releases it.
-            if (self.waiters == 0) self.drained.signal(io);
-        }
-        if (self.pending.items.len == 0) {
+        self.operations += 1;
+        defer {
+            self.operations -= 1;
+            if (self.operations == 0) self.operations_drained.signal(io);
             self.mutex.unlock(io);
+        }
+        self.waitUntilPendingOrClosed();
+        if (self.pending.items.len == 0) {
             return error.ConnectionLost; // closed with nothing pending
         }
         const accepted = Accepted{
@@ -516,7 +600,12 @@ pub const InprocListener = struct {
             .allocator = self.allocator,
             .network = self.network,
         };
-        self.mutex.unlock(io);
+        self.wake.drain();
+        const notify_more = self.pending.items.len != 0;
+        if (notify_more) {
+            self.wake.nudge();
+            self.notifyArrivalPinned();
+        }
         return accepted;
     }
 
@@ -544,6 +633,13 @@ pub const InprocListener = struct {
     pub fn close(self: *InprocListener) void {
         listenerClose(self);
     }
+
+    /// Stop admission and wake blocked accepters without freeing the listener.
+    /// Idempotent so a foreign runtime can cancel, join its accept lease, then
+    /// call `close` for the one ownership release.
+    pub fn shutdown(self: *InprocListener) void {
+        listenerShutdown(self);
+    }
 };
 
 /// Build the listener's endpoint over an accepted duplex (it writes the
@@ -563,24 +659,27 @@ fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError
     const self: *InprocListener = @ptrCast(@alignCast(ctx));
     const io = self.network.io;
     self.mutex.lockUncancelable(io);
-    if (self.closed) {
+    self.operations += 1;
+    defer {
+        self.operations -= 1;
+        if (self.operations == 0) self.operations_drained.signal(io);
         self.mutex.unlock(io);
-        return error.ConnectionLost;
     }
-    if (self.pending.items.len != 0) {
-        self.mutex.unlock(io);
-        return true;
-    }
+    if (self.pending.items.len != 0) return true;
+    if (self.closed) return error.ConnectionLost;
     self.mutex.unlock(io);
-    // No pollable fd: sleep the budget and re-check. A dial that races the
-    // unlock still wakes the next accept; a stop latch between polls exits.
-    if (timeout_ms > 0) {
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(timeout_ms), .real) catch {};
-    }
+    var fds = [_]std.posix.pollfd{.{
+        .fd = self.wake.read,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+    const ready = poll.wait(&fds, timeout_ms) catch {
+        self.mutex.lockUncancelable(io);
+        return error.ConnectionLost;
+    };
     self.mutex.lockUncancelable(io);
-    defer self.mutex.unlock(io);
     if (self.closed and self.pending.items.len == 0) return error.ConnectionLost;
-    return self.pending.items.len != 0;
+    return ready != 0 and self.pending.items.len != 0;
 }
 
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
@@ -596,38 +695,38 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.A
 /// `listenerClose`'s wait loop while it holds the listener mutex; lock order is
 /// listener mutex, then network lock, everywhere both are held.
 fn dialsPinned(self: *InprocListener) bool {
-    self.network.lock.lock();
-    defer self.network.lock.unlock();
+    const io = self.network.io;
+    self.network.lock.lockUncancelable(io);
+    defer self.network.lock.unlock(io);
     return self.dialing > 0;
 }
 
-fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
+fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
     const self: *InprocListener = @ptrCast(@alignCast(ctx));
-    return netlayer.writeDesignator(out, self.designator);
+    return model.clonePeerLocator(allocator, .{
+        .transport = transport_name,
+        .designator = self.designator,
+    });
+}
+
+fn listenerCanonicalizeLocator(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    locator: model.PeerLocator,
+) netlayer.ListenError!model.PeerLocator {
+    const self: *InprocListener = @ptrCast(@alignCast(ctx));
+    return netlayer.canonicalizeFixedLocator(allocator, locator, transport_name, self.designator);
 }
 
 fn listenerClose(ctx: *anyopaque) void {
     const self: *InprocListener = @ptrCast(@alignCast(ctx));
+    listenerShutdown(self);
     const io = self.network.io;
-    self.network.unregister(self.designator);
-
     self.mutex.lockUncancelable(io);
-    self.closed = true;
-    // A dialer parked on a never-accepted duplex gets EOF, and its endpoint slot
-    // is released on its behalf since this listener will never build it. The
-    // list is only emptied here, not freed: a woken accepter still reads it.
-    for (self.pending.items) |duplex| {
-        duplex.dial_to_listen.close();
-        duplex.listen_to_dial.close();
-        duplex.release();
-    }
-    self.pending.clearRetainingCapacity();
-    // Wake every parked accepter, then wait until each has left the wait and
-    // observed `closed` under the mutex. Freeing the listener any earlier
-    // would destroy the very mutex and pending list a woken accepter is about
-    // to reacquire and read.
-    self.arrived.broadcast(io);
-    while (self.waiters > 0) self.drained.waitUncancelable(io, &self.mutex);
+    // `listenerShutdown` woke every parked operation. Join the complete
+    // accept/readiness call, including finite waits that released this mutex;
+    // only then may storage free.
+    while (self.operations > 0) self.operations_drained.waitUncancelable(io, &self.mutex);
     // Then wait out every dial that pinned this listener through
     // `Network.acquire`. The registry entry is already gone, so no new pin
     // can form and the count only falls; each pinned dial either enqueued
@@ -635,9 +734,36 @@ fn listenerClose(ctx: *anyopaque) void {
     // refused. Freeing earlier would destroy the listener under a dial that
     // already holds its pointer.
     while (dialsPinned(self)) self.dial_drained.waitUncancelable(io, &self.mutex);
+    // A notifier runs outside this mutex so a wake implementation never joins
+    // the listener's lock graph. Its explicit pin keeps the adapter payload
+    // alive until the final callback returns.
+    while (self.notifying > 0) self.notify_drained.waitUncancelable(io, &self.mutex);
     self.mutex.unlock(io);
 
     self.pending.deinit(self.allocator);
+    self.wake.deinit();
     self.allocator.free(self.designator);
     self.allocator.destroy(self);
+}
+
+fn listenerShutdown(self: *InprocListener) void {
+    const io = self.network.io;
+    self.network.unregister(self.designator);
+    self.mutex.lockUncancelable(io);
+    defer self.mutex.unlock(io);
+    if (self.closed) return;
+    self.closed = true;
+    // A dialer parked on a never-accepted duplex gets EOF, and its endpoint slot
+    // is released on its behalf since this listener will never build it.
+    for (self.pending.items) |duplex| {
+        duplex.dial_to_listen.close();
+        duplex.listen_to_dial.close();
+        duplex.release();
+    }
+    self.pending.clearRetainingCapacity();
+    self.arrived.broadcast(io);
+    self.wake.nudge();
+    // The adapter readiness edge represents either an arrival or terminal
+    // closure. A reactor parked on the synthetic fd must wake for both.
+    self.notifyArrivalPinned();
 }

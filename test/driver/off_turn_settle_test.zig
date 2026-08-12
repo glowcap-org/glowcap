@@ -3,13 +3,14 @@
 //! served behavior defers its answer onto a resolver vow and parks the
 //! resolver id; the worker posts the settle from its own thread; the owning
 //! thread's wait wakes through the mailbox's socketpair, applies the settle,
-//! and the caller's blocked call completes — over `driver.PollHost`'s poll
+//! and the caller's blocked call completes — over `driver.HostRuntime`'s poll
 //! wait, and over `net.TcpLoop` + `driver.Bridge`'s completion wait. The
 //! units pin the post-side refusals: a full mailbox, an oversized payload,
 //! and a capability in a plain-data settle, each loud.
 
 const std = @import("std");
 const pancake = @import("pancake");
+const test_host = @import("../support/core_host.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -34,28 +35,31 @@ const dial_opts: driver.SessionOptions = .{
 
 test "settle mailbox: full, oversized, and capability-bearing posts refuse loudly" {
     const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
     const mb = try driver.SettleMailbox.init(allocator, 1);
     defer mb.deinit();
 
     // A capability never crosses threads.
     try std.testing.expectError(
         error.NotPlainData,
-        mb.post(1, .{ .fulfilled = .{ .reference = .{ .far = model.FarRef.object(5) } } }),
+        mb.post(io, 1, .{ .fulfilled = .{ .reference = .{ .far = model.FarRef.object(5) } } }),
     );
     // A payload past the slot's fixed storage refuses; the slot stays free.
     const big = [_]u8{'x'} ** (driver.settle_mailbox.slot_payload_bytes + 1);
     try std.testing.expectError(
         error.ValueTooLarge,
-        mb.post(1, .{ .fulfilled = .{ .string = &big } }),
+        mb.post(io, 1, .{ .fulfilled = .{ .string = &big } }),
     );
     // One slot: the second unapplied post is backpressure, not growth.
-    try mb.post(1, .{ .broken = "first" });
-    try std.testing.expectError(error.MailboxFull, mb.post(2, .{ .broken = "second" }));
+    try mb.post(io, 1, .{ .broken = "first" });
+    try std.testing.expectError(error.MailboxFull, mb.post(io, 2, .{ .broken = "second" }));
 }
 
 // --- The shared deferring behavior and worker -------------------------------
 
-/// The owning-tier deferring behavior (PollHost): the turn wrapper carries
+/// The owning-tier deferring behavior (Host): the turn wrapper carries
 /// the host, so the behavior mints, defers, and parks with no captured state
 /// beyond the worker's shared slot.
 const DeferringOwned = struct {
@@ -64,9 +68,7 @@ const DeferringOwned = struct {
     pub fn handle(self: *@This(), ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
         _ = verb;
         _ = args;
-        const pair = try ht.host.spawnResolver();
-        try ht.host.turnForwardVow(ht.turn, pair.vow_id);
-        self.out.store(pair.resolver_id, .release);
+        self.out.store(try ht.deferAnswer(), .release);
         return .{ .void = {} };
     }
 };
@@ -74,13 +76,12 @@ const DeferringOwned = struct {
 /// The vat-tier sibling (the bridge publishes through `Served.publish`).
 const DeferringVat = struct {
     core: *Host,
+    session: *driver.core.HostSession,
     out: *std.atomic.Value(u64),
 
     pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = msg;
-        const pair = try self.core.spawnResolver();
-        try self.core.turnForwardVow(turn, pair.vow_id);
-        self.out.store(pair.resolver_id, .release);
+        self.out.store(try self.core.deferTurn(self.session, turn), .release);
         return .{ .void = {} };
     }
 };
@@ -105,9 +106,9 @@ fn worker(
         }
         out.store(0, .release);
         if (round == 0) {
-            mb.post(id, .{ .fulfilled = .{ .string = "computed off-thread" } }) catch unreachable;
+            mb.post(io, id, .{ .fulfilled = .{ .string = "computed off-thread" } }) catch unreachable;
         } else {
-            mb.post(id, .{ .broken = "worker gave up" }) catch unreachable;
+            mb.post(io, id, .{ .broken = "worker gave up" }) catch unreachable;
         }
     }
 }
@@ -127,16 +128,16 @@ fn clientAsserts(client: *driver.Session, allocator: std.mem.Allocator) !void {
     try std.testing.expect(std.mem.indexOf(u8, broken.broken, "worker gave up") != null);
 }
 
-// --- PollHost: the poll wait wakes on the mailbox fd ------------------------
+// --- HostRuntime: the poll wait wakes on the mailbox fd -----------------
 
-fn pollHostServe(server: *driver.Server, out: *std.atomic.Value(u64)) anyerror!void {
-    const conn = try server.accept();
-    defer conn.deinit();
-    _ = try conn.publish("worker", DeferringOwned, .{ .out = out });
-    try conn.serve();
+fn hostRuntimeServe(server: *driver.Server, out: *std.atomic.Value(u64)) anyerror!void {
+    const session = try server.accept();
+    defer session.deinit();
+    _ = try session.publish("worker", DeferringOwned, .{ .out = out });
+    try session.serve();
 }
 
-test "off-turn settle over PollHost: a worker thread's post wakes the poll wait and the blocked call completes" {
+test "off-turn settle over HostRuntime: a worker thread's post wakes the poll wait and the blocked call completes" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -155,12 +156,12 @@ test "off-turn settle over PollHost: a worker thread's post wakes the poll wait 
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     // Mint the mailbox before any pump runs, hand it to the worker thread.
-    const mb = try server.host.settleMailbox();
+    const mb = try server.runtime.settleMailbox();
     var parked = std.atomic.Value(u64).init(0);
     var worker_stop = std.atomic.Value(bool).init(false);
     const worker_thread = try std.Thread.spawn(.{}, worker, .{ mb, &parked, &worker_stop });
 
-    var host_future = try io.concurrent(pollHostServe, .{ &server, &parked });
+    var host_future = try io.concurrent(hostRuntimeServe, .{ &server, &parked });
 
     const client_result = blk: {
         const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
@@ -193,7 +194,8 @@ const LoopState = struct {
 
 fn publishWorker(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     const state: *LoopState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish(vat, "worker", DeferringVat, .{ .core = state.host, .out = state.out });
+    const session: *driver.core.HostSession = @alignCast(@fieldParentPtr("served", served));
+    _ = try served.publish(vat, "worker", DeferringVat, .{ .core = state.host, .session = session, .out = state.out });
 }
 
 const LoopShared = struct {
@@ -211,7 +213,7 @@ fn loopServerTask(
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x4d} ** 32, Host.Options.withFrameCap(frame_cap));
+    var host = test_host.init(allocator, [_]u8{0x4d} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var state = LoopState{ .host = &host, .out = parked };
     var loop: net.TcpLoop = undefined;
@@ -221,22 +223,17 @@ fn loopServerTask(
     });
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
-        .frame_cap = frame_cap,
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
     const bound = tcp.locator(&designator_buf, bound_addr).designator;
-    try bridge.attach(tcp.transport_name, bound, &.{});
+    try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
     try bridge.attachSettleMailbox(mb);
-    shared.port.store(loop.port.?, .release);
+    shared.port.store(loop.port().?, .release);
 
     try loop.runUntil(&shared.done, 30_000);
     loop.closeAndDrain() catch {};
@@ -294,16 +291,16 @@ test "off-turn settle over the completion loop: the wake recv applies the worker
 /// Serve with bounded steps rather than `serve`'s unbounded poll, so a
 /// swallowed wake cannot park this thread forever — the point under test is
 /// where the settle is applied, not whether a wake can end a wait.
-fn pollHostServeStepping(
+fn hostRuntimeServeStepping(
     server: *driver.Server,
     out: *std.atomic.Value(u64),
     done: *std.atomic.Value(bool),
 ) anyerror!void {
-    const conn = try server.accept();
-    defer conn.deinit();
-    _ = try conn.publish("worker", DeferringOwned, .{ .out = out });
+    const session = try server.accept();
+    defer session.deinit();
+    _ = try session.publish("worker", DeferringOwned, .{ .out = out });
     while (!done.load(.acquire)) {
-        const progress = conn.host.stepSession(conn.hs, 25) catch break;
+        const progress = session.runtime.stepSession(session.hs, 25) catch break;
         if (progress) |p| if (p == .closed) break;
     }
 }
@@ -320,7 +317,7 @@ fn workerSwallowingItsWake(mb: *driver.SettleMailbox, out: *std.atomic.Value(u64
         id = out.load(.acquire);
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
-    mb.post(id, .{ .fulfilled = .{ .string = "applied at the loop top" } }) catch unreachable;
+    mb.post(io, id, .{ .fulfilled = .{ .string = "applied at the loop top" } }) catch unreachable;
     mb.drainWake();
 }
 
@@ -353,11 +350,11 @@ test "off-turn settle applies at the pump top, not only when the wake wins the p
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const mb = try server.host.settleMailbox();
+    const mb = try server.runtime.settleMailbox();
     var parked = std.atomic.Value(u64).init(0);
     var done = std.atomic.Value(bool).init(false);
     const worker_thread = try std.Thread.spawn(.{}, workerSwallowingItsWake, .{ mb, &parked });
-    var host_future = try io.concurrent(pollHostServeStepping, .{ &server, &parked, &done });
+    var host_future = try io.concurrent(hostRuntimeServeStepping, .{ &server, &parked, &done });
 
     const client_result = blk: {
         const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};

@@ -46,7 +46,7 @@
       [(>= n 1000) (fail "racket-iroh-handoff" "timed out waiting for an endpoint's direct addresses")]
       [else (sleep 0.02) (loop (add1 n))])))
 
-;; Serve every connection a server accepts, each in its own green thread on the
+;; Serve every session a server accepts, each in its own green thread on the
 ;; one readiness loop; returns the accept thread. The per-connection serve threads
 ;; are pushed to `serves-box` so teardown can join them, they end on their own
 ;; when the server closes (its netlayer release feeds each accepted connection a
@@ -58,8 +58,8 @@
    (lambda ()
      (with-handlers ([exn:fail? (lambda (_) (void))])
        (let loop ()
-         (define conn (iroh-server-accept s))
-         (set-box! serves-box (cons (thread (lambda () (session-serve conn))) (unbox serves-box)))
+         (define session (iroh-server-accept s))
+         (set-box! serves-box (cons (thread (lambda () (session-serve session))) (unbox serves-box)))
          (loop))))))
 
 ;; ── Exporter: a node-giftable greeter on its own endpoint ─────────────────────
@@ -82,7 +82,9 @@
 ;; The exporter's own signed session record names it by node id alone — not
 ;; dialable under the relay-less Direct posture — so record its full dialable
 ;; location (id + direct-addresses) as the give's exporter location.
-(session-set-exporter-locator! to-exporter (encode-peer-locator "iroh" exporter-id exporter-addrs))
+(session-set-exporter-locator!
+ to-exporter
+ (locator "iroh" exporter-id (hash HINT-DIRECT-ADDRESSES exporter-addrs) 'map))
 (host-publish-giftable (iroh-server-host gifter) "introducer"
                           (methods [(get-greeter) greeter-ref]))
 (define gifter-serves (box '()))

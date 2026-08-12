@@ -21,9 +21,9 @@ function titleOf(conv: Conv | null): { name: string; said: string } {
 /** What a direct line's chip says about how the message will travel.
  *
  * A direct line has no roster, so this chip is the whole story, which is why the
- * header carries no second copy of it. A browser DM is redeemed over iroh, so a
- * live direct line is always encrypted and peer to peer. A phone has no room for
- * the full phrase. */
+ * header carries no second copy of it. The browser offers only WebRTC and
+ * Noise-relay direct lines, so a live one is always encrypted peer to peer. A
+ * phone has no room for the full phrase. */
 function provenanceOf(conv: Conv, online: boolean, narrow: boolean): string {
 	if (!online) return "Offline";
 	if (conv.type === "dm" && conv.line !== "live") return "Introducing…";

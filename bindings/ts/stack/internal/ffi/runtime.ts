@@ -39,6 +39,7 @@ export const NULL: Ptr = 0n;
 export type NativeType =
 	| "void"
 	| "bool"
+	| "u8"
 	| "u16"
 	| "i32"
 	| "u32"
@@ -83,6 +84,10 @@ export interface NativeCallback {
  * JS buffer, read and write native memory, and name the platform's
  * shared-library suffix. */
 export interface RuntimeFfi {
+	/** Whether a `SymbolDef.nonblocking` call actually leaves this JavaScript
+	 * event-loop thread. A promise-shaped wrapper is not enough: transports use
+	 * this capability before entering a native call that may wait on I/O. */
+	offloadsBlockingCalls(): boolean;
 	/** Load the shared library at `path`, resolving `defs` into callable symbols.
 	 * Throws if the library or a symbol is missing. */
 	dlopen(path: string, defs: Record<string, SymbolDef>): Symbols;
@@ -256,6 +261,7 @@ function active(): RuntimeAdapter {
  * lands (synchronously on Deno and the browser, after `ensureRuntimeReady` on
  * Bun). */
 export const ffi: RuntimeFfi = {
+	offloadsBlockingCalls: () => active().ffi.offloadsBlockingCalls(),
 	dlopen: (path, defs) => active().ffi.dlopen(path, defs),
 	makeCallback: (def, fn) => active().ffi.makeCallback(def, fn),
 	pointerOf: (buf) => active().ffi.pointerOf(buf),

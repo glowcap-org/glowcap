@@ -195,6 +195,20 @@ fn relocateSubslice(owned: []u8, parent: []const u8, child: []const u8) ?[]const
 }
 
 pub fn applySend(self: *Session, message: model.Message) !void {
+    // Answer-producing sends retain every near reference they publish. Acquire
+    // the only fallible storage those arms need before taking any wire-delta
+    // retain, so an allocator refusal cannot leave authority for a frame that
+    // never committed. validateSend already proved the position is fresh.
+    const produced_answer: ?model.AnswerPosition = switch (message) {
+        .deliver => |deliver| deliver.answer,
+        .get => |get| get.answer,
+        .index => |index| index.answer,
+        .untag => |untag| untag.answer,
+        else => null,
+    };
+    if (produced_answer != null)
+        try self.outbound_answers.ensureUnusedCapacity(self.allocator, 1);
+
     // Account every `near` export we put on the wire so a later
     // `op:gc-exports` releasing the same wire-delta balances (see
     // `retainSentExports`).
@@ -202,15 +216,15 @@ pub fn applySend(self: *Session, message: model.Message) !void {
     switch (message) {
         .deliver => |deliver| {
             if (deliver.answer) |answer| {
-                try installAnswer(self, .outbound, answer);
+                installPreparedOutboundAnswer(self, answer);
             }
         },
         // Sending `op:get` / `op:index` / `op:untag` allocates the projected
         // answer on our side (ADR-0050): install it outbound so the partner's
         // `op:resolve` for it validates as an answer we are owed.
-        .get => |get| try installAnswer(self, .outbound, get.answer),
-        .index => |index| try installAnswer(self, .outbound, index.answer),
-        .untag => |untag| try installAnswer(self, .outbound, untag.answer),
+        .get => |get| installPreparedOutboundAnswer(self, get.answer),
+        .index => |index| installPreparedOutboundAnswer(self, index.answer),
+        .untag => |untag| installPreparedOutboundAnswer(self, untag.answer),
         // A sent `op:resolve` is routed through `applySentResolve` by
         // `recordSend`, never here — it consumes the resolution (moves it into
         // the answer store) under a single-owner contract `applySend`'s
@@ -262,6 +276,14 @@ pub fn applySend(self: *Session, message: model.Message) !void {
         // its apply decision is classified here.
         .listen, .abort => {},
     }
+}
+
+fn installPreparedOutboundAnswer(self: *Session, position: model.AnswerPosition) void {
+    std.debug.assert(!self.outbound_answers.contains(position));
+    self.outbound_answers.putAssumeCapacity(
+        position,
+        session.AnswerCell.initPending(position, self.nextStoreStamp()),
+    );
 }
 
 /// Apply a resolve we are sending. **Consumes `resolve.resolution`**: it is
@@ -405,7 +427,7 @@ fn retainSentExports(self: *Session, message: model.Message) !void {
 
 /// Retain the wire mention of one sent export reference. Public because the
 /// engine's V1.0 resolver augmentation
-/// (`engine.v1_0.installResolverForOutboundDeliver`) puts a resolver mention
+/// (`engine.v1_0.prepareOutboundDeliver`) puts a resolver mention
 /// on the wire at encode time, bypassing `recordSend`, and must take the same
 /// wire-delta retain this apply walk would have added.
 pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
@@ -472,6 +494,40 @@ fn recordSentExportArg(self: *Session, arg: model.Argument, depth: usize, wire_m
         // can name an export, see `validate.validateInboundArgument`.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
+}
+
+/// Preallocate the export-table rows a validated stored resolution can first
+/// establish when its listener fires are committed. Counting mentions rather
+/// than distinct positions may overreserve, but keeps preparation allocation-
+/// free and makes every later `applySend` infallible after authority moves.
+pub fn ensureSentResolutionExportCapacity(self: *Session, resolution: model.Resolution) !void {
+    const mentions = switch (resolution) {
+        .fulfill => |arg| countNearMentions(arg),
+        .@"break" => 0,
+    };
+    try self.exports.ensureUnusedCapacity(self.allocator, mentions);
+}
+
+fn countNearMentions(arg: model.Argument) usize {
+    return switch (arg) {
+        .reference => |reference| @intFromBool(reference == .near and reference.near.export_position.int() != session.BOOTSTRAP_POSITION),
+        .list, .set => |items| blk: {
+            var count: usize = 0;
+            for (items) |item| count +|= countNearMentions(item);
+            break :blk count;
+        },
+        .tagged => |tagged| blk: {
+            var count: usize = 0;
+            for (tagged.value) |item| count +|= countNearMentions(item);
+            break :blk count;
+        },
+        .@"struct" => |entries| blk: {
+            var count: usize = 0;
+            for (entries) |entry| count +|= countNearMentions(entry.value);
+            break :blk count;
+        },
+        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => 0,
+    };
 }
 
 /// Apply `op:gc-answers` to our inbound answers. A fully-released answer can

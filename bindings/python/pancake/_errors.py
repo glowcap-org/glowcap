@@ -1,9 +1,9 @@
 """Internal: the typed error hierarchy and version/diagnostics helpers.
 
-The base :class:`PancakeException`, the C-ABI failure :class:`PancakeError` with
-its typed :class:`AbortDetail`, the actor-layer :class:`VowBroken` /
-:class:`FetchFailed`, and the ``_check`` guard every wrapper routes a return
-code through. Re-exported from the :mod:`pancake` package; import from there.
+The public base :class:`PancakeError` with its typed :class:`AbortDetail`, the
+actor-layer :class:`VowBroken` / :class:`FetchFailed`, and the ``_check`` guard
+every wrapper routes a return code through. Re-exported from the
+:mod:`pancake` package; import from there.
 """
 
 from __future__ import annotations
@@ -56,22 +56,13 @@ class AbortDetail:
     error_name: str
 
 
-class PancakeException(Exception):
-    """The base of every exception this library raises.
+class PancakeError(Exception):
+    """Base of every exception pancake raises, carrying a negative
+    ``PANCAKE_ERR_*`` code.
 
-    Catch ``pancake.PancakeException`` to handle anything pancake raised,
-    whatever the category: a C ABI failure (:class:`PancakeError`), an awaited
-    vow that settled broken (:class:`VowBroken`), or a ``fetch`` that answered
-    with something other than a capability (:class:`FetchFailed`).
-    """
-
-
-class PancakeError(PancakeException):
-    """A failed C ABI call, carrying the negative ``PANCAKE_ERR_*`` code.
-
-    When a per-thread error message is available it is captured at raise time
-    (the message is thread-local and may be overwritten by a later call) and
-    shown by ``str(err)``. When the failure was a refused inbound frame,
+    For a failed native call, the per-thread error message is captured at raise
+    time (the message is thread-local and may be overwritten by a later call)
+    and shown by ``str(err)``. When the failure was a refused inbound frame,
     ``abort`` carries the typed :class:`AbortDetail` naming which layer refused
     and why.
     """

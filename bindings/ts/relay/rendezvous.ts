@@ -13,7 +13,16 @@
 // register and be dialed — is the embedder's policy, above this registry.
 
 import { type RelayChannel } from "./relay.ts";
-import { webSocketChannel } from "./ws_relay.ts";
+import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "./ws_relay.ts";
+
+const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
+
+/** Whether `value` is the canonical Ed25519 key designator keyed-relay names.
+ * Validate before an HTTP upgrade so attacker-controlled map keys stay both
+ * semantically meaningful and fixed-size. */
+export function isRendezvousDesignator(value: string): boolean {
+	return KEY_DESIGNATOR.test(value);
+}
 
 /** A rendezvous table keyed by peer identity (the designator a `keyed-tcp` /
  * iroh locator would name). Server-side state a relay embedder owns; the byte
@@ -41,6 +50,12 @@ export class Rendezvous {
 	// wrapped as a buffering channel (see `register`). Empty queues are pruned,
 	// so a key present in the map always has at least one entry.
 	readonly #held = new Map<string, Held[]>();
+	#heldCount = 0;
+	#closed = false;
+
+	static #socketClosing(socket: WebSocket): boolean {
+		return Number(socket.readyState) >= WebSocket.CLOSING;
+	}
 
 	/** Append `socket` to `designator`'s queue of inbound accept sockets. The
 	 * socket is wrapped as a `RelayChannel` *now*, not at bridge time, so its
@@ -50,24 +65,52 @@ export class Rendezvous {
 	 * captured or the dialer waits forever for a hello it never sees. The socket
 	 * drops itself out of the queue when it closes or errors, so a gone tab
 	 * leaves no ghost and a corpse never sits ahead of a live sibling. */
-	register(designator: string, socket: WebSocket): void {
-		const entry: Held = { socket, channel: webSocketChannel(socket) };
+	register(designator: string, socket: WebSocket): boolean {
+		if (
+			!isRendezvousDesignator(designator) ||
+			this.#closed ||
+			Rendezvous.#socketClosing(socket)
+		) return false;
+		const entry: Held = {
+			designator,
+			socket,
+			channel: webSocketChannel(socket, {
+				inboundHighWaterBytes: MAX_RELAY_WEBSOCKET_MESSAGE_BYTES,
+			}),
+			onDrop: () => this.#drop(entry),
+		};
+		socket.addEventListener("close", entry.onDrop);
+		socket.addEventListener("error", entry.onDrop);
+		if (Rendezvous.#socketClosing(socket) || this.#closed) {
+			this.#detach(entry);
+			entry.channel.close();
+			return false;
+		}
 		const queue = this.#held.get(designator);
 		if (queue) queue.push(entry);
 		else this.#held.set(designator, [entry]);
-		const drop = () => this.#drop(designator, socket);
-		socket.addEventListener("close", drop);
-		socket.addEventListener("error", drop);
+		this.#heldCount++;
+		return true;
 	}
 
 	// Remove one specific socket from an identity's queue wherever it sits,
 	// pruning the entry when its last socket goes.
-	#drop(designator: string, socket: WebSocket): void {
-		const queue = this.#held.get(designator);
+	#drop(entry: Held): void {
+		const queue = this.#held.get(entry.designator);
 		if (queue === undefined) return;
-		const at = queue.findIndex((e) => e.socket === socket);
-		if (at >= 0) queue.splice(at, 1);
-		if (queue.length === 0) this.#held.delete(designator);
+		const at = queue.indexOf(entry);
+		if (at >= 0) {
+			queue.splice(at, 1);
+			this.#heldCount--;
+			this.#detach(entry);
+			entry.channel.close();
+		}
+		if (queue.length === 0) this.#held.delete(entry.designator);
+	}
+
+	#detach(entry: Held): void {
+		entry.socket.removeEventListener("close", entry.onDrop);
+		entry.socket.removeEventListener("error", entry.onDrop);
 	}
 
 	/** Whether an identity currently holds at least one socket (an
@@ -75,6 +118,17 @@ export class Rendezvous {
 	has(designator: string): boolean {
 		const queue = this.#held.get(designator);
 		return queue !== undefined && queue.length > 0;
+	}
+
+	/** Number of held sockets across every identity. This, not the number of
+	 * map keys, is the relay's descriptor and memory admission quantity. */
+	heldCount(): number {
+		return this.#heldCount;
+	}
+
+	/** Number of held sockets for one identity. */
+	heldFor(designator: string): number {
+		return this.#held.get(designator)?.length ?? 0;
 	}
 
 	/** The identities currently registered (for a presence roster). */
@@ -91,17 +145,38 @@ export class Rendezvous {
 	 * session.
 	 */
 	take(designator: string): RelayChannel | undefined {
+		if (!isRendezvousDesignator(designator)) return undefined;
 		const queue = this.#held.get(designator);
 		if (queue === undefined || queue.length === 0) return undefined;
-		const { channel } = queue.shift()!;
+		const entry = queue.shift()!;
+		this.#heldCount--;
+		this.#detach(entry);
 		if (queue.length === 0) this.#held.delete(designator);
-		return channel;
+		return entry.channel;
+	}
+
+	/** Close every still-held registration and release its accounting. This is
+	 * the registry's shutdown boundary: a taken channel belongs to its relay
+	 * session and is deliberately not part of this table anymore. Idempotence
+	 * makes signal/error teardown safe when both paths race. */
+	close(): void {
+		if (this.#closed) return;
+		this.#closed = true;
+		const entries = [...this.#held.values()].flat();
+		this.#held.clear();
+		this.#heldCount = 0;
+		for (const entry of entries) {
+			this.#detach(entry);
+			entry.channel.close();
+		}
 	}
 }
 
 /** One held registration: the raw socket (for identity and drop-on-close) and
  * the buffering channel a bridge pipes a dialer to. */
 interface Held {
+	designator: string;
 	socket: WebSocket;
 	channel: RelayChannel;
+	onDrop: () => void;
 }

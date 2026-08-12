@@ -25,7 +25,9 @@ Native peer-to-peer traffic rides encrypted
 [iroh]($link.page('transports/iroh')) there, so the command needs Cargo for the
 transport sidecar as well as Deno. There is a Deno-only
 `zig build rooms-web-tcp` that serves the same page over cleartext TCP, which
-proves no peer and encrypts nothing.
+authenticates no peer and carries CapTP in the clear. For the standardized
+Goblins path over Tor, `zig build demo-rooms-onion` runs one hosted service and
+two independent clients (needs Deno, Tor, and outbound network).
 
 ## Learn the Zig API
 
@@ -61,9 +63,9 @@ for linking, ownership, the host allocator, and transport composition.
 
 | App | What it shows | Run |
 | --- | --- | --- |
-| [tasks](https://github.com/jimisaacs/pancake/blob/main/apps/tasks/) | It shares task state across peers. | `zig build demo-tasks` |
-| [tools](https://github.com/jimisaacs/pancake/blob/main/apps/tools/) | It shows delegation, attenuation, and revocation. | `zig build demo-tools` |
-| [accountability](https://github.com/jimisaacs/pancake/blob/main/apps/accountability-on-pancake/) | It signs calls above an OCapN session. | `zig build demo-accountability` |
+| [tasks](https://github.com/jimisaacs/pancake/blob/main/apps/tasks/) | Shared task state across peers | `zig build demo-tasks` |
+| [tools](https://github.com/jimisaacs/pancake/blob/main/apps/tools/) | Delegation, attenuation, and revocation | `zig build demo-tools` |
+| [accountability](https://github.com/jimisaacs/pancake/blob/main/apps/accountability-on-pancake/) | Signed calls above an OCapN session | `zig build demo-accountability` |
 
 Tasks and tools need Deno. Accountability runs a Zig host with Deno and Python
 callers. The same applications also serve as binding examples; the

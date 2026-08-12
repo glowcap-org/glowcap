@@ -2,8 +2,9 @@
 archive, surfaced à la carte.
 
 This is the socket-free sibling of :mod:`pancake.tcp`: two peers in one process
-wired by in-process pipes, with no kernel transport and no file descriptors. It
-is a companion to the core :mod:`pancake` module, mirroring the C ABI's
+wired by in-process pipes, with no kernel transport. The C listener adds a wake
+descriptor for reactor integration; no application bytes flow through it. It is
+a companion to the core :mod:`pancake` module, mirroring the C ABI's
 symbol-disjoint archive split (ADR-0059). Importing it loads
 ``libpancake_net_transport_inproc`` on top of the core ``libpancake_ocapn``; it
 shares the core's frame, context, and value layout but adds the
@@ -21,22 +22,26 @@ conversation over it without touching a socket:
         conn = nl.connect("demo")
         conn.write_frame(frame)
 
-Every call blocks the calling thread, so run a listener's :meth:`accept` and a
-connection's reads on their own threads, the same as the blocking TCP shuttle.
+Accept and frame I/O block the calling thread, so run them on their own threads,
+the same as the blocking TCP shuttle. Dialing an already-bound in-process
+designator is immediate.
 """
 
 from __future__ import annotations
 
 import ctypes
+import threading
+import weakref
 from typing import Optional
 
 from ._codec import _codec_id
 from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK
 from ._errors import PancakeError
-from ._ffi_ocapn import _Frame, _lib, _ManagedFrame, _read_last_error, _str_buf
+from ._ffi_ocapn import _copy_managed_frame, _Frame, _ManagedFrame, _read_last_error, _str_buf
 from ._ffi_inproc import _inproc_lib
+from ._native import NativeHandle
 
-__all__ = ["InprocNetlayer", "InprocListener", "InprocConn"]
+__all__ = ["InprocNetlayer", "InprocListener", "InprocConnection"]
 
 
 def _inproc_last_error() -> Optional[str]:
@@ -55,47 +60,83 @@ def _check_inproc(code: int) -> None:
         raise PancakeError(code, _inproc_last_error())
 
 
-class InprocConn:
+def _release_conn(raw) -> None:
+    _inproc_lib.pancake_inproc_conn_release(raw)
+
+
+def _release_listener(raw) -> None:
+    _inproc_lib.pancake_inproc_listener_release(raw)
+
+
+def _release_netlayer(raw) -> None:
+    _inproc_lib.pancake_inproc_netlayer_release(raw)
+
+
+class InprocConnection:
     """One in-process connection carrying one OCapN session, framed on the
-    netlayer's codec, the socket-free sibling of :class:`pancake.tcp.TcpEndpoint`.
+    netlayer's codec, the socket-free sibling of :class:`pancake.tcp.TcpConnection`.
     Closed on release / context exit."""
 
-    def __init__(self, raw):
-        self._raw = raw
+    def __init__(self, raw, netlayer: "InprocNetlayer"):
+        self._netlayer = netlayer
+        self._native = NativeHandle(
+            raw,
+            _release_conn,
+            _inproc_lib.pancake_inproc_conn_shutdown,
+            label="inproc connection",
+            keepalive=netlayer,
+        )
+        self._reads = threading.Lock()
+        self._writes = threading.Lock()
+        if not netlayer._adopt(self):
+            self._native.close()
+            raise RuntimeError("inproc netlayer is released")
 
-    def __enter__(self) -> "InprocConn":
+    def __enter__(self) -> "InprocConnection":
         return self
 
     def __exit__(self, *exc) -> None:
         self.close()
 
     def close(self) -> None:
-        if self._raw:
-            _inproc_lib.pancake_inproc_conn_release(self._raw)
-            self._raw = None
+        self._native.close()
+        self._netlayer._forget(self)
 
     def read_frame(self) -> bytes:
         """Block for one whole frame. Raises PancakeError(ERR_CLOSED) on clean EOF."""
-        frame = _ManagedFrame()
-        _check_inproc(_inproc_lib.pancake_inproc_conn_read_frame(self._raw, ctypes.byref(frame)))
-        out = ctypes.string_at(frame.bytes, frame.len)
-        # The managed frame is the shared core vocabulary, so it is released
-        # through the core archive even though the read came from the inproc one.
-        _lib.pancake_managed_frame_release(ctypes.byref(frame))
-        return out
+        with self._reads, self._native.lease() as raw:
+            frame = _ManagedFrame()
+            _check_inproc(
+                _inproc_lib.pancake_inproc_conn_read_frame(raw, ctypes.byref(frame))
+            )
+            return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
         buf = ctypes.create_string_buffer(frame, len(frame))
         f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
-        _check_inproc(_inproc_lib.pancake_inproc_conn_write_frame(self._raw, ctypes.byref(f)))
+        with self._writes, self._native.lease() as raw:
+            _check_inproc(
+                _inproc_lib.pancake_inproc_conn_write_frame(raw, ctypes.byref(f))
+            )
 
 
 class InprocListener:
     """A bound in-process listener on a string designator. Closed on release /
     context exit."""
 
-    def __init__(self, raw):
-        self._raw = raw
+    def __init__(self, raw, netlayer: "InprocNetlayer"):
+        self._netlayer = netlayer
+        self._native = NativeHandle(
+            raw,
+            _release_listener,
+            _inproc_lib.pancake_inproc_listener_shutdown,
+            label="inproc listener",
+            keepalive=netlayer,
+        )
+        self._accepts = threading.Lock()
+        if not netlayer._adopt(self):
+            self._native.close()
+            raise RuntimeError("inproc netlayer is released")
 
     def __enter__(self) -> "InprocListener":
         return self
@@ -104,27 +145,48 @@ class InprocListener:
         self.close()
 
     def close(self) -> None:
-        if self._raw:
-            _inproc_lib.pancake_inproc_listener_release(self._raw)
-            self._raw = None
+        self._native.close()
+        self._netlayer._forget(self)
 
-    def accept(self, codec: str = "syrup", max_frame_bytes: int = 4096) -> InprocConn:
+    def accept(self, codec: str = "syrup", max_frame_bytes: int = 4096) -> InprocConnection:
         """Block until a dialer connects, returning an owned connection framing
         on ``codec``."""
-        out = ctypes.c_void_p()
-        _check_inproc(_inproc_lib.pancake_inproc_accept(self._raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
-        return InprocConn(out)
+        with self._accepts, self._native.lease() as raw:
+            out = ctypes.c_void_p()
+            _check_inproc(
+                _inproc_lib.pancake_inproc_accept(
+                    raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out)
+                )
+            )
+            return InprocConnection(out, self._netlayer)
+
+    def readiness_fd(self) -> int:
+        """Return the borrowed wake descriptor for reactor integration.
+
+        The listener owns it; callers must not close it or retain it after
+        :meth:`close`.
+        """
+        out = ctypes.c_int32()
+        with self._native.lease() as raw:
+            _check_inproc(
+                _inproc_lib.pancake_inproc_listener_readiness_fd(raw, ctypes.byref(out))
+            )
+        return out.value
 
 
 class InprocNetlayer:
     """Owns the in-process switchboard and its one I/O backend; outlives the
-    endpoints and listeners made from it. Released on :meth:`release` / context
+    connections and listeners made from it. Released on :meth:`release` / context
     exit."""
 
     def __init__(self):
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.pancake_inproc_netlayer_new(ctypes.byref(out)))
-        self._raw = out
+        self._native = NativeHandle(out, _release_netlayer, label="inproc netlayer")
+        self._children: "weakref.WeakSet[InprocConnection | InprocListener]" = weakref.WeakSet()
+        self._children_lock = threading.Lock()
+        self._release_lock = threading.Lock()
+        self._release_requested = False
 
     def __enter__(self) -> "InprocNetlayer":
         return self
@@ -133,21 +195,54 @@ class InprocNetlayer:
         self.release()
 
     def release(self) -> None:
-        if self._raw:
-            _inproc_lib.pancake_inproc_netlayer_release(self._raw)
-            self._raw = None
+        with self._release_lock:
+            with self._children_lock:
+                if self._release_requested:
+                    children = []
+                else:
+                    self._release_requested = True
+                    children = list(self._children)
+            for child in children:
+                child.close()
+            self._native.close()
+
+    def _adopt(self, child: "InprocConnection | InprocListener") -> bool:
+        with self._children_lock:
+            if self._release_requested:
+                return False
+            self._children.add(child)
+            return True
+
+    def _forget(self, child: "InprocConnection | InprocListener") -> None:
+        with self._children_lock:
+            self._children.discard(child)
 
     def listen(self, designator: str) -> InprocListener:
         """Bind a listener on ``designator``, any opaque token a dialer names."""
         buf, n = _str_buf(designator)
         out = ctypes.c_void_p()
-        _check_inproc(_inproc_lib.pancake_inproc_listen(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, ctypes.byref(out)))
-        return InprocListener(out)
+        with self._native.lease() as raw:
+            _check_inproc(
+                _inproc_lib.pancake_inproc_listen(
+                    raw, ctypes.cast(buf, ctypes.c_void_p), n, ctypes.byref(out)
+                )
+            )
+            return InprocListener(out, self)
 
-    def connect(self, designator: str, codec: str = "syrup", max_frame_bytes: int = 4096) -> InprocConn:
+    def connect(self, designator: str, codec: str = "syrup", max_frame_bytes: int = 4096) -> InprocConnection:
         """Dial the listener bound at ``designator`` and return a framed
         connection."""
         buf, n = _str_buf(designator)
         out = ctypes.c_void_p()
-        _check_inproc(_inproc_lib.pancake_inproc_connect(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
-        return InprocConn(out)
+        with self._native.lease() as raw:
+            _check_inproc(
+                _inproc_lib.pancake_inproc_connect(
+                    raw,
+                    ctypes.cast(buf, ctypes.c_void_p),
+                    n,
+                    _codec_id(codec),
+                    max_frame_bytes,
+                    ctypes.byref(out),
+                )
+            )
+            return InprocConnection(out, self)

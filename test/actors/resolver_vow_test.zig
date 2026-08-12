@@ -65,6 +65,33 @@ test "a resolver pair settles its listener once, and every second path refuses" 
     try std.testing.expectError(actors.Error.AlreadySettled, vat.on(pair.vow, .{ .ctx = &captured, .func = Capture.listener }));
 }
 
+test "resolver fulfillment OOM leaves the same settle authority retryable" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        vat.deinit();
+    }
+
+    const pair = try vat.spawnVow();
+    var captured = Capture{};
+    try vat.on(pair.vow, .{ .ctx = &captured, .func = Capture.listener });
+
+    // Fulfilled bytes need an owned settle-arena copy before the listener can
+    // run. Refusing that allocation must consume neither side of the pair.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(
+        error.OutOfMemory,
+        vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" }),
+    );
+    try std.testing.expect(!captured.fulfilled);
+
+    failing.fail_index = std.math.maxInt(usize);
+    try vat.fulfillVow(pair.resolver, .{ .bytes = "retryable" });
+    try std.testing.expect(captured.fulfilled);
+    try std.testing.expectEqualStrings("retryable", captured.buf[0..captured.len]);
+}
+
 test "breakVow fires the listener broken with the caller's reason, borrowed" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
@@ -280,4 +307,41 @@ test "forwardVow refuses a local frame, and an unsettled deferral leaks nothing 
         }
         // Teardown with the deferral still parked: the defers above reclaim.
     }
+}
+
+test "forwardVow checks vows that are settled or already observed" {
+    const allocator = std.testing.allocator;
+    var peers = try pancake.ocapn.engine.pairing.paired(allocator);
+    defer peers.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var port = actors.Port.init(allocator, &peers.p1);
+    defer port.deinit(&vat);
+
+    const settled = try vat.spawnVow();
+    try vat.breakVow(settled.resolver, "finished");
+    var settled_turn = Turn{
+        .vat = &vat,
+        .port = &port,
+        .self_ref = .{ .local = 0 },
+        .ingress = .local,
+        .arena = allocator,
+        .origin = .{ .served = .from(1) },
+    };
+    try std.testing.expectError(actors.Error.AlreadySettled, settled_turn.forwardVow(settled.vow));
+    try std.testing.expect(!settled_turn.forwarded);
+
+    const observed = try vat.spawnVow();
+    var captured = Capture{};
+    try vat.on(observed.vow, .{ .ctx = &captured, .func = Capture.listener });
+    var observed_turn = Turn{
+        .vat = &vat,
+        .port = &port,
+        .self_ref = .{ .local = 0 },
+        .ingress = .local,
+        .arena = allocator,
+        .origin = .{ .served = .from(2) },
+    };
+    try std.testing.expectError(actors.Error.AlreadyListening, observed_turn.forwardVow(observed.vow));
+    try std.testing.expect(!observed_turn.forwarded);
 }

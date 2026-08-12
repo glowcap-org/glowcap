@@ -102,7 +102,12 @@ piece is classified against the layer it lives in.
   blocking tier. It is compiled as its own
   module outside the `pancake` root namespace, so its externs resolve only when
   the staticlib links, and a plain `zig build check` type-checks it as an
-  object without cargo.
+  object without cargo. Its completion backend accepts answers, candidates, and
+  adopted peers from foreign signaling threads through a bounded wake-driven
+  inbox. Signaling bytes copy into a fixed 4 MiB endpoint-level transfer pool
+  allocated during backend initialization; foreign threads never enter the
+  caller's potentially single-threaded allocator, and a full inbox reports
+  `WouldBlock` instead of growing behind the reactor.
 
 - **C ABI companion archive (`libpancake_net_transport_webrtc`).** The public
   frame-level ABI ships as its own archive under
@@ -197,20 +202,31 @@ scenarios. This section records that wire shape. Generic Host adoption and
 three-party handoff redemption ship with the standing note's `webrtc-loop` and
 `webrtc-bridge-redeem` proofs.
 
-**One object, two verbs, keyed by designator.** The signaling object is a
-rendezvous keyed by peer designator, the same shape ADR-0088's cold-dial relay
-rendezvous holds. A peer that wants to be reached over `webrtc` registers a
-signaling inbox with the object under its own designator, and the object routes
-messages addressed to that designator to that inbox.
+**One authority, exact exchange identity after admission.** The host-facing
+signaling authority stays keyed by peer designator: `offer(to, sdp)` resolves
+to the answer and `candidate(to, ice)` trickles candidates for that dial. The
+rooms carrier turns that stable public shape into a bounded exchange protocol.
+A peer registers one signaling inbox under its designator, and an offerer gives
+the directory a reply capability with `signalOffer(to, sdp, reply)`.
 
-- `offer(to, sdp)` routes the initiator's SDP offer to `to`'s inbox and returns
-  a promise that resolves to `to`'s SDP answer. The answer rides the promise
-  rather than a paired callback object, because that composes with pancake's
-  promise pipelining and needs no second capability to carry the reply.
-- `candidate(to, ice)` routes one trickled ICE candidate to `to`'s inbox as a
-  fire-and-forget `tell`, in either direction. It carries one candidate per
-  call, the JSON-serialized `RTCIceCandidateInit` the sidecar's
-  `next_local_candidate` produces, and a null candidate marks end of gathering.
+After admitting the row, the directory mints an exchange id and sends
+`accepted(id)` to `reply`, then sends `offer(id, sdp)` to the target inbox. Both
+sides use that id for `signalCandidate(id, ice)`, the target returns
+`signalAnswer(id, sdp)`, and the offerer retires exactly that row with
+`signalDone(id)`. The directory authorizes direction from the calling session.
+The id is load-bearing: a designator can name a later dial, so a delayed
+designator-keyed retirement could close the wrong exchange. Replacement,
+eviction, and expiry send `reject(reason)` to the old row's reply capability.
+
+The browser peer treats those strings as hostile signaling input. It snapshots
+and validates the standard candidate fields, admits at most 4 Ki text units per
+candidate and 256 candidates / 64 Ki text units per pending peer, and bounds
+unresolved outbound candidate sends at 256. The rooms carrier allocates one
+reply capability per active dial, holds early candidates behind
+`accepted(id)`, gives answer waits and directory rows a 30-second deadline, and
+retires the exact admitted id when bring-up ends. Replacement, eviction, and
+expiry reject the dial rather than orphaning its promise. Overflow refuses or
+aborts that bring-up instead of retaining an unbounded promise chain.
 
 The inbox a peer registers is a giftable (ADR-0088): it answers `offer` by
 producing its SDP answer through its sidecar peer and returning it over the
@@ -290,6 +306,34 @@ one complete bare codec frame, and the receiver hands that frame to the
 whole-frame API. SCTP may fragment a message internally, but the DataChannel
 reassembles it before delivery. An unordered or lossy channel would violate
 CapTP's reliable ordering even though message boundaries remain intact.
+
+## Native sidecar 0.20 mechanics
+
+The sidecar pins `webrtc` `=0.20.0`. That crate line is a re-architecture
+rather than a bump from 0.14: it is a thin async layer over the sans-io `rtc`
+protocol core, driven by a background `PeerConnectionDriver` behind a
+runtime-agnostic `Runtime` trait. The `api`, `interceptor`, `ice_transport`,
+`configuration`, and `sdp` modules are gone. The new shape matters because the
+data channel offers `poll() -> Option<DataChannelEvent>` alongside `writable()`,
+`try_send()`, `outstanding_bytes()`, and buffered-amount thresholds.
+
+The sidecar keeps the C ABI synchronous without letting nonblocking calls enter
+the async runtime. Non-blocking writes hand a bounded prefix to a sidecar
+staging buffer and report `WOULD_BLOCK` when that buffer is full; an async drain
+task sends bounded chunks through `DataChannel::send`, where the crate's
+configured send buffer applies its own backpressure. The matching inbound
+staging deque exists because the synchronous C read surface needs contiguous
+bytes while the data channel yields whole polled messages. The poller admits a
+whole incoming message only when it fits under the inbound staging budget, and a
+single message larger than that budget closes the peer instead of growing memory
+without bound.
+
+The port is contained below the C ABI. All eighteen `extern "C"` functions keep
+their signatures, so the Zig resident, the companion archive, and every proof
+keep the same integration point. Six of the live proofs need only cargo, among
+them `webrtc-interop`, `webrtc-loop`, and `webrtc-bridge-redeem`, so most of the
+evidence does not wait on a browser; the four Chromium proofs cover the
+browser-facing arm.
 
 ## Limits
 
@@ -374,28 +418,15 @@ phase gated before the next.
   the `signaling` shape without linking WebRTC. Executing that plan still
   requires a separately supplied signaling capability and an optional WebRTC
   companion; this ADR does not make a bare locator sufficient.
-- **Moving to a redesigned `webrtc` crate.** The sidecar pins `webrtc` `=0.14.0`
-  and the callback bridge below is shaped by that version. The crate has since
-  reached `0.20.0`, which is a re-architecture rather than a bump: it is now a
-  thin async layer over the sans-io `rtc` protocol core, driven by a background
-  `PeerConnectionDriver` behind a runtime-agnostic `Runtime` trait. The `api`,
-  `interceptor`, `ice_transport`, `configuration`, and `sdp` modules are gone.
-  What decides the shape of the port is that `RTCDataChannel` now offers
-  `poll() -> Option<DataChannelEvent>` alongside `writable()`, `try_send()`,
-  `outstanding_bytes()`, and buffered-amount thresholds. The bridge in
-  `transports/webrtc/src/lib.rs` exists only to absorb `on_message`, and a pull
-  API with its own backpressure retires it: the two bounded buffers and their
-  `Notify` plumbing delete rather than port, which also retires the WebRTC entry
-  in the [memory rule](../../../.agents/rules/memory.md) ledger and the
-  per-peer bytes it names.
-
-  The port is contained below the C ABI. All eighteen `extern "C"` functions
-  keep their signatures, so the Zig resident, the companion archive, and every
-  proof stay as they are. Six of the live proofs need only cargo, among them
-  `webrtc-interop`, `webrtc-loop`, and `webrtc-bridge-redeem`, so most of the
-  evidence does not wait on a browser; the four Chromium proofs cover the
-  browser-facing arm. It is not this ADR's decision, and no part of it is
-  started.
+- **Driving `rtc` directly from Zig.** The `webrtc` 0.20 crate sits over the
+  sans-io `rtc` core, so a future resident could drive WebRTC packets, timers,
+  ICE/STUN/TURN work, and data-channel events from pancake's own loop instead of
+  letting the Rust sidecar own the runtime and sockets. That is possible, but it
+  is a different boundary. The current C ABI hands Zig an established
+  DataChannel-like byte peer plus signaling operations; a direct `rtc` resident
+  would expose a packet-and-timer protocol driver, not the same transport
+  archive. It should be a new ADR or amendment with scale and browser evidence,
+  not a hidden dependency-upgrade side effect.
 
 ## Alternatives Considered
 

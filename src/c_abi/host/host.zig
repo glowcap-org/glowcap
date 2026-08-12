@@ -25,7 +25,7 @@ const Instance = common.Instance;
 const Host = common.Host;
 const instanceFrom = common.instanceFrom;
 const setView = common.setView;
-const connFrom = common.connFrom;
+const sessionFrom = common.sessionFrom;
 const instOf = common.instOf;
 const errToCode = common.errToCode;
 const refuseLatched = common.refuseLatched;
@@ -36,13 +36,13 @@ const PancakeContext = c.PancakeContext;
 const PancakeHost = c.PancakeHost;
 const PancakeHostSession = c.PancakeHostSession;
 const PancakeHostAction = c.PancakeHostAction;
-const PancakePendingDial = c.PancakePendingDial;
 const PancakeDialPlan = c.PancakeDialPlan;
 const PancakeAcceptPlan = c.PancakeAcceptPlan;
 
 const PANCAKE_OK = shared.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
+const PANCAKE_ERR_INTERNAL = shared.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 
 const first_capability_id: u64 = 1 << 62;
@@ -128,7 +128,7 @@ fn issueCapabilityId(_: ?*anyopaque) error{CapabilitySpaceExhausted}!u64 {
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
-fn hostNewIn(
+pub fn hostNewIn(
     alloc: std.mem.Allocator,
     seed_ptr: ?[*]const u8,
     seed_len: usize,
@@ -142,19 +142,23 @@ fn hostNewIn(
 ) i32 {
     const slot = out_host orelse return PANCAKE_ERR_NULL_POINTER;
     const seed_nn = seed_ptr orelse return PANCAKE_ERR_NULL_POINTER;
+    if (frame_cap == 0) {
+        shared.setLastError("host: frame_cap must be nonzero", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
     // One buffer, two independent inputs (ADR-0097). The first 32 bytes are
     // the host's durable identity and must stay stable across restarts — a
-    // keyed locator's designator is derived from them. The optional next 32
-    // are the session-key root, and they must be *fresh per process*: they are
-    // what makes each connection sign with its own key, and what stops a
-    // restarted host recreating a prior session's handoff names. Supplying
-    // only the durable half is still accepted, and then every session signs
-    // with the durable key, which is the weaker posture this ADR removes.
+    // keyed locator's designator is derived from them. The next 32 are the
+    // session-key root, and they must be *fresh per process*: they are what
+    // makes each session sign with its own key, and what stops a restarted
+    // host recreating a prior session's handoff names. A durable-only 32-byte
+    // seed is refused here so CapTP session keys cannot silently reuse the
+    // identity seed (ADR-0100 names that footgun on the bare Zig Host).
     const session_root_len = crypto.SEED_BYTES * 2;
-    if (seed_len != crypto.SEED_BYTES and seed_len != session_root_len) {
+    if (seed_len != session_root_len) {
         shared.setLastError(
-            "host: seed must be {d} bytes, or {d} to supply a session-key root after the durable identity",
-            .{ crypto.SEED_BYTES, session_root_len },
+            "host: seed must be {d} bytes (durable identity followed by a fresh session-key root)",
+            .{session_root_len},
         );
         return PANCAKE_ERR_INVALID_ARGUMENT;
     }
@@ -179,11 +183,13 @@ fn hostNewIn(
     opts.features = feature_set;
     opts.local_turn_budget = if (local_turn_budget == 0) null else local_turn_budget;
     opts.capability_id_issuer = .{ .next = issueCapabilityId };
-    if (seed_len == session_root_len) {
-        opts.session_seeds = .{ .rooted = seed_nn[crypto.SEED_BYTES..session_root_len].* };
-    }
     inst.* = .{
-        .core = Host.init(alloc, seed_nn[0..crypto.SEED_BYTES].*, opts),
+        .core = Host.init(
+            alloc,
+            seed_nn[0..crypto.SEED_BYTES].*,
+            seed_nn[crypto.SEED_BYTES..session_root_len].*,
+            opts,
+        ),
         .allocator = alloc,
         .arg_scratch = std.heap.ArenaAllocator.init(alloc),
         .turn_scratch = std.heap.ArenaAllocator.init(alloc),
@@ -193,9 +199,10 @@ fn hostNewIn(
     return PANCAKE_OK;
 }
 
-/// Create a byte-fed host bound to the caller-drawn 32-byte Ed25519 identity
-/// `seed` (the host never draws entropy), allocating through the library
-/// allocator. `frame_cap` sizes every session's maximum admissible frame;
+/// Create a byte-fed host bound to a caller-drawn 64-byte seed buffer: the
+/// durable Ed25519 identity in the first 32 bytes, then a fresh per-process
+/// session-key root (ADR-0097). The host never draws entropy. `frame_cap`
+/// sizes every session's maximum admissible frame;
 /// a nonzero `verify_partner` keeps partner-signature verification on (the
 /// secure default); `codec`, `captp_version`, and `features` are this host's
 /// preferred profile offer. The signed hello carries them as locator hints,
@@ -241,10 +248,16 @@ pub export fn pancake_host_new_in(
 /// the node, and the giftable rows (each giftable's `free` runs exactly once
 /// here). Null is a no-op. HostSession (`PancakeHostSession`) handles this host minted
 /// are freed with it — release the sessions first if you hold them, and never
-/// touch one after its host is gone. Refused (with the last error set) from
-/// inside a callback.
-pub export fn pancake_host_release(host: ?*PancakeHost) i32 {
+/// touch one after its host is gone. Because release is terminal, an embedder
+/// may transfer exclusive ownership to a finalizer thread after every Host call
+/// has returned; no live Host verb gains cross-thread permission. Refused (with
+/// the last error set) from inside a callback.
+pub fn release(host: ?*PancakeHost) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_OK;
+    if (inst.runtime_owner == .driver) {
+        shared.setLastError("host: release refused because the driver owns this host", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
     if (inst.core.in_callback) {
         // A code, not a bare return. The refusal frees nothing, so an embedder
         // that dropped the pointer here leaked the whole host — and the only
@@ -254,27 +267,20 @@ pub export fn pancake_host_release(host: ?*PancakeHost) i32 {
         shared.setLastError("host: release re-entered from a callback", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     }
-    const alloc = inst.allocator;
-    // Breaks every parked far vow; the completions those breaks queue are
-    // freed inside with the rest of the undrained action queue.
-    inst.core.deinit();
-    inst.arg_scratch.deinit();
-    inst.turn_scratch.deinit();
-    inst.completion_scratch.deinit();
-    if (inst.trace_queue) |queue| {
-        queue.deinit(alloc);
-        alloc.destroy(queue);
-    }
-    alloc.destroy(inst);
+    common.releaseInstance(inst);
     return PANCAKE_OK;
 }
 
+pub export fn pancake_host_release(host: ?*PancakeHost) i32 {
+    return release(host);
+}
+
 /// Derive the canonical key designator (exactly 64 lowercase hex digits) from
-/// a 32-byte Ed25519 identity seed — the public half of the key
-/// `pancake_host_new` signs with. Writes 64 bytes into `out` (`out_len` must
-/// be at least 64). A keyed-tcp listener whose Node identity is the locator
-/// designator uses this so designator and session key cannot disagree
-/// (ADR-0075).
+/// a 32-byte Ed25519 durable-identity seed — the public half represented by
+/// the first half of `pancake_host_new`'s 64-byte input. Session signing keys
+/// derive from that input's fresh second half instead. Writes 64 bytes into
+/// `out` (`out_len` must be at least 64). A keyed-tcp listener uses this so its
+/// locator designator names the Host's durable identity (ADR-0075, ADR-0097).
 pub export fn pancake_host_designator_from_seed(
     seed: ?[*]const u8,
     seed_len: usize,
@@ -298,35 +304,20 @@ pub export fn pancake_host_designator_from_seed(
     return PANCAKE_OK;
 }
 
-/// Record the designator this host's dials sign as their own dialable address
-/// (a host that also listens). `designator` is borrowed and copied into the
-/// host's retained buffer; longer than 64 bytes is refused
-/// `PANCAKE_ERR_INVALID_ARGUMENT`, and empty resets to the unreachable-client
-/// placeholder.
-pub export fn pancake_host_set_self_designator(host: ?*PancakeHost, designator: ?[*]const u8, len: usize) i32 {
+/// Retain and select this host's complete acceptable location. The Host
+/// validates and deep-copies the borrowed locator view before returning.
+pub export fn pancake_host_set_advertised_locator(host: ?*PancakeHost, locator: ?*const shared.PancakeLocatorView) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    const bytes = shared.sliceFromC(designator, len) catch |err| return shared.marshalErrorToCode(err);
-    inst.core.setSelfDesignator(bytes) catch |err| return errToCode(err);
-    return PANCAKE_OK;
-}
-
-/// Retain and select this host's complete acceptable location. `locator` is a
-/// Syrup `<ocapn-peer ...>` record and is borrowed for this call; the Host parses
-/// and deep-copies it before returning.
-pub export fn pancake_host_set_advertised_locator(host: ?*PancakeHost, locator: ?[*]const u8, locator_len: usize) i32 {
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    const bytes = shared.sliceFromC(locator, locator_len) catch |err| return shared.marshalErrorToCode(err);
-    var cursor: usize = 0;
-    const parsed = engine.readLocatorOwned(inst.allocator, bytes, &cursor) catch {
-        shared.setLastError("host: set_advertised_locator expects one Syrup ocapn-peer record", .{});
+    if (!common.embedderOwnsRuntime(inst, "set_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const view = locator orelse return PANCAKE_ERR_NULL_POINTER;
+    var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
+    var borrowed = shared.locator_adapter.BorrowedLocator.init(inst.allocator, view, &hint_stack) catch |err| {
+        if (err == error.OutOfMemory) return PANCAKE_ERR_INTERNAL;
+        shared.setLastError("host: set_advertised_locator received an invalid locator view", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
-    defer model.freePeerLocator(inst.allocator, parsed);
-    if (cursor != bytes.len) {
-        shared.setLastError("host: set_advertised_locator locator record has trailing bytes", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    }
-    inst.core.setAdvertisedLocator(parsed) catch |err| return errToCode(err);
+    defer borrowed.deinit(inst.allocator);
+    inst.core.setAdvertisedLocator(borrowed.value) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -334,6 +325,7 @@ pub export fn pancake_host_set_advertised_locator(host: ?*PancakeHost, locator: 
 /// an acceptable location already selected for another transport.
 pub export fn pancake_host_ensure_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "ensure_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.ensureAdvertisedLocator(bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
@@ -343,19 +335,21 @@ pub export fn pancake_host_ensure_advertised_locator(host: ?*PancakeHost, transp
 /// leaves no acceptable location. Existing sessions retain their signed hello.
 pub export fn pancake_host_remove_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "remove_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.removeAdvertisedLocator(bytes);
     return PANCAKE_OK;
 }
 
-/// Selective session-limit knobs (ADR-0082): override admission and/or
-/// `queue_cap` on a host before minting sessions. Pass `0` for a field to leave
-/// it unchanged. Peers already open keep the limits they were minted with;
-/// later mints see the updated `Host.Options.limits`.
+/// Selective session-limit knobs (ADR-0082): override admission, `queue_cap`,
+/// and/or outbound high-water on a host before minting sessions. Pass `0` for a
+/// field to leave it unchanged. Peers already open keep the limits they were
+/// minted with; later mints see the updated `Host.Options`.
 pub export fn pancake_host_set_session_limits(
     host: ?*PancakeHost,
     max_frame_bytes: usize,
     queue_cap: usize,
+    outbound_high_water_bytes: usize,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     if (inst.core.in_callback) {
@@ -365,6 +359,7 @@ pub export fn pancake_host_set_session_limits(
     inst.core.setSessionLimits(
         if (max_frame_bytes != 0) max_frame_bytes else null,
         if (queue_cap != 0) queue_cap else null,
+        if (outbound_high_water_bytes != 0) outbound_high_water_bytes else null,
     );
     return PANCAKE_OK;
 }
@@ -379,32 +374,36 @@ pub export fn pancake_host_set_session_limits(
 // pancake_host_session_open_accepted. The plan is pure: no socket, no
 // allocation, every view borrowing the caller input.
 
-/// Borrow the in-flight pending dial for `ticket` into `*out`
-/// (transport/designator/hint). Staged once at acceptGive — no re-parse.
-/// A live ticket always has non-empty transport/designator; an empty hint means
-/// the give carried none (`hint` is NULL). Unknown ticket returns
-/// `PANCAKE_ERR_INVALID_ARGUMENT`. Host-owned views valid until
-/// `pancake_host_dialed` / `pancake_host_dial_failed` (or host teardown).
+/// Project the complete in-flight locator for `ticket` through caller-owned
+/// hint storage. On BUFFER_TOO_SMALL, `out_hint_count` reports the required
+/// capacity and `out_locator` is untouched.
 pub export fn pancake_host_pending_dial(
     host: ?*PancakeHost,
     ticket: u64,
-    out: ?*PancakePendingDial,
+    hint_storage: ?[*]c.PancakeLocatorHintView,
+    hint_capacity: usize,
+    out_locator: ?*c.PancakeLocatorView,
+    out_hint_count: ?*usize,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "pending_dial")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const locator_slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
+    const count_slot = out_hint_count orelse return PANCAKE_ERR_NULL_POINTER;
     const view = inst.core.pendingDial(ticket) orelse {
         shared.setLastError("host: pending dial: unknown ticket {d}", .{ticket});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
-    slot.* = .{
-        .transport = view.transport.ptr,
-        .transport_len = view.transport.len,
-        .designator = view.designator.ptr,
-        .designator_len = view.designator.len,
-        .hint = null,
-        .hint_len = 0,
-    };
-    setView(view.direct_addresses_hint, &slot.hint, &slot.hint_len);
+    count_slot.* = view.hints.entries.len;
+    if (hint_capacity < view.hints.entries.len) return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
+    if (view.hints.entries.len == 0) {
+        var no_hints: [0]c.PancakeLocatorHintView = .{};
+        locator_slot.* = shared.locator_adapter.project(view, &no_hints) catch
+            return PANCAKE_ERR_INVALID_ARGUMENT;
+    } else {
+        const hints = (hint_storage orelse return PANCAKE_ERR_NULL_POINTER)[0..view.hints.entries.len];
+        locator_slot.* = shared.locator_adapter.project(view, hints) catch
+            return PANCAKE_ERR_INVALID_ARGUMENT;
+    }
     return PANCAKE_OK;
 }
 
@@ -510,11 +509,6 @@ pub export fn pancake_host_plan_dial(
     return PANCAKE_OK;
 }
 
-/// Mint a resolver pair (ADR-0102): *out_vow_id is the read side, whose whole
-/// surface is pancake_host_turn_forward_vow; *out_resolver_id is the settle
-/// authority for pancake_host_resolver_fulfill / _break. Legal inside a
-/// behavior callback — a behavior mints, forwards its answer, hands the
-/// resolver id to whatever completes the work, and returns.
 /// Install (or clear, with a null callback) the live trace: the host reports
 /// its own session opens (partner designator, negotiated codec, whether a
 /// durable identity verified the name), every message's verb in both
@@ -558,12 +552,12 @@ pub export fn pancake_host_set_trace_queue(
     payload_cap: usize,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (inst.trace_queue) |queue| {
-        queue.deinit(inst.allocator);
-        inst.allocator.destroy(queue);
-        inst.trace_queue = null;
-    }
     if (capacity == 0) {
+        if (inst.trace_queue) |queue| {
+            queue.deinit(inst.allocator);
+            inst.allocator.destroy(queue);
+            inst.trace_queue = null;
+        }
         if (inst.trace_cb == null) inst.core.setTrace(null);
         return PANCAKE_OK;
     }
@@ -574,9 +568,18 @@ pub export fn pancake_host_set_trace_queue(
     const queue = inst.allocator.create(trace_queue.TraceQueue) catch |err| return errToCode(err);
     queue.* = trace_queue.TraceQueue.init(inst.allocator, capacity, payload_cap) catch |err| {
         inst.allocator.destroy(queue);
+        if (err == error.SizeOverflow) {
+            shared.setLastError("host: set_trace_queue: capacity times payload_cap overflows", .{});
+            return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+        }
         return errToCode(err);
     };
+    const previous = inst.trace_queue;
     inst.trace_queue = queue;
+    if (previous) |old| {
+        old.deinit(inst.allocator);
+        inst.allocator.destroy(old);
+    }
     inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit });
     return PANCAKE_OK;
 }
@@ -661,25 +664,12 @@ fn traceEmit(ctx: ?*anyopaque, event: driver_core.trace.Event) void {
     cb(inst.trace_ctx, &out);
 }
 
-pub export fn pancake_host_spawn_resolver(
-    host: ?*PancakeHost,
-    out_vow_id: ?*u64,
-    out_resolver_id: ?*u64,
-) i32 {
-    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    const vow_slot = out_vow_id orelse return PANCAKE_ERR_NULL_POINTER;
-    const resolver_slot = out_resolver_id orelse return PANCAKE_ERR_NULL_POINTER;
-    const pair = inst.core.spawnResolver() catch |err| return errToCode(err);
-    vow_slot.* = pair.vow_id;
-    resolver_slot.* = pair.resolver_id;
-    return PANCAKE_OK;
-}
-
 /// Settle a resolver vow fulfilled with one capability-free value (a value
 /// naming a capability refuses whole; an answer that carries authority uses
 /// the turn's forward-to-send instead). Top-level: refused inside a callback;
 /// the settle runs the deferred answers and pumps the sessions they dirtied.
-/// One attempt per resolver; a second settle or an unknown id refuses.
+/// A successful settle consumes the resolver; preparation failure is retryable,
+/// while a second successful settle or an unknown id refuses.
 pub export fn pancake_host_resolver_fulfill(
     host: ?*PancakeHost,
     resolver_id: u64,
@@ -693,7 +683,7 @@ pub export fn pancake_host_resolver_fulfill(
 }
 
 /// Settle a resolver vow broken with a diagnostic borrowed for the call. The
-/// same top-level, one-attempt contract as pancake_host_resolver_fulfill.
+/// same top-level, consume-on-success contract as pancake_host_resolver_fulfill.
 pub export fn pancake_host_resolver_break(
     host: ?*PancakeHost,
     resolver_id: u64,
@@ -743,8 +733,7 @@ pub export fn pancake_host_enliven(
 /// the static unreachable-client placeholder. Feed the result to
 /// pancake_host_session_open_accepted.
 pub export fn pancake_host_plan_accept(
-    transport: ?[*]const u8,
-    transport_len: usize,
+    designator_scheme: u32,
     server_designator: ?[*]const u8,
     server_designator_len: usize,
     accepted_local_addr: ?[*]const u8,
@@ -752,25 +741,20 @@ pub export fn pancake_host_plan_accept(
     out_plan: ?*PancakeAcceptPlan,
 ) i32 {
     const slot = out_plan orelse return PANCAKE_ERR_NULL_POINTER;
-    const t = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     const sd = shared.sliceFromC(server_designator, server_designator_len) catch |err| return shared.marshalErrorToCode(err);
     const la = shared.sliceFromC(accepted_local_addr, accepted_local_addr_len) catch |err| return shared.marshalErrorToCode(err);
-    const plan = driver_core.planAccept(t, sd, la);
+    const scheme: model.transport.DesignatorScheme = switch (designator_scheme) {
+        c.PANCAKE_DESIGNATOR_SCHEME_ADDRESS => .address,
+        c.PANCAKE_DESIGNATOR_SCHEME_KEY => .key,
+        else => return PANCAKE_ERR_INVALID_ARGUMENT,
+    };
+    const plan = driver_core.planAccept(scheme, sd, la);
     setView(plan.designator, &slot.designator, &slot.designator_len);
     setView(plan.direct_addresses_hint, &slot.direct_addresses_hint, &slot.direct_addresses_hint_len);
     return PANCAKE_OK;
 }
 
 // ── The action queue ─────────────────────────────────────────────────────────
-
-const zero_action = PancakeHostAction{
-    .kind = 0,
-    .ticket = 0,
-    .session = null,
-    .value = shared.zero_argument,
-    .message = null,
-    .message_len = 0,
-};
 
 /// Pop the next embedder action into `*out_action`, or return
 /// `PANCAKE_ERR_WOULD_BLOCK` when none is pending. A popped action's byte
@@ -787,6 +771,7 @@ const zero_action = PancakeHostAction{
 /// call when pressure subsides. Refused inside a callback.
 pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*PancakeHostAction) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "next_action")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const slot = out_action orelse return PANCAKE_ERR_NULL_POINTER;
     // The core pop carries the reentry refusal (`ReenteredHost` maps to
     // INVALID_ARGUMENT) and it runs before anything is freed, so a refused
@@ -798,69 +783,53 @@ pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*Pancak
     while (popped) |action| : (popped = inst.core.nextAction() catch |err| return errToCode(err)) {
         switch (action) {
             .dial => |d| {
-                slot.* = zero_action;
+                slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_DIAL;
                 slot.ticket = d.ticket;
                 return PANCAKE_OK;
             },
             .flush => |peer_id| {
-                // A flush for a connection released meanwhile has nothing to
+                // A flush for a session released meanwhile has nothing to
                 // drain; skip to the next action.
                 const session = inst.core.sessions.get(peer_id) orelse continue;
-                slot.* = zero_action;
+                slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_FLUSH;
                 slot.session = @ptrCast(session);
                 return PANCAKE_OK;
             },
             .close => |peer_id| {
-                // A close for a connection released meanwhile is already
+                // A close for a session released meanwhile is already
                 // done; skip to the next action.
                 const session = inst.core.sessions.get(peer_id) orelse continue;
-                slot.* = zero_action;
+                slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_CLOSE;
                 slot.session = @ptrCast(session);
                 return PANCAKE_OK;
             },
+            .resume_work => {
+                slot.* = common.zero_action;
+                slot.kind = c.PANCAKE_HOST_ACTION_RESUME;
+                return PANCAKE_OK;
+            },
             .need_gift_id => |n| {
-                slot.* = zero_action;
+                slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_NEED_GIFT_ID;
                 slot.ticket = n.ticket;
                 return PANCAKE_OK;
             },
-            .settled => |s| {
-                slot.* = zero_action;
-                slot.ticket = s.vow_id;
-                // A value that cannot project into C must not surface a void
-                // stand-in as SETTLE; it degrades to FAIL with the reason.
-                const session = inst.core.sessions.get(s.peer_id) orelse {
-                    const reason = "resolution session closed before value projection";
-                    slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
-                    slot.message = reason.ptr;
-                    slot.message_len = reason.len;
-                    return PANCAKE_OK;
-                };
-                if (common.hostArgumentToC(inst, session, inst.completion_scratch.allocator(), s.value)) |c_val| {
-                    slot.kind = c.PANCAKE_HOST_ACTION_SETTLE;
-                    slot.value = c_val;
-                } else |_| {
-                    const reason = "resolution value could not be projected into C";
-                    slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
-                    slot.message = reason.ptr;
-                    slot.message_len = reason.len;
-                }
-                return PANCAKE_OK;
-            },
-            .failed => |f| {
-                slot.* = zero_action;
-                slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
-                slot.ticket = f.vow_id;
-                if (f.message.len != 0) slot.message = f.message.ptr;
-                slot.message_len = f.message.len;
-                return PANCAKE_OK;
-            },
+            .settled, .failed => return common.projectCompletionInto(inst, action, slot),
         }
     }
     return PANCAKE_ERR_WOULD_BLOCK;
+}
+
+/// Internal half of `pancake_host_pump_drain`'s transactional callback
+/// contract. The public pull queue remains consume-on-pop; only the convenience
+/// pump can reject an arm before commit and ask for the same borrowed action to
+/// be projected again.
+pub fn retryBorrowedAction(host: ?*PancakeHost) bool {
+    const inst = instanceFrom(host) orelse return false;
+    return inst.core.retryBorrowedAction();
 }
 
 /// Report a DIAL action's success: `session` is an `open_dialed_locator` against
@@ -870,7 +839,8 @@ pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*Pancak
 /// flushes pump inside this call. A stale ticket is a no-op success.
 pub export fn pancake_host_dialed(host: ?*PancakeHost, ticket: u64, raw: ?*PancakeHostSession) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "dialed")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     // The ticket is registered against the session's `peer_id`, which indexes
     // that session's own host's node: a session from another host would name a
     // different connection here, or none.
@@ -887,6 +857,7 @@ pub export fn pancake_host_dialed(host: ?*PancakeHost, ticket: u64, raw: ?*Panca
 /// is a no-op success.
 pub export fn pancake_host_dial_failed(host: ?*PancakeHost, ticket: u64, reason: ?[*]const u8, reason_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "dial_failed")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const reason_bytes = shared.sliceFromC(reason, reason_len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.dialFailed(ticket, reason_bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
@@ -897,8 +868,19 @@ pub export fn pancake_host_dial_failed(host: ?*PancakeHost, ticket: u64, reason:
 /// first. A stale ticket is a no-op success.
 pub export fn pancake_host_provide_gift_id(host: ?*PancakeHost, ticket: u64, gift_id: ?[*]const u8, gift_id_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "provide_gift_id")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(gift_id, gift_id_len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.provideGiftId(ticket, bytes) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Report that a NEED_GIFT_ID action could not obtain or provide entropy. The
+/// claimed handoff settles broken instead of retaining a ticket the embedder
+/// has already consumed. A stale ticket is a no-op success.
+pub export fn pancake_host_gift_id_failed(host: ?*PancakeHost, ticket: u64) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsRuntime(inst, "gift_id_failed")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    inst.core.giftIdFailed(ticket) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 

@@ -20,6 +20,7 @@ HOST_ACTION_NEED_GIFT_ID = 2
 HOST_ACTION_SETTLE = 3
 HOST_ACTION_FAIL = 4
 HOST_ACTION_CLOSE = 5
+HOST_ACTION_RESUME = 6
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,7 @@ class Dial:
 
 @dataclass(frozen=True)
 class Flush:
-    conn_ptr: int
+    session_ptr: int
 
 
 @dataclass(frozen=True)
@@ -51,10 +52,15 @@ class Fail:
 
 @dataclass(frozen=True)
 class Close:
-    conn_ptr: int
+    session_ptr: int
 
 
-HostAction = Union[Dial, Flush, NeedGiftId, Settle, Fail, Close]
+@dataclass(frozen=True)
+class Resume:
+    pass
+
+
+HostAction = Union[Dial, Flush, NeedGiftId, Settle, Fail, Close, Resume]
 
 
 def _view(ptr, length) -> str:
@@ -74,7 +80,7 @@ def decode(a) -> HostAction:
     if kind == HOST_ACTION_DIAL:
         return Dial(ticket=a.ticket)
     if kind == HOST_ACTION_FLUSH:
-        return Flush(conn_ptr=a.conn or 0)
+        return Flush(session_ptr=a.session or 0)
     if kind == HOST_ACTION_NEED_GIFT_ID:
         return NeedGiftId(ticket=a.ticket)
     if kind == HOST_ACTION_SETTLE:
@@ -82,13 +88,16 @@ def decode(a) -> HostAction:
     if kind == HOST_ACTION_FAIL:
         return Fail(ticket=a.ticket, message=_view(a.message, a.message_len))
     if kind == HOST_ACTION_CLOSE:
-        return Close(conn_ptr=a.conn or 0)
+        return Close(session_ptr=a.session or 0)
+    if kind == HOST_ACTION_RESUME:
+        return Resume()
     raise RuntimeError(f"unknown host action kind: {kind}")
 
 
 async def dispatch(action: HostAction, handlers) -> None:
     """Exhaustive dispatch: handlers expose one coroutine/callable per arm
-    (`dial`, `flush`, `need_gift_id`, `settle`, `fail`, `close`). A seventh
+    (`dial`, `flush`, `need_gift_id`, `settle`, `fail`, `close`, `resume`).
+    An eighth
     kind fails here rather than silently missing in `_action.py`.
     """
     match action:
@@ -104,5 +113,7 @@ async def dispatch(action: HostAction, handlers) -> None:
             await handlers.fail(action)
         case Close():
             await handlers.close(action)
+        case Resume():
+            await handlers.resume(action)
         case _:
             raise RuntimeError(f"unknown host action: {action!r}")

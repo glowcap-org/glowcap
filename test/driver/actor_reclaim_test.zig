@@ -41,10 +41,10 @@ const Probe = struct {
 };
 
 fn hostOnce(server: *driver.Server) anyerror!void {
-    const conn = try server.accept();
-    defer conn.deinit();
-    _ = try conn.publish("greeter", Greeter, .{});
-    try conn.serve();
+    const session = try server.accept();
+    defer session.deinit();
+    _ = try session.publish("greeter", Greeter, .{});
+    try session.serve();
 }
 
 test "releasing the last handle reclaims a spawned actor while its session stays open" {
@@ -70,30 +70,30 @@ test "releasing the last handle reclaims a spawned actor while its session stays
 fn clientHalf(allocator: std.mem.Allocator, io: std.Io, address: std.Io.net.IpAddress) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
-    defer conn.deinit();
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
+    defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
     var freed = false;
-    const probe = try conn.spawn(Probe, .{ .freed = &freed });
-    const reply = try conn.call(probe, "ping", &.{}, arena);
+    const probe = try session.spawn(Probe, .{ .freed = &freed });
+    const reply = try session.call(probe, "ping", &.{}, arena);
     try std.testing.expect(reply == .fulfilled and reply.fulfilled == .string);
     try std.testing.expectEqualStrings("pong", reply.fulfilled.string);
 
     // The handle is the actor's only root: releasing it retires the row, and
     // the next local turn boundary frees the state. The session stays open.
-    try conn.release(probe);
+    try session.release(probe);
     var boundary_freed = false;
-    const boundary = try conn.spawn(Probe, .{ .freed = &boundary_freed });
-    _ = try conn.call(boundary, "ping", &.{}, arena);
+    const boundary = try session.spawn(Probe, .{ .freed = &boundary_freed });
+    _ = try session.call(boundary, "ping", &.{}, arena);
     try std.testing.expect(freed);
 
     // Still open: the partner's published greeter answers after the reclaim.
-    const greeter = try conn.fetch("greeter");
-    const greeting = try conn.call(greeter, "greet", &.{}, arena);
+    const greeter = try session.fetch("greeter");
+    const greeting = try session.call(greeter, "greet", &.{}, arena);
     try std.testing.expect(greeting == .fulfilled and greeting.fulfilled == .string);
     try std.testing.expectEqualStrings("still serving", greeting.fulfilled.string);
 }

@@ -29,6 +29,11 @@ tcp = []
 # compiles `pub mod inproc` (the `pancake_inproc_*` netlayer + its own
 # `pancake_inproc_last_error`).
 inproc = []
+# Blocking Tor onion transport. Links `libpancake_net_transport_onion` and
+# compiles `pub mod onion` (the `pancake_onion_*` netlayer + its own
+# `pancake_onion_last_error`). Off by default: it is the only transport whose use
+# depends on a Tor daemon the deployment runs, so a consumer opts in.
+onion = []
 
 # Opt-in async I/O over tokio. The base binding stays dependency-free; the sync
 # `Peer` is sans-io and drives from any runtime, so async is purely additive.
@@ -47,19 +52,23 @@ iroh = ["async"]
 # (`libpancake_net_transport_webrtc`, built by `zig build webrtc-abi`, needs
 # cargo) alongside the static core archive; it exports only `pancake_webrtc_*`,
 # so core symbols still come from `libpancake_ocapn` (ADR-0089). Compiles
-# `pub mod webrtc`, the raw endpoint-readiness and peer try-I/O family. Signaling
+# `pub mod webrtc`, the raw multiplexed-readiness and peer try-I/O family. Signaling
 # submissions are synchronous control operations; no call parks the runtime.
 webrtc = []
+# Opt-in native relay provider. Links the relay archive and composes its
+# keyed-relay/noise-relay package into the generic driver loop.
+relay = ["async"]
 # Opt-in keyed-relay rendezvous dial (ADR-0088): a WebSocket client over
 # tokio-tungstenite, so `connect(locator)` opens the relay rendezvous leg the
 # host's `set_rendezvous_url` mapping names. Implies `async` (the driver it
 # rides); the default build stays dependency-clean.
-rendezvous = ["async", "dep:tokio-tungstenite", "dep:futures-util"]
+rendezvous = ["async", "dep:tokio-tungstenite", "dep:futures-util", "dep:url"]
 
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "time"], optional = true }
 tokio-tungstenite = { version = "0.30", optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
+url = { version = "2", optional = true }
 getrandom = { version = "0.4", optional = true }
 
 # build.rs parses the package-shipped c-abi-resolve.json (ADR-0077).

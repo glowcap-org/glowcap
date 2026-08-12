@@ -1,0 +1,11 @@
+(require "pancake.rkt")
+
+;; Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
+(define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
+(define server (listen-noise-tcp "127.0.0.1" 9099 #:seed seed))
+(printf "~a\n" (noise-tcp-server-uri server)) ; Hand this locator to partners.
+(define session (accept server))
+(session-publish session "greeter"
+                 (lambda (verb args)
+                   (format "hello, ~a" (car args))))
+(session-serve session)

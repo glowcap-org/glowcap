@@ -7,17 +7,18 @@
 .draft = false,
 ---
 
-A browser opens no listening socket and dials no raw TCP or QUIC connection, so
-it has no netlayer of its own. The relay stands in as the byte carrier
+A browser opens no listening socket and dials no raw TCP or QUIC, so it has no
+netlayer of its own. The relay only carries bytes
 ([ADR-0086](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
 
 ## Byte transparency
 
 The keyed `op:start-session` handshake and every capability that follows it run
 between the browser and the far peer. The relay never parses a frame and never
-holds a capability; it sees only the bytes on the wire. The session's authority
-is the keys at its two ends, so the relay carries a session without being party
-to it.
+holds a capability; on a cleartext path it can still read every byte. Seal the
+stream with `noise-relay` when the intermediary must see only ciphertext. The
+session's authority is the keys at its two ends, so the relay carries a session
+without being party to it.
 
 ## Reaching the other side
 
@@ -74,18 +75,18 @@ same forwarding, backpressure, and idle-reclaim behavior.
 
 ## Not a netlayer
 
-The relay *service* is not a netlayer. pancake ships six netlayers (TCP,
-keyed-tcp, keyed-relay, in-process, iroh, and WebRTC); a dial dispatches on a
+The relay *service* is not a netlayer. A dial dispatches on a
 [locator]($link.page('concepts'))'s transport symbol, and the relay registers
-none of those residents. A `keyed-relay` locator, `ocapn://<key>.keyed-relay`,
-names the waiting peer's key, not the relay. The dialing host's configured relay
-URL is how the `keyed-relay` resident reaches that peer. That rendezvous is
-settled in
-[ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md).
-A peer dialing `tcp`, `keyed-tcp`, `iroh`, or `webrtc` uses that transport's own
-resident and never touches the relay service. Only `keyed-relay` opens a
-WebSocket to one, and even then the relay is still only a byte carrier. See
-[Transports]($link.page('transports')).
+none of those residents: not `tcp`, `keyed-tcp`, `noise-tcp`, `inproc`, `iroh`,
+`webrtc`, or the others.
+[Choosing a transport]($link.page('transports/choosing')) lists them.
+
+A `keyed-relay` locator names the waiting peer's key, not the relay. The
+dialing host's configured relay URL is how that resident reaches the peer
+([ADR-0088](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
+`noise-relay` uses the same pipe and seals the CapTP stream before it begins.
+Peers dialing an ordinary netlayer never touch the relay service. The
+[Noise guide]($link.page('transports/noise')) covers the sealed path.
 
 ## Running one
 

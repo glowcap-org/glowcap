@@ -26,10 +26,10 @@ console.log(`deno-goblins-listen: pancake listening on ${HOST}:${port}`);
 
 const served: Session[] = [];
 const hosted = (async () => {
-	for await (const conn of server) {
-		conn.publish(ACTOR_SWISS, greeter);
-		conn.serve().catch(() => {});
-		served.push(conn);
+	for await (const session of server) {
+		session.publish(ACTOR_SWISS, greeter);
+		session.serve().catch(() => {});
+		served.push(session);
 	}
 })();
 
@@ -65,7 +65,7 @@ try {
 }
 
 server.close();
-for (const conn of served) conn.close();
+for (const session of served) session.close();
 await hosted;
 
 if (!ok) {

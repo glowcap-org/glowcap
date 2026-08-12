@@ -1,6 +1,6 @@
 ---
 id: ADR-0108
-status: proposed
+status: accepted
 date: 2026-08-05
 tags: [net, netlayer, onion, tor, transport, identity, goblins, interop]
 decision: "pancake gains the `onion` netlayer, the one transport the OCapN draft standardizes, so a pancake peer and a real Goblins vat hold a session over Tor. It is a pure Zig resident that speaks SOCKS5 and the Tor control protocol to a Tor daemon the deployment already runs, with no sidecar and no spawned process. The service id is an address designator, not a durable key, because that is the only shape a Goblins onion peer can dial and be dialed by."
@@ -11,6 +11,17 @@ amended_by: []
 ---
 
 # ADR-0108 The onion netlayer
+
+> **Landing note.** The onion resident, provider archive, all four native
+> bindings, and native `OnionLoop` ship. `zig build onion-interop` restores a
+> service key in a fresh process, preserves its service id, and resolves a
+> sturdyref minted before the restart. `zig build goblins-onion` holds live
+> sessions with an unmodified Goblins onion netlayer in both directions. `zig
+> build ocapn-conformance-onion` passes all 23 portable upstream tests plus the
+> strict abort probe through the upstream onion netlayer. `zig build
+> demo-rooms-onion` runs Rooms over one hosted onion service with two independent
+> clients. Live Tor scale remains unmeasured; `docs/boundaries.md` owns that
+> limit.
 
 ## Context
 
@@ -101,36 +112,44 @@ expecting one to be running.
 pancake gains an `onion` netlayer resident that speaks SOCKS5 and the Tor control
 protocol to a Tor daemon the deployment runs. There is no sidecar crate, no
 spawned process, and no new dependency. It is an ordinary transport archive
-inside the layer graph, and `onion` becomes a first-class transport beside
-`iroh`: documented, present in every binding, and covered by its own live
-Goblins check.
+installed by product composition, and `onion` becomes a first-class transport
+beside `iroh`: documented, present in every binding, and covered by live
+Goblins and upstream OCapN checks. The generic driver and binding loops do not
+name it.
 
-Three pieces carry it.
+Four pieces carry it.
 
-- **A Tor client in `net`.** `src/net/transport/onion.zig` and the small module
-  beside it own two conversations. Outbound, a SOCKS5 connect to
+- **A Tor client in `net`.** `src/net/transport/onion/` owns two conversations.
+  Outbound, a SOCKS5 connect to
   `<serviceid>.onion` on port 9045, written to match the bytes the pinned
   Goblins and the upstream suite both write. Inbound, the Tor control protocol
-  over a line-oriented stream. That conversation is authenticate, `ADD_ONION` to
-  create or restore a version 3 service, `DEL_ONION` to withdraw it, and
-  `SETEVENTS HS_DESC` so a caller can wait for the descriptor to publish instead
-  of sleeping. Both endpoints are configured, never guessed, and either may be a
-  loopback address or a Unix socket path.
+  over a line-oriented stream. That conversation authenticates, uses `ADD_ONION`
+  to create or restore a version 3 service, and can use `SETEVENTS HS_DESC` so a
+  caller waits for the descriptor to publish instead of sleeping. Closing the
+  undetached control session withdraws the service. Both endpoints are
+  configured, never guessed, and either may be a loopback address or a Unix
+  socket path.
 - **A netlayer resident over the ADR-0043 contract.**
   ([ADR-0043](ADR-0043-netlayer-contract.md)) The resident dials and accepts
   byte streams exactly as `net.tcp` does. Bytes reaching CapTP are the ordinary
   Syrup frame stream, so nothing above `net` learns a new shape. Tor forwards the
   service's virtual port to a local endpoint pancake binds, so the accept side
   reuses the existing socket path rather than inventing one.
+- **Undetached service lifetime.** A listener owns the control connection that
+  created its service. Releasing the listener closes that connection, which is
+  Tor's withdrawal boundary for an undetached service. Destruction sends no
+  `DEL_ONION` request and waits for no daemon reply.
 - **A transport archive.** `libpancake_net_transport_onion` under
-  `src/c_abi/net_transport/onion/`, exporting only its own pancake_onion_* symbol family
-  and reusing `c_abi/shared` by layout, per
-  [ADR-0059](ADR-0059-composable-c-abi-archives.md). Unlike the iroh and WebRTC
-  archives it links no foreign code, so it stays **inside** the layer graph and
-  its checks ride the ordinary Zig gate with no cargo on the path.
+  `src/c_abi/net_transport/onion/`, exporting only its own `pancake_onion_*`
+  symbol family and reusing `c_abi/shared` by layout, per
+  [ADR-0059](ADR-0059-composable-c-abi-archives.md). Like every independently
+  materialized transport provider archive, its build row is `.graph = false`
+  and outside the layer DAG. It links no foreign code, so its checks ride the
+  ordinary Zig build with no cargo on the path.
 
-The archive dependency edge is the same one `tcp` has: onion draws on `net`,
-which draws on `ocapn`.
+The archive has the same source dependency posture as TCP: it imports `model`,
+`net`, and `c_abi/shared`, never the `c_abi/ocapn` archive. Product composition
+links the OCapN, driver, and selected provider archives.
 
 ### The locator
 
@@ -143,8 +162,28 @@ a peer that changed either could no longer meet any other implementation.
 **An onion locator pancake hands out carries no hints.** This is not a style
 choice. The pinned Goblins `connect-to` matches a node whose hints are false, so
 a hinted onion locator is undialable by the peer this record exists to reach.
-The URI projection, the handoff give's exporter locator, and the sturdyref form
-all emit a bare `ocapn://<serviceid>.onion`.
+Its `ocapn-node` contract admits only `#f` or a string where pancake writes a
+dictionary, and `structs-urls.rkt` says in as many words that hints are not
+supported. The URI projection, the handoff give's exporter locator, the
+sturdyref form, and **the hello's own `acceptable_location`** all emit a bare
+`ocapn://<serviceid>.onion`.
+
+That last one is the case worth naming, because it is the one that costs
+something. The profile hints in `model.transport` (`pancake/captp-version`,
+`pancake/codec`, `pancake/features`) ride the locator a hello signs, and that is
+the only place either end states a preference. Omitting them on onion means an
+onion session settles the `1.0` baseline on every axis, **including between two
+pancake peers**, and there is no second channel to recover it: a peer cannot know
+its partner is pancake until the hellos have already been exchanged.
+
+Sending them anyway would work against the pinned Goblins today, because its
+unmarshaller builds the struct without the contract check and its one comparison,
+`same-node-location?`, ignores hints outright. It would break the moment upstream
+writes the dial back its own source says is still to come, since that path dials
+the claimed location and `connect-to` refuses hints. A hazard that fires later,
+remotely, on somebody else's release is worse than a profile pancake does not
+need over this transport: onion exists here to reach Goblins, and two pancake
+peers that want `pancake-next` have `iroh`.
 
 A designator that is not a well-formed version 3 address is refused before any
 socket is opened. Version 2 addresses are gone from the Tor network and pancake
@@ -306,13 +345,18 @@ on principle above.
 - **SOCKS stream isolation is not implemented.** Distinct SOCKS credentials per
   circuit are a privacy control with its own design, and no setting for them
   exists here.
+- **Profile negotiation over onion is given up, not deferred.** Every onion
+  session settles the `1.0` baseline, because the hints that would state a
+  preference cannot ride an onion locator. Raising it needs a channel for the
+  preference that is not the locator, which is new wire surface and a separate
+  record.
 - **An onion locator that also names a durable key is not decided.** A pancake
   pair over Tor could in principle carry a durable identity in a hint and attest
   it, which would raise provenance above unauthenticated. That is new wire
   surface, the pinned Goblins refuses hints on its dial path, and this record
   does not open it.
 - **No sealed channel over onion.** [ADR-0107](ADR-0107-sealed-byte-channel.md)
-  proposes an end-to-end sealed layer under CapTP with its own symbols. Tor
+  defines an end-to-end sealed layer under CapTP with its own symbols. Tor
   already encrypts the path, so onion does not need it for confidentiality, and
   extending those symbols to onion is a separate decision. The two records are
   orthogonal: ADR-0107 proves the partner over a pipe you do not trust, onion
@@ -365,10 +409,11 @@ on principle above.
   has, and it changes no verdict anyway, because the claim on the wire is still
   an address the key decoder does not accept.
 
-## Required evidence
+## Evidence
 
-The first three items need no network and ride the ordinary check. The rest need
-a live Tor and are opt-in, the same split `iroh-reachability` already carries.
+The byte, control, identity, provider, and completion checks use fake daemons
+and need no network. The interoperation, upstream, and Rooms proofs use live Tor
+and remain opt-in, the same split `iroh-reachability` carries.
 
 1. **The SOCKS bytes match the peers pancake must meet.** An in-tree fake proxy
    asserts the exact request: version 5 with one method and no authentication,
@@ -378,12 +423,15 @@ a live Tor and are opt-in, the same split `iroh-reachability` already carries.
 2. **The control exchange matches.** A fake control endpoint asserts the
    authenticate step in all three forms, the create and the restore `ADD_ONION`
    requests, and the parsing of the service id and key out of the reply.
-3. **An onion locator pancake emits carries no hints.** Asserted on the projected
-   URI, the give's exporter locator, and the sturdyref, because the pinned
-   Goblins dial path refuses anything else.
-4. **A restored service keeps its address.** The same stored key in a fresh
-   process yields the same service id, and a sturdyref recorded before the
-   restart still resolves through it.
+3. **An onion locator pancake emits carries no hints.** Asserted on all four
+   forms — the projected URI, the give's exporter locator, the sturdyref, and the
+   hello's `acceptable_location` — because the pinned Goblins dial path refuses
+   anything else. The `acceptable_location` case carries its own assertion that
+   no profile hint rides an onion hello, so a later change that adds one to
+   recover `pancake-next` fails here and has to re-read the reasoning first.
+4. **A restored service keeps its address.** `zig build onion-interop` passes
+   the stored key to a fresh child process, observes the same service id, then
+   fetches and calls an object through a sturdyref recorded before the restart.
 5. **Two pancake peers hold a session over real Tor**, through the handshake to
    an open session and a bootstrap fetch round trip.
 6. **A real Goblins vat and a pancake peer hold a session over Tor, in both
@@ -391,50 +439,21 @@ a live Tor and are opt-in, the same split `iroh-reachability` already carries.
    and both sides sharing one daemon. This is the item the record exists for, and
    the direction that matters most is the Goblins vat dialing pancake, because
    that is the one an identity decision could quietly have broken.
-7. **The upstream OCapN suite runs against a pancake onion peer** through its own
-   onion netlayer, which is the strongest external authority available for this
-   transport.
+7. **The upstream OCapN suite runs against a pancake onion peer** through its
+   own onion netlayer. `zig build ocapn-conformance-onion` passes all 23
+   portable tests and the separate strict abort probe for invalid signatures,
+   invalid versions, and pre-setup abort connection closure. The harness waits
+   for the upstream service to be reachable before advertising it because the
+   upstream `ADD_ONION` path returns before descriptor publication.
 8. **The identity verdict is asserted, not assumed.** One scenario reports
    unauthenticated provenance on an onion session and a dial-target sturdyref
    match on a session pancake dialed, so a later change that quietly promotes
    either one fails.
-
-## Migration order
-
-Each step is green on its own check before the next begins.
-
-1. **The Tor client, headless.** The SOCKS5 client, the control protocol, and
-   the Unix-stream endpoint arm `net` does not have yet, with the fake daemon
-   beside them. No resident, no locator, no session. Gate: `zig build test`,
-   `zig build arch-check`, and a new `onion-control-test` carrying evidence items
-   1 and 2.
-2. **The resident.** `src/net/transport/onion.zig` over the ADR-0043 contract,
-   dial and accept. Register the address designator scheme in `net.netlayer` and
-   its mirror in `driver_core.vocab`, which `meta-check` already holds in step.
-   Add the no-hints projection and its assertion. Gate: `zig build test`,
-   `zig build meta-check`, `zig build check`, carrying evidence item 3.
-3. **The archive and its header.** `src/c_abi/net_transport/onion/` with
-   `PancakeOnionConfig`, a `gen-header-net-transport-onion` generator and its
-   check, and the TypeScript ABI mirror. The archive row and its dependency edge
-   go in `build.zig`'s tables. Gate: a new `gen-header-net-transport-onion` step and its check,
-   `zig build gen-ts-abi`, and `zig build check`.
-4. **The bindings.** Each of the four gains a `listen_onion` and its own config
-   mirror, and the generated FFI tiers are regenerated rather than hand-edited.
-   Gate: the `gen-binding-*` family, `zig build bindings`, and a per-binding
-   `bindings-onion` family in which each binding hosts a service and dials one.
-5. **Live Tor, pancake to pancake.** Gate: a new `onion-interop` step carrying
-   evidence items 4 and 5, opt-in and needing Tor plus network access.
-6. **Live Goblins.** Gate: a new `goblins-onion` step carrying evidence item 6,
-   then an `ocapn-conformance-onion` step for item 7.
-7. **Scale and the demo.** Adopt onion connections into `completion.Loop` so the
-   transport serves many sessions from one loop thread, as `tcp` and `iroh` do,
-   and run the rooms chat over it. Gate: an `onion-loop` step and a
-   `demo-rooms-onion` step.
-8. **Records.** The transport row in the architecture rule's table, and the
-   same row in `site/content/transports.smd` with a new page beside the iroh and
-   WebRTC ones. Then `docs/boundaries.md`, `docs/shipped.md`, and a finding under
-   `conformance/ocapn-findings/` for the unverified inbound claim. Gate:
-   `zig build meta-check`, `zig build check`.
+9. **The completion and application paths use the same provider.** `zig build
+   onion-loop` covers the native completion adapter, `zig build bindings-onion`
+   covers provider installation from every native binding, and `zig build
+   demo-rooms-onion` runs the Rooms application over one onion service with two
+   independent peers.
 
 ## Adversarial review
 
@@ -481,12 +500,15 @@ same posture `iroh-reachability` has held since ADR-0055.
 
 - `net` gains a Unix-stream endpoint arm it does not have today, which the SOCKS
   and control clients both need, and which a Unix forward target would also use.
-- The archive set gains `libpancake_net_transport_onion` with the same dependency
-  edge `tcp` has. It is the first transport archive since `tcp` and `inproc` to
-  stay inside the layer graph, because it links no foreign code, so `arch-check`
-  covers it as an ordinary layer rather than claiming it for file hygiene alone.
+- The archive set gains `libpancake_net_transport_onion` with the same source
+  dependency posture as TCP. Like every transport provider archive, it remains
+  outside the layer DAG and is installed into a transport-empty generic driver
+  by product composition. It links no foreign code.
 - `zig build check` grows a header check and the fake-daemon check, and still
   needs no network, no Tor, and no cargo.
+- An onion session runs the `1.0` profile in both directions, so `onion` is the
+  one transport in the tree over which two pancake peers cannot reach
+  `pancake-next`. `docs/boundaries.md` carries the row.
 - Each binding gains a config mirror and a generated FFI row, held by the
   existing `gen-binding-*` checks.
 - The transport tables in the architecture rule, `site/content/transports.smd`,

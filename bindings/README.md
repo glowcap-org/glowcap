@@ -13,7 +13,9 @@ this repository and are not published packages yet. Pin a checkout, run
 
 All four wrap the same C ABI and present the same application model. A
 `Session` represents one CapTP partner. A `Host` shares one identity and
-handoff registry across several sessions.
+handoff registry across several sessions. A binding `Ref` (C
+`PancakeReference`) is the host-scoped capability; Zig owning APIs name the
+same row `driver.Capability`.
 
 ## Shared API
 
@@ -32,6 +34,25 @@ Names follow each language's conventions, but the operations are the same:
 | `serve()` | Keep handling inbound calls until the session closes. |
 | `close()` | Close the session. |
 
+The native fronts (Rust, Python, Racket, and TypeScript on Deno) load the
+symbol-disjoint `libpancake_host` and `libpancake_driver` archives. The Host
+archive owns the application family; the driver owns sockets or multiplexed
+readiness, handshake admission, pumping, and generic dial/listen/events. A new
+driver loop starts with zero transports. The TCP archive supplies one provider
+package for `tcp`, `keyed-tcp`, and `noise-tcp`; the optional iroh archive
+supplies its provider package. Provider retain/release is the native transport
+lifetime authority. An idle Host that is not yet pumping can move into the
+loop before its first native network operation, so bindings do not keep a
+second transport registry or admission path.
+
+Wasm and runtimes that cannot drive native FFI keep the byte-fed Host, as do
+explicitly embedder-supplied channels such as keyed-relay WebSockets. This is
+an owned integration choice, not a fallback after native dispatch fails. A
+listener close stops new admission and preserves sessions already returned to
+the application. Binding a wildcard interface (`0.0.0.0` or `::`) requires an
+explicit advertised host; a bind address selects local interfaces and is not
+implicitly a dialable signed locator.
+
 The bindings also expose sturdyref enlivenment, promise pipelining,
 attenuation, revocation, and opt-in distributed garbage collection. A `Ref` is
 opaque. Pass it as an argument and the binding chooses the correct wire
@@ -41,7 +62,7 @@ reference; application code never manages import or export numbers.
 
 Three-party handoff is part of the ordinary call path. If a result names a
 capability hosted by another peer, the host opens or reuses the required
-connection and settles the call with the live capability.
+session and settles the call with the live capability.
 
 `send_redeeming` (named according to each language's style) is for the less common case
 where the caller also needs the direct exporter session for session-specific
@@ -53,8 +74,9 @@ intermediate results are not otherwise needed.
 
 ## Closing sessions and hosts
 
-Closing a session ends one connection. Closing a host ends every session it
-owns, including connections it opened while redeeming handoffs.
+Closing a session ends one connection. Closing a host first stops its listeners
+from admitting new sessions, then ends every session it owns, including
+connections it opened while redeeming handoffs.
 
 An ordinary `connect(locator)` creates a private host, so closing that session
 also cleans up its host. When several sessions share a host supplied by the
@@ -62,10 +84,10 @@ application, the application must close the host separately.
 
 | Language | Host shutdown |
 | --- | --- |
-| Rust | `Host::close`; close intent is terminal for every clone, with native release deferred only until an active callback returns. |
-| TypeScript | `host.release()` |
-| Python | `host.release()` |
-| Racket | `host-release!` |
+| Rust | `Host::close()` requests terminal close for every clone; `close_async().await` is the completion barrier for the native loop or Host-owned byte-channel tasks and native release. |
+| TypeScript | `host.release()` requests close and retires callback registration immediately; `await host.releaseAsync()` waits for the native loop or Host-owned byte-channel work and native release. |
+| Python | `host.release()` requests callback-safe close; `await host.release_async()` waits for in-flight Host-owned dial work before native release. |
+| Racket | `host-release!` stops the native loop or byte-channel workers before releasing native state; callback-time release is parked until the turn returns. |
 
 ## Where the languages differ
 
@@ -88,13 +110,18 @@ every binding.
 
 ## Transports
 
-Plain TCP and in-process connections are built with the core bindings. iroh is
-optional because it links a Rust sidecar. A TCP-only program does not load it.
-Rust, Python, and Racket expose WebRTC's optional native C companion as raw FFI,
-including endpoint readiness and try-I/O. TypeScript instead uses the browser's
-`RTCPeerConnection` and does not load that companion. Its browser package is the
-only application-level WebRTC adapter; the native bindings do not yet wrap the
-raw family into their shared `Host` API.
+Plain TCP and in-process connections are built with the core bindings. iroh and
+onion are optional archives (iroh links a Rust sidecar; onion needs a Tor you
+run). A TCP-only program does not load them. Rust, Python, and Racket expose
+WebRTC's optional native C companion as raw FFI, including multiplexed readiness
+and try-I/O. TypeScript instead uses the browser's `RTCPeerConnection` and does
+not load that companion. Its browser package is the only application-level
+WebRTC adapter; the native bindings do not yet wrap the raw family into their
+shared `Host` API.
+
+TypeScript's raw onion transport runs through Deno's off-thread FFI. Bun's FFI
+does not currently provide that execution contract, so onion operations refuse
+there instead of blocking Bun's event loop behind a promise-shaped API.
 
 Applications still call `connect(locator)`. The locator selects the transport;
 there is no second dial API for iroh.

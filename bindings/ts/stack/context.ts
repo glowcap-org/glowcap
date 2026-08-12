@@ -14,6 +14,56 @@ import {
 import { OK } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
 
+interface ContextState {
+	raw: Ptr;
+	allocCb: NativeCallback | null;
+	freeCb: NativeCallback | null;
+	handleCount: number;
+	releaseRequested: boolean;
+}
+
+const states = new WeakMap<Context, ContextState>();
+
+function releaseState(state: ContextState): void {
+	if (state.raw !== NULL) {
+		s.pancake_context_release(state.raw);
+		state.raw = NULL;
+	}
+	state.allocCb?.close();
+	state.freeCb?.close();
+	state.allocCb = null;
+	state.freeCb = null;
+}
+
+const contextFinalizer = new FinalizationRegistry<ContextState>(releaseState);
+
+function stateFor(context: Context): ContextState {
+	const state = states.get(context);
+	if (state === undefined) throw new Error("invalid pancake Context");
+	return state;
+}
+
+/** Retain the allocation policy for one native handle family. Package-internal. */
+export function retainContext(context: Context): Ptr {
+	const state = stateFor(context);
+	if (state.releaseRequested || state.raw === NULL) {
+		throw new Error("pancake Context is released");
+	}
+	state.handleCount++;
+	return state.raw;
+}
+
+/** End one native handle family's borrow. Package-internal. */
+export function releaseContext(context: Context): void {
+	const state = stateFor(context);
+	if (state.handleCount === 0) throw new Error("pancake Context ownership underflow");
+	state.handleCount--;
+	if (state.handleCount === 0 && state.releaseRequested) {
+		contextFinalizer.unregister(context);
+		releaseState(state);
+	}
+}
+
 /** A host allocation backend for `Context.withAllocator`. Methods may be called
  * from any thread that touches a handle created in the context. */
 export interface ContextAllocator {
@@ -24,24 +74,24 @@ export interface ContextAllocator {
 }
 
 /** An allocation scope. A host created in it (`new Host(seed, { context })`)
- * routes every byte it owns through it. A context must outlive
- * every handle created in it; release it (via `using` / `[Symbol.dispose]`)
- * only after those handles. */
+ * routes every byte it owns through it. Releasing the Context stops new handle
+ * creation immediately and frees its native policy after existing handles end. */
 export class Context {
-	#raw: Ptr;
-	// Kept alive while C holds them so the GC cannot reclaim the trampolines
-	// or the live allocation blocks the trampolines manage.
-	#allocCb: NativeCallback | null = null;
-	#freeCb: NativeCallback | null = null;
-
-	private constructor(raw: Ptr) {
-		this.#raw = raw;
+	private constructor() {
+		states.set(this, {
+			raw: NULL,
+			allocCb: null,
+			freeCb: null,
+			handleCount: 0,
+			releaseRequested: false,
+		});
 	}
 
 	/** A context that routes every allocation through `allocator`. The host
 	 * callbacks are kept alive for the context's whole lifetime. */
 	static withAllocator(allocator: ContextAllocator): Context {
-		const ctx = new Context(NULL);
+		const ctx = new Context();
+		const state = stateFor(ctx);
 		// pointer value -> the JS-owned block backing it, so free can reclaim it and
 		// GC cannot collect a block C still references. Owned by the alloc/free
 		// closures below (retained for the context's life via `#allocCb`/`#freeCb`).
@@ -73,8 +123,8 @@ export class Context {
 				}
 			},
 		);
-		ctx.#allocCb = allocCb;
-		ctx.#freeCb = freeCb;
+		state.allocCb = allocCb;
+		state.freeCb = freeCb;
 
 		// PancakeAllocator, laid out by the generated ABI mirror. The C side copies
 		// its three fields out at the call (it never retains this pointer), so the
@@ -90,30 +140,31 @@ export class Context {
 		const out = new Uint8Array(8);
 		const rc = s.pancake_context_new_with_allocator(allocStruct, out);
 		if (rc !== OK) {
-			allocCb.close();
-			freeCb.close();
+			releaseState(state);
 			throw new PancakeError(rc);
 		}
-		ctx.#raw = outPointer(out);
+		state.raw = outPointer(out);
+		contextFinalizer.register(ctx, state, ctx);
 		return ctx;
 	}
 
 	/** Opaque handle passed to `new Host(seed, { context })`. */
 	get pointer(): Ptr {
-		return this.#raw;
+		const state = stateFor(this);
+		if (state.releaseRequested || state.raw === NULL) {
+			throw new Error("pancake Context is released");
+		}
+		return state.raw;
 	}
 
 	release(): void {
-		if (this.#raw !== NULL) {
-			// Release the context first — it frees its tables through the allocator —
-			// then close the callbacks the trampolines borrowed.
-			s.pancake_context_release(this.#raw);
-			this.#raw = NULL;
+		const state = stateFor(this);
+		if (state.releaseRequested) return;
+		state.releaseRequested = true;
+		if (state.handleCount === 0) {
+			contextFinalizer.unregister(this);
+			releaseState(state);
 		}
-		this.#allocCb?.close();
-		this.#freeCb?.close();
-		this.#allocCb = null;
-		this.#freeCb = null;
 	}
 
 	[Symbol.dispose](): void {

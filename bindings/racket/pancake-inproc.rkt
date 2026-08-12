@@ -3,8 +3,9 @@
 ;;
 ;; Mirrors the à-la-carte archive split (ADR-0059): this module is
 ;; libpancake_net_transport_inproc's binding, the in-process sibling of the TCP
-;; endpoints (`pancake-tcp.rkt`). Two sessions in one process are wired by
-;; pipes, with no kernel transport and no file descriptors. Its private loader
+;; connections (`pancake-tcp.rkt`). Two sessions in one process are wired by
+;; pipes, with no kernel transport. The listener exposes a wake descriptor for
+;; scheduler integration; no application bytes flow through it. Its private loader
 ;; (`private/ffi-inproc.rkt`) opens ONLY that archive, so requiring this module
 ;; links neither the TCP nor the iroh transport. It builds on the core value
 ;; and error machinery in `pancake.rkt` through the shared transport seam
@@ -22,14 +23,16 @@
 ;; the pipe exactly as with TCP. Blocking; in-process only.
 
 (require ffi/unsafe
+         ffi/unsafe/port
          "private/constants.rkt"
          "private/ffi-inproc.rkt"
+         "private/native-parent.rkt"
          "private/seam.rkt")
 
 (provide make-inproc-netlayer inproc-netlayer-release!
          inproc-netlayer-listen inproc-netlayer-connect
-         inproc-listener-accept inproc-listener-release!
-         inproc-endpoint-read-frame inproc-endpoint-write-frame! inproc-endpoint-release!
+         inproc-listener-readiness-fd inproc-listener-accept inproc-listener-release!
+         inproc-connection-read-frame inproc-connection-write-frame! inproc-connection-release!
          inproc-last-error)
 
 ;; (inproc-last-error) -> the calling thread's last error message from the
@@ -43,9 +46,12 @@
 ;; this archive's own last-error rather than the unrelated ocapn-family one.
 (define (check/inproc code) (check-with code inproc-last-error))
 
-(struct inproc-netlayer (handle) #:mutable)
-(struct inproc-listener (handle) #:mutable)
-(struct inproc-endpoint (handle) #:mutable)
+(struct inproc-netlayer (owner))
+(struct inproc-listener (handle fd accept-gate closing netlayer) #:mutable)
+(struct inproc-connection (handle read-gate write-gate netlayer) #:mutable)
+
+(define (inproc-netlayer-forget! nl child)
+  (native-parent-forget! (inproc-netlayer-owner nl) child))
 
 ;; A designator is any opaque token; accept a string and pass its bytes.
 (define (designator-bytes designator)
@@ -54,60 +60,133 @@
 (define (make-inproc-netlayer)
   (define-values (rc h) (pancake_inproc_netlayer_new))
   (check/inproc rc)
-  (define nl (inproc-netlayer h))
+  (define nl (inproc-netlayer (make-native-parent h pancake_inproc_netlayer_release)))
   (register-finalizer nl (lambda (q) (inproc-netlayer-release! q)))
   nl)
 
 (define (inproc-netlayer-release! nl)
-  (when (inproc-netlayer-handle nl)
-    (pancake_inproc_netlayer_release (inproc-netlayer-handle nl))
-    (set-inproc-netlayer-handle! nl #f)))
+  (native-parent-release!
+   (inproc-netlayer-owner nl)
+   (lambda (child)
+     (cond [(inproc-listener? child) (inproc-listener-release! child)]
+           [(inproc-connection? child) (inproc-connection-release! child)]))))
 
 (define (inproc-netlayer-listen nl designator)
   (define bs (designator-bytes designator))
-  (define-values (rc h) (pancake_inproc_listen (inproc-netlayer-handle nl) (pin-immobile bs) (bytes-length bs)))
-  (check/inproc rc)
-  (define lst (inproc-listener h))
+  (define lst
+    (native-parent-open-child
+     (inproc-netlayer-owner nl) 'inproc-netlayer-listen
+     (lambda (parent-handle)
+       (define-values (rc h)
+         (pancake_inproc_listen parent-handle (pin-immobile bs) (bytes-length bs)))
+       (check/inproc rc)
+       (define-values (fd-rc fd) (pancake_inproc_listener_readiness_fd h))
+       (with-handlers ([exn? (lambda (e) (pancake_inproc_listener_release h) (raise e))])
+         (check/inproc fd-rc))
+       (inproc-listener h fd (make-semaphore 1) (make-semaphore 0) nl))
+     inproc-listener-release!))
   (register-finalizer lst (lambda (q) (inproc-listener-release! q)))
   lst)
 
 (define (inproc-netlayer-connect nl designator [codec 'syrup] [max-frame 4096])
   (define bs (designator-bytes designator))
-  (define-values (rc h) (pancake_inproc_connect (inproc-netlayer-handle nl) (pin-immobile bs) (bytes-length bs) (codec-id codec) max-frame))
-  (check/inproc rc)
-  (define cn (inproc-endpoint h))
-  (register-finalizer cn (lambda (q) (inproc-endpoint-release! q)))
+  (define cn
+    (native-parent-open-child
+     (inproc-netlayer-owner nl) 'inproc-netlayer-connect
+     (lambda (parent-handle)
+       (define-values (rc h)
+         (pancake_inproc_connect parent-handle (pin-immobile bs) (bytes-length bs)
+                                 (codec-id codec) max-frame))
+       (check/inproc rc)
+       (inproc-connection h (make-semaphore 1) (make-semaphore 1) nl))
+     inproc-connection-release!))
+  (register-finalizer cn (lambda (q) (inproc-connection-release! q)))
   cn)
 
 (define (inproc-listener-accept lst [codec 'syrup] [max-frame 4096])
-  (define-values (rc h) (pancake_inproc_accept (inproc-listener-handle lst) (codec-id codec) max-frame))
-  (check/inproc rc)
-  (define cn (inproc-endpoint h))
-  (register-finalizer cn (lambda (q) (inproc-endpoint-release! q)))
-  cn)
+  (call-with-semaphore
+   (inproc-listener-accept-gate lst)
+   (lambda ()
+     ;; The listener exposes a wake channel for this otherwise fd-less transport.
+     ;; The gate makes readiness plus accept one indivisible consumer operation:
+     ;; a sibling accepter parks here and re-arms readiness after this one, so it
+     ;; can never enter the blocking FFI call on a readiness edge already spent.
+     (define fd (inproc-listener-readiness-fd lst))
+     (define ready (unsafe-file-descriptor->semaphore fd 'read))
+     (unless ready (error 'inproc-listener-accept "inproc listener fd ~a is not pollable" fd))
+     (define outcome
+       (sync (handle-evt ready (lambda (_) 'ready))
+             (handle-evt (semaphore-peek-evt (inproc-listener-closing lst))
+                         (lambda (_) 'closing))))
+     (when (eq? outcome 'closing)
+       (error 'inproc-listener-accept "listener is closed"))
+     (define-values (rc h) (pancake_inproc_accept (inproc-listener-handle lst) (codec-id codec) max-frame))
+     (check/inproc rc)
+     (define nl (inproc-listener-netlayer lst))
+     (define cn
+       (native-parent-adopt-or-release!
+        (inproc-netlayer-owner nl)
+        (inproc-connection h (make-semaphore 1) (make-semaphore 1) nl)
+        inproc-connection-release!
+        'inproc-listener-accept))
+     (register-finalizer cn (lambda (q) (inproc-connection-release! q)))
+     cn)))
+
+(define (inproc-listener-readiness-fd lst)
+  (or (inproc-listener-fd lst) (error 'inproc-listener-readiness-fd "listener is closed")))
 
 (define (inproc-listener-release! lst)
   (when (inproc-listener-handle lst)
-    (pancake_inproc_listener_release (inproc-listener-handle lst))
-    (set-inproc-listener-handle! lst #f)))
+    (semaphore-post (inproc-listener-closing lst))
+    (pancake_inproc_listener_shutdown (inproc-listener-handle lst))
+    (call-with-semaphore
+     (inproc-listener-accept-gate lst)
+     (lambda ()
+       (when (inproc-listener-handle lst)
+         (unsafe-file-descriptor->semaphore (inproc-listener-readiness-fd lst) 'remove)
+         (pancake_inproc_listener_release (inproc-listener-handle lst))
+         (set-inproc-listener-handle! lst #f)
+         (set-inproc-listener-fd! lst #f)
+         (inproc-netlayer-forget! (inproc-listener-netlayer lst) lst))))))
 
 ;; Block for one whole frame's bytes, or `eof` on a graceful end of stream.
-(define (inproc-endpoint-read-frame cn)
-  (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
-  (define code (pancake_inproc_conn_read_frame (inproc-endpoint-handle cn) mf))
-  (cond
-    [(= code ERR-CLOSED) eof]
-    [else
-     (check/inproc code)
-     (define out (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
-     (pancake_managed_frame_release mf)
-     out]))
+(define (inproc-connection-read-frame cn)
+  (call-with-semaphore
+   (inproc-connection-read-gate cn)
+   (lambda ()
+     (define h (inproc-connection-handle cn))
+     (unless h (error 'inproc-connection-read-frame "connection is closed"))
+     (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
+     (define code (pancake_inproc_conn_read_frame h mf))
+     (cond
+       [(= code ERR-CLOSED) eof]
+       [else
+        (check/inproc code)
+        (dynamic-wind
+         void
+         (lambda ()
+           (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
+         (lambda () (pancake_managed_frame_release mf)))]))))
 
-(define (inproc-endpoint-write-frame! cn frame)
-  (define buf (pin-immobile frame))
-  (check/inproc (pancake_inproc_conn_write_frame (inproc-endpoint-handle cn) (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))
+(define (inproc-connection-write-frame! cn frame)
+  (call-with-semaphore
+   (inproc-connection-write-gate cn)
+   (lambda ()
+     (define h (inproc-connection-handle cn))
+     (unless h (error 'inproc-connection-write-frame! "connection is closed"))
+     (define buf (pin-immobile frame))
+     (check/inproc (pancake_inproc_conn_write_frame h (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))))
 
-(define (inproc-endpoint-release! cn)
-  (when (inproc-endpoint-handle cn)
-    (pancake_inproc_conn_release (inproc-endpoint-handle cn))
-    (set-inproc-endpoint-handle! cn #f)))
+(define (inproc-connection-release! cn)
+  (when (inproc-connection-handle cn)
+    (pancake_inproc_conn_shutdown (inproc-connection-handle cn))
+    (call-with-semaphore
+     (inproc-connection-read-gate cn)
+     (lambda ()
+       (call-with-semaphore
+        (inproc-connection-write-gate cn)
+        (lambda ()
+          (when (inproc-connection-handle cn)
+            (pancake_inproc_conn_release (inproc-connection-handle cn))
+            (set-inproc-connection-handle! cn #f)
+            (inproc-netlayer-forget! (inproc-connection-netlayer cn) cn))))))))

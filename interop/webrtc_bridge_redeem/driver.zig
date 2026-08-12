@@ -181,7 +181,6 @@ fn initLoop(
     // This driver interposes its own `serve` (it watches the redeem settle),
     // so it overrides the bridge's spliced hook after `hookOptions`.
     var options = WebrtcBridge.hookOptions(.{
-        .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
     });
@@ -246,7 +245,9 @@ fn exporterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, 
     };
     var port = Port{ .hub = hub, .self_node = &node };
 
-    var host = Host.init(allocator, exporter_seed, blk: {
+    var session_root: [crypto.SEED_BYTES]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = Host.init(allocator, exporter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -266,14 +267,19 @@ fn exporterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, 
     defer loop.deinit();
     node.backend = &loop.backend;
     hub.register(&node);
-    try bridge.attach(webrtc.transport_name, node.designator[0..], &.{});
+    try bridge.attach(model.transport.Known.webrtc.metadata(), node.designator[0..], &.{});
 
     // Dial G on the loop-owner thread before `run` (same affinity as dialOutbound).
-    try bridge.dialOutbound(webrtc.transport_name, gifter_designator, "");
+    try bridge.dialOutbound(.{
+        .transport = webrtc.transport_name,
+        .designator = gifter_designator,
+        .hints = model.Hints.emptyFalse(),
+    });
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &shared.done, &loop_err });
     defer {
+        loop.backend.wake();
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("exporter loop: {s}\n", .{@errorName(err)});
     }
@@ -325,7 +331,11 @@ fn publishGifterDesk(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat)
 fn gifterMaybeDialRecipient(state: *GifterState) void {
     if (state.dialed_r or state.widget == null) return;
     state.dialed_r = true;
-    state.bridge.dialOutbound(webrtc.transport_name, state.recipient_designator, "") catch |err| {
+    state.bridge.dialOutbound(.{
+        .transport = webrtc.transport_name,
+        .designator = state.recipient_designator,
+        .hints = model.Hints.emptyFalse(),
+    }) catch |err| {
         std.debug.print("gifter dial R: {s}\n", .{@errorName(err)});
         state.dialed_r = false;
     };
@@ -406,7 +416,9 @@ fn gifterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, re
     };
     var port = Port{ .hub = hub, .self_node = &node };
 
-    var host = Host.init(allocator, gifter_seed, blk: {
+    var session_root: [crypto.SEED_BYTES]u8 = undefined;
+    io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
+    var host = Host.init(allocator, gifter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -432,11 +444,12 @@ fn gifterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, re
     defer loop.deinit();
     node.backend = &loop.backend;
     hub.register(&node);
-    try bridge.attach(webrtc.transport_name, node.designator[0..], &.{});
+    try bridge.attach(model.transport.Known.webrtc.metadata(), node.designator[0..], &.{});
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &shared.done, &loop_err });
     defer {
+        loop.backend.wake();
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("gifter loop: {s}\n", .{@errorName(err)});
     }
@@ -563,7 +576,9 @@ pub fn main(init: std.process.Init) !void {
     };
     var recipient_port = Port{ .hub = &hub, .self_node = &recipient_node };
 
-    var recipient_host = Host.init(allocator, recipient_seed, blk: {
+    var recipient_session_root: [crypto.SEED_BYTES]u8 = undefined;
+    io.randomSecure(&recipient_session_root) catch return error.HandshakeEntropyFailed;
+    var recipient_host = Host.init(allocator, recipient_seed, recipient_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -581,7 +596,7 @@ pub fn main(init: std.process.Init) !void {
     defer loop.deinit();
     recipient_node.backend = &loop.backend;
     hub.register(&recipient_node);
-    try bridge.attach(webrtc.transport_name, recipient_designator[0..], &.{});
+    try bridge.attach(model.transport.Known.webrtc.metadata(), recipient_designator[0..], &.{});
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &shared.done, &loop_err });
@@ -590,6 +605,7 @@ pub fn main(init: std.process.Init) !void {
 
     defer {
         shared.done.store(true, .release);
+        loop.backend.wake();
         exporter_future.await(io) catch |err| std.debug.print("exporter: {s}\n", .{@errorName(err)});
         gifter_future.await(io) catch |err| std.debug.print("gifter: {s}\n", .{@errorName(err)});
         loop_future.await(io);

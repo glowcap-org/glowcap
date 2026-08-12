@@ -1,0 +1,17 @@
+use pancake::{Argument, IrohConfig, Reachability, listen_iroh};
+
+// Bind a key, not a place. Partners can dial this node id from anywhere.
+// Cargo.toml: pancake = { …, features = ["iroh"] }
+let server = listen_iroh(IrohConfig::new(Reachability::Discovery)).await?;
+println!("{}", server.uri()?); // hand this locator to partners
+loop {
+    let session = server.accept().await?;
+    session.publish("greeter", |_verb, args| {
+        let name = match args.first() {
+            Some(Argument::String(s)) => s.as_str(),
+            _ => "friend",
+        };
+        Ok(Argument::String(format!("hello, {name}").into()))
+    })?;
+    let _ = session.serve();
+}

@@ -7,7 +7,7 @@ decision: "Host and Vat remain separate layers, while the standard multi-session
 supersedes: [ADR-0092, ADR-0094]
 superseded_by: []
 amends: [ADR-0056, ADR-0059, ADR-0060, ADR-0062, ADR-0068, ADR-0069, ADR-0072]
-amended_by: [ADR-0100, ADR-0101]
+amended_by: [ADR-0100, ADR-0101, ADR-0113]
 ---
 
 # ADR-0096 Host-scoped capability identity
@@ -29,7 +29,7 @@ that a mutated actor deposited on one exporter Port remains the redeemed
 target after its alias is replaced and withdrawal occurs on another Port.
 
 Alias-only unpublish also ships, wired through every publication tier
-(`Host.unpublish`, the native `PollHost` / `Server` surfaces,
+(`Host.unpublish`, the native `HostRuntime` / `Server` surfaces,
 `pancake_host_unpublish`, and all four bindings), with the production-Host
 scenario holding its three outcomes: a removed alias misses on every session,
 an issued capability stays callable, and a deposited gift redeems the exact
@@ -325,9 +325,11 @@ Named costs are:
 - queue widening pays only the costs accepted and measured by ADR-0099.
 
 The measured composition banks the removed per-session Vat footprint. The
-`HostSession` ceiling is 496 bytes, down from 768 when this decision landed at
-464 and later raised by 32 for ADR-0097's per-session signing seed; the
-448-byte Vat is charged once per Host. The warmed-session footprint, allocation budgets, and ordinary-send
+`HostSession` ceiling is 528 bytes, down from 768 when this decision landed at
+464, later raised by 32 for ADR-0097's per-session signing seed, 8 for the
+session-minted outbound high-water, and 8 for ADR-0107's sealed-channel
+pointer; the 448-byte Vat is charged once per Host.
+The warmed-session footprint, allocation budgets, and ordinary-send
 performance tripwire retain their existing ceilings. The saving is not
 headroom for eager routing tables.
 
@@ -473,7 +475,7 @@ claims.
 - Wire descriptors and signed handoff record shapes do not change.
 - Raw `engine.Peer` callers may continue to use session-scoped
   `model.Reference`s. The Host boundary performs lift and lower.
-- Fresh per-connection CapTP keys and their transport authentication are
+- Fresh per-session CapTP signing keys and their transport authentication are
   ADR-0097's decision.
 - Complete sturdyref peer matching and non-reassignable durable swiss names are
   ADR-0098's decision.

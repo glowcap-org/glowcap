@@ -29,6 +29,8 @@ function bunType(t: NativeType): FFIType {
 			return FFIType.void;
 		case "bool":
 			return FFIType.bool;
+		case "u8":
+			return FFIType.u8;
 		case "u16":
 			return FFIType.u16;
 		case "i32":
@@ -64,6 +66,7 @@ const bridge: PtrBridge<number | null> = {
 };
 
 const ffi: RuntimeFfi = {
+	offloadsBlockingCalls: () => false,
 	dlopen(path: string, defs: Record<string, SymbolDef>): Symbols {
 		const symbolDefs: Record<string, { args: FFIType[]; returns: FFIType }> = {};
 		for (const [name, def] of Object.entries(defs)) {

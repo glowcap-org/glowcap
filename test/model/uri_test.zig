@@ -199,29 +199,24 @@ test "an escaped dot is data, never the transport delimiter" {
     try std.testing.expectEqualStrings("tcp", locator.transport);
 }
 
-test "a dotted transport round-trips: writePeer escapes the '.' so it is not re-split" {
+test "a transport symbol cannot contain a dot" {
     const allocator = std.testing.allocator;
-    // The transport is the last-dot split, so a bare '.' in the transport would
-    // re-split on parse into a different locator. writePeer escapes it as `%2E`;
-    // a designator dot stays bare (it lands left of the delimiter).
     const original: model.PeerLocator = .{ .transport = "a.b", .designator = "x.y", .hints = model.Hints.emptyFalse() };
-    const emitted = try uri.writePeer(allocator, original);
-    defer allocator.free(emitted);
-    try std.testing.expectEqualStrings("ocapn://x.y.a%2Eb", emitted);
-
-    const reparsed = try uri.parsePeer(allocator, emitted);
-    defer uri.freePeer(allocator, reparsed);
-    try std.testing.expectEqualStrings("a.b", reparsed.transport);
-    try std.testing.expectEqualStrings("x.y", reparsed.designator);
+    try std.testing.expectError(uri.Error.InvalidLocator, uri.writePeer(allocator, original));
+    try std.testing.expectError(uri.Error.InvalidLocator, uri.parsePeer(allocator, "ocapn://x.y.a%2Eb"));
 }
 
-test "truncated percent escape passes through as literal bytes" {
+test "malformed percent escapes are rejected" {
     const allocator = std.testing.allocator;
-    // std.Uri treats a truncated `%2` as literal bytes (lenient per RFC 3986).
-    // The `%2` becomes part of the designator rather than an error.
-    const locator = try uri.parsePeer(allocator, "ocapn://ab%2.tcp");
-    defer uri.freePeer(allocator, locator);
-    try std.testing.expectEqualStrings("tcp", locator.transport);
+    try std.testing.expectError(uri.Error.MalformedPercentEncoding, uri.parsePeer(allocator, "ocapn://ab%2.tcp"));
+    try std.testing.expectError(uri.Error.MalformedPercentEncoding, uri.parsePeer(allocator, "ocapn://ab%GG.tcp"));
+}
+
+test "userinfo port and fragment components are rejected" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(uri.Error.UnsupportedUriComponent, uri.parsePeer(allocator, "ocapn://user@abcd.tcp"));
+    try std.testing.expectError(uri.Error.UnsupportedUriComponent, uri.parsePeer(allocator, "ocapn://abcd.tcp:80"));
+    try std.testing.expectError(uri.Error.UnsupportedUriComponent, uri.parsePeer(allocator, "ocapn://abcd.tcp#fragment"));
 }
 
 test "parsePeer on a sturdyref-shaped path rejects the unknown path" {

@@ -64,9 +64,9 @@ Alice ═════ direct ═══════▶ Bob
 
 This three-party handoff is a central OCapN feature. The browser turns it into a
 click: select a member, then keep chatting even after either person leaves the
-room. A peer on the same relay — another browser tab, or a native process —
-can also open a new direct line to a browser through relay rendezvous.
-Cross-relay cold dialing is not implemented.
+room. A browser tab or native process can also open a new direct line through
+relay rendezvous. The published locator carries its relay route, so the dialer
+need not use the same deployment fallback.
 
 ## Other ways to run it
 
@@ -76,6 +76,18 @@ transport sidecar:
 ```sh
 zig build demo-rooms-iroh
 ```
+
+The standardized OCapN transport has its own live application proof. It starts
+an explicit test Tor, hosts the real Rooms directory as an onion service, and
+joins two independently driven peers:
+
+```sh
+zig build demo-rooms-onion
+```
+
+It needs `tor`, Deno, and outbound network access. pancake itself still starts
+no daemon; the demo harness owns the Tor process and passes its endpoints into
+the onion provider package.
 
 It uses explicit address hints and does not contact public discovery services.
 
@@ -92,9 +104,8 @@ local development and for reaching a peer that speaks nothing else.
 
 To watch the iroh room and its direct messages on the live timeline, set a fixed
 viz port when you start the browser UI. The supervised room server inherits that
-environment and prints a `ROOMS-VIZ-LISTENING` address. Open the printed browser
-URL, then point the [ocapnviz](../ocapnviz/) viewer at that feed in Live mode
-(for port 9300, `ws://127.0.0.1:9300/`):
+environment and prints a `ROOMS-VIZ-LISTENING` sturdyref. Give that capability
+to the [ocapnviz](../ocapnviz/) viewer in Live mode:
 
 ```sh
 ROOMS_VIZ_PORT=9300 zig build rooms-web-iroh

@@ -50,26 +50,34 @@
    (lambda ()
      (with-handlers ([exn:fail? (lambda (_) (void))]) ; server closed: stop accepting
        (let loop ()
-         (define conn (iroh-server-accept server))
-         (session-publish conn "greeter" greeter)
+         (define session (iroh-server-accept server))
+         (session-publish session "greeter" greeter)
          (set-box! served-threads
-                   (cons (thread (lambda () (session-serve conn))) (unbox served-threads)))
+                   (cons (thread (lambda () (session-serve session))) (unbox served-threads)))
          (loop))))))
+
+;; A valid but incomplete outer frame occupies one bounded handshake lane. The
+;; clients below must still complete before that lane's timeout expires.
+(define silent
+  (dial-locator-for-relay
+   (format-peer-uri TRANSPORT-IROH server-id)
+   IROH-REACH-LOCAL-DISCOVERY))
+((byte-channel-write silent) #"1")
 
 ;; One client: bind its own iroh endpoint, dial the server by id alone (the
 ;; local-discovery book resolves it), fetch the greeter, and call it
 ;; CALLS-PER-CONN times, checking every reply.
 (define (client-once)
-  (define conn (connect (format-peer-uri TRANSPORT-IROH server-id) IROH-REACH-LOCAL-DISCOVERY))
+  (define session (connect (format-peer-uri TRANSPORT-IROH server-id) IROH-REACH-LOCAL-DISCOVERY))
   (dynamic-wind
    void
    (lambda ()
-     (define greeter-cap (session-fetch conn "greeter"))
+     (define greeter-cap (session-fetch session "greeter"))
      (for ([_ (in-range CALLS-PER-CONN)])
-       (define reply (session-send conn greeter-cap 'greet "world"))
+       (define reply (session-send session greeter-cap 'greet "world"))
        (unless (equal? reply GREETING)
          (error 'client (format "wrong reply: ~s" reply)))))
-   (lambda () (session-close! conn))))
+   (lambda () (session-close! session))))
 
 ;; Fan out all clients at once: they share nothing, so the only thing that can
 ;; serve them all is the one server loop multiplexing.
@@ -83,6 +91,7 @@
     (cons t result)))
 
 (for ([cr client-results]) (thread-wait (car cr)))
+((byte-channel-close! silent))
 
 ;; Bring the server down so the accept thread ends and no readiness thread
 ;; outlives the endpoint it watches.
@@ -96,6 +105,27 @@
   (fail "racket-iroh-loop"
         (format "~a/~a client(s) failed; first: ~s"
                 (length failures) NUM-CONNS (unbox (cdr (car failures))))))
+
+;; Host teardown owns admission on every transport. A green thread parked on
+;; iroh's reactor must wake terminally rather than retaining the endpoint.
+(define closing (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
+(define closing-result (make-channel))
+(define closing-started (make-semaphore 0))
+(define closing-accept
+  (thread
+   (lambda ()
+     (semaphore-post closing-started)
+     (channel-put closing-result
+                  (with-handlers ([exn? values])
+                    (iroh-server-accept closing)
+                    'accepted)))))
+(semaphore-wait closing-started)
+(host-release! (iroh-server-host closing))
+(define closing-terminal (sync/timeout 2 closing-result))
+(unless (exn? closing-terminal)
+  (fail "racket-iroh-loop" "Host release did not stop a parked iroh accept"))
+(thread-wait closing-accept)
+(iroh-server-close! closing)
 
 (printf
  (string-append

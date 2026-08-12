@@ -2,315 +2,122 @@
 id: ADR-0059
 status: accepted
 date: 2026-06-13
-tags: [
-  architecture,
-  build,
-  c-abi,
-  public-surface,
-  packaging,
-  netlayer,
-  transport,
-  bindings,
-  minimality,
-]
-decision: "The C ABI ships as composable per-family archives linked à la carte: `libpancake_ocapn` for shared vocabulary, `libpancake_host` as the sole CapTP application surface, `libpancake_net` as the net-core base, and one archive per transport. Archives share core types by header layout and export only their own symbol family; the single umbrella artifact is dropped."
+tags: [architecture, build, c-abi, packaging, netlayer, transport, bindings]
+decision: "The C ABI ships as composable archives linked a la carte: shared OCapN vocabulary, one Host application surface, one generic driver, and self-contained transport provider packages. Archives export only their own family and share values by header layout; there is no umbrella library or export-less net archive."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0096]
+amended_by: [ADR-0096, ADR-0112]
 ---
 
 # ADR-0059 Composable C ABI archives
 
-> **Amendment (ADR-0096).** The archive split stands, but the raw C peer and
-> owning TCP session families are retired. `libpancake_ocapn` now carries only
-> shared vocabulary, `libpancake_host` is the one CapTP application surface,
-> and transports carry connections/listeners only. Native Zig keeps
-> `engine.Peer`; it is not mirrored into C.
-
 ## Context
 
-The C ABI shipped as one artifact.
-[ADR-0040](ADR-0040-layer-modules-as-import-law.md) made each `src/` layer an
-internal build module but pinned its scope: _"One `libpancake` artifact still
-ships; the modules are compilation structure, not packaging or versioning
-units."_ The project value **boring public surface** named the artifacts
-explicitly: `libpancake.a`, `libpancake.so`, `pancake.h`.
-[ADR-0055](ADR-0055-iroh-netlayer-sidecar.md) opened the first crack: the iroh
-transport links a Rust sidecar, so it could not fold into the pure-Zig core and
-shipped as a symbol-disjoint _companion_ (`libpancake_iroh`).
-[ADR-0062](ADR-0062-one-connect-over-a-netlayer-slice.md) unified the dialer but
-left its own note: a libpancake-level locator dialer is "a separate, larger move
-left for later."
+A single umbrella library made every consumer carry every transport and made
+optional sidecars part of the core link contract. That shape also encouraged
+bindings to treat one artifact as the owner of protocol values, Host behavior,
+driver execution, and transport policy. Those concerns have different
+dependencies and different deployment owners.
 
-The destination this ADR serves is the à-la-carte FFI surface: a consumer: in
-any language: links the protocol it needs and the transports it chooses, and
-the pieces compose as naturally as Zig modules do, the way a C program that
-includes two headers and links two archives composes. That extends to surfaces
-the C ABI does not expose yet (the actor vat, the async driver, the completion
-loop): a consumer who prefers pancake's threading model over its host runtime's
-should be able to adopt it. Those surfaces are net-new ABI and are out of this
-ADR's _implementation_ scope (see Scope), but the packaging contract is designed
-to receive them without reshaping.
-
-This reopens ADR-0040's scope note on purpose, and it reshapes: does not
-abandon, **boring public surface**: each archive is itself boring (opaque
-handles, fixed-width discriminants, `ptr+len` views, explicit release), and the
-surface becomes a small, declared _set_ of them. It engages **explicit over
-implicit** (the archive dependency DAG is declared, not implied by what happens
-to link), **performance is correctness pressure** (the duplication cost of the
-chosen mechanism is measured below, not asserted), and **make the correct path
-the easy path** (the per-archive header a consumer includes names exactly the
-symbols the archive it links exports).
-
-Two measurements set the engineering frame. First, code size: the entire
-ReleaseSmall library: every layer, the full C ABI, `tcp` and `inproc` included
-is **352 KB** of code; the iroh Rust sidecar alone is **36 MB**. Second,
-symbol linkage: of the archive's symbols, exactly **72 are global** (`T`): all
-the `pancake_*` C ABI exports (and **748 are local** (`t`)) every internal
-layer function (`net.*`, `engine.*`, `Connection`, `FrameStream`, …). Zig marks
-non-`export` functions local by design, so they are _not_ a cross-archive ABI.
-That single fact decides the shape of the no-duplication end state below: it
-cannot be a visibility flag; it must be a deliberate exported seam.
+The C boundary still needs one shared vocabulary. Locators, sturdyrefs, frames,
+arguments, contexts, error codes, and provider tables must have one layout in
+every archive. Sharing that layout does not require a common implementation
+library or a second runtime owner.
 
 ## Decision
 
-### The packaging contract (fixed, composition-model-agnostic)
+The public C surface is a set of symbol-disjoint archives:
 
-The C ABI is a set of composable archives. Each archive is built in both static
-(`.a`) and shared (`.so`) form, ships a header naming only the family it
-exports, and shares core types with the others _by layout_ (a transport header
-`#include`s `pancake_ocapn.h`). The single `libpancake` / `pancake.h` umbrella
-is dropped; there is no "everything" artifact.
+| Package | Ownership |
+| --- | --- |
+| `libpancake_ocapn` | Shared OCapN values, locator and sturdyref operations, URI helpers, contexts, and frame ownership. |
+| `libpancake_host` | The byte-fed, multi-session CapTP application surface. |
+| `libpancake_driver` | The generic native loop over an adopted Host and installed provider packages. |
+| `libpancake_net_transport_tcp` | The complete `tcp`, `keyed-tcp`, and `noise-tcp` provider package, plus low-level TCP endpoints. |
+| `libpancake_net_transport_relay` | The complete `keyed-relay` and `noise-relay` provider package. |
+| Other transport archives | One self-contained package for in-process, onion, iroh, or WebRTC integration. |
 
-The table below records the acceptance-time package split. The 2026-07-10
-amendment removes the `pancake_peer_*` family; it is not a current inventory.
+Each archive exports only its own `pancake_<family>_*` symbols and owns its own
+diagnostic slot. Headers share fixed-layout declarations through
+`pancake_ocapn.h` and `pancake_transport_provider.h`. Private Zig modules are
+compiled into the archive that uses them and remain local symbols. There is no
+`libpancake` umbrella and no `libpancake_net` archive with no public contract.
 
-| Archive | Exported family | I/O |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `libpancake_ocapn` | `pancake_abi_version`, `pancake_context_*`, `pancake_managed_frame_release`, `pancake_event_release`, `pancake_peer_*`, `pancake_any_event_release`, `pancake_uri_*` / `pancake_locator_*`, `pancake_last_error` / `pancake_clear_last_error` | none (sans-io) |
-| `libpancake_net` | none in Phase 1 (net-core base; see Migration) | `std.Io` |
-| `libpancake_net_transport_tcp` | `pancake_tcp_*`, `pancake_tcp_last_error` / `_clear` | `std.Io` |
-| `libpancake_net_transport_inproc` | `pancake_inproc_*`, `pancake_inproc_last_error` / `_clear` | `std.Io` |
-| `libpancake_net_transport_iroh` | `pancake_iroh_*` (exists; + Rust sidecar) | `std.Io` + sidecar |
+The driver starts with zero transports. A transport archive returns one
+`PancakeTransportProvider` package containing every profile it owns. The driver
+copies the generic execution tables after retaining the package lease; it does
+not name a concrete transport or reconstruct transport-specific locators. A
+provider owns dialing, listening, readiness, locator canonicalization, and
+transport policy. The Host owns CapTP state and sealed-channel policy selected
+from provider metadata.
 
-`libpancake_ocapn` owns the shared vocabulary: the C-visible types
-(`PancakeContext`, `PancakeFrame`, `PancakeManagedFrame`, `PancakeReference`,
-`PancakeArgument`, `PancakeEvent`, …), the return codes, the codec selector,
-and is the universal base every consumer links. It stays sans-io: net-core lives
-in `libpancake_net`, never here.
+`PancakeLocatorView` is the archive-neutral locator seam. OCapN owns its
+semantics and construction, while a provider can borrow the fixed view without
+linking an OCapN implementation into its own behavior. `PancakeSturdyRef`
+remains a separate value because its swiss bytes carry authority a locator does
+not.
 
-Each transport archive is self-contained at the symbol level: it carries its own
-per-thread last-error slot and reads it through its own
-`pancake_<family>_last_error`, exactly as `libpancake_net_transport_iroh` does
-today. It shares **no runtime symbol** with `libpancake_ocapn`; it cooperates
-with the peer purely through the `PancakeContext` pointer the consumer creates
-with `pancake_context_new` and through type layout. This is a surface change
-from the monolith: `tcp` and `inproc` errors, formerly read through the one
-`pancake_last_error`, are now read through `pancake_tcp_last_error` /
-`pancake_inproc_last_error`.
+ABI structures keep `abi_version` and `struct_size` validation at version 1.
+Those fields make malformed crossings fail closed and establish the versioning
+mechanism; prerelease does not preserve aliases or invent compatibility history.
 
-### The archive DAG, declared once
+## Composition
 
-`build.zig` gains an `archive_table`: a sibling to the existing `layer_table`,
-whose rows name each archive, its C ABI module root (the source of its export
-family), the layer modules it draws on, and its **dependency edges** (which
-other archives a consumer links alongside it). The dependency DAG is:
+A byte-fed embedder links `ocapn + host` and whichever low-level transport
+archives it drives itself. A native-loop embedder links `ocapn + host + driver`
+and the provider archives it installs. Optional iroh and WebRTC archives bring
+their own sidecars and remain outside the default build when their toolchains
+are unavailable.
 
-```
-net_transport_{tcp,inproc,iroh}  ──▶  net  ──▶  ocapn
-```
-
-A consumer using tcp links `ocapn + net + tcp`. The table is the one authority:
-the build generates every artifact and every header from it, and
-`tools/check/meta_check.zig` consumes it to verify each declared archive is built,
-headered, and indexed, and each declared edge is real: the same "tables carry
-the edges the code uses" law ADR-0040 established for layers.
-
-### Model A is the shipping mechanism
-
-Model A generalizes the proven ADR-0055 companion: each archive's C ABI module
-`@import`s the layer modules it needs, compiling them in as **local** symbols,
-and exports only its `pancake_<family>_*`. Splitting `tcp` and `inproc` out of
-the core into companions: each importing `net`, `model`, and `c_abi_shared` and
-exporting its own family and last-error reader: is the whole of the Phase-1
-mechanism. `libpancake_ocapn` keeps the peer/context/frame/uri families.
-
-Under Model A `libpancake_net` exports no symbol any other archive references:
-the transports embed net-core locally, so the linker's archive-member selection
-(static) or `--gc-sections` drops `libpancake_net` from a final binary at zero
-cost. It is present in the contract: built, headered, and named in the link
-recipe: so the consumer's link line is **identical** to the one Model B needs.
-The documented recipe (and pancake's own bindings) link/load the full DAG chain
-in both models, so the A-to-B migration is invisible to them.
-
-The measurements above justify shipping A first: a full static link of
-`ocapn + net + tcp + iroh` carries well under ~1 MB of duplicated Zig versus
-Model B's theoretical minimum: under 3% of the iroh sidecar, and noise beside
-any real application. Size-sensitive consumers get `-Doptimize=ReleaseSmall` and
-`--gc-sections` guidance in the docs.
-
-### The surface is minimal by a derived bar, gated
-
-Composable archives say _how_ the C ABI is packaged; they do not say whether a
-particular archive exports the right functions. Generic FFI guidance settles
-representation: opaque handles, fixed-width discriminants, `ptr + len` views,
-explicit release: but not whether ninety exported functions are the right
-ninety, or whether three of them are one function wearing three names. pancake's
-surface is therefore held to a domain-specific minimality bar derived from the
-OCapN/CapTP operation set it must reach. A symbol earns its place only by one of
-three tests, and nothing else:
-
-The following were the acceptance-time criteria for the now-retired raw Peer
-family, not current API guidance:
-
-1. **Distinct protocol operation**: it performs a CapTP/OCapN move no other
-   export performs (`send_deliver`, `register_export`, `start_session`, the
-   frame/stream-input trio, `step`, `take_outbound`, and the rest). Remove it
-   and a protocol move becomes unreachable.
-2. **The primitive a binding consumes**: the function the bindings actually
-   call (`poll_event` and the raw frame it returns, `peek_event`, the
-   per-archive `last_error`, the locator accessors).
-3. **A named easy path over an explicit one**: a constructor that pins the
-   common case so it stays a one-liner (`pancake_peer_new` is
-   `pancake_peer_new_negotiated` at the authenticated v1.0 defaults). The
-   explicit form stays the escape hatch; the preset is the easy path.
-
-The structural invariants that bound the surface are mechanical, so the gate
-holds them rather than prose. `tools/check/meta_check.zig`'s `checkCAbiSurfaceShape`
-(with the pre-existing `checkAbiFreeingVerb`) requires `_new`/`_new_in`
-constructor-twin completeness, exactly one `last_error`/`clear_last_error` pair
-per archive, and one `*_release` freeing verb per handle, so a careless addition
-that breaks the shape fails `zig build check`.
-
-Two judgment calls are deliberate, not drift. `raw_open` stays a _separate
-named_ constructor: an unauthenticated peer the bindings' own tests and several
-real-socket harnesses build on: so the footgun never hides behind a flag on the
-safe path; and the generic `poll_event` stays beside the typed polls because it
-is the raw-frame primitive the bindings consume. Collapsing the named peer
-constructors into one config-struct call is rejected: it would turn the
-unauthenticated `raw_open` policy into a field a caller can set by accident and
-tax the common authenticated case. Minimality is the floor, never a reason to
-make the correct path harder.
-
-## Migration (Model A to Model B)
-
-Model B is the committed end state, not a someday: it carries no duplicate
-net-core, the property "fit together as naturally as Zig" most literally wants.
-Because internal layer symbols are local (measured: 748 local vs 72 global), B
-is **not** a visibility flag: it is a deliberate exported seam, designed here
-so the migration is a contained, internal-only `build.zig`-and-transport change.
-
-- **The seam.** `libpancake_net` grows an internal, `export`-ed C-ABI seam,
-  the internal net seam (the double underscore marks it internal, not public, the way
-  the iroh sidecar's private `pancake_iroh_sidecar_*` seam does): covering the
-  net-core operations transports use (`Connection` / `FrameStream` framing,
-  `Spill`, the netlayer `Contract` dial/bind). It is a real linkable contract,
-  not a mangled-name gamble, so it survives a toolchain bump.
-- **The transports thin.** Each transport's C ABI stops `@import`ing `net` for
-  those operations and calls the seam externs instead. Net-core's authoritative
-  copy then lives once, in `libpancake_net`; the transports become thin shims
-  over it. Net-core symbols become default-visibility in the base and hidden
-  elsewhere.
-- **What does not change.** The archive set, every public header, every
-  `pancake_<family>_*` export, the consumer link recipe (`ocapn + net + tcp`),
-  and the bindings' documented load chain are all identical before and after.
-  The migration touches the `archive_table` wiring, the transport C ABI source,
-  and symbol visibility: nothing a consumer or a header sees.
-
-This is why the contract is B-shaped from day one (the rejected Path 2 in
-Alternatives): `libpancake_net` is first-class immediately so the migration
-never adds an archive to anyone's link line.
-
-## Scope (what this does not decide)
-
-- **Phase 1 is the implementation scope of this ADR:** repackage the _existing_
-  surface into `ocapn` / `net` / `net_transport_{tcp,inproc,iroh}` with Model A.
-  No new behavior and no new export family beyond splitting the per-transport
-  last-error readers out of the shared `pancake_last_error`.
-- **Model B is designed here, built later.** The seam above is not implemented
-  in Phase 1; `libpancake_net` is inert under Model A.
-- **The new surfaces are reserved, not built.** The actor vat, the async driver,
-  and the completion loop have no C ABI today. This ADR reserves their archive
-  slots in the contract: a bare-vat archive (built by ADR-0071, later retired
-  when ADR-0072's `libpancake_driver` subsumed it), `libpancake_driver`,
-  `libpancake_net_completion`: so they slot in as later phases without
-  reshaping the DAG, but it does not design their families. The Rust example
-  that chooses FFI iroh versus native Rust iroh without a shipped cost is a
-  later phase that rides on Phase 1's standalone
-  `libpancake_net_transport_iroh`.
-- **No locator-dialer C ABI.** The per-transport C ABI stays below the locator
-  seam (ADR-0062); a libpancake-level locator dialer remains out of scope.
-
-## Alternatives Considered
-
-- **Keep the single `libpancake` / `pancake.h` umbrella** (as the default, or as
-  a convenience beside the granular set): rejected. À-la-carte composition is
-  the goal, and an umbrella reintroduces the monolith the vision rejects. A pure
-  link-group convenience could return later without touching the contract.
-- **Model B first:** rejected. The duplication B removes is sub-megabyte and
-  negligible beside the 36 MB sidecar (measured), while B is invasive and novel.
-  Ship the proven mechanism; reach B by the internal migration above.
-- **Minimal Model-A contract now, add `libpancake_net` at B time (Path 2):**
-  rejected. It drifts the consumer link recipe at migration: exactly the
-  half-measure the B-shaped contract (Path 1) avoids by making `libpancake_net`
-  first-class from the first commit.
-- **Export internal layer symbols (no seam):** rejected on evidence. Zig marks
-  non-`export` functions local (748 local vs 72 global), and gives no stable
-  cross-archive name for them, so a no-duplication base requires the deliberate
-  exported seam, not a flag.
+Provider retain and release callbacks are the transport lifetime authority.
+The driver may outlive the constructor handle because registration holds the
+package lease until all copied callbacks, listeners, and connections retire.
+Nothing relies on load order, global transport registration, or a binding-owned
+mirror of the provider set.
 
 ## Consequences
 
-- **Build.** `build.zig` gains `archive_table`; the artifact and header
-  generation loop over it. `irohAbiModule` generalizes into a per-archive module
-  factory; `tcp` and `inproc` C ABI modules are carved out of `c_abi/core/` into
-  their own roots under the `c_abi/net_transport/` grouping directory, beside
-  `c_abi/net_transport/iroh/`.
-- **Headers.** `pancake.h` is replaced by `pancake_ocapn.h` (the vocabulary
-  base) plus one header per _exported_ archive, each named to match its archive
-  1:1 (`libpancake_<suffix>` ⇔ `pancake_<suffix>.h`):
-  `pancake_net_transport_tcp.h`, `pancake_net_transport_inproc.h`, and
-  `pancake_net_transport_iroh.h`. The inert `libpancake_net` base exports
-  nothing and ships no header. Transport headers `#include "pancake_ocapn.h"`
-  for the shared vocabulary. Header generation is per C ABI module:
-  `gen-header-ocapn` and `gen-header-net-transport-{tcp,inproc,iroh}`, each with
-  a `-check` variant that runs as part of the gate.
-- **Gate.** `archive_table` is held honest at comptime in `build.zig`: the
-  artifact and header loop is generated from it, and a comptime check fails the
-  build if an archive's dependency edge names no archive in the table: so every
-  declared archive is built and headered or the build does not compile. A
-  composed static-link example links `ocapn + tcp + inproc` into one binary
-  (`examples/c/compose_transports.c`, run by `zig build examples`) and asserts
-  no duplicate-symbol collision and that each family resolves: the standing
-  proof of Model-A composition. Per-archive `gen-header-*-check` steps keep each
-  header honest against its module on the `check` path, and
-  `checkCAbiSurfaceShape` holds the minimality invariants (constructor twins,
-  one error channel per archive, one freeing verb per handle) so the surface
-  cannot bloat unnoticed.
-- **Bindings.** All four bindings (`deno`, `python`, `rust`, `racket`) load the
-  `ocapn` + transport `.so` chain instead of one `libpancake.so`; their internal
-  FFI loaders split accordingly. `zig build bindings` stays the dogfood gate.
-- **Docs.** `docs/architecture.md` (§ C ABI Contract, § Examples As Contract),
-  the **boring public surface** value in `.agents/rules/project-values.md`,
-  ADR-0040's scope note, `docs/shipped.md`, and `docs/roadmap.md` are realigned
-  to the composable-set surface. The C examples link the composed set.
+- A new transport adds one package and one provider entry set without changing
+  the driver or generic bindings.
+- A transport archive may own several symbols when they are profiles over one
+  implementation, as TCP and relay do.
+- Private implementation can evolve with Zig because it is not an internal C
+  ABI. Only exported families and fixed shared layouts cross artifacts.
+- Consumers pay only for the archives they choose. Linking two self-contained
+  packages may duplicate private code, but does not add runtime coupling or an
+  unsupported internal ABI.
+- Generated headers, archive inventory checks, symbol-family checks, and live C
+  composition examples hold the package boundaries.
 
-## Forward compatibility
+## Alternatives Considered
 
-`archive_table` is the reserved seam for the later phases: a new surface adds an
-archive row and a `pancake_<family>_*` family, and never mutates an existing
-archive's exports, so a consumer that linked `ocapn + tcp` keeps working
-verbatim as `actors`, `driver`, and `net_completion` arrive. The
-The internal net seam in `libpancake_net` is the reserved internal ABI for the
-Model-A-to-B migration.
+**Keep one umbrella library.** Rejected because optional transports and
+sidecars become dependencies of every consumer, and one artifact obscures
+ownership rather than providing composition.
 
-## Notes
+**Publish a common `libpancake_net` implementation archive.** Rejected because
+the proposed archive had no public consumer contract. Making private Zig
+internals into an exported C ABI would freeze an extra boundary solely to avoid
+some local code duplication. Provider packages already give the driver the
+only runtime seam it needs.
 
-- Builds directly on [ADR-0040](ADR-0040-layer-modules-as-import-law.md): the
-  module-per-layer mechanism is the scaffolding the archive matrix is generated
-  from; this ADR reopens only that ADR's "one artifact ships" scope note.
-- Generalizes [ADR-0055](ADR-0055-iroh-netlayer-sidecar.md) from the iroh
-  companion to every transport.
-- Resolves the "libpancake-level move left for later" flagged in
-  [ADR-0062](ADR-0062-one-connect-over-a-netlayer-slice.md) § Scope.
+**Teach the driver each concrete transport.** Rejected because every new
+transport would change the generic archive and every binding. Provider metadata
+and execution tables keep concrete policy behind the owning package.
+
+**Let each binding implement transport execution.** Rejected for native
+archive-backed transports because it duplicates readiness, lifecycle, and
+locator policy in every runtime. Bindings retain byte-fed adapters for channels
+their runtime genuinely owns, including browser Web APIs.
+
+## Evidence
+
+`zig build check` verifies generated headers, archive and symbol inventories,
+provider layout, static composition, and C driver scenarios. Binding checks
+consume the archives as independent clients. The iroh, WebRTC, relay, and onion
+provider proofs exercise the same generic driver seam with their real runtime
+requirements.
+
+ADR-0096 owns the Host-scoped capability surface. ADR-0112 owns driver adoption,
+provider execution, and package lifetime.

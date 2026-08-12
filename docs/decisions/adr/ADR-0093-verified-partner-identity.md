@@ -7,7 +7,7 @@ decision: "An application can read a verified session key, the locator claim tha
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0097, ADR-0109]
+amended_by: [ADR-0097, ADR-0109, ADR-0113]
 ---
 
 # ADR-0093 Verified Partner Identity
@@ -15,7 +15,7 @@ amended_by: [ADR-0097, ADR-0109]
 ## Status
 
 Accepted for the `PartnerIdentity` API and its verified-or-refuse contract.
-ADR-0097 separated the per-connection session key from durable peer identity,
+ADR-0097 separated the per-session signing key from durable peer identity,
 and ADR-0109 removed durable-key attestation from locator hints. A successful
 report now contains a verified session signer, that signer's locator claim, and
 separate provenance that is authenticated only when the realized channel proved

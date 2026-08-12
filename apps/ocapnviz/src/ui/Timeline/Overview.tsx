@@ -39,6 +39,7 @@ import {
 import {
   drawEyeGlyph,
   type EyeGlyphMode,
+  eyeGlyphStatus,
   gutterLabelText,
   HEADER_EYEBALL_X,
 } from "./gutter-paint.ts";
@@ -51,6 +52,10 @@ import {
 import type { SurfaceGestureCtx } from "../../interactions/types.ts";
 
 export const OVERVIEW_HEIGHT = 26;
+
+/** Default host `title` when the pointer is not on the all-rows eyeball. */
+const OVERVIEW_HOST_TITLE =
+  "Overview — drag rectangle to pan · drag edges to zoom · click outside to recenter · wheel = zoom · Shift+wheel = pan";
 
 export type OverviewProps = {
   view: TimelineView;
@@ -419,6 +424,10 @@ export function Overview(
         inFlight: null,
         gestureCtx: gestureCtxRef.current,
       });
+      e.currentTarget.title =
+        hit?.surface === "timeline-gutter-eyeball" && allVisMode !== undefined
+          ? eyeGlyphStatus(allVisMode, { kind: "all" })
+          : OVERVIEW_HOST_TITLE;
       // The ghost playhead follows the pointer only over the t-content area;
       // the gutter and the left pad carry no time.
       hoverTRef.current =
@@ -429,7 +438,7 @@ export function Overview(
     // List `view` whole — `plotStartXOf` reads `view.gutterWidth`,
     // which would otherwise go stale after a gutter resize and
     // misalign the px→t conversion mid-hover.
-    [view, clock.duration, hoverTRef, onCycleAllVisibility],
+    [view, clock.duration, hoverTRef, onCycleAllVisibility, allVisMode],
   );
 
   const handlePointerUp = useCallback(
@@ -504,7 +513,7 @@ export function Overview(
         position: "relative",
         zIndex: 1,
       }}
-      title="Overview — drag rectangle to pan, drag edges to zoom, click outside to recenter, wheel to pan/zoom"
+      title={OVERVIEW_HOST_TITLE}
     />
   );
 }

@@ -5,6 +5,15 @@
 		".": "./mod.ts",
 		"./internal": "./internal.ts"
 	},
+	"publish": {
+		"include": [
+			"**/*.ts",
+			"README.md"
+		],
+		"exclude": [
+			"test/**"
+		]
+	},
 	"tasks": {
 		"check": "deno check mod.ts internal.ts"
 	}

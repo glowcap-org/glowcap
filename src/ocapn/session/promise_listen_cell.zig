@@ -28,6 +28,10 @@ pub fn takeListeners(cell: *PromiseListenCell, allocator: std.mem.Allocator) ![]
     return cell.listeners.take(allocator);
 }
 
+pub fn restoreListeners(cell: *PromiseListenCell, listeners: []ListenerEntry) void {
+    cell.listeners.restoreOwned(listeners);
+}
+
 /// Borrow the stored resolution when present.
 pub fn resolution(cell: *const PromiseListenCell) ?*const model.Resolution {
     if (cell.resolution) |*r| return r;

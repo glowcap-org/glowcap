@@ -17,6 +17,7 @@
                      pancake_inproc_netlayer_new*
                      pancake_inproc_connect*
                      pancake_inproc_listen*
+                     pancake_inproc_listener_readiness_fd*
                      pancake_inproc_accept*))
 
 (define inproc-lib (open-pancake-archive "pancake_net_transport_inproc"))
@@ -28,15 +29,21 @@
   (_fun _pointer -> _int32)
   #:c-id pancake_inproc_netlayer_new)
 (define pancake_inproc_netlayer_new (wrap-out1 pancake_inproc_netlayer_new* _pointer #f))
-(define-pancake-inproc pancake_inproc_netlayer_release (_fun _pointer -> _void))
+(define-pancake-inproc pancake_inproc_netlayer_release
+  (_fun #:blocking? #t _pointer -> _void))
 (define-pancake-inproc pancake_inproc_connect*
-  (_fun #:blocking? #t _pointer _pointer _size _uint32 _size _pointer -> _int32)
+  (_fun _pointer _pointer _size _uint32 _size _pointer -> _int32)
   #:c-id pancake_inproc_connect)
 (define pancake_inproc_connect (wrap-out1 pancake_inproc_connect* _pointer #f))
 (define-pancake-inproc pancake_inproc_listen*
   (_fun _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_inproc_listen)
 (define pancake_inproc_listen (wrap-out1 pancake_inproc_listen* _pointer #f))
+(define-pancake-inproc pancake_inproc_listener_readiness_fd*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id pancake_inproc_listener_readiness_fd)
+(define pancake_inproc_listener_readiness_fd
+  (wrap-out1 pancake_inproc_listener_readiness_fd* _int32 0))
 (define-pancake-inproc pancake_inproc_accept*
   (_fun #:blocking? #t _pointer _uint32 _size _pointer -> _int32)
   #:c-id pancake_inproc_accept)
@@ -45,5 +52,8 @@
   (_fun #:blocking? #t _pointer _PancakeManagedFrame-pointer -> _int32))
 (define-pancake-inproc pancake_inproc_conn_write_frame
   (_fun #:blocking? #t _pointer _PancakeFrame-pointer -> _int32))
-(define-pancake-inproc pancake_inproc_conn_release (_fun _pointer -> _void))
-(define-pancake-inproc pancake_inproc_listener_release (_fun _pointer -> _void))
+(define-pancake-inproc pancake_inproc_conn_shutdown (_fun _pointer -> _void))
+(define-pancake-inproc pancake_inproc_conn_release (_fun #:blocking? #t _pointer -> _void))
+(define-pancake-inproc pancake_inproc_listener_shutdown (_fun _pointer -> _void))
+(define-pancake-inproc pancake_inproc_listener_release
+  (_fun #:blocking? #t _pointer -> _void))

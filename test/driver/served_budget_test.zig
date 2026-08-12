@@ -73,3 +73,50 @@ test "drivePostBatch within budget drains and settles the local send's listener"
     try served.drivePostBatch(&vat, actors.Vat.max_batch_local_turns);
     try std.testing.expectEqual(@as(i64, 1), result);
 }
+
+test "driveFedBudgeted with zero local-turn budget consumes no turn" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var served = driver.Served.over(allocator, &pair.p1);
+    defer served.deinit(&vat);
+    served.local_turn_budget = 0;
+
+    const counter = try vat.spawn(Counter, .{});
+    _ = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
+
+    try std.testing.expectError(error.LocalTurnLimitExceeded, served.driveFedBudgeted(&vat));
+    // The zero-budget probe must leave the queued turn untouched. A later
+    // explicit unbounded drive proves the failure did not consume it.
+    served.local_turn_budget = null;
+    try served.drivePostBatch(&vat, 1);
+    const hits = try vat.near(counter, .{ .verb = "hit", .args = &.{} });
+    try std.testing.expectEqual(@as(i64, 2), hits.integer);
+}
+
+test "driveFedBudgeted retry cannot exceed an exhausted local-turn epoch" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var served = driver.Served.over(allocator, &pair.p1);
+    defer served.deinit(&vat);
+    served.local_turn_budget = 1;
+    served.budgeted_local_turns = 1;
+
+    const counter = try vat.spawn(Counter, .{});
+    _ = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
+
+    try std.testing.expectError(error.LocalTurnLimitExceeded, served.driveFedBudgeted(&vat));
+    // The carried epoch is already exhausted, so retrying the drive may encode
+    // prior work but must not execute the queued turn.
+    try std.testing.expectError(error.LocalTurnLimitExceeded, served.driveFedBudgeted(&vat));
+    served.local_turn_budget = null;
+    served.budgeted_local_turns = null;
+    try served.drivePostBatch(&vat, 1);
+    const hits = try vat.near(counter, .{ .verb = "hit", .args = &.{} });
+    try std.testing.expectEqual(@as(i64, 2), hits.integer);
+}

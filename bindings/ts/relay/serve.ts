@@ -25,6 +25,7 @@
 import {
 	denoIrohChannel,
 	denoTcpChannel,
+	isRendezvousDesignator,
 	type RelayConfig,
 	Rendezvous,
 	webSocketRelay,
@@ -50,12 +51,31 @@ const relayConfig: RelayConfig = {
 };
 
 // The cold-dial rendezvous table (ADR-0088): identity → held inbound sockets.
-// The registration cap is the bounded-resources posture the other legs carry
-// through `relayConfig`: a flood of fresh identities cannot pin unbounded held
-// sockets. An identity already holding a socket replenishes its own queue
-// freely (the embedding app adds per-identity policy, as with the allow-list).
+// Admission counts held sockets, not identities: both the relay-wide descriptor
+// budget and one identity's queue are bounded.
 const rendezvous = new Rendezvous();
 const max_registrations = 64;
+const max_registrations_per_identity = 4;
+const shutdown = new AbortController();
+const activeRelaySockets = new Set<WebSocket>();
+let relayShuttingDown = false;
+
+function runRelay(
+	socket: WebSocket,
+	getChannel: Parameters<typeof webSocketRelay>[1],
+	dialFailReason: string,
+): void {
+	if (relayShuttingDown) {
+		socket.close(1001, "relay shutting down");
+		return;
+	}
+	activeRelaySockets.add(socket);
+	webSocketRelay(socket, getChannel, dialFailReason, relayConfig).catch((err) => {
+		console.error(
+			`relay: unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}).finally(() => activeRelaySockets.delete(socket));
+}
 
 /** Dispatch one upgraded WebSocket to the channel its query names, then hand it
  * to the shared byte pump. One of `?to=host:port`, `?locator=<uri>`, or
@@ -66,7 +86,11 @@ function relay(socket: WebSocket, query: URLSearchParams): void {
 	const to = query.get("to");
 	const locator = query.get("locator");
 	const rendezvous_id = query.get("rendezvous");
-	if (rendezvous_id !== null) {
+	if (rendezvous_id != null) {
+		if (!isRendezvousDesignator(rendezvous_id)) {
+			socket.close(1008, "invalid rendezvous designator");
+			return;
+		}
 		// Take only after the upgrade succeeded: `take` removes the registration,
 		// and a refusal that consumed it would strand the registered peer's held
 		// socket (nothing closes it, so its accept parks and the pool never
@@ -76,33 +100,30 @@ function relay(socket: WebSocket, query: URLSearchParams): void {
 			socket.close(1011, "rendezvous: peer not registered");
 			return;
 		}
-		void webSocketRelay(
+		runRelay(
 			socket,
 			() => Promise.resolve(held),
 			"rendezvous: registered peer went away",
-			relayConfig,
 		);
 		return;
 	}
-	if (locator !== null) {
-		void webSocketRelay(
+	if (locator != null) {
+		runRelay(
 			socket,
 			() => denoIrohChannel(locator, "direct"),
 			"iroh relay dial failed",
-			relayConfig,
 		);
 		return;
 	}
-	if (to !== null) {
+	if (to != null) {
 		const colon = to.lastIndexOf(":");
 		const port = colon === -1 ? NaN : Number(to.slice(colon + 1));
 		if (Number.isInteger(port) && port >= 1 && port <= 65535) {
 			const host = to.slice(0, colon);
-			void webSocketRelay(
+			runRelay(
 				socket,
 				() => denoTcpChannel(host, port),
 				"TCP relay target unreachable",
-				relayConfig,
 			);
 			return;
 		}
@@ -115,6 +136,7 @@ const listenPort = Number(Deno.args[0] ?? "0");
 Deno.serve({
 	hostname: "127.0.0.1",
 	port: listenPort,
+	signal: shutdown.signal,
 	onListen: ({ port }) => console.log(`DENO-RELAY-READY ${port}`),
 }, (req) => {
 	const url = new URL(req.url);
@@ -125,14 +147,22 @@ Deno.serve({
 	}
 	if (url.pathname === "/register") {
 		const id = url.searchParams.get("id");
-		if (id === null) return new Response("register requires ?id=<designator>", { status: 400 });
-		if (!rendezvous.has(id) && rendezvous.registered().length >= max_registrations) {
+		if (id == null) return new Response("register requires ?id=<designator>", { status: 400 });
+		if (!isRendezvousDesignator(id)) {
+			return new Response("invalid rendezvous designator", { status: 400 });
+		}
+		if (
+			rendezvous.heldCount() >= max_registrations ||
+			rendezvous.heldFor(id) >= max_registrations_per_identity
+		) {
 			return new Response("rendezvous capacity exceeded", { status: 503 });
 		}
 		const { socket, response } = Deno.upgradeWebSocket(req);
 		// Register at once, not at onopen: the wrap buffers the accept side's
 		// early hello from the instant the socket exists (ADR-0088).
-		rendezvous.register(id, socket);
+		if (!rendezvous.register(id, socket)) {
+			socket.close(1001, "relay shutting down");
+		}
 		return response;
 	}
 	if (url.pathname !== "/relay") {
@@ -142,3 +172,18 @@ Deno.serve({
 	socket.onopen = () => relay(socket, url.searchParams);
 	return response;
 });
+
+function stop(): void {
+	if (relayShuttingDown) return;
+	relayShuttingDown = true;
+	shutdown.abort();
+	rendezvous.close();
+	for (const socket of activeRelaySockets) {
+		try {
+			socket.close(1001, "relay shutting down");
+		} catch { /* already closed */ }
+	}
+}
+
+Deno.addSignalListener("SIGINT", stop);
+Deno.addSignalListener("SIGTERM", stop);

@@ -115,6 +115,50 @@ pub fn expireCooldowns(
     return n;
 }
 
+/// Queue an owned nick for a later inbox offer, idempotently and up to
+/// `max_pending`. Silent on OOM, matching the other best-effort peer tables.
+/// Safe under the host callback latch: only allocates into the map; never
+/// publishes or tells.
+pub fn schedulePendingOffer(
+    gpa: std.mem.Allocator,
+    table: *std.StringHashMapUnmanaged(void),
+    peer: []const u8,
+    max_pending: usize,
+) void {
+    if (peer.len == 0) return;
+    if (table.contains(peer)) return;
+    if (table.count() >= max_pending) return;
+    const key = gpa.dupe(u8, peer) catch return;
+    table.put(gpa, key, {}) catch {
+        gpa.free(key);
+        return;
+    };
+}
+
+/// Call `offer` for each pending nick; free and remove those that return true.
+/// Keeps a nick across a false return so the next maintain wake retries.
+/// Two-pass: a hash map may not be mutated while its iterator is live.
+pub fn drainPendingOffers(
+    gpa: std.mem.Allocator,
+    table: *std.StringHashMapUnmanaged(void),
+    context: anytype,
+    comptime offer: anytype,
+) void {
+    if (table.count() == 0) return;
+    var done: std.ArrayList([]const u8) = .empty;
+    defer done.deinit(gpa);
+    // Reserve before calling offer: once a tell is admitted, recording its
+    // removal must be infallible or the next wake can send it twice.
+    done.ensureTotalCapacity(gpa, table.count()) catch return;
+    var it = table.keyIterator();
+    while (it.next()) |key_ptr| {
+        if (offer(context, key_ptr.*)) done.appendAssumeCapacity(key_ptr.*);
+    }
+    for (done.items) |peer| {
+        if (table.fetchRemove(peer)) |kv| gpa.free(kv.key);
+    }
+}
+
 /// A dial that never reached session open is dead: carry the countdown into
 /// `.down` so redial pacing continues instead of restarting. No-op in any
 /// other phase (a stale close must not clobber a live session).

@@ -10,7 +10,8 @@
 //! host's own effects (dial an exporter, draw gift-id entropy, flush a
 //! session) surface as `PancakeHostAction`s the embedder drains with
 //! `pancake_host_next_action` and answers with `pancake_host_dialed` /
-//! `pancake_host_dial_failed` / `pancake_host_provide_gift_id`. Settlements
+//! `pancake_host_dial_failed` / `pancake_host_provide_gift_id` /
+//! `pancake_host_gift_id_failed`. Settlements
 //! ride the same queue: a vow's outcome pops as a `SETTLE` or `FAIL` action
 //! whose `ticket` is the vow id, so one drain routes every outcome and there
 //! is no listener to register before the bytes that settle it.
@@ -50,6 +51,9 @@
 //! and `common.zig` holds the internal glue those leaves share (the `Instance`
 //! state, the behavior bridge, marshalling, and the error projection).
 
+const std = @import("std");
+
+const foundation = @import("foundation");
 const engine = @import("engine");
 const model = @import("model");
 
@@ -64,11 +68,102 @@ const turn = @import("turn.zig");
 const pump = @import("pump.zig");
 const common = @import("common.zig");
 
+pub const PancakeLocatorHintView = shared.PancakeLocatorHintView;
+pub const PancakeLocatorView = shared.PancakeLocatorView;
+
+pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_ADDRESS;
+pub const PANCAKE_DESIGNATOR_SCHEME_KEY = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
+pub const PANCAKE_HOST_OUTBOUND_PREFIX_CAP: usize = 32;
+comptime {
+    std.debug.assert(PANCAKE_HOST_OUTBOUND_PREFIX_CAP >= foundation.stream_framing.prefix_buffer_bytes);
+}
+
+/// Zig-only seams for the sibling driver archive (ADR-0112): `libpancake_driver`
+/// creates hosts through this family's own constructors, then reaches the
+/// embedded core and the completion projection here. Nothing in this
+/// namespace exports a symbol; a C consumer cannot name it.
+pub const embedding = struct {
+    const driver_core = @import("driver_core");
+
+    pub const DriverClaim = struct {
+        inst: *common.Instance,
+
+        pub fn allocator(self: DriverClaim) std.mem.Allocator {
+            return self.inst.allocator;
+        }
+
+        pub fn core(self: DriverClaim) *driver_core.Host {
+            return &self.inst.core;
+        }
+
+        /// Roll back a failed driver construction. No driver-owned operation
+        /// may have escaped while construction was fallible.
+        pub fn rollback(self: DriverClaim) void {
+            std.debug.assert(self.inst.runtime_owner == .driver);
+            self.inst.runtime_owner = .embedder;
+        }
+    };
+
+    pub const ClaimError = error{
+        HostAlreadyOwned,
+        HostNotQuiescent,
+        ReenteredHost,
+    };
+
+    /// Transactionally transfer the transport/action-drain half of a Host to
+    /// the native driver. Queued actions have not crossed the Host boundary and
+    /// move with it. A live byte-fed session or a borrowed/popped action already
+    /// has an embedder owner and therefore cannot be adopted.
+    pub fn claimForDriver(handle: ?*PancakeHost) ClaimError!?DriverClaim {
+        const inst = common.instanceFrom(handle) orelse return null;
+        if (inst.runtime_owner != .embedder) return error.HostAlreadyOwned;
+        if (inst.core.in_callback) return error.ReenteredHost;
+        if (inst.core.sessions.count() != 0 or
+            inst.core.last_action != null or
+            inst.core.retry_last_action)
+        {
+            return error.HostNotQuiescent;
+        }
+        inst.runtime_owner = .driver;
+        return .{ .inst = inst };
+    }
+
+    pub fn releaseFromDriver(handle: *PancakeHost) void {
+        common.releaseFromDriver(handle);
+    }
+
+    /// The C handle a core session projects as; the driver archive's events
+    /// carry sessions in the same handle vocabulary every `pancake_host_*`
+    /// verb takes.
+    pub fn sessionHandle(hs: *driver_core.HostSession) *PancakeHostSession {
+        return @ptrCast(hs);
+    }
+
+    pub fn sessionFrom(raw: ?*PancakeHostSession) ?*driver_core.HostSession {
+        return common.sessionFrom(raw);
+    }
+
+    /// Project one taken settled/failed completion onto the C action shape,
+    /// with the byte-fed queue's exact lifetime sentence: one scratch reset
+    /// per pop, then the projection allocates its views there. The caller
+    /// serializes this with `pancake_host_next_action` on the one driving
+    /// thread (a loop-tier consumer does not drain the byte-fed queue).
+    pub fn projectCompletion(
+        handle: ?*PancakeHost,
+        action: driver_core.HostAction,
+        slot: *PancakeHostAction,
+    ) i32 {
+        const inst = common.instanceFrom(handle) orelse return shared.PANCAKE_ERR_NULL_POINTER;
+        _ = inst.completion_scratch.reset(.{ .retain_with_limit = common.steady_scratch_bytes });
+        return common.projectCompletionInto(inst, action, slot);
+    }
+};
+
 /// Zig-only seams for exercising C-boundary transactions without exporting
 /// another ABI symbol. Production consumers cannot name this through a header.
 pub const testing = struct {
     pub fn importObject(raw: ?*PancakeHostSession, position: u64) !void {
-        const session_ptr = common.connFrom(raw) orelse return error.NullPointer;
+        const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         try session_ptr.served.port.peer.importObject(position);
     }
 
@@ -79,7 +174,7 @@ pub const testing = struct {
         args: []const model.Argument,
     ) !void {
         const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
-        const session_ptr = common.connFrom(raw) orelse return error.NullPointer;
+        const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         _ = try common.hostArgsToC(inst, session_ptr, allocator, args);
     }
 
@@ -89,7 +184,7 @@ pub const testing = struct {
     }
 
     pub fn importRefcount(raw: ?*PancakeHostSession, position: u64) !u64 {
-        const session_ptr = common.connFrom(raw) orelse return error.NullPointer;
+        const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         return session_ptr.served.port.peer.session_state.importRefcount(.from(position));
     }
 };
@@ -133,9 +228,10 @@ pub const wasm_layout_manifest = [_]WasmLayoutSpec{
     .{ .prefix = "HOST_PUMP_HOOKS", .T = PancakeHostPumpHooks },
     .{ .prefix = "DIAL_PLAN", .T = PancakeDialPlan },
     .{ .prefix = "ACCEPT_PLAN", .T = PancakeAcceptPlan },
-    .{ .prefix = "PENDING_DIAL", .T = PancakePendingDial },
     .{ .prefix = "PARTNER_IDENTITY", .T = PancakePartnerIdentity },
     .{ .prefix = "TRACE_EVENT", .T = PancakeTraceEvent },
+    .{ .prefix = "LOCATOR_HINT_VIEW", .T = shared.PancakeLocatorHintView },
+    .{ .prefix = "LOCATOR_VIEW", .T = shared.PancakeLocatorView },
 };
 
 pub const PancakeHost = opaque {};
@@ -173,6 +269,10 @@ pub const PANCAKE_HOST_ACTION_FAIL: u32 = 4;
 /// queued terminal frame, then close its transport and release the connection.
 /// A condemned session carries an abort; redeem-only cleanup closes quietly.
 pub const PANCAKE_HOST_ACTION_CLOSE: u32 = 5;
+/// `PancakeHostAction.kind`: the finite host scheduler yielded with internal
+/// work remaining. Return to the embedder scheduler before continuing
+/// `pancake_host_next_action`; this carries no session, ticket, or I/O request.
+pub const PANCAKE_HOST_ACTION_RESUME: u32 = 6;
 
 /// Default maximum admissible frame for a host connection, mirroring
 /// `session.SessionLimits.max_frame_bytes` (1 MiB). Bindings pass this to
@@ -189,6 +289,20 @@ pub const PANCAKE_DEFAULT_FRAME_CAP: usize = (engine.SessionLimits{}).max_frame_
 /// it. Each binding used to carry its own copy of this number, which is a
 /// promise about how long a caller waits made in four places at once.
 pub const PANCAKE_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
+
+/// Default accepted connections held across handshaking plus ready-but-unclaimed
+/// sessions by a high-level binding listener. This is capacity, not eager
+/// allocation; callers may tune it for their service.
+pub const PANCAKE_DEFAULT_PENDING_ACCEPTS: usize = 128;
+
+/// Default OCapN handshakes one high-level binding listener drives at once.
+pub const PANCAKE_DEFAULT_HANDSHAKE_CONCURRENCY: usize = 16;
+
+/// Maximum OCapN handshakes one high-level binding listener drives at once.
+/// A silent peer therefore occupies one bounded execution seat instead of
+/// serializing every connection behind its timeout, while an accept flood
+/// cannot mint an unbounded set of half-open Host sessions.
+pub const PANCAKE_MAX_HANDSHAKE_CONCURRENCY: usize = 32;
 
 /// Discovery-posture dial retry interval (ms). Keep lockstep with
 /// `driver.discovery_retry_ms` (ADR-0082); `test/driver` pins the pair.
@@ -222,7 +336,11 @@ pub const PancakeHostAction = extern struct {
 
 /// One shared arm callback for `PancakeHostPumpHooks`: flush, close,
 /// need_gift_id, complete (SETTLE/FAIL), and dial. Return `PANCAKE_OK` or a
-/// real `PANCAKE_ERR_*`. When `out_progressed` is non-null, set it to 1 if the
+/// real `PANCAKE_ERR_*`. A non-OK return means the arm committed no externally
+/// visible effect; the drain preserves this exact action as the first action of
+/// its next call. Return `PANCAKE_OK` after taking responsibility for the
+/// action, even when later asynchronous work may fail. When `out_progressed`
+/// is non-null, set it to 1 if the
 /// arm counts as quiescence progress (gift-id answered, dial parked, settle
 /// routed); leave 0 for a handled notice that a sibling shuttle already
 /// covers (typical empty FLUSH). `action` views are host-owned until the next
@@ -401,20 +519,6 @@ pub const PANCAKE_DIAL_POSTURE_EXPLICIT: u32 = 1;
 /// peer-id dial refuses PANCAKE_ERR_INVALID_ARGUMENT (a posture is required).
 pub const PANCAKE_DIAL_POSTURE_EXPLICIT_NONE: u32 = 2;
 
-/// Borrowed in-flight pending dial for one ticket (parsed dial parts).
-/// Host-owned views valid until `pancake_host_dialed` / `pancake_host_dial_failed`
-/// consumes the row (or host teardown). Empty hint means the give carried none
-/// (`hint` is NULL, `hint_len` is 0). Dial authority is transport/designator/hint
-/// — no verbatim URI field.
-pub const PancakePendingDial = extern struct {
-    transport: ?[*]const u8,
-    transport_len: usize,
-    designator: ?[*]const u8,
-    designator_len: usize,
-    hint: ?[*]const u8,
-    hint_len: usize,
-};
-
 /// A resolved dial: what byte channel to open and how. shape selects the live
 /// fields. Every view borrows the caller's transport/designator/hint input, so
 /// the plan is valid only while those buffers are.
@@ -463,7 +567,7 @@ pub const PancakePartnerIdentity = extern struct {
     /// Session identity, durable identity, and this provenance are three
     /// separate facts: a caller that requires a proved durable peer reads
     /// this, never a comparison of `designator` against `session_key`. Each
-    /// connection draws its own session key, so a session key is not an
+    /// session draws its own signing key, so a session key is not an
     /// identity and the two never match.
     provenance: u32,
 };
@@ -499,7 +603,6 @@ pub const pancake_host_new = host.pancake_host_new;
 pub const pancake_host_new_in = host.pancake_host_new_in;
 pub const pancake_host_release = host.pancake_host_release;
 pub const pancake_host_designator_from_seed = host.pancake_host_designator_from_seed;
-pub const pancake_host_set_self_designator = host.pancake_host_set_self_designator;
 pub const pancake_host_set_advertised_locator = host.pancake_host_set_advertised_locator;
 pub const pancake_host_ensure_advertised_locator = host.pancake_host_ensure_advertised_locator;
 pub const pancake_host_remove_advertised_locator = host.pancake_host_remove_advertised_locator;
@@ -509,9 +612,11 @@ pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
 pub const pancake_host_reference_exporter = host.pancake_host_reference_exporter;
 pub const pancake_host_plan_accept = host.pancake_host_plan_accept;
 pub const pancake_host_next_action = host.pancake_host_next_action;
+pub const retryBorrowedAction = host.retryBorrowedAction;
 pub const pancake_host_dialed = host.pancake_host_dialed;
 pub const pancake_host_dial_failed = host.pancake_host_dial_failed;
 pub const pancake_host_provide_gift_id = host.pancake_host_provide_gift_id;
+pub const pancake_host_gift_id_failed = host.pancake_host_gift_id_failed;
 pub const pancake_host_publish = host.pancake_host_publish;
 pub const pancake_host_unpublish = host.pancake_host_unpublish;
 pub const pancake_host_publish_durable = host.pancake_host_publish_durable;
@@ -536,7 +641,6 @@ pub const pancake_host_enliven = host.pancake_host_enliven;
 pub const pancake_host_set_trace = host.pancake_host_set_trace;
 pub const pancake_host_set_trace_queue = host.pancake_host_set_trace_queue;
 pub const pancake_host_next_trace = host.pancake_host_next_trace;
-pub const pancake_host_spawn_resolver = host.pancake_host_spawn_resolver;
 pub const pancake_host_resolver_fulfill = host.pancake_host_resolver_fulfill;
 pub const pancake_host_resolver_break = host.pancake_host_resolver_break;
 pub const pancake_host_session_listen = session.pancake_host_session_listen;
@@ -555,7 +659,7 @@ pub const pancake_host_session_partner_identity = session.pancake_host_session_p
 pub const pancake_host_session_bind_verified_channel_key = session.pancake_host_session_bind_verified_channel_key;
 
 pub const pancake_host_turn_forward = turn.pancake_host_turn_forward;
-pub const pancake_host_turn_forward_vow = turn.pancake_host_turn_forward_vow;
+pub const pancake_host_turn_defer = turn.pancake_host_turn_defer;
 pub const pancake_host_turn_send = turn.pancake_host_turn_send;
 pub const pancake_host_turn_tell = turn.pancake_host_turn_tell;
 pub const pancake_host_turn_spawn = turn.pancake_host_turn_spawn;
@@ -572,13 +676,3 @@ pub const symbols = @import("symbols.zig");
 /// normative; bindings and tests thin onto this instead of hand-rolling
 /// the action switch.
 pub const embedder_pump = @import("embedder_pump.zig");
-
-comptime {
-    // Force the family leaves' `export fn`s into the compilation even if the
-    // re-exports above are ever pruned; a plain reference is enough.
-    _ = host;
-    _ = session;
-    _ = turn;
-    _ = pump;
-    _ = common;
-}

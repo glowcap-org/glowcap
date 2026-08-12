@@ -38,7 +38,7 @@ import {
 } from "../interactions/use-surface-wheel.ts";
 import type { Engine } from "../engine/engine.ts";
 import { findNode, type Vec2 } from "../engine/world.ts";
-import { claimTargets } from "../engine/session-geometry.ts";
+import { EMPTY_FRAME_GEOMETRY } from "../engine/session-geometry.ts";
 import {
   drawArmedRing,
   drawLooseEndBody,
@@ -62,6 +62,7 @@ import {
   type RenderFrameArgs,
   type StartNodeDrag,
 } from "./render-frame.ts";
+import { EdgeStrokeBatch } from "./edge-stroke-batch.ts";
 import {
   clampRectToBounds,
   paintMarchingAntsBand,
@@ -218,10 +219,9 @@ export type StageProps = {
 // creation) and allocates the sprite Maps but never reaches into a sprite's
 // internals.
 
-/** What a frame starts with before its first tick has resolved a claim: an
- *  empty resolution, so `renderArgs` is complete from the moment it is built
- *  rather than carrying a null nobody may read. */
-const EMPTY_CLAIMS: ReadonlyMap<string, string> = new Map();
+/** What a frame starts with before its first tick has resolved claims:
+ *  `EMPTY_FRAME_GEOMETRY`, so `renderArgs` is complete from the moment it
+ *  is built rather than carrying a null nobody may read. */
 
 /**
  * How still the camera has to be before its position is written to the document,
@@ -705,7 +705,7 @@ export function Stage(
     }
     // The same resolution the renderer draws these ends with, so the shape
     // the marquee measures is the shape the user saw.
-    const claimsToward = claimTargets(engine.world, engine.claims);
+    const claimsToward = engine.frameGeometry.claimsToward;
     for (const e of engine.queries.endpoints) {
       const s = viewport.toScreen(e.position.x, e.position.y);
       const r = endpointBodyRadius(e.endpoint.id, claimsToward) * zoom;
@@ -1125,10 +1125,12 @@ export function Stage(
               //
               // Which layers those are is checked by nothing: there is no test
               // that builds a viewport, so the exclusions are held by this list
-              // and this comment. `unionBounds` and `fitStageView` carry the
-              // arithmetic and are covered in `stage-view.test.ts`; a new content
-              // layer has to be added here by hand, and fitting the world instead
-              // of the picture is what it looks like when one is missing.
+              // and this comment. `unionBounds` skips empty rectangles (the
+              // always-present edge stroke batch reports origin bounds when
+              // nothing is stroked) and `fitStageView` carries the arithmetic;
+              // both are covered in `stage-view.test.ts`. A new content layer
+              // has to be added here by hand, and fitting the world instead of
+              // the picture is what it looks like when one is missing.
               const drawn = [edgeLayer, peerLayer, messageLayer]
                 .filter((layer) => layer.children.length > 0)
                 .map((layer) => layer.getLocalBounds());
@@ -1670,6 +1672,8 @@ export function Stage(
       gridLayer.addChild(gridCoarse, gridMedium, gridFine);
 
       const edgeLayer = new Container();
+      const edgeStrokeBatch = new EdgeStrokeBatch();
+      edgeLayer.addChild(edgeStrokeBatch.gfx);
       const peerLayer = new Container();
       const messageLayer = new Container();
       // `labelLayer` is a parent container holding three per-
@@ -1725,6 +1729,7 @@ export function Stage(
         }
         if (edgeLayerRef.current === edgeLayer) edgeLayerRef.current = null;
         if (peerLayerRef.current === peerLayer) peerLayerRef.current = null;
+        edgeStrokeBatch.destroy();
       });
       // Sprite-hit detection lives in `makeStageHit` above, which
       // consults Pixi's own hit-test (`rootBoundary.hitTest`) — the
@@ -1968,6 +1973,7 @@ export function Stage(
         peerSprites,
         endpointSprites,
         edgeSprites,
+        edgeStrokeBatch,
         messageSprites,
         onSelect: onSelectStable,
         selection: selectionRef.current,
@@ -1980,7 +1986,8 @@ export function Stage(
         counterScale: 1,
         scale: 1,
         startNodeDrag,
-        claimsToward: EMPTY_CLAIMS,
+        claimsToward: EMPTY_FRAME_GEOMETRY.claimsToward,
+        sessionCurves: EMPTY_FRAME_GEOMETRY.sessionCurves,
         scratchActivity,
         scratchPeerIds,
         scratchEndpointIds,
@@ -2058,11 +2065,13 @@ export function Stage(
           }
         }
         renderArgs.colors = themedColors(themeRef.current);
-        // The frame's claim resolution, once: the projection draws these ends
-        // with it, and the armed ring below sizes itself to the body the
-        // projection drew.
-        const claimsToward = claimTargets(engine.world, engine.claims);
+        // The frame's claim/bundle tables, once: flight already placed
+        // dots from them; the projection draws ends and edges with the
+        // same maps so a ring sizes to the body it rings and a wire
+        // carries its own traffic.
+        const { claimsToward, sessionCurves } = engine.frameGeometry;
         renderArgs.claimsToward = claimsToward;
+        renderArgs.sessionCurves = sessionCurves;
         // THE cursor, once per frame (§ 10). Derived from the same resolver
         // the click goes through and the same FSM that runs it, so what the
         // pointer promises is what the click does. `setCursor` is the canvas

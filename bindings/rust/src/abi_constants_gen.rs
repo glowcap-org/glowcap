@@ -3,29 +3,29 @@
 //! `zig build gen-binding-constants-check` (part of `check`) fails when
 //! this is stale.
 //!
-//! The reflected integer ABI constants for the Rust binding, re-exported
-//! through `abi_constants` (which adds the hand-kept transport strings).
+//! The reflected ABI constants and model-owned transport vocabulary for
+//! the Rust binding, re-exported through `abi_constants`.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uint};
 
 pub const OK: c_int = 0;
-pub const WOULD_BLOCK: c_int = -7;
+pub const WOULD_BLOCK: c_int = -6;
 pub const ERR_NULL_POINTER: c_int = -1;
-pub const ERR_INVALID_ARGUMENT: c_int = -3;
-pub const ERR_SESSION: c_int = -4;
-pub const ERR_CODEC: c_int = -5;
-pub const ERR_INTERNAL: c_int = -6;
-pub const ERR_CLOSED: c_int = -8;
-pub const ERR_IO: c_int = -9;
-pub const ERR_MALFORMED: c_int = -10;
-pub const ERR_FRAME_TOO_LARGE: c_int = -11;
-pub const ERR_UNSUPPORTED_VALUE: c_int = -13;
-pub const ERR_BROKEN: c_int = -14;
-pub const ERR_NOT_FOUND: c_int = -15;
-pub const ERR_BUFFER_TOO_SMALL: c_int = -16;
-pub const ERR_TIMEOUT: c_int = -17;
+pub const ERR_INVALID_ARGUMENT: c_int = -2;
+pub const ERR_SESSION: c_int = -3;
+pub const ERR_CODEC: c_int = -4;
+pub const ERR_INTERNAL: c_int = -5;
+pub const ERR_CLOSED: c_int = -7;
+pub const ERR_IO: c_int = -8;
+pub const ERR_MALFORMED: c_int = -9;
+pub const ERR_FRAME_TOO_LARGE: c_int = -10;
+pub const ERR_UNSUPPORTED_VALUE: c_int = -11;
+pub const ERR_BROKEN: c_int = -12;
+pub const ERR_NOT_FOUND: c_int = -13;
+pub const ERR_BUFFER_TOO_SMALL: c_int = -14;
+pub const ERR_TIMEOUT: c_int = -15;
 pub const FRAME_SHAPE_BYTE: c_uint = 0;
 pub const ARG_INTEGER: c_uint = 0;
 pub const ARG_FLOAT64: c_uint = 1;
@@ -68,13 +68,37 @@ pub const DIAL_REACH_EXPLICIT: c_uint = 2;
 pub const DIAL_POSTURE_REDEEM: c_uint = 0;
 pub const DIAL_POSTURE_EXPLICIT: c_uint = 1;
 pub const DIAL_POSTURE_EXPLICIT_NONE: c_uint = 2;
+pub const DESIGNATOR_SCHEME_ADDRESS: c_uint = 0;
+pub const DESIGNATOR_SCHEME_KEY: c_uint = 1;
 pub const DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT: c_uint = 0;
 pub const DURABLE_PROVENANCE_UNAUTHENTICATED: c_uint = 1;
 pub const DEFAULT_FRAME_CAP: usize = 1048576;
 pub const MAX_LOCAL_FORWARD_HOPS: usize = 256;
 pub const HANDSHAKE_TIMEOUT_MS: usize = 10000;
+pub const HOST_OUTBOUND_PREFIX_CAP: usize = 32;
+pub const DEFAULT_PENDING_ACCEPTS: usize = 128;
+pub const DEFAULT_HANDSHAKE_CONCURRENCY: usize = 16;
+pub const MAX_HANDSHAKE_CONCURRENCY: usize = 32;
 pub const DISCOVERY_DIAL_RETRY_MS: usize = 3000;
 pub const DISCOVERY_DIAL_MAX_ATTEMPTS: usize = 24;
+pub const DRIVER_OPTIONS_ABI_VERSION: c_uint = 1;
+pub const DRIVER_MAX_WAIT_MS: c_uint = 2147483647;
+pub const DRIVER_DEFAULT_WIRE_BUFFER_BYTES: usize = 16384;
+pub const DRIVER_DEFAULT_MAX_PENDING_OPENS: usize = 256;
+pub const DRIVER_DEFAULT_HANDSHAKE_MS: c_uint = 10000;
+pub const DRIVER_DEFAULT_SETTLE_MS: c_uint = 10000;
+pub const DRIVER_EVENT_OPENED: c_uint = 0;
+pub const DRIVER_EVENT_OPEN_FAILED: c_uint = 1;
+pub const DRIVER_EVENT_ACCEPTED: c_uint = 2;
+pub const DRIVER_EVENT_SESSION_CLOSED: c_uint = 3;
+pub const DRIVER_EVENT_COMPLETION: c_uint = 4;
+pub const LOCATOR_VIEW_ABI_VERSION: c_uint = 1;
+pub const HINT_STRING: c_uint = 1;
+pub const HINT_BYTES: c_uint = 2;
+pub const HINT_BOOLEAN: c_uint = 3;
+pub const HINT_INTEGER: c_uint = 4;
+pub const HINTS_MAP: c_uint = 0;
+pub const HINTS_BOOLEAN_FALSE: c_uint = 1;
 pub const IROH_REACH_DIRECT: c_uint = 0;
 pub const IROH_REACH_DISCOVERY: c_uint = 1;
 pub const IROH_REACH_DISCOVERY_NO_RELAY: c_uint = 2;
@@ -90,3 +114,13 @@ pub const WEBRTC_EV_CANDIDATE: c_uint = 2;
 pub const WEBRTC_EV_READABLE: c_uint = 4;
 pub const WEBRTC_EV_WRITABLE: c_uint = 8;
 pub const WEBRTC_EV_CLOSED: c_uint = 16;
+pub const HINT_DIRECT_ADDRESSES: &str = "direct-addresses";
+pub const TRANSPORT_TCP: &str = "tcp";
+pub const TRANSPORT_ONION: &str = "onion";
+pub const TRANSPORT_KEYED_TCP: &str = "keyed-tcp";
+pub const TRANSPORT_INPROC: &str = "inproc";
+pub const TRANSPORT_IROH: &str = "iroh";
+pub const TRANSPORT_KEYED_RELAY: &str = "keyed-relay";
+pub const TRANSPORT_WEBRTC: &str = "webrtc";
+pub const TRANSPORT_NOISE_TCP: &str = "noise-tcp";
+pub const TRANSPORT_NOISE_RELAY: &str = "noise-relay";

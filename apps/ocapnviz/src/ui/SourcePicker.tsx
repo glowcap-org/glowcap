@@ -47,11 +47,11 @@ export function SourcePicker(
     scenarioId,
     source,
     engine,
-    liveUrl,
+    liveSturdyref,
     liveConnected,
     liveRecording = false,
     onScenarioChange,
-    onLiveUrlChange,
+    onLiveSturdyrefChange,
     editor,
   }: {
     mode: AppMode;
@@ -64,10 +64,10 @@ export function SourcePicker(
      * "edited" badge appears the moment the first Build edit
      * lands, not on the next unrelated re-render. */
     engine: Engine;
-    liveUrl: string;
+    liveSturdyref: string;
     liveConnected: boolean;
     /** Whether a live capture is running. A capture lives in the
-     *  engine the feed's URL creates, so re-dialing throws it away —
+     *  engine the trace capability creates, so re-dialing throws it away —
      *  the field therefore stops taking edits while one is running,
      *  and says why. Merely being connected protects nothing, so the
      *  field takes edits freely until Record.
@@ -75,7 +75,7 @@ export function SourcePicker(
      *  Defaults to false, which reads as "no capture to protect". */
     liveRecording?: boolean;
     onScenarioChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
-    onLiveUrlChange: (url: string) => void;
+    onLiveSturdyrefChange: (sturdyref: string) => void;
     /** Passed through to the document's own fields: present only where editing is
      *  allowed, which is Build. */
     editor: EditSession | undefined;
@@ -89,15 +89,15 @@ export function SourcePicker(
     // The same two questions this panel answers everywhere else, which in Live
     // have different answers rather than no answers: where the buffer comes from,
     // and what it is. Both are rows, because a bare field and a line of text
-    // dropped straight into the key/value grid took a track each — so the URL was
-    // laid out in the 78px key column with the status beside it.
+    // dropped straight into the key/value grid took a track each, so the
+    // sturdyref is laid out with the status beside it.
     return (
       <div style={panel}>
-        <Field label="Source">
-          <LiveUrlField
-            url={liveUrl}
+        <Field label="Trace capability">
+          <LiveSturdyrefField
+            sturdyref={liveSturdyref}
             recording={liveRecording}
-            onCommit={onLiveUrlChange}
+            onCommit={onLiveSturdyrefChange}
           />
         </Field>
         <Field label="Status">
@@ -181,35 +181,34 @@ const panel = {
  *  things, and this field is the seam between them. The text lives here
  *  while it is being typed and is handed up only when the reader says
  *  they are done — Enter, or leaving the field. Escape puts the field
- *  back to the URL in force.
+ *  back to the sturdyref in force.
  *
  *  It reads as an ordinary text box, so the reason for the seam is worth
- *  stating: dialing is destructive. Every URL the field hands up closes
- *  the socket and opens one at the new address, and a half-typed URL is
- *  not a URL at all — `ws` and `ws:/` are two of the strings that
- *  select-all-and-retype passes through. Handing those up a character at
- *  a time asked the browser to open a socket at each of them, and threw
- *  away any capture running on the old one.
+ *  stating: subscribing is destructive. Every sturdyref the field hands up
+ *  closes the current CapTP session and opens the newly authorized trace; a
+ *  half-typed sturdyref authorizes nothing. Handing drafts up a character at
+ *  a time repeatedly tore down the current observation session and threw away
+ *  any capture running on it.
  *
  *  While a capture is running the field does not take edits at all,
  *  because there is no phrasing of "dial somewhere else" that keeps the
  *  recording, and losing one to a stray click in a text box is not a
  *  trade worth offering. */
-function LiveUrlField(
-  { url, recording, onCommit }: {
-    url: string;
+function LiveSturdyrefField(
+  { sturdyref, recording, onCommit }: {
+    sturdyref: string;
     recording: boolean;
-    onCommit: (url: string) => void;
+    onCommit: (sturdyref: string) => void;
   },
 ) {
-  const [draft, setDraft] = useState(url);
-  // The URL in force can change under the field (a preset, a reset), and
+  const [draft, setDraft] = useState(sturdyref);
+  // The sturdyref in force can change under the field (a preset, a reset), and
   // the draft follows it whenever the field is not being typed in.
   const [editing, setEditing] = useState(false);
-  const shown = editing ? draft : url;
+  const shown = editing ? draft : sturdyref;
   const commit = () => {
     setEditing(false);
-    if (draft !== url) onCommit(draft);
+    if (draft !== sturdyref) onCommit(draft);
   };
   return (
     <input
@@ -221,7 +220,7 @@ function LiveUrlField(
           "re-dialing starts a new capture."
         : undefined}
       onFocus={() => {
-        setDraft(url);
+        setDraft(sturdyref);
         setEditing(true);
       }}
       onChange={(e) => setDraft(e.target.value)}
@@ -231,14 +230,14 @@ function LiveUrlField(
           commit();
           e.currentTarget.blur();
         } else if (e.key === "Escape") {
-          setDraft(url);
+          setDraft(sturdyref);
           setEditing(false);
           e.currentTarget.blur();
         }
       }}
       className="ocv-input"
       style={sourceTextInput}
-      placeholder="ws://127.0.0.1:9000/"
+      placeholder="ocapn://…/s/…"
       spellCheck={false}
     />
   );

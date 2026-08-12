@@ -3,7 +3,7 @@
 // `pancake_host_ref_release`. Session keeps `withGc` as a thin opt-in; Host
 // owns the finalizer state. Binding spine Pass 3b.
 
-import { driverS } from "./internal/ffi/host.ts";
+import { hostS } from "./internal/ffi/host.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
 import { checkHost } from "./errors.ts";
 import { refStruct } from "./codec.ts";
@@ -69,7 +69,7 @@ export class HostGc {
 		for (const token of this.pending.splice(0)) {
 			try {
 				checkHost(
-					driverS.pancake_host_ref_release(
+					hostS.pancake_host_ref_release(
 						h.hostRaw,
 						ab(refStruct(refFromId(token))),
 						1n,
@@ -89,5 +89,5 @@ export class HostGc {
  * Lives here beside the finalizer path because both release the same opaque
  * Host identity; the Host resolves whether any wire GC is required. */
 export function releaseRef(hostRaw: Ptr, ref: Ref): void {
-	checkHost(driverS.pancake_host_ref_release(hostRaw, ab(refStruct(ref)), 1n));
+	checkHost(hostS.pancake_host_ref_release(hostRaw, ab(refStruct(ref)), 1n));
 }

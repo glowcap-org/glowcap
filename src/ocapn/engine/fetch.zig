@@ -54,7 +54,7 @@ pub const FetchMatch = union(enum) {
 
 /// Allocate the resolver export + outbound answer and build the wire-canonical
 /// `op:deliver target=<bootstrap> args=[fetch <swissnum>]`. On V1.0 the message
-/// carries `resolve_me_desc = Near(promise(resolver))` (the resolver-callback
+/// carries `resolve_me_desc = Near(object(resolver))` (the resolver-callback
 /// notification form spec-strict partners prefer); earlier profiles omit it (the
 /// field has no pre-V1.0 wire encoding).
 ///
@@ -79,12 +79,11 @@ pub fn prepareFetchSwissnum(
     args[0] = .{ .symbol = fetch_symbol };
     args[1] = .{ .bytes = swiss };
 
-    // A V1.0 fetch advertises the resolver as a promise export; mint it
-    // unresolved so its slot is authoritative before the mention projects it
-    // (ADR-0080). Earlier profiles never mention the resolver on the wire, so
-    // it stays an ordinary object reservation.
+    // V1.0's resolve-me-desc is a resolver object, not the promise that object
+    // settles. Mint the authoritative object slot before projecting its wire
+    // mention (ADR-0080).
     const resolver_export: ?model.ExportPosition = if (session.needsV1_0Translation())
-        try session.allocatePromiseExport()
+        try session.allocateExport()
     else
         null;
     errdefer if (resolver_export) |position| session.releaseUnsharedExport(position);
@@ -95,8 +94,8 @@ pub fn prepareFetchSwissnum(
     const answer_position = session.allocateOutboundAnswer();
 
     // Project the mention from the authoritative slot rather than hand-typing
-    // the kind: the row was minted `local_unresolved`, so it renders as
-    // `desc:import-promise` by construction (ADR-0080).
+    // the kind: the row was minted as a local object, so it renders as
+    // `desc:import-object` by construction (ADR-0080).
     const resolve_me_desc: ?model.Reference = if (session.needsV1_0Translation())
         session_mod.slot.toReference(session.exportSlot(resolver_export.?).?)
     else

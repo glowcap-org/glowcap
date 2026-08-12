@@ -251,7 +251,7 @@ const captp_io_spine_table: []const Ban = &.{
         // The owning host face (ADR-0090) lives here and *embeds* the one
         // `driver_core.Host`; what stays banned is the deleted `BlockingHost`
         // shape, a parallel multi-session type that duplicated the core.
-        .where = .{ .file = "src/driver/host.zig" },
+        .where = .{ .file = "src/driver/host_runtime.zig" },
         .kind = .forbid,
         .needles = &.{"BlockingHost"},
         .check = "captp-io-spine",
@@ -360,7 +360,7 @@ const captp_io_spine_table: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"submitIrohConnect"},
         .check = "captp-io-spine",
-        .why = "iroh dials through `Locator.resolve` + `startDial`, not a parallel connect verb",
+        .why = "iroh dials through `DialResolver.resolve` + `startDial`, not a parallel connect verb",
     },
     .{
         .where = .{ .file = "src/net/completion/uring.zig" },
@@ -405,7 +405,7 @@ const captp_io_spine_table: []const Ban = &.{
         .why = "tcp netlayer reaches socket ops through net.socket, never completion/ internals",
     },
     .{
-        .where = .{ .file = "src/net/transport/tcp_keyed.zig" },
+        .where = .{ .file = "src/net/transport/tcp_key_addressed.zig" },
         .kind = .forbid,
         .needles = &.{"@import(\"../completion/"},
         .check = "captp-io-spine",
@@ -477,7 +477,7 @@ const captp_io_spine_table: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"resolveDialAddress"},
         .check = "captp-io-spine",
-        .why = "locator→connect belongs on `Locator.resolve` / `Loop.dialLocator`",
+        .why = "locator→connect belongs on `DialResolver.resolve` / `Loop.dialLocator`",
     },
     // retire-by: the next rewrite of src/driver/bridge.zig's dial comments —
     // retire this prose needle in that same diff.
@@ -514,7 +514,7 @@ const captp_io_spine_table: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"transport, \"iroh\""},
         .check = "captp-io-spine",
-        .why = "no Bridge dial-dispatch on transport strings; Locator.resolve owns that",
+        .why = "no Bridge dial-dispatch on transport strings; DialResolver.resolve owns that",
     },
     .{
         .where = .{ .file = "src/net/transport/iroh.zig" },
@@ -855,6 +855,436 @@ const signature_arm_reads: []const Ban = &.{
     },
 };
 
+/// The composable native-loop boundary: the driver consumes only provider
+/// contracts, transport archives own their implementations and leases, and
+/// Host remains a symbol-disjoint archive. These are source-shape checks; the
+/// generated-header and archive extraction gates hold their emitted mirrors.
+const retired_driver_locator: []const Ban = blk: {
+    const dirs = [_][]const u8{ "src", "include", "bindings", "test", "tools", "interop", "examples", "bench", "apps", "cli" };
+    var rows: [dirs.len]Ban = undefined;
+    for (rows[0..], dirs) |*row, dir| {
+        row.* = .{
+            .where = .{ .tree = .{
+                .dir = dir,
+                .suffixes = &.{ ".zig", ".h", ".rs", ".py", ".rkt", ".ts" },
+                .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".zig-cache/", "zig-out/" },
+                .exclude = &.{"tools/check/meta_check/bans.zig"},
+            } },
+            .kind = .forbid,
+            .needles = &.{ "PancakeDriverLocator", "DriverLocator", "pancake_driver_locator_" },
+            .check = "transport-provider-architecture",
+            .why = "locator values and handles belong to OCapN; the generic driver accepts only the shared borrowed locator view",
+        };
+    }
+    const frozen = rows;
+    break :blk &frozen;
+};
+
+const transport_provider_architecture: []const Ban = &.{
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .require,
+        .needles = &.{"PancakeMultiplexedClaimExternalFn claim_external;"},
+        .check = "transport-provider-architecture",
+        .why = "the generated multiplexed table must preserve claim_external's semantic callback type even though Zig aliases it structurally",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/shared/locator.zig" },
+        .kind = .forbid,
+        .needles = &.{ "@import(\"model\")", "clonePeerLocator", "fromView", "project(", "pub fn " },
+        .check = "transport-provider-architecture",
+        .why = "shared/locator.zig is archive-neutral POD vocabulary only; OCapN semantics and model projection live in their owning modules",
+    },
+    .{
+        .where = .{ .tree = .{
+            .dir = "src",
+            .suffixes = &.{".zig"},
+            .exclude = &.{"src/c_abi/shared/locator.zig"},
+        } },
+        .kind = .forbid,
+        .needles = &.{"PANCAKE_LOCATOR_VIEW_ABI_VERSION: u32 ="},
+        .check = "transport-provider-architecture",
+        .why = "the locator ABI version and layout have one physical authority in c_abi/shared/locator.zig; other modules may only re-export it",
+    },
+    .{
+        .where = .{ .tree = .{ .dir = "src/c_abi/driver", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &.{ "net.tcp", "pancake_tcp_", "c_abi_net_transport_tcp", "transport/tcp" },
+        .check = "transport-provider-architecture",
+        .why = "the generic driver consumes PancakeTransportProvider and must not depend on a concrete TCP implementation",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/driver/provider_registry.zig" },
+        .kind = .file_present,
+        .check = "transport-provider-architecture",
+        .why = "provider package validation, execution-model adapters, copied tables, and leases have one driver-side owner",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/driver/loop.zig" },
+        .kind = .forbid,
+        .needles = &.{ "StreamAdapter", "MultiplexedAdapter", "decodeTransportProfile", "PancakeStreamTransport", "PancakeMultiplexedTransport" },
+        .check = "transport-provider-architecture",
+        .why = "loop.zig owns loop lifecycle and event choreography; provider ABI adaptation belongs to ProviderRegistry",
+    },
+    .{
+        .where = .{ .tree = .{
+            .dir = "src/c_abi",
+            .suffixes = &.{".zig"},
+        } },
+        .kind = .forbid,
+        .needles = &.{
+            "PancakeStreamListenerLocatorFn",
+            "PancakeStreamListenerAdvertiseFn",
+            "PancakeMultiplexedListenerLocatorFn",
+            "PancakeMultiplexedListenerAdvertiseFn",
+        },
+        .check = "transport-provider-architecture",
+        .why = "stream and multiplexed listeners share one locator projection and canonicalization ABI; only their I/O execution models differ",
+    },
+    .{
+        .where = .{ .files = &.{ "include/pancake_transport_provider.h", "tools/gen/header/transport_provider.zig" } },
+        .kind = .forbid,
+        .needles = &.{
+            "PancakeStreamListenerLocatorFn",
+            "PancakeStreamListenerAdvertiseFn",
+            "PancakeMultiplexedListenerLocatorFn",
+            "PancakeMultiplexedListenerAdvertiseFn",
+        },
+        .check = "transport-provider-architecture",
+        .why = "the generated C authority must preserve the execution-model-neutral listener locator callback ABI",
+    },
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .require,
+        .needles = &.{
+            "PancakeTransportListenerLocatorFn listener_locator;",
+            "PancakeTransportListenerAdvertiseFn listener_advertise;",
+        },
+        .check = "transport-provider-architecture",
+        .why = "both provider execution tables consume the common listener locator callback contract",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/net_transport/tcp/mod.zig" },
+        .kind = .forbid,
+        .needles = &.{ "parseKnown(", "IpAddress.connect(", ".server.accept(", "stream.reader(", "stream.writer(" },
+        .check = "transport-provider-architecture",
+        .why = "the TCP C ABI projects net.tcp's admitted profile/runtime; it must not reconstruct semantics or realize sockets independently",
+    },
+    .{
+        .where = .{ .files = &.{ "include/pancake_driver.h", "tools/gen/header/driver.zig" } },
+        .kind = .forbid,
+        .needles = &.{ "typedef struct PancakeTransportProfile", "typedef struct PancakeTransportProvider", "struct PancakeTransportProvider {" },
+        .check = "transport-provider-architecture",
+        .why = "provider layouts belong only to the standalone pancake_transport_provider.h authority",
+    },
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .file_present,
+        .check = "transport-provider-architecture",
+        .why = "transport archives and the driver share one standalone provider ABI header",
+    },
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .require,
+        .needles = &.{"PancakeStreamReadFn read;"},
+        .check = "transport-provider-architecture",
+        .why = "ABI-identical read and metadata callbacks still need role-specific C typedefs; field-aware generation preserves the provider contract's meaning",
+    },
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .require,
+        .needles = &.{"PancakeStreamWriteAllFn write_all;"},
+        .check = "transport-provider-architecture",
+        .why = "the stream execution model exposes an explicit write-all status callback; byte-count writes belong only to multiplexed try_write",
+    },
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .require,
+        .needles = &.{"PancakeStreamConnCloseFn conn_close;"},
+        .check = "transport-provider-architecture",
+        .why = "ABI-identical close callbacks still need role-specific C typedefs; field-aware generation preserves the provider contract's meaning",
+    },
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .require,
+        .needles = &.{"PancakeTransportRetainFn retain;"},
+        .check = "transport-provider-architecture",
+        .why = "the provider lease acquire callback must keep its semantic C typedef despite sharing a signature with readiness callbacks",
+    },
+    .{
+        .where = .{ .file = "include/pancake_transport_provider.h" },
+        .kind = .require,
+        .needles = &.{"PancakeTransportReleaseFn release;"},
+        .check = "transport-provider-architecture",
+        .why = "the provider lease release callback must keep its semantic C typedef despite sharing a signature with listener callbacks",
+    },
+    .{
+        .where = .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+        .kind = .forbid,
+        .needles = &.{ "pancake_driver_new", "pancake_driver_host", "pancake_driver_add_resident", "pancake_iroh_loop_resident" },
+        .check = "transport-provider-architecture",
+        .why = "the provider migration is complete: drivers adopt Hosts and install archive-owned packages through the generic registration ABI",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/host/archive.zig" },
+        .kind = .file_present,
+        .check = "transport-provider-architecture",
+        .why = "Host exports must be rooted by the Host archive rather than an importing consumer",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/driver/symbols.zig" },
+        .kind = .forbid,
+        .needles = &.{".name = \"pancake_host_"},
+        .check = "transport-provider-architecture",
+        .why = "the driver symbol inventory owns only pancake_driver_*; Host keeps its own archive and inventory",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_ffi_host.py" },
+        .kind = .require,
+        .needles = &.{"_lib_path(\"pancake_host\")"},
+        .check = "transport-provider-architecture",
+        .why = "the Python Host table must load libpancake_host",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/stack/internal/ffi/host.ts" },
+        .kind = .require,
+        .needles = &.{"libPath(\"pancake_host\")"},
+        .check = "transport-provider-architecture",
+        .why = "the TypeScript Host table must load libpancake_host",
+    },
+    .{
+        .where = .{ .file = "bindings/racket/private/ffi-host-gen.rkt" },
+        .kind = .require,
+        .needles = &.{"open-pancake-archive \"pancake_host\""},
+        .check = "transport-provider-architecture",
+        .why = "the Racket Host table must load libpancake_host",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/build.rs" },
+        .kind = .require,
+        .needles = &.{"rustc-link-lib=static=pancake_host"},
+        .check = "transport-provider-architecture",
+        .why = "the Rust binding must link the symbol-disjoint Host archive",
+    },
+    .{
+        .where = .{ .tree = .{
+            .dir = "bindings",
+            .suffixes = &.{ ".py", ".rs", ".rkt", ".ts" },
+            .skip_dirs = &.{ "target/", "node_modules/" },
+        } },
+        .kind = .forbid,
+        .needles = &.{
+            "_LoopIrohResident", "_loop_iroh_residents", "_provider_owners",
+            "provider_owners",   "providerOwners",       "_netlayer: IrohNetlayer",
+        },
+        .check = "transport-provider-architecture",
+        .why = "the driver-held provider lease is the native callback-context owner; bindings retain only immutable provider state",
+    },
+    .{
+        .where = .{ .file = "bindings/python/pancake/_loop.py" },
+        .kind = .forbid,
+        .needles = &.{ "_ffi_tcp", "pancake_tcp_", "ensure_tcp_provider" },
+        .check = "transport-provider-architecture",
+        .why = "the generic Python loop registers packages and drives events; transport modules own concrete provider composition",
+    },
+    .{
+        .where = .{ .file = "bindings/rust/src/driver_loop.rs" },
+        .kind = .forbid,
+        .needles = &.{ "ensure_tcp_provider", "crate::dial::DialPlan", "crate::iroh::ensure_loop_provider" },
+        .check = "transport-provider-architecture",
+        .why = "the generic Rust loop registers packages and drives events; dial and transport modules own concrete provider composition",
+    },
+    .{
+        .where = .{ .file = "bindings/racket/private/loop.rkt" },
+        .kind = .forbid,
+        .needles = &.{ "\"ffi-tcp.rkt\"", "driver-loop-add-tcp!" },
+        .check = "transport-provider-architecture",
+        .why = "the generic Racket loop registers packages and drives events; transport modules own concrete provider composition",
+    },
+    .{
+        .where = .{ .file = "bindings/ts/stack/driver_loop.ts" },
+        .kind = .forbid,
+        .needles = &.{ "internal/ffi/tcp", "pancake_tcp_", "ensureTcpProvider" },
+        .check = "transport-provider-architecture",
+        .why = "the generic TypeScript loop registers packages and drives events; transport modules own concrete provider composition",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/net_transport/tcp/mod.zig" },
+        .kind = .require,
+        .needles = &.{".tcp =>"},
+        .check = "transport-provider-architecture",
+        .why = "the TCP archive owns the plain TCP profile in its complete provider package",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/net_transport/tcp/mod.zig" },
+        .kind = .require,
+        .needles = &.{".keyed_tcp =>"},
+        .check = "transport-provider-architecture",
+        .why = "the TCP archive owns the keyed TCP profile in its complete provider package",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/net_transport/tcp/mod.zig" },
+        .kind = .require,
+        .needles = &.{".noise_tcp =>"},
+        .check = "transport-provider-architecture",
+        .why = "the TCP archive owns the Noise-sealed TCP profile while reusable Noise machinery stays below packaging",
+    },
+};
+
+const sturdyref_authority: []const Ban = blk: {
+    const dirs = [_][]const u8{ "src", "include", "bindings", "test", "tools", "interop", "examples", "apps", "cli" };
+    var rows: [dirs.len]Ban = undefined;
+    for (rows[0..], dirs) |*row, dir| {
+        row.* = .{
+            .where = .{ .tree = .{
+                .dir = dir,
+                .suffixes = &.{ ".zig", ".h", ".rs", ".py", ".rkt", ".ts" },
+                .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".zig-cache/", "zig-out/" },
+                .exclude = &.{ "tools/check/meta_check/bans.zig", "tools/check/meta_check/c_abi.zig" },
+            } },
+            .kind = .forbid,
+            .needles = &.{ "pancake_locator_swissnum", "is_sturdyref" },
+            .check = "sturdyref-authority",
+            .why = "peer locators and authority-bearing sturdyrefs are distinct values and handles; do not restore a discriminator-shaped union",
+        };
+    }
+    const frozen = rows;
+    break :blk &frozen;
+};
+
+/// ADR-0112's provider migration deleted the public loop-resident seam rather
+/// than aliasing it. Hold code, bindings, proofs, and current docs to the same
+/// vocabulary so a generated mirror or zero-test build filter cannot preserve
+/// a second architecture.
+const retired_endpoint_abi_vocabulary: []const Ban = blk: {
+    const needles: []const []const u8 = &.{
+        "loop-resident",
+        "loop resident",
+        "LoopResident",
+        "loop_resident",
+        "PancakeLoopReadyEvent",
+        "PANCAKE_LOOP_EV_",
+        "PANCAKE_LOOP_WOULD_BLOCK",
+    };
+    const why = "the multiplexed-transport provider ABI replaced the deleted loop-resident seam; no aliases, stale proof filters, or parallel vocabulary remain";
+    const dirs = [_][]const u8{ "src", "include", "bindings", "test", "tools", "interop", "docs" };
+    var rows: [dirs.len + 1]Ban = undefined;
+    for (rows[0..dirs.len], dirs) |*row, dir| {
+        row.* = .{
+            .where = .{ .tree = .{
+                .dir = dir,
+                .suffixes = &.{ ".zig", ".h", ".rs", ".py", ".rkt", ".ts", ".md" },
+                .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".zig-cache", "zig-out" },
+                .exclude = &.{"tools/check/meta_check/bans.zig"},
+            } },
+            .kind = .forbid,
+            .needles = needles,
+            .check = "transport-provider-architecture",
+            .why = why,
+        };
+    }
+    rows[dirs.len] = .{
+        .where = .{ .file = "build.zig" },
+        .kind = .forbid,
+        .needles = needles,
+        .check = "transport-provider-architecture",
+        .why = why,
+    };
+    const frozen = rows;
+    break :blk &frozen;
+};
+
+/// ADR-0113 moved prerelease ownership and execution names directly. Hold the
+/// first-party implementation and generated mirrors to that move; historical
+/// ADR prose may still name what the decision replaced.
+const retired_ownership_vocabulary: []const Ban = blk: {
+    const needles: []const []const u8 = &.{
+        "PollHost",
+        "poll_host",
+        "pollhost",
+        "ResilientClient",
+        "resilient_client",
+        "dialRetrying",
+        "EndpointResident",
+        "endpoint_resident",
+        "PancakeEndpoint",
+        "PANCAKE_ENDPOINT",
+        "EXEC_ENDPOINT",
+        "RelayNetlayer",
+        "PancakeRelayNetlayer",
+        "pancake_relay_netlayer",
+        "RedeemedReply",
+        "ConnectionCondemned",
+        "inproc-endpoint-",
+        "onion-endpoint-read-frame",
+        "onion-endpoint-write-frame",
+        "onion-endpoint-release",
+        "onion-endpoint-readiness-fd",
+        "endpoint-read-frame",
+        "endpoint-write-frame",
+        "endpoint-release!",
+        "endpoint-transport table",
+        "endpoint provider",
+        "endpoint-provider",
+        "endpoint resident",
+        "endpoint execution",
+    };
+    const why = "ADR-0113 names ownership and execution directly; prerelease keeps no aliases or parallel vocabulary";
+    const dirs = [_][]const u8{ "src", "include", "bindings", "test", "tools", "interop", "examples", "bench", "apps", "cli", "site" };
+    var rows: [dirs.len + 1]Ban = undefined;
+    for (rows[0..dirs.len], dirs) |*row, dir| {
+        row.* = .{
+            .where = .{ .tree = .{
+                .dir = dir,
+                .suffixes = &.{ ".zig", ".h", ".rs", ".py", ".rkt", ".ts", ".md", ".smd" },
+                .skip_dirs = &.{ "zig-pkg/", "target/", "node_modules/", ".zig-cache", "zig-out" },
+                .exclude = &.{"tools/check/meta_check/bans.zig"},
+            } },
+            .kind = .forbid,
+            .needles = needles,
+            .check = "ownership-vocabulary",
+            .why = why,
+        };
+    }
+    rows[dirs.len] = .{
+        .where = .{ .file = "build.zig" },
+        .kind = .forbid,
+        .needles = needles,
+        .check = "ownership-vocabulary",
+        .why = why,
+    };
+    const frozen = rows;
+    break :blk &frozen;
+};
+
+/// Host actions carry CapTP sessions, not transport connections. Keep the
+/// generated mirrors and their hand-written consumers on that one contract
+/// without banning legitimate connection vocabulary in transport adapters.
+const host_action_session_vocabulary: []const Ban = &.{
+    .{
+        .where = .{ .files = &.{
+            "bindings/python/pancake/_action.py",
+            "bindings/python/pancake/_ffi_host.py",
+            "bindings/racket/private/host-action-gen.rkt",
+            "bindings/racket/private/loop.rkt",
+            "bindings/rust/src/session.rs",
+            "bindings/rust/src/session_shared.rs",
+            "tools/gen/binding/host_action.zig",
+        } },
+        .kind = .forbid,
+        .needles = &.{
+            "a.conn_ptr",
+            "aliases={\"session\": \"conn\"}",
+            "PancakeHostAction-conn",
+            "session-vow-conn",
+            "fn raw_conn(&self) -> *mut ffi::PancakeHostSession",
+            "self.shared.raw_conn()",
+        },
+        .check = "host-action-session-vocabulary",
+        .why = "Host actions and PancakeHostSession mirrors use session vocabulary directly; prerelease keeps no connection-named aliases",
+    },
+};
+
 /// An unowned deferral marker in first-party source is a decision hidden in a
 /// comment. The boundary it defers belongs where the release bar can see it:
 /// `docs/boundaries.md`, `docs/roadmap.md`, or an ADR — or the fix lands now,
@@ -916,6 +1346,12 @@ pub const all: []const Ban =
     unobserved_outcome_cap_rows ++
     goblins_runtime_portability ++
     signature_arm_reads ++
+    retired_driver_locator ++
+    transport_provider_architecture ++
+    sturdyref_authority ++
+    retired_endpoint_abi_vocabulary ++
+    retired_ownership_vocabulary ++
+    host_action_session_vocabulary ++
     deferral_markers;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

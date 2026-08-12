@@ -121,6 +121,61 @@ pub fn checkAbiVersionLockstep(
     }
 }
 
+/// Provider tables reserve version negotiation without pretending unsupported
+/// prerelease layouts remain contracts. Every replacement stays at version 1;
+/// this check is relaxed only when pancake intentionally supports an older
+/// released table beside a new one.
+pub fn checkPrereleaseProviderAbiVersions(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const Source = struct {
+        path: []const u8,
+        keys: []const []const u8,
+    };
+    const sources = [_]Source{
+        .{
+            .path = "src/c_abi/shared/transport_provider.zig",
+            .keys = &.{
+                "PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION: u32 =",
+                "PANCAKE_TRANSPORT_PROFILE_ABI_VERSION: u32 =",
+                "PANCAKE_STREAM_TRANSPORT_ABI_VERSION: u32 =",
+            },
+        },
+        .{
+            .path = "src/c_abi/shared/locator.zig",
+            .keys = &.{"PANCAKE_LOCATOR_VIEW_ABI_VERSION: u32 ="},
+        },
+        .{
+            .path = "src/c_abi/shared/multiplexed_transport.zig",
+            .keys = &.{"PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION: u32 ="},
+        },
+    };
+
+    for (sources) |source| {
+        const contents = root.readFileAlloc(io, source.path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for prerelease provider ABI check with {s}", .{ source.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        for (source.keys) |key| {
+            const at = std.mem.indexOf(u8, contents, key) orelse {
+                try appendViolation(gpa, violations, "{s}: provider ABI constant `{s}` is missing", .{ source.path, key });
+                continue;
+            };
+            const version = firstIntIn(contents[at + key.len ..]) orelse {
+                try appendViolation(gpa, violations, "{s}: provider ABI constant `{s}` has no version", .{ source.path, key });
+                continue;
+            };
+            if (version != 1) {
+                try appendViolation(gpa, violations, "{s}: prerelease provider ABI `{s}` is version {d}; unsupported replacement contracts stay at version 1", .{ source.path, key, version });
+            }
+        }
+    }
+}
+
 pub fn checkAbiFreeingVerb(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -258,7 +313,7 @@ pub fn checkCAbiSurfaceShape(
     }
 
     // Invariant 2, one error channel per archive, no extra spelling.
-    const allowed_error_families = [_][]const u8{ "", "host", "tcp", "inproc", "iroh", "webrtc" };
+    const allowed_error_families = [_][]const u8{ "", "host", "driver", "tcp", "relay", "inproc", "iroh", "webrtc", "onion" };
     for (names.items) |name| {
         if (!std.mem.endsWith(u8, name, "_last_error")) continue;
         if (std.mem.endsWith(u8, name, "_clear_last_error")) continue;
@@ -275,7 +330,7 @@ pub fn checkCAbiSurfaceShape(
             if (std.mem.eql(u8, f, family)) family_ok = true;
         }
         if (!family_ok) {
-            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, host, tcp, inproc, iroh", .{ name, family });
+            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, host, driver, tcp, relay, inproc, iroh, webrtc, onion", .{ name, family });
             continue;
         }
         const clear = if (family.len == 0)
@@ -286,6 +341,34 @@ pub fn checkCAbiSurfaceShape(
         if (!name_set.contains(clear)) {
             try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no matching {s}; an error channel is a last_error/clear_last_error pair", .{ name, clear });
         }
+    }
+}
+
+/// A peer locator is location vocabulary; a sturdyref adds authority-bearing
+/// swiss bytes and therefore has a distinct handle and release path.
+pub fn checkLocatorAuthoritySplit(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    try expectFileContains(io, gpa, root, violations, "src/c_abi/ocapn/uri.zig", &.{
+        "const PancakeLocator = c.PancakeLocator;",
+        "const PancakeSturdyRef = c.PancakeSturdyRef;",
+        "const SturdyRefPayload = struct",
+        "pancake_sturdyref_borrow_locator",
+        "pancake_sturdyref_swissnum",
+        "pancake_sturdyref_release",
+    });
+    try expectFileContains(io, gpa, root, violations, "include/pancake_ocapn.h", &.{
+        "typedef struct PancakeLocator PancakeLocator;",
+        "typedef struct PancakeSturdyRef PancakeSturdyRef;",
+        "pancake_sturdyref_borrow_locator",
+        "pancake_sturdyref_swissnum",
+        "pancake_sturdyref_release",
+    });
+    if (try fileContains(io, gpa, root, "src/c_abi/shared/locator.zig", "swiss")) {
+        try appendViolation(gpa, violations, "src/c_abi/shared/locator.zig: PancakeLocatorView must remain peer-location vocabulary and cannot carry sturdyref authority", .{});
     }
 }
 
@@ -1452,8 +1535,11 @@ const c_abi_binding_loaders = [_][]const u8{
 const abi_vocabulary_headers = [_][]const u8{
     "include/pancake_ocapn.h",
     "include/pancake_host.h",
+    "include/pancake_driver.h",
     "include/pancake_net_transport_tcp.h",
+    "include/pancake_net_transport_relay.h",
     "include/pancake_net_transport_inproc.h",
+    "include/pancake_net_transport_onion.h",
     "include/pancake_net_transport_iroh.h",
     "include/pancake_net_transport_webrtc.h",
 };
@@ -1461,8 +1547,12 @@ const abi_vocabulary_headers = [_][]const u8{
 const doc_c_abi_header_paths = [_][]const u8{
     "include/pancake_ocapn.h",
     "include/pancake_host.h",
+    "include/pancake_driver.h",
+    "include/pancake_transport_provider.h",
     "include/pancake_net_transport_tcp.h",
+    "include/pancake_net_transport_relay.h",
     "include/pancake_net_transport_inproc.h",
+    "include/pancake_net_transport_onion.h",
     "include/pancake_net_transport_iroh.h",
     "include/pancake_net_transport_webrtc.h",
     "transports/iroh/include/pancake_iroh_sidecar.h",
@@ -1697,7 +1787,7 @@ fn isPancakeIdentChar(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_';
 }
 
-/// HostAction / Node.Action / C embedder_pump arm parity: a seventh action kind
+/// HostAction / Node.Action / C embedder_pump arm parity: a new action kind
 /// must fail the build rather than silently drop in one of three switch spines.
 pub fn checkHostActionArmLockstep(
     io: std.Io,
@@ -1734,7 +1824,7 @@ pub fn checkHostActionArmLockstep(
     };
     defer gpa.free(zig_action);
     // Zig HostAction tags (snake) must match header constants (SCREAMING).
-    const zig_tags = [_][]const u8{ "dial", "flush", "close", "need_gift_id", "settled", "failed" };
+    const zig_tags = [_][]const u8{ "dial", "flush", "close", "need_gift_id", "settled", "failed", "resume_work" };
     if (action_names.items.len != zig_tags.len) {
         try appendViolation(gpa, violations, "HostAction arm lockstep: header has {d} PANCAKE_HOST_ACTION_* but Zig HostAction expects {d} tags", .{ action_names.items.len, zig_tags.len });
     }
@@ -1805,7 +1895,8 @@ pub fn checkHostActionArmLockstep(
 
 /// ADR-0009 introducing-session promise proxy: production callers must stay
 /// wired on Node/Host, and the retired unfinished Host needle must not return.
-/// One settlement spine: `applyRelayedResolution`. The deleted Peer queue
+/// One settlement spine: Node enters through the escrow-backed
+/// `applyRelayedResolutionGuaranteed`. The deleted Peer queue
 /// (`relayResolution` / `drainRelayedResolutions`) must not return under src/.
 pub fn checkUnwiredHostPluginApis(
     io: std.Io,
@@ -1824,7 +1915,7 @@ pub fn checkUnwiredHostPluginApis(
     }
 
     const rows = [_]struct { call_needle: []const u8, def_path: []const u8 }{
-        .{ .call_needle = ".applyRelayedResolution(", .def_path = "src/ocapn/engine/mod.zig" },
+        .{ .call_needle = ".applyRelayedResolutionGuaranteed(", .def_path = "src/ocapn/engine/mod.zig" },
         .{ .call_needle = ".installThirdPartyImport(", .def_path = "src/ocapn/session/imported_promise.zig" },
     };
     for (rows) |row| {
@@ -1835,7 +1926,7 @@ pub fn checkUnwiredHostPluginApis(
 
     // Deleted queue spine must not reappear under production src/.
     if (try srcHasCallOutsideDef(io, gpa, root, ".relayResolution(", "src/ocapn/engine/mod.zig")) {
-        try appendViolation(gpa, violations, "deleted Peer.relayResolution reappeared under src/ — settle via applyRelayedResolution only", .{});
+        try appendViolation(gpa, violations, "deleted Peer.relayResolution reappeared under src/ — settle via applyRelayedResolutionGuaranteed only", .{});
     }
     if (try srcHasCallOutsideDef(io, gpa, root, "drainRelayedResolutions(", "src/ocapn/engine/cross_peer.zig")) {
         try appendViolation(gpa, violations, "deleted drainRelayedResolutions reappeared under src/ — settle via applyRelayedResolution only", .{});
@@ -1871,8 +1962,6 @@ pub fn checkUnwiredHostPluginApis(
         "pending_dial_by_identity",
         "stagePendingDial",
         "freePendingDialShell",
-        "freeDialParts",
-        "freeDialPart",
         "unparseable exporter locator",
         "dial: struct { pending: PendingId }",
         "applyRelayedResolution",
@@ -1971,13 +2060,15 @@ pub fn checkUnwiredHostPluginApis(
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/host/host.zig", &.{
         "pancake_host_pending_dial",
-        "PancakePendingDial",
+        "PancakeLocatorHintView",
+        "PancakeLocatorView",
+        "locator_adapter.project",
         "inst.core.pendingDial",
     });
-    try expectFileContains(io, gpa, root, violations, "src/c_abi/host/mod.zig", &.{
-        "pub const PancakePendingDial",
-    });
-    // Dual C pending-dial exports must stay deleted — one struct view.
+    if (try fileContains(io, gpa, root, "src/c_abi/host/mod.zig", "PancakePendingDial")) {
+        try appendViolation(gpa, violations, "src/c_abi/host/mod.zig: fixed fragment pending-dial struct must stay deleted — shared PancakeLocatorView is the ABI vocabulary", .{});
+    }
+    // Dual C pending-dial exports must stay deleted — one complete locator projection.
     for ([_][]const u8{ "pancake_host_pending_dial_locator", "pancake_host_pending_dial_parts" }) |needle| {
         if (try fileContains(io, gpa, root, "src/c_abi/host/host.zig", needle)) {
             try appendViolation(gpa, violations, "src/c_abi/host/host.zig: `{s}` must stay deleted — use pancake_host_pending_dial", .{needle});
@@ -2020,16 +2111,13 @@ pub fn checkUnwiredHostPluginApis(
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node.zig", &.{
         "UnparseableExporterLocator",
     });
-    // exporterDialed must free dial parts through freeDialPart (empty hint sentinel).
-    for ([_][]const u8{
-        "allocator.free(entry.transport)",
-        "allocator.free(entry.designator)",
-        "allocator.free(entry.direct_addresses_hint)",
-    }) |raw_free| {
-        if (try fileContains(io, gpa, root, "src/ocapn/engine/node.zig", raw_free)) {
-            try appendViolation(gpa, violations, "src/ocapn/engine/node.zig: exporterDialed must not raw-free dial parts ({s}) — use freePendingDialShell", .{raw_free});
-        }
-    }
+    // Pending dial paths own typed hints as well as transport and designator;
+    // one teardown spine must release the complete shape.
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node.zig", &.{
+        "fn freeDialPath(self: *Node, path: DialPath) void",
+        "model.freeHints(self.allocator, path.hints);",
+        "self.freeDialPaths(pending.paths);",
+    });
     // Host dial harness must borrow the dial view, not re-parse the locator.
     if (try fileContains(io, gpa, root, "test/driver/core_host_test.zig", "parsePeer(allocator, pending)")) {
         try appendViolation(gpa, violations, "test/driver/core_host_test.zig: dial arm must use pendingDial, not parsePeer", .{});
@@ -2260,16 +2348,24 @@ test "zigLineHasAdrInStringLiteral ignores comments and flags string literals" {
     try std.testing.expect(!zigLineHasAdrInStringLiteral(".message = \"cap exceeded\","));
 }
 
-/// A C-ABI entry point that can set the error slot must be able to report that
-/// it did.
+/// Two body invariants on every C-ABI entry point, both about failure paths
+/// the compiler cannot see.
 ///
-/// The rule is the body, not the name. Thirty `void` exports are genuinely
-/// infallible releases and must stay `void`; two others refused from inside a
-/// callback, freed nothing, wrote the per-thread diagnostic, and returned
-/// `void` anyway — so an embedder that dropped the handle leaked a whole host
-/// and the only signal was a slot nobody was told to read. The generated
-/// header even documented a code they could not return. "Writes the error slot"
-/// is exactly the line between the two groups, and it is greppable.
+/// First: an entry point that can set the error slot must be able to report
+/// that it did. The rule is the body, not the name. Thirty `void` exports are
+/// genuinely infallible releases and must stay `void`; two others refused from
+/// inside a callback, freed nothing, wrote the per-thread diagnostic, and
+/// returned `void` anyway — so an embedder that dropped the handle leaked a
+/// whole host and the only signal was a slot nobody was told to read. The
+/// generated header even documented a code they could not return. "Writes the
+/// error slot" is exactly the line between the two groups, and it is greppable.
+///
+/// Second: an `export fn` returns codes, not errors, so an `errdefer` in its
+/// body never fires — the cleanup it promises silently leaks on every failure
+/// path, and the code compiles green. The driver archive shipped five such
+/// bodies in one sitting before a cold read caught them. The fallible half
+/// belongs in an error-returning helper with real `errdefer`s; the export maps
+/// the error to a code at the boundary.
 pub fn checkAbiReturnShape(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -2300,8 +2396,6 @@ pub fn checkAbiReturnShape(
             const name = contents[at..name_end];
             const body_start = std.mem.indexOfScalarPos(u8, contents, name_end, '{') orelse break;
             const signature = contents[name_end..body_start];
-            // Only the `void` returns are in question; a code already reports.
-            if (std.mem.indexOf(u8, signature, ") void") == null) continue;
 
             var depth: usize = 0;
             var i = body_start;
@@ -2313,6 +2407,12 @@ pub fn checkAbiReturnShape(
                 }
             }
             const body = contents[body_start..@min(i + 1, contents.len)];
+            if (std.mem.indexOf(u8, body, "errdefer") != null) {
+                try appendViolation(gpa, violations, "{s}: `{s}` is an `export fn`, so its `errdefer` never fires (the function returns codes, not errors) and the cleanup it promises leaks on every failure path. Move the fallible half into an error-returning helper and map the error to a code at the boundary.", .{ path, name });
+            }
+            // Only the `void` returns are in question below; a code already
+            // reports.
+            if (std.mem.indexOf(u8, signature, ") void") == null) continue;
             if (std.mem.indexOf(u8, body, "setLastError") == null) continue;
             try appendViolation(gpa, violations, "{s}: `{s}` returns `void` and writes the error slot, so an embedder cannot see the failure it just recorded. Give it an `i32` code, or stop recording one.", .{ path, name });
         }

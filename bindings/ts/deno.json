@@ -8,8 +8,8 @@
     "./relay"
   ],
   "tasks": {
-    "smoke": "deno run --allow-ffi --allow-read --allow-net --allow-env dogfood/zig_smoke.ts",
-    "check": "deno check abi/constants.ts stack/mod.ts stack/transport/tcp.ts stack/transport/inproc.ts stack/ffi.ts iroh/mod.ts iroh/internal.ts relay/mod.ts dogfood/zig_smoke.ts dogfood/gifter_handoff.ts web/mod.ts web/adapter.ts web/test/web_peer_test.ts web/test/serve_ws_host.ts web/wasm_handshake_smoke.ts webrtc/mod.ts"
+    "smoke": "deno run --v8-flags=--expose-gc --allow-ffi --allow-read --allow-net --allow-env dogfood/zig_smoke.ts",
+		"check": "deno check abi/constants.ts stack/mod.ts stack/driver_loop.ts stack/transport/tcp.ts stack/transport/inproc.ts stack/transport/onion.ts stack/transport/relay.ts stack/ws_channel.ts stack/ffi.ts iroh/mod.ts iroh/internal.ts relay/mod.ts dogfood/zig_smoke.ts dogfood/gifter_handoff.ts web/mod.ts web/adapter.ts web/test/web_peer_test.ts web/test/serve_ws_host.ts web/test/wasm_handshake_smoke.ts web/test/relay_goblins_harness.ts webrtc/mod.ts webrtc/channel.ts"
   },
   "fmt": {
     "useTabs": true,

@@ -41,4 +41,9 @@ cd "$app"
 deno task typecheck
 deno task fmt:check
 deno lint
+deno task build
+test -f dist/pancake_host.wasm || {
+	echo "ocapnviz-test: production bundle omitted pancake_host.wasm" >&2
+	exit 1
+}
 exec deno test -A

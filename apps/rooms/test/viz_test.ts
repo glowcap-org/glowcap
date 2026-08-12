@@ -15,8 +15,9 @@
 // takes its topology with it, or a reloading viewer sees the ghosts of a peer
 // that left.
 
-import { parseRecord, replayLines, startViz } from "../server/viz.ts";
+import { parseRecord, replayLines, startViz, type VizServer } from "../server/viz.ts";
 import { announceLines, publishUrl } from "../lib/viz_publish.ts";
+import { Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/stack";
 import type { TraceEvent } from "@pancake/stack";
 
 function assertEquals(actual: unknown, expected: unknown): void {
@@ -161,27 +162,58 @@ Deno.test("a reconnecting producer re-announces its live topology and nothing el
 
 // ── The endpoint over real sockets ───────────────────────────────────────────
 
-/** A viewer socket that collects every record the endpoint forwards. */
+/** A browser-shaped viewer: WebSocket is only the byte channel; records arrive
+ * through an inbox capability after enlivening the announced sturdyref. */
 class Viewer {
 	readonly records: Record<string, unknown>[] = [];
-	#socket: WebSocket;
+	#host: Host;
+	#session: Session;
+	#closed: Promise<void>;
+	#released = false;
 
-	private constructor(socket: WebSocket) {
-		this.#socket = socket;
-		socket.onmessage = (msg) => {
-			if (typeof msg.data === "string") this.records.push(JSON.parse(msg.data));
-		};
+	private constructor(host: Host, session: Session, closed: Promise<void>) {
+		this.#host = host;
+		this.#session = session;
+		this.#closed = closed.finally(() => {
+			if (this.#released) return;
+			this.#released = true;
+			this.#host.release();
+		});
 	}
 
-	static async connect(port: number): Promise<Viewer> {
+	static async connect(viz: VizServer): Promise<Viewer> {
+		const port = await viz.ready;
+		const sturdyref = await viz.sturdyref;
+		const locator = parseSturdyRef(sturdyref).locator;
 		const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
-		const viewer = new Viewer(socket);
 		await opened(socket);
+		const host = new Host(); // rooms-profile-exempt: production ocapnviz's v1.0 peer.
+		const session = await Session.establishDialedLocator(
+			host,
+			locator.transport,
+			locator.designator,
+			webSocketChannel(socket),
+		);
+		const closed = session.serve().catch(() => {});
+		const viewer = new Viewer(host, session, closed);
+		const inbox = session.spawn((verb, args) => {
+			if (verb !== "record" || args.length !== 1 || typeof args[0] !== "string") {
+				throw new Error("test inbox received an invalid record");
+			}
+			viewer.records.push(JSON.parse(args[0]));
+			return null;
+		});
+		const trace = await session.enliven(sturdyref);
+		await session.send(trace, "subscribe", [inbox]);
 		return viewer;
 	}
 
 	close(): void {
-		this.#socket.close();
+		void this.#session.close();
+	}
+
+	waitClosed(): Promise<void> {
+		return this.#closed;
 	}
 
 	of(kind: string): Record<string, unknown>[] {
@@ -240,7 +272,7 @@ Deno.test("two producers' identical session ids stay apart", async () => {
 	const viz = startViz(0);
 	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		const alice = await publisher(port);
 		const bob = await publisher(port);
 		alice.send(openRecord("live-h1-s1", "alice", "room"));
@@ -266,7 +298,7 @@ Deno.test("the room's own trace is scoped like any other producer's", async () =
 	const viz = startViz(0);
 	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		const peer = await publisher(port);
 		viz.sink({
 			v: 1,
@@ -298,7 +330,7 @@ Deno.test("both ends of one wire reach the viewer", async () => {
 	const viz = startViz(0);
 	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		const alice = await publisher(port);
 		const bob = await publisher(port);
 		alice.send(openRecord("live-h1-s1", "alice", "bob", wire));
@@ -345,7 +377,7 @@ Deno.test("two different wires both draw", async () => {
 	const viz = startViz(0);
 	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		const peer = await publisher(port);
 		peer.send(openRecord("live-h1-s1", "alice", "bob", "a".repeat(64)));
 		peer.send(openRecord("live-h1-s2", "alice", "carol", "b".repeat(64)));
@@ -365,7 +397,7 @@ Deno.test("one end closing a wire reaches the viewer", async () => {
 	const viz = startViz(0);
 	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		const alice = await publisher(port);
 		const bob = await publisher(port);
 		alice.send(openRecord("live-h1-s1", "alice", "bob", wire));
@@ -403,7 +435,7 @@ Deno.test("a producer that leaves takes its sessions with it", async () => {
 	const viz = startViz(0);
 	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		const peer = await publisher(port);
 		peer.send(openRecord("live-h1-s1", "alice", "room"));
 		await viewer.expect("ocapn.session-opened", 1);
@@ -412,7 +444,7 @@ Deno.test("a producer that leaves takes its sessions with it", async () => {
 		assertEquals(viewer.of("ocapn.session-closed").length, 0);
 		// And a viewer connecting afterwards replays no topology — it is told
 		// the batch is over, and the batch is empty.
-		const later = await Viewer.connect(port);
+		const later = await Viewer.connect(viz);
 		await settle();
 		assertEquals(later.records.map((r) => r.kind), ["trace.replay-end"]);
 		later.close();
@@ -443,7 +475,7 @@ Deno.test("a late viewer replays the live topology and no traffic", async () => 
 			op: "say",
 		}));
 		await settle();
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		await viewer.expect("ocapn.session-meta", 1);
 		assertEquals(viewer.of("ocapn.session-opened").length, 1);
 		assertEquals(viewer.of("ocapn.message-decoded").length, 0);
@@ -492,7 +524,7 @@ Deno.test("a viewer is told where its replay ends", async () => {
 		const peer = await publisher(port);
 		peer.send(openRecord("live-h1-s1", "alice", "room", "wire-1"));
 		await settle();
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		await viewer.expect("trace.replay-end", 1);
 		// It comes last: everything before it is the batch.
 		const last = viewer.records[viewer.records.length - 1];
@@ -510,17 +542,61 @@ Deno.test("a viewer is told where its replay ends", async () => {
 	}
 });
 
-Deno.test("an empty replay is still closed", async () => {
+Deno.test("an empty replay completes and excludes the viewer's own session", async () => {
 	// A viewer connecting to an idle endpoint has to learn that it has the
 	// whole picture, and "nothing" is a whole picture. Without the mark it
 	// would hold an empty batch until the first live record — and a quiet
 	// room may not send one for minutes.
 	const viz = startViz(0);
-	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		await viewer.expect("trace.replay-end", 1);
+		await settle();
 		assertEquals(viewer.records.length, 1);
+	} finally {
+		viz.close();
+	}
+});
+
+Deno.test("a slow viewer is closed on overflow without taking the endpoint down", async () => {
+	const viz = startViz(0);
+	try {
+		const viewer = await Viewer.connect(viz);
+		await viewer.expect("trace.replay-end", 1);
+		const open: TraceEvent = {
+			v: 1,
+			sim_t_ns: 0,
+			kind: "ocapn.session-opened",
+			session: "room-s1",
+			a: "rooms",
+			b: "alice",
+		};
+		// The first delivery is in flight while these synchronous writes fill the
+		// bounded subscriber queue. Overflow is observable as closure of this
+		// exact CapTP session, never as a silently stale "connected" viewer.
+		for (let i = 0; i < 300; i += 1) viz.sink(open);
+		let deadline: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				viewer.waitClosed(),
+				new Promise<never>((_, reject) => {
+					deadline = setTimeout(
+						() => reject(new Error("overflow did not close the viewer")),
+						2_000,
+					);
+				}),
+			]);
+		} finally {
+			if (deadline !== undefined) clearTimeout(deadline);
+		}
+
+		// Capacity belongs to subscriptions, not the endpoint. A fresh browser
+		// peer can enliven the same durable capability and receive its snapshot.
+		const replacement = await Viewer.connect(viz);
+		await replacement.expect("trace.replay-end", 1);
+		assertEquals(replacement.of("ocapn.session-opened").length, 1);
+		replacement.close();
+		await replacement.waitClosed();
 	} finally {
 		viz.close();
 	}
@@ -543,7 +619,7 @@ Deno.test("a producer cannot forge the end of a replay", async () => {
 	const viz = startViz(0);
 	const port = await viz.ready;
 	try {
-		const viewer = await Viewer.connect(port);
+		const viewer = await Viewer.connect(viz);
 		await viewer.expect("trace.replay-end", 1);
 		const peer = await publisher(port);
 		peer.send(JSON.stringify({

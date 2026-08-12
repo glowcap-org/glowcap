@@ -8,14 +8,15 @@
 //! linked, which needs cargo. The header generator
 //! (`tools/gen/header/iroh.zig`) only *reflects* over the module's types and
 //! signatures, never calling them, but the generator executable still has to
-//! link. These stubs satisfy the linker so
-//! `zig build gen-header-net-transport-iroh{,-check}` runs cargo-free; the real
-//! sidecar replaces them in `libpancake_net_transport_iroh`.
+//! link. These stubs satisfy the linker for build-time reflection and for CLI
+//! tests that exercise no live iroh path, keeping `zig build check` independent
+//! of Cargo's machine-local cache. The real sidecar replaces them in
+//! `libpancake_net_transport_iroh` and every live iroh proof.
 //!
 //! Every body traps: linking these into anything that actually dials iroh is a
 //! build-wiring mistake, and it should fail loud rather than silently no-op.
 
-const msg = "iroh sidecar stub: build-time only (header generation); link libpancake_iroh_sidecar.a to run";
+const msg = "iroh sidecar stub: reflection/test link only; link libpancake_iroh_sidecar.a to run";
 
 export fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32, connect_timeout_ms: u64) ?*anyopaque {
     _ = .{ secret_seed32, reachability, connect_timeout_ms };
@@ -38,10 +39,6 @@ export fn pancake_iroh_sidecar_connect_blocking(
     out_code: *i32,
 ) ?*anyopaque {
     _ = .{ ep, node_id, node_id_len, addr_hints, addr_hints_len, out_code };
-    @panic(msg);
-}
-export fn pancake_iroh_sidecar_accept(ep: *anyopaque) ?*anyopaque {
-    _ = ep;
     @panic(msg);
 }
 export fn pancake_iroh_sidecar_accept_timeout(ep: *anyopaque, timeout_ms: i32) ?*anyopaque {

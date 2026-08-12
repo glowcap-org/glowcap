@@ -4,7 +4,17 @@
 	"exports": {
 		".": "./mod.ts"
 	},
+	"publish": {
+		"include": [
+			"**/*.ts",
+			"README.md",
+			"browser-bundle.json"
+		],
+		"exclude": [
+			"test/**"
+		]
+	},
 	"tasks": {
-		"check": "deno check mod.ts adapter.ts test/web_peer_test.ts test/serve_ws_host.ts wasm_handshake_smoke.ts"
+		"check": "deno check mod.ts adapter.ts test/web_peer_test.ts test/serve_ws_host.ts test/wasm_handshake_smoke.ts"
 	}
 }

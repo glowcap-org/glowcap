@@ -1,5 +1,5 @@
 /**
- * Live mode — wires a `LiveFeed` (timeline-event websocket consumer)
+ * Live mode — wires a `LiveFeed` (capability-native trace consumer)
  * into a fresh `Engine` whose `TimelineDocument` is mutable. Each
  * incoming `TimelineEvent` is appended to the doc's primary recording
  * source (via `primaryObservations`) so the engine picks it up on the
@@ -39,7 +39,7 @@
 
 import { Engine } from "./engine.ts";
 import type { EngineError } from "./errors.ts";
-import { LiveFeed } from "./live-feed.ts";
+import { LiveFeed, type LivePeerFactory } from "./live-feed.ts";
 import { primaryObservations } from "./temporal/recording-access.ts";
 import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
 
@@ -74,8 +74,7 @@ const FORWARD_SLACK_MS = 250;
  * Between the boundaries the offset holds still, which is the
  * point: the live tail's inter-event spacing survives exactly.
  *
- * Exported so tests can exercise the stamping without spinning up
- * a real websocket.
+ * Exported so tests can exercise the stamping without opening a real peer.
  */
 export function makeLiveAppender(opts: {
   liveDoc: TimelineDocument;
@@ -102,21 +101,24 @@ export function makeLiveAppender(opts: {
  *  Both reports are optional and both are released by `dispose`, so a feed
  *  the caller no longer owns can never write into it. */
 export type FeedDial = {
-  url: string;
-  /** Called after the websocket opens, with `true`; on close, with `false`. */
+  /** The complete OCapN sturdyref announced by the trace endpoint. */
+  sturdyref: string;
+  /** Test seam for the browser peer; production uses the wasm-backed peer. */
+  peerFactory?: LivePeerFactory;
+  /** Called after CapTP subscription completes, with `true`; on close, with `false`. */
   onConnectionChange?: (connected: boolean) => void;
-  /** Called when the feed cannot dial at all — a URL no websocket can be
-   *  opened at. Taken here rather than subscribed by the caller because that
+  /** Called when the feed cannot dial or enliven the trace capability. Taken
+   *  here rather than subscribed by the caller because that
    *  failure happens inside the dial, so a subscriber attached afterwards
    *  would never hear it. */
   onError?: (error: EngineError) => void;
 };
 
 /**
- * Open a feed at `url` and report what it does, with nothing capturing what
- * arrives.
+ * Open the announced trace capability and report what it does, with nothing
+ * capturing what arrives.
  *
- * This is what Live mode holds while nobody has pressed Record: the socket
+ * This is what Live mode holds while nobody has pressed Record: the session
  * and its two reports, and no document. `startLiveMode` below is this plus
  * the capture, and it is built on this call rather than beside it — the two
  * differ in what they RETURN, never in how they dial, and a second spelling
@@ -126,7 +128,7 @@ export function dialLiveFeed(opts: FeedDial): {
   feed: LiveFeed;
   dispose: () => void;
 } {
-  const feed = new LiveFeed(opts.url);
+  const feed = new LiveFeed(opts.sturdyref, opts.peerFactory);
   const unsubConnection = opts.onConnectionChange
     ? feed.onConnectionChange(opts.onConnectionChange)
     : () => {};
@@ -148,7 +150,7 @@ export function dialLiveFeed(opts: FeedDial): {
  *
  * The dial itself is `dialLiveFeed`; what this adds is the document and the
  * appender that folds arrivals into it. Returns a `dispose()` the caller
- * invokes to close the websocket and release subscribers.
+ * invokes to close the CapTP session and release subscribers.
  */
 export function startLiveMode(
   opts: FeedDial & {
@@ -165,7 +167,7 @@ export function startLiveMode(
     metadata: {
       "dct:title": "Live timeline-event feed",
       "dct:description":
-        `Live event stream from ${opts.url}. New events append as they arrive.`,
+        `Live event stream from ${opts.sturdyref}. New events append as they arrive.`,
     },
     duration: opts.durationMs ?? 60 * 60 * 1000, // 1h default
     recording: {

@@ -8,7 +8,7 @@
 ;; The host action switch (`drain-host-actions!`) lives
 ;; in `private/action.rkt`. Far vows (`session-vow` / `session-index` /
 ;; `session-untag` / settle), far-send mint (`session-far-send`), and the
-;; shared fetch wait live in `private/promise.rkt`. The conn byte path
+;; shared fetch wait live in `private/promise.rkt`. The session byte path
 ;; — handshake, read raw bytes, `pancake_host_session_feed_bytes`, write what
 ;; `take_outbound` drains, feed-refusal / `last_abort`, EOF / `break_far_vows` —
 ;; lives in `private/pump.rkt`. The public barrel (`pancake.rkt`) requires those
@@ -31,6 +31,8 @@
 ;; its own quiet socket without sharing the reader window with a write or fire.
 
 (require ffi/unsafe
+         racket/lazy-require
+         racket/random
          racket/string
          racket/async-channel
          "constants.rkt"
@@ -50,6 +52,17 @@
          "promise.rkt"
          "gc.rkt")
 
+(lazy-require
+ ["loop.rkt"
+  (open-driver-loop
+   driver-loop-start!
+   driver-loop-abort!)]
+ ["tcp-provider.rkt" (driver-loop-add-tcp!)]
+ ["dial.rkt"
+  (plan-dial host-port-dial? peer-id-dial?
+             peer-id-dial-reach-kind peer-id-dial-reach-value)]
+ ["iroh.rkt" (iroh-adopt-loop! make-iroh-config)])
+
 (provide (all-defined-out)
          ;; Feed-refusal `last_abort` lives in pump; re-export for dogfood that
          ;; requires this module for CapTP verbs. The handshake bound lives
@@ -59,31 +72,33 @@
          HANDSHAKE-TIMEOUT-MS)
 
 ;; A session carries its pump state (`async`), its vat, the `host` it
-;; belongs to, and its `conn-id` — the opaque PancakeHostSession handle the host
-;; minted for it. The host (endpoint half of Goblins `mycapn`; it owns
+;; belongs to, and its `native` opaque `PancakeHostSession` handle the host
+;; minted for it. The host (product role of Goblins `mycapn`; it owns
 ;; `engine.Node` for the router tables — ADR-0079) redeems three-party handoff
 ;; gives transparently and routes redeemed-capability sends to the exporter
 ;; that hosts them, so the application's `session-send`/`session-fetch`/
 ;; `session-tell` surface never sees a give. `pending-writes`/`write-gate`
 ;; carry encoded outbound frames from the locked action drain to the socket:
 ;; the drain pops `take_outbound` under the host lock (a host verb) into the
-;; FIFO, and the write happens after the lock releases, under the per-session
-;; gate — so a slow partner's socket stalls its own session's writer, never
-;; every thread sharing the host. The FIFO is the order authority: whichever
-;; thread holds the gate writes everything queued so far, in queue order, so
-;; frames never reorder on the wire.
+;; byte-bounded FIFO, and the write happens after the lock releases, under the
+;; per-session gate — so a slow partner's socket stalls its own session's
+;; writer, never every thread sharing the host. The FIFO is the order authority:
+;; whichever thread holds the gate writes everything queued so far, in queue
+;; order, so frames never reorder on the wire.
 ;; `owns-host?` is a box set when this session created the host it runs on,
 ;; which `connect` does when the caller passes no `#:host`. Such a host has no
 ;; other reachable owner, so closing the session releases it; a caller-supplied
 ;; host is never released here, because sibling sessions may still be using it.
-(struct session (async vat host conn-id pending-writes write-gate owns-host?))
+(define PENDING-WRITE-HIGH-WATER (* 2 HOST-FRAME-CAP))
+(struct pending-writes (channel bytes lock high-water))
+(struct session (async vat host native pending-writes write-gate owns-host?))
 
 ;; While true, a settle/fetch callback fired by a far-vow *break* (a dead
 ;; transport, a released connection) rather than a partner resolution, so the
 ;; awaiting verb classifies it as the typed ERR-CLOSED instead of ERR-BROKEN.
 (define current-breaking (make-parameter #f))
 
-(define (session-ptr c) (session-conn-id c))
+(define (session-ptr c) (session-native c))
 (define (session-closed? c) (unbox (async-connection-closed? (session-async c))))
 (define (session-released? c) (unbox (async-connection-released? (session-async c))))
 
@@ -93,8 +108,11 @@
 
 ;; Nonzero once the keyed handshake has completed and the session is open.
 (define (session-open? c)
-  (and (not (session-released? c))
-       (= 1 (pancake_host_session_is_open (session-ptr c)))))
+  (call-with-host
+   (session-host c)
+   (lambda ()
+     (and (not (session-released? c))
+          (= 1 (pancake_host_session_is_open (session-ptr c)))))))
 
 ;; Distributed GC (`session-with-gc!` / `track-import!` / `drain-gc!`) lives in
 ;; `private/gc.rkt`. Feed-refusal / `session-last-abort` lives in `private/pump.rkt`.
@@ -108,21 +126,42 @@
 ;; session so one broken partner never strands another's frames.
 (define (write-touched! touched)
   (for ([c (in-list touched)])
-    (with-handlers ([converts-to-broken? void]) (write-pending! c))))
+    (with-handlers
+        ([(lambda (_e) #t)
+          (lambda (_e)
+            ;; A popped frame cannot be replayed, and the stream may contain
+            ;; only its prefix. End this session so its far vows settle closed;
+            ;; keep draining unrelated sessions even if teardown also faults.
+            (with-handlers ([(lambda (_e) #t) void]) (session-close! c)))])
+      (write-pending! c))))
 
 ;; Run the post-lock half of a drain: write flushed connections, then fire
 ;; deferred dials / settles / closes.
 (define (run-drain-effects! fx)
-  (write-touched! (drain-effects-touched fx))
-  (for ([fire (in-list (drain-effects-fires fx))])
-    (with-handlers ([converts-to-broken? void]) (fire))))
+  (let loop ([current fx])
+    (write-touched! (drain-effects-touched current))
+    (for ([fire (in-list (drain-effects-fires current))])
+      (with-handlers ([converts-to-broken? void]) (fire)))
+    (when (drain-effects-resume current)
+      ;; Yield with no host lock held, then continue in constant stack space.
+      (sleep 0)
+      (loop ((drain-effects-resume current))))))
 
 ;; Merge two drain-effects records in FIFO order (earlier first). Used when a
 ;; reader-held feed nests further locked drains under the same deferral box.
 (define (merge-drain-effects a b)
   (drain-effects
    (append (drain-effects-touched a) (drain-effects-touched b))
-   (append (drain-effects-fires a) (drain-effects-fires b))))
+   (append (drain-effects-fires a) (drain-effects-fires b))
+   (cond
+     [(and (drain-effects-resume a) (drain-effects-resume b))
+      (lambda ()
+        (merge-drain-effects
+         ((drain-effects-resume a))
+         ((drain-effects-resume b))))]
+     [(drain-effects-resume a)]
+     [(drain-effects-resume b)]
+     [else #f])))
 
 ;; The one drain choreography every host-driving path shares: run `thunk`
 ;; under the host lock — it returns the locked drain's `drain-effects` (most
@@ -132,9 +171,10 @@
 ;; and hand the extra values back to the caller. Under
 ;; `current-defer-drain-effects` (pump.rkt), only the merge happens here; the
 ;; reader after-thunk owns effects + bump.
-(define (with-host-drain m thunk)
+(define (with-host-drain m thunk #:allow-released? [allow-released? #f])
   (call-with-values
-   (lambda () (call-with-host m thunk))
+   (lambda ()
+     ((if allow-released? call-with-host/terminal call-with-host) m thunk))
    (lambda (fx . rest)
      (cond
        [(current-defer-drain-effects)
@@ -191,15 +231,21 @@
 
 ;; ── Construction: build, establish, dial, listen, accept ─────────────────────
 
-;; Wrap a freshly minted host connection in a `connection`: build the pump
+;; Wrap a freshly minted Host session in a `session`: build the pump
 ;; state and the vat, install the vat's far half, and join the host's registry
 ;; so a FLUSH action and a routed send can find it. The single place a
-;; `connection` is born, so every path shares the same wiring.
+;; `session` is born, so every path shares the same wiring.
 (define (build-session m ptr transport time-travel?)
   (define ac (make-async-connection transport))
   (define v (make-vat #:time-travel? time-travel?))
-  (define c (session ac v m ptr (make-async-channel) (make-semaphore 1) (box #f)))
-  (set-box! (async-connection-conn ac) c)
+  (define c (session ac v m ptr
+                     (pending-writes (make-async-channel)
+                                     (box 0)
+                                     (make-semaphore 1)
+                                     PENDING-WRITE-HIGH-WATER)
+                     (make-semaphore 1)
+                     (box #f)))
+  (set-box! (async-connection-session ac) c)
   (vat-install-far!
    v
    (far-ops (lambda (ref method args answer?) (session-far-send c ref method args answer?))
@@ -215,6 +261,7 @@
   (define m (session-host c))
   (define ac (session-async c))
   (set-box! (async-connection-closed? ac) #t)
+  (pending-writes-clear! (session-pending-writes c))
   ;; The handle must see exactly one release: the mid-turn arm parks an
   ;; unconditional release closure, so a second abandon (two mid-turn closes
   ;; coalesced into one feed, or a repeated `session-close!`) would park a
@@ -230,7 +277,7 @@
        ;; FAIL completions after the trampoline returns (Python/TS parity).
        (set-box! (async-connection-released? ac) #t)
        (host-unregister-session! m ptr)
-       (host-park-release! m (lambda () (pancake_host_session_release ptr)))]
+       (host-park-release! m (lambda () (native-session-release! m ptr)))]
       [else
        ;; The abandoned connection's own parked frames die with it, but the
        ;; drain may flush a *different, healthy* connection (a sibling withdraw
@@ -241,7 +288,7 @@
          (lambda ()
            (set-box! (async-connection-released? ac) #t)
            (host-unregister-session! m ptr)
-           (pancake_host_session_release ptr)))])))
+           (native-session-release! m ptr)))])))
 
 ;; Drive a freshly opened connection's keyed handshake to an open session,
 ;; abandoning the connection on any failure so a rude partner costs one
@@ -309,6 +356,7 @@
 ;; `accept-next-session`, which every listening surface goes through.
 (define (establish-accepted-session m transport-name server-designator transport
                                        #:accepted-local-addr [accepted-local-addr ""]
+                                       #:designator-scheme [designator-scheme #f]
                                        #:time-travel? [time-travel? #f]
                                        #:verified-channel-key
                                        [verified-channel-key #f]
@@ -329,8 +377,11 @@
             (define spin (pin-immobile sb))
             (define lpin (pin-immobile lb))
             (define plan (make-PancakeAcceptPlan #f 0 #f 0))
+            (unless designator-scheme
+              (raise-pancake 'establish-accepted-session ERR-INVALID-ARGUMENT
+                             "accepted byte-channel provider must declare its designator scheme"))
             (check/host (pancake_host_plan_accept
-                         tpin (bytes-length tb)
+                         designator-scheme
                          spin (bytes-length sb)
                          lpin (bytes-length lb)
                          plan))
@@ -340,12 +391,17 @@
                   (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)))
             (host-set-advertised-locator!
              m
-             (encode-peer-locator
-              transport-name
-              (plan-text (PancakeAcceptPlan-designator plan)
-                         (PancakeAcceptPlan-designator-len plan))
-              (plan-text (PancakeAcceptPlan-direct-addresses-hint plan)
-                         (PancakeAcceptPlan-direct-addresses-hint-len plan))))
+             (let ([direct-addresses
+                    (plan-text (PancakeAcceptPlan-direct-addresses-hint plan)
+                               (PancakeAcceptPlan-direct-addresses-hint-len plan))])
+               (locator
+                transport-name
+                (plan-text (PancakeAcceptPlan-designator plan)
+                           (PancakeAcceptPlan-designator-len plan))
+                (if (string=? direct-addresses "")
+                    (hash)
+                    (hash HINT-DIRECT-ADDRESSES direct-addresses))
+                (if (string=? direct-addresses "") 'boolean-false 'map))))
             (define-values (rc ptr)
               (pancake_host_session_open_accepted (host-ptr m)
                                                    tpin (bytes-length tb)))
@@ -377,6 +433,7 @@
 ;; being absorbed into a retry. What `next-partner` itself raises — a closed
 ;; listener — propagates: that ends the loop, as it should.
 (define (accept-next-session m transport-name server-designator next-partner
+                                #:designator-scheme [designator-scheme #f]
                                 #:time-travel? [time-travel? #f]
                                 #:handshake-timeout-ms
                                 [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
@@ -390,23 +447,21 @@
       (with-handlers ([converts-to-broken? (lambda (_e) #f)])
         (establish-accepted-session m transport-name server-designator transport
                                        #:accepted-local-addr accepted-local-addr
+                                       #:designator-scheme designator-scheme
                                        #:time-travel? time-travel?
                                        #:verified-channel-key verified-channel-key
                                        #:handshake-timeout-ms handshake-timeout-ms)))
     (or c (loop))))
 
-;; Record the dialable exporter location this session's gifter origination
-;; signs into a give, in place of the exporter's own signed session record
-;; (ADR-0009). `raw-locator` is the verbatim bytes from `encode-peer-locator`
-;; (read off the registered exporter URI). A rendezvous that learned a member's
-;; iroh URI sets it so a give can name an exporter reachable only by a dial hint
-;; under the relay-less `Direct` posture. Unset, origination uses the partner's
-;; signed location.
-(define (session-set-exporter-locator! c raw-locator)
-  (call-with-host (session-host c)
-    (lambda ()
-      (check/host (pancake_host_session_set_exporter_location
-                   (session-ptr c) (pin-immobile raw-locator) (bytes-length raw-locator))))))
+;; Record the complete dialable exporter location this session's gifter embeds
+;; in a give (ADR-0009). `#f` restores the partner's signed location.
+(define (session-set-exporter-locator! c loc)
+  (define (apply-view! view)
+    (call-with-host (session-host c)
+      (lambda ()
+        (check/host (pancake_host_session_set_exporter_location
+                     (session-ptr c) view)))))
+  (if loc (call-with-locator-view loc apply-view!) (apply-view! #f)))
 
 ;; Who this session's partner proved itself to be, as a `partner-identity`: the
 ;; partner's session public key, the location designator it signed, and the
@@ -485,10 +540,11 @@
         (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
         (define touched (drain-effects-touched drained))
         (drain-effects (if (memq c touched) touched (cons c touched))
-                       (drain-effects-fires drained))))))
+                       (drain-effects-fires drained)
+                       (drain-effects-resume drained))))))
 
 ;; Named `session-close!` with the full prefix, keeping the
-;; application-surface close distinct from the netlayer's `endpoint-release!`.
+;; application-surface close distinct from the netlayer's `connection-release!`.
 ;; Close the session: stop the transport first, then retire the host's
 ;; entry and free the host handle, so no foreign call touches a freed
 ;; session.
@@ -574,7 +630,7 @@
 ;; settles, returning the fulfilled value, the request/reply half whose
 ;; fire-and-forget sibling is `session-tell`. A reference this session spawned
 ;; resolves in process; a partner's ref goes out on the wire, and a redeemed
-;; handoff token routes to the exporter connection that hosts it. A broken
+;; handoff token routes to the exporter session that hosts it. A broken
 ;; reply raises a typed `exn:fail:pancake` carrying PANCAKE_ERR_BROKEN, exactly
 ;; as the Python and Rust `send`s fail. Single-threaded: it pumps events
 ;; itself, matching the rest of the Racket binding. The local arm is
@@ -601,23 +657,24 @@
 ;; When `target` answers with a three-party handoff give — a room's `introduce`
 ;; naming another member, say — this host redeems it by dialing the exporter,
 ;; and the reply settles as a capability hosted on that fresh direct
-;; connection. The connection is otherwise internal to the binding. `via` is
-;; it, so the caller can spawn or publish its own objects on the very
-;; connection the redeemed capability lives on. That is the one place a
-;; capability handed back to the exporter is valid: an OCapN near export names
-;; a position on one specific connection's peer, so an inbox spawned on the
-;; introducing session means nothing to the exporter that receives it.
+;; session. Its byte connection is otherwise internal to the binding. `via` is
+;; the application-facing session, so the caller can spawn or publish its own
+;; objects in the very CapTP conversation the redeemed capability lives in.
+;; That is the one place a capability handed back to the exporter is valid: an
+;; OCapN near export names a position in one specific session, so an inbox
+;; spawned on the introducing session means nothing to the exporter that
+;; receives it.
 ;;
-;; `via` is #f whenever no such connection is in play: the reply is not a live
+;; `via` is #f whenever no such exporter session is in play: the reply is not a live
 ;; capability at all, or it is an ordinary far reply from `target` itself, or
-;; its exporter connection has already gone. `(or via c)` is then the session
+;; its exporter session has already gone. `(or via c)` is then the session
 ;; to work on, and the caller needs no separate case for the two.
 ;;
 ;; The exporter is resolved from the reply's own route rather than from
 ;; whichever dial this host finished most recently. So it stays exact with
 ;; several introductions in flight at once, and a reply whose exporter an
 ;; earlier redeem already dialed resolves to that live session with no second
-;; connection opened.
+;; session opened.
 (define (session-send-redeeming c target verb . args)
   (guard-open 'session-send-redeeming c)
   (drain-gc! c) ; flush any imports reclaimed since the last session op
@@ -666,7 +723,7 @@
 ;; `blocking-fetch` in `promise.rkt`.
 (define (session-fetch c name)
   (guard-open 'session-fetch c)
-  (drain-gc! c) ; flush any imports reclaimed since the last connection op
+  (drain-gc! c) ; flush any imports reclaimed since the last session op
   (define nb (string->bytes/utf-8 name))
   (track-import!
    c
@@ -701,7 +758,12 @@
 ;; carried beside the protocol facts. Fire-and-forget like every
 ;; trace emit.
 (define (session-annotate! c #:label label)
-  (trace-annotate-session! (host-ptr (session-host c)) (session-ptr c) label))
+  (define m (session-host c))
+  (call-with-host
+   m
+   (lambda ()
+     (guard-open 'session-annotate! c)
+     (trace-annotate-session! m (session-ptr c) label))))
 
 (define (session-tell c target verb . args)
   (guard-open 'session-tell c)
@@ -732,7 +794,7 @@
 ;; Enliven a complete sturdyref against the host: select a live session this
 ;; host already dialed to the sturdyref's peer, or stage a dial and settle
 ;; over the opened session. The blocking wait is host-scoped — the vow
-;; belongs to no session (its row's conn is #f, and no session's teardown
+;; belongs to no session (its row's home is #f, and no session's teardown
 ;; sweeps it), the initial drain runs a staged dial in this thread, the
 ;; dialed exporter serves itself on its own thread (`run-dial!`), and this
 ;; thread parks on host progress until the settle lands. The dial executor's
@@ -753,6 +815,31 @@
         (define fresh (session-vow #f id 'pending '()))
         (register-vow! m fresh)
         fresh)))
+  ;; A sessionless native Host can move its still-unpopped DIAL into the
+  ;; generic driver. Promote before any byte-fed action drain borrows it; the
+  ;; driver then consumes the original queue with no transport dispatch here.
+  (when (and (not (host-loop-of m)) (zero? (hash-count (host-sessions m))))
+    (define lp (open-driver-loop #:host m))
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (e) (driver-loop-abort! lp) (raise e))])
+      (define locator (sturdyref-locator (parse-sturdyref sturdyref)))
+      (define plan
+        (plan-dial (locator-transport locator)
+                   (locator-designator locator)
+                   (hash-ref (locator-hints locator) HINT-DIRECT-ADDRESSES "")
+                   DIAL-POSTURE-REDEEM 0))
+      (cond
+        [(host-port-dial? plan) (driver-loop-add-tcp! lp)]
+        [(peer-id-dial? plan)
+         (define reach
+           (if (= (peer-id-dial-reach-kind plan) DIAL-REACH-CONFIGURED)
+               (host-redeem-reachability-value m)
+               (peer-id-dial-reach-value plan)))
+         (iroh-adopt-loop! lp (make-iroh-config reach) #:seed (host-seed m))]
+        [else
+         (raise-pancake 'host-enliven ERR-INVALID-ARGUMENT
+                        "the sturdyref transport has no native provider")])
+      (driver-loop-start! lp)))
   ;; Fire the staged work: a cache-hit's pre-queued settle, or the dial
   ;; action whose executor opens the exporter session and its serve thread.
   (with-host-drain m (lambda () (drain-host-actions! m)))
@@ -776,34 +863,27 @@
        (raise-pancake 'host-enliven ERR-BROKEN "enliven \"~a\" broke: ~a" sturdyref (cdr s))])))
 
 ;; ── Off-turn settlement: the resolver pair ────────────────────────────────────
-;; A behavior mints a pair with `host-spawn-resolver` (legal inside a turn,
-;; which is the primary use), defers its answer onto the pair's vow with
-;; `resolver-forward-turn!`, parks the resolver for whatever completes the
-;; work, and returns; the completion settles it later with
+;; A behavior atomically defers with `host-defer-turn`, parks the resolver for
+;; whatever completes the work, and returns; the completion settles it later with
 ;; `resolver-fulfill!` / `resolver-break!` as its own top-level event. One
 ;; settle per resolver — a second refuses — and a deferred settle carries
 ;; plain data only: a value that names a capability is refused, and an answer
 ;; that carries authority forwards to a send instead.
 
-(struct resolver (host vow-id id))
+(struct resolver (host id))
 
-;; Mint a resolver pair on `m`.
-(define (host-spawn-resolver m)
-  (call-with-host m
-    (lambda ()
-      (define-values (rc vow-id resolver-id) (pancake_host_spawn_resolver (host-ptr m)))
-      (check/host rc)
-      (resolver m vow-id resolver-id))))
-
-;; Defer the current turn's answer onto `r`'s vow: the answer settles when
-;; the resolver does. Legal only inside a behavior hosted by `r`'s host.
-(define (resolver-forward-turn! r)
+;; Atomically defer the current turn and return its settle authority.
+(define (host-defer-turn m)
   (define t (current-turn))
   (unless t
-    (error 'resolver-forward-turn! "a turn verb: call it inside a behavior"))
-  (unless (eq? (session-host (cdr t)) (resolver-host r))
-    (error 'resolver-forward-turn! "the turn belongs to another host"))
-  (check/host (pancake_host_turn_forward_vow (car t) (resolver-vow-id r))))
+    (error 'host-defer-turn "a turn verb: call it inside a behavior"))
+  (unless (eq? (session-host (cdr t)) m)
+    (error 'host-defer-turn "the turn belongs to another host"))
+  (call-with-host m
+    (lambda ()
+      (define-values (rc resolver-id) (pancake_host_turn_defer (car t)))
+      (check/host rc)
+      (resolver m resolver-id))))
 
 ;; Settle the deferred answer fulfilled with the capability-free `value`.
 (define (resolver-fulfill! r value)

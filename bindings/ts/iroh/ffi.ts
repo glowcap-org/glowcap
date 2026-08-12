@@ -22,9 +22,20 @@ const P = "pointer",
 
 const irohSymbolDefs = {
 	pancake_iroh_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_iroh_netlayer_new: { parameters: [B, U, B, B], result: I, outBuffers: [3] },
-	pancake_iroh_netlayer_close: { parameters: [P], result: V },
-	pancake_iroh_netlayer_release: { parameters: [P], result: V },
+	pancake_iroh_netlayer_new: {
+		parameters: [B, U, B, B],
+		result: I,
+		outBuffers: [3],
+		nonblocking: true,
+	},
+	pancake_iroh_netlayer_new_with_diagnostic: {
+		parameters: [B, U, B, B, B, U, B],
+		result: I,
+		outBuffers: [3, 4, 6],
+		nonblocking: true,
+	},
+	pancake_iroh_netlayer_close: { parameters: [P], result: V, nonblocking: true },
+	pancake_iroh_netlayer_release: { parameters: [P], result: V, nonblocking: true },
 	pancake_iroh_netlayer_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_netlayer_direct_addrs: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_release: { parameters: [P], result: V },
@@ -46,6 +57,13 @@ const irohSymbolDefs = {
 	pancake_iroh_netlayer_cancel_connect: { parameters: [P, U], result: I },
 	pancake_iroh_conn_try_read: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_try_write: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
+	pancake_iroh_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_iroh_netlayer_new_with_diagnostic_in: {
+		parameters: [P, B, U, B, B, B, U, B],
+		result: I,
+		outBuffers: [4, 5, 7],
+		nonblocking: true,
+	},
 } as const;
 
 let irohSyms: Symbols | null = null;

@@ -909,6 +909,15 @@ pub fn validateStoredResolution(self: *Session, resolution: model.Resolution) Se
     }
 }
 
+/// Validate the destination of a prepared listener fire. Its payload has
+/// already passed `validateStoredResolution`; this checks the one remaining
+/// session-relative name without repeating the payload's allocation-bearing
+/// set/struct folds for every fan-out recipient.
+pub fn validateListenerFireTarget(self: *Session, listener: model.FarRef) Error!void {
+    const reference: model.Reference = .{ .far = listener };
+    try validateReference(self, reference, .sent, .held_import);
+}
+
 fn validateArguments(self: *Session, args: []const model.Argument, depth: usize, comptime ref_check: SendRefCheck) SendArgError!void {
     if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
     for (args) |arg| {
@@ -921,8 +930,10 @@ fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime 
         .reference => |reference| switch (ref_check) {
             .held => try validateReference(self, reference, .sent, .held_import),
             // Only the `near` arm is exempt; see `SendRefCheck`.
-            .near_may_be_first_export => if (reference != .near)
-                try validateReference(self, reference, .sent, .held_import),
+            .near_may_be_first_export => switch (reference) {
+                .near => |near| try self.validateExportPositionForMarshal(near.export_position),
+                else => try validateReference(self, reference, .sent, .held_import),
+            },
         },
         .list => |items| try validateArguments(self, items, depth + 1, ref_check),
         .set => |items| {

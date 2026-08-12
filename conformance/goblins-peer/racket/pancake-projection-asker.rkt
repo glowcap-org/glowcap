@@ -4,10 +4,9 @@
 ;;
 ;; Goblins 0.18.0 has no outbound projection API at the application layer; this
 ;; script marshals the same CapTP records Goblins already defines and writes
-;; them through the live session (`tcp-netlayer` `interop-send`). Question
-;; positions 1–2 carry the record/list delivers; projection ops mint 3–4 so
-;; they do not collide with Goblins' questioned-send counter (interop-send
-;; bypasses the local answer table).
+;; them through the live session (`tcp-netlayer` `interop-send`). The netlayer's
+;; outbound observation hook supplies the Goblins-allocated record/list answer
+;; positions; the probe never guesses names from Goblins' question allocator.
 ;;
 ;; Usage:
 ;;   racket pancake-projection-asker.rkt <target-port> <swiss-ascii> [local-port]
@@ -36,10 +35,18 @@
 (define response-ch (make-async-channel))
 (define dialer-vat (make-vat))
 
-(define record-answer-pos 1)
-(define list-answer-pos 2)
-(define get-answer-pos 3)
-(define index-answer-pos 4)
+(define record-answer-pos (box #f))
+(define list-answer-pos (box #f))
+;; interop-send bypasses Goblins' question allocator and answer table. Keep its
+;; test-only answers in a disjoint high range instead of colliding with the
+;; allocator's low, monotonically increasing positions.
+(define get-answer-pos #x7ffffffffffffffe)
+(define index-answer-pos #x7fffffffffffffff)
+;; The manual projection frames below name the ordinary Goblins questions by
+;; answer position. Keep those questions strongly reachable until both
+;; projections settle: once a vow becomes unreachable Goblins may legally send
+;; op:gc-answers, after which its answer position no longer names anything.
+(define held-answer-vows (box '()))
 ;; Export 0 is Goblins' bootstrap object and therefore a valid local export for
 ;; a V1.0 listen callback descriptor. The probe observes pancake's callback on
 ;; the wire; it does not claim Goblins has an application-level projection API.
@@ -76,6 +83,19 @@
     [(symbol? payload) (symbol->string payload)]
     [else #f]))
 
+(define (observe-outbound msg)
+  (when (equal? (record-label msg) "op:deliver")
+    (define args (record-field msg 2))
+    (define answer-pos (record-field msg 3))
+    (define verb (and (pair? args) (payload->text (car args))))
+    (cond
+      [(equal? verb "record") (set-box! record-answer-pos answer-pos)]
+      [(equal? verb "list") (set-box! list-answer-pos answer-pos)])))
+
+(define (required-answer-pos answer-pos verb)
+  (or (unbox answer-pos)
+      (error 'projection-asker "did not observe Goblins answer position for ~a" verb)))
+
 (define (observe-inbound msg)
   (when (equal? (record-label msg) "op:deliver")
     (define target-pos (export-desc-pos (record-field msg 1)))
@@ -98,7 +118,8 @@
  (lambda ()
    (define netlayer
      (spawn ^tcp-netlayer "127.0.0.1" local-port
-            #:interop-message-sink observe-inbound))
+            #:interop-message-sink observe-inbound
+            #:interop-outbound-message-sink observe-outbound))
    (define mycapn (spawn-mycapn netlayer))
    (define target
      (ocapn-sturdyref
@@ -109,6 +130,7 @@
        (lambda (provider)
          (eprintf "asker: enlivened provider~n")
          (define record-vow (<- provider 'record "pancake-get"))
+         (set-box! held-answer-vows (list record-vow))
          (on record-vow
              (lambda (record)
                (eprintf "asker: record vow resolved: ~v~n" record)
@@ -123,6 +145,7 @@
                  (put-err 'get-field got-name)
                  (void))
                (define list-vow (<- provider 'list))
+               (set-box! held-answer-vows (list record-vow list-vow))
                (on list-vow
                    (lambda (lst)
                      (eprintf "asker: list vow resolved~n")
@@ -141,13 +164,15 @@
                      ;; here would race process teardown and could drop the
                      ;; frames this scenario exists to put on the wire.
                      (on (<- netlayer 'interop-send
-                             (make-op:get (make-desc:answer record-answer-pos)
+                             (make-op:get (make-desc:answer
+                                           (required-answer-pos record-answer-pos 'record))
                                           "name"
                                           get-answer-pos)
                              interop-marshallers)
                          (lambda (_get-sent)
                            (on (<- netlayer 'interop-send
-                                   (make-op:index (make-desc:answer list-answer-pos)
+                                   (make-op:index (make-desc:answer
+                                                   (required-answer-pos list-answer-pos 'list))
                                                   0
                                                   index-answer-pos)
                                    interop-marshallers)
@@ -185,6 +210,7 @@
 (let loop ([sent? #f] [got-get? #f] [got-index? #f] [deadline (+ (current-inexact-milliseconds) 10000.0)])
   (cond
     [(and sent? got-get? got-index?)
+     (set-box! held-answer-vows '())
      (printf "PROJECTION OK: op:get and op:index settled with expected payloads~n")
      (exit 0)]
     [else

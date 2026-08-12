@@ -20,7 +20,7 @@
 // It runs the same scenario twice against one room, once for each way a browser
 // tab can be reached directly. One pair of tabs advertises a `webrtc` locator
 // (`?dm=webrtc`), so their line is a DataChannel the room only signals; the
-// other pair advertises `keyed-relay`, so their line is a cold dial through the
+// other pair advertises `noise-relay`, so their line is a Noise-sealed cold dial through the
 // relay's rendezvous. Both are direct lines between two tabs with the room off
 // the message path, and a defect in reopening one of them is not a defect in
 // reopening the other — running both is what makes "is this specific to
@@ -52,7 +52,7 @@ const ROOM = "lobby";
  * either of these transports is a direct line and nothing else. */
 const MODES = [
 	{ name: "webrtc", query: "?dm=webrtc", transport: "webrtc", first: "alice", second: "bob" },
-	{ name: "keyed-relay", query: "", transport: "keyed-relay", first: "carol", second: "dave" },
+	{ name: "noise-relay", query: "", transport: "noise-relay", first: "carol", second: "dave" },
 ] as const;
 
 function fail(message: string): never {

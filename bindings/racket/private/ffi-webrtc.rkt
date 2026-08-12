@@ -4,8 +4,8 @@
 ;; The WebRTC companion library (`libpancake_net_transport_webrtc`, ADR-0089) is
 ;; optional -- absent unless built with cargo -- so it loads lazily on first
 ;; `webrtc-fn` use, caching the bound table and naming the build step when the
-;; library is absent. A peer is an opaque handle with no config struct, so there
-;; is no cstruct to declare or layout to pin. Nothing here is public. The keyed
+;; library is absent. Peers are opaque; the endpoint config and readiness record
+;; are concrete ABI structs pinned below. Nothing here is public. The keyed
 ;; table itself is generated from the archive's annotated symbol inventory
 ;; (`ffi-webrtc-gen.rkt`, `zig build gen-binding-racket-ffi`); this module opens
 ;; the library and hands it to the generated table builder.
@@ -18,6 +18,7 @@
 (provide webrtc-fn
          _PancakeWebrtcReadyEvent
          PancakeWebrtcReadyEvent-subject PancakeWebrtcReadyEvent-events
+         _PancakeWebrtcConfig _PancakeWebrtcConfig-pointer make-PancakeWebrtcConfig
          WEBRTC-EV-OPEN WEBRTC-EV-CANDIDATE WEBRTC-EV-READABLE
          WEBRTC-EV-WRITABLE WEBRTC-EV-CLOSED)
 
@@ -25,6 +26,15 @@
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakeWebrtcReadyEvent _PancakeWebrtcReadyEvent
              PANCAKE-WEBRTC-READY-EVENT-SIZE PANCAKE-WEBRTC-READY-EVENT-LAYOUT)
+
+(define-cstruct _PancakeWebrtcConfig
+  ([ice-servers _pointer]
+   [ice-servers-len _size]
+   [include-loopback-candidates _uint32]
+   [worker-threads _uint32])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeWebrtcConfig _PancakeWebrtcConfig
+             PANCAKE-WEBRTC-CONFIG-SIZE PANCAKE-WEBRTC-CONFIG-LAYOUT)
 
 (define webrtc-ffi-cache (box #f))
 
@@ -45,6 +55,6 @@
                       "webrtc transport unavailable: could not load libpancake_net_transport_webrtc from "
                       "PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. "
                       "Build it with `zig build webrtc-abi` (needs cargo).")))))
-  (webrtc-ffi-table L))
+  (webrtc-ffi-table L _PancakeWebrtcConfig-pointer))
 
 (define (webrtc-fn key) (hash-ref (webrtc-ffi) key))

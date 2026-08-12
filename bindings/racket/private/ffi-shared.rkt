@@ -35,6 +35,17 @@
   (when (> (bytes-length bs) 0) (memcpy buf bs (bytes-length bs)))
   buf)
 
+;; An immobile block of `cap` bytes for a C call to write into, read back with
+;; `bytes<-c` once the call returns.
+;;
+;; Neither of the two nearby shapes works for an out buffer on a call marked
+;; `#:blocking?`. `pin-immobile` copies inbound, so the callee's write lands in a
+;; block nobody reads back, and the length out-params still report the write, which
+;; is what makes the mistake look like success. Handing the callee a Racket
+;; bytestring directly is right only where the collector cannot run during the
+;; call, and a blocking call is exactly where it can.
+(define (out-immobile cap) (malloc (max cap 1) 'atomic-interior))
+
 ;; The other direction of the same boundary: a bounded copy out of a borrowed
 ;; C (pointer, length) view into a fresh Racket bytestring, so the result
 ;; outlives whatever library call owned the view.
@@ -84,6 +95,27 @@
   ([bytes _pointer] [len _size] [shape _uint32] [release _pointer] [private-data _pointer]) #:malloc-mode 'atomic-interior)
 
 (define-cstruct _PancakeReference ([id _uint64]) #:malloc-mode 'atomic-interior)
+
+;; Mirrors `PancakeOnionConfig`, whose Zig declaration in
+;; `src/c_abi/net_transport/onion/mod.zig` documents every field. Every pointer is
+;; borrowed for the constructor call only, because the netlayer copies the text it
+;; needs; `'atomic-interior` keeps the struct itself immobile for that call.
+(define-cstruct _PancakeOnionConfig
+  ([socks _pointer] [socks_len _size]
+   [control_endpoint _pointer] [control_endpoint_len _size]
+   [auth_kind _uint32]
+   [auth_secret _pointer] [auth_secret_len _size]
+   [service_key _pointer] [service_key_len _size]
+   [forward _pointer] [forward_len _size])
+  #:malloc-mode 'atomic-interior)
+
+;; Mirrors `PancakeRelayConfig`: one archive-owned runtime serves both
+;; keyed-relay and noise-relay. The constructor copies both URL views before
+;; returning, so the pinned buffers are call-local.
+(define-cstruct _PancakeRelayConfig
+  ([relay_url _pointer] [relay_url_len _size]
+   [register_url _pointer] [register_url_len _size])
+  #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeArgument
   ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]
    [bytes _pointer] [bytes-len _size] [reference _PancakeReference]
@@ -95,7 +127,7 @@
 ;; FAIL's `message` are host-owned and valid until the next
 ;; `pancake_host_next_action`, so the binding copies them out immediately.
 (define-cstruct _PancakeHostAction
-  ([kind _uint32] [ticket _uint64] [conn _pointer]
+  ([kind _uint32] [ticket _uint64] [session _pointer]
    [value _PancakeArgument] [message _pointer] [message-len _size]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, then three
 ;; (pointer, length) views of process-static strings the library owns.
@@ -233,13 +265,50 @@
 (pin-layout! '_PancakePartnerIdentity _PancakePartnerIdentity PANCAKE-PARTNER-IDENTITY-SIZE
              PANCAKE-PARTNER-IDENTITY-LAYOUT)
 
-;; Borrowed pending dial view (transport/designator/hint).
-(define-cstruct _PancakePendingDial
-  ([transport _pointer]
-   [transport-len _size]
-   [designator _pointer]
-   [designator-len _size]
-   [hint _pointer]
-   [hint-len _size]) #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakePendingDial _PancakePendingDial PANCAKE-PENDING-DIAL-SIZE
-             PANCAKE-PENDING-DIAL-LAYOUT)
+;; ── Loop-archive types (pancake_driver.h, ADR-0112) ────────────────────────
+
+(define-cstruct _PancakeDriverOptions
+  ([abi-version _uint32] [struct-size _size]
+   [wire-buffer-bytes _size] [max-pending-opens _size]
+   [handshake-ms _uint32] [settle-ms _uint32])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeDriverOptions _PancakeDriverOptions PANCAKE-DRIVER-OPTIONS-SIZE
+             PANCAKE-DRIVER-OPTIONS-LAYOUT)
+
+;; PancakeDriverEvent: one drained loop event. `kind` (a DRIVER-EVENT-*
+;; constant) selects the live fields; a COMPLETION carries the byte-fed
+;; queue's own SETTLE/FAIL shape in `action`, and every borrowed view
+;; (`message`, the action's value and message) dies at the next
+;; `pancake_driver_next_event`, so the drain copies out immediately.
+(define-cstruct _PancakeDriverEvent
+  ([kind _uint32] [ticket _uint64] [session _pointer]
+   [action _PancakeHostAction] [message _pointer] [message-len _size])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeDriverEvent _PancakeDriverEvent PANCAKE-DRIVER-EVENT-SIZE
+             PANCAKE-DRIVER-EVENT-LAYOUT)
+
+(define-cstruct _PancakeLocatorHintView
+  ([name _pointer] [name-len _size] [kind _uint32]
+   [bytes _pointer] [bytes-len _size] [boolean-value _uint8] [integer-value _int64])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeLocatorHintView _PancakeLocatorHintView
+             PANCAKE-LOCATOR-HINT-VIEW-SIZE PANCAKE-LOCATOR-HINT-VIEW-LAYOUT)
+
+(define-cstruct _PancakeLocatorView
+  ([abi-version _uint32] [struct-size _size]
+   [transport _pointer] [transport-len _size]
+   [designator _pointer] [designator-len _size]
+   [hints _pointer] [hint-count _size] [hint-wire-form _uint32])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeLocatorView _PancakeLocatorView
+             PANCAKE-LOCATOR-VIEW-SIZE PANCAKE-LOCATOR-VIEW-LAYOUT)
+
+;; The only transport shape a binding mirrors. Execution-model tables stay
+;; private to transport archives and the driver.
+(define-cstruct _PancakeTransportProvider
+  ([abi-version _uint32] [struct-size _size]
+   [entries _pointer] [entry-count _size]
+   [lease-ctx _pointer] [retain _pointer] [release _pointer])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeTransportProvider _PancakeTransportProvider
+             PANCAKE-TRANSPORT-PROVIDER-SIZE PANCAKE-TRANSPORT-PROVIDER-LAYOUT)

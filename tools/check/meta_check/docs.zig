@@ -407,9 +407,10 @@ pub fn checkSiteContentLinks(
     }
 }
 
-/// The first-call examples deliberately show TCP and iroh side by side. Keep
-/// those examples intact when tightening site prose: removing the SuperMD tab
-/// wrapper silently turns the page into a TCP-only example.
+/// First-call CapTP examples show tcp / keyed-tcp / noise-tcp / iroh side by
+/// side. Keep those tabs intact when tightening site prose: removing the
+/// SuperMD wrapper silently turns a page into a single-transport example.
+/// Freshness of the generated bodies is `zig build gen-site-examples-check`.
 pub fn checkSiteTransportTabs(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -421,14 +422,16 @@ pub fn checkSiteTransportTabs(
         groups: usize,
     }{
         .{ .path = "site/content/start.smd", .groups = 1 },
-        .{ .path = "site/content/bindings/python.smd", .groups = 1 },
-        .{ .path = "site/content/bindings/racket.smd", .groups = 1 },
-        .{ .path = "site/content/bindings/rust.smd", .groups = 1 },
+        .{ .path = "site/content/bindings/python.smd", .groups = 2 },
+        .{ .path = "site/content/bindings/racket.smd", .groups = 2 },
+        .{ .path = "site/content/bindings/rust.smd", .groups = 2 },
         .{ .path = "site/content/bindings/ts.smd", .groups = 2 },
     };
     const markers = [_][]const u8{
         "> []($block.attrs('code-tabs'))",
         "> **tcp**",
+        "> **keyed-tcp**",
+        "> **noise-tcp**",
         "> **iroh**",
     };
 
@@ -442,7 +445,7 @@ pub fn checkSiteTransportTabs(
         for (markers) |marker| {
             const count = std.mem.count(u8, contents, marker);
             if (count != page.groups) {
-                try appendViolation(gpa, violations, "{s}: expected {d} `{s}` marker{s}, found {d}; keep the TCP and iroh examples in their tab groups", .{
+                try appendViolation(gpa, violations, "{s}: expected {d} `{s}` marker{s}, found {d}; keep the CapTP transport examples in their tab groups", .{
                     page.path,
                     page.groups,
                     marker,
@@ -556,7 +559,9 @@ pub fn checkSiteNavParity(
 /// after a fifth resident landed, and one dropped a resident entirely. The
 /// transport symbols are declared once in `src/ocapn/model/transport.zig`; the
 /// residents are the subset that carry a `src/net/transport/<name>.zig` netlayer
-/// (all but `keyed_relay`, a resident-less browser rendezvous symbol). This pins
+/// (all but `keyed_relay`, a resident-less browser rendezvous symbol, and
+/// `noise_relay`, realized as a sealing completion-backend adapter over the
+/// keyed-relay pipe rather than a blocking resident). This pins
 /// every roster doc to name every resident, so adding one forces each inventory
 /// to mention it rather than silently falling behind. It replaces a fragile
 /// negative phrase-ban with a positive set check.
@@ -573,6 +578,7 @@ pub fn checkResidentRoster(
     const residents = [_]Resident{
         .{ .name = "tcp", .alts = &.{"tcp"} },
         .{ .name = "keyed-tcp", .alts = &.{ "keyed-tcp", "keyed tcp", "tcp_keyed" } },
+        .{ .name = "noise-tcp", .alts = &.{ "noise-tcp", "noise tcp" } },
         .{ .name = "inproc", .alts = &.{ "inproc", "in-process", "in process" } },
         .{ .name = "iroh", .alts = &.{"iroh"} },
         .{ .name = "webrtc", .alts = &.{"webrtc"} },
@@ -583,7 +589,9 @@ pub fn checkResidentRoster(
         // The page whose stated job is "the edges of what ships today". A
         // transport that ships without its edge written down fails here.
         "docs/boundaries.md",
-        "site/content/transports.smd",
+        // The site inventory of every netlayer: choosing owns the roster now
+        // that the parent Transports page is the concept overview.
+        "site/content/transports/choosing.smd",
         "site/content/modules.smd",
         "site/content/relay.smd",
     };
@@ -2046,7 +2054,17 @@ fn checkSentencesIn(
     while (lines.next()) |line| {
         line_no += 1;
         const trimmed = std.mem.trim(u8, line, " \t\r");
-        if (std.mem.startsWith(u8, trimmed, "```")) {
+        // SuperMD `code-tabs` nest fences inside blockquotes (`> ```lang`), so a
+        // leading `>` must not hide the fence from this scanner — otherwise the
+        // tab bodies are read as one enormous prose sentence.
+        const fence_line = blk: {
+            var rest = trimmed;
+            while (std.mem.startsWith(u8, rest, ">")) {
+                rest = std.mem.trimStart(u8, rest[1..], " \t");
+            }
+            break :blk std.mem.startsWith(u8, rest, "```");
+        };
+        if (fence_line) {
             in_fence = !in_fence;
             run = 0;
             continue;

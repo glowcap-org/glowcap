@@ -99,6 +99,19 @@ pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId) ?engine.Nod
     return self.node.pendingDial(ticket);
 }
 
+/// Finish a ticketed Node effect after its row was consumed. Outbound
+/// backpressure is already represented by the dirty session's FLUSH action,
+/// so surfacing WOULD_BLOCK here would invite an invalid retry of an effect
+/// that committed. Allocation failure remains visible: the ticket verbs are
+/// idempotent on a stale ticket, which lets the embedder retry only to resume
+/// host cleanup once memory is available.
+fn finishCommittedEffect(self: *Host) !void {
+    host_pump.finishVerb(self) catch |err| switch (err) {
+        error.OutboundBackpressure => return,
+        else => return err,
+    };
+}
+
 /// Report a `dial` action's success: `session` is an `openDialedLocator`
 /// against that ticket's pending locator, driven to an open session. The
 /// node withdraws every give waiting on the ticket; the withdraws and
@@ -111,17 +124,18 @@ pub fn exporterDialed(self: *Host, ticket: engine.Node.PendingId, session: *Host
     // each settling its pre-minted vow; their fetch frames ride the same
     // finish pump the withdraws do.
     enliven_mod.settleParkedEnlivens(self, ticket, session, "");
-    try host_pump.finishVerb(self);
+    try finishCommittedEffect(self);
 }
 
-/// Report a `dial` action's failure: every redeem waiting on the ticket
-/// breaks with `reason`, firing its settle listener inside this call. A
-/// stale ticket is a no-op.
+/// Report a `dial` action's failure. A failed path may leave the ticket live
+/// and queue another dial; parked select-or-dial operations therefore settle
+/// only when Node reports exhaustion. A stale ticket is a no-op.
 pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, reason: []const u8) !void {
     try self.refuseReentry();
-    try self.node.dialFailed(ticket, reason);
-    enliven_mod.settleParkedEnlivens(self, ticket, null, reason);
-    try host_pump.finishVerb(self);
+    const outcome = try self.node.dialFailed(ticket, reason);
+    if (outcome == .exhausted)
+        enliven_mod.settleParkedEnlivens(self, ticket, null, reason);
+    try finishCommittedEffect(self);
 }
 
 /// Answer a `need_gift_id` action with 32 host-drawn bytes: the node
@@ -130,7 +144,16 @@ pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, reason: []const u8
 pub fn provideGiftId(self: *Host, ticket: u64, gift_id: []const u8) !void {
     try self.refuseReentry();
     try self.node.provideGiftId(ticket, gift_id);
-    try host_pump.finishVerb(self);
+    try finishCommittedEffect(self);
+}
+
+/// Report that the embedder could not answer a `need_gift_id` action. The
+/// pending handoff settles broken rather than retaining an action ticket no
+/// runtime can complete. A stale ticket is a no-op.
+pub fn giftIdFailed(self: *Host, ticket: u64) !void {
+    try self.refuseReentry();
+    try self.node.giftIdFailed(ticket);
+    try finishCommittedEffect(self);
 }
 
 /// Redeem a `desc:handoff-give` this recipient `session` received outside
@@ -149,7 +172,7 @@ pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const
     try self.refuseReentry();
     try self.checkSession(session);
     try self.node.acceptGive(session.peer_id, answer, give, exporter_locator);
-    try host_pump.finishVerb(self);
+    try finishCommittedEffect(self);
 }
 
 /// Record the exporter locator to embed in gives whose exporter is `session`

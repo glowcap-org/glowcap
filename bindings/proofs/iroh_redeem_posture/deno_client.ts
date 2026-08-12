@@ -31,7 +31,7 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-redeem-posture`.
 
-import { connect, encodePeerLocator, formatPeerUri, Ref, TRANSPORT_IROH } from "@pancake/stack";
+import { connect, formatPeerUri, Ref, TRANSPORT_IROH } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { acceptLoop, fail, parseOptionalPortArg } from "../../../interop/_common/deno/helpers.ts";
 
@@ -45,7 +45,7 @@ const watchdog = setTimeout(() => fail("deno-iroh-redeem-posture", "timed out af
 Deno.unrefTimer(watchdog);
 
 // ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
-const exporter = listenIroh({ reachability: Reachability.LocalDiscovery });
+const exporter = await listenIroh({ reachability: Reachability.LocalDiscovery });
 exporter.host.publishGiftable("greeter", (verb, args) => {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over a configured-posture redeem`;
@@ -55,7 +55,7 @@ const exporterAccept = acceptLoop(exporter);
 console.log(`deno-iroh-redeem-posture: exporter published greeter on ${exporterId}`);
 
 // ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-const gifter = listenIroh({ reachability: Reachability.LocalDiscovery });
+const gifter = await listenIroh({ reachability: Reachability.LocalDiscovery });
 const gifterId = gifter.nodeId;
 const toExporter = await connect(
 	formatPeerUri(TRANSPORT_IROH, exporterId),
@@ -68,7 +68,12 @@ const greeterRef = await toExporter.fetch("greeter");
 // is what forces the recipient down the configured-posture redeem path instead
 // of a Direct dial.
 toExporter.setExporterLocator(
-	encodePeerLocator({ transport: "iroh", designator: exporterId }),
+	{
+		transport: "iroh",
+		designator: exporterId,
+		hints: new Map(),
+		hintWireForm: "boolean-false",
+	},
 );
 gifter.host.publishGiftable("introducer", (verb) => {
 	if (verb !== "get-greeter") return null;

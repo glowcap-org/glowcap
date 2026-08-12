@@ -25,7 +25,7 @@ import {
   wholeRowsHeight,
 } from "./row-layout.ts";
 import type { LaneKind } from "./state.ts";
-import { scrubberHeight } from "./Scrubber.tsx";
+import { scrubberCollapsedHeight, scrubberHeight } from "./Scrubber.tsx";
 
 const ALL_LANES = new Set<LaneKind>(["peers", "sessions", "messages"]);
 const NONE = new Set<Exclude<LaneKind, "ruler">>();
@@ -154,6 +154,30 @@ Deno.test("the fitted panel height leaves the ruler its band", () => {
       `a ${row.kind} row reaches into the ruler band`,
     );
   }
+});
+
+Deno.test("drag floor is collapsed-fit, below a live expansion", () => {
+  // Expand a category and the live intrinsic rises; the drag floor stays at
+  // every-category-collapsed. That gap is the range a hand can resize through.
+  // Folding the live intrinsic into the floor made an expanded panel refuse
+  // every downward drag — the defect this pins.
+  const ordered = entities(["a", "b", "c"], ["s1", "s2"], ["m1"]);
+  const collapsed = scrubberCollapsedHeight(ALL_LANES, ordered);
+  const expanded = scrubberHeight(ALL_LANES, {
+    expandedCategories: new Set(["peers", "sessions"]),
+    orderedEntities: ordered,
+  });
+  assert(
+    expanded > collapsed,
+    `expanded ${expanded} should sit above collapsed-fit ${collapsed}`,
+  );
+  assertEquals(
+    scrubberCollapsedHeight(ALL_LANES, ordered),
+    scrubberHeight(ALL_LANES, {
+      expandedCategories: new Set(),
+      orderedEntities: ordered,
+    }),
+  );
 });
 
 Deno.test("a lane area of any height holds only whole rows", () => {

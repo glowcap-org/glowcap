@@ -57,7 +57,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
     const io = threaded.io();
 
     const secret = crypto.SecretKey.fromSeed([_]u8{0x5c} ** crypto.SEED_BYTES);
-    var resident = net.tcp_keyed.Resident{ .io = io, .public_key = secret.publicKey() };
+    var resident = net.tcp.keyed.Resident{ .io = io };
     const nl = resident.netlayer();
     try std.testing.expectEqual(net.netlayer.DesignatorScheme.key, nl.designatorScheme());
 
@@ -69,7 +69,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
 
     // A host:port in the designator is the *plain tcp* grammar, not this one.
     try std.testing.expectError(error.InvalidAddress, nl.dial(&peer, .{
-        .transport = net.tcp_keyed.transport_name,
+        .transport = net.tcp.keyed.transport_name,
         .designator = "127.0.0.1:9999",
         .hints = model.Hints.emptyFalse(),
     }, bufs));
@@ -78,7 +78,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
     // refused loud instead of timing out (TCP has no discovery).
     const designator = secret.publicKey().toDesignator();
     try std.testing.expectError(error.InvalidAddress, nl.dial(&peer, .{
-        .transport = net.tcp_keyed.transport_name,
+        .transport = net.tcp.keyed.transport_name,
         .designator = designator[0..],
         .hints = model.Hints.emptyFalse(),
     }, bufs));
@@ -89,7 +89,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
         .value = .{ .string = "not-an-address" },
     }};
     try std.testing.expectError(error.InvalidAddress, nl.dial(&peer, .{
-        .transport = net.tcp_keyed.transport_name,
+        .transport = net.tcp.keyed.transport_name,
         .designator = designator[0..],
         .hints = .{ .entries = &bad_hint },
     }, bufs));
@@ -100,5 +100,27 @@ test "plain tcp designator grammar is untouched by the keyed sibling" {
     // still parses host:port designators and knows nothing of keys.
     const address = try net.tcp.parseDesignator("127.0.0.1:9000");
     try std.testing.expectEqual(@as(u16, 9000), address.getPort());
-    try std.testing.expect(!std.mem.eql(u8, net.tcp.transport_name, net.tcp_keyed.transport_name));
+    try std.testing.expect(!std.mem.eql(u8, net.tcp.plain.transport_name, net.tcp.keyed.transport_name));
+}
+
+fn waitUntilKeyedListenerClose(listener: net.netlayer.Listener) anyerror!void {
+    try std.testing.expectError(error.ConnectionLost, listener.waitAcceptable(-1));
+}
+
+test "keyed-tcp listener close wakes and joins a blocked readiness wait" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const secret = crypto.SecretKey.fromSeed([_]u8{0x5d} ** crypto.SEED_BYTES);
+    var resident = net.tcp.keyed.Resident{ .io = io };
+    const listener = try resident.netlayer().listen(allocator, .{
+        .designator = "127.0.0.1:0",
+        .identity = secret.publicKey(),
+    });
+    var waiter = try io.concurrent(waitUntilKeyedListenerClose, .{listener});
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    listener.close();
+    try waiter.await(io);
 }

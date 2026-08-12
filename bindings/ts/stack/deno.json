@@ -8,15 +8,23 @@
 		".": "./mod.ts",
 		"./transport/tcp": "./transport/tcp.ts",
 		"./transport/inproc": "./transport/inproc.ts",
-		"./ffi": "./ffi.ts"
+		"./transport/onion": "./transport/onion.ts",
+		"./transport/relay": "./transport/relay.ts",
+		"./websocket": "./ws_channel.ts",
+		"./ffi": "./ffi.ts",
+		"./driver_loop": "./driver_loop.ts"
 	},
 	"publish": {
 		"include": [
 			"**/*.ts",
-			"**/c-abi-resolve.json"
+			"**/c-abi-resolve.json",
+			"README.md"
+		],
+		"exclude": [
+			"test/**"
 		]
 	},
 	"tasks": {
-		"check": "deno check mod.ts transport/tcp.ts transport/inproc.ts ffi.ts"
+		"check": "deno check mod.ts transport/tcp.ts transport/inproc.ts transport/onion.ts transport/relay.ts ws_channel.ts ffi.ts driver_loop.ts"
 	}
 }

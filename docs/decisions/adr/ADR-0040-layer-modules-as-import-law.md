@@ -57,7 +57,7 @@ tables.
   not packaging or versioning units.
   ([ADR-0059](ADR-0059-composable-c-abi-archives.md) supersedes this on
   packaging: the C ABI now ships as composable per-family archives,
-  `libpancake_ocapn`, `libpancake_net`, and one per transport: with no single
+  `libpancake_ocapn` and one per transport, with no single
   `libpancake` umbrella. The module-per-layer mechanism this ADR establishes is
   unchanged; it is the scaffolding the archive set is generated from.)
 - Bindings and consumers are unaffected: the C ABI and the `pancake` Zig module

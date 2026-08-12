@@ -17,17 +17,12 @@
 ;;
 ;; Below that sits the raw byte surface: an `iroh-endpoint` accepts and dials
 ;; connections with no CapTP over them, and a `byte-channel` moves their bytes.
-;; The keyed server is that endpoint plus a CapTP host, and a consumer with a
-;; protocol of its own — a byte-transparent relay, or a netlayer written for a
-;; foreign CapTP — takes the endpoint alone.
+;; The native iroh server owns CapTP admission through the driver, while a
+;; consumer with a protocol of its own — a byte-transparent relay, or a
+;; netlayer written for a foreign CapTP — takes the raw endpoint alone.
 ;;
 ;; This file is the application surface and nothing else. The implementation is
-;; `private/iroh.rkt`, which also holds the binding-internal `connect-iroh/node`
-;; that the core's dial reaches. Keeping that function in the private tree, and
-;; out of the list below, is what makes it binding-internal; it is not a
-;; submodule, because Racket's compile manager does not manage submodule
-;; requests and a program running against compiled bytecode could not reach one
-;; without re-expanding the whole module.
+;; `private/iroh.rkt` owns the native resident and raw endpoint implementation.
 (require "private/iroh.rkt")
 
 (provide listen-iroh

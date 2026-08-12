@@ -32,11 +32,13 @@ import { classifyRelayTarget, type RelayTarget } from "@pancake/stack";
 import { dial, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
 import {
 	bridgeRendezvous,
+	isRendezvousDesignator,
 	parseTcpPeers,
 	registerRendezvous,
 	relayAllowed,
 	relayOriginAllowed,
 	relayToTarget,
+	shutdownRelay,
 } from "./relay.ts";
 
 // Positional args are the HTTP port and the room port; flags start with `--`.
@@ -413,6 +415,7 @@ if (pageJs === "") {
 		`rooms: could not build the browser UI: ${startupFailure ?? "no bundle produced"}`,
 	);
 	shutdown.abort();
+	shutdownRelay();
 	killChild();
 	Deno.exit(1);
 }
@@ -500,6 +503,9 @@ try {
 			if (!id) {
 				return new Response("rooms: register requires ?id=<designator>\n", { status: 400 });
 			}
+			if (!isRendezvousDesignator(id)) {
+				return new Response("rooms: invalid rendezvous designator\n", { status: 400 });
+			}
 			if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
 				return new Response("rooms: cross-origin register refused\n", { status: 403 });
 			}
@@ -520,6 +526,9 @@ try {
 			// socket that identity holds here (ADR-0088).
 			const rendezvousId = url.searchParams.get("rendezvous");
 			if (rendezvousId) {
+				if (!isRendezvousDesignator(rendezvousId)) {
+					return new Response("rooms: invalid rendezvous designator\n", { status: 400 });
+				}
 				if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
 					return new Response("rooms: cross-origin relay refused\n", { status: 403 });
 				}
@@ -671,6 +680,7 @@ try {
 // abort signal), stop the room child, then exit.
 function stop(): void {
 	shutdown.abort();
+	shutdownRelay();
 	killChild();
 	Deno.exit(0);
 }

@@ -1,9 +1,13 @@
-//! The Ed25519 and SHA-256 work that OCapN's signatures need, and nothing more.
+//! The Ed25519, SHA-256, and X25519 work that OCapN's signatures and the
+//! sealed channel need, and nothing more.
 //!
-//! Three jobs live here: sign the `acceptable-location-sig` that rides on
+//! Four jobs live here: sign the `acceptable-location-sig` that rides on
 //! `op:start-session`, sign and check the `desc:sig-envelope` certificates a
-//! handoff carries, and derive a peer's and a session's identity using the
-//! double-SHA256 the CapTP spec calls for (`PeerId` and `SessionId`).
+//! handoff carries, derive a peer's and a session's identity using the
+//! double-SHA256 the CapTP spec calls for (`PeerId` and `SessionId`), and
+//! carry a durable Ed25519 key across to X25519 for the Noise handshake in
+//! `noise.zig`. The conversions live here, beside the key types, so `noise`
+//! speaks raw 32-byte X25519 material and never sees an Ed25519 key.
 //!
 //! It's all pure math. Nothing here allocates, does I/O, or keeps global state,
 //! and it builds for `wasm32` as-is. There's one thing you won't find: making
@@ -21,6 +25,7 @@ const id = @import("id.zig");
 
 const Ed25519 = std.crypto.sign.Ed25519;
 const Sha256 = std.crypto.hash.sha2.Sha256;
+const X25519 = std.crypto.dh.X25519;
 
 /// Width in bytes of an Ed25519 raw public key (the `q` value in the
 /// OCapN-spec gcrypt s-expression form).
@@ -180,6 +185,49 @@ pub const SecretKey = struct {
         return .{ .bytes = self.keypair.public_key.toBytes() };
     }
 };
+
+/// A raw X25519 key pair: the shape the Noise handshake in `noise.zig` works
+/// in. It is plain Diffie-Hellman material, never a signing key, and it never
+/// appears in a locator; a peer's durable identity stays the Ed25519
+/// `PeerKey`, and this is that identity carried across the birational map for
+/// one handshake's key agreement.
+pub const X25519KeyMaterial = struct {
+    secret: [X25519.secret_length]u8,
+    public: [X25519.public_length]u8,
+
+    /// Derive the pair from a raw 32-byte X25519 secret. Null when the secret
+    /// maps to the identity element, which a uniformly random or properly
+    /// converted secret does not.
+    pub fn fromSecret(secret: [X25519.secret_length]u8) ?X25519KeyMaterial {
+        const public = X25519.recoverPublicKey(secret) catch return null;
+        return .{ .secret = secret, .public = public };
+    }
+};
+
+/// Carry a peer's durable Ed25519 public key to its X25519 form, the value the
+/// Noise initiator needs before the first message: `XK` encrypts to the
+/// responder's static, and the designator a dialer already holds is the
+/// Ed25519 key this maps. Null when the bytes are not a curve point.
+///
+/// The map loses the Edwards sign bit, so it does not invert uniquely: an
+/// X25519 point learned from a handshake cannot be turned back into the
+/// Ed25519 designator. The sealed handshake therefore carries the exact
+/// Ed25519 key plus a signature binding it to this mapped static and the
+/// handshake context; equality of mapped points alone is never identity proof.
+pub fn x25519FromPeerKey(key: PeerKey) ?[X25519.public_length]u8 {
+    const ed = Ed25519.PublicKey.fromBytes(key.bytes) catch return null;
+    return X25519.publicKeyFromEd25519(ed) catch null;
+}
+
+/// Carry a durable Ed25519 secret key to X25519 material, the responder's
+/// static for the Noise handshake. Same map as `x25519FromPeerKey` on the
+/// public half, so the two ends of a dial agree on what the responder's
+/// X25519 key is. Null only for a degenerate key that maps to the identity
+/// element, which a key built from a valid seed does not.
+pub fn x25519FromSecretKey(secret: *const SecretKey) ?X25519KeyMaterial {
+    const pair = X25519.KeyPair.fromEd25519(secret.keypair) catch return null;
+    return .{ .secret = pair.secret_key, .public = pair.public_key };
+}
 
 /// Sign `payload` with `secret` and get back an Ed25519 signature.
 ///

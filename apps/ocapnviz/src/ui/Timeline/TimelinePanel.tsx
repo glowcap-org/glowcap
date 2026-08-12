@@ -59,7 +59,6 @@ import {
 import { eventEntityRef } from "./event-entity-ref.ts";
 import { Overview, OVERVIEW_HEIGHT } from "./Overview.tsx";
 import { MAX_LIVE_WINDOW_MS, Scrubber } from "./Scrubber.tsx";
-import { ROW_PITCH, RULER_HEIGHT, RULER_TOP_PAD } from "./row-layout.ts";
 import { ScrubInput } from "./ScrubInput.tsx";
 import type { LaneKind } from "./state.ts";
 import {
@@ -198,17 +197,17 @@ export type TimelinePanelProps = {
    * bottom. App uses this to drive the "fit to content"
    * affordance — the pane is no longer auto-grown. */
   onIntrinsicHeightChange?: ((px: number) => void) | undefined;
-  /** Report the minimum panel height below which the Overview's
-   * bottom edge would overlap the ruler. Drives App's drag clamp
-   * floor — computed from the live `controlRowHeight` measurement
-   * so a wrapped control row doesn't fall below its own chrome. */
+  /** Report the collapsed-fit panel height — chrome plus the
+   *  scrubber with every category collapsed. That is App's drag
+   *  floor: expand a category and you can drag between this and
+   *  the live intrinsic; you cannot drag below this. */
   onMinHeightChange?: ((px: number) => void) | undefined;
   /** Current state of the persistent "auto-size pane to content"
    * toggle. The panel renders a checkbox in the topbar bound to
    * this; toggling fires `onSetAutoSizeTimeline`. While true,
-   * App's effect pins the pane height to intrinsic. The resize
-   * handle's double-click (wired in App) provides the one-off
-   * snap affordance. */
+   * App's effect pins the pane height to the live intrinsic
+   * (current expansion). Drag floors at the collapsed-fit height
+   * from `onMinHeightChange` instead. */
   autoSizeTimeline?: boolean | undefined;
   onSetAutoSizeTimeline?: ((value: boolean) => void) | undefined;
   /** Live mode flag — when true, the panel renders normally
@@ -464,6 +463,7 @@ export function TimelinePanel(
     return () => ro.disconnect();
   }, []);
   const [scrubberIntrinsic, setScrubberIntrinsic] = useState(0);
+  const [scrubberCollapsed, setScrubberCollapsed] = useState(0);
 
   // View bounds, single source of truth — wired to BOTH the
   // Overview and the Scrubber so wheel / drag / zoom on either
@@ -475,10 +475,10 @@ export function TimelinePanel(
   const viewMaxWidth = disabled ? MAX_LIVE_WINDOW_MS : clock.duration;
   const viewPanMaxT = disabled ? Number.POSITIVE_INFINITY : clock.duration;
   // Aggregate intrinsic = control row + overview + scrubber's
-  // own intrinsic + 1px panel border. Forward to App so the
-  // bottom grid row can grow to fit. Reset to 0 on unmount so
-  // Live-mode (which hides this panel) lets the bottom pane
-  // return to the user's preferred size.
+  // own intrinsic + 1px panel border. Forward to App so Fit /
+  // auto-size can pin to the current expansion. Reset to 0 on
+  // unmount so Live-mode (which hides this panel) lets the
+  // bottom pane return to the user's preferred size.
   // Layout effect (not regular effect) so the App-side auto-size
   // pin runs before paint — see the matching note in Scrubber on
   // collapsing the expand/collapse paint chain into one frame.
@@ -488,25 +488,15 @@ export function TimelinePanel(
     return () => onIntrinsicHeightChange?.(0);
   }, [controlRowHeight, scrubberIntrinsic, onIntrinsicHeightChange]);
 
-  // Minimum panel height a drag may reach: the chrome, the ruler band, and one
-  // whole row.
-  //
-  // It used to stop one row short of that, at the height where the lane area
-  // collapses to nothing. But a lane that is toggled on draws its category row
-  // whether or not it holds anything, so "zero rows of lane space" was never a
-  // state the panel could actually be in — dragging there left the first row
-  // cut through the middle of its label, with nothing to scroll to because the
-  // row was the only content there was. A panel is worth dragging small; it is
-  // not worth dragging to a height that cannot show one row.
-  //
-  // Derived from the live `controlRowHeight` measurement (the chrome wraps on
-  // narrow widths) rather than the hardcoded `BOTTOM_PANE_MIN` constant, so the
-  // clamp tracks reality.
-  useEffect(() => {
-    const min = controlRowHeight + OVERVIEW_HEIGHT + RULER_HEIGHT +
-      RULER_TOP_PAD + ROW_PITCH + 1;
+  // Drag floor = chrome + collapsed scrubber. Expanding a category
+  // raises the live intrinsic above this; the reader can then drag
+  // the pane between the two. Folding the live intrinsic into this
+  // floor made an expanded panel refuse every downward drag.
+  useLayoutEffect(() => {
+    const min = controlRowHeight + OVERVIEW_HEIGHT + scrubberCollapsed + 1;
     onMinHeightChange?.(min);
-  }, [controlRowHeight, onMinHeightChange]);
+    return () => onMinHeightChange?.(0);
+  }, [controlRowHeight, scrubberCollapsed, onMinHeightChange]);
 
   const setView = useCallback<SetView>(
     (next) => {
@@ -805,6 +795,7 @@ export function TimelinePanel(
                 viewMaxWidth={viewMaxWidth}
                 viewPanMaxT={viewPanMaxT}
                 onIntrinsicHeightChange={setScrubberIntrinsic}
+                onCollapsedHeightChange={setScrubberCollapsed}
               />
             </>
           )}

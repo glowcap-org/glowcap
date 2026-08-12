@@ -56,18 +56,18 @@ try {
 
 	// `connect` completes the keyed handshake; the machine's retained identity is
 	// the recipient key the gift Alice deposits will name.
-	const conn = await connect(tcpLocator(HOST, PORT));
+	const session = await connect(tcpLocator(HOST, PORT));
 	console.log("deno-goblins-handoff: session open (recipient -> alice)");
-	conn.serve().catch(() => {}); // the partner hanging up ends the serve loop
+	session.serve().catch(() => {}); // the partner hanging up ends the serve loop
 
-	const introducer = await conn.fetch(swiss);
+	const introducer = await session.fetch(swiss);
 	console.log(
 		"deno-goblins-handoff: enlivened alice's introducer, asking for the greeter",
 	);
 
 	// The introduction: Alice returns Bob's greeter as a handoff give. The binding
 	// redeems it transparently, so this resolves to an ordinary capability `Ref`.
-	const greeter = await conn.send(introducer, "get-greeter", []);
+	const greeter = await session.send(introducer, "get-greeter", []);
 	if (!(greeter instanceof Ref)) {
 		fail(
 			"deno-goblins-handoff",
@@ -81,7 +81,7 @@ try {
 	// Call the greeter. The send routes straight to Bob (the exporter); the reply
 	// must echo the name we sent, so the handoff proves data integrity, not just
 	// choreography.
-	const reply = await conn.send(greeter, "", ["pancake-carol"]);
+	const reply = await session.send(greeter, "", ["pancake-carol"]);
 	if (typeof reply !== "string" || !reply.includes("pancake-carol")) {
 		fail(
 			"deno-goblins-handoff",
@@ -94,7 +94,7 @@ try {
 	console.log(
 		"deno-goblins-handoff OK: the Deno binding redeemed a three-party handoff from live Goblins and called the exporter directly",
 	);
-	conn.close();
+	session.close();
 } finally {
 	try {
 		await stdoutReader.cancel();

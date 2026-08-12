@@ -16,10 +16,13 @@ const std = @import("std");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
+const cdr = @import("c_abi_driver");
 const ci = @import("c_abi_net_transport_iroh");
 const ct = @import("c_abi_net_transport_tcp");
 const cin = @import("c_abi_net_transport_inproc");
+const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
+const cr = @import("c_abi_net_transport_relay");
 
 pub const step_name = "gen-binding-python-ffi";
 
@@ -68,6 +71,9 @@ fn pyParamType(comptime T: type, comptime specials: []const Special) []const u8 
                     u32 => "u32_p",
                     u64 => "u64_p",
                     usize => "size_p",
+                    // A signed out-parameter: the readiness descriptor the onion
+                    // archive hands back.
+                    i32 => "i32_p",
                     else => @compileError("unmapped scalar pointer width"),
                 } else "P",
                 .@"struct" => break :blk "ctypes.POINTER(" ++ mirrorName(p.child) ++ ")",
@@ -77,6 +83,8 @@ fn pyParamType(comptime T: type, comptime specials: []const Special) []const u8 
         },
         .int => switch (T) {
             i32 => "i32",
+            i64 => "i64",
+            u8 => "u8",
             u16 => "u16",
             u32 => "u32",
             u64 => "u64",
@@ -129,10 +137,13 @@ const aliases = [_]Alias{
     .{ .name = "P", .def = "P = ctypes.c_void_p" },
     .{ .name = "size", .def = "size = ctypes.c_size_t", .also = "size_p" },
     .{ .name = "u16", .def = "u16 = ctypes.c_uint16", .also = "u16_p" },
+    .{ .name = "u8", .def = "u8 = ctypes.c_uint8" },
     .{ .name = "u32", .def = "u32 = ctypes.c_uint32", .also = "u32_p" },
     .{ .name = "u64", .def = "u64 = ctypes.c_uint64", .also = "u64_p" },
-    .{ .name = "i32", .def = "i32 = ctypes.c_int32" },
+    .{ .name = "i32", .def = "i32 = ctypes.c_int32", .also = "i32_p" },
+    .{ .name = "i64", .def = "i64 = ctypes.c_int64" },
     .{ .name = "size_p", .def = "size_p = ctypes.POINTER(size)" },
+    .{ .name = "i32_p", .def = "i32_p = ctypes.POINTER(i32)" },
     .{ .name = "u16_p", .def = "u16_p = ctypes.POINTER(u16)" },
     .{ .name = "u32_p", .def = "u32_p = ctypes.POINTER(u32)" },
     .{ .name = "u64_p", .def = "u64_p = ctypes.POINTER(u64)" },
@@ -241,24 +252,34 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\
     );
-    try renderArchive(gpa, &out, c, "ocapn_sigs", &.{ "_Allocator", "_ManagedFrame" }, "``libpancake_ocapn`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, c, "ocapn_sigs", &.{
+        "_Allocator", "_ManagedFrame", "_LocatorHintView", "_LocatorView",
+    }, "``libpancake_ocapn`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cd, "driver_sigs", &.{
-        "_Argument",     "_Reference",       "_ManagedFrame",  "_LastAbort",
-        "_DialPlan",     "_AcceptPlan",      "_PendingDial",   "_HostPumpHooks",
-        "_HostBehavior", "_PartnerIdentity", "_TraceCallback",
+        "_Argument",    "_Reference",    "_ManagedFrame",    "_LastAbort",
+        "_DialPlan",    "_AcceptPlan",   "_HostPumpHooks",   "_LocatorHintView",
+        "_LocatorView", "_HostBehavior", "_PartnerIdentity", "_TraceCallback",
     }, "``libpancake_host`` signatures, in the inventory's order.", &.{
         .{ .T = cd.PancakeHostBehavior, .spelling = "_HostBehavior" },
         .{ .T = cd.PancakeHostCtxFree, .spelling = "P" },
         .{ .T = cd.PancakeTraceCallback, .spelling = "_TraceCallback" },
     });
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, ct, "tcp_sigs", &.{ "_Frame", "_ManagedFrame" }, "``libpancake_net_transport_tcp`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cdr, "loop_sigs", &.{
+        "_DriverOptions", "_DriverEvent", "_LocatorView", "_TransportProvider",
+    }, "``libpancake_driver`` loop-family signatures, in the inventory's order.", &.{});
+    try out.appendSlice(gpa, "\n\n");
+    try renderArchive(gpa, &out, ct, "tcp_sigs", &.{ "_Frame", "_ManagedFrame", "_TransportProvider" }, "``libpancake_net_transport_tcp`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cin, "inproc_sigs", &.{ "_Frame", "_ManagedFrame" }, "``libpancake_net_transport_inproc`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, ci, "iroh_sigs", &.{ "_IrohReadyEvent", "_IrohConfig" }, "``libpancake_net_transport_iroh`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, con, "onion_sigs", &.{ "_Frame", "_ManagedFrame", "_OnionConfig", "_TransportProvider" }, "``libpancake_net_transport_onion`` signatures, in the inventory's order.", &.{.{ .T = con.PancakeOnionConfig, .spelling = "_OnionConfig" }});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{ "_WebrtcReadyEvent", "_WebrtcConfig" }, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, ci, "iroh_sigs", &.{ "_IrohReadyEvent", "_IrohConfig", "_TransportProvider" }, "``libpancake_net_transport_iroh`` signatures, in the inventory's order.", &.{});
+    try out.appendSlice(gpa, "\n\n");
+    try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{ "_WebrtcReadyEvent", "_WebrtcConfig", "_TransportProvider" }, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
+    try out.appendSlice(gpa, "\n\n");
+    try renderArchive(gpa, &out, cr, "relay_sigs", &.{ "_RelayConfig", "_TransportProvider" }, "``libpancake_net_transport_relay`` signatures, in the inventory's order.", &.{});
     return out.toOwnedSlice(gpa);
 }

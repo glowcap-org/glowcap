@@ -66,16 +66,17 @@ pub fn emitAbortForError(self: *Peer, err: anyerror) void {
 }
 
 pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
+    const wire_profile = self.inboundProfile();
     const decoded_body = codec.dispatch.decodeBodyForProfile(
         self.inboundCodec(),
-        self.session_state.captp_version,
+        wire_profile,
         frame_in.view(),
     ) catch |err| {
         var frame = frame_in;
         frame.deinit();
         return err;
     };
-    try applyDecodedOwnedFrame(self, frame_in, decoded_body);
+    try applyDecodedOwnedFrame(self, frame_in, decoded_body, wire_profile);
 }
 
 /// Enforce the durable identity a dial named against the partner's hello claim.
@@ -89,7 +90,13 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
         // legitimate proxy or ingress; authenticated realizers prove the
         // channel separately, while raw keyed transports trust their netlayer
         // to have honored the dial target (ADR-0109).
-        if (model.transport.designatorScheme(ss.acceptable_location.transport) != .key) return;
+        const scheme = (if (self.node_services) |services|
+            services.designatorScheme(ss.acceptable_location.transport)
+        else if (model.transport.parseKnown(ss.acceptable_location.transport)) |known|
+            known.metadata().designator_scheme
+        else
+            null) orelse return error.UnknownTransportSemantics;
+        if (scheme != .key) return;
         const claimed_key = foundation.crypto.PeerKey.fromDesignator(
             ss.acceptable_location.designator,
         ) orelse return error.PartnerDesignatorMismatch;
@@ -107,7 +114,12 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
 /// separate stream buffer that outlives this call (`recvStreamPrefix`). It
 /// must stay valid until apply completes; afterwards the retained event owns
 /// only `frame_in` and the borrow is dropped.
-pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_body: model.view.Body) !void {
+pub fn applyDecodedOwnedFrame(
+    self: *Peer,
+    frame_in: foundation.Frame,
+    decoded_body: model.view.Body,
+    wire_profile: model.CaptpVersion,
+) !void {
     var frame = frame_in;
     var stored = false;
     errdefer if (!stored) frame.deinit();
@@ -247,25 +259,40 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     else
         false;
 
+    // Preparation below may hold several reservations while authority is
+    // validated and committed as one transaction. Reserve the whole possible
+    // batch once; a per-row reservation cannot express slots for rows that
+    // have not been appended yet.
+    const pending_preparation_count = if (retired_resolver_callback != null)
+        @as(usize, 1)
+    else blk: {
+        var count = introduced.promise_mentions.items.len;
+        if (shortening_callback != null and !shortening_source_is_held) count += 1;
+        if (shortening_source_has_settling_consumer) count += 1;
+        break :blk count;
+    };
+    var pending_batch = try self.beginPendingBatch(pending_preparation_count);
+
     // Acquire every resolver row, queue slot, and owned GC slice before apply.
     // Once the received frame commits, the required protocol maintenance must
     // not become optional under allocator pressure.
     var prepared_shortening: ?PreparedShortening = null;
-    var prepared_late_release: ?model.Message = null;
-    var prepared_retired_release: ?model.Message = null;
+    var prepared_late_release: ?PreparedOutboundMessage = null;
+    var prepared_retired_release: ?PreparedOutboundMessage = null;
     if (retired_resolver_callback != null) {
         prepared_shortening = .{};
-        prepared_retired_release = try prepareIntroducedImportReleases(self, introduced.mentions.items);
+        prepared_retired_release = try prepareIntroducedImportReleases(self, &pending_batch, introduced.mentions.items);
     } else if (shortening_callback != null and !shortening_source_is_held and !shortening_source_has_settling_consumer) {
-        prepared_late_release = try prepareIntroducedPromiseRelease(self, shortening_callback.?.shortened_to.import_position);
+        prepared_late_release = try prepareIntroducedPromiseRelease(self, &pending_batch, shortening_callback.?.shortened_to.import_position);
     } else {
-        prepared_shortening = try prepareIntroducedPromiseShortening(self, &introduced);
+        prepared_shortening = try prepareIntroducedPromiseShortening(self, &pending_batch, &introduced);
         if (shortening_callback != null and !shortening_source_is_held)
-            prepared_late_release = try prepareIntroducedPromiseRelease(self, shortening_callback.?.shortened_to.import_position);
+            prepared_late_release = try prepareIntroducedPromiseRelease(self, &pending_batch, shortening_callback.?.shortened_to.import_position);
     }
     var settling_rearm = if (shortening_source_has_settling_consumer)
         try prepareSettlingRearm(
             self,
+            &pending_batch,
             shortening_source.?,
             shortening_callback.?.shortened_to.import_position,
             prepared_shortening.?.nominations.items.len + @intFromBool(prepared_late_release != null),
@@ -273,10 +300,16 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     else
         null;
     defer {
-        if (settling_rearm) |*prepared| prepared.deinit(self.allocator);
+        if (settling_rearm) |*prepared| prepared.deinit(self);
         if (prepared_shortening) |*prepared| prepared.abandon(self);
-        if (prepared_late_release) |message| model.freeMessage(self.allocator, message);
-        if (prepared_retired_release) |message| model.freeMessage(self.allocator, message);
+        if (prepared_late_release) |prepared| {
+            self.cancelPendingReservation(prepared.reservation);
+            model.freeMessage(self.allocator, prepared.message);
+        }
+        if (prepared_retired_release) |prepared| {
+            self.cancelPendingReservation(prepared.reservation);
+            model.freeMessage(self.allocator, prepared.message);
+        }
     }
 
     if (shortening_callback) |callback| {
@@ -291,8 +324,8 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
             }
             if (shortening_source_has_settling and !shortening_source_has_settling_consumer)
                 self.session_state.discardUnconsumedPromiseSettlingListener(shortening_source.?);
-            if (prepared_late_release) |message| {
-                commitPreparedImportRelease(self, message);
+            if (prepared_late_release) |prepared| {
+                commitPreparedImportRelease(self, prepared);
                 prepared_late_release = null;
                 self.session_state.releaseShorteningSourceAuthority(shortening_source.?);
             }
@@ -310,8 +343,8 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     if (retired_resolver_callback) |resolver| {
         try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
         self.session_state.completeRetiredResolverCallback(resolver);
-        if (prepared_retired_release) |message| {
-            commitPreparedImportRelease(self, message);
+        if (prepared_retired_release) |prepared| {
+            commitPreparedImportRelease(self, prepared);
             prepared_retired_release = null;
         }
         frame.deinit();
@@ -329,7 +362,7 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         // just negotiated, which fails silently at the drain and skips
         // everything the hello was supposed to trigger.
         .codec = self.inboundCodec(),
-        .captp_version = self.session_state.captp_version,
+        .captp_version = wire_profile,
         .allocator = self.allocator,
     });
     stored = true;
@@ -548,8 +581,11 @@ fn classifyInboundDeliver(
 
 const PreparedShortening = struct {
     nominations: std.ArrayListUnmanaged(session.ShorteningNomination) = .empty,
+    reservations: std.ArrayListUnmanaged(engine.Peer.PendingReservation) = .empty,
 
     fn abandon(self: *PreparedShortening, peer: *Peer) void {
+        for (self.reservations.items) |reservation| peer.cancelPendingReservation(reservation);
+        self.reservations.deinit(peer.allocator);
         for (self.nominations.items) |nomination|
             peer.session_state.abandonShorteningResolver(nomination);
         self.nominations.deinit(peer.allocator);
@@ -557,8 +593,14 @@ const PreparedShortening = struct {
     }
 };
 
+const PreparedOutboundMessage = struct {
+    message: model.Message,
+    reservation: engine.Peer.PendingReservation,
+};
+
 fn prepareIntroducedPromiseShortening(
     self: *Peer,
+    pending_batch: *engine.Peer.PendingBatch,
     introduced: *const session.validate.IntroducedImports,
 ) !PreparedShortening {
     var prepared: PreparedShortening = .{};
@@ -566,25 +608,32 @@ fn prepareIntroducedPromiseShortening(
     if (self.session_state.captp_version != .next) return prepared;
 
     try prepared.nominations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.items.len);
+    try prepared.reservations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.items.len);
     for (introduced.promise_mentions.items) |source| {
         const nomination = (try self.session_state.nominateShorteningResolver(source)) orelse continue;
         prepared.nominations.appendAssumeCapacity(nomination);
+        const message: model.Message = .{ .listen = .{
+            .target = .{ .far = model.FarRef.promise(nomination.source.int()) },
+            .listener = session.slot.toReference(self.session_state.exportSlot(nomination.resolver_export).?).?,
+            .mode = .shortening_only,
+        } };
+        prepared.reservations.appendAssumeCapacity(try pending_batch.reserve(.{ .message = message }));
     }
-    try self.pending_send.ensureUnusedCapacity(self.allocator, prepared.nominations.items.len);
     return prepared;
 }
 
 fn commitPreparedShortening(self: *Peer, prepared: *PreparedShortening) void {
-    for (prepared.nominations.items) |nomination| {
+    for (prepared.nominations.items, prepared.reservations.items) |nomination, reservation| {
         const message: model.Message = .{ .listen = .{
             .target = .{ .far = model.FarRef.promise(nomination.source.int()) },
             .listener = session.slot.toReference(self.session_state.exportSlot(nomination.resolver_export).?).?,
             .mode = .shortening_only,
         } };
         self.session_state.recordSend(message) catch unreachable;
-        self.pending_send.pushAssumeCapacity(.{ .message = message });
+        self.pushPendingAssume(reservation, .{ .message = message });
     }
     prepared.nominations.deinit(self.allocator);
+    prepared.reservations.deinit(self.allocator);
     prepared.* = .{};
 }
 
@@ -592,14 +641,17 @@ const PreparedSettlingRearm = struct {
     listener_export: model.ExportPosition,
     node_services: ?engine.NodeServices,
     move: session.SettlingMovePlan,
+    reservation: ?engine.Peer.PendingReservation = null,
 
-    fn deinit(self: *PreparedSettlingRearm, allocator: std.mem.Allocator) void {
-        self.move.deinit(allocator);
+    fn deinit(self: *PreparedSettlingRearm, peer: *Peer) void {
+        if (self.reservation) |reservation| peer.cancelPendingReservation(reservation);
+        self.move.deinit(peer.allocator);
     }
 };
 
 fn prepareSettlingRearm(
     self: *Peer,
+    pending_batch: *engine.Peer.PendingBatch,
     source: session.PromiseIncarnation,
     target: model.ImportPosition,
     shortening_send_count: usize,
@@ -629,16 +681,20 @@ fn prepareSettlingRearm(
         break :blk services;
     } else null;
     if (answer == null and node_services == null) return session.Error.UnexpectedMessage;
-    const prepared: PreparedSettlingRearm = .{
+    var prepared: PreparedSettlingRearm = .{
         .listener_export = source_listener,
         .node_services = node_services,
         .move = move,
     };
-
-    try self.pending_send.ensureUnusedCapacity(
-        self.allocator,
-        shortening_send_count + @intFromBool(!prepared.move.converges),
-    );
+    _ = shortening_send_count;
+    if (!prepared.move.converges) {
+        const message: model.Message = .{ .listen = .{
+            .target = .{ .far = model.FarRef.promise(target.int()) },
+            .listener = session.slot.toReference(self.session_state.exportSlot(prepared.listener_export).?).?,
+            .mode = .settling_only,
+        } };
+        prepared.reservation = try pending_batch.reserve(.{ .message = message });
+    }
     return prepared;
 }
 
@@ -656,7 +712,8 @@ fn commitSettlingRearm(
             .mode = .settling_only,
         } };
         self.session_state.recordSend(message) catch unreachable;
-        self.pending_send.pushAssumeCapacity(.{ .message = message });
+        self.pushPendingAssume(prepared.reservation.?, .{ .message = message });
+        prepared.reservation = null;
     }
     self.session_state.commitPromiseSettlingMove(&prepared.move);
     if (prepared.node_services) |services|
@@ -673,21 +730,26 @@ fn commitSettlingRearm(
         );
 }
 
-fn prepareIntroducedPromiseRelease(self: *Peer, position: model.ImportPosition) !model.Message {
+fn prepareIntroducedPromiseRelease(
+    self: *Peer,
+    pending_batch: *engine.Peer.PendingBatch,
+    position: model.ImportPosition,
+) !PreparedOutboundMessage {
     const positions = try self.allocator.alloc(u64, 1);
     errdefer self.allocator.free(positions);
     const deltas = try self.allocator.alloc(u64, 1);
     errdefer self.allocator.free(deltas);
     positions[0] = position.int();
     deltas[0] = 1;
-    try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
-    return .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+    const message: model.Message = .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+    return .{ .message = message, .reservation = try pending_batch.reserve(.{ .message = message }) };
 }
 
 fn prepareIntroducedImportReleases(
     self: *Peer,
+    pending_batch: *engine.Peer.PendingBatch,
     imports: []const model.ImportPosition,
-) !?model.Message {
+) !?PreparedOutboundMessage {
     if (imports.len == 0) return null;
     const positions = try self.allocator.alloc(u64, imports.len);
     errdefer self.allocator.free(positions);
@@ -697,13 +759,13 @@ fn prepareIntroducedImportReleases(
         position.* = import_position.int();
         delta.* = 1;
     }
-    try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
-    return .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+    const message: model.Message = .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+    return .{ .message = message, .reservation = try pending_batch.reserve(.{ .message = message }) };
 }
 
-fn commitPreparedImportRelease(self: *Peer, message: model.Message) void {
-    self.session_state.recordSend(message) catch unreachable;
-    self.pending_send.pushAssumeCapacity(.{ .message = message });
+fn commitPreparedImportRelease(self: *Peer, prepared: PreparedOutboundMessage) void {
+    self.session_state.recordSend(prepared.message) catch unreachable;
+    self.pushPendingAssume(prepared.reservation, .{ .message = prepared.message });
 }
 
 /// The `EventKind` a decoded body surfaces as, a 1:1 body-tag mapping. The one

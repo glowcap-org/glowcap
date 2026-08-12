@@ -37,6 +37,7 @@ pub const HostError = driver_core.HostError;
 pub const PancakeHost = c.PancakeHost;
 pub const PancakeHostSession = c.PancakeHostSession;
 pub const PancakeHostTurn = c.PancakeHostTurn;
+pub const PancakeHostAction = c.PancakeHostAction;
 pub const PancakeHostBehavior = c.PancakeHostBehavior;
 pub const PancakeHostCtxFree = c.PancakeHostCtxFree;
 
@@ -51,13 +52,23 @@ pub const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 /// the actor layer holds on its own arenas.
 pub const steady_scratch_bytes = 4096;
 
+/// Which adapter owns transport execution and terminal release for this Host.
+/// Application verbs remain Host verbs in either state; the distinction owns
+/// the I/O/action-drain half and prevents two runtimes from driving or freeing
+/// the same core.
+pub const RuntimeOwner = enum {
+    embedder,
+    driver,
+};
+
 /// The host handle's owned state: the byte-fed core plus the C-side bridge
 /// registries. The `core` field is embedded by value so a `*Host` reached
-/// through a connection (`HostSession.host`) recovers the instance with one
+/// through a session (`HostSession.host`) recovers the instance with one
 /// `@fieldParentPtr`.
 pub const Instance = struct {
     core: Host,
     allocator: std.mem.Allocator,
+    runtime_owner: RuntimeOwner = .embedder,
     /// The C trace callback (`pancake_host_set_trace`), bridged onto the
     /// core's sink; null when tracing is off.
     trace_cb: ?c.PancakeTraceCallback = null,
@@ -85,11 +96,89 @@ pub const Instance = struct {
     completion_scratch: std.heap.ArenaAllocator,
 };
 
+pub const zero_action = PancakeHostAction{
+    .kind = 0,
+    .ticket = 0,
+    .session = null,
+    .value = shared.zero_argument,
+    .message = null,
+    .message_len = 0,
+};
+
+/// Destroy one Host instance after its runtime owner has ended all access.
+/// Both archive faces call this no-export implementation; neither calls the
+/// other archive's public release symbol.
+pub fn releaseInstance(inst: *Instance) void {
+    const alloc = inst.allocator;
+    inst.core.deinitAfterDriverTransfer();
+    inst.arg_scratch.deinit();
+    inst.turn_scratch.deinit();
+    inst.completion_scratch.deinit();
+    if (inst.trace_queue) |queue| {
+        queue.deinit(alloc);
+        alloc.destroy(queue);
+    }
+    alloc.destroy(inst);
+}
+
+pub fn releaseFromDriver(handle: *PancakeHost) void {
+    const inst = instanceFrom(handle).?;
+    std.debug.assert(inst.runtime_owner == .driver);
+    std.debug.assert(!inst.core.in_callback);
+    releaseInstance(inst);
+}
+
+/// Project one settled/failed completion onto the shared C action shape.
+/// The caller resets `completion_scratch` once before this operation.
+pub fn projectCompletionInto(inst: *Instance, action: driver_core.HostAction, slot: *PancakeHostAction) i32 {
+    switch (action) {
+        .settled => |s| {
+            slot.* = zero_action;
+            slot.ticket = s.vow_id;
+            const session = inst.core.sessions.get(s.peer_id) orelse {
+                const reason = "resolution session closed before value projection";
+                slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
+                slot.message = reason.ptr;
+                slot.message_len = reason.len;
+                return PANCAKE_OK;
+            };
+            if (hostArgumentToC(inst, session, inst.completion_scratch.allocator(), s.value)) |c_val| {
+                slot.kind = c.PANCAKE_HOST_ACTION_SETTLE;
+                slot.value = c_val;
+            } else |_| {
+                const reason = "resolution value could not be projected into C";
+                slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
+                slot.message = reason.ptr;
+                slot.message_len = reason.len;
+            }
+            return PANCAKE_OK;
+        },
+        .failed => |f| {
+            slot.* = zero_action;
+            slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
+            slot.ticket = f.vow_id;
+            if (f.message.len != 0) slot.message = f.message.ptr;
+            slot.message_len = f.message.len;
+            return PANCAKE_OK;
+        },
+        else => unreachable,
+    }
+}
+
 pub fn instanceFrom(handle: ?*PancakeHost) ?*Instance {
     return @ptrCast(@alignCast(handle orelse return null));
 }
 
-pub fn connFrom(handle: ?*PancakeHostSession) ?*HostSession {
+/// Whether the byte-fed embedder still owns transport execution for this
+/// Host. Application verbs remain valid after driver adoption; action-drain,
+/// listener metadata, session mint/release, and byte-pump verbs do not.
+pub fn embedderOwnsRuntime(inst: *Instance, operation: []const u8) bool {
+    if (inst.runtime_owner == .embedder) return true;
+    shared.setLastError("host: {s} refused because the driver owns this host's transport runtime", .{operation});
+    return false;
+}
+
+pub fn sessionFrom(handle: ?*PancakeHostSession) ?*HostSession {
     return @ptrCast(@alignCast(handle orelse return null));
 }
 
@@ -103,9 +192,9 @@ pub fn instOf(core: *Host) *Instance {
     return @fieldParentPtr("core", core);
 }
 
-/// The connection a running wire turn arrived through. The Vat is Host-wide;
+/// The session a running wire turn arrived through. The Vat is Host-wide;
 /// the turn's Port, not its Vat, recovers the session projection.
-pub fn connOfTurn(t: *actors.Turn) *HostSession {
+pub fn sessionOfTurn(t: *actors.Turn) *HostSession {
     const served: *driver_core.Served = @fieldParentPtr("port", t.port.?);
     return @alignCast(@fieldParentPtr("served", served));
 }
@@ -132,12 +221,20 @@ pub fn errToCode(err: anyerror) i32 {
         // name in the reserved durable namespace, a durable removal aimed at
         // a mutable name, or entropy reuse colliding with a live durable row.
         error.ReservedDurableNamespace, error.NotDurableName, error.DurableNameCollision => PANCAKE_ERR_INVALID_ARGUMENT,
-        // A condemned connection (crossed-hellos loser) refuses every verb;
+        error.UnknownTransport,
+        error.TransportSemanticsConflict,
+        error.TransportAlreadyRegistered,
+        error.InvalidTransportName,
+        => PANCAKE_ERR_INVALID_ARGUMENT,
+        // A condemned session (crossed-hellos loser) refuses every verb;
         // the embedder writes its queued abort and releases it.
-        error.ConnectionCondemned => shared.PANCAKE_ERR_CLOSED,
+        error.SessionCondemned => shared.PANCAKE_ERR_CLOSED,
         // The partner has not sent its handshake half yet: nothing is wrong,
         // there is just nothing to read, which is what WOULD_BLOCK names.
         error.HandshakeIncomplete => shared.PANCAKE_ERR_WOULD_BLOCK,
+        // The embedder owns I/O and must drain queued outbound before feeding
+        // more work to this session.
+        error.OutboundBackpressure => shared.PANCAKE_ERR_WOULD_BLOCK,
         // Asking a session that never verifies its partner for a verified
         // identity is a session-state refusal, not caller misuse of arguments.
         error.PartnerUnverified => shared.PANCAKE_ERR_SESSION,
@@ -157,12 +254,13 @@ pub fn errToCode(err: anyerror) i32 {
         error.PeerIdentityMismatch,
         error.ForeignSession,
         error.ForeignArgument,
+        error.ForeignTurn,
+        error.NoAnswer,
         error.EnrolledKindConflict,
         error.NoUnliftedImportRetain,
         error.ImportLifted,
         error.NotAToken,
         error.NotAWirePosition,
-        error.DesignatorTooLong,
         error.InvalidChannelKey,
         error.ChannelKeyConflict,
         error.UnheldIdentity,
@@ -192,6 +290,14 @@ pub fn errToCode(err: anyerror) i32 {
         // The bound peer refused an outbound send for a session or protocol
         // reason: a session-domain refusal, per the shared taxonomy.
         error.SendRejected => shared.PANCAKE_ERR_SESSION,
+        // Sealed-channel misuse (ADR-0107): a whole-frame verb aimed at a
+        // sealed session.
+        error.SealedSessionBytesOnly,
+        => PANCAKE_ERR_INVALID_ARGUMENT,
+        // The sealed channel refused and the session is condemned; the
+        // embedder drains the close action and releases it, as for any
+        // condemned session.
+        error.SealedChannelFailed => shared.PANCAKE_ERR_CLOSED,
         // Everything else is an inbound-dispatch failure, classified through
         // the one shared taxonomy (codec / session / internal).
         else => shared.feedErrorToCode(err),
@@ -199,7 +305,7 @@ pub fn errToCode(err: anyerror) i32 {
 }
 
 /// Refuse a host-driving verb that has no core verb to carry the refusal —
-/// the registration surfaces this archive owns (`conn_publish`, `conn_spawn`,
+/// the registration surfaces this archive owns (`session_publish`, `session_spawn`,
 /// the host-wide `publish`). It reads the same latch the core's own top-level
 /// verbs refuse `ReenteredHost` under, so the two tiers cannot disagree on
 /// what a callback may do: enqueue only.
@@ -238,7 +344,7 @@ pub const HostedBehavior = struct {
     pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Message) anyerror!model.Argument {
         const self: *HostedBehavior = @ptrCast(@alignCast(erased));
         const arena = turn.arena;
-        const session = connOfTurn(turn);
+        const session = sessionOfTurn(turn);
         const inst = instOf(session.host);
         const c_args = try hostArgsToC(inst, session, arena, msg.args);
         var reply = shared.zero_argument;

@@ -12,8 +12,10 @@
  * empty pane came with a title in one mode and without one in another. So the
  * distinction is drawn once, by `inspectorView`, and that is what these test.
  *
- * The section bodies call `useEngineVersion` and cannot be called as plain
- * functions, so they are not covered here. Verified in a browser: selecting a peer
+ * The section bodies subscribe locally (`useDocVersion` /
+ * `useClockSnapshot` on the shell, `useEngineVersion` on field panels that
+ * follow live world position) and cannot be called as plain functions, so
+ * they are not covered here. Verified in a browser: selecting a peer
  * in Play and switching to Live shows the placeholder in both sections, under a
  * "DETAILS" title, and switching back shows the peer again.
  *

@@ -194,26 +194,26 @@ test "rooms-peer outbox backlog reflects undrained bytes after offset persist" {
     try std.testing.expectEqual(body.len - 10, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
 }
 
-test "rooms-peer dm_backchannels armed map fails closed when missing" {
+test "rooms-peer first-contact DM queues durably for introduction" {
     const gpa = std.testing.allocator;
     var threaded = std.Io.Threaded.init(gpa, .{});
     defer threaded.deinit();
     const io = threaded.io();
-    const dir = "/tmp/rooms-peer-dm-backchannels-test";
+    const dir = "/tmp/rooms-peer-first-contact-dm-test";
     std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     try std.Io.Dir.cwd().createDirPath(io, dir);
 
-    // Missing file → not armed (no false-sent --dm).
-    try std.testing.expect(!cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Jim"));
-
-    cli.rooms_peer_harness.persistDmBackchannels(io, gpa, dir, &.{ "Jim", "Bob" });
-    try std.testing.expect(cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Jim"));
-    try std.testing.expect(cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Bob"));
-    try std.testing.expect(!cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Eve"));
-
-    cli.rooms_peer_harness.persistDmBackchannels(io, gpa, dir, &.{});
-    try std.testing.expect(!cli.rooms_peer_harness.dmBackchannelArmed(io, gpa, dir, "Jim"));
+    try cli.rooms_peer_harness.appendOutbox(io, gpa, dir, "hello", "Jim");
+    const raw = try cli.rooms_peer_harness.readFile(io, gpa, dir, "outbox.jsonl");
+    defer gpa.free(raw);
+    const parsed = cli.rooms_peer_harness.parseOutboxLine(gpa, std.mem.trimEnd(u8, raw, "\n")).?;
+    defer parsed.deinit(gpa);
+    try std.testing.expect(parsed.is_dm);
+    try std.testing.expectEqualStrings("Jim", parsed.peer);
+    try std.testing.expectEqualStrings("hello", parsed.text);
+    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
+    try std.testing.expectEqual(raw.len, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
 }
 
 test "rooms-peer one-wake both-surfaces: DM ranks before human room" {
@@ -353,6 +353,41 @@ test "rooms-peer humanRoomPending needs roster; peer chatter is not human" {
     try std.testing.expect(!cli.rooms_peer_harness.humanRoomPending(&[_]cli.rooms_peer_harness.Pending{peer_line}, roster));
     try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(&mixed, roster));
     try std.testing.expect(cli.rooms_peer_harness.humanRoomPending(&[_]cli.rooms_peer_harness.Pending{human_line}, roster));
+}
+
+test "rooms-peer pending inbox offers survive a failed drain and clear on success" {
+    // mintInboxFor arrives under the host callback latch; publishGiftable and
+    // tell both refuse ReenteredHost there. The offer must queue, then drain
+    // from maintain outside the latch. A false offer keeps the nick so the
+    // next wake retries. The old inline offer failed once and was never queued.
+    const gpa = std.testing.allocator;
+    var table: std.StringHashMapUnmanaged(void) = .{};
+    defer {
+        var it = table.keyIterator();
+        while (it.next()) |k| gpa.free(k.*);
+        table.deinit(gpa);
+    }
+
+    cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
+    cli.rooms_peer.schedulePendingOffer(gpa, &table, "Jim", 1);
+    cli.rooms_peer.schedulePendingOffer(gpa, &table, "unbounded", 1);
+    try std.testing.expectEqual(@as(usize, 1), table.count());
+
+    const Fail = struct {
+        fn offer(_: void, _: []const u8) bool {
+            return false;
+        }
+    };
+    cli.rooms_peer.drainPendingOffers(gpa, &table, {}, Fail.offer);
+    try std.testing.expect(table.contains("Jim"));
+
+    const Ok = struct {
+        fn offer(_: void, peer: []const u8) bool {
+            return std.mem.eql(u8, peer, "Jim");
+        }
+    };
+    cli.rooms_peer.drainPendingOffers(gpa, &table, {}, Ok.offer);
+    try std.testing.expectEqual(@as(usize, 0), table.count());
 }
 
 test "rooms-peer a failed introduce ages out instead of poisoning the outbox" {

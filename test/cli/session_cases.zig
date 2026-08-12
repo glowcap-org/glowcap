@@ -309,7 +309,7 @@ test "an unwritable state directory is refused as an identity problem, not a dia
 test "listen --rendezvous reaches the background front, not just argv" {
     // A flag accepted and silently ignored is worse than one refused. The
     // background listener reads the same flag through the same owner
-    // (`ocapn.listenNetlayer`), so the locator it prints names the relay
+    // (`ocapn.listenTarget`), so the locator it prints names the relay
     // transport rather than a TCP address nobody asked for.
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);
@@ -328,14 +328,25 @@ test "listen --rendezvous reaches the background front, not just argv" {
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer parsed.deinit();
     try parsed.setString("rendezvous", "ws://127.0.0.1:1/register");
+    try parsed.setString("rendezvous-relay", "ws://127.0.0.1:1/relay");
     const code = try cli.ocapn.cmdListen(&c, &parsed);
     try std.testing.expectEqual(cli.exit_codes.dial, code);
+    try std.testing.expect(c.background_listener == null);
+
+    // Registration and dialing are separate relay endpoints. Refuse to emit
+    // a locator with no route instead of pretending the registration URL is
+    // dialable.
+    var missing_route = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer missing_route.deinit();
+    try missing_route.setString("rendezvous", "ws://127.0.0.1:1/register");
+    try std.testing.expectEqual(cli.exit_codes.usage, try cli.ocapn.cmdListen(&c, &missing_route));
     try std.testing.expect(c.background_listener == null);
 
     // A malformed URL is caller error, refused by the shared owner.
     var bad = cli.cmd_types.Parsed{ .gpa = gpa };
     defer bad.deinit();
     try bad.setString("rendezvous", "http://not-a-relay/");
+    try bad.setString("rendezvous-relay", "ws://127.0.0.1:1/relay");
     try std.testing.expectEqual(cli.exit_codes.usage, try cli.ocapn.cmdListen(&c, &bad));
     try std.testing.expect(c.background_listener == null);
 }

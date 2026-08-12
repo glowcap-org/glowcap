@@ -16,23 +16,23 @@ Session owns mint/handshake (``establish_dialed_locator`` /
 
 from __future__ import annotations
 
-import asyncio
 import ctypes
 from dataclasses import dataclass
 from typing import Optional, Union
 
 from . import _constants as _abi
 from ._errors import PancakeError, _check_host
-from ._ffi_host import _DialPlan, _PendingDial, _host
-from ._ffi_ocapn import _byte_buf
+from ._ffi_host import _DialPlan, _host
+from ._ffi_ocapn import _byte_buf, _LocatorHintView, _LocatorView
 from ._host import Host
-from ._locator import parse_locator
+from ._locator import Locator, _OwnedLocator, parse_locator
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 
 
 @dataclass(frozen=True, slots=True)
 class _HostPortDial:
+    transport: str
     host: str
     port: int
     tag: str = "host_port"
@@ -40,6 +40,7 @@ class _HostPortDial:
 
 @dataclass(frozen=True, slots=True)
 class _PeerIdDial:
+    transport: str
     addresses: str
     reach_kind: int
     reach_value: int
@@ -48,10 +49,17 @@ class _PeerIdDial:
 
 @dataclass(frozen=True, slots=True)
 class _RendezvousDial:
+    transport: str
     tag: str = "rendezvous"
 
 
-_ResolvedDial = Union[_HostPortDial, _PeerIdDial, _RendezvousDial]
+@dataclass(frozen=True, slots=True)
+class _SignalingDial:
+    transport: str
+    tag: str = "signaling"
+
+
+_ResolvedDial = Union[_HostPortDial, _PeerIdDial, _RendezvousDial, _SignalingDial]
 
 
 def _decode_plan_view(sources, ptr, length: int) -> str:
@@ -70,12 +78,21 @@ def _decode_plan_view(sources, ptr, length: int) -> str:
             continue
         if base <= vp and vp + length <= base + raw_len:
             off = vp - base
-            return bytes(memoryview(buf)[off:off + length]).decode("utf-8", errors="replace")
-    raise PancakeError(_ERR_INVALID_ARGUMENT, "dial plan view does not alias input buffers")
+            return bytes(memoryview(buf)[off : off + length]).decode(
+                "utf-8", errors="replace"
+            )
+    raise PancakeError(
+        _ERR_INVALID_ARGUMENT, "dial plan view does not alias input buffers"
+    )
 
 
-def _plan_dial(transport_name: str, designator: str, hint: str,
-               posture_policy: int, posture_value: int) -> _ResolvedDial:
+def _plan_dial(
+    transport_name: str,
+    designator: str,
+    hint: str,
+    posture_policy: int,
+    posture_value: int,
+) -> _ResolvedDial:
     """Resolve a dial in the core — the host:port grammar, the hint rule, the
     peer-id posture, and the error cases all decided by ``pancake_host_plan_dial``.
     Plan views alias the input UTF-8 buffers; decode those subslices only."""
@@ -84,68 +101,44 @@ def _plan_dial(transport_name: str, designator: str, hint: str,
     dbuf, dptr = _byte_buf(d)
     hbuf, hptr = _byte_buf(h)
     plan = _DialPlan()
-    _check_host(_host.pancake_host_plan_dial(
-        tptr, len(t), dptr, len(d), hptr, len(h),
-        posture_policy, posture_value, ctypes.byref(plan),
-    ))
+    _check_host(
+        _host.pancake_host_plan_dial(
+            tptr,
+            len(t),
+            dptr,
+            len(d),
+            hptr,
+            len(h),
+            posture_policy,
+            posture_value,
+            ctypes.byref(plan),
+        )
+    )
     # Keep the ctypes buffers alive across the view decode (plan pointers alias them).
     _ = (tbuf, dbuf, hbuf)
     sources = ((dbuf, dptr, len(d)), (hbuf, hptr, len(h)))
     if plan.shape == _abi.DIAL_SHAPE_PEER_ID:
         return _PeerIdDial(
+            transport=transport_name,
             addresses=_decode_plan_view(sources, plan.addresses, plan.addresses_len),
             reach_kind=plan.reach_kind,
             reach_value=plan.reach_value,
         )
     if plan.shape == _abi.DIAL_SHAPE_HOST_PORT:
         return _HostPortDial(
+            transport=transport_name,
             host=_decode_plan_view(sources, plan.host, plan.host_len),
             port=plan.port,
         )
     if plan.shape == _abi.DIAL_SHAPE_SIGNALING:
-        raise PancakeError(_ERR_INVALID_ARGUMENT,
-            "webrtc signaling dial shape requires a signaling-aware adapter; a bare locator cannot open it")
+        return _SignalingDial(transport_name)
     if plan.shape == _abi.DIAL_SHAPE_RENDEZVOUS:
-        return _RendezvousDial()
+        return _RendezvousDial(transport_name)
     raise PancakeError(_ERR_INVALID_ARGUMENT, f"unknown dial shape {plan.shape}")
 
 
-class _StreamTransport:
-    """How bytes move for one TCP connection over asyncio streams — the
-    transport seam the byte-fed pump reads and the FLUSH drain writes. The iroh
-    companion (:mod:`pancake.iroh`) supplies its own record with the same three
-    verbs, so the iroh artifact stays out of this core module entirely. Framing
-    is never the transport's job: the host's stream delimiter owns it. The
-    write contract every transport record shares: ``write()`` moves bytes
-    only — it must not call host verbs or feed a connection, because it runs
-    under the connection's ``_write_lock`` and a reentrant flush would
-    deadlock or interleave frames."""
-
-    _READ_CHUNK = 65536
-
-    def __init__(self, reader: "asyncio.StreamReader", writer: "asyncio.StreamWriter"):
-        self._reader = reader
-        self._writer = writer
-
-    async def read(self) -> Optional[bytes]:
-        """The next chunk of inbound bytes, or ``None`` at a clean end of
-        stream."""
-        chunk = await self._reader.read(self._READ_CHUNK)
-        return chunk if chunk else None
-
-    async def write(self, data: bytes) -> None:
-        """Write every byte of ``data``, awaiting the stream's backpressure."""
-        self._writer.write(data)
-        await self._writer.drain()
-
-    def close(self) -> None:
-        self._writer.close()
-
-
 async def dial_parsed_locator(
-    transport_name: str,
-    designator: str,
-    direct_addresses_hint: str,
+    locator: Locator,
     host: "Optional[Host]" = None,
     *,
     reachability=None,
@@ -158,80 +151,187 @@ async def dial_parsed_locator(
     ``pancake_host_plan_dial``, and this opens the channel it names. Every dial
     through here bounds its handshake, so a peer that accepts the connection and
     then never finishes the OCapN handshake fails the dial rather than parking
-    the caller."""
+    the caller.
+
+    Native TCP, iroh, and routed relay plans run through the generic driver. A
+    supplied byte-fed Host is transferred transactionally before that driver
+    is started, preserving the caller's Host object and authority. A bare relay
+    locator can still use the Host's explicit WebSocket rendezvous fallback."""
     # Session owns mint/handshake; import at call time so the session ↔ dial
     # module-load edge stays acyclic.
     from ._session import Session
 
-    if redeem:
-        if host is None:
-            raise PancakeError(_ERR_INVALID_ARGUMENT, "handoff redeem requires a shared host")
-        dial_host = host
-        owns_host = False
-        policy, value = _abi.DIAL_POSTURE_REDEEM, 0
-    else:
-        dial_host = host if host is not None else Host(
-            codec=codec if codec is not None else "syrup"
+    transport_name = locator.transport
+    designator = locator.designator
+    direct_addresses_hint = _direct_addresses_hint(locator)
+    if redeem and host is None:
+        raise PancakeError(
+            _ERR_INVALID_ARGUMENT, "handoff redeem requires a shared host"
         )
-        owns_host = host is None
-        if reachability is not None:
-            policy, value = _abi.DIAL_POSTURE_EXPLICIT, int(reachability)
-        else:
-            policy, value = _abi.DIAL_POSTURE_EXPLICIT_NONE, 0
-    plan = _plan_dial(transport_name, designator, direct_addresses_hint, policy, value)
-    if isinstance(plan, _PeerIdDial):
-        from . import iroh as _iroh
-        reach: _iroh.Reachability
-        if plan.reach_kind == _abi.DIAL_REACH_DIRECT:
-            reach = _iroh.Reachability.DIRECT
-        elif plan.reach_kind == _abi.DIAL_REACH_CONFIGURED:
-            reach = _iroh.Reachability(dial_host.redeem_reachability)
-        else:
-            # The plan carried the posture as its raw wire integer; converting
-            # rather than assigning refuses a value outside the enum here, where
-            # the locator that produced it is still in hand.
-            reach = _iroh.Reachability(plan.reach_value)
-        iroh_session = await _iroh._connect_iroh_with_host(
-            designator, plan.addresses, reach, dial_host, handshake_timeout_ms,
+    dial_host = host
+    owns_host = False
+    policy, value = (
+        (_abi.DIAL_POSTURE_REDEEM, 0)
+        if redeem
+        else (
+            (_abi.DIAL_POSTURE_EXPLICIT, int(reachability))
+            if reachability is not None
+            else (_abi.DIAL_POSTURE_EXPLICIT_NONE, 0)
         )
-        iroh_session.owns_host = owns_host
-        return iroh_session
-    if isinstance(plan, _RendezvousDial):
-        # A `keyed-relay` peer holds an inbound socket at a relay under its key
-        # designator; the byte path is the relay's rendezvous bridge, and the
-        # relay mapping is this host's deployment configuration, exactly like
-        # the redeem reachability posture beside it (ADR-0088).
-        rendezvous_url = dial_host.rendezvous_url
-        if rendezvous_url is None:
-            raise PancakeError(_ERR_INVALID_ARGUMENT,
-                "keyed-relay dial: no rendezvous relay configured; set Host.rendezvous_url first")
-        from ._ws import connect_websocket
-        ws_transport = await connect_websocket(rendezvous_url(designator))
-        try:
-            session = await Session.establish_dialed_locator(
-                dial_host, transport_name, designator, ws_transport, handshake_timeout_ms,
-            )
-            session.owns_host = owns_host
-            return session
-        except BaseException:
-            ws_transport.close()
-            raise
-    reader, writer = await asyncio.open_connection(plan.host, plan.port)
-    transport = _StreamTransport(reader, writer)
+    )
+    succeeded = False
+    loop = None
     try:
-        session = await Session.establish_dialed_locator(
-            dial_host, transport_name, designator, transport, handshake_timeout_ms,
+        plan = _plan_dial(
+            transport_name, designator, direct_addresses_hint, policy, value
         )
-        session.owns_host = owns_host
-        return session
-    except BaseException:
-        transport.close()
-        raise
+        from .relay import _route_from_locator
+
+        relay_route = _route_from_locator(locator)
+        if isinstance(plan, (_HostPortDial, _PeerIdDial)) or (
+            isinstance(plan, _RendezvousDial) and relay_route is not None
+        ):
+            if not handshake_timeout_ms or handshake_timeout_ms <= 0:
+                raise PancakeError(
+                    _ERR_INVALID_ARGUMENT,
+                    "native driver providers require a positive handshake timeout",
+                )
+            from ._loop import DriverLoop, dial_shared_loop
+
+            if host is not None and getattr(host, "_loop_mode", False):
+                loop = host._driver_loop
+            elif host is not None:
+                loop = DriverLoop.take_host(host)
+            else:
+                loop = DriverLoop.open(
+                    codec=codec if codec is not None else "syrup",
+                    handshake_ms=handshake_timeout_ms,
+                )
+            await loop.start()
+            await prepare_native_provider(loop, plan, locator)
+            session = await dial_shared_loop(loop, locator)
+            session.owns_host = host is None
+            succeeded = True
+            return session
+        if isinstance(plan, _RendezvousDial):
+            # A `keyed-relay` peer holds an inbound socket at a relay under its key
+            # designator; the byte path is the relay's rendezvous bridge, and the
+            # relay mapping is this host's deployment configuration, exactly like
+            # the redeem reachability posture beside it (ADR-0088).
+            dial_host = dial_host or Host(codec=codec if codec is not None else "syrup")
+            owns_host = host is None
+            from .relay import _dial_url, _route_from_locator
+
+            relay_route = _route_from_locator(locator)
+            rendezvous_url = dial_host.rendezvous_url
+            if relay_route is None and rendezvous_url is None:
+                raise PancakeError(
+                    _ERR_INVALID_ARGUMENT,
+                    "relay dial: locator has no rendezvous-relay hint and the Host has no rendezvous mapping",
+                )
+            from ._ws import connect_websocket
+
+            url = (
+                _dial_url(relay_route, designator)
+                if relay_route is not None
+                else rendezvous_url(designator)
+            )
+            ws_transport = await connect_websocket(url)
+            try:
+                session = await Session.establish_dialed_locator(
+                    dial_host,
+                    transport_name,
+                    designator,
+                    ws_transport,
+                    handshake_timeout_ms,
+                )
+                session.owns_host = owns_host
+                succeeded = True
+                return session
+            except BaseException:
+                ws_transport.close()
+                raise
+        if isinstance(plan, _SignalingDial):
+            dial_host = dial_host or Host(codec=codec if codec is not None else "syrup")
+            owns_host = host is None
+            signaling = getattr(dial_host, "signaling", None)
+            if signaling is None:
+                raise PancakeError(
+                    _ERR_INVALID_ARGUMENT,
+                    "signaling dial requires an explicit Host.signaling byte-channel integration",
+                )
+            channel = await signaling.open(designator)
+            try:
+                session = await Session.establish_dialed_locator(
+                    dial_host,
+                    transport_name,
+                    designator,
+                    channel,
+                    handshake_timeout_ms,
+                )
+                session.owns_host = owns_host
+                succeeded = True
+                return session
+            except BaseException:
+                channel.close()
+                raise
+        raise PancakeError(
+            _ERR_INVALID_ARGUMENT, "native dial plan was not a driver provider"
+        )
+    finally:
+        if (
+            loop is not None
+            and not succeeded
+            and (host is None or not getattr(host, "_loop_mode", False))
+        ):
+            loop.close()
+        elif owns_host and not succeeded:
+            dial_host.release()
 
 
-async def dial_exporter(transport_name: str, designator: str,
-                        direct_addresses_hint: str, host: Host,
-                        handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS):
+async def prepare_native_provider(loop, plan, locator: Locator) -> None:
+    """Compose the provider package selected by the binding product edge."""
+    if isinstance(plan, _HostPortDial):
+        from .tcp import install_provider
+
+        install_provider(loop)
+        return
+    if isinstance(plan, _PeerIdDial):
+        from . import iroh
+
+        await iroh.adopt_loop_provider(
+            loop,
+            iroh.IrohConfig(iroh.reachability_for_plan(plan)),
+            seed=loop.wrapper_host().seed,
+        )
+        return
+    if isinstance(plan, _RendezvousDial):
+        from .relay import _route_from_locator, install_provider
+
+        route = _route_from_locator(locator)
+        if route is None:
+            raise PancakeError(
+                _ERR_INVALID_ARGUMENT,
+                "native relay provider requires a rendezvous-relay locator hint",
+            )
+        install_provider(loop, route)
+        return
+
+
+def _direct_addresses_hint(locator: Locator) -> str:
+    value = locator.hints.get(_abi.HINT_DIRECT_ADDRESSES, "")
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return ""
+
+
+async def dial_exporter(
+    locator: Locator,
+    host: Host,
+    handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS,
+):
     """Dial an exporter a DIAL action names, keyed with ``host``'s retained
     identity, and bind the result to that same Host so the redeemed
     capability and any further handoff it triggers share one identity and
@@ -239,43 +339,77 @@ async def dial_exporter(transport_name: str, designator: str,
     redeem a give. An exporter that never finishes the handshake breaks the
     redeem on ``handshake_timeout_ms`` rather than stalling the drain."""
     return await dial_parsed_locator(
-        transport_name, designator, direct_addresses_hint, host, redeem=True,
+        locator,
+        host,
+        redeem=True,
         handshake_timeout_ms=handshake_timeout_ms,
     )
 
 
 async def run_dial_ticket(host: Host, ticket: int) -> None:
-    """Ticket-only DIAL arm: borrow parsed parts (no URI re-parse), dial, report."""
+    """Ticket-only DIAL arm: clone the complete locator, dial, and report."""
     from ._ffi_ocapn import _byte_buf
 
+    session = None
     try:
-        view = _PendingDial()
-        _check_host(_host.pancake_host_pending_dial(host.raw, ticket, ctypes.byref(view)))
-
-        def _view_str(ptr: int | None, length: int) -> str:
-            if not ptr or not length:
-                return ""
-            return bytes(ctypes.string_at(ptr, length)).decode("utf-8", errors="replace")
-
-        transport = _view_str(view.transport, view.transport_len)
-        designator = _view_str(view.designator, view.designator_len)
-        hint = _view_str(view.hint, view.hint_len)
-        session = await dial_exporter(transport, designator, hint, host)
-        session.serve()
+        if host.released:
+            return
+        capacity = 8
+        while True:
+            hints = (_LocatorHintView * capacity)()
+            view = _LocatorView()
+            count = ctypes.c_size_t()
+            rc = _host.pancake_host_pending_dial(
+                host.raw,
+                ticket,
+                hints,
+                capacity,
+                ctypes.byref(view),
+                ctypes.byref(count),
+            )
+            if rc != _abi.ERR_BUFFER_TOO_SMALL:
+                _check_host(rc)
+                break
+            capacity = count.value
+        with _OwnedLocator.clone_view(ctypes.byref(view)) as owned:
+            locator = owned.value()
+        session = await dial_exporter(locator, host)
+        if host.released:
+            session.close_transport()
+            return
         _check_host(_host.pancake_host_dialed(host.raw, ticket, session.raw))
-    except Exception as error:  # noqa: BLE001 — a failed dial breaks the redeems
+        session.serve()
+        session = None  # the Host registry now owns terminal teardown
+    except BaseException as error:  # cancellation must settle a popped action
+        if session is not None:
+            session.close_transport()
+        if host.released:
+            return
         reason = (str(error) or type(error).__name__).encode()
         _buf, ptr = _byte_buf(reason)
         _check_host(_host.pancake_host_dial_failed(host.raw, ticket, ptr, len(reason)))
+        if not isinstance(error, Exception):
+            raise
 
 
-async def connect(uri: str, reachability: "Optional[int]" = None,
-                  host: "Optional[Host]" = None, codec: Optional[str] = None,
-                  *, handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS):
+async def connect(
+    uri: str,
+    reachability: "Optional[int]" = None,
+    host: "Optional[Host]" = None,
+    codec: Optional[str] = None,
+    *,
+    handshake_timeout_ms: "Optional[int]" = _abi.HANDSHAKE_TIMEOUT_MS,
+):
     """Dial a partner from its ``ocapn://`` locator: parse once, call
-    ``pancake_host_plan_dial``, and open the byte channel the plan names.
+    ``pancake_host_plan_dial``, and open the channel the plan names.
     There is no other dial: a literal address is a ``tcp`` locator, built with
     :func:`tcp_locator`. The core owns transport dispatch and grammar.
+
+    A ``tcp``, ``keyed-tcp``, ``noise-tcp``, ``iroh``, or routed relay dial runs on the driver archive (ADR-0112):
+    the session rides one stepping native loop that owns the socket, the
+    pumping, and — for a session opened with no shared ``host`` — the whole
+    stack, so closing the session closes it all. A bare relay locator can use a
+    deliberately explicit Host WebSocket fallback.
 
     A ``tcp`` locator needs only this core module. An ``iroh`` locator reaches
     into the companion :mod:`pancake.iroh` (the optional encrypted-QUIC
@@ -295,10 +429,13 @@ async def connect(uri: str, reachability: "Optional[int]" = None,
     ``handshake_timeout_ms`` bounds the OCapN handshake once the byte channel
     is open, at :data:`HANDSHAKE_TIMEOUT_MS` by default. A peer that accepts
     the connection and then says nothing raises :class:`PancakeError` with
-    ``ERR_TIMEOUT`` instead of parking the caller; pass ``None`` or ``0`` to
-    wait without a bound. It does not cover opening the channel itself: a TCP
-    connect is the OS's timeout, and an iroh dial-by-id keeps its own discovery
-    retry budget (ADR-0082) before the handshake starts."""
+    ``ERR_TIMEOUT`` instead of parking the caller. Native provider dials reject
+    ``None`` or ``0`` because the driver requires a positive budget; only the
+    explicit bare-locator relay fallback is byte-fed. A dial
+    sharing a loop-backed server's Host is bounded by that loop's budget
+    rather than this argument. The bound does not cover opening the channel
+    itself: a TCP connect is the OS's timeout, and an iroh dial-by-id keeps
+    its own discovery retry budget (ADR-0082) before the handshake starts."""
     loc = parse_locator(uri)
     # Fail closed on options a branch cannot honor: dropping a shared Host
     # silently would dial on a different identity and outside the live-session
@@ -311,8 +448,7 @@ async def connect(uri: str, reachability: "Optional[int]" = None,
             f'codec "{codec}" conflicts with the shared host\'s "{host.codec}"',
         )
     return await dial_parsed_locator(
-        loc.transport, loc.designator,
-        loc.hints.get(_abi.HINT_DIRECT_ADDRESSES, ""),
+        loc,
         host,
         reachability=reachability,
         codec=codec,
