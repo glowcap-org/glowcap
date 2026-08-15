@@ -57,9 +57,11 @@ pub const Progress = union(enum) {
 
 /// Why a pump could not make protocol progress. A malformed / oversize / refused
 /// inbound frame is a *protocol abort*: the core has already projected the
-/// outbound `op:abort` (which the pump flushes best-effort) before the matching
-/// error surfaces here — the variant names what the partner did, not a transport
-/// fault. The variant names only the failure family; the typed cause — abort
+/// outbound `op:abort` before the matching error surfaces here. A successful
+/// terminal-frame write returns the protocol family; a refused write returns
+/// `AbortFlushFailed`, while the original typed cause remains on
+/// `engine.Peer.lastAbort`. The protocol variants name what the partner did,
+/// not a transport fault. They name only the failure family; the typed cause — abort
 /// kind, codec-vs-session domain, diagnostic — stays readable through
 /// `engine.Peer.lastAbort` on the peer the caller already holds.
 /// `ConnectionLost` / `TruncatedFrame` are the genuine transport faults;
@@ -84,6 +86,10 @@ pub const PumpError = error{
     /// A structurally valid frame was refused by session authority (op:abort
     /// projected; the session is closing).
     ProtocolAbort,
+    /// The peer projected a terminal `op:abort`, but the stream refused its
+    /// delivery. `Peer.lastAbort` retains the original protocol cause and the
+    /// writer retains the concrete transport error.
+    AbortFlushFailed,
 } || std.mem.Allocator.Error;
 
 /// A type-erased handle to the concrete stream behind a `Connection`. The
@@ -96,12 +102,17 @@ const TransportHandle = struct {
     ctx: *anyopaque,
     close_fn: *const fn (ctx: *anyopaque) void,
     socket_handle_fn: *const fn (ctx: *anyopaque) ?std.Io.net.Socket.Handle,
+    take_failure_fn: ?*const fn (ctx: *anyopaque) ?foundation.FailureChain = null,
 
     pub fn close(self: TransportHandle) void {
         self.close_fn(self.ctx);
     }
     pub fn socketHandle(self: TransportHandle) ?std.Io.net.Socket.Handle {
         return self.socket_handle_fn(self.ctx);
+    }
+    pub fn takeFailure(self: TransportHandle) ?foundation.FailureChain {
+        const take = self.take_failure_fn orelse return null;
+        return take(self.ctx);
     }
 };
 
@@ -191,6 +202,13 @@ pub const Connection = struct {
     /// transport handle.
     pub fn socketHandle(self: *const Connection) ?std.Io.net.Socket.Handle {
         return self.transport.socketHandle();
+    }
+
+    /// Claim the exact transport failure retained by the connection owner.
+    /// A clean EOF or a transport without richer failure data returns null;
+    /// a claimed failure cannot reappear.
+    pub fn takeFailure(self: *Connection) ?foundation.FailureChain {
+        return self.transport.takeFailure();
     }
 
     /// Whether a read would make progress within `timeout_ms` for an fd-backed
@@ -347,11 +365,10 @@ pub fn pumpOver(
     const supply = if (spill.isActive()) spill.bytes() else r.buffered();
     if (supply.len > 0) {
         const outcome = frame_stream.recvOuterPrefix(peer, supply) catch |err| {
-            // The core projected an op:abort into outbound; flush it best-effort
-            // so the partner sees the fail-loud close, then surface the cause.
-            peer.stepToIdle() catch {};
-            _ = drainOutbound(peer, w) catch 0;
-            return classifyApplyError(err);
+            // Dispatch projected the terminal frame directly onto outbound.
+            // Preserve a refused delivery as its own pump outcome; the peer's
+            // lastAbort still carries this original apply cause.
+            return flushProjectedAbort(peer, w, err);
         };
         switch (outcome) {
             .consumed => |n| {
@@ -403,14 +420,18 @@ pub fn classifyApplyError(err: anyerror) PumpError {
 /// ride: `flush` discards the count, the pumps carry it as their sent tally.
 /// The abort-flush contract is the point of the shared spine. When
 /// `stepToIdle` fails it has already projected the fail-loud `op:abort` frame
-/// onto outbound, so drain it best-effort — `catch 0` swallows a write failure
-/// there so the original apply cause surfaces, not a masking drain error —
-/// then return that cause classified onto the pump surface. A drain failure on
-/// the success path is the connection dying under the write, `ConnectionLost`.
+/// onto outbound. A successful drain returns that cause classified onto the
+/// pump surface; a refused terminal-frame write returns `AbortFlushFailed`,
+/// with the original cause still readable through `Peer.lastAbort`. A drain
+/// failure on the success path is ordinary `ConnectionLost`.
 fn encodeAndFlush(peer: *engine.Peer, w: *std.Io.Writer) PumpError!usize {
     peer.stepToIdle() catch |err| {
-        _ = drainOutbound(peer, w) catch 0;
-        return classifyApplyError(err);
+        return flushProjectedAbort(peer, w, err);
     };
     return drainOutbound(peer, w) catch return error.ConnectionLost;
+}
+
+fn flushProjectedAbort(peer: *engine.Peer, w: *std.Io.Writer, primary: anyerror) PumpError {
+    _ = drainOutbound(peer, w) catch return error.AbortFlushFailed;
+    return classifyApplyError(primary);
 }

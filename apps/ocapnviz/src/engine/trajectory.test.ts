@@ -29,11 +29,7 @@ import {
   sessionEndpoint,
   SessionState,
 } from "../schema/topology.ts";
-import type {
-  PeerDefinition,
-  SessionDefinition,
-  TimelineDocument,
-} from "./timeline.ts";
+import type { PeerDefinition, SessionDefinition, TimelineDocument } from "./timeline.ts";
 import { peerPropertyAt } from "./temporal/doc-resolver.ts";
 
 const update = (fields: Partial<PeerUpdate> = {}): PeerUpdate => ({
@@ -346,8 +342,7 @@ Deno.test("a moment keeps its identity when its time moves", () => {
     );
   const before = at(300);
   const after = at(900);
-  const identity = (rows: ReturnType<typeof sessionTrajectoryRows>) =>
-    rows.map((r) => r.eventId);
+  const identity = (rows: ReturnType<typeof sessionTrajectoryRows>) => rows.map((r) => r.eventId);
   assertEquals(identity(before), identity(after));
   assertEquals(before.map((r) => r.t), [100, 300]);
   assertEquals(after.map((r) => r.t), [100, 900]);
@@ -379,9 +374,7 @@ Deno.test("every property says how a row names and edits it", () => {
   const described: [string, TrajectoryDisplay, string][] = [
     ...PEER_PROPERTIES.map((
       p,
-    ) =>
-      [p, PEER_TRAJECTORY[p], "peers"] as [string, TrajectoryDisplay, string]
-    ),
+    ) => [p, PEER_TRAJECTORY[p], "peers"] as [string, TrajectoryDisplay, string]),
     ...SESSION_PROPERTIES.map((
       p,
     ) =>
@@ -519,9 +512,7 @@ Deno.test("a closed picker only ever offers one of its own options", () => {
       captpVersion: "v1_0",
       initialState: "open",
     });
-    const offered = genesis === undefined
-      ? spec.editor.options[0]!
-      : spec.stated(genesis);
+    const offered = genesis === undefined ? spec.editor.options[0]! : spec.stated(genesis);
     assert(
       spec.editor.options.includes(offered),
       `${property} offered ${JSON.stringify(offered)}, not one of ` +

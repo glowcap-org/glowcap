@@ -18,11 +18,7 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { ToolCommandButton, ToolCommandRow } from "./ToolCommands.tsx";
-import {
-  _resetConfirmForTesting,
-  type ConfirmRequest,
-  currentConfirm,
-} from "./confirm.ts";
+import { _resetConfirmForTesting, type ConfirmRequest, currentConfirm } from "./confirm.ts";
 
 type Command = {
   ran: number;

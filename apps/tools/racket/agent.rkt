@@ -6,7 +6,8 @@
 ;;   racket agent.rkt 127.0.0.1 9099 rkt-agent
 
 (require "../../_demo/bindings.rkt"
-         "../../_demo/tools_check.rkt")
+         "../../_demo/tools_check.rkt"
+         "../../../bindings/racket/pancake-tcp.rkt")
 
 ;; `session-send`, summarized for the checks below: `(cons 'ok value)` on a
 ;; fulfilled reply, `(cons 'broken message)` on a broken one (revocation tests
@@ -18,7 +19,8 @@
 (define (run host port nick)
   (define check (make-check nick))
 
-  (define c (connect (tcp-locator host port)))
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define c (runtime-connect runtime (tcp-locator host port)))
   (define tools (session-fetch c "tools"))
 
   ;; 1. Delegation: get a clock capability and call it.
@@ -45,7 +47,8 @@
 
   (printf "~a: all capability properties held\n" nick)
   (flush-output)
-  (session-close! c))
+  (session-close! c)
+  (runtime-close! runtime))
 
 (module+ main
   (define args (current-command-line-arguments))

@@ -428,6 +428,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return self.platform.verifiedChannelKey(fd);
         }
 
+        pub fn applyKeepalive(self: *Self, fd: Fd, keepalive: completion.Keepalive) !void {
+            if (idFromFd(fd)) |id| {
+                const c = self.conns.get(id) orelse return error.FileDescriptorNotASocket;
+                return self.platform.applyKeepalive(c.os_fd, keepalive);
+            }
+            return self.platform.applyKeepalive(fd, keepalive);
+        }
+
         pub fn closeFd(self: *Self, fd: Fd) void {
             if (idFromFd(fd)) |id| {
                 const c = self.conns.get(id) orelse return;

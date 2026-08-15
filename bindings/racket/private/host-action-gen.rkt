@@ -12,9 +12,14 @@
          "ffi-shared.rkt"
          "ffi-host.rkt")
 
-(provide HOST-ACTION-DIAL HOST-ACTION-FLUSH HOST-ACTION-NEED-GIFT-ID
-         HOST-ACTION-SETTLE HOST-ACTION-FAIL HOST-ACTION-CLOSE
+(provide         HOST-ACTION-DIAL
+         HOST-ACTION-FLUSH
+         HOST-ACTION-NEED-GIFT-ID
+         HOST-ACTION-SETTLE
+         HOST-ACTION-FAIL
+         HOST-ACTION-CLOSE
          HOST-ACTION-RESUME
+         HOST-ACTION-CANCEL-DIAL
          host-decode-action!
          host-dispatch-action!)
 
@@ -26,6 +31,7 @@
 (define HOST-ACTION-FAIL 4)
 (define HOST-ACTION-CLOSE 5)
 (define HOST-ACTION-RESUME 6)
+(define HOST-ACTION-CANCEL-DIAL 7)
 
 ;; Decode a filled PancakeHostAction cstruct into the list form the
 ;; drain switch matches: `(list 'dial …)`, `(list 'flush …)`, …
@@ -46,12 +52,14 @@
      ;; outcome outlives the popped action's until-next-pop lifetime.
      (list 'settle (PancakeHostAction-ticket a) (arg<-c (PancakeHostAction-value a)))]
     [(= kind HOST-ACTION-FAIL)
-     (list 'fail (PancakeHostAction-ticket a)
+     (list 'fail (PancakeHostAction-ticket a) (PancakeHostAction-result a)
            (view->string (PancakeHostAction-message a) (PancakeHostAction-message-len a)))]
     [(= kind HOST-ACTION-CLOSE)
-     (list 'close (PancakeHostAction-session a))]
+     (list 'close (PancakeHostAction-session a) (PancakeHostAction-result a))]
     [(= kind HOST-ACTION-RESUME)
      (list 'resume)]
+    [(= kind HOST-ACTION-CANCEL-DIAL)
+     (list 'cancel-dial (PancakeHostAction-ticket a))]
     [else (error 'pancake "unknown host action kind: ~a" kind)]))
 
 ;; Exhaustive dispatch over a decoded action list. `handlers` is a

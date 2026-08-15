@@ -3,10 +3,7 @@ import { TimelineDocument, type TimelineEvent } from "./timeline.ts";
 import { Engine } from "./engine.ts";
 import { findEndpoint, findPeer } from "./world.ts";
 import { attachedEndpoint, unattributedEndpoint } from "../schema/topology.ts";
-import {
-  observationsOf,
-  primaryObservations,
-} from "./temporal/recording-access.ts";
+import { observationsOf, primaryObservations } from "./temporal/recording-access.ts";
 import { peerEffective, sessionEffective } from "./temporal/doc-resolver.ts";
 import {
   claimTargets,
@@ -98,9 +95,7 @@ engineTest(
   () => {
     const e = new Engine(doc);
     const peers = [...e.world.with("peer", "position")];
-    const positions = peers.map((p) =>
-      `${p.position.x.toFixed(3)},${p.position.y.toFixed(3)}`
-    );
+    const positions = peers.map((p) => `${p.position.x.toFixed(3)},${p.position.y.toFixed(3)}`);
     assertEquals(new Set(positions).size, peers.length);
   },
 );
@@ -142,9 +137,7 @@ engineTest(
       [...a.keys()].some((id) => {
         const pa = a.get(id);
         const pb = b.get(id);
-        return !!pa && !!pb && (pa.x !== pb.x || pa.y !== pb.y) === false
-          ? false
-          : true;
+        return !!pa && !!pb && (pa.x !== pb.x || pa.y !== pb.y) === false ? false : true;
       }) || true,
       "topology unchanged across this t-range; positions can match",
     );
@@ -461,9 +454,7 @@ engineTest("Engine determinism: same wallDt sequence => same world", () => {
   }
   const sig = (e: Engine) =>
     [...e.queries.peers]
-      .map((p) =>
-        `${p.peer.id}:${p.position.x.toFixed(3)},${p.position.y.toFixed(3)}`
-      )
+      .map((p) => `${p.peer.id}:${p.position.x.toFixed(3)},${p.position.y.toFixed(3)}`)
       .sort()
       .join("|");
   assertEquals(sig(e1), sig(e2));
@@ -879,8 +870,7 @@ engineTest("move-event slides a peer's renames with the peer", () => {
     kind: "move-event",
     move: { kind: "translate", eventId: "p1", newT: 1100 },
   });
-  const at = (id: string) =>
-    primaryObservations(e.doc).find((ev) => ev.id === id)?.t;
+  const at = (id: string) => primaryObservations(e.doc).find((ev) => ev.id === id)?.t;
   assertEquals(at("p1"), 1100);
   assertEquals(at("p2"), 1300);
   assertEquals(at("p3"), 1900);
@@ -914,8 +904,7 @@ engineTest("move-event slides a whole peer earlier", () => {
     kind: "move-event",
     move: { kind: "translate", eventId: "p1", newT: 100 },
   });
-  const at = (id: string) =>
-    primaryObservations(e.doc).find((ev) => ev.id === id)?.t;
+  const at = (id: string) => primaryObservations(e.doc).find((ev) => ev.id === id)?.t;
   assertEquals(at("p1"), 100);
   assertEquals(at("p2"), 300);
   assertEquals(at("p3"), 900);
@@ -1551,8 +1540,7 @@ function renamedPeerDoc(): TimelineDocument {
   });
 }
 
-const labelTrack = (e: Engine) =>
-  e.doc.entities?.peers?.["127.0.0.1:0"]?.keyframes?.label;
+const labelTrack = (e: Engine) => e.doc.entities?.peers?.["127.0.0.1:0"]?.keyframes?.label;
 
 engineTest("set-peer-update replaces the value stated at that moment", () => {
   const e = new Engine(renamedPeerDoc());
@@ -1565,9 +1553,7 @@ engineTest("set-peer-update replaces the value stated at that moment", () => {
   });
   assertEquals(labelTrack(e), [{ t: 400, value: "carol-away" }]);
   // One observation, replaced in place — not two renames at one t.
-  const renames = primaryObservations(e.doc).filter((ev) =>
-    ev.kind === "peer-updated"
-  );
+  const renames = primaryObservations(e.doc).filter((ev) => ev.kind === "peer-updated");
   assertEquals(renames.length, 1);
 });
 
@@ -1577,10 +1563,7 @@ engineTest("renaming a moment keeps the moment's identity", () => {
   // the row being typed into, and the field loses focus after one
   // character.
   const e = new Engine(renamedPeerDoc());
-  const idAt400 = () =>
-    primaryObservations(e.doc).find((ev) =>
-      ev.kind === "peer-updated" && ev.t === 400
-    )?.id;
+  const idAt400 = () => primaryObservations(e.doc).find((ev) => ev.kind === "peer-updated" && ev.t === 400)?.id;
   const before = idAt400();
   e.dispatch({
     kind: "set-peer-update",
@@ -3385,8 +3368,7 @@ function bornOpenDoc() {
   });
 }
 
-const stateTrack = (e: Engine) =>
-  e.doc.entities?.sessions?.["s1"]?.keyframes?.state ?? [];
+const stateTrack = (e: Engine) => e.doc.entities?.sessions?.["s1"]?.keyframes?.state ?? [];
 
 engineTest(
   "stating the state a session already carries declares it at that moment",
@@ -3791,9 +3773,7 @@ engineTest(
     const d = Math.hypot(freed.x - 500, freed.y - 500);
     assert(
       d > 100,
-      `an unpinned peer re-derives cold, away from the dead pin; got ${
-        JSON.stringify(freed)
-      }`,
+      `an unpinned peer re-derives cold, away from the dead pin; got ${JSON.stringify(freed)}`,
     );
   },
 );

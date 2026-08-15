@@ -1,6 +1,7 @@
 //! Hermetic harness goldens for `pancake app rooms-peer` (no iroh / no CapTP wire).
 const std = @import("std");
 const cli = @import("cli");
+const pancake = @import("pancake");
 
 test "rooms-peer usage and unsupervised map to exit usage" {
     try std.testing.expectEqual(cli.exit_codes.usage, cli.rooms_peer.verbExit(error.UsageFailed).?);
@@ -12,17 +13,28 @@ test "rooms-peer usage and unsupervised map to exit usage" {
 
 test "rooms-peer deriveRendezvousUrl from http locator bootstrap" {
     const gpa = std.testing.allocator;
-    const url = (try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "http://localhost:8000/locator")).?;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const url = (try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "http://localhost:8000/locator")).?;
     defer gpa.free(url);
     try std.testing.expectEqualStrings("ws://127.0.0.1:8000/relay", url);
 
-    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "https://localhost:8000/locator")) == null);
-    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "ocapn://abc.iroh")) == null);
+    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "https://localhost:8000/locator")) == null);
+    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "ocapn://abc.iroh")) == null);
+
+    const ip = (try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "http://127.0.0.1:8000/locator")).?;
+    defer gpa.free(ip);
+    try std.testing.expectEqualStrings("ws://127.0.0.1:8000/relay", ip);
 }
 
 test "rooms-peer resolveRendezvousUrl prefers PANCAKE_RENDEZVOUS" {
     const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
     const url = (try cli.rooms_peer_common.resolveRendezvousUrl(
+        io,
         gpa,
         "ws://127.0.0.1:9/relay",
         "http://localhost:8000/locator",
@@ -32,8 +44,23 @@ test "rooms-peer resolveRendezvousUrl prefers PANCAKE_RENDEZVOUS" {
 
     try std.testing.expectError(
         error.InvalidRendezvousUrl,
-        cli.rooms_peer_common.resolveRendezvousUrl(gpa, "http://not-ws", "http://localhost:8000/locator"),
+        cli.rooms_peer_common.resolveRendezvousUrl(io, gpa, "http://not-ws", "http://localhost:8000/locator"),
     );
+}
+
+test "rooms-peer admitRelayUrl resolves a DNS host to an IP RelayUrl" {
+    // `RelayUrl.parse` refuses names. `localhost` is in every hosts file, so
+    // this is the DNS path without depending on compose.
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const url = (try cli.rooms_peer_common.admitRelayUrl(io, gpa, "ws://localhost:8000/relay")).?;
+    defer gpa.free(url);
+    const parsed = try pancake.net.relay.RelayUrl.parse(url);
+    try std.testing.expect(std.mem.eql(u8, parsed.host, "127.0.0.1") or std.mem.eql(u8, parsed.host, "::1"));
+    try std.testing.expectEqual(@as(u16, 8000), parsed.port);
+    try std.testing.expectEqualStrings("/relay", parsed.path);
 }
 
 test "rooms-peer peerCliPrefix for install alias vs product" {
@@ -393,10 +420,9 @@ test "rooms-peer pending inbox offers survive a failed drain and clear on succes
 test "rooms-peer a failed introduce ages out instead of poisoning the outbox" {
     // A refusal is the one cached thing no object can invalidate: it names a
     // peer that was *not* there, so nothing can report itself gone. Held
-    // without a clock, the outbox drain stops at that peer's line and never
-    // advances — silencing every later line behind it, room posts included —
-    // until the room session itself drops, which for a healthy long-lived
-    // session never happens.
+    // without a clock, that peer's DM line stays in the remainder forever.
+    // Compaction still sends later room posts; the cooldown is so the held
+    // DM is retried, not so the rest of the outbox can move.
     const gpa = std.testing.allocator;
     var table: std.StringHashMapUnmanaged(u32) = .{};
     defer {
@@ -423,4 +449,56 @@ test "rooms-peer a failed introduce ages out instead of poisoning the outbox" {
     }
     try std.testing.expectEqual(@as(usize, 0), table.count());
     try std.testing.expect(wakes > 0);
+}
+
+test "rooms-peer outbox compact sends later room lines past a held DM" {
+    const gpa = std.testing.allocator;
+    const remainder =
+        \\{"channel":"dm","peer":"bob","text":"x"}
+        \\{"channel":"room","text":"hi"}
+        \\{"channel":"dm","peer":"carol","text":"y"}
+        \\
+    ;
+    const Ctx = struct {
+        fn decide(_: void, line: cli.rooms_peer_harness.OutboxLine) cli.rooms_peer_harness.OutboxLineFate {
+            if (line.is_dm and std.mem.eql(u8, line.peer, "bob")) return .hold;
+            return .drop;
+        }
+    };
+    const kept = try cli.rooms_peer_harness.compactOutboxRemainder(gpa, remainder, {}, Ctx.decide);
+    defer gpa.free(kept);
+    try std.testing.expectEqualStrings("{\"channel\":\"dm\",\"peer\":\"bob\",\"text\":\"x\"}\n", kept);
+}
+
+test "rooms-peer outbox compact stop keeps the failed line and the tail" {
+    const gpa = std.testing.allocator;
+    const remainder =
+        \\{"channel":"dm","peer":"bob","text":"x"}
+        \\{"channel":"room","text":"hi"}
+        \\{"channel":"dm","peer":"carol","text":"y"}
+        \\
+    ;
+    const Ctx = struct {
+        fn decide(_: void, line: cli.rooms_peer_harness.OutboxLine) cli.rooms_peer_harness.OutboxLineFate {
+            if (line.is_dm and std.mem.eql(u8, line.peer, "bob")) return .hold;
+            if (!line.is_dm) return .stop;
+            return .drop;
+        }
+    };
+    const kept = try cli.rooms_peer_harness.compactOutboxRemainder(gpa, remainder, {}, Ctx.decide);
+    defer gpa.free(kept);
+    try std.testing.expectEqualStrings(remainder, kept);
+}
+
+test "rooms-peer outbox compact keeps an incomplete trailing write" {
+    const gpa = std.testing.allocator;
+    const remainder = "{\"channel\":\"room\",\"text\":\"hi\"}\npartial";
+    const Ctx = struct {
+        fn decide(_: void, _: cli.rooms_peer_harness.OutboxLine) cli.rooms_peer_harness.OutboxLineFate {
+            return .drop;
+        }
+    };
+    const kept = try cli.rooms_peer_harness.compactOutboxRemainder(gpa, remainder, {}, Ctx.decide);
+    defer gpa.free(kept);
+    try std.testing.expectEqualStrings("partial", kept);
 }

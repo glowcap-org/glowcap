@@ -39,13 +39,24 @@ from typing import (
 from . import _constants as _abi
 from ._action import _park_actions, _run_action
 from ._codec import _arg_to_c, _captp_version_id, _codec_id, _feature_mask, _ref_to_c
-from ._errors import PancakeError, _check_host, _host_last_error
+from ._errors import (
+    PancakeError,
+    _check_host,
+    _host_error,
+    _host_last_error,
+    _retain_cleanup_failure,
+    _retain_terminal_failure,
+)
+from ._failure import FailureLayer, _record_runtime_failure
 from . import _trace
 
 if TYPE_CHECKING:
     from ._context import Context
+    from ._loop import DriverLoop
     from ._session import Session
+    from ._transport import Connector
 from ._ffi_host import _host
+from ._lifecycle import PendingWork, _UNSET, _close_options, _monotonic_ms
 from ._ffi_ocapn import _byte_buf
 from ._trampoline import (
     _BehaviorEntry,
@@ -112,18 +123,17 @@ def _release_finalizer_state(state: _HostFinalizerState, *, checked: bool) -> No
         _check_host(rc)
     elif rc != _abi.OK:
         if _inside_turn():
-            _parked_releases().append(
-                lambda: _release_finalizer_state(state, checked=False)
-            )
+            _parked_releases().append(lambda: _release_finalizer_state(state, checked=False))
         else:
             _defer_finalizer_state(state)
         return
+    _retire_finalizer_state(state)
+
+
+def _retire_finalizer_state(state: _HostFinalizerState) -> None:
+    """Retire wrapper state after its driver already released the native Host."""
     state.raw = None
-    behavior_ids = (
-        set(state.giftables.values())
-        | set(state.displaced)
-        | set(state.hosted.values())
-    )
+    behavior_ids = set(state.giftables.values()) | set(state.displaced) | set(state.hosted.values())
     for ctx in behavior_ids:
         _unregister_global_behavior(ctx)
     state.giftables.clear()
@@ -192,12 +202,9 @@ class _VowRow:
     exists, so an unobserved broken answer never warns "exception was never
     retrieved"."""
 
-    __slots__ = ("session", "state")
+    __slots__ = ("state",)
 
-    def __init__(self, session):
-        # The session the vow was minted on, for closed-vs-broken
-        # classification; None for a vow whose home is not a single session.
-        self.session = session
+    def __init__(self):
         # Exactly one of three shapes, so "settled with a live waiter" cannot
         # exist: _MINTED (registered), an asyncio.Future (a parked waiter), or
         # an (ok, payload) tuple (a settled outcome).
@@ -233,23 +240,20 @@ class Host:
         context: "Optional[Context]" = None,
         local_turn_budget: int = 0,
         _adopt_raw: Optional[int] = None,
+        _driver_loop: "Optional[DriverLoop]" = None,
     ):
-        # `_adopt_raw` is the loop tier's adoption seam (ADR-0112): the native
-        # driver archive owns the host handle, and this wrapper adopts it for the
-        # application verbs. In that mode the C loop is the action drain — the
-        # kick verbs nudge a loop step instead of running the Python drain —
-        # and release belongs to `DriverLoop.close`.
-        self._loop_mode = _adopt_raw is not None
-        # The adopting DriverLoop, set by `wrapper_host` so the kick verbs can
-        # nudge its step. Typed loosely: `_loop` is binding-internal and the
-        # core wrapper must stay importable without it.
-        self._driver_loop: "Optional[object]" = None
+        # `_adopt_raw` plus `_driver_loop` is the loop tier's adoption seam
+        # (ADR-0112): the native driver archive owns the host handle, and this
+        # wrapper adopts it for the application verbs. In that mode the C loop
+        # is the action drain — the kick verbs nudge a loop step instead of
+        # running the Python drain — and close belongs to `DriverLoop.close`.
+        if _adopt_raw is not None and _driver_loop is None:
+            raise PancakeError(_ERR_INVALID_ARGUMENT, "loop adoption requires the DriverLoop")
+        self._driver_loop: "Optional[DriverLoop]" = _driver_loop
         _drain_deferred_finalizer_states()
         self._raw: ctypes.c_void_p | None = None
         try:
-            durable_seed = (
-                bytes(memoryview(seed)) if seed is not None else secrets.token_bytes(32)
-            )
+            durable_seed = bytes(memoryview(seed)) if seed is not None else secrets.token_bytes(32)
         except (BufferError, TypeError, ValueError):
             raise PancakeError(_ERR_INVALID_ARGUMENT, "seed must be 32 bytes") from None
         if len(durable_seed) != 32:
@@ -264,32 +268,49 @@ class Host:
         # finalizer queue therefore belongs here, beside the authority registry.
         self._gc = HostGc()
         try:
-            self._loop: "Optional[asyncio.AbstractEventLoop]" = (
-                asyncio.get_running_loop()
-            )
+            self._loop: "Optional[asyncio.AbstractEventLoop]" = asyncio.get_running_loop()
         except RuntimeError:
             self._loop = None
         self._owner_thread = threading.get_ident()
         self._trace_refresh_pending = False
-        # A node in a caller-supplied context must not outlive it: hold the
-        # context so it cannot be collected (and its allocator released) first.
+        # Every Host has one diagnostic/allocation owner. A process-supplied
+        # Context is retained; otherwise the binding creates the same owner
+        # implicitly instead of bypassing the central seam.
+        if context is None and _adopt_raw is None:
+            from ._context import Context
+
+            context = Context()
         self._context = context
+        self._diagnostic_id = 0
         # Every live session by its PancakeHostSession address, so a FLUSH
         # action routes to the transport that owns the bytes and a dialed
         # exporter stays reachable for teardown.
         self._sessions: "dict[int, Session]" = {}
         # The vow table the drain's SETTLE/FAIL arms settle.
         self._vows: "dict[int, _VowRow]" = {}
+        self._terminal_vow_failure: "Optional[PancakeError]" = None
         # FIFO of settled-but-unobserved vow ids, for the eviction cap
         # (a deque: the eviction pops from the head).
         self._unobserved: "deque[int]" = deque()
-        # Fire-and-forget drain tasks, retained because the event loop holds
-        # tasks only weakly: an unreferenced drain could be collected mid-flight.
-        self._kick_tasks: "set[asyncio.Task]" = set()
+        # Host-owned async behavior settlements, retained because the event
+        # loop holds tasks only weakly.
+        self._behavior_tasks: "set[asyncio.Task]" = set()
+        # Exact terminal occurrences in observation order. The shared helper
+        # bounds retained objects while preserving the total count.
+        self._terminal_failures: "list[BaseException]" = []
+        self._terminal_failure_count = 0
+        # Every admitted action drain, including directly awaited drains. Host
+        # release joins this barrier before invalidating native storage.
+        self._action_drains: "set[asyncio.Task]" = set()
+        # The shared close-activity event (wake-all): a close driver clears it
+        # before reading native close progress, and every native verb that can
+        # advance close-relevant state sets it after the verb returns, so a
+        # parked driver cannot miss a wakeup.
+        self._close_activity = asyncio.Event()
         # A popped DIAL no longer exists in the C action queue. Its executor is
         # therefore Host-owned until it reports success/failure or teardown
         # cancels it; caller cancellation of one drain must not strand a ticket.
-        self._dial_tasks: "set[asyncio.Task]" = set()
+        self._dial_tasks: "dict[int, asyncio.Task]" = {}
         # Async teardown retains one join task so a second owner cannot free the
         # native Host while the first owner is still joining its DIAL tasks.
         self._release_task: "Optional[asyncio.Task]" = None
@@ -297,7 +318,7 @@ class Host:
         # Trampoline ctx of each giftable, by published name, so
         # `Session.published_ref` can find the one it must bind. The registry is
         # process-global, not host-scoped, so nothing drops these when the host
-        # dies — release() frees them, or one row leaks per giftable per Host
+        # dies — close() frees them, or one row leaks per giftable per Host
         # generation.
         self._giftables: "dict[str, int]" = {}
         # Every ordinary Session.spawn/publish trampoline on this Host. Actors
@@ -306,26 +327,31 @@ class Host:
         self._hosted: "dict[int, int]" = {}
         # Ctx ids a re-publish displaced. Existing capabilities and gifts still
         # reach the old Host-Vat actor, so its trampoline stays registered until
-        # release() drops it with the rest.
+        # close() drops it with the rest.
         self._displaced_giftables: "list[int]" = []
         # Strong ownership of process-global callback entries belongs to the
         # Host, not the global lookup. This map may contain a behavior that
         # captures this Host; Python's collector can reclaim that local cycle.
         self._behavior_entries: "dict[int, _BehaviorEntry]" = {}
-        # The iroh reachability posture this host uses to redeem a *hint-less*
-        # handoff give — one whose exporter location names the exporter by node
-        # id alone. Starts at the generated ABI default (Discovery, n0 relays +
-        # DNS/pkarr, the maximal-reach choice); a relay-policy deployment
-        # lowers it. A hinted give always dials Direct and ignores it. Stored
-        # as the numeric value so the core stays free of the optional iroh
-        # module.
-        self._rendezvous_url = None
-        self._signaling = None
-        self._redeem_reachability = _abi.IROH_REACH_REDEEM_DEFAULT
+        # Explicit byte-fed connectors retained by transport symbol. A Host
+        # never derives one from locator shape; this table is the authority
+        # used by handoff redemption after the original connect registered it.
+        self._connectors: "dict[str, Connector]" = {}
         if _adopt_raw is not None:
             self._raw = ctypes.c_void_p(_adopt_raw)
-            self._finalizer_state = None
+            diagnostic_id = ctypes.c_uint64()
+            _check_host(_host.pancake_host_diagnostic_id(self._raw, ctypes.byref(diagnostic_id)))
+            self._diagnostic_id = diagnostic_id.value
+            self._finalizer_state = _HostFinalizerState(
+                self._raw,
+                self._giftables,
+                self._displaced_giftables,
+                self._hosted,
+                context,
+            )
             self._finalizer = None
+            assert _driver_loop is not None
+            _driver_loop._adopt_host_finalizer_state(self._finalizer_state)
             _trace._attach_host(self, self.designator())
             bind_host(self._gc, self)
             return
@@ -337,29 +363,12 @@ class Host:
         # session's handoff names; the durable half stays exactly ``seed``,
         # since a keyed locator's designator derives from it.
         sbuf, sptr = _byte_buf(self._seed + secrets.token_bytes(32))
-        if context is not None:
-            context_raw = context._acquire_handle()
-            try:
-                _check_host(
-                    _host.pancake_host_new_in(
-                        context_raw,
-                        sptr,
-                        64,
-                        _HOST_FRAME_CAP,
-                        1,
-                        _codec_id(codec),
-                        _captp_version_id(captp_version),
-                        _feature_mask(features),
-                        local_turn_budget,
-                        ctypes.byref(out),
-                    )
-                )
-            except BaseException:
-                context._release_handle()
-                raise
-        else:
+        assert context is not None
+        context_raw = context._acquire_handle()
+        try:
             _check_host(
-                _host.pancake_host_new(
+                _host.pancake_host_new_in(
+                    context_raw,
                     sptr,
                     64,
                     _HOST_FRAME_CAP,
@@ -371,7 +380,21 @@ class Host:
                     ctypes.byref(out),
                 )
             )
+        except BaseException:
+            context._release_handle()
+            raise
         self._raw = out
+        diagnostic_id = ctypes.c_uint64()
+        try:
+            _check_host(_host.pancake_host_diagnostic_id(out, ctypes.byref(diagnostic_id)))
+        except BaseException as error:
+            cleanup_rc = _host.pancake_host_release(out)
+            context._release_handle()
+            self._raw = None
+            if cleanup_rc != _abi.OK:
+                _retain_cleanup_failure(error, _host_error(cleanup_rc))
+            raise
+        self._diagnostic_id = diagnostic_id.value
         self._finalizer_state = _HostFinalizerState(
             out,
             self._giftables,
@@ -397,21 +420,21 @@ class Host:
         """The immutable 32-byte identity seed retained by this Host."""
         return self._seed
 
-    def _adopt_driver_loop(self, loop: object) -> None:
+    def _adopt_driver_loop(self, loop: "DriverLoop") -> _HostFinalizerState:
         """Commit native loop ownership after ``pancake_driver_take_host``.
 
         The native call is the transaction boundary. This method only updates
         Python ownership after that call has returned success, so every failed
         adoption leaves the byte-fed Host and its finalizer untouched.
         """
-        if self._loop_mode or self._raw is None or self._release_started:
+        if self._driver_loop is not None or self._raw is None or self._release_started:
             raise PancakeError(_ERR_INVALID_ARGUMENT, "host is not adoptable")
         assert self._finalizer is not None
         self._finalizer.detach()
         self._finalizer = None
-        self._finalizer_state = None
-        self._loop_mode = True
         self._driver_loop = loop
+        assert self._finalizer_state is not None
+        return self._finalizer_state
 
     def _driver_did_release(self) -> None:
         """Finish Python ownership after the driver freed the native Host.
@@ -423,25 +446,69 @@ class Host:
         """
         if self._raw is None:
             return
+        for session in list(self._sessions.values()):
+            session._native_owner_did_release()
+        self._sessions.clear()
         _trace._detach_host(self)
         self._raw = None
         self._release_started = True
         self._driver_loop = None
-        behavior_ids = (
-            set(self._giftables.values())
-            | set(self._displaced_giftables)
-            | set(self._hosted.values())
-        )
-        for ctx in behavior_ids:
-            _unregister_global_behavior(ctx)
+        state = self._finalizer_state
+        if state is not None:
+            _retire_finalizer_state(state)
         self._giftables.clear()
         self._displaced_giftables.clear()
         self._hosted.clear()
+        self._connectors.clear()
+        self._vows.clear()
+        self._unobserved.clear()
         self._behavior_entries.clear()
+
+    def take_failures(self):
+        """Claim callerless failures retained by this Host's Context."""
+        if self._context is None:
+            return ()
+        return self._context.take_failures()
+
+    def _record_callerless_failure(self, operation: str, error: BaseException) -> None:
+        """Retain a callback failure with no deterministic return recipient."""
         context = self._context
-        self._context = None
-        if context is not None:
-            context._release_handle()
+        if context is None:
+            _record_runtime_failure(FailureLayer.APPLICATION_OBSERVER, operation, error)
+            return
+        result = getattr(error, "code", _abi.ERR_INTERNAL)
+        if not isinstance(result, int):
+            result = _abi.ERR_INTERNAL
+        try:
+            context._report_failure(
+                layer=_abi.FAILURE_LAYER_APPLICATION_OBSERVER,
+                scope=_abi.FAILURE_SCOPE_HOST,
+                scope_id=self._diagnostic_id,
+                operation=operation,
+                primary_name=type(error).__name__,
+                primary_result=result,
+                primary_message=str(error),
+            )
+        except BaseException as recorder_error:
+            # Recording is observational, but failure of the preferred owner is
+            # not permission to lose either fact. The process queue survives a
+            # dead/broken Context and uses the same bounded schema.
+            _record_runtime_failure(FailureLayer.APPLICATION_OBSERVER, operation, error)
+            _record_runtime_failure(
+                FailureLayer.BINDING,
+                f"{operation}.diagnostic",
+                recorder_error,
+            )
+
+    def _driver_failed(self, error: PancakeError) -> None:
+        """Fail loop-projected waits before driver teardown clears them."""
+        self._terminal_vow_failure = error
+        for vow in tuple(self._vows):
+            self.settle_vow(vow, False, error)
+        for session in tuple(self._sessions.values()):
+            mark_failed = getattr(session.transport, "mark_failed", None)
+            if mark_failed is not None:
+                mark_failed(error)
 
     @property
     def raw(self) -> ctypes.c_void_p:
@@ -449,14 +516,14 @@ class Host:
         mints and drives sessions against it. Raises once the host is
         released, rather than handing out the null the field then holds."""
         self._assert_owner()
-        if self._raw is None or self._release_started:
+        if self._raw is None:
             raise PancakeError(_ERR_CLOSED, "the host has been released")
         return self._raw
 
     @property
     def raw_or_none(self):
         """Raw handle or ``None`` for the finalizer-safe GC seam."""
-        return None if self._release_started else self._raw
+        return self._raw
 
     def _on_owner_thread(self) -> bool:
         return threading.get_ident() == self._owner_thread
@@ -548,7 +615,12 @@ class Host:
 
     @property
     def released(self) -> bool:
-        return self._release_started or self._raw is None
+        return self._raw is None
+
+    @property
+    def driver_loop(self):
+        """The native driver loop that owns this Host, or None. Binding-internal."""
+        return self._driver_loop
 
     @property
     def gc(self) -> HostGc:
@@ -618,10 +690,58 @@ class Host:
                 return
             self._settle_resolver(resolver, value)
 
-        task = loop.create_task(settle())
-        self._kick_tasks.add(task)
-        task.add_done_callback(self._kick_tasks.discard)
+        self._own_behavior_task(loop.create_task(settle()))
         return True
+
+    def _own_behavior_task(self, task: "asyncio.Task") -> None:
+        """Retain one admitted async behavior settlement through shutdown."""
+        self._behavior_tasks.add(task)
+
+        def done(finished: "asyncio.Task") -> None:
+            self._behavior_tasks.discard(finished)
+            if finished.cancelled():
+                return
+            error = finished.exception()
+            if error is not None:
+                self._record_terminal_failure(error)
+                self.signal_close_activity()
+
+        task.add_done_callback(done)
+
+    async def _join_behavior_tasks(self) -> None:
+        """Cancel and join settlements whose native resolver owner is closed."""
+        current = asyncio.current_task()
+        pending = tuple(task for task in self._behavior_tasks if task is not current)
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+            self._behavior_tasks.difference_update(pending)
+
+    def _record_terminal_failure(self, error: BaseException) -> None:
+        failures = getattr(self, "_terminal_failures", None)
+        if failures is None:
+            failures = []
+            self._terminal_failures = failures
+        self._terminal_failure_count = _retain_terminal_failure(
+            failures, getattr(self, "_terminal_failure_count", 0), error
+        )
+
+    @property
+    def terminal_failures(self) -> tuple[BaseException, ...]:
+        """Owned terminal failures in observation order."""
+        return tuple(getattr(self, "_terminal_failures", ()))
+
+    @property
+    def terminal_failure_count(self) -> int:
+        """Total distinct terminal occurrences, including bounded overflow."""
+        return getattr(self, "_terminal_failure_count", 0)
+
+    def _raise_terminal_failure(self) -> None:
+        failures = self.terminal_failures
+        if failures:
+            raise failures[0]
 
     def _settle_resolver(self, resolver: int, value: Any) -> None:
         self._assert_owner()
@@ -634,14 +754,10 @@ class Host:
         except Exception as error:  # noqa: BLE001 — marshalling failure breaks the answer
             self._break_resolver(resolver, str(error) or type(error).__name__)
             return
-        if (
-            _host.pancake_host_resolver_fulfill(raw, resolver, ctypes.byref(c_arg))
-            != _abi.OK
-        ):
-            self._break_resolver(
-                resolver, _host_last_error() or "deferred settle refused"
-            )
+        if _host.pancake_host_resolver_fulfill(raw, resolver, ctypes.byref(c_arg)) != _abi.OK:
+            self._break_resolver(resolver, _host_last_error() or "deferred settle refused")
             return
+        self.signal_close_activity()
         self.schedule_kick()
 
     def _break_resolver(self, resolver: int, message: str) -> None:
@@ -652,28 +768,8 @@ class Host:
         data = message.encode()
         _buf, ptr = _byte_buf(data)
         _check_host(_host.pancake_host_resolver_break(raw, resolver, ptr, len(data)))
+        self.signal_close_activity()
         self.schedule_kick()
-
-    def _begin_release(self) -> "list[asyncio.Task]":
-        """Cancel Host-owned asynchronous work and close its child resources."""
-        if self._release_started or not self._raw:
-            return []
-        self._release_started = True
-        current = None
-        try:
-            current = asyncio.current_task()
-        except RuntimeError:
-            pass
-        tasks = {
-            task for task in self._dial_tasks | self._kick_tasks if task is not current
-        }
-        for task in tasks:
-            task.cancel()
-        # Sessions first: each releases its own handle, and a handle
-        # outliving the Host it belongs to is a free of freed memory.
-        self.close_sessions()
-        self._fail_outstanding_vows("host released")
-        return list(tasks)
 
     def _finish_release(self) -> None:
         if not self._raw:
@@ -681,13 +777,15 @@ class Host:
         # A loop-adopted host has no finalizer: the native handle belongs to
         # the DriverLoop, and `_begin_release` already refused this path.
         assert self._finalizer is not None and self._finalizer_state is not None
-        self._finalizer.detach()
-        _trace._detach_host(self)
-        self._raw = None
+        finalizer = self._finalizer
         state = self._finalizer_state
 
         def release_host() -> None:
             _release_finalizer_state(state, checked=True)
+            finalizer.detach()
+            _trace._detach_host(self)
+            self._raw = None
+            self._connectors.clear()
             self._behavior_entries.clear()
 
         if _inside_turn():
@@ -695,137 +793,226 @@ class Host:
         else:
             release_host()
 
-    async def _finish_release_after_tasks(self, tasks: "list[asyncio.Task]") -> None:
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._finish_release()
+    def arm_close_activity(self) -> None:
+        """Arm the shared close-activity waiter. A close driver arms before it
+        reads native progress (the lost-wakeup discipline): a state advance
+        landing after the arm sets the event and wakes :meth:`wait_close_wake`,
+        and one landing before it is visible to the progress read that
+        follows. Wake-all: setting the event wakes every parked driver.
+        Binding-internal."""
+        self._close_activity.clear()
 
-    def _start_release(self) -> "Optional[asyncio.Task]":
-        """Make close intent terminal now; join admitted work before native free."""
+    def signal_close_activity(self) -> None:
+        """Wake every parked close driver. Called after a native verb that can
+        advance close-relevant state returns: a byte feed, a drained action
+        batch, a resolver settle, a close call (escalation), or a session
+        release. Over-signaling is harmless because the drivers re-check
+        progress; a missed source is a hang. Binding-internal."""
+        self._close_activity.set()
+
+    def _close_wait_ms(self) -> int:
+        """The longest a close driver may wait before re-polling progress:
+        milliseconds to the nearest native FINISH grace deadline (the Host's
+        own or any session's), or -1 when none is pending and only activity
+        can advance terminal progress."""
+        raw = self._raw
+        if not raw:
+            return 0
+        out = ctypes.c_int64()
+        _check_host(_host.pancake_host_close_wait_ms(raw, _monotonic_ms(), ctypes.byref(out)))
+        return out.value
+
+    async def wait_close_wake(self) -> None:
+        """Park a close driver until host activity or the nearest native
+        FINISH grace deadline; with no finite deadline pending the driver
+        parks on activity alone. The caller armed the activity event before
+        its progress read. Binding-internal: :meth:`_drive_release` and the
+        byte-fed session close drive wait through it."""
+        wait_ms = self._close_wait_ms()
+        if wait_ms < 0:
+            await self._close_activity.wait()
+            return
+        try:
+            await asyncio.wait_for(self._close_activity.wait(), wait_ms / 1_000)
+        except TimeoutError:
+            pass
+
+    async def _drive_release(self) -> None:
+        raw = self._raw
+        if not raw:
+            return
+        timed_out = False
+        while True:
+            # Arm before anything else in the iteration (the lost-wakeup
+            # discipline): an advance landing after this line wakes the wait
+            # below, and one landing before it is visible to the progress read.
+            self.arm_close_activity()
+            await self.kick_actions()
+            state = ctypes.c_uint32()
+            rc = _host.pancake_host_close_progress(raw, _monotonic_ms(), ctypes.byref(state))
+            if rc not in (_abi.OK, _abi.ERR_TIMEOUT):
+                _check_host(rc)
+            timed_out = timed_out or rc == _abi.ERR_TIMEOUT
+            if state.value == _abi.LIFECYCLE_CLOSED:
+                break
+            # A spent grace escalates inside the progress call and queues
+            # teardown actions; drain them before parking. A drain that ran
+            # work sets the armed event, so the wait below returns at once and
+            # the loop re-checks instead of parking over undrained work.
+            await self.kick_actions()
+            await self.wait_close_wake()
+        await self._join_action_drains()
+        await self._join_behavior_tasks()
+        self._vows.clear()
+        self._unobserved.clear()
+        self._finish_release()
+        self._raise_terminal_failure()
+        if timed_out:
+            raise PancakeError(_abi.ERR_TIMEOUT, "finish close exhausted its grace period")
+
+    async def _drive_owned_release(self) -> None:
+        """Drive byte-fed release and retain its exact terminal failure."""
+        try:
+            await self._drive_release()
+        except BaseException as error:
+            self._record_terminal_failure(error)
+            raise
+
+    def _start_release(self, options=None) -> "Optional[asyncio.Task]":
+        """Forward close intent and retain the one effect-driving task."""
+        if options is None:
+            options = _close_options(PendingWork.CANCEL)
+        raw = self._raw
+        if raw is None:
+            # The release already reached its terminal outcome. Hand back the
+            # retained driver task so a repeated close observes that outcome,
+            # re-raising a recorded timeout instead of silently succeeding
+            # (ADR-0114: repeated close observes the existing barrier).
+            return self._release_task
+        _check_host(_host.pancake_host_close(raw, ctypes.byref(options), _monotonic_ms()))
+        # A repeated close escalates the pending-work policy while the close
+        # driver may already be parked; wake it so it re-reads progress.
+        self.signal_close_activity()
         task = self._release_task
         if task is not None:
             return task
         if self._release_started:
             return None
-        tasks = self._begin_release()
-        if not tasks:
-            self._finish_release()
-            return None
-        task = asyncio.get_running_loop().create_task(
-            self._finish_release_after_tasks(tasks)
-        )
+        self._release_started = True
+        task = asyncio.get_running_loop().create_task(self._drive_owned_release())
         self._release_task = task
         return task
 
-    async def release_async(self) -> None:
-        """Release the Host after joining every Host-owned asynchronous task.
-
-        :meth:`release` remains the synchronous callback-safe teardown lever.
-        Async owners use this method so cancellation is not mistaken for task
-        completion and the native Host cannot be freed under a still-running
-        dial executor, action drain, or listener close. The retained release
-        task makes repeated teardown calls idempotent and safe while the first
-        call is awaiting cancellation.
-        """
+    async def close(
+        self,
+        pending: PendingWork = PendingWork.CANCEL,
+        *,
+        grace: object = _UNSET,
+    ) -> None:
+        """Close through the core-owned pending-work policy and completion barrier."""
         self._assert_owner()
-        if self._loop_mode:
-            loop = self._driver_loop
-            if loop is not None:
-                self._request_driver_release(loop)
-                await loop.wait_closed()
+        options = _close_options(pending, grace)
+        driver_loop = self._driver_loop
+        if driver_loop is not None:
+            self._request_driver_release(driver_loop, options)
+            try:
+                await driver_loop.wait_closed()
+            except BaseException as wait_error:
+                self._record_terminal_failure(wait_error)
+            for index, error in enumerate(driver_loop.terminal_failures):
+                self._record_terminal_failure(error)
+            await self._join_behavior_tasks()
+            self._raise_terminal_failure()
             return
-        task = self._start_release()
+        task = self._start_release(options)
         if task is not None:
             await asyncio.shield(task)
 
-    def release(self) -> None:
-        """Synchronously release the Host and everything it owns.
-
-        This is the callback-safe teardown lever and preserves the existing
-        synchronous API. Async owners must use :meth:`release_async` when the
-        Host may have in-flight work, so cancellation and close barriers can be
-        joined before native teardown.
-        """
-        if self._loop_mode:
-            loop = self._driver_loop
-            if loop is not None:
-                self._request_driver_release(loop)
+    def _request_close(self) -> None:
+        """Request callback-safe teardown for finalizers and internal owners."""
+        driver_loop = self._driver_loop
+        if driver_loop is not None:
+            self._request_driver_release(driver_loop, _close_options(PendingWork.CANCEL))
             return
-        loop = self._loop
-        if loop is not None and self._on_owner_thread() and not loop.is_running():
+        owner_loop = self._loop
+        if owner_loop is not None and self._on_owner_thread() and not owner_loop.is_running():
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
-                if loop.is_closed():
-                    if self._dial_tasks or self._kick_tasks:
+                if owner_loop.is_closed():
+                    if self._dial_tasks or self._behavior_tasks or self._action_drains:
                         raise PancakeError(
                             _ERR_INVALID_ARGUMENT,
                             "host owner loop is closed with asynchronous work still active",
                         )
                     self._loop = None
                 else:
-                    loop.run_until_complete(self.release_async())
+                    owner_loop.run_until_complete(self.close())
                     return
-        if self._schedule_cleanup(self.release):
+        if self._schedule_cleanup(self._request_close):
             return
         if not self._on_owner_loop():
             raise PancakeError(
                 _ERR_INVALID_ARGUMENT,
-                "host release must run on its owning thread",
+                "host close must run on its owning thread",
             )
         if self._loop is not None:
             self._assert_owner()
         self._start_release()
 
-    def _request_driver_release(self, loop: object) -> None:
+    async def __aenter__(self) -> "Host":
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.close()
+
+    def _request_driver_release(self, loop: "DriverLoop", options) -> None:
         """Make transferred driver ownership terminal, callback-safely."""
-        if self._release_started or self._raw is None:
+        if self._raw is None:
             return
         self._release_started = True
-        if _inside_turn():
-            self.park_release(loop.close)  # type: ignore[attr-defined]
-        else:
-            loop.close()  # type: ignore[attr-defined]
+        loop.close(options)
 
-    @property
-    def redeem_reachability(self) -> int:
-        """The iroh reachability posture this host uses to redeem a *hint-less*
-        handoff give (the exporter named by node id alone, with no
-        direct-address hints). Defaults to ``Reachability.DISCOVERY`` (n0
-        relays + DNS/pkarr); set ``Reachability.DISCOVERY_NO_RELAY`` to honor a
-        no-relay deployment policy. A hinted give always dials
-        ``Reachability.DIRECT`` and ignores it. Assign a
-        :class:`pancake.iroh.Reachability` (or its int)."""
-        return self._redeem_reachability
+    def register_connector(self, connector: "Connector") -> None:
+        """Retain an explicit byte-fed connector for future handoff dials.
 
-    @redeem_reachability.setter
-    def redeem_reachability(self, reachability) -> None:
-        self._rendezvous_url = None
-        self._redeem_reachability = int(reachability)
+        Registration is keyed by the connector's advertised symbols. Replacing
+        a different connector is refused so a later redeem cannot silently use
+        a changed transport authority.
+        """
+        self.install_connectors((connector,))
 
-    @property
-    def rendezvous_url(self):
-        """How this host reaches a ``keyed-relay`` peer: a callable mapping the
-        peer's key designator to the WebSocket URL of the relay rendezvous leg
-        that bridges onto its held inbound socket, e.g.
-        ``lambda id: f"wss://example/relay?rendezvous={id}"`` (ADR-0088). The
-        keyed-relay sibling of :attr:`redeem_reachability`: deployment
-        configuration for reaching an exporter that opens no listener. ``None``
-        until assigned, and a ``keyed-relay`` dial refuses without it."""
-        return self._rendezvous_url
+    def install_connectors(self, connectors) -> None:
+        """Publish a connector set atomically.
 
-    @rendezvous_url.setter
-    def rendezvous_url(self, url) -> None:
-        self._rendezvous_url = url
+        Validation walks the complete set and the existing registry before the
+        first assignment. A failed install therefore cannot leave a later
+        handoff symbol pointing at a connector that was only partly composed.
+        """
+        from ._transport import Connector
 
-    @property
-    def signaling(self):
-        """Explicit signaling authority for a signaling byte-channel dial."""
-        return self._signaling
+        pending: dict[str, Connector] = {}
+        for connector in connectors:
+            if not isinstance(connector, Connector):
+                raise TypeError("connectors must contain pancake transport Connector values")
+            for transport in connector.transports:
+                prior = self._connectors.get(transport)
+                if prior is not None and prior is not connector:
+                    raise PancakeError(
+                        _ERR_INVALID_ARGUMENT,
+                        f"host already has a different connector for {transport!r}",
+                    )
+                pending_prior = pending.get(transport)
+                if pending_prior is not None and pending_prior is not connector:
+                    raise PancakeError(
+                        _ERR_INVALID_ARGUMENT,
+                        f"connector set has conflicting authorities for {transport!r}",
+                    )
+                pending[transport] = connector
+        self._connectors.update(pending)
 
-    @signaling.setter
-    def signaling(self, authority) -> None:
-        self._signaling = authority
+    def _connector_for(self, transport: str) -> "Optional[Connector]":
+        return self._connectors.get(transport)
 
     async def enliven(self, sturdyref: str) -> "Ref":
         """Enliven a complete sturdyref without naming a session (ADR-0098):
@@ -836,51 +1023,12 @@ class Host:
         peer."""
         from ._promise import _classify_live_ref
 
-        # Select the runtime from the core's normalized plan shape before the
-        # action exists. A native provider then owns the original queued DIAL;
-        # rendezvous/signaling plans stay on this embedder's channel registry.
-        if not self._loop_mode and not self._sessions:
-            from ._dial import (
-                _HostPortDial,
-                _PeerIdDial,
-                _RendezvousDial,
-                _plan_dial,
-                prepare_native_provider,
-            )
-            from ._locator import parse_sturdyref
-            from ._loop import DriverLoop
-            from .relay import _route_from_locator
-
-            locator = parse_sturdyref(sturdyref).locator
-            plan = _plan_dial(
-                locator.transport,
-                locator.designator,
-                locator.hints.get(_abi.HINT_DIRECT_ADDRESSES, ""),
-                _abi.DIAL_POSTURE_REDEEM,
-                0,
-            )
-            relay_route = _route_from_locator(locator)
-            if isinstance(plan, (_HostPortDial, _PeerIdDial)) or (
-                isinstance(plan, _RendezvousDial) and relay_route is not None
-            ):
-                loop = DriverLoop.take_host(self)
-                try:
-                    await prepare_native_provider(loop, plan, locator)
-                    await loop.start()
-                except BaseException:
-                    loop.close()
-                    raise
-
         swiss = sturdyref.encode()
         buf, ptr = _byte_buf(swiss)
         out = ctypes.c_uint64()
-        _check_host(
-            _host.pancake_host_enliven(self.raw, ptr, len(swiss), ctypes.byref(out))
-        )
+        _check_host(_host.pancake_host_enliven(self.raw, ptr, len(swiss), ctypes.byref(out)))
         vow = out.value
-        # The vow may be parked on a dial with no session of its own, which is
-        # exactly the ``None`` session row the vow table already admits.
-        self.vow_minted(vow, None)
+        self.vow_minted(vow)
         settled = self.await_vow(vow)
         await self.kick_actions()
         return _classify_live_ref(await settled, sturdyref)
@@ -890,28 +1038,13 @@ class Host:
         from ._locator import _OwnedLocator
 
         with _OwnedLocator.create(locator) as owned:
-            _check_host(
-                _host.pancake_host_set_advertised_locator(
-                    self.raw, owned.borrow_view()
-                )
-            )
-
-    def ensure_advertised_locator(self, transport: str) -> None:
-        """Retain a transport location without displacing an existing one.
-        Binding-internal."""
-        data = transport.encode()
-        buf, ptr = _byte_buf(data)
-        _check_host(
-            _host.pancake_host_ensure_advertised_locator(self.raw, ptr, len(data))
-        )
+            _check_host(_host.pancake_host_set_advertised_locator(self.raw, owned.borrow_view()))
 
     def remove_advertised_locator(self, transport: str) -> None:
         """Remove this Host's retained locator for ``transport``."""
         data = transport.encode()
         buf, ptr = _byte_buf(data)
-        _check_host(
-            _host.pancake_host_remove_advertised_locator(self.raw, ptr, len(data))
-        )
+        _check_host(_host.pancake_host_remove_advertised_locator(self.raw, ptr, len(data)))
 
     def set_session_limits(
         self,
@@ -1082,24 +1215,23 @@ class Host:
         :meth:`Session.send_redeeming` suppresses its own sending session and
         surfaces only a different exporter. Binding-internal."""
         c_ref = _ref_to_c(ref._live())
-        out = ctypes.c_void_p()
-        _check_host(
-            _host.pancake_host_reference_exporter(
-                self.raw,
-                ctypes.byref(c_ref),
-                ctypes.byref(out),
+        if self._driver_loop is not None:
+            out_value = self._driver_loop.claim_reference_exporter(c_ref)
+        else:
+            out = ctypes.c_void_p()
+            _check_host(
+                _host.pancake_host_reference_exporter(
+                    self.raw,
+                    ctypes.byref(c_ref),
+                    ctypes.byref(out),
+                )
             )
-        )
+            out_value = out.value
         # The handle is host-owned and lives with the exporter session, so the
         # registry lookup is the whole answer: a pointer with no live row is a
         # session this binding no longer holds, which reads as no route.
-        found = self._sessions.get(out.value) if out.value else None
-        if (
-            found is None
-            and out.value
-            and self._loop_mode
-            and self._driver_loop is not None
-        ):
+        found = self._sessions.get(out_value) if out_value else None
+        if found is None and out_value and self._driver_loop is not None:
             # A loop-owned Host redeems inside its own steps (ADR-0112), so
             # the exporter session it dialed exists with no wrapper yet. Wrap
             # it lazily — the constructor registers it, so a repeat lookup
@@ -1108,24 +1240,16 @@ class Host:
             from ._loop import DriverLoop
 
             assert isinstance(self._driver_loop, DriverLoop)
-            found = self._driver_loop.adopt_session(out.value)
+            found = self._driver_loop.adopt_session(out_value)
         return found
-
-    def close_sessions(self) -> None:
-        """Close every session this Host holds -- the ones an application
-        opened and the ones the Host dialed for redeems alike. Each close
-        releases that session's handle, so this must run before the Host
-        handle goes. Binding-internal: :meth:`release` sweeps them."""
-        for session in list(self._sessions.values()):
-            session.close_transport()
 
     # ── The vow table ──────────────────────────────────────────────────────────
 
-    def vow_minted(self, vow: int, session: "Optional[Session]") -> None:
+    def vow_minted(self, vow: int) -> None:
         """Record a freshly minted vow so the drain can route its completion.
         Runs in the same synchronous block as the minting FFI call, so no drain
         can pop the completion first. Binding-internal."""
-        self._vows[vow] = _VowRow(session)
+        self._vows[vow] = _VowRow()
 
     def await_vow(self, vow: int) -> "asyncio.Future":
         """A future for the vow's eventual outcome: the fulfilled wire value,
@@ -1136,12 +1260,11 @@ class Host:
         future = asyncio.get_running_loop().create_future()
         row = self._vows.get(vow)
         if row is None:
+            if self._terminal_vow_failure is not None:
+                future.set_exception(self._terminal_vow_failure)
+                return future
             # Evicted (never awaited until past the cap) or never minted here.
-            future.set_exception(
-                PancakeError(
-                    _ERR_CLOSED, "the vow's outcome is gone (unobserved past the cap)"
-                )
-            )
+            future.set_exception(PancakeError(_ERR_CLOSED, "the vow's outcome is gone (unobserved past the cap)"))
             return future
         if not isinstance(row.state, tuple):
             # Minted or re-awaited: park (or replace) the waiter. Replacing a
@@ -1184,19 +1307,6 @@ class Host:
             if stale is not None and isinstance(stale.state, tuple):
                 del self._vows[oldest]
 
-    def _fail_outstanding_vows(self, message: str) -> None:
-        for row in self._vows.values():
-            if isinstance(row.state, asyncio.Future) and not row.state.done():
-                row.state.set_exception(PancakeError(_ERR_CLOSED, message))
-        self._vows.clear()
-        self._unobserved.clear()
-
-    def vow_session_closing(self, vow: int) -> bool:
-        """Whether the vow's home connection is tearing down — FAIL arms
-        classify those breaks as ERR_CLOSED. Binding-internal."""
-        row = self._vows.get(vow)
-        return row is not None and row.session is not None and row.session.is_closing
-
     def get_session(self, ptr: int):
         """Look up a live session by session address. Binding-internal: the
         action drain's FLUSH/CLOSE arms route through it."""
@@ -1219,9 +1329,14 @@ class Host:
         if _inside_turn():
             return
         releases = _parked_releases()
+        ran_any = bool(releases)
         while releases:
             releases.popleft()()
         _drain_deferred_finalizer_states()
+        # A parked release retires a native session or Host handle, which is
+        # close-relevant state; wake any parked close driver to re-check.
+        if ran_any:
+            self.signal_close_activity()
 
     def pending_release_count(self) -> int:
         """How many releases are parked — test observability for the mid-turn
@@ -1233,12 +1348,10 @@ class Host:
         own task, retained until done. Binding-internal. On a loop-adopted
         host the native loop is the one drain, so the kick becomes a
         scheduled loop step."""
-        if self._loop_mode:
-            loop = self._driver_loop
-            if loop is not None:
-                loop.schedule_step()  # type: ignore[attr-defined]
+        if self._driver_loop is not None:
+            self._driver_loop.schedule_step()
             return
-        if _inside_turn() or not self._raw or self._release_started:
+        if _inside_turn() or not self._raw:
             return
         if self._schedule_cleanup(self.schedule_kick):
             return
@@ -1248,36 +1361,67 @@ class Host:
         except RuntimeError:
             # No running loop (a sync teardown path); the next verb drains.
             return
-        self._kick_tasks.add(task)
-        task.add_done_callback(self._kick_tasks.discard)
+        self._own_action_drain(task)
 
-    def start_dial_task(self, run: "Callable[[], Coroutine[Any, Any, None]]") -> None:
+    def _own_action_drain(self, task: "asyncio.Task") -> None:
+        """Retain a detached action drain and consume its terminal result."""
+        self._action_drains.add(task)
+
+        def done(finished: "asyncio.Task") -> None:
+            self._action_drains.discard(finished)
+            if finished.cancelled():
+                return
+            error = finished.exception()
+            if error is not None:
+                self._record_terminal_failure(error)
+                self.signal_close_activity()
+
+        task.add_done_callback(done)
+
+    async def _join_action_drains(self) -> None:
+        current = asyncio.current_task()
+        while True:
+            pending = tuple(task for task in self._action_drains if task is not current)
+            if not pending:
+                return
+            await asyncio.gather(*pending, return_exceptions=True)
+            # A completed task's add_done_callback is only scheduled. Retire
+            # the snapshot synchronously here so this loop cannot immediately
+            # gather the same done tasks again and starve those callbacks.
+            self._action_drains.difference_update(pending)
+
+    def start_dial_task(self, ticket: int, run: "Callable[[], Coroutine[Any, Any, None]]") -> None:
         """Retain a popped DIAL independently of the drain that discovered it."""
-        if not self._raw or self._release_started:
+        if not self._raw:
             return
         self._assert_owner()
         task = asyncio.get_running_loop().create_task(run())
-        self._dial_tasks.add(task)
+        self._dial_tasks[ticket] = task
 
         def done(finished: "asyncio.Task") -> None:
-            self._dial_tasks.discard(finished)
+            if self._dial_tasks.get(ticket) is finished:
+                self._dial_tasks.pop(ticket, None)
             # Retrieve terminal exceptions so Host-owned cancellation does not
             # become an unhandled task warning.
             if not finished.cancelled():
                 finished.exception()
-            if self._raw and not self._release_started:
+            if self._raw:
                 self.schedule_kick()
 
         task.add_done_callback(done)
 
+    async def cancel_dial_task(self, ticket: int) -> None:
+        """Interrupt and join one core-selected DIAL, then acknowledge retirement."""
+        task = self._dial_tasks.get(ticket)
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if self._raw:
+            _check_host(_host.pancake_host_dial_cancelled(self._raw, ticket))
+            # Retiring a pending dial is close-relevant pending work.
+            self.signal_close_activity()
+
     async def kick_actions(self) -> None:
-        if self._loop_mode:
-            # The native loop is the drain; one step flushes what a verb
-            # queued.
-            loop = self._driver_loop
-            if loop is not None:
-                loop.step_now()  # type: ignore[attr-defined]
-            return
         """Run the shared C action drain, then honor each parked arm. Reentrant
         on purpose: the DIAL arm's dial executor establishes a whole new
         connection *inside* an action, and that establish must itself drain
@@ -1290,32 +1434,50 @@ class Host:
         inside a hosted turn: the host refuses the driving verbs there, and
         everything the turn enqueued pumps when the enclosing feed unwinds
         into this same drain. Binding-internal."""
-        if _inside_turn():
-            return
-        self._assert_owner()
-        # Parked releases run first — before the raw-handle check, because a
-        # mid-turn Host.release cleared `_raw` while parking the actual free.
-        self.drain_parked_releases()
-        if not self._raw or self._release_started:
-            return
-        while True:
-            if self._release_started or not self._raw:
+        task = asyncio.current_task()
+        admitted_task = task if task is not None and task not in self._action_drains else None
+        if admitted_task is not None:
+            self._action_drains.add(admitted_task)
+        try:
+            if self._driver_loop is not None:
+                # The native loop is the drain; one step flushes what a verb
+                # queued.
+                self._driver_loop.step_now()
                 return
-            parked, yielded = _park_actions(self)
-            if not parked and not yielded:
+            if _inside_turn():
                 return
-            for action in parked:
-                # One failing action must not strand the rest of the drain: a
-                # FLUSH to a session whose socket just died fails here while
-                # the actions behind it belong to other, live sessions. The
-                # failed session tears itself down through its own serve loop
-                # (a DIAL failure is reported to the core inside the arm).
-                try:
-                    await _run_action(self, action)
-                except Exception:  # noqa: BLE001 — the drain reaches every action
-                    pass
-            if yielded:
-                # The core ended a finite scheduler slice. Return to asyncio
-                # before requesting the next one so ready transports and other
-                # hosts share this thread.
-                await asyncio.sleep(0)
+            self._assert_owner()
+            # Parked closes run first — before the raw-handle check, because a
+            # mid-turn Host.close cleared `_raw` while parking the actual free.
+            self.drain_parked_releases()
+            if not self._raw:
+                return
+            while True:
+                if not self._raw:
+                    return
+                parked, yielded = _park_actions(self)
+                if not parked and not yielded:
+                    return
+                first_failure: Exception | None = None
+                for action in parked:
+                    # One failing action must not strand the rest of the drain:
+                    # work behind it can belong to another live session.
+                    try:
+                        await _run_action(self, action)
+                    except Exception as error:  # noqa: BLE001 — drain every action
+                        if first_failure is None:
+                            first_failure = error
+                # A drained batch may have advanced close-relevant state
+                # (FLUSH, CLOSE, SETTLE, dial retirement); wake any parked
+                # close driver. Signaling only when work ran keeps a close
+                # driver's own no-op kicks from waking the waiter it just
+                # armed.
+                if parked:
+                    self.signal_close_activity()
+                if first_failure is not None:
+                    raise first_failure
+                if yielded:
+                    await asyncio.sleep(0)
+        finally:
+            if admitted_task is not None:
+                self._action_drains.discard(admitted_task)

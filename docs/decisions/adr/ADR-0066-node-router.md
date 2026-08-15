@@ -203,7 +203,7 @@ So routing sinks; the vat does not.
   Python binding is migrated (`bindings/python/pancake/__init__.py`: a
   `NodeHandle` over pancake_node_*, a non-owning `Peer.from_node_raw`, and
   `Ref.home` dropped for the token model: and `bindings/python/pancake/iroh.py`);
-  the TypeScript binding is migrated (`bindings/ts/stack/mod.ts`: a `NodeHandle`,
+  the TypeScript binding is migrated (`bindings/ts/runtime/mod.ts`: a `NodeHandle`,
   a non-owning `Peer.fromNodeRaw`, and `Ref.home` dropped: and
   `bindings/ts/iroh/mod.ts`); the Racket binding is migrated
   (`bindings/racket/pancake.rkt`: a `node-handle` over pancake_node_*, a

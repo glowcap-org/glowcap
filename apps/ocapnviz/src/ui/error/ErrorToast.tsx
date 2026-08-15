@@ -106,8 +106,7 @@ export function ErrorToast() {
             <button
               type="button"
               aria-label="Dismiss"
-              onClick={() =>
-                setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+              onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
               style={{
                 background: "transparent",
                 border: "none",

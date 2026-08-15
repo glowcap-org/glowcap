@@ -18,7 +18,7 @@ is load every future session pays for. Prefer a build check over a paragraph.
 2. **One owner per concern.** Duplicate CapTP/routing/persona prose across
    skills is a bug; link the owner, delete the copy.
 3. **When not to use.** A skill without negative space will be over-invoked.
-4. **Gate > memory.** If a sentence could be `meta-check`, it should be; prose
+4. **Gate > memory.** If a sentence could be `source-check`, it should be; prose
    shrinks when the gate lands.
 5. **Kaizen on open surfaces.** Dead sections, stale commands, and brochure
    SKILL.md files get cut in the same pass.

@@ -1,0 +1,24 @@
+{
+	"abi_version": "0.1.0",
+	"default_release_base_url": "https://github.com/jimisaacs/pancake/releases/download",
+	"tarball_template": "pancake-c-v{version}-{target}.tar.gz",
+	"release_tag_template": "v{version}",
+	"cache_layout": "{cache_base}/{version}/{target}/lib",
+	"version_header": "include/pancake_ocapn.h",
+	"package_copies": [
+		"bindings/rust/c-abi-resolve.json",
+		"bindings/python/pancake/c-abi-resolve.json",
+		"bindings/ts/runtime/internal/ffi/c-abi-resolve.json",
+		"bindings/racket/private/c-abi-resolve.json"
+	],
+	"fallback_cache_name": "pancake-c-abi-cache",
+	"marker_static": "libpancake_ocapn.a",
+	"marker_shared_stem": "pancake_ocapn",
+	"require_https": true,
+	"require_checksum": true,
+	"releases_published": false,
+	"max_tarball_bytes": 536870912,
+	"max_sums_bytes": 1048576,
+	"extract_prefix": "lib",
+	"user_agent": "pancake-c-abi-fetch/0.1.0"
+}

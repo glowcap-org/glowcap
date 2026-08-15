@@ -373,7 +373,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const port_num = try std.fmt.parseInt(u16, port_text, 10);
     const designator_addr = try tcp.parseHostPort(host, port_num);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     _ = try goblins_child.openKeyedSession(io, peer, &conn, designator);
     std.debug.print("goblins-interop: session open (pancake as listener, {s})\n", .{scenario.kind});
 
@@ -461,7 +461,7 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort(host, port);
-    const dial = tcp.locator(&designator_buf, designator_addr);
+    const dial = tcp.locatorFromAddress(&designator_buf, designator_addr);
     // Retry a refused dial briefly: the vat's readiness line can race its
     // listener's actual bind.
     var conn = try harness.tcpConnectRetry(io, peer, dial, scaffold.read_buf, scaffold.write_buf, 5_000);

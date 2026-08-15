@@ -136,7 +136,12 @@ void pancake_onion_netlayer_shutdown(PancakeOnionNetlayer *netlayer);
 /* Release the onion netlayer after every connection and listener made from it is
    released. First stop new calls, invoke shutdown, and join the embedding's
    operation leases; release must not race call initiation. */
-void pancake_onion_netlayer_release(PancakeOnionNetlayer *netlayer);
+int32_t pancake_onion_netlayer_release(PancakeOnionNetlayer *netlayer);
+/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
+   capture for runtimes that dispatch native calls to worker threads. out_error_len
+   is required and receives the full diagnostic length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_onion_netlayer_release_with_diagnostic(PancakeOnionNetlayer *netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Dial the onion service `service_id` through the configured Tor and return an
    owned connection framing on `codec`, refusing inbound frames over
    max_frame_bytes. `service_id` is the bare 56-character designator, borrowed.
@@ -219,20 +224,28 @@ int32_t pancake_onion_conn_write_frame(PancakeOnionConn *conn, const PancakeFram
 int32_t pancake_onion_conn_write_frame_with_diagnostic(PancakeOnionConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal native admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
-   Idempotent and best-effort. */
-void pancake_onion_conn_shutdown(PancakeOnionConn *conn);
-/* After stopping new calls, invoking shutdown, and joining the embedding's
-   operation leases, close and free the handle. Release must not race call initiation. */
-void pancake_onion_conn_release(PancakeOnionConn *conn);
+   Idempotent. Returns PANCAKE_ERR_IO when the socket cannot be interrupted; the
+   transport last-error slot names the cause. */
+int32_t pancake_onion_conn_shutdown(PancakeOnionConn *conn);
+/* After stopping new calls, invoke shutdown, join admitted operations, and free
+   the handle. Returns the shutdown outcome after completing the ownership sweep.
+   Release must not race call initiation. */
+int32_t pancake_onion_conn_release(PancakeOnionConn *conn);
 /* Seal native accept admission and interrupt a blocked accept without freeing the
    listener or withdrawing its service. May race operations; join the embedding's
-   leases before release. Idempotent and best-effort. */
+   leases before release. Idempotent; the listener's pre-opened wake channel makes
+   this operation infallible. */
 void pancake_onion_listener_shutdown(PancakeOnionListener *listener);
 /* After stopping new calls, invoking shutdown, and joining the embedding's
    operation leases, withdraw the service and free the listener. Release must not
    race call initiation. This is the one release in the family with an effect a
    partner can observe: the address stops being published. */
-void pancake_onion_listener_release(PancakeOnionListener *listener);
+int32_t pancake_onion_listener_release(PancakeOnionListener *listener);
+/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
+   capture for runtimes that dispatch native calls to worker threads. out_error_len
+   is required and receives the full diagnostic length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_onion_listener_release_with_diagnostic(PancakeOnionListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy the calling thread's last onion-transport error into out_buf, the onion
    sibling of pancake_last_error, reading this archive's own per-thread slot. A
    pancake_onion_* call that returns a cause-bearing code records it here. Copies

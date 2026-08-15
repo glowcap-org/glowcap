@@ -13,7 +13,7 @@
 //
 // Shared by the browser UI and the direct-message demos.
 
-import type { Behavior, Host, Ref } from "@pancake/stack";
+import type { Behavior, Host, Ref } from "@pancake/runtime";
 import { MAX_DM_INBOXES, MAX_NICK } from "./limits.ts";
 import type { Directory } from "./room_client.ts";
 

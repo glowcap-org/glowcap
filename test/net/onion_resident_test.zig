@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -31,6 +32,14 @@ fn stubPeer(allocator: std.mem.Allocator) engine.Peer {
 
 const ip = std.Io.net;
 const frame_cap = 4096;
+
+test "onion.locator builds the Goblins-compatible borrowed locator" {
+    const locator = onion.locator(service_id);
+    try std.testing.expectEqualStrings(onion.transport_name, locator.transport);
+    try std.testing.expectEqualStrings(service_id, locator.designator);
+    try std.testing.expectEqual(@as(usize, 0), locator.hints.entries.len);
+    try std.testing.expectEqual(model.Hints.WireForm.boolean_false, locator.hints.wire_form);
+}
 
 /// A transport handle over a stream somebody else closes. The fake daemons in
 /// this file own their streams directly, so the connection must not close them.
@@ -173,7 +182,7 @@ fn dialAndFetch(io: std.Io, allocator: std.mem.Allocator, socks: []const u8) any
         .transport = onion.transport_name,
         .designator = service_id,
         .hints = model.Hints.emptyFalse(),
-    }, .{ .read = &read_buf, .write = &write_buf });
+    }, .{ .read = &read_buf, .write = &write_buf }, .inherit);
     defer conn.deinit();
 
     try fetch_pump.handshakeToOpen(&peer, &conn, handshake.startSession(onion.transport_name, service_id));
@@ -201,7 +210,7 @@ test "a dial refuses a designator that is not a version 3 address before connect
         .transport = onion.transport_name,
         .designator = "not-a-v3-onion-address",
         .hints = model.Hints.emptyFalse(),
-    }, .{ .read = &read_buf, .write = &write_buf }));
+    }, .{ .read = &read_buf, .write = &write_buf }, .inherit));
 }
 
 // --- The fake control endpoint -------------------------------------------
@@ -334,6 +343,47 @@ test "a listener publishes the service id Tor named, not one pancake chose" {
     try std.testing.expect(std.mem.indexOf(u8, add, ",127.0.0.1:") != null);
 }
 
+test "onion listener returns Unix-socket removal failure" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var ctrl_listener = try pancake.net.tcp.plain.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    defer ctrl_listener.deinit();
+    var ctrl_text: [64]u8 = undefined;
+    const ctrl = try std.fmt.bufPrint(&ctrl_text, "{f}", .{ctrl_listener.localAddress()});
+    var observed: FakeControlResult = .{ .lines = .empty, .allocator = allocator };
+    defer observed.deinit();
+    var control_server = try io.concurrent(fakeControlServe, .{ io, &ctrl_listener, &observed });
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const tmp_path = try std.Io.Dir.realPathFileAlloc(tmp.dir, io, ".", allocator);
+    defer allocator.free(tmp_path);
+    var socket_path_buf: [108]u8 = undefined;
+    const socket_path = try std.fmt.bufPrint(&socket_path_buf, "{s}/forward.sock", .{tmp_path});
+    const listener = switch (onion.Listener.create(allocator, io, .{
+        .socks = "127.0.0.1:1",
+        .control_endpoint = ctrl,
+        .forward = socket_path,
+    })) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
+
+    // Remove the actual socket inode, then make teardown target the containing
+    // directory. Deleting a directory through deleteFileAbsolute must fail,
+    // deterministically exercising the returned cleanup-only outcome without
+    // leaking the real forward socket.
+    try std.Io.Dir.deleteFileAbsolute(io, listener.unix_path.?);
+    listener.unix_path = tmp_path;
+    const failure = listener.deinit() orelse return error.ExpectedCleanupFailure;
+    try std.testing.expect(failure.cause != error.FileNotFound);
+    try std.testing.expectEqual(@as(u16, 0), failure.secondary_count);
+    try control_server.await(io);
+}
+
 fn blockedOnionAccept(listener: *onion.Listener, out_err: *?anyerror) void {
     var read_buf: [64]u8 = undefined;
     var write_buf: [64]u8 = undefined;
@@ -374,10 +424,13 @@ test "onion listener shutdown wakes and joins a blocked accept before release" {
     defer observed.deinit();
     var control_server = try io.concurrent(fakeControlServe, .{ io, &ctrl_listener, &observed });
 
-    const listener = try onion.Listener.create(allocator, io, .{
+    const listener = switch (onion.Listener.create(allocator, io, .{
         .socks = "127.0.0.1:1",
         .control_endpoint = ctrl,
-    });
+    })) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
     var accept_err: ?anyerror = null;
     var accept_future = try io.concurrent(blockedOnionAccept, .{ listener, &accept_err });
 
@@ -385,7 +438,7 @@ test "onion listener shutdown wakes and joins a blocked accept before release" {
     accept_future.await(io);
     try std.testing.expectEqual(error.ConnectionLost, accept_err.?);
 
-    listener.deinit();
+    try std.testing.expect(listener.deinit() == null);
     try control_server.await(io);
 }
 
@@ -404,10 +457,13 @@ test "onion listener shutdown joins a blocked readiness wait before release" {
     defer observed.deinit();
     var control_server = try io.concurrent(fakeControlServe, .{ io, &ctrl_listener, &observed });
 
-    const listener = try onion.Listener.create(allocator, io, .{
+    const listener = switch (onion.Listener.create(allocator, io, .{
         .socks = "127.0.0.1:1",
         .control_endpoint = ctrl,
-    });
+    })) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
     var wait_err: ?anyerror = null;
     var wait_future = try io.concurrent(blockedOnionWait, .{ listener, &wait_err });
 
@@ -415,7 +471,7 @@ test "onion listener shutdown joins a blocked readiness wait before release" {
     wait_future.await(io);
     try std.testing.expectEqual(error.ConnectionLost, wait_err.?);
 
-    listener.deinit();
+    try std.testing.expect(listener.deinit() == null);
     try control_server.await(io);
 }
 
@@ -425,8 +481,8 @@ fn listenAndInspect(io: std.Io, allocator: std.mem.Allocator, ctrl: []const u8) 
         .control_endpoint = ctrl,
     } };
     const layer = res.netlayer();
-    var listener = try layer.listen(allocator, .{ .designator = "ignored" });
-    defer listener.close();
+    var listener = try netlayer_test.listenBlocking(layer, allocator, .{ .designator = "ignored" });
+    defer netlayer_test.close(listener);
 
     const locator = try listener.localLocator(allocator);
     defer pancake.ocapn.model.freePeerLocator(allocator, locator);
@@ -456,7 +512,7 @@ test "hosting without a control endpoint is refused rather than silently skipped
     const layer = res.netlayer();
     try std.testing.expectError(
         error.InvalidAddress,
-        layer.listen(allocator, .{ .designator = "" }),
+        netlayer_test.listenBlocking(layer, allocator, .{ .designator = "" }),
     );
 }
 

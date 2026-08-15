@@ -278,7 +278,7 @@ pub fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behav
     // unwind then appends once per frame. An actor installs at most once per
     // run and every install is preceded by a stage in some open frame, so the
     // number of appends still to come is bounded by the open frame count.
-    try self.retired_boxes.ensureUnusedCapacity(self.allocator, self.turn_depth);
+    try vat_mod.reserveRetirementCapacity(self, 0, self.turn_depth);
     // Last become in a turn wins: release any value staged earlier this turn.
     if (turn.pending_become) |prev| releaseBox(self.allocator, prev.box);
     turn.pending_become = .{ .id = id, .box = box };

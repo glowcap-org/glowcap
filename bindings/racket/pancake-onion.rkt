@@ -21,6 +21,13 @@
 ;;   (define lst (onion-netlayer-listen nl))
 ;;   (printf "ocapn://~a.onion\n" (onion-listener-service-id lst))
 ;;
+;; A CapTP application uses the driver-backed surface instead:
+;;
+;;   (define server (listen-onion #:socks "/run/tor/socks"
+;;                                #:control "/run/tor/control"))
+;;   (printf "~a\n" (onion-server-uri server))
+;;   (define session (onion-server-accept server))
+;;
 ;; Two limits are worth reading before relying on this, and both are ADR-0108
 ;; decisions rather than implementation details. A service id is an ADDRESS, not
 ;; an identity: Tor proves the far end of the circuit holds the key the address
@@ -44,14 +51,43 @@
 
 (require ffi/unsafe
          ffi/unsafe/port
+         racket/lazy-require
          "private/constants.rkt"
          "private/ffi-onion.rkt"
          "private/ffi-shared.rkt"
-         (only-in "private/loop.rkt" driver-loop-add-provider!)
+         "private/locator.rkt"
          "private/native-parent.rkt"
-         "private/seam.rkt")
+         "private/finalizer-diagnostics.rkt"
+         "private/seam.rkt"
+         "private/transport.rkt")
 
-(provide make-onion-netlayer onion-install-provider! onion-netlayer-release!
+(lazy-require
+ ["private/host.rkt" (host-loop-of host-codec)]
+ ["private/loop.rkt"
+  (open-driver-loop
+   driver-loop-start!
+   driver-loop-abort!
+   driver-loop-add-provider!
+   loop-connect-session
+   loop-listen!
+   loop-listener-ready!
+   loop-listener-locator
+   loop-listener-restoration-state
+   loop-listener-select!
+   loop-listener-close!
+   make-loop-server
+   loop-server-locator
+   loop-server-host
+   loop-server-accept
+   loop-server-close!)])
+
+(provide onion-locator onion-provider onion-connector
+         make-onion-netlayer onion-install-provider! onion-netlayer-release!
+         listen-onion connect-onion
+         onion-server?
+         onion-server-host onion-server-locator onion-server-service-id onion-server-uri
+         onion-server-service-key onion-server-accept onion-server-close!
+         (struct-out failure-event) take-runtime-failures!
          onion-netlayer-listen onion-netlayer-connect
          onion-listener-accept onion-listener-release!
          onion-listener-service-id onion-listener-service-key
@@ -74,6 +110,9 @@
 (define SERVICE-ID-LENGTH 56)
 (define SERVICE-KEY-CAP 256)
 
+(define (onion-locator service-id)
+  (locator TRANSPORT-ONION service-id (hash) 'boolean-false))
+
 ;; (onion-last-error) -> the calling thread's last error message from the onion
 ;; transport archive, or #f. The transport keeps its own thread-local slot, so an
 ;; onion call's diagnostic is read here and never from the ocapn family's
@@ -87,6 +126,11 @@
 (struct onion-netlayer (owner))
 (struct onion-listener (handle service-id service-key fd accept-gate closing netlayer) #:mutable)
 (struct onion-connection (handle read-gate write-gate netlayer) #:mutable)
+
+;; The high-level server is a view over the generic loop server. It owns no
+;; second listener queue or session table; the loop server remains the sole
+;; authority for admission, accepted handles, and loop retirement.
+(struct onion-server (inner restoration-key) #:transparent)
 
 (define (onion-netlayer-forget! nl child)
   (native-parent-forget! (onion-netlayer-owner nl) child))
@@ -127,9 +171,11 @@
     (new-onion-handle socks control auth-kind auth-secret service-key forward))
   (define nl
     (onion-netlayer
-     (make-native-parent h pancake_onion_netlayer_release
+     (make-native-parent h (lambda (raw) (check/onion (pancake_onion_netlayer_release raw)))
                          pancake_onion_netlayer_shutdown)))
-  (register-finalizer nl (lambda (q) (onion-netlayer-release! q)))
+  (register-finalizer
+   nl
+   (lambda (q) (run-native-finalizer! "onion-netlayer.finalize" (lambda () (onion-netlayer-release! q)) #:layer 'transport)))
   nl)
 
 ;; Install one configured onion package into a native driver. Registration
@@ -147,10 +193,168 @@
   (dynamic-wind
    void
    (lambda ()
-     (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f))
+     (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
      (check/onion (pancake_onion_transport_provider h package))
      (driver-loop-add-provider! lp package))
-   (lambda () (pancake_onion_netlayer_release h))))
+   (lambda () (check/onion (pancake_onion_netlayer_release h)))))
+
+(define (onion-provider #:socks socks
+                        #:control [control #f]
+                        #:auth-kind [auth-kind AUTH-NONE]
+                        #:auth-secret [auth-secret #f]
+                        #:service-key [service-key #f]
+                        #:forward [forward #f])
+  (make-driver-provider
+   (lambda (lp _host)
+     (onion-install-provider! lp
+                              #:socks socks
+                              #:control control
+                              #:auth-kind auth-kind
+                              #:auth-secret auth-secret
+                              #:service-key service-key
+                              #:forward forward))))
+
+;; The raw onion resident exposes complete frames. Adapt its readiness edge to
+;; the byte-fed Session seam and keep the netlayer parent alive until the
+;; session closes. This is an explicit opt-in connector; generic `connect`
+;; never loads Tor or guesses an onion authority.
+(define (onion-connector #:socks socks
+                         #:control [control #f]
+                         #:auth-kind [auth-kind AUTH-NONE]
+                         #:auth-secret [auth-secret #f]
+                         #:service-key [service-key #f]
+                         #:forward [forward #f])
+  (make-byte-connector
+   (list TRANSPORT-ONION)
+   (lambda (m loc handshake-timeout-ms)
+     (define nl #f)
+     (define cn #f)
+     (define (close!)
+       (when cn (onion-connection-release! cn) (set! cn #f))
+       (when nl (onion-netlayer-release! nl) (set! nl #f)))
+     (with-handlers ([(lambda (_) #t) (lambda (e) (close!) (raise e))])
+       (set! nl (make-onion-netlayer #:socks socks #:control control
+                                     #:auth-kind auth-kind #:auth-secret auth-secret
+                                     #:service-key service-key #:forward forward))
+       (set! cn (onion-netlayer-connect nl (locator-designator loc)))
+       (define transport
+         (async-transport
+          (lambda (frame) (onion-connection-write-frame! cn frame))
+          void
+          (lambda (wake-evt)
+            (define fd (onion-connection-readiness-fd cn))
+            (define ready (unsafe-file-descriptor->semaphore fd 'read))
+            (unless ready (error 'onion-connector "connection fd ~a is not pollable" fd))
+            (define event (sync ready wake-evt))
+            (if (eq? event wake-evt)
+                'woke
+                (onion-connection-read-frame cn)))
+          close!))
+       (establish-dialed-locator-session
+        m loc transport
+        #:handshake-timeout-ms handshake-timeout-ms)))))
+
+;; Host CapTP through an onion service using the generic driver listener. The
+;; onion package owns only provider composition and the interpretation of its
+;; restoration bytes; the driver owns the canonical locator and accepted
+;; Session handles.
+(define (listen-onion #:socks socks
+                      #:control [control #f]
+                      #:auth-kind [auth-kind AUTH-NONE]
+                      #:auth-secret [auth-secret #f]
+                      #:service-key [service-key #f]
+                      #:forward [forward #f]
+                      #:codec [codec #f]
+                      #:captp-version [captp-version 'v1_0]
+                      #:features [features 'full]
+                      #:time-travel? [time-travel? #f]
+                      #:host [shared-host #f])
+  (define lp
+    (if (and shared-host (host-loop-of shared-host))
+        (host-loop-of shared-host)
+        (open-driver-loop #:host shared-host
+                          #:codec (or codec (and shared-host (host-codec shared-host)) 'syrup)
+                          #:captp-version (or captp-version 'v1_0)
+                          #:features (or features 'full))))
+  (define listener #f)
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (e)
+                     (when listener (loop-listener-close! lp listener))
+                     (when (not shared-host) (driver-loop-abort! lp))
+                     (raise e))])
+    (onion-install-provider! lp
+                             #:socks socks
+                             #:control control
+                             #:auth-kind auth-kind
+                             #:auth-secret auth-secret
+                             #:service-key service-key
+                             #:forward forward)
+    (set! listener (loop-listen! lp TRANSPORT-ONION ""))
+    (driver-loop-start! lp)
+    (set! listener (loop-listener-ready! listener))
+    (loop-listener-select! lp listener)
+    (define key (loop-listener-restoration-state lp listener))
+    (onion-server
+     (make-loop-server lp listener time-travel? (not shared-host))
+     (bytes->immutable-bytes key))))
+
+(define (onion-server-host s)
+  (loop-server-host (onion-server-inner s)))
+
+(define (onion-server-service-key s)
+  (bytes-copy (onion-server-restoration-key s)))
+
+(define (onion-server-locator s)
+  (loop-server-locator (onion-server-inner s)))
+
+(define (onion-server-service-id s)
+  (locator-designator (onion-server-locator s)))
+
+(define (onion-server-uri s)
+  (format-locator-uri (onion-server-locator s)))
+
+(define (onion-server-accept s)
+  (loop-server-accept (onion-server-inner s)))
+
+(define (onion-server-close! s)
+  (loop-server-close! (onion-server-inner s)))
+
+;; Dial an onion service through the same package composition as `listen-onion`.
+;; The full provider configuration is accepted so a caller-owned Host can reuse
+;; the exact Tor authority its listener already installed.
+(define (connect-onion partner
+                       #:socks socks
+                       #:control [control #f]
+                       #:auth-kind [auth-kind AUTH-NONE]
+                       #:auth-secret [auth-secret #f]
+                       #:service-key [service-key #f]
+                       #:forward [forward #f]
+                       #:codec [codec #f]
+                       #:captp-version [captp-version 'v1_0]
+                       #:features [features 'full]
+                       #:host [shared-host #f])
+  (unless (locator? partner)
+    (raise-argument-error 'connect-onion "locator?" partner))
+  (define lp
+    (if (and shared-host (host-loop-of shared-host))
+        (host-loop-of shared-host)
+        (open-driver-loop #:host shared-host
+                          #:codec (or codec (and shared-host (host-codec shared-host)) 'syrup)
+                          #:captp-version captp-version
+                          #:features features)))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (e)
+                     (when (not shared-host) (driver-loop-abort! lp))
+                     (raise e))])
+    (onion-install-provider! lp
+                             #:socks socks
+                             #:control control
+                             #:auth-kind auth-kind
+                             #:auth-secret auth-secret
+                             #:service-key service-key
+                             #:forward forward)
+    (driver-loop-start! lp)
+    (loop-connect-session lp partner (not shared-host))))
 
 (define (onion-netlayer-release! nl)
   (native-parent-release!
@@ -186,7 +390,9 @@
                        (make-semaphore 0)
                        nl))
      onion-listener-release!))
-  (register-finalizer lst (lambda (q) (onion-listener-release! q)))
+  (register-finalizer
+   lst
+   (lambda (q) (run-native-finalizer! "onion-listener.finalize" (lambda () (onion-listener-release! q)) #:layer 'transport)))
   lst)
 
 ;; Dial the onion service `service-id` through the configured Tor. One that is not
@@ -203,7 +409,9 @@
        (check/onion rc)
        (onion-connection h (make-semaphore 1) (make-semaphore 1) nl))
      onion-connection-release!))
-  (register-finalizer cn (lambda (q) (onion-connection-release! q)))
+  (register-finalizer
+   cn
+   (lambda (q) (run-native-finalizer! "onion-connection.finalize" (lambda () (onion-connection-release! q)) #:layer 'transport)))
   cn)
 
 ;; Block until Tor forwards a circuit to this service. The partner's claimed
@@ -234,7 +442,9 @@
         (onion-connection h (make-semaphore 1) (make-semaphore 1) nl)
         onion-connection-release!
         'onion-listener-accept))
-     (register-finalizer cn (lambda (q) (onion-connection-release! q)))
+     (register-finalizer
+      cn
+      (lambda (q) (run-native-finalizer! "onion-connection.finalize" (lambda () (onion-connection-release! q)) #:layer 'transport)))
      cn)))
 
 ;; Wait up to `timeout-ms` for `onion-listener-accept` to be able to make
@@ -289,10 +499,11 @@
      (lambda ()
        (when (onion-listener-handle lst)
          (unsafe-file-descriptor->semaphore (onion-listener-readiness-fd/locked lst) 'remove)
-         (pancake_onion_listener_release (onion-listener-handle lst))
+         (define release-code (pancake_onion_listener_release (onion-listener-handle lst)))
          (set-onion-listener-handle! lst #f)
          (set-onion-listener-fd! lst #f)
-         (onion-netlayer-forget! (onion-listener-netlayer lst) lst))))))
+         (onion-netlayer-forget! (onion-listener-netlayer lst) lst)
+         (check/onion release-code))))))
 
 ;; Block for one whole frame's bytes, or `eof` on a graceful end of stream. Prefer
 ;; watching `onion-connection-readiness-fd` first; this parks when nothing has
@@ -329,7 +540,10 @@
   (when (onion-connection-handle cn)
     ;; Shutdown interrupts either full-duplex half. Release then takes both gates,
     ;; proving no native call can still touch the payload it is about to free.
-    (pancake_onion_conn_shutdown (onion-connection-handle cn))
+    (define shutdown-failure #f)
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (raised) (set! shutdown-failure raised))])
+      (check/onion (pancake_onion_conn_shutdown (onion-connection-handle cn))))
     (call-with-semaphore
      (onion-connection-read-gate cn)
      (lambda ()
@@ -339,4 +553,5 @@
           (when (onion-connection-handle cn)
             (pancake_onion_conn_release (onion-connection-handle cn))
             (set-onion-connection-handle! cn #f)
-            (onion-netlayer-forget! (onion-connection-netlayer cn) cn))))))))
+            (onion-netlayer-forget! (onion-connection-netlayer cn) cn))))))
+    (when shutdown-failure (raise shutdown-failure))))

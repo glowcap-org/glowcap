@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // Live three-party handoff with the Deno binding as the recipient (Carol),
 // proving the binding redeems a `desc:handoff-give` transparently — the same
 // `connect`/`fetch`/`send` application surface the demos use, no bespoke handoff
@@ -18,7 +19,7 @@
 // Needs `racket` plus the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-handoff`.
 
-import { connect, Ref, tcpLocator } from "@pancake/stack";
+import { Ref, Runtime } from "@pancake/runtime";
 import { fail, readSwiss } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -56,7 +57,8 @@ try {
 
 	// `connect` completes the keyed handshake; the machine's retained identity is
 	// the recipient key the gift Alice deposits will name.
-	const session = await connect(tcpLocator(HOST, PORT));
+	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+	const session = await runtime.connect(tcp.locator(HOST, PORT));
 	console.log("deno-goblins-handoff: session open (recipient -> alice)");
 	session.serve().catch(() => {}); // the partner hanging up ends the serve loop
 

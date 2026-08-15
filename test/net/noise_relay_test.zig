@@ -709,7 +709,7 @@ test "noise-relay registered resident opens an authenticated session through a c
     });
 
     const server_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES);
-    var registered = try net.keyed_relay.Resident.initRegisteredProfile(
+    var registered = try net.relay.Resident.initRegisteredProfile(
         allocator,
         io,
         relay_url,
@@ -725,15 +725,15 @@ test "noise-relay registered resident opens an authenticated session through a c
         .{ .keyed = server_secret },
         live_options,
     );
-    defer server.close() catch {};
+    defer server.deinit();
 
-    const advertised = server.advertisedLocator();
+    const advertised = try server.advertisedLocator();
     try std.testing.expectEqualStrings(model.transport.noise_relay, advertised.transport);
     try std.testing.expectEqualStrings(&server_secret.publicKey().toDesignator(), advertised.designator);
 
-    var serving = try io.concurrent(serveNoiseRelayOnce, .{&server});
+    var serving = try io.concurrent(serveNoiseRelayOnce, .{server});
 
-    var dialer = try net.keyed_relay.Resident.initProfile(allocator, io, relay_url, .noise);
+    var dialer = try net.relay.Resident.initProfile(allocator, io, relay_url, .noise);
     defer dialer.deinit();
     const layers = [_]net.netlayer.Netlayer{dialer.netlayer()};
     {

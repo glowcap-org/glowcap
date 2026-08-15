@@ -18,37 +18,21 @@ import { cascadeDelete } from "../schema/cascade.ts";
 import { restoreSnapshotInto, takeSnapshot } from "../snapshot.ts";
 import { implicitBound } from "../temporal/bound.ts";
 import { peerEffective, sessionEffective } from "../temporal/doc-resolver.ts";
-import {
-  clearDuration,
-  clearStart,
-  setDuration,
-  setStart,
-} from "../temporal/time-span.ts";
+import { clearDuration, clearStart, setDuration, setStart } from "../temporal/time-span.ts";
 import { removeKeyframe, setKeyframe } from "../temporal/keyframes.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 import type { TimelineEvent } from "../timeline.ts";
 import { notFoundError, validationError } from "../errors.ts";
-import {
-  SESSION_TRAJECTORY,
-  type SessionProperty,
-  type SessionValue,
-} from "../trajectory.ts";
+import { SESSION_TRAJECTORY, type SessionProperty, type SessionValue } from "../trajectory.ts";
 import type { AuthoringContext } from "./context.ts";
-import {
-  bumpEntities,
-  commitEntityAuthoring,
-  removeObservations,
-  upsertObservation,
-} from "./events.ts";
+import { bumpEntities, commitEntityAuthoring, removeObservations, upsertObservation } from "./events.ts";
 
 /** The observation stating one of a session's properties at exactly
  *  `t` — what a keyframe write replaces and a removal drops. The
  *  property itself says which observations state it, so this predicate
  *  is the same shape for a state change and for an end attaching. */
-const momentAt =
-  (property: SessionProperty, sessionId: string, t: number) =>
-  (ev: TimelineEvent): boolean =>
-    ev.t === t && SESSION_TRAJECTORY[property].read(ev, sessionId) !== null;
+const momentAt = (property: SessionProperty, sessionId: string, t: number) => (ev: TimelineEvent): boolean =>
+  ev.t === t && SESSION_TRAJECTORY[property].read(ev, sessionId) !== null;
 
 function defaultSessionTiming() {
   return { start: implicitBound(0), duration: implicitBound(0) };

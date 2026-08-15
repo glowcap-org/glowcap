@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // Deno caller for the accountability-on-pancake cross-seam demo.
 //
 // Connects to a running Zig host, builds a KERI-anchored identity with a real
@@ -16,7 +17,7 @@
 //
 // Or driven by the demo.ts orchestrator, which starts the Zig host first.
 
-import { type Argument, connect, tcpLocator } from "@pancake/stack";
+import { type Argument, Runtime } from "@pancake/runtime";
 import { b64url, Identity } from "./keri.ts";
 
 function fail(msg: string): never {
@@ -35,7 +36,8 @@ async function main(): Promise<void> {
 	console.log(`  connecting to 127.0.0.1:${port}…`);
 
 	// `connect` completes the keyed op:start-session handshake before returning.
-	const session = await connect(tcpLocator("127.0.0.1", port));
+	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+	const session = await runtime.connect(tcp.locator("127.0.0.1", port));
 	// `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
 	const affordance = await session.fetch("affordance");
 

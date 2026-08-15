@@ -19,12 +19,13 @@ same row `driver.Capability`.
 
 ## Shared API
 
-Names follow each language's conventions, but the operations are the same:
+Names follow each language's conventions, but the conceptual operations are the
+same. Each binding README gives the concrete signature and ownership spelling.
 
 | Operation | Purpose |
 | --- | --- |
-| `connect(locator)` | Dial an `ocapn://` peer and return a session. |
-| `listen(address)` | Accept partners and return one session per connection. |
+| `runtime.connect(locator)` | Dial an `ocapn://` peer through explicitly composed transport authority and return a session. |
+| `transport.listen(config)` | Accept partners and return one session per connection. |
 | `session.listen(ref)` | Subscribe to the listen notification for a held far capability; 1.0 accepts far promises and live far objects, while pancake-next accepts only far promises. |
 | `fetch(name)` | Fetch a capability published by the partner. |
 | `publish(name, behavior)` | Make a local behavior fetchable by name. |
@@ -40,17 +41,22 @@ archive owns the application family; the driver owns sockets or multiplexed
 readiness, handshake admission, pumping, and generic dial/listen/events. A new
 driver loop starts with zero transports. The TCP archive supplies one provider
 package for `tcp`, `keyed-tcp`, and `noise-tcp`; the optional iroh archive
-supplies its provider package. Provider retain/release is the native transport
-lifetime authority. An idle Host that is not yet pumping can move into the
-loop before its first native network operation, so bindings do not keep a
+supplies its provider package; relay and onion do the same for the symbols they
+own. Provider retain/release is the native transport lifetime authority, and
+provider-owned configuration comparison makes repeated registration idempotent
+without binding-side caches. An idle Host that is not yet pumping can move into
+the loop before its first native network operation, so bindings do not keep a
 second transport registry or admission path.
 
-Wasm and runtimes that cannot drive native FFI keep the byte-fed Host, as do
-explicitly embedder-supplied channels such as keyed-relay WebSockets. This is
-an owned integration choice, not a fallback after native dispatch fails. A
-listener close stops new admission and preserves sessions already returned to
-the application. Binding a wildcard interface (`0.0.0.0` or `::`) requires an
-explicit advertised host; a bind address selects local interfaces and is not
+Wasm and runtimes that cannot drive native FFI keep the byte-fed Host. So do
+runtime-owned integrations such as browser WebRTC and a bare relay locator
+resolved through an explicit Host rendezvous callback; a routed native relay
+uses its provider package. These are owned integration choices, not fallbacks
+after native dispatch fails. A listener close stops new admission and preserves
+sessions already returned to the application. It does not wait for those
+sessions; the Host or Runtime that owns them is the shutdown barrier.
+Binding a wildcard interface (`0.0.0.0` or `::`) requires an explicit
+advertised host; a bind address selects local interfaces and is not
 implicitly a dialable signed locator.
 
 The bindings also expose sturdyref enlivenment, promise pipelining,
@@ -78,16 +84,19 @@ Closing a session ends one connection. Closing a host first stops its listeners
 from admitting new sessions, then ends every session it owns, including
 connections it opened while redeeming handoffs.
 
-An ordinary `connect(locator)` creates a private host, so closing that session
-also cleans up its host. When several sessions share a host supplied by the
-application, the application must close the host separately.
+A Runtime owns its Host and transport composition. Closing one session ends one
+connection; closing the Runtime ends its listeners, Host, and remaining
+sessions. Applications may explicitly transfer an existing Host when several
+fronts must share one identity: `adoptHost` in TypeScript, `adopt_host` in
+Python and Rust, and `#:adopt-host` in Racket. The Runtime becomes the shutdown
+barrier for the Host it adopts.
 
 | Language | Host shutdown |
 | --- | --- |
-| Rust | `Host::close()` requests terminal close for every clone; `close_async().await` is the completion barrier for the native loop or Host-owned byte-channel tasks and native release. |
-| TypeScript | `host.release()` requests close and retires callback registration immediately; `await host.releaseAsync()` waits for the native loop or Host-owned byte-channel work and native release. |
-| Python | `host.release()` requests callback-safe close; `await host.release_async()` waits for in-flight Host-owned dial work before native release. |
-| Racket | `host-release!` stops the native loop or byte-channel workers before releasing native state; callback-time release is parked until the turn returns. |
+| Rust | `Host::close(PendingWork::Cancel).await` requests terminal close for every clone and waits for the native loop or Host-owned byte-channel tasks to stop before releasing the Host. |
+| TypeScript | `await host.close()` requests terminal close immediately and waits for the native loop or Host-owned byte-channel work to stop before releasing the Host. |
+| Python | `await host.close()` waits for Host-owned dial work and listener shutdown before releasing the Host. |
+| Racket | `host-close!` stops the native loop or byte-channel workers before releasing native state; callback-time release is parked until the turn returns. |
 
 ## Where the languages differ
 
@@ -112,7 +121,9 @@ every binding.
 
 Plain TCP and in-process connections are built with the core bindings. iroh and
 onion are optional archives (iroh links a Rust sidecar; onion needs a Tor you
-run). A TCP-only program does not load them. Rust, Python, and Racket expose
+run). Every native binding composes onion into the generic driver for ordinary
+Session hosting and keeps the raw frame handles as an explicit embedding
+surface. A TCP-only program does not load them. Rust, Python, and Racket expose
 WebRTC's optional native C companion as raw FFI, including multiplexed readiness
 and try-I/O. TypeScript instead uses the browser's `RTCPeerConnection` and does
 not load that companion. Its browser package is the only application-level
@@ -123,8 +134,10 @@ TypeScript's raw onion transport runs through Deno's off-thread FFI. Bun's FFI
 does not currently provide that execution contract, so onion operations refuse
 there instead of blocking Bun's event loop behind a promise-shaped API.
 
-Applications still call `connect(locator)`. The locator selects the transport;
-there is no second dial API for iroh.
+Applications call `runtime.connect(locator)` after composing that Runtime with
+the required provider or connector. Optional transport packages own locator
+construction, configuration, setup, and operation options; generic bindings
+never name a concrete transport.
 
 ## Building and checking
 

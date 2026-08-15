@@ -3,9 +3,9 @@
 
 This is what an application holds: :class:`Session` and its verbs
 (``fetch``/``send``/``tell``/``spawn``/``publish``/``enliven``/``serve``/
-``close``), plus mint/handshake (``establish_*``). The dial executor
-(plan + channel open + :func:`connect`) lives in :mod:`pancake._dial`;
-Server/:func:`listen` live in :mod:`pancake._listen`. The
+``close``), plus mint/handshake (``establish_*``). Runtime composition and
+connection setup live in :mod:`pancake._dial`; transport modules own their
+listener fronts. The
 :class:`RemotePromise` handle, remote-send mint, and fetch/enliven wait live
 in :mod:`pancake._promise`. Spawn/publish hosting, local send/tell, Host-ref
 dispatch, and ADR-0064 proxy factories live in :mod:`pancake._trampoline`. The
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import NamedTuple, Optional
+from typing import Awaitable, NamedTuple, Optional
 
 import ctypes
 
@@ -34,11 +34,13 @@ from ._errors import (
     AbortDetail,
     PancakeError,
     _check_host,
+    _retain_terminal_failure,
 )
-from ._ffi_host import _AcceptPlan, _PartnerIdentity, _host
+from ._ffi_host import _PartnerIdentity, _host
 from ._ffi_ocapn import _byte_buf, _Reference
 from ._host import Host
 from ._locator import _OwnedLocator, Locator
+from ._lifecycle import PendingWork, _UNSET, _close_options, _monotonic_ms
 from ._promise import RemotePromise, _fetch_like, _listen_far
 from ._gc import release_ref
 from ._trampoline import (
@@ -108,7 +110,8 @@ class Session:
     """A live CapTP session with one OCapN partner, the one object an app holds,
     over one byte-fed ``PancakeHostSession`` the shared :class:`Host` minted.
 
-        session = await connect(tcp_locator("127.0.0.1", 9099))
+        async with Runtime.open(provider=tcp.provider()) as runtime:
+            session = await runtime.connect(tcp.locator("127.0.0.1", 9099))
         session.serve()
         board = await session.fetch("board")
         inbox = session.spawn(lambda verb, args: None)
@@ -126,10 +129,28 @@ class Session:
         host._bind_running_loop()
         self._serve_task: Optional[asyncio.Task] = None
         # Set the moment teardown begins (an application close, or the
-        # transport reporting EOF), so the FAIL completions the break queues
-        # classify as the typed ERR_CLOSED instead of partner breaks.
+        # transport reporting EOF), so a cancelled read is clean and the
+        # adapter reports transport loss to the core only once.
         self._closing = False
         self._released = False
+        self._release_pending = False
+        self._close_future: Optional[asyncio.Future[None]] = None
+        # First terminal byte-channel fact. Action execution contains a
+        # session-scoped FLUSH refusal, while Session boundaries expose this
+        # exact object after physical retirement completes.
+        self._wire_failure: Optional[BaseException] = None
+        # Ordered terminal evidence. The first object remains the exception
+        # every close observer raises; later close/result/transport/serve
+        # failures stay available without replacing or flattening it.
+        self._terminal_failures: list[BaseException] = []
+        self._terminal_failure_count = 0
+        self._terminal_joined = False
+        self._transport_lost = False
+        self._transport_close_started = False
+        # The native close barrier outlives any one caller awaiting it. Keep the
+        # effect-driving task strongly referenced until it reaches that barrier;
+        # asyncio keeps only weak references to otherwise detached tasks.
+        self._close_task: Optional[asyncio.Task[None]] = None
         # Serializes transport writes: `flush_outbound` runs from the action
         # drain, the feed-failure choreography, and teardown, and each frame
         # must land whole and in submission order.
@@ -140,12 +161,6 @@ class Session:
         # Capability ids and their actors are Host-scoped. Closing this Port
         # must not erase a trampoline a sibling Port can still call.
         self._hosted = host._hosted
-        # Set when this session created the Host it runs on, which
-        # :func:`connect` does when the caller supplies none. Such a Host has
-        # no other reachable owner, so closing the session releases it; a
-        # caller-supplied Host is never released here, because sibling
-        # sessions may still be using it.
-        self.owns_host = False
         # Distributed GC (ADR-0063), opt-in and off by default — see `_gc`.
         self._gc_enabled = False
         try:
@@ -164,52 +179,43 @@ class Session:
     def _open_dialed_locator(
         cls,
         host: Host,
-        transport_name: str,
-        designator: str,
+        locator: Locator,
         transport,
     ) -> "Session":
-        # Mint the dialing half from already-parsed locator pieces without
-        # driving the handshake — the signed op:start-session is encoded (its
-        # FLUSH queued) but nothing has moved. A DIAL action's binding half
-        # borrows the pending URI before calling here.
-        host.ensure_advertised_locator(transport_name)
-        t = transport_name.encode()
-        d = designator.encode()
-        tbuf, tptr = _byte_buf(t)
-        dbuf, dptr = _byte_buf(d)
+        # Mint the dialing half over a channel the caller already realized for
+        # ``locator``, without driving the handshake — the signed
+        # op:start-session is encoded (its FLUSH queued) but nothing has
+        # moved. The locator travels whole; the host retains its own dial
+        # default for the transport, so no locator policy lives here.
         out = ctypes.c_void_p()
-        _check_host(
-            _host.pancake_host_session_open_dialed_locator(
-                host.raw,
-                tptr,
-                len(t),
-                dptr,
-                len(d),
-                ctypes.byref(out),
+        with _OwnedLocator.create(locator) as owned:
+            _check_host(
+                _host.pancake_host_session_open_dialed_locator(
+                    host.raw,
+                    owned.borrow_view(),
+                    ctypes.byref(out),
+                )
             )
-        )
         return cls(out, host, transport)
 
     @classmethod
     async def establish_dialed_locator(
         cls,
         host: Host,
-        transport_name: str,
-        designator: str,
+        locator: Locator,
         transport,
         handshake_timeout_ms: "Optional[int]" = _HANDSHAKE_TIMEOUT_MS,
         verified_channel_key: "Optional[str]" = None,
     ) -> "Session":
-        """Mint the dialing half from already-parsed locator pieces. A DIAL
-        action's binding half borrows the pending URI first. The handshake is
-        bounded by ``handshake_timeout_ms`` (``HANDSHAKE_TIMEOUT_MS`` by
-        default; ``None`` or ``0`` waits unbounded); overrunning it raises
-        ``PancakeError`` with ``ERR_TIMEOUT`` and abandons the half-built
-        connection, exactly as a failed handshake does. Binding-internal."""
+        """Mint the dialing half over a channel the caller already realized
+        for ``locator``. The handshake is bounded by ``handshake_timeout_ms``
+        (``HANDSHAKE_TIMEOUT_MS`` by default; ``None`` or ``0`` waits
+        unbounded); overrunning it raises ``PancakeError`` with
+        ``ERR_TIMEOUT`` and abandons the half-built connection, exactly as a
+        failed handshake does. Binding-internal."""
         session = cls._open_dialed_locator(
             host,
-            transport_name,
-            designator,
+            locator,
             transport,
         )
         return await session._bind_channel_proof_and_establish(
@@ -230,10 +236,12 @@ class Session:
         """Mint the accepting half over a connection the caller's own listener
         produced. ``server_designator`` is the listener's signing designator
         (key for keyed-tcp/iroh; unused for tcp); ``accepted_local_addr`` is
-        what accept reported. Signing designator/hint come from
-        ``pancake_host_plan_accept`` (ADR-0078). The handshake is bounded by
-        ``handshake_timeout_ms`` (``HANDSHAKE_TIMEOUT_MS`` by default; ``None``
-        or ``0`` waits unbounded); overrunning it raises ``PancakeError`` with
+        what accept reported. The host resolves what this accept signs and
+        retains it without displacing an explicitly selected advertised
+        locator (ADR-0078); no locator policy lives in this binding layer. The
+        handshake is bounded by ``handshake_timeout_ms``
+        (``HANDSHAKE_TIMEOUT_MS`` by default; ``None`` or ``0`` waits
+        unbounded); overrunning it raises ``PancakeError`` with
         ``ERR_TIMEOUT``, which every accept loop skips like any other bad
         partner. Binding-internal."""
         t = transport_name.encode()
@@ -242,7 +250,6 @@ class Session:
         tbuf, tptr = _byte_buf(t)
         sbuf, sptr = _byte_buf(server)
         lbuf, lptr = _byte_buf(local)
-        plan = _AcceptPlan()
         designator_scheme = getattr(transport, "designator_scheme", None)
         if designator_scheme is None:
             transport.close()
@@ -250,38 +257,17 @@ class Session:
                 _abi.ERR_INVALID_ARGUMENT,
                 "accepted byte-channel provider must declare its designator scheme",
             )
-        _check_host(
-            _host.pancake_host_plan_accept(
-                designator_scheme,
-                sptr,
-                len(server),
-                lptr,
-                len(local),
-                ctypes.byref(plan),
-            )
-        )
-        plan_designator = ctypes.string_at(plan.designator, plan.designator_len).decode(
-            "utf-8"
-        )
-        plan_hint = ctypes.string_at(
-            plan.direct_addresses_hint,
-            plan.direct_addresses_hint_len,
-        ).decode("utf-8")
-        host.set_advertised_locator(Locator(
-            transport_name,
-            plan_designator,
-            {_abi.HINT_DIRECT_ADDRESSES: plan_hint} if plan_hint else {},
-            "map" if plan_hint else "boolean-false",
-        ))
-        # Plan views borrow the caller buffers (or the static unreachable
-        # placeholder); keep tbuf/sbuf/lbuf alive and pass those pointers
-        # through — no second materialize (ADR-0078 / Rust establish_accepted).
         out = ctypes.c_void_p()
         _check_host(
             _host.pancake_host_session_open_accepted(
                 host.raw,
                 tptr,
                 len(t),
+                designator_scheme,
+                sptr,
+                len(server),
+                lptr,
+                len(local),
                 ctypes.byref(out),
             )
         )
@@ -395,9 +381,7 @@ class Session:
 
     @property
     def is_closing(self) -> bool:
-        """Whether teardown has begun: the ``_closing`` flag alone or a
-        completed release. The Host's FAIL arm classifies a closing
-        connection's breaks as the typed ERR_CLOSED. Binding-internal seam."""
+        """Whether local transport teardown has begun. Binding-internal pump seam."""
         return self._closing or self._released
 
     @property
@@ -446,7 +430,8 @@ class Session:
         """Raise ERR_CLOSED when the connection is released. Binding-internal
         seam."""
         self._host._assert_owner()
-        if self._released:
+        if self._closing or self._released:
+            self.raise_wire_failure()
             raise PancakeError(_ERR_CLOSED, "connection closed")
 
     # ── The pump ────────────────────────────────────────────────────────────────
@@ -464,6 +449,10 @@ class Session:
         if self._serve_task is None:
             transport = self._transport
             if getattr(transport, "_driver_loop", None) is not None:
+                # Post-open setup is done: tell the loop to start delivering
+                # this session's inbound, the byte-fed serve-resume contract
+                # spoken at the loop tier.
+                transport._driver_loop.serve_session(self._key)
                 self._serve_task = asyncio.get_running_loop().create_task(
                     transport.wait_closed(),
                 )
@@ -485,15 +474,112 @@ class Session:
         to the transport — how a FLUSH action lands. Writes are serialized, so
         frames stay whole and in submission order. Binding-internal. On a
         loop-backed session one loop step is the flush."""
-        loop_ref = getattr(self._transport, "_driver_loop", None)
-        if loop_ref is not None:
-            loop_ref.step_now()
+        try:
+            loop_ref = getattr(self._transport, "_driver_loop", None)
+            if loop_ref is not None:
+                loop_ref.step_now()
+                return
+            await _pump.flush_outbound(self)
+        except BaseException as error:
+            self.record_outbound_failure(error)
+            self.close_transport()
+            raise
+
+    def record_wire_failure(self, error: BaseException) -> None:
+        """Retain the exact first terminal failure. Binding-internal pump seam."""
+        self._record_terminal_failure(error)
+        if self._wire_failure is None:
+            self._wire_failure = error
+
+    def _record_terminal_failure(self, error: BaseException) -> None:
+        failures = getattr(self, "_terminal_failures", None)
+        if failures is None:
+            failures = []
+            self._terminal_failures = failures
+        self._terminal_failure_count = _retain_terminal_failure(
+            failures, getattr(self, "_terminal_failure_count", 0), error
+        )
+
+    @property
+    def terminal_failures(self) -> tuple[BaseException, ...]:
+        """Terminal failures in observation order.
+
+        The first item is the exact exception raised by :meth:`close`. Later
+        items are cleanup consequences retained by the same Session.
+        """
+        return tuple(getattr(self, "_terminal_failures", ()))
+
+    @property
+    def terminal_failure_count(self) -> int:
+        """Total distinct terminal occurrences, including bounded overflow."""
+        return getattr(self, "_terminal_failure_count", 0)
+
+    def mark_transport_lost(self) -> None:
+        """Make inbound/protocol teardown the terminal owner. Pump seam."""
+        self._transport_lost = True
+
+    def record_outbound_failure(self, error: BaseException) -> None:
+        """Retain a write failure only when it precedes local/peer teardown."""
+        if (
+            not self._released
+            and not self._transport_close_started
+            and not self._transport_lost
+        ):
+            self.record_wire_failure(error)
+
+    def raise_wire_failure(self) -> None:
+        if self._wire_failure is not None:
+            raise self._wire_failure
+
+    async def _join_close_barrier(
+        self, result: Optional[Awaitable[None]] = None
+    ) -> None:
+        """Join the terminal result, transport, and serve task in first-cause
+        order. A rejected close still retires the wrapper before returning."""
+        if getattr(self, "_terminal_joined", False):
+            failures = self.terminal_failures
+            if failures:
+                raise failures[0]
             return
-        await _pump.flush_outbound(self)
+        if self._wire_failure is not None:
+            self._record_terminal_failure(self._wire_failure)
+
+        async def join(awaitable: Awaitable[None]) -> None:
+            try:
+                await asyncio.shield(awaitable)
+            except asyncio.CancelledError as error:
+                current = asyncio.current_task()
+                if current is not None and current.cancelling():
+                    raise
+                self._record_terminal_failure(error)
+            except BaseException as error:
+                self._record_terminal_failure(error)
+
+        if result is not None:
+            await join(result)
+        if not self._released and not self._release_pending:
+            self.close_transport()
+        wait_closed = getattr(self._transport, "wait_closed", None)
+        if wait_closed is not None:
+            await join(wait_closed())
+        task = self._serve_task
+        if task is not None and task is not asyncio.current_task():
+            await join(task)
+        if self._wire_failure is not None:
+            self._record_terminal_failure(self._wire_failure)
+        self._terminal_joined = True
+        failures = self.terminal_failures
+        if failures:
+            raise failures[0]
 
     # ── Teardown ────────────────────────────────────────────────────────────────
 
-    async def close(self) -> None:
+    async def close(
+        self,
+        *,
+        pending: PendingWork = PendingWork.CANCEL,
+        grace: object = _UNSET,
+    ) -> None:
         """Close this session's connection and nothing else. A running
         :meth:`serve` completes cleanly; pending vows settle with the typed
         ERR_CLOSED.
@@ -501,45 +587,133 @@ class Session:
         It does not reach a sibling session, and it does not reach the
         connections the Host opened by itself to redeem a handoff -- the
         ``via`` from :meth:`send_redeeming` is one of those.
-        :meth:`Host.release_async` ends those.
-
-        A session that had to make its own Host -- :func:`connect` with no
-        ``host`` passed, the ordinary case -- closes that Host with it, so
-        single-session code needs no Host call."""
+        :meth:`Runtime.close` ends the Runtime's Host and those sessions."""
+        options = _close_options(pending, grace)
         self._host._assert_owner()
-        self._closing = True
-        self.close_transport()
-        # Some transports must finish an asynchronous endpoint release after
-        # their synchronous close has revoked the connection. Keep the common
-        # callback-safe close path synchronous, but join that completion here.
-        wait_closed = getattr(self._transport, "wait_closed", None)
-        if wait_closed is not None:
-            await wait_closed()
-        # A Host this session created has no other owner, so it goes too, and
-        # with it every connection it dialed for redeems. A caller-supplied
-        # Host stays: sibling sessions on it are still running, and closing
-        # their exporters from here is not this session's call to make.
-        if self.owns_host:
+        active_close = self._close_future
+        if active_close is not None:
+            if not self._released:
+                ptr = self._ptr
+                assert ptr is not None
+                _check_host(
+                    _host.pancake_host_session_close(
+                        ptr,
+                        ctypes.byref(options),
+                        _monotonic_ms(),
+                    )
+                )
+                self._closing = True
+                # The close call escalates pending-work policy while a close
+                # driver may already be parked; wake it to re-read progress.
+                self._host.signal_close_activity()
+                self._start_close_driver()
+                self._host.schedule_kick()
+            await self._join_close_barrier(active_close)
+            return
+        else:
+            if self._released:
+                await self._join_close_barrier()
+                return
+            ptr = self._ptr
+            assert ptr is not None
             loop_ref = getattr(self._transport, "_driver_loop", None)
             if loop_ref is not None:
-                # A bare loop-routed connect owns its whole stack: closing
-                # the session closes the loop, which releases the adopted
-                # host and any resident transports with it.
-                loop_ref.close()
+                await self._join_close_barrier(loop_ref.close_session(ptr, options))
+                return
             else:
-                await self._host.release_async()
-        task = self._serve_task
-        if task is not None and task is not asyncio.current_task():
+                close_future = asyncio.get_running_loop().create_future()
+                _check_host(
+                    _host.pancake_host_session_close(
+                        ptr,
+                        ctypes.byref(options),
+                        _monotonic_ms(),
+                    )
+                )
+                self._closing = True
+                self._host.signal_close_activity()
+                self._close_future = close_future
+                self._start_close_driver()
+                self._host.schedule_kick()
+                await self._join_close_barrier(close_future)
+
+    def _start_close_driver(self) -> None:
+        task = self._close_task
+        if task is not None and not task.done():
+            return
+        task = asyncio.get_running_loop().create_task(self._drive_close())
+        self._close_task = task
+
+        def retire(finished: asyncio.Task[None]) -> None:
+            if self._close_task is finished:
+                self._close_task = None
+
+        task.add_done_callback(retire)
+
+    async def _drive_close(self) -> None:
+        try:
+            while not self._released:
+                ptr = self._ptr
+                if ptr is None:
+                    break
+                # Arm the Host-level waiter before reading progress (the
+                # lost-wakeup discipline). Host-wide activity or another
+                # session's deadline may wake this loop early; the re-check
+                # makes that harmless.
+                self._host.arm_close_activity()
+                state = ctypes.c_uint32()
+                rc = _host.pancake_host_session_close_progress(
+                    ptr,
+                    _monotonic_ms(),
+                    ctypes.byref(state),
+                )
+                if rc not in (_abi.OK, _abi.ERR_TIMEOUT):
+                    _check_host(rc)
+                # Drain what the progress call queued (a spent grace escalates
+                # into teardown actions). A drain that ran work sets the armed
+                # event, so the wait below returns at once and the loop
+                # re-checks instead of parking over undrained work.
+                await self._host.kick_actions()
+                if not self._released:
+                    await self._host.wait_close_wake()
+        except BaseException as error:
+            self.close_transport()
+            future = self._close_future
+            if future is not None and not future.done():
+                future.set_exception(error)
+
+    def _finish_close(self, result: int) -> None:
+        future = self._close_future
+        if future is None or future.done():
+            return
+        if self._wire_failure is not None:
+            future.set_exception(self._wire_failure)
+        elif result == _abi.ERR_TIMEOUT:
+            future.set_exception(
+                PancakeError(_abi.ERR_TIMEOUT, "finish close exhausted its grace period")
+            )
+        elif result != _abi.OK:
+            future.set_exception(PancakeError(result, "session close failed"))
+        else:
+            future.set_result(None)
+
+    def _native_owner_did_release(self) -> None:
+        """Commit wrapper retirement after the whole native loop was released."""
+        self._closing = True
+        self._released = True
+        self._release_pending = False
+        self._ptr = None
+        if not self._transport_close_started:
+            self._transport_close_started = True
             try:
-                await task
-            except (asyncio.CancelledError, OSError, PancakeError):
-                pass
+                self._transport.close()
+            except BaseException as error:
+                self.record_wire_failure(error)
 
     def close_transport(self) -> None:
         """Close just this session, without touching the Host's other
         sessions: stop the transport first, then retire the Host's entry and
-        free the host handle (its still-parked far vows break inside the
-        release, classified as closure), so no foreign call touches a freed
+        free the host handle (the core settles any still-parked far vows during
+        release), so no foreign call touches a freed
         session. Called from inside a behavior callback — where the C tier
         refuses the release — it parks the release on the Host; the enclosing
         feed's unwind runs it, so a mid-turn close never leaks the handle.
@@ -548,38 +722,45 @@ class Session:
             return
         self._host._assert_owner()
         self._closing = True
-        try:
-            self._transport.close()
-        except Exception:
-            pass  # already closed
-        if self._released:
+        if not self._transport_close_started:
+            self._transport_close_started = True
+            try:
+                self._transport.close()
+            except BaseException as error:
+                self.record_wire_failure(error)
+        if self._released or self._release_pending:
             return
-        self._released = True
-        self._host.unregister_session(self._key)
-        # Hosted actors belong to the Host Vat. This Port closes, but sibling
-        # Ports may still carry capabilities to them; Host.release owns the
-        # trampoline sweep.
         ptr = self._ptr
-        self._ptr = None
         loop_ref = getattr(self._transport, "_driver_loop", None)
-        if loop_ref is not None:
-            # The native loop owns loop-minted sessions: their release is the
-            # loop's own verb, which also drops queued events naming them.
-            def release_native(p=ptr):
-                loop_ref._native_session_release(p)
 
-        else:
+        def commit_release(p=ptr):
+            try:
+                if loop_ref is not None:
+                    loop_ref._native_session_release(p)
+                else:
+                    _check_host(_host.pancake_host_session_release(p))
+            except BaseException as error:
+                self._release_pending = False
+                self.record_wire_failure(error)
+                future = self._close_future
+                if future is not None and not future.done():
+                    future.set_exception(error)
+                self._host.signal_close_activity()
+                return
+            self._released = True
+            self._release_pending = False
+            self._host.unregister_session(self._key)
+            self._ptr = None
+            # The released session is retired close-relevant state; wake any
+            # parked close driver.
+            self._host.signal_close_activity()
+            self._host.schedule_kick()
 
-            def release_native(p=ptr):
-                _host.pancake_host_session_release(p)
-
+        self._release_pending = True
         if _inside_turn():
-            self._host.park_release(release_native)
+            self._host.park_release(commit_release)
         else:
-            release_native()
-        # The release queued FAIL completions (and sibling withdraws may have
-        # failed closed): route them now.
-        self._host.schedule_kick()
+            commit_release()
 
     async def __aenter__(self) -> "Session":
         return self
@@ -759,6 +940,7 @@ class Session:
         self._host.gc.drain_gc()
         args = list(args or [])
         await _dispatch_tell(self, target, verb, args)
+        self.raise_wire_failure()
 
     def set_exporter_locator(self, locator: "Optional[Locator]") -> None:
         """Override the exporter location with a complete typed locator.

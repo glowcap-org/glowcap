@@ -1,18 +1,15 @@
-import { connect } from "@pancake/stack";
-import { Reachability } from "@pancake/iroh";
+import { Runtime } from "@pancake/runtime";
+import { locator, provider, Reachability } from "@pancake/iroh";
 
 // Discovery resolves a bare iroh node ID without an address hint.
-const partner = "ocapn://3b6a…da29.iroh";
+const nodeId = "<64 lowercase hex characters from the server>";
+const partner = locator(nodeId);
 
-const session = await connect(partner, Reachability.Discovery);
-session.serve().catch(() => {});
-
-const greeter = await session.fetch("greeter"); // a capability, by name
-try {
-	const reply = await session.send(greeter, "greet", ["world"]);
-	console.log(reply);
-} catch (reason) {
-	console.error("the greeter refused:", reason);
-}
-
-session.close();
+await using runtime = await Runtime.open({
+	providers: [provider({ reachability: Reachability.Discovery })],
+});
+// From here, the CapTP workflow is transport-independent.
+await using session = await runtime.connect(partner);
+const greeter = await session.fetch("greeter"); // a capability this peer published
+const reply = await session.send(greeter, "greet", ["world"]);
+console.log(reply);

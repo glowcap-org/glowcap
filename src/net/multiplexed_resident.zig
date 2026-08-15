@@ -20,9 +20,10 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const netlayer = @import("netlayer.zig");
 const model = @import("model");
-const crypto = @import("foundation").crypto;
+const crypto = foundation.crypto;
 
 /// `try_read` and `try_write` return this when the operation cannot make
 /// progress without blocking. Distinct from 0 (clean end of stream on read; a
@@ -39,15 +40,23 @@ pub const ev_writable: u32 = 2;
 pub const ev_closed: u32 = 4;
 pub const ev_accept: u32 = 8;
 pub const ev_connect: u32 = 16;
+pub const ev_listen: u32 = 32;
 
 /// One drained readiness record. `subject` is the connection id for
 /// connection events, the caller's request id for `ev_connect`, and the
-/// driver-minted listener route id for `ev_accept`. Provider-owned connection
+/// driver-minted listener route id for `ev_listen` / `ev_accept`. Provider-owned connection
 /// ids are stable and never reused for the resident's lifetime; request and
 /// listener ids belong to the caller's namespace within this runtime.
 pub const ReadyEvent = struct {
     subject: usize,
     events: u32,
+};
+
+/// Provider-side result before the resident wrapper attaches profile and route
+/// ownership to the public listener or attempt value.
+pub const RawListenResult = union(enum) {
+    ready: *anyopaque,
+    pending,
 };
 
 /// A connection claimed from a resident but not yet adopted by a HostRuntime wire.
@@ -57,10 +66,10 @@ pub const ClaimedConnection = struct {
     resident: MultiplexedResident,
     id: ?usize,
 
-    pub fn deinit(self: *ClaimedConnection) void {
-        const id = self.id orelse return;
-        self.resident.connClose(id);
+    pub fn deinit(self: *ClaimedConnection) ?foundation.FailureChain {
+        const id = self.id orelse return null;
         self.id = null;
+        return self.resident.connClose(id);
     }
 
     pub fn borrow(self: ClaimedConnection) usize {
@@ -77,38 +86,64 @@ pub const ClaimedConnection = struct {
 /// A resident dial request between admission and connection claim. The value
 /// owns cancellation. `finish` consumes the request on both success and
 /// refusal and returns the next ownership state only on success.
-pub const ConnectAttempt = struct {
+pub const DialAttempt = struct {
     dialer: MultiplexedResident.Dialer,
     request_id: ?usize,
 
-    pub fn deinit(self: *ConnectAttempt) void {
-        const request_id = self.request_id orelse return;
-        self.dialer.cancelConnect(request_id);
+    pub fn deinit(self: *DialAttempt) ?foundation.FailureChain {
+        const request_id = self.request_id orelse return null;
         self.request_id = null;
+        return self.dialer.cancelDial(request_id);
     }
 
-    pub fn id(self: ConnectAttempt) usize {
+    pub fn id(self: DialAttempt) usize {
         return self.request_id orelse unreachable;
     }
 
-    pub fn take(self: *ConnectAttempt) ConnectAttempt {
+    pub fn take(self: *DialAttempt) DialAttempt {
         const owned = self.*;
         self.request_id = null;
         return owned;
     }
 
-    pub fn finish(self: *ConnectAttempt) netlayer.DialError!ClaimedConnection {
+    pub fn finish(self: *DialAttempt) DialFinishOutcome {
         const request_id = self.id();
         self.request_id = null;
-        const conn = self.dialer.finishConnect(request_id) catch |err| {
-            // `cancel_connect` is idempotent, including after a failed finish;
-            // this makes provider cleanup part of the adapter contract rather
-            // than an assumption every Host caller must repeat.
-            self.dialer.cancelConnect(request_id);
-            return err;
+        return switch (self.dialer.finishDial(request_id)) {
+            .connected => |conn| .{ .connected = .{ .resident = self.dialer.resident, .id = conn } },
+            .failed => |failure| .{ .failed = failure },
         };
-        return .{ .resident = self.dialer.resident, .id = conn };
     }
+};
+
+pub const DialStartOutcome = union(enum) {
+    admitted: DialAttempt,
+    failed: netlayer.DialFailure,
+};
+
+pub const DialFinishOutcome = union(enum) {
+    connected: ClaimedConnection,
+    failed: netlayer.DialFailure,
+};
+
+pub const RawDialStartOutcome = union(enum) {
+    admitted,
+    failed: netlayer.DialFailure,
+};
+
+pub const RawDialFinishOutcome = union(enum) {
+    connected: usize,
+    failed: netlayer.DialFailure,
+};
+
+pub const RawExternalClaimOutcome = union(enum) {
+    claimed: usize,
+    failed: netlayer.DialFailure,
+};
+
+pub const ExternalClaimOutcome = union(enum) {
+    claimed: ClaimedConnection,
+    failed: netlayer.DialFailure,
 };
 
 /// One multiplexed transport, as a HostRuntime holds it.
@@ -143,9 +178,12 @@ pub const MultiplexedResident = struct {
         /// counted), -1 on a dead connection, `would_block` or 0 when the
         /// window is full. An `ev_writable` record follows either refusal.
         try_write: *const fn (ctx: *anyopaque, conn: usize, bytes: []const u8) isize,
+        /// Claim one exact connection-local read/write failure. Null is clean
+        /// EOF or no retained failure; a claimed value cannot reappear.
+        take_failure: ?*const fn (ctx: *anyopaque, conn: usize) ?foundation.FailureChain = null,
         /// Close and release one connection. Later records naming the id
         /// drain to nothing.
-        conn_close: *const fn (ctx: *anyopaque, conn: usize) void,
+        conn_close: *const fn (ctx: *anyopaque, conn: usize) ?foundation.FailureChain,
         /// The channel-authenticated remote durable key, when this transport
         /// proves one (iroh's remote node id). Null on a transport whose
         /// channel proves nothing; the realizer seam then stays silent.
@@ -155,65 +193,95 @@ pub const MultiplexedResident = struct {
     pub const DialVTable = struct {
         /// Begin a dial toward the complete locator. Transport-specific hint
         /// interpretation belongs to the resident. Completion arrives as an
-        /// `ev_connect` record carrying `request_id`.
+        /// `ev_connect` record carrying `request_id`. An error admits no
+        /// operation; the provider has already cleaned any partial work.
         start_connect: *const fn (
             ctx: *anyopaque,
             request_id: usize,
             locator: model.PeerLocator,
-        ) netlayer.DialError!void,
+            options: netlayer.OperationOptions,
+        ) RawDialStartOutcome,
         /// Claim the connection a completed `ev_connect` announced. The raw
         /// id immediately enters `ClaimedConnection` ownership in the wrapper;
-        /// a failed dial surfaces its typed reason here.
-        finish_connect: *const fn (ctx: *anyopaque, request_id: usize) netlayer.DialError!usize,
+        /// a failed dial surfaces its typed reason here. The request is consumed
+        /// on every return path.
+        finish_connect: *const fn (ctx: *anyopaque, request_id: usize) RawDialFinishOutcome,
         /// Abandon a dial. Idempotent, and valid after its `ev_connect` was
         /// announced but before `finish_connect` claimed it — the resident
         /// releases the unclaimed connection; a later record for the id
         /// drains to nothing.
-        cancel_connect: *const fn (ctx: *anyopaque, request_id: usize) void,
+        cancel_connect: *const fn (ctx: *anyopaque, request_id: usize) ?foundation.FailureChain,
     };
 
     pub const ExternalClaimVTable = struct {
         /// Claim one provider-scoped externally established connection. The
         /// provider returns only when the channel is open and transfers one
         /// connection ownership edge on success.
-        claim_external: *const fn (ctx: *anyopaque, subject: usize) netlayer.DialError!usize,
+        claim_external: *const fn (ctx: *anyopaque, subject: usize) RawExternalClaimOutcome,
+    };
+
+    pub const RawFinishAcceptOutcome = union(enum) {
+        connection: ?usize,
+        failed: netlayer.AcceptFailure,
     };
 
     pub const ListenVTable = struct {
         /// Begin accepting the selected transport profile through this resident.
         /// `requested_designator` is the caller's expected identity/address;
         /// empty asks the resident to use its canonical designator.
-        /// The complete published locator is read through `listener_locator`.
-        start_listen: *const fn (
+        /// Immediate completion returns the listener handle; externally paced
+        /// setup returns pending and later emits `ev_listen` for `route_id`. An
+        /// error admits no operation; the provider has already cleaned partial
+        /// work.
+        listen: *const fn (
             ctx: *anyopaque,
             route_id: usize,
             transport: []const u8,
             requested_designator: []const u8,
-        ) netlayer.ListenError!*anyopaque,
+            options: netlayer.OperationOptions,
+        ) netlayer.ListenError!RawListenResult,
+        /// Present only when `listen` may return pending. Immediate-only
+        /// residents carry no fabricated completion capability.
+        completion: ?ListenCompletionVTable = null,
         /// Materialize the complete locator. The caller owns the result and
         /// frees it with `model.freePeerLocator`.
-        listener_locator: *const fn (
+        local_locator: *const fn (
             ctx: *anyopaque,
             listener_ctx: *anyopaque,
             transport: []const u8,
             allocator: std.mem.Allocator,
         ) netlayer.ListenError!model.PeerLocator,
         /// Validate and canonicalize a replacement listener locator.
-        listener_advertise: *const fn (
+        canonicalize_locator: *const fn (
             ctx: *anyopaque,
             listener_ctx: *anyopaque,
             transport: []const u8,
             allocator: std.mem.Allocator,
             locator: model.PeerLocator,
         ) netlayer.ListenError!model.PeerLocator,
+        restoration_state: ?*const fn (
+            ctx: *anyopaque,
+            listener_ctx: *anyopaque,
+            out: []u8,
+        ) netlayer.RestorationStateError!usize = null,
         /// Claim one ready inbound connection. Null means the coalesced accept
         /// queue has drained. The raw id immediately enters
         /// `ClaimedConnection` ownership in the wrapper and shares
         /// `finish_connect`'s connection namespace.
         finish_accept: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) netlayer.AcceptError!?usize,
+        finish_accept_detailed: ?*const fn (ctx: *anyopaque, listener_ctx: *anyopaque) RawFinishAcceptOutcome = null,
         /// Stop accepting. Idempotent; later accept records drain to no owned
         /// connection and the resident rejects new inbound channels.
-        stop_listen: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) void,
+        stop_listen: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) ?foundation.FailureChain,
+    };
+
+    pub const ListenCompletionVTable = struct {
+        /// Claim a listener after `ev_listen`. The route is consumed on every
+        /// return path.
+        finish: *const fn (ctx: *anyopaque, route_id: usize) netlayer.ListenError!*anyopaque,
+        /// Abandon pending setup. Idempotent; a later readiness record drains
+        /// to nothing.
+        cancel: *const fn (ctx: *anyopaque, route_id: usize) ?foundation.FailureChain,
     };
 
     pub const Dialer = struct {
@@ -223,23 +291,23 @@ pub const MultiplexedResident = struct {
             return if (self.resident.vtable.dial) |*ops| ops else unreachable;
         }
 
-        pub fn startConnect(
+        pub fn startDial(
             self: Dialer,
             request_id: usize,
             locator: model.PeerLocator,
-        ) netlayer.DialError!ConnectAttempt {
-            self.operations().start_connect(self.resident.ctx, request_id, locator) catch |err| {
-                self.cancelConnect(request_id);
-                return err;
+            options: netlayer.OperationOptions,
+        ) DialStartOutcome {
+            return switch (self.operations().start_connect(self.resident.ctx, request_id, locator, options)) {
+                .admitted => .{ .admitted = .{ .dialer = self, .request_id = request_id } },
+                .failed => |failure| .{ .failed = failure },
             };
-            return .{ .dialer = self, .request_id = request_id };
         }
 
-        pub fn cancelConnect(self: Dialer, request_id: usize) void {
-            self.operations().cancel_connect(self.resident.ctx, request_id);
+        pub fn cancelDial(self: Dialer, request_id: usize) ?foundation.FailureChain {
+            return self.operations().cancel_connect(self.resident.ctx, request_id);
         }
 
-        fn finishConnect(self: Dialer, request_id: usize) netlayer.DialError!usize {
+        fn finishDial(self: Dialer, request_id: usize) RawDialFinishOutcome {
             return self.operations().finish_connect(self.resident.ctx, request_id);
         }
     };
@@ -247,9 +315,11 @@ pub const MultiplexedResident = struct {
     pub const ExternalClaimer = struct {
         resident: MultiplexedResident,
 
-        pub fn claimExternal(self: ExternalClaimer, subject: usize) netlayer.DialError!ClaimedConnection {
-            const id = try self.resident.vtable.external_claim.?.claim_external(self.resident.ctx, subject);
-            return .{ .resident = self.resident, .id = id };
+        pub fn claimExternal(self: ExternalClaimer, subject: usize) ExternalClaimOutcome {
+            return switch (self.resident.vtable.external_claim.?.claim_external(self.resident.ctx, subject)) {
+                .claimed => |id| .{ .claimed = .{ .resident = self.resident, .id = id } },
+                .failed => |failure| .{ .failed = failure },
+            };
         }
     };
 
@@ -260,24 +330,87 @@ pub const MultiplexedResident = struct {
             return if (self.resident.vtable.listen) |*ops| ops else unreachable;
         }
 
-        pub fn startListen(
+        pub fn listen(
             self: Acceptor,
             route_id: usize,
             transport: []const u8,
             requested_designator: []const u8,
-        ) netlayer.ListenError!Listener {
-            const listener_ctx = try self.operations().start_listen(
+            options: netlayer.OperationOptions,
+        ) netlayer.ListenError!ListenResult {
+            const listener_ctx = try self.operations().listen(
                 self.resident.ctx,
                 route_id,
                 transport,
                 requested_designator,
+                options,
+            );
+            return switch (listener_ctx) {
+                .ready => |ctx| .{ .ready = .{
+                    .acceptor = self,
+                    .ctx = ctx,
+                    .route_id = route_id,
+                    .transport = transport,
+                } },
+                .pending => blk: {
+                    const completion = self.operations().completion orelse unreachable;
+                    break :blk .{ .pending = .{
+                        .acceptor = self,
+                        .route_id = route_id,
+                        .transport = transport,
+                        .completion = completion,
+                    } };
+                },
+            };
+        }
+
+        pub fn cancelListen(self: Acceptor, route_id: usize) ?foundation.FailureChain {
+            return self.operations().completion.?.cancel(self.resident.ctx, route_id);
+        }
+    };
+
+    pub const ListenAttempt = struct {
+        acceptor: Acceptor,
+        route_id: ?usize,
+        transport: []const u8,
+        completion: ListenCompletionVTable,
+
+        pub fn id(self: ListenAttempt) usize {
+            return self.route_id orelse unreachable;
+        }
+
+        pub fn deinit(self: *ListenAttempt) ?foundation.FailureChain {
+            const route_id = self.route_id orelse return null;
+            self.route_id = null;
+            return self.completion.cancel(self.acceptor.resident.ctx, route_id);
+        }
+
+        pub fn finish(self: *ListenAttempt) netlayer.ListenError!Listener {
+            const route_id = self.id();
+            self.route_id = null;
+            const ctx = try self.completion.finish(
+                self.acceptor.resident.ctx,
+                route_id,
             );
             return .{
-                .acceptor = self,
-                .ctx = listener_ctx,
+                .acceptor = self.acceptor,
+                .ctx = ctx,
                 .route_id = route_id,
-                .transport = transport,
+                .transport = self.transport,
             };
+        }
+    };
+
+    pub const ListenResult = union(enum) {
+        ready: Listener,
+        pending: ListenAttempt,
+
+        pub fn deinit(self: *ListenResult) ?foundation.FailureChain {
+            const failure = switch (self.*) {
+                .ready => |listener| listener.stopListen(),
+                .pending => |*attempt| attempt.deinit(),
+            };
+            self.* = undefined;
+            return failure;
         }
     };
 
@@ -290,11 +423,11 @@ pub const MultiplexedResident = struct {
         route_id: usize,
         transport: []const u8,
 
-        pub fn listenerLocator(
+        pub fn localLocator(
             self: Listener,
             allocator: std.mem.Allocator,
         ) netlayer.ListenError!model.PeerLocator {
-            return self.acceptor.operations().listener_locator(
+            return self.acceptor.operations().local_locator(
                 self.acceptor.resident.ctx,
                 self.ctx,
                 self.transport,
@@ -302,18 +435,23 @@ pub const MultiplexedResident = struct {
             );
         }
 
-        pub fn listenerAdvertise(
+        pub fn canonicalizeLocator(
             self: Listener,
             allocator: std.mem.Allocator,
             locator: model.PeerLocator,
         ) netlayer.ListenError!model.PeerLocator {
-            return self.acceptor.operations().listener_advertise(
+            return self.acceptor.operations().canonicalize_locator(
                 self.acceptor.resident.ctx,
                 self.ctx,
                 self.transport,
                 allocator,
                 locator,
             );
+        }
+
+        pub fn restorationState(self: Listener, out: []u8) netlayer.RestorationStateError!?usize {
+            const f = self.acceptor.operations().restoration_state orelse return null;
+            return try f(self.acceptor.resident.ctx, self.ctx, out);
         }
 
         pub fn finishAccept(self: Listener) netlayer.AcceptError!?ClaimedConnection {
@@ -324,9 +462,28 @@ pub const MultiplexedResident = struct {
             return .{ .resident = self.acceptor.resident, .id = id };
         }
 
-        pub fn stopListen(self: Listener) void {
-            self.acceptor.operations().stop_listen(self.acceptor.resident.ctx, self.ctx);
+        pub fn finishAcceptDetailed(self: Listener) FinishAcceptOutcome {
+            const result: RawFinishAcceptOutcome = if (self.acceptor.operations().finish_accept_detailed) |finish|
+                finish(self.acceptor.resident.ctx, self.ctx)
+            else blk: {
+                const id = self.acceptor.operations().finish_accept(self.acceptor.resident.ctx, self.ctx) catch |err|
+                    break :blk RawFinishAcceptOutcome{ .failed = .init(err) };
+                break :blk RawFinishAcceptOutcome{ .connection = id };
+            };
+            return switch (result) {
+                .connection => |id| .{ .connection = if (id) |value| .{ .resident = self.acceptor.resident, .id = value } else null },
+                .failed => |failure| .{ .failed = failure },
+            };
         }
+
+        pub fn stopListen(self: Listener) ?foundation.FailureChain {
+            return self.acceptor.operations().stop_listen(self.acceptor.resident.ctx, self.ctx);
+        }
+    };
+
+    pub const FinishAcceptOutcome = union(enum) {
+        connection: ?ClaimedConnection,
+        failed: netlayer.AcceptFailure,
     };
 
     /// Runtime identity, independent of the transport profiles routed through
@@ -369,8 +526,13 @@ pub const MultiplexedResident = struct {
         return self.vtable.try_write(self.ctx, conn, bytes);
     }
 
-    pub fn connClose(self: MultiplexedResident, conn: usize) void {
-        self.vtable.conn_close(self.ctx, conn);
+    pub fn connClose(self: MultiplexedResident, conn: usize) ?foundation.FailureChain {
+        return self.vtable.conn_close(self.ctx, conn);
+    }
+
+    pub fn takeFailure(self: MultiplexedResident, conn: usize) ?foundation.FailureChain {
+        const take = self.vtable.take_failure orelse return null;
+        return take(self.ctx, conn);
     }
 
     pub fn connRemoteKey(self: MultiplexedResident, conn: usize) ContractError!?crypto.PeerKey {

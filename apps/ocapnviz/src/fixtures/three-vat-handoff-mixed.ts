@@ -131,8 +131,7 @@ const AGENT = "ocapnviz:fixtures/three-vat-handoff-mixed";
  *  `endpointStageId` for the end nothing has attributed yet. A second
  *  spelling of it silently detaches those messages from their session. */
 const SESSION = {
-  aliceCarol:
-    "ca93a0430b191ecd589f6238b626ede6cbe5d5723a7c4dc2cddf2c6a81cd7710",
+  aliceCarol: "ca93a0430b191ecd589f6238b626ede6cbe5d5723a7c4dc2cddf2c6a81cd7710",
   aliceBob: "92f686b09614fa7214a0dbb5c66940b5e18df528ee2818be520a992d8afe75c5",
   bobCarol: "07f7c347da92f751c56d5bd074c0051547791937b99e58e4d8879de759a0a488",
 } as const;

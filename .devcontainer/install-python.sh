@@ -5,6 +5,7 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${dir}/lib.sh"
 pancake_devcontainer_init "${dir}"
+pancake_require_devcontainer "install-python"
 
 export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR}"
 

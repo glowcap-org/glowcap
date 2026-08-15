@@ -26,10 +26,19 @@ import * as store from "./store.ts";
 const RUNNING = "running";
 const HANDED_OVER = "done";
 
-/** Whether the wait this screen covers is over: the peer's first attempt at the
- * room server has come back, connected or not. */
+/** How long to wait for the fade's own end before taking the screen down
+ * anyway. Comfortably past the stylesheet's `.3s`, so it never cuts a fade
+ * short, and short enough that a reader whose browser sent no event is not left
+ * looking at a sheet over a page that is ready. */
+const HANDOVER_FLOOR_MS = 500;
+
+/** Whether the wait this screen covers is over: the page's first attempt at a
+ * room server has come back, connected or not.
+ *
+ * Any directory answering ends the wait. The screen covers reaching a server at
+ * all, not the health of every one this tab may go on to hold. */
 function settled(): boolean {
-	return store.get().session !== "connecting";
+	return store.anyDirSettled();
 }
 
 /** Whether the page has already been handed over. The states run one way, so
@@ -48,18 +57,28 @@ export function handOffNow(): void {
 	const boot = document.getElementById("boot");
 	if (boot === null) return;
 	// The fade is the stylesheet's, and so is how long it lasts for a reader who
-	// has asked for less motion: one place decides. Removing the element
-	// afterwards only tidies up, since it is already transparent and untouchable
-	// by then, so nothing depends on the event arriving. It does depend on the
-	// event being the screen's own. A transition ending anywhere inside it
-	// bubbles up here too, and acting on one of those would snatch the screen
-	// away mid-fade, which is the flash this whole arrangement is against.
-	const gone = (event: TransitionEvent) => {
-		if (event.target !== boot) return;
+	// has asked for less motion: one place decides. It does depend on the event
+	// being the screen's own. A transition ending anywhere inside it bubbles up
+	// here too, and acting on one of those would snatch the screen away mid-fade,
+	// which is the flash this whole arrangement is against.
+	//
+	// The timer is the floor under it. A transition that never *starts* fires no
+	// `transitionend` at all — a zero duration, an ancestor that is not rendered,
+	// a tab whose painting is throttled while it loads in the background — and
+	// the screen covers the whole page, so the cost of the event not arriving is
+	// the application sitting behind a sheet nobody can dismiss. Whichever of the
+	// two lands first wins and cancels the other; the event stays the primary
+	// signal, because it is the one that knows when the fade is actually done.
+	const gone = (event?: TransitionEvent) => {
+		if (event !== undefined && event.target !== boot) return;
+		clearTimeout(floor);
 		boot.removeEventListener("transitionend", gone);
 		boot.remove();
 	};
 	boot.addEventListener("transitionend", gone);
+	// Declared after the handler that clears it, which is safe because nothing
+	// can run the handler until one of the two signals arrives.
+	const floor = setTimeout(gone, HANDOVER_FLOOR_MS);
 }
 
 /** Hold the screen until the peer has answered, then hand over.

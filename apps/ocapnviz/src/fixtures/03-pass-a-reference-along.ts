@@ -55,8 +55,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
       id: "session-opens",
       t: 0,
       kind: "session-opened",
-      sessionId:
-        "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
+      sessionId: "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
       a: {
         peer: "127.0.0.1:9301",
         designator: "127.0.0.1:9301",
@@ -77,8 +76,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
       t: 200,
       kind: "message-sent",
       messageId: "ss-out",
-      sessionId:
-        "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
+      sessionId: "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
       from: "127.0.0.1:9301",
       to: "127.0.0.1:9302",
       arrivalT: 400,
@@ -96,8 +94,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
       t: 500,
       kind: "message-sent",
       messageId: "ss-back",
-      sessionId:
-        "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
+      sessionId: "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
       from: "127.0.0.1:9302",
       to: "127.0.0.1:9301",
       arrivalT: 700,
@@ -114,8 +111,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
       id: "session-open",
       t: 700,
       kind: "session-state-changed",
-      sessionId:
-        "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
+      sessionId: "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
       state: "open",
     },
     {
@@ -123,8 +119,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
       t: 1100,
       kind: "message-sent",
       messageId: "print-call",
-      sessionId:
-        "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
+      sessionId: "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
       from: "127.0.0.1:9301",
       to: "127.0.0.1:9302",
       arrivalT: 1500,
@@ -141,8 +136,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
       t: 1900,
       kind: "message-sent",
       messageId: "print-resolve",
-      sessionId:
-        "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
+      sessionId: "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
       from: "127.0.0.1:9302",
       to: "127.0.0.1:9301",
       arrivalT: 2300,
@@ -159,8 +153,7 @@ export const passAReferenceAlong = TimelineDocument.parse({
       t: 2700,
       kind: "message-sent",
       messageId: "gc",
-      sessionId:
-        "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
+      sessionId: "56c2a18a27f28c73752ae2e92af7a73c5429d58117f16d808f8abf97ddb246b2",
       from: "127.0.0.1:9301",
       to: "127.0.0.1:9302",
       arrivalT: 3000,

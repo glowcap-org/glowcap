@@ -188,11 +188,14 @@ fn serveGoblinsClient(
     environ_map: *std.process.Environ.Map,
     daemon: *Tor,
 ) !void {
-    var listener = try onion.Listener.create(allocator, io, .{
+    var listener = switch (onion.Listener.create(allocator, io, .{
         .socks = daemon.socks_path,
         .control_endpoint = daemon.control_path,
-    });
-    defer listener.deinit();
+    })) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
+    defer std.debug.assert(listener.deinit() == null);
     const service_id = listener.designator();
     std.debug.print("goblins-onion: pancake is reachable at ocapn://{s}.onion\n", .{service_id});
 

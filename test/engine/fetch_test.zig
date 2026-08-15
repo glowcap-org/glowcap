@@ -48,7 +48,7 @@ test "prepareFetchSwissnum carries an object resolver desc on V1.0" {
 
 test "sendPreparedFetch rolls back an unpublished V1.0 resolver on backpressure" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initRawOpenFixture(allocator);
+    var peer = engine.testing.initRawOpenPeer(allocator);
     defer peer.deinit();
     peer.outbound_budget = 1;
 

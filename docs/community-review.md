@@ -79,14 +79,15 @@ implementations exercised today are the upstream suite and Racket Goblins.
   deliberately refuses it, and only a live external-peer exercise waits on
   upstream support.
 
-[Known limitations](boundaries.md) explains the effect on users. The
-[roadmap](roadmap.md) says what would close each gap.
+[Known limitations](boundaries.md) explains the effect on users. Open OCapN
+and Goblins questions live in [upstream-watch](upstream-watch.md). The
+[roadmap](roadmap.md) lists pancake-owned remaining work.
 
 ## Evidence
 
 A **yes** in the CI column means the step appears in `ci/gates.sh` and runs in
 the public [checks workflow](https://github.com/jimisaacs/pancake/actions/workflows/check.yml).
-`zig build meta-check` derives this column from that script, so a removed step
+`zig build source-check` derives this column from that script, so a removed step
 cannot remain marked as recurring evidence.
 
 | Evidence | CI | Proves | Does not prove |

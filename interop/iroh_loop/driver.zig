@@ -102,7 +102,7 @@ pub fn main(init: std.process.Init) !void {
 
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = driver.core.Host.init(allocator, server_seed, session_root, .{
+    var host = try driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });

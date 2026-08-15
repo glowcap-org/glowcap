@@ -1,9 +1,0 @@
-(require "pancake-onion.rkt")
-
-;; pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
-(define netlayer (make-onion-netlayer #:socks "/run/tor/socks"
-                                      #:control "/run/tor/control"))
-(define listener (onion-netlayer-listen netlayer))
-(printf "ocapn://~a.onion\n" (onion-listener-service-id listener)) ; Goblins-standard locator
-(define connection (onion-listener-accept listener))
-;; Frame I/O here; CapTP rides pancake's Host over this byte channel.

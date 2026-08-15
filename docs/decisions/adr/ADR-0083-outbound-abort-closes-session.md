@@ -56,7 +56,7 @@ There is no CapTP `draining` state and no second Peer `shutdown` verb,
 `AbortKind.graceful_shutdown` is enough. Host transport soft-stop
 (`condemned` + flush/close) stays above CapTP.
 
-`zig build meta-check` holds EVENT/send parity: every `PANCAKE_EVENT_*` maps to
+`zig build source-check` holds EVENT/send parity: every `PANCAKE_EVENT_*` maps to
 a peer send constructor or an allowlist row. `PANCAKE_EVENT_LISTEN` is
 allowlisted (engine-synthesized / inbound install); `ABORT` is not.
 

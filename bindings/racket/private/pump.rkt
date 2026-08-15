@@ -6,7 +6,7 @@
 ;; the keyed handshake, read raw bytes off the transport, hand them to the
 ;; core's stream delimiter (`pancake_host_session_feed_bytes`, which owns framing),
 ;; write what `take_outbound` drains, the feed-refusal path (`last_abort` /
-;; abort), and the EOF teardown that `break_far_vows` classifies as closure.
+;; abort), and the EOF teardown that `transport_closed` reports to the core.
 ;; CapTP verbs stay in `private/session.rkt`; the host action switch
 ;; (`drain-host-actions!`) lives in `private/action.rkt`. This module is
 ;; required by session; the public barrel reaches pump only through session
@@ -15,6 +15,7 @@
 (require ffi/unsafe
          racket/async-channel
          racket/lazy-require
+         racket/string
          "constants.rkt"
          "ffi-ocapn.rkt"
          "ffi-host.rkt"
@@ -40,24 +41,33 @@
    pending-writes-lock
    pending-writes-high-water
    session-write-gate
+   session-transport-lost?
    session-released?
+   session-closing?
    session-open?
    guard-open
+   record-session-wire-failure!
+   record-session-outbound-failure!
+   raise-session-wire-failure!
+   close-session-transport!
    abandon-session!
    with-host-drain
-   with-breaking-drain
+   with-session-drain
    drain-host!
    run-drain-effects!)]
  ["action.rkt"
   (drain-host-actions!)])
 
 (provide drain-effects
-   drain-effects-touched
-   drain-effects-fires
-   drain-effects-resume
+         drain-effects-touched
+         drain-effects-fires
+         drain-effects-resume
+         drain-effects-popped?
          drain-effects?
+         drain-effects-productive?
          no-drain-effects
          current-defer-drain-effects
+         without-deferred-drain-effects
          current-deliver-session
          HANDSHAKE-TIMEOUT-MS
          drain-outbound!
@@ -71,7 +81,8 @@
          pump-until
          run-handshake!
          session-last-abort
-         break-far-vows-bytes!)
+         break-far-vows-bytes!
+         transport-closed-bytes!)
 
 ;; The session whose inbound feed is running. Hosted callbacks fire
 ;; synchronously inside that FFI call, so trampolines can identify the Port
@@ -87,8 +98,21 @@
 ;; that may pump. When the feed runs under the reader gate,
 ;; `current-defer-drain-effects` parks this record until the gate releases —
 ;; writes and fires never share the reader window with a blocking TCP write.
-(struct drain-effects (touched fires resume))
-(define no-drain-effects (drain-effects '() '() #f))
+(struct drain-effects (touched fires resume popped?))
+(define no-drain-effects (drain-effects '() '() #f #f))
+
+;; A drain pass advanced close-relevant state exactly when it popped at least
+;; one action; `popped?` records that at the drain, because an action can
+;; retire state (an unwrapped session's release, for one) while leaving no
+;; touched session and no fire behind. The close drivers bump host progress
+;; only for such a pass: an idle pass stays silent, which keeps two drivers
+;; parked on the progress event from waking each other in an endless idle
+;; exchange.
+(define (drain-effects-productive? fx)
+  (or (drain-effects-popped? fx)
+      (pair? (drain-effects-touched fx))
+      (pair? (drain-effects-fires fx))
+      (and (drain-effects-resume fx) #t)))
 
 ;; When non-#f, a box of `drain-effects`. `with-host-drain` parks writes and
 ;; fires into it instead of running them, and does not bump progress — the
@@ -96,6 +120,13 @@
 ;; here (not session) so `parameterize` sees a real parameter; lazy-require
 ;; would wrap it as a procedure.
 (define current-defer-drain-effects (make-parameter #f))
+
+;; Racket threads inherit parameter values. Workers whose lifetime escapes the
+;; reader transaction must start with no inherited effects sink, or a later
+;; host drain can append writes to a reader box that has already been consumed.
+(define (without-deferred-drain-effects thunk)
+  (parameterize ([current-defer-drain-effects #f])
+    (thunk)))
 
 ;; ── The bounded wait ──────────────────────────────────────────────────────────
 ;; How long a partner has to finish the keyed handshake once its byte channel
@@ -133,16 +164,22 @@
    (session-host c)
    (lambda ()
      (guard-open 'session-last-abort c)
-     (define out (make-PancakeLastAbort 0 0 #f 0 #f 0 #f 0))
+     (define out (make-PancakeLastAbort 0 0 #f 0 #f 0 #f 0 #f 0 #f 0 0))
      (define rc (pancake_host_session_last_abort (session-ptr c) out))
      (cond
        [(= rc WOULD-BLOCK) #f]
        [else (check/host rc) (abort-info<-c out)]))))
 
 ;; Host FFI for breaking far vows parked on `c`. Caller owns the
-;; `with-breaking-drain` window so FAIL completions classify as closure.
+;; `with-session-drain` window so queued completions drain in order.
 (define (break-far-vows-bytes! c bs)
   (check/host (pancake_host_session_break_far_vows
+               (session-ptr c) (pin-immobile bs) (bytes-length bs))))
+
+;; Host FFI for reporting that `c` lost its transport. Caller owns the
+;; `with-session-drain` window so terminal FAIL completions drain in order.
+(define (transport-closed-bytes! c bs)
+  (check/host (pancake_host_session_transport_closed
                (session-ptr c) (pin-immobile bs) (bytes-length bs))))
 
 (define (pending-writes-has-room? q)
@@ -242,7 +279,8 @@
                    ((async-transport-write-frame! tr) out)
                    (write-loop #t))
                  wrote?)))
-         (when wrote? ((async-transport-flush! tr)))
+         (when wrote?
+           ((async-transport-flush! tr)))
          ;; The binding FIFO is only a bounded staging batch. Refill it under
          ;; the host lock after the socket write, then release the lock before
          ;; writing that batch. `empty` is the sole proof that no core frame was
@@ -292,7 +330,7 @@
              (define captured (capture-feed-refusal c rc))
              ;; Park the abort on the FIFO and mark `c` touched so the shared
              ;; drain spine writes it — refusal is a flush, not a private exit.
-             (values (drain-effects (list c) '() #f) captured)]))))
+             (values (drain-effects (list c) '() #f #t) captured)]))))
     (cond
       [(eq? result 'done) (void)]
       [(eq? result 'retry) (loop)]
@@ -307,23 +345,43 @@
 ;; `raise-feed-refusal` only raises — it never writes.
 (define (capture-feed-refusal c rc)
   (define msg (host-last-error))
-  (define abort (session-last-abort c))
-  (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
-  (list rc msg abort))
-
-(define (raise-feed-refusal refusal)
-  (define rc (car refusal))
-  (define msg (cadr refusal))
-  (define abort (caddr refusal))
+  (define abort #f)
+  (define diagnostics '())
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (error)
+                     (set! diagnostics (cons error diagnostics)))])
+    (set! abort (session-last-abort c)))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (error)
+                     (set! diagnostics (cons error diagnostics)))])
+    (drain-outbound! c))
   (define base
     (if msg (format "pancake error ~a: ~a" rc msg) (format "pancake error ~a" rc)))
-  (raise (exn:fail:pancake
-          (if abort
-              (format "~a [~a~a: ~a]" base (abort-info-domain abort)
-                      (if (abort-info-kind abort) (format " ~a" (abort-info-kind abort)) "")
-                      (abort-info-message abort))
-              base)
-          (current-continuation-marks) rc abort)))
+  (define detail
+    (if (null? diagnostics)
+        base
+        (format "~a [while projecting refusal: ~a]"
+                base
+                (string-join
+                 (map (lambda (diagnostic)
+                        (if (exn? diagnostic)
+                            (exn-message diagnostic)
+                            (format "~a" diagnostic)))
+                      (reverse diagnostics))
+                 "; "))))
+  (define failure
+    (exn:fail:pancake
+     (if abort
+         (format "~a [~a~a: ~a]" detail (abort-info-domain abort)
+                 (if (abort-info-kind abort) (format " ~a" (abort-info-kind abort)) "")
+                 (abort-info-message abort))
+         detail)
+     (current-continuation-marks) rc abort #f #f 0))
+  (record-session-wire-failure! c failure)
+  failure)
+
+(define (raise-feed-refusal refusal)
+  (raise refusal))
 
 ;; The transport reported end of stream: break every far vow still parked here
 ;; (their resolutions can never arrive — with the partner's retained abort
@@ -332,18 +390,27 @@
 (define (handle-session-eof! c)
   (define ac (session-async c))
   (unless (unbox (async-connection-closed? ac))
+    (set-box! (session-transport-lost? c) #t)
     (set-box! (async-connection-closed? ac) #t)
-    ;; The breaking window: the FAIL completions the break queues classify as
-    ;; closure.
-    (with-breaking-drain c
-      (lambda ()
-        (break-far-vows-bytes! c #"connection closed")))
+    ;; The core classifies the terminal FAIL completions; this window only
+    ;; preserves their drain order.
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (error)
+                       (record-session-wire-failure! c error)
+                       (void))])
+      (with-session-drain c
+        (lambda ()
+          (transport-closed-bytes! c #"connection closed"))))
     ;; EOF is terminal ownership, not only a promise notification. Retire the
     ;; native session so the Host's strong session registry cannot retain one
     ;; dead row per disconnected partner.
-    (with-handlers ([(lambda (_) #t) void])
-      ((async-transport-close! (async-connection-transport ac))))
-    (abandon-session! c)))
+    (close-session-transport! c)
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (error)
+                       (record-session-wire-failure! c error)
+                       (void))])
+      (abandon-session! c)))
+  (raise-session-wire-failure! c))
 
 ;; One reader step. The first step on an open session resumes the frames the
 ;; core held behind the handshake hello (an empty feed) and returns without
@@ -367,13 +434,24 @@
     [else
      (define gen (pump-wake-evt m))
      (define got
-       ;; A port closed under us (another thread's `session-close!`) is an
-       ;; end of stream, not a fault.
-       (with-handlers ([exn:fail? (lambda (_e) eof)])
+       (with-handlers ([(lambda (_) #t)
+                        (lambda (error)
+                          ;; A read interrupted by this Session's own close is
+                          ;; merely its wakeup. Every other transport exception
+                          ;; is the exact terminal cause.
+                          (if (session-closing? c)
+                              'woke
+                              (begin
+                                (set-box! (session-transport-lost? c) #t)
+                                (record-session-wire-failure! c error)
+                                (cons 'failed error))))])
          ((async-transport-read-some! (async-connection-transport ac)) gen)))
      (cond
        [(eq? got 'woke) (void)]
        [(eof-object? got) (handle-session-eof! c)]
+       [(and (pair? got) (eq? (car got) 'failed))
+        (handle-session-eof! c)
+        (raise-session-wire-failure! c)]
        [else (feed-bytes! c got)])]))
 
 ;; Drive the connection until `done` returns non-#f, returning that value.
@@ -393,7 +471,13 @@
                     #:timeout-message [timeout-message #f])
   (define m (session-host c))
   (define ac (session-async c))
+  ;; A loop-backed session's inbound is held until its embedder serves, and a
+  ;; blocking verb pumping here is that announcement as much as session-serve
+  ;; is: run the (idempotent) hook so the wait below can ever be answered.
+  ((unbox (async-connection-serve-hook ac)))
+  (set-box! (async-connection-serve-hook ac) void)
   (define (raise-closed)
+    (raise-session-wire-failure! c)
     (raise-pancake who ERR-CLOSED "~a" (or closed-message "connection closed")))
   (define (raise-timed-out)
     (raise-pancake who ERR-TIMEOUT "~a" (or timeout-message "the wait timed out")))
@@ -415,7 +499,7 @@
        ;; re-check and re-park).
        (dynamic-wind
         void
-        (lambda () (run-drain-effects! (unbox deferred)))
+        (lambda () (run-drain-effects! m (unbox deferred)))
         (lambda () (host-bump-progress! m))))))
   ;; True when this thread wins the single-reader gate; the CAS is the claim.
   (define (claim-reader?)

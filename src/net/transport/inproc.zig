@@ -56,6 +56,16 @@ const AcceptError = netlayer.AcceptError;
 const known_transport = model.transport.Known.inproc;
 pub const transport_name = known_transport.metadata().symbol;
 
+/// Build an in-process locator without parsing or allocating. The designator is
+/// an opaque switchboard name borrowed until the dial path retains it.
+pub fn locator(designator: []const u8) model.PeerLocator {
+    return .{
+        .transport = transport_name,
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    };
+}
+
 /// An adapter-owned edge notification for a listener arrival, in addition to
 /// the listener's own pollable readiness channel. Used when an embedding needs
 /// a callback edge rather than a borrowed descriptor.
@@ -437,7 +447,7 @@ fn networkIo(ctx: *anyopaque) ?std.Io {
 
 const netlayer_vtable = Netlayer.VTable{
     .profile = known_transport.metadata(),
-    .dial = dial,
+    .dial = .{ .blocking = dial },
     .listen = listen,
     .io = networkIo,
 };
@@ -447,7 +457,9 @@ fn dial(
     peer: *engine.Peer,
     loc: model.PeerLocator,
     bufs: Buffers,
+    options: netlayer.OperationOptions,
 ) netlayer.DialError!Connection {
+    try options.requireInherited();
     const self: *Network = @ptrCast(@alignCast(ctx));
     const dialer = try self.dialEndpoint(loc.designator, bufs);
     return dialer.intoConnection(self.io, peer);
@@ -457,10 +469,20 @@ fn listen(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,
-) netlayer.ListenError!Listener {
+) netlayer.ListenStartOutcome {
+    return .{ .admitted = listenFallible(ctx, allocator, config) catch |err|
+        return .{ .failed = .init(err) } };
+}
+
+fn listenFallible(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    config: netlayer.ListenConfig,
+) netlayer.ListenError!netlayer.ListenResult {
+    try config.options.requireInherited();
     const self: *Network = @ptrCast(@alignCast(ctx));
     const ml = try self.createListener(allocator, config.designator);
-    return .{ .ctx = ml, .vtable = &listener_vtable };
+    return .{ .ready = .{ .ctx = ml, .vtable = &listener_vtable } };
 }
 
 const listener_vtable = Listener.VTable{
@@ -483,6 +505,7 @@ pub const InprocListener = struct {
     /// No application bytes flow here. It turns in-process queue arrival and
     /// shutdown into the same pollable readiness contract socket listeners use.
     wake: wake_channel.WakeChannel,
+    wake_failure: wake_channel.FailureLatch = .{},
     mutex: Io.Mutex = .init,
     arrived: Io.Condition = .init,
     /// Accept and readiness operations that may still touch this listener.
@@ -539,7 +562,7 @@ pub const InprocListener = struct {
         if (self.notifying == 0) self.notify_drained.signal(io);
     }
 
-    fn enqueue(self: *InprocListener, duplex: *Duplex) error{ ConnectionLost, OutOfMemory }!void {
+    fn enqueue(self: *InprocListener, duplex: *Duplex) error{ ConnectionLost, OutOfMemory, WakeNudgeFailed }!void {
         const io = self.network.io;
         self.mutex.lockUncancelable(io);
         // A pinned dial can land after `listenerClose` swept the pending
@@ -553,8 +576,15 @@ pub const InprocListener = struct {
             self.mutex.unlock(io);
             return err;
         };
+        _ = self.wake.nudge() catch |err| {
+            std.debug.assert(self.pending.pop() == duplex);
+            self.wake_failure.record(err);
+            self.closed = true;
+            self.arrived.broadcast(io);
+            self.mutex.unlock(io);
+            return err;
+        };
         self.arrived.signal(io);
-        self.wake.nudge();
         self.notifyArrivalPinned();
         self.mutex.unlock(io);
     }
@@ -591,22 +621,33 @@ pub const InprocListener = struct {
             if (self.operations == 0) self.operations_drained.signal(io);
             self.mutex.unlock(io);
         }
+        try self.wake_failure.check();
         self.waitUntilPendingOrClosed();
+        try self.wake_failure.check();
         if (self.pending.items.len == 0) {
             return error.ConnectionLost; // closed with nothing pending
         }
-        const accepted = Accepted{
+        self.wake.drain() catch |err| {
+            self.wake_failure.record(err);
+            self.closed = true;
+            self.arrived.broadcast(io);
+            return err;
+        };
+        const notify_more = self.pending.items.len > 1;
+        if (notify_more) {
+            _ = self.wake.nudge() catch |err| {
+                self.wake_failure.record(err);
+                self.closed = true;
+                self.arrived.broadcast(io);
+                return err;
+            };
+            self.notifyArrivalPinned();
+        }
+        return .{
             .duplex = self.pending.orderedRemove(0),
             .allocator = self.allocator,
             .network = self.network,
         };
-        self.wake.drain();
-        const notify_more = self.pending.items.len != 0;
-        if (notify_more) {
-            self.wake.nudge();
-            self.notifyArrivalPinned();
-        }
-        return accepted;
     }
 
     /// Block for the next dialer and return a peer-less `InprocFrameStream` — the
@@ -630,8 +671,8 @@ pub const InprocListener = struct {
     /// Stop accepting and free the listener. The frame-path name for the same
     /// teardown the driver-path contract reaches through the listener vtable's
     /// `close`.
-    pub fn close(self: *InprocListener) void {
-        listenerClose(self);
+    pub fn close(self: *InprocListener) ?netlayer.ListenerCloseFailure {
+        return listenerClose(self);
     }
 
     /// Stop admission and wake blocked accepters without freeing the listener.
@@ -665,6 +706,7 @@ fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError
         if (self.operations == 0) self.operations_drained.signal(io);
         self.mutex.unlock(io);
     }
+    try self.wake_failure.check();
     if (self.pending.items.len != 0) return true;
     if (self.closed) return error.ConnectionLost;
     self.mutex.unlock(io);
@@ -678,6 +720,7 @@ fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError
         return error.ConnectionLost;
     };
     self.mutex.lockUncancelable(io);
+    try self.wake_failure.check();
     if (self.closed and self.pending.items.len == 0) return error.ConnectionLost;
     return ready != 0 and self.pending.items.len != 0;
 }
@@ -712,13 +755,13 @@ fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) netlayer.
 fn listenerCanonicalizeLocator(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
-    locator: model.PeerLocator,
+    candidate: model.PeerLocator,
 ) netlayer.ListenError!model.PeerLocator {
     const self: *InprocListener = @ptrCast(@alignCast(ctx));
-    return netlayer.canonicalizeFixedLocator(allocator, locator, transport_name, self.designator);
+    return netlayer.canonicalizeFixedLocator(allocator, candidate, transport_name, self.designator);
 }
 
-fn listenerClose(ctx: *anyopaque) void {
+fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
     const self: *InprocListener = @ptrCast(@alignCast(ctx));
     listenerShutdown(self);
     const io = self.network.io;
@@ -743,7 +786,12 @@ fn listenerClose(ctx: *anyopaque) void {
     self.pending.deinit(self.allocator);
     self.wake.deinit();
     self.allocator.free(self.designator);
+    const failure = if (self.wake_failure.failure()) |err|
+        netlayer.ListenerCloseFailure.init(err)
+    else
+        null;
     self.allocator.destroy(self);
+    return failure;
 }
 
 fn listenerShutdown(self: *InprocListener) void {
@@ -762,7 +810,7 @@ fn listenerShutdown(self: *InprocListener) void {
     }
     self.pending.clearRetainingCapacity();
     self.arrived.broadcast(io);
-    self.wake.nudge();
+    _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
     // The adapter readiness edge represents either an arrival or terminal
     // closure. A reactor parked on the synthetic fd must wake for both.
     self.notifyArrivalPinned();

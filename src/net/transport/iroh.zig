@@ -97,6 +97,33 @@ pub const hint_direct_addresses = net.netlayer.hint_direct_addresses;
 /// `DialResolver.resolve` refuses any other shape with `error.InvalidAddress`.
 pub const node_id_len = crypto.PeerKey.designator_len;
 
+/// Build an iroh locator for an endpoint that resolves node ids through its
+/// configured reachability services. The designator is borrowed and the
+/// discovery form intentionally carries no direct-address hint.
+pub fn locator(designator: []const u8) model.PeerLocator {
+    return .{
+        .transport = transport_name,
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    };
+}
+
+/// Build an iroh locator with caller-provided direct socket addresses. The
+/// returned locator borrows `designator`, `direct_addresses`, and
+/// `hint_storage`; keep all three alive until the dial path has copied or
+/// retained the locator.
+pub fn locatorWithDirectAddresses(
+    designator: []const u8,
+    direct_addresses: []const u8,
+    hint_storage: *[1]model.HintEntry,
+) model.PeerLocator {
+    return .{
+        .transport = transport_name,
+        .designator = designator,
+        .hints = model.Hints.forDirectAddresses(direct_addresses, hint_storage),
+    };
+}
+
 // ── The sidecar C ABI (transports/iroh/include/pancake_iroh_sidecar.h) ──────
 
 const CEndpoint = opaque {};
@@ -124,7 +151,7 @@ extern fn pancake_iroh_sidecar_conn_flush(conn: *CConn) i32;
 extern fn pancake_iroh_sidecar_conn_close(conn: *CConn) void;
 extern fn pancake_iroh_sidecar_conn_free(conn: *CConn) void;
 extern fn pancake_iroh_sidecar_endpoint_close(ep: *CEndpoint) void;
-extern fn pancake_iroh_sidecar_endpoint_free(ep: *CEndpoint) void;
+extern fn pancake_iroh_sidecar_endpoint_free(ep: *CEndpoint) i32;
 
 // The event-driven scale superset (ADR-0057): one readiness fd per endpoint, a
 // drained ready-queue, and non-blocking frame I/O — the `Backend` below adapts
@@ -271,8 +298,8 @@ pub const Resident = struct {
 
     /// Close the endpoint and its runtime. Every connection minted from this
     /// resident must already be closed.
-    pub fn deinit(self: *Resident) void {
-        pancake_iroh_sidecar_endpoint_free(self.endpoint);
+    pub fn deinit(self: *Resident) error{SidecarTeardownFailed}!void {
+        if (pancake_iroh_sidecar_endpoint_free(self.endpoint) != 0) return error.SidecarTeardownFailed;
     }
 
     /// This resident as a `Netlayer`. `self` must outlive every connection
@@ -426,8 +453,18 @@ pub const Resident = struct {
         };
     }
 
-    pub fn loopCancelConnect(self: *Resident, request_id: usize) void {
+    /// Request cancellation while leaving the terminal row for an explicit
+    /// `loopFinishConnect`. This is the low-level iroh C API's two-phase edge.
+    pub fn loopRequestConnectCancel(self: *Resident, request_id: usize) void {
         _ = pancake_iroh_sidecar_endpoint_cancel_connect(self.endpoint, request_id);
+    }
+
+    /// Cancel and consume one evented dial. Multiplexed-resident adapters use
+    /// this complete ownership edge because their cancel contract has no later
+    /// finish call. A connect that won the race is closed instead of leaked.
+    pub fn loopCancelConnect(self: *Resident, request_id: usize) void {
+        self.loopRequestConnectCancel(request_id);
+        if (self.loopFinishConnect(request_id)) |conn| self.loopConnClose(conn) else |_| {}
     }
 
     pub fn loopConnId(self: *const Resident, conn: *const anyopaque) usize {
@@ -502,7 +539,7 @@ const resident_ctx = net.netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{
     .profile = known_transport.metadata(),
-    .dial = residentDial,
+    .dial = .{ .blocking = residentDial },
     .listen = residentListen,
     .io = resident_ctx.io,
 };
@@ -518,14 +555,16 @@ fn isCanonicalNodeId(designator: []const u8) bool {
 fn residentDial(
     ctx: *anyopaque,
     peer: *engine.Peer,
-    locator: model.PeerLocator,
+    candidate: model.PeerLocator,
     bufs: Buffers,
+    options: net.netlayer.OperationOptions,
 ) net.netlayer.DialError!Connection {
+    try options.requireInherited();
     const self = resident_ctx.of(ctx);
     // Same admission as the completion loop: DialResolver.resolve owns transport +
     // canonical node-id; dialRawConn owns reachability hint policy (needs
     // resident posture).
-    const target = resolveConnectTarget(locator) catch return error.InvalidAddress;
+    const target = resolveConnectTarget(candidate) catch return error.InvalidAddress;
     const conn = try self.dialRawConn(target.id, target.hints);
     errdefer pancake_iroh_sidecar_conn_free(conn);
     // The dial half of the same proof the accept half makes (ADR-0105): QUIC
@@ -540,7 +579,17 @@ fn residentListen(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: net.netlayer.ListenConfig,
-) net.netlayer.ListenError!Listener {
+) net.netlayer.ListenStartOutcome {
+    return .{ .admitted = residentListenFallible(ctx, allocator, config) catch |err|
+        return .{ .failed = .init(err) } };
+}
+
+fn residentListenFallible(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    config: net.netlayer.ListenConfig,
+) net.netlayer.ListenError!net.netlayer.ListenResult {
+    try config.options.requireInherited();
     const self = resident_ctx.of(ctx);
     // The endpoint bound at `Resident.init` is the listener; iroh has no
     // per-listen address. The node default is the empty designator; a caller
@@ -552,7 +601,7 @@ fn residentListen(
     }
     const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
     box.* = .{ .resident = self, .allocator = allocator };
-    return .{ .ctx = box, .vtable = &listener_vtable };
+    return .{ .ready = .{ .ctx = box, .vtable = &listener_vtable } };
 }
 
 /// Iroh dial target: node id + optional direct-address hints. Module-level so
@@ -564,13 +613,13 @@ const connect_target = struct {
 pub const ConnectTarget = connect_target;
 
 pub fn resolveConnectTarget(
-    locator: model.PeerLocator,
+    candidate: model.PeerLocator,
 ) !ConnectTarget {
-    if (!std.mem.eql(u8, locator.transport, model.transport.iroh)) return error.UnknownTransport;
-    if (!isCanonicalNodeId(locator.designator)) return error.InvalidAddress;
+    if (!std.mem.eql(u8, candidate.transport, model.transport.iroh)) return error.UnknownTransport;
+    if (!isCanonicalNodeId(candidate.designator)) return error.InvalidAddress;
     return .{
-        .id = locator.designator,
-        .hints = net.netlayer.directAddrHint(locator.hints) orelse "",
+        .id = candidate.designator,
+        .hints = net.netlayer.directAddrHint(candidate.hints) orelse "",
     };
 }
 
@@ -579,9 +628,9 @@ pub fn resolveConnectTarget(
 /// fail before the network or sidecar admission is touched.
 pub const DialResolver = struct {
     pub fn resolve(
-        locator: model.PeerLocator,
+        candidate: model.PeerLocator,
     ) !Backend.ConnectTarget {
-        return .{ .iroh = try resolveConnectTarget(locator) };
+        return .{ .iroh = try resolveConnectTarget(candidate) };
     }
 };
 
@@ -592,12 +641,12 @@ pub const DialResolver = struct {
 pub fn CompositeDialResolver(comptime Platform: type, comptime Delegate: type) type {
     return struct {
         pub fn resolve(
-            locator: model.PeerLocator,
+            candidate: model.PeerLocator,
         ) !CompletionBackend(Platform).ConnectTarget {
-            if (std.mem.eql(u8, locator.transport, model.transport.iroh)) {
-                return .{ .iroh = try resolveConnectTarget(locator) };
+            if (std.mem.eql(u8, candidate.transport, model.transport.iroh)) {
+                return .{ .iroh = try resolveConnectTarget(candidate) };
             }
-            return .{ .platform = try Delegate.resolve(locator) };
+            return .{ .platform = try Delegate.resolve(candidate) };
         }
     };
 }
@@ -717,35 +766,36 @@ fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netla
 fn listenerCanonicalizeLocator(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
-    locator: model.PeerLocator,
+    candidate: model.PeerLocator,
 ) net.netlayer.ListenError!model.PeerLocator {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     var expected: [node_id_len]u8 = undefined;
     _ = box.resident.nodeId(&expected);
-    try validateListenerLocator(&expected, locator);
-    return model.clonePeerLocator(allocator, locator);
+    try validateListenerLocator(&expected, candidate);
+    return model.clonePeerLocator(allocator, candidate);
 }
 
 /// Admit a replacement publication for one active iroh endpoint. The endpoint
 /// identity is immutable; direct-address hints may change as reachability does.
 pub fn validateListenerLocator(
     expected_designator: []const u8,
-    locator: model.PeerLocator,
+    candidate: model.PeerLocator,
 ) net.netlayer.ListenError!void {
-    model.validatePeerLocator(locator) catch return error.InvalidAddress;
-    if (!std.mem.eql(u8, locator.transport, transport_name) or
-        !std.mem.eql(u8, locator.designator, expected_designator))
+    model.validatePeerLocator(candidate) catch return error.InvalidAddress;
+    if (!std.mem.eql(u8, candidate.transport, transport_name) or
+        !std.mem.eql(u8, candidate.designator, expected_designator))
         return error.InvalidAddress;
-    _ = resolveConnectTarget(locator) catch return error.InvalidAddress;
+    _ = resolveConnectTarget(candidate) catch return error.InvalidAddress;
 }
 
-fn listenerClose(ctx: *anyopaque) void {
+fn listenerClose(ctx: *anyopaque) ?net.netlayer.ListenerCloseFailure {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     box.stopping.store(true, .release);
     box.operation_gate.lockUncancelable(box.resident.io);
     box.operation_gate.unlock(box.resident.io);
     if (box.stashed) |conn| pancake_iroh_sidecar_conn_free(conn);
     box.allocator.destroy(box);
+    return null;
 }
 
 // ── Completion backend: many iroh connections on one `completion.Loop` (ADR-0057) ─
@@ -828,6 +878,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// drains this channel itself after the platform reports readability, so
         /// coalesced nudges cost one owner turn rather than one completion each.
         wake_channel: net.wake_channel.WakeChannel,
+        wake_failure: net.wake_channel.FailureLatch = .{},
         wake_fd: Fd,
         wake_armed: bool = false,
         next_id: u32 = 1,
@@ -902,8 +953,12 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// observed without timeout polling. Carries no authority and records no
         /// transport readiness; the next harvest drains the nudge and then observes
         /// the state the caller already changed.
-        pub fn wake(self: *Self) void {
-            self.wake_channel.nudge();
+        pub fn wake(self: *Self) net.wake_channel.Failure!void {
+            try self.wake_failure.check();
+            _ = self.wake_channel.nudge() catch |err| {
+                self.wake_failure.record(err);
+                return err;
+            };
         }
 
         pub fn openListener(self: *Self, port: u16) !Fd {
@@ -938,6 +993,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         pub fn listenerPort(_: ListenerAddress) ?u16 {
             return null;
+        }
+
+        pub fn applyKeepalive(self: *Self, fd: Fd, keepalive: completion.Keepalive) !void {
+            if (Namespace.ownsFd(fd)) return error.OperationUnsupported;
+            return self.platform.applyKeepalive(fd, keepalive);
         }
 
         pub fn closeFd(self: *Self, fd: Fd) void {
@@ -999,7 +1059,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// would retain one entry per canceled dial until endpoint teardown.
         fn cancelDial(self: *Self, request_id: usize) void {
             self.resident.loopCancelConnect(request_id);
-            _ = self.resident.loopFinishConnect(request_id) catch {};
         }
 
         fn bindFd(self: *Self, fd: Fd, cconn: *CConn) !void {
@@ -1024,9 +1083,9 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const ud = self.accept_ud orelse return;
             if (self.accept_stash.items.len == 0) return;
             const cconn = self.accept_stash.orderedRemove(0);
-            const fd = self.allocFd(cconn) catch {
+            const fd = self.allocFd(cconn) catch |err| {
                 pancake_iroh_sidecar_conn_free(cconn);
-                self.appendReserved(.{ .user_data = ud, .result = -1 });
+                self.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
                 self.accept_ud = null;
                 return;
             };
@@ -1109,6 +1168,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 } else {
                     // 0 = clean EOF, negative = fault.
                     comp.result = if (n == 0) 0 else -1;
+                    if (n < 0) comp.failure = error.IrohReadFailed;
                     self.scratch_pool.release(idx);
                     entry.pending.readable_hint = false;
                 }
@@ -1138,7 +1198,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
             entry.pending.write_ud = null;
             entry.pending.write_bytes = null;
-            self.appendReserved(.{ .user_data = ud, .result = result });
+            self.appendReserved(.{
+                .user_data = ud,
+                .result = result,
+                .failure = if (result < 0) error.IrohWriteFailed else null,
+            });
         }
 
         pub fn submitRecv(self: *Self, user_data: u64, fd: Fd) !void {
@@ -1233,14 +1297,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 const request_id = std.math.cast(u32, ev.subject) orelse return;
                 const fd = Namespace.fdFromId(request_id) catch return;
                 const done = self.pending_dials.fetchRemove(fd) orelse return;
-                const opaque_conn = self.resident.loopFinishConnect(ev.subject) catch {
-                    self.appendReserved(.{ .user_data = done.value, .result = -1 });
+                const opaque_conn = self.resident.loopFinishConnect(ev.subject) catch |err| {
+                    self.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
                     return;
                 };
                 const cconn: *CConn = @ptrCast(opaque_conn);
-                self.bindFd(fd, cconn) catch {
+                self.bindFd(fd, cconn) catch |err| {
                     pancake_iroh_sidecar_conn_free(cconn);
-                    self.appendReserved(.{ .user_data = done.value, .result = -1 });
+                    self.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
                     return;
                 };
                 self.appendReserved(.{ .user_data = done.value, .result = 0 });
@@ -1302,6 +1366,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 .readiness => self.readiness_armed = false,
                 .wake => self.wake_armed = false,
             }
+            try self.wake_failure.check();
             // A pool-starved recv still proves descriptor readiness. Both
             // signal sources own stack-buffered drain APIs, so progress must not
             // depend on a general transport buffer becoming available.
@@ -1310,12 +1375,16 @@ pub fn CompletionBackend(comptime Platform: type) type {
             switch (signal) {
                 .readiness => try self.harvestSidecar(),
                 .wake => {
-                    self.wake_channel.drain();
+                    self.wake_channel.drain() catch |err| {
+                        self.wake_failure.record(err);
+                        return err;
+                    };
                 },
             }
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
+            try self.wake_failure.check();
             try self.armSignals();
 
             var platform_completions: [256]completion.Completion = undefined;

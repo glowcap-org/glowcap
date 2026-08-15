@@ -90,7 +90,7 @@ test "Host local capability identity survives Port closure and reprojects lazily
     try std.testing.expectEqual(owner_ref, try host.liftCapability(replacement, reprojected));
 }
 
-test "reserved fresh local capability lift cannot allocate after publication" {
+test "reserved fresh local capability commit cannot allocate after publication" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var host = test_host.init(failing.allocator(), [_]u8{0x4b} ** 32, .{});
     defer host.deinit();
@@ -98,15 +98,38 @@ test "reserved fresh local capability lift cannot allocate after publication" {
 
     // The C publish/spawn boundary reserves identity storage before it makes
     // the actor or bootstrap mapping observable.
-    try host.reserveFreshCapability(session);
+    const reservation = try host.reserveFreshCapability(session);
     const cap = try session.served.publish(&session.host.vat, "local", LocalActor, .{});
 
     const before = failing.alloc_index;
     failing.fail_index = before;
-    const ref = try host.liftCapability(session, cap.nearRef());
+    const ref = host.retainReservedLocalCapability(reservation, cap.ref);
     try std.testing.expectEqual(before, failing.alloc_index);
     try std.testing.expectEqual(cap.nearRef(), try host.lowerCapability(session, ref));
     failing.fail_index = std.math.maxInt(usize);
+}
+
+fn exhaustCapabilityIds(ctx: ?*anyopaque) error{CapabilitySpaceExhausted}!u64 {
+    const calls: *usize = @ptrCast(@alignCast(ctx.?));
+    calls.* += 1;
+    return error.CapabilitySpaceExhausted;
+}
+
+test "fresh capability id exhaustion precedes publication mutation" {
+    var calls: usize = 0;
+    var options = core.Host.Options{};
+    options.capability_id_issuer = .{ .ctx = &calls, .next = exhaustCapabilityIds };
+    var host = test_host.init(std.testing.allocator, [_]u8{0x4e} ** 32, options);
+    defer host.deinit();
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9253", &.{});
+
+    try std.testing.expectError(
+        error.CapabilitySpaceExhausted,
+        host.publish(session, "local", LocalActor, .{}),
+    );
+    try std.testing.expectEqual(@as(usize, 1), calls);
+    try std.testing.expect(session.served.port.peer.session_state.bootstrapLookup("local") == null);
+    try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
 }
 
 test "failed projection rolls back a lift with an exact wire release" {
@@ -132,6 +155,62 @@ test "failed projection rolls back a lift with an exact wire release" {
     try std.testing.expect(retried.claimed_wire_retain);
     try std.testing.expectError(error.UnknownCapability, host.lowerCapability(session, lifted.ref));
     try std.testing.expectEqual(model.Reference{ .far = model.FarRef.object(7) }, try host.lowerCapability(session, retried.ref));
+}
+
+test "rejected value lowering rolls back unseen Port and Node projections" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x5a} ** 32, .{});
+    defer host.deinit();
+    const home = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9254", &.{});
+    const destination = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9255", &.{});
+
+    try home.served.port.peer.importObject(7);
+    const remote = try host.liftCapability(home, .{ .far = model.FarRef.object(7) });
+    const target = try host.spawn(destination, LocalActor, .{});
+    const local_argument = try host.spawn(destination, LocalActor, .{});
+    const stale = host.capabilityFromRaw(0);
+
+    const exports_before = destination.served.port.exports.count();
+    const enrollments_before = host.node.foreign_imports.count();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnknownCapability,
+        host.sendValues(
+            destination,
+            target,
+            "take",
+            &.{
+                .{ .capability = local_argument },
+                .{ .capability = remote },
+                .{ .capability = stale },
+            },
+            arena.allocator(),
+        ),
+    );
+
+    try std.testing.expectEqual(exports_before, destination.served.port.exports.count());
+    try std.testing.expectEqual(enrollments_before, host.node.foreign_imports.count());
+    try std.testing.expect(home.served.port.peer.session_state.foreignTokenFor(.from(7)) == null);
+}
+
+test "rejected value lowering rolls back its spill receipt path" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x5b} ** 32, .{});
+    defer host.deinit();
+    const destination = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9256", &.{});
+    const target = try host.spawn(destination, LocalActor, .{});
+
+    var values: [10]core.Value = undefined;
+    for (&values) |*value| value.* = .{ .capability = try host.spawn(destination, LocalActor, .{}) };
+    values[9] = .{ .capability = host.capabilityFromRaw(0) };
+
+    const exports_before = destination.served.port.exports.count();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(
+        error.UnknownCapability,
+        host.sendValues(destination, target, "take", &values, arena.allocator()),
+    );
+    try std.testing.expectEqual(exports_before, destination.served.port.exports.count());
 }
 
 test "repeated lift is canonical and partial then final release tracks wire retains" {

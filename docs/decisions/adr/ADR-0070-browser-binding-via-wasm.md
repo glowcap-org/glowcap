@@ -40,8 +40,8 @@ core run in a browser sandbox unchanged.
 
 A browser binding is the sans-io core compiled to WebAssembly, exposed through
 the **same** `Peer`/`Context`/`Node` API the other bindings present. The
-TypeScript binding is already layered for this: `bindings/ts/stack/mod.ts` sits
-on an FFI seam (`bindings/ts/stack/internal/ffi/runtime.ts`, today `Deno.dlopen`
+TypeScript binding is already layered for this: `bindings/ts/runtime/mod.ts` sits
+on an FFI seam (`bindings/ts/runtime/internal/ffi/runtime.ts`, today `Deno.dlopen`
 against `libpancake_ocapn`). A browser binding replaces that one seam with a
 WebAssembly instance: instantiate `pancake_ocapn.wasm`, call its exports, and
 marshal frames across the WASM/JS boundary as `ptr + len` the same way the C ABI
@@ -69,7 +69,7 @@ Milestone 1 has landed. `zig build wasm-driver` compiles the byte-fed
 archive (ADR-0112) is a separate socket-owning artifact and is not in wasm.
 `zig build wasm-driver-test` drives a keyed handshake between two Hosts over an
 in-memory byte pipe; and `@pancake/web` (`bindings/ts/web`) runs the full
-`@pancake/stack` surface over the module with a WebSocket byte channel,
+`@pancake/runtime` surface over the module with a WebSocket byte channel,
 proved end to end by `zig build web-peer-test`.
 
 ADR-0089's DataChannel and signaling portions of Milestone 2 have also landed.

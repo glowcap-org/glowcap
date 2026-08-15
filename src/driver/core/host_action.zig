@@ -15,6 +15,32 @@ const sessions_mod = @import("sessions.zig");
 const Host = host_mod.Host;
 const HostError = host_mod.HostError;
 
+/// Why an unobserved Host vow failed. This is settled where session lifecycle
+/// is authoritative so adapters only project the result into their error type.
+pub const VowFailure = enum {
+    broken,
+    closed,
+};
+
+/// Host-owned failure detail, with an allocation-free diagnostic when copying
+/// the original reason itself fails. The ownership bit belongs to the action
+/// payload layer: consumers always see useful text, while teardown frees only
+/// storage the Host allocator actually produced.
+pub const RetainedFailureMessage = struct {
+    bytes: []const u8,
+    owned: bool,
+};
+
+pub const failure_detail_allocation_message = "failure detail unavailable: allocation failed";
+
+pub fn retainFailureMessage(allocator: std.mem.Allocator, message: []const u8) RetainedFailureMessage {
+    const owned = allocator.dupe(u8, message) catch return .{
+        .bytes = failure_detail_allocation_message,
+        .owned = false,
+    };
+    return .{ .bytes = owned, .owned = true };
+}
+
 /// What the embedder must do next. `Host.nextAction` pops borrowed: a
 /// completion's value views are host-owned and stay valid until the next
 /// `Host.nextAction` call, which frees them — the same borrow contract
@@ -31,6 +57,9 @@ pub const HostAction = union(enum) {
     /// produce another DIAL for the same ticket; the Host/Node owns that
     /// fallback and the embedder does not select alternatives.
     dial: struct { ticket: engine.Node.PendingId },
+    /// Stop one previously delivered `dial` effect. The executor interrupts
+    /// and joins its physical operation, then calls `Host.dialCancelled`.
+    cancel_dial: struct { ticket: engine.Node.PendingId },
     /// Outbound frames may be ready on this session: drain
     /// `Conn.takeOutbound` until empty and write them.
     flush: engine.PeerId,
@@ -52,12 +81,19 @@ pub const HostAction = union(enum) {
     /// may carry a capability, which only its own session can project.
     settled: struct { peer_id: engine.PeerId, vow_id: u64, value: model.Argument },
     /// A host vow with no in-process listener settled broken: `message` is
-    /// host-owned with the same until-next-`nextAction` lifetime (empty when
-    /// the break carried no reason, or when retaining one failed). `peer_id`
+    /// host-owned with the same until-next-`nextAction` lifetime. An empty
+    /// reason stays empty; failure to retain a nonempty reason is represented
+    /// by a process-static allocation diagnostic. `peer_id`
     /// is null when the vow rode no session at all — a select-or-dial enliven
     /// whose dial never opened one (ADR-0098). A break carries no value, so
     /// every drain routes it by `vow_id` alone.
-    failed: struct { peer_id: ?engine.PeerId, vow_id: u64, message: []const u8 },
+    failed: struct {
+        peer_id: ?engine.PeerId,
+        vow_id: u64,
+        failure: VowFailure,
+        message: []const u8,
+        message_owned: bool,
+    },
     /// The finite Host scheduler yielded with internal work remaining and no
     /// ordinary action available to wake the next drain. A reactor-backed
     /// embedder returns to its scheduler before starting the next drain turn;
@@ -69,8 +105,8 @@ pub const HostAction = union(enum) {
 pub fn freePayload(allocator: std.mem.Allocator, action: HostAction) void {
     switch (action) {
         .settled => |s| model.freeArgument(allocator, s.value),
-        .failed => |f| if (f.message.len != 0) allocator.free(f.message),
-        .dial, .flush, .close, .need_gift_id, .resume_work => {},
+        .failed => |f| if (f.message_owned) allocator.free(f.message),
+        .dial, .cancel_dial, .flush, .close, .need_gift_id, .resume_work => {},
     }
 }
 
@@ -83,7 +119,13 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
     try self.refuseReentry();
     if (self.retry_last_action) {
         self.retry_last_action = false;
-        return self.last_action orelse unreachable;
+        const action = self.last_action orelse unreachable;
+        if (action == .need_gift_id and !self.node.hasPendingGift(action.need_gift_id.ticket)) {
+            self.last_action = null;
+            return nextAction(self);
+        }
+        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket)) return null;
+        return action;
     }
     try resumeWorkForActionDrain(
         self,
@@ -105,6 +147,7 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
 /// remain first without being copied or appended behind younger rows.
 pub fn retryBorrowedAction(self: *Host) bool {
     if (self.last_action == null or self.retry_last_action) return false;
+    if (self.last_action.? == .dial) self.node.rollbackDialEffect(self.last_action.?.dial.ticket);
     self.retry_last_action = true;
     return true;
 }
@@ -116,10 +159,18 @@ pub fn retryBorrowedAction(self: *Host) bool {
 /// after any Host mutation.
 pub fn peekAction(self: *Host) HostError!?HostAction {
     try self.refuseReentry();
-    if (self.retry_last_action)
-        return self.last_action orelse unreachable;
+    if (self.retry_last_action) {
+        const action = self.last_action orelse unreachable;
+        if (action != .need_gift_id or self.node.hasPendingGift(action.need_gift_id.ticket)) return action;
+        self.retry_last_action = false;
+        self.last_action = null;
+    }
     try resumeWorkForActionDrain(self);
-    return self.actions.peek();
+    while (self.actions.peek()) |action| {
+        if (action != .need_gift_id or self.node.hasPendingGift(action.need_gift_id.ticket)) return action;
+        _ = self.actions.pop(self.allocator) orelse unreachable;
+    }
+    return null;
 }
 
 /// Pop the next embedder action, owned: the caller adopts the payload and
@@ -133,6 +184,9 @@ pub fn takeAction(self: *Host) HostError!?HostAction {
         self.retry_last_action = false;
         const action = self.last_action orelse unreachable;
         self.last_action = null;
+        if (action == .need_gift_id and !self.node.hasPendingGift(action.need_gift_id.ticket))
+            return takeAction(self);
+        if (action == .dial and !self.node.beginDialEffect(action.dial.ticket)) return null;
         return action;
     }
     try resumeWorkForActionDrain(
@@ -156,7 +210,12 @@ pub fn freeAdopted(self: *Host, action: HostAction) void {
 /// left one physical slot, so this append cannot allocate.
 pub fn retryEffect(self: *Host, action: HostAction) void {
     switch (action) {
-        .dial, .need_gift_id => self.actions.pushReserved(action),
+        .dial => |dial| {
+            self.node.rollbackDialEffect(dial.ticket);
+            self.actions.pushReserved(action);
+        },
+        .cancel_dial => self.actions.pushReserved(action),
+        .need_gift_id => self.actions.pushReserved(action),
         else => unreachable,
     }
 }
@@ -164,15 +223,19 @@ pub fn retryEffect(self: *Host, action: HostAction) void {
 /// The one FIFO pop under both action verbs: compact the dead prefix past
 /// the threshold and hand out the front row, owning nothing.
 pub fn popAction(self: *Host) ?HostAction {
-    const action = self.actions.pop(self.allocator) orelse return null;
+    const action = while (self.actions.pop(self.allocator)) |candidate| {
+        if (candidate == .dial and !self.node.beginDialEffect(candidate.dial.ticket)) continue;
+        if (candidate == .need_gift_id and !self.node.hasPendingGift(candidate.need_gift_id.ticket)) continue;
+        break candidate;
+    } else return null;
     switch (action) {
         .flush => |peer_id| {
             if (self.sessions.get(peer_id)) |session|
-                session.flush_action_pending = false;
+                session.control.flush_action_pending = false;
         },
         .close => |peer_id| {
             if (self.sessions.get(peer_id)) |session|
-                session.close_action_pending = false;
+                session.control.close_action_pending = false;
         },
         .resume_work => self.resume_action_pending = false,
         else => {},
@@ -221,9 +284,4 @@ pub fn reserveActions(self: *Host, extra: usize) !void {
         self.allocator,
         self.vows.count() + self.pending_enlivens.items.len + 2 * self.sessions.count() + extra,
     );
-}
-
-/// Test seam: session-tagged embedder FIFO dedupe (flush/close).
-pub fn testingQueueUniqueSessionAction(self: *Host, comptime tag: host_pump.UniqueSessionActionTag, peer_id: engine.PeerId) !void {
-    try host_pump.testingQueueUniqueSessionAction(self, tag, peer_id);
 }

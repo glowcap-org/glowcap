@@ -19,7 +19,7 @@ pub fn init(
     var hasher = std.crypto.hash.Blake3.initKdf("pancake deterministic test session root v1", .{});
     hasher.update(&durable_seed);
     hasher.final(&root);
-    return Host.init(allocator, durable_seed, root, options);
+    return Host.init(allocator, durable_seed, root, options) catch unreachable;
 }
 
 pub fn initWithRoot(
@@ -28,5 +28,5 @@ pub fn initWithRoot(
     session_seed_root: [crypto.SEED_BYTES]u8,
     options: Host.Options,
 ) Host {
-    return Host.init(allocator, durable_seed, session_seed_root, options);
+    return Host.init(allocator, durable_seed, session_seed_root, options) catch unreachable;
 }

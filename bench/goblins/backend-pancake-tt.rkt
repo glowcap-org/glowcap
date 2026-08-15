@@ -7,6 +7,7 @@
 ;; path is unchanged, since time-travel is a local property of the vat that hosts
 ;; the actors, so the client procs are reused verbatim from `backend-pancake`.
 (require (file "/workspaces/pancake/bindings/racket/pancake.rkt")
+         (file "/workspaces/pancake/bindings/racket/pancake-tcp.rkt")
          (only-in (file "/workspaces/pancake/bench/goblins/backend-pancake.rkt")
                   client-connect client-fetch client-call client-close))
 

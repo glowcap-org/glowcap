@@ -1,17 +1,33 @@
 #!/usr/bin/env bash
 # Host-side setup, run by devcontainer.json "initializeCommand" before the
-# container is created. Runs on the host, where Docker and $HOME live — the
+# container is created. Runs on the host, where Docker lives. The
 # in-container counterpart is post-create.sh.
 set -euo pipefail
 
-# Bind-mount sources must exist before Docker mounts them, or Docker creates a
-# root-owned directory (or a directory where a file bind was intended). These
-# carry tool logins/state that should survive a rebuild — see devcontainer.json.
-mkdir -p "${HOME}/.claude" "${HOME}/.config/gh" \
-  "${HOME}/.local/share/opencode" "${HOME}/.config/opencode" \
-  "${HOME}/.config/agents"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+source "${dir}/lib.sh"
+pancake_require_host "initialize.sh"
+
+if [[ ! -e "${dir}/.env" ]]; then
+  bash "${dir}/configure.sh"
+fi
+worktree_name="$(pancake_devcontainer_validate_checkout_env "${dir}")"
+
+command -v docker >/dev/null || {
+  echo "initialize.sh: docker is not on PATH" >&2
+  exit 1
+}
 
 # rooms-net is the fixed-name network this container shares with the rooms app
-# (apps/rooms/web/deploy) so a bot here reaches the room's internal
-# CapTP by name. Create it if missing so compose can attach; ignore "exists".
-docker network create rooms-net 2>/dev/null || true
+# (apps/rooms/web/deploy) so a bot here reaches the room's internal CapTP by
+# name. Ignore a create race only when the network is observable afterward.
+pancake_devcontainer_ensure_network rooms-net managed
+
+egress="$(pancake_devcontainer_env_value "${dir}" EGRESS_NET)"
+default_egress="$(pancake_devcontainer_default_egress_network "${worktree_name}")"
+if [[ "${egress}" == "${default_egress}" ]]; then
+  pancake_devcontainer_ensure_network "${egress}" managed
+else
+  pancake_devcontainer_ensure_network "${egress}" external
+fi

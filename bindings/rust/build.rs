@@ -28,8 +28,7 @@ struct Contract {
 
 fn load_contract() -> Contract {
 	let raw = include_str!("c-abi-resolve.json");
-	let contract: Contract =
-		serde_json::from_str(raw).unwrap_or_else(|e| panic!("c-abi-resolve.json: {e}"));
+	let contract: Contract = serde_json::from_str(raw).unwrap_or_else(|e| panic!("c-abi-resolve.json: {e}"));
 	validate_contract(&contract);
 	contract
 }
@@ -89,9 +88,7 @@ fn main() {
 		#[cfg(target_os = "macos")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir
-				.join("libpancake_net_transport_iroh.dylib")
-				.display()
+			lib_dir.join("libpancake_net_transport_iroh.dylib").display()
 		);
 		#[cfg(target_os = "linux")]
 		println!(
@@ -111,9 +108,7 @@ fn main() {
 		#[cfg(target_os = "macos")]
 		println!(
 			"cargo:rerun-if-changed={}",
-			lib_dir
-				.join("libpancake_net_transport_webrtc.dylib")
-				.display()
+			lib_dir.join("libpancake_net_transport_webrtc.dylib").display()
 		);
 		#[cfg(target_os = "linux")]
 		println!(
@@ -127,7 +122,6 @@ fn main() {
 		);
 	}
 }
-
 /// Cascade (ADR-0077): `PANCAKE_LIB_DIR` → abi-versioned download cache →
 /// optional in-tree `zig-out/lib` → (caller falls through to link failure).
 fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
@@ -298,14 +292,8 @@ fn curl_tls_args(url: &str) -> Vec<&'static str> {
 	vec!["--proto", "=https", "--tlsv1.2"]
 }
 
-fn fetch_into_cache(
-	contract: &Contract,
-	version: &str,
-	target: &str,
-	cache_lib: &Path,
-) -> Result<(), String> {
-	let base = std::env::var("PANCAKE_RELEASE_BASE_URL")
-		.unwrap_or_else(|_| contract.default_release_base_url.clone());
+fn fetch_into_cache(contract: &Contract, version: &str, target: &str, cache_lib: &Path) -> Result<(), String> {
+	let base = std::env::var("PANCAKE_RELEASE_BASE_URL").unwrap_or_else(|_| contract.default_release_base_url.clone());
 	require_https(&base);
 	let tag = apply_contract_template(&contract.release_tag_template, version, target, "");
 	let tarball = apply_contract_template(&contract.tarball_template, version, target, "");
@@ -356,13 +344,7 @@ fn fetch_into_cache(
 	let max_sums_s = contract.max_sums_bytes.to_string();
 	let mut sums_args: Vec<&str> = vec!["-fsSL"];
 	sums_args.extend(curl_tls_args(&sums_url));
-	sums_args.extend([
-		"--max-filesize",
-		&max_sums_s,
-		"-A",
-		&contract.user_agent,
-		"-o",
-	]);
+	sums_args.extend(["--max-filesize", &max_sums_s, "-A", &contract.user_agent, "-o"]);
 	let sums_ok = Command::new("curl")
 		.args(&sums_args)
 		.arg(&sums_path)
@@ -469,9 +451,7 @@ fn safe_extract_prefix(tarball: &Path, stage: &Path, prefix: &str) -> Result<(),
 	if !listing.status.success() {
 		return Err("tar list failed".into());
 	}
-	if let Some(violation) =
-		archive_hygiene::listing_violation(&String::from_utf8_lossy(&listing.stdout), prefix)
-	{
+	if let Some(violation) = archive_hygiene::listing_violation(&String::from_utf8_lossy(&listing.stdout), prefix) {
 		hard_fail(&violation);
 	}
 	let status = Command::new("tar")

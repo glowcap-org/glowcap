@@ -57,8 +57,9 @@ README has its standalone commands.
 
 - [`host_embedder_pump.c`](c/host_embedder_pump.c) drives the sole C CapTP
   application surface, `PancakeHost`, through a complete in-memory conversation:
-  feed, drain, refusal, and EOF, as language bindings do.
-- [`frame_view.c`](c/frame_view.c) covers owned frames and borrowed views.
+  feed, drain, refusal, and break-far-vows, as language bindings do.
+- [`frame_view.c`](c/frame_view.c) shows a borrowed `PancakeFrame` over caller
+  bytes. Owned frames come from `take_outbound` in the host example.
 
 The [C guide](../docs/consuming-from-c.md) explains which API and libraries to
 choose before you adapt one of these programs.

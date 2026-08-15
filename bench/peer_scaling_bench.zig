@@ -228,7 +228,7 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
     // knowingly *not* in this figure. That overhead is held separately by
     // `conn_slot_overhead_bytes` in `net/completion/loop.zig`, so the two guards
     // partition the slot: this bench tracks `Peer` + `Served`, that constant
-    // tracks the wrapper. `meta-check` holds the number the same in all three
+    // tracks the wrapper. `source-check` holds the number the same in all three
     // places that state it.
     const vat_inline: usize = if (holds_vat) @sizeOf(driver.Served) else 0;
     const inline_bytes: f64 = @floatFromInt(@sizeOf(engine.Peer) + vat_inline);
@@ -308,7 +308,11 @@ fn liveClientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerror!
     defer allocator.free(write_buf);
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = .unbounded });
+    const tcp_provider = try net.tcp.Provider.create(allocator, io, .{});
+    defer tcp_provider.destroy(allocator);
+    const netlayers = tcp_provider.netlayers();
+    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
+    var cv = try driver.connectVia(allocator, &netlayers, &peer, net.tcp.locatorFromAddress(&designator_buf, address), .ephemeral, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = .unbounded });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -366,7 +370,7 @@ fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, li
 
         var session_root: [32]u8 = undefined;
         try step_io.randomSecure(&session_root);
-        var host = driver.core.Host.init(allocator, [_]u8{0x42} ** 32, session_root, .{
+        var host = try driver.core.Host.init(allocator, [_]u8{0x42} ** 32, session_root, .{
             .limits = .{ .max_frame_bytes = live_frame_cap },
             .local_turn_budget = actors.Vat.max_batch_local_turns,
         });
@@ -385,7 +389,7 @@ fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, li
         const port = loop.port().?;
         var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
         const designator_addr = try net.tcp.parseHostPort("127.0.0.1", port);
-        const designator = net.tcp.locator(&designator_buf, designator_addr).designator;
+        const designator = net.tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
         try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
         var loop_err: ?anyerror = null;

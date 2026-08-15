@@ -4,7 +4,9 @@
 # compiler through this script, so the version and SHA-256 authority stays in
 # pins.sh + checksums.sh. ZIG_INSTALL_DIR overrides the /opt/zig prefix for
 # runners without root; the /usr/local/bin symlink is laid only for the
-# default prefix.
+# default prefix. Alone among the installers this one runs anywhere — the
+# release workflow uses it on macOS runners — so it carries no devcontainer
+# guard and stays portable to macOS (bash 3.2, shasum, bsdtar).
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,9 +30,7 @@ url="https://ziglang.org/download/${ZIG_VERSION}/${tarball}"
 tmp="$(mktemp -d -t pancake-zig-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
 
-echo "downloading ${url}" >&2
-curl --fail --location --silent --show-error --output "${tmp}/${tarball}" "${url}"
-verify_download_sha256 "${tmp}/${tarball}" "$(zig_sha256)"
+fetch_verified "${url}" "${tmp}/${tarball}" "$(zig_sha256)"
 
 install_dir="${ZIG_INSTALL_DIR:-/opt/zig}"
 mkdir -p "${install_dir}"

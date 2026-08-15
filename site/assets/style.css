@@ -117,12 +117,7 @@ body {
      instead of leaving a ragged band of empty paper mid-page. */
   display: flex;
   flex-direction: column;
-  /* A whisper of warmth at the top edge, fading into flat paper. */
-  background: radial-gradient(
-    120% 60% at 50% -10%,
-    color-mix(in srgb, var(--accent) 9%, var(--paper)) 0%,
-    var(--paper) 60%
-  ) no-repeat;
+  background: var(--paper);
 }
 
 .shell {
@@ -345,6 +340,38 @@ a:focus-visible,
   padding: 1.6rem 0;
 }
 
+.docs-nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.docs-nav-toggle::after {
+  content: "+";
+  color: var(--teal-text);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.docs-nav-toggle[aria-expanded="true"]::after {
+  content: "−";
+}
+
+.docs-nav-toggle:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
 /* "On this page". Built from the page's own headings by the base template, and
    only shown when there is a third column to spare and enough headings to be
    worth one. The reading column stays where it was; this fills the room that
@@ -431,7 +458,7 @@ a:focus-visible,
   margin: 1.1rem 0 0.35rem;
   font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--ink-soft);
 }
@@ -544,23 +571,21 @@ h1, h2, h3, h4 {
   text-wrap: balance;
 }
 
-/* Display sizes take a slightly lighter weight and tighter tracking than the
-   browser default. Plex's bold is emphatic at 700, which is right for a word
-   inside a sentence and too much for a line of 40px type; 600 with the spacing
-   pulled in holds the same authority without shouting. */
+/* Display sizes use Plex's semibold weight. Body emphasis keeps the stronger
+   bold, so page structure and emphasis remain distinct. */
 h1 {
   color: var(--teal-text);
-  font-size: clamp(2rem, 5vw, 2.9rem);
+  font-size: 2.9rem;
   font-weight: 600;
   margin: 0 0 0.6rem;
-  letter-spacing: -0.022em;
+  letter-spacing: 0;
 }
 
 h2 {
   color: var(--accent-text);
   font-size: 1.5rem;
   font-weight: 600;
-  letter-spacing: -0.012em;
+  letter-spacing: 0;
   margin: 2.2rem 0 0.8rem;
 }
 
@@ -576,7 +601,7 @@ h2 {
 h3 {
   font-size: 1.15rem;
   font-weight: 600;
-  letter-spacing: -0.006em;
+  letter-spacing: 0;
   margin: 1.8rem 0 0.5rem;
 }
 
@@ -968,15 +993,15 @@ hr {
   margin: 0 0 0.15rem;
   font-size: 0.8rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--accent-text);
 }
 
 .hero h1 {
   margin: 0 0 0.5rem;
-  font-size: clamp(2.4rem, 6vw, 3.4rem);
-  letter-spacing: -0.03em;
+  font-size: 3.4rem;
+  letter-spacing: 0;
 }
 
 .hero-tagline {
@@ -1128,7 +1153,7 @@ hr {
   padding: 1.1rem 1.2rem;
   background: var(--paper-raised);
   border: 1px solid var(--rule);
-  border-radius: 11px;
+  border-radius: 8px;
   box-shadow: var(--shadow);
   color: var(--ink);
   transition: transform 0.12s ease, border-color 0.12s ease;
@@ -1180,7 +1205,7 @@ hr {
 .card h2 {
   margin: 0 0 0.3rem;
   font-size: 1.08rem;
-  letter-spacing: -0.004em;
+  letter-spacing: 0;
   color: var(--accent-text);
 }
 
@@ -1274,7 +1299,7 @@ hr {
   display: inline-block;
   font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
   text-transform: uppercase;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
@@ -1347,7 +1372,7 @@ hr {
   margin: 0 0 0.25rem;
   font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--ink);
 }
@@ -1395,6 +1420,18 @@ hr {
     margin-bottom: 0.5rem;
   }
 
+  .js .docs-nav-toggle {
+    display: flex;
+  }
+
+  .js #docsNav {
+    display: none;
+  }
+
+  .js #docsNav.is-open {
+    display: flex;
+  }
+
   .nav {
     flex-flow: row wrap;
     gap: 0.3rem 0.5rem;
@@ -1416,6 +1453,16 @@ hr {
 
   #content {
     padding-top: 1rem;
+  }
+}
+
+@media (max-width: 38rem) {
+  h1 {
+    font-size: 2.2rem;
+  }
+
+  .hero h1 {
+    font-size: 2.7rem;
   }
 }
 

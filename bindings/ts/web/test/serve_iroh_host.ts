@@ -4,9 +4,9 @@
 // Runs in its own process so this native dlopen graph never shares a module
 // graph with the wasm browser peer under test.
 
-import { listenIroh, Reachability } from "@pancake/iroh";
+import { listen, Reachability } from "@pancake/iroh";
 
-const server = await listenIroh({ reachability: Reachability.Direct });
+const server = await listen({ reachability: Reachability.Direct });
 server.host.publishGiftable("greeter", (verb: string, args: unknown[]) => {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over iroh relay`;

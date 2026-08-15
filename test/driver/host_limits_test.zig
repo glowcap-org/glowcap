@@ -41,14 +41,23 @@ test "Loop.Options fan_in_throttle and park_kill_ms default off" {
     try std.testing.expect(opts.on_park == null);
 }
 
-test "Host.Options names bootstrap_durability posture" {
+test "Host initialization returns invalid option failures before publication" {
     const o = Host.Options{};
     try std.testing.expectEqual(Host.BootstrapDurability.ephemeral, o.bootstrap_durability);
     // `.durable_bootstrap` remains a named arm for the embedder-store contract;
-    // `Host.init` panics if selected until that store lands (no silent ephemeral twin).
+    // initialization refuses it until that store lands (no silent ephemeral twin).
     var durable = Host.Options{};
     durable.bootstrap_durability = .durable_bootstrap;
-    try std.testing.expectEqual(Host.BootstrapDurability.durable_bootstrap, durable.bootstrap_durability);
+    try std.testing.expectError(
+        error.DurableBootstrapUnavailable,
+        Host.init(std.testing.allocator, [_]u8{0x31} ** 32, [_]u8{0x32} ** 32, durable),
+    );
+    try std.testing.expectError(
+        error.InvalidHostWorkQuantum,
+        Host.init(std.testing.allocator, [_]u8{0x33} ** 32, [_]u8{0x34} ** 32, .{
+            .host_work_quantum = 0,
+        }),
+    );
 }
 
 test "Host mint projects full SessionLimits onto an adopted peer" {
@@ -64,9 +73,25 @@ test "Host mint projects full SessionLimits onto an adopted peer" {
     var pinned = engine.Peer.initNegotiating(allocator);
     defer pinned.deinit();
     const adopted = try publishAndOpenAcceptedOver(&server, &pinned, "tcp", "127.0.0.1:7001", &.{});
-    defer server.releaseSession(adopted) catch {};
+    defer server.releaseSession(adopted) catch unreachable;
 
     try std.testing.expectEqual(@as(usize, 4096), pinned.session_state.limits.max_frame_bytes);
     try std.testing.expectEqual(@as(usize, 17), pinned.session_state.limits.queue_cap);
     try std.testing.expectEqual(@as(usize, 42), pinned.session_state.limits.max_imports);
+}
+
+test "Host refuses a full session operation counter before commit" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x4a} ** 32, .{});
+    defer host.deinit();
+
+    var pinned = engine.Peer.initNegotiating(allocator);
+    defer pinned.deinit();
+    const session = try publishAndOpenAcceptedOver(&host, &pinned, "tcp", "127.0.0.1:7002", &.{});
+    defer host.releaseSession(session) catch unreachable;
+
+    const pending_before = session.control.pending_operations;
+    session.control.pending_operations = std.math.maxInt(u24);
+    defer session.control.pending_operations = pending_before;
+    try std.testing.expectError(error.SessionOperationLimitReached, host.admitSessionOperation(session));
 }

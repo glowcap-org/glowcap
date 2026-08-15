@@ -1,20 +1,20 @@
 // Idiomatic JavaScript/TypeScript API for libpancake_net_transport_iroh — pancake's optional
 // encrypted-QUIC (iroh) transport, the `@pancake/iroh` package: a composable
-// companion to the core `@pancake/stack` package.
+// companion to the core `@pancake/runtime` package.
 //
-// The split mirrors the archives: `@pancake/stack` rides `libpancake_ocapn` (the
+// The split mirrors the archives: `@pancake/runtime` rides `libpancake_ocapn` (the
 // pure-Zig codec-neutral CapTP core) and this package rides
 // `libpancake_net_transport_iroh` (a *companion* library that links a Rust iroh sidecar,
 // ADR-0055; it exports only the `pancake_iroh_*` family and shares no core
 // symbol, so it loads alongside `libpancake_ocapn`, not instead of it). A consumer
-// that never speaks iroh installs only `@pancake/stack`; one
+// that never speaks iroh installs only `@pancake/runtime`; one
 // that hosts or explicitly dials over iroh adds this package. The transport-neutral
 // dialer `connect` (in the core) bridges them: it reaches in here with a lazy
 // `import("@pancake/iroh/internal")` only when it parses an `iroh` locator, so the
 // core never hard-depends on the iroh artifact. Application code never imports
-// that internal dial — it uses `connect(locator, reachability[, host])`.
+// that internal dial — it uses `connect(locator, { reachability, host })`.
 //
-//   const server = await listenIroh({ reachability: Reachability.Direct });
+//   const server = await listen({ reachability: Reachability.Direct });
 //   console.log(server.uri);              // hand this to a partner
 //   for await (const session of server) session.serve();
 //
@@ -27,9 +27,9 @@
 
 import { Socket } from "node:net";
 import {
+	bareLocator,
 	type Channel,
-	formatLocatorUri,
-	formatPeerUri,
+	Connector,
 	HANDSHAKE_TIMEOUT_MS,
 	HINT_DIRECT_ADDRESSES,
 	Host,
@@ -40,13 +40,13 @@ import {
 	Session,
 	stringHint,
 	TRANSPORT_IROH,
-} from "@pancake/stack";
-import { DriverListener, DriverLoop } from "@pancake/stack/driver_loop";
+} from "@pancake/runtime";
+import { DriverListener, DriverLoop, DriverServer, retainCleanupFailures } from "@pancake/runtime/transport";
 
-// The `Reachability` posture type is owned by the core `@pancake/stack` (so its
+// The `Reachability` posture type is owned by the core `@pancake/runtime` (so its
 // `connect` and `Host` name it without depending on this optional package); the
 // iroh package re-exports it as the transport that gives it meaning.
-export { Reachability } from "@pancake/stack";
+export { Reachability } from "@pancake/runtime";
 import {
 	ab,
 	CLOSED,
@@ -73,13 +73,20 @@ import {
 	type Symbols,
 	TRANSPORT_PROVIDER_SIZE,
 	WOULD_BLOCK,
-} from "@pancake/stack/ffi";
-import {
-	DISCOVERY_DIAL_MAX_ATTEMPTS,
-	DISCOVERY_DIAL_RETRY_MS,
-	MAX_HANDSHAKE_CONCURRENCY,
-} from "@pancake/abi";
+} from "@pancake/runtime/ffi";
+import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@pancake/abi";
 import { irohS } from "./ffi.ts";
+
+/** Build an iroh locator. Direct addresses are optional because discovery
+ * resolves a bare node id; direct-only deployments publish the hint. */
+export function locator(nodeId: string, directAddresses?: string): Locator {
+	return {
+		transport: TRANSPORT_IROH,
+		designator: nodeId,
+		hints: directAddresses == null ? new Map() : new Map([[HINT_DIRECT_ADDRESSES, directAddresses]]),
+		hintWireForm: directAddresses == null ? "boolean-false" : "map",
+	};
+}
 
 // The calling thread's last error from the iroh transport, or null when there
 // is none. The transport keeps its own thread-local slot, so an iroh call's
@@ -123,7 +130,21 @@ export type IrohConfig = {
 	connectTimeoutMs?: number;
 	idleTimeoutMs?: number;
 	workerThreads?: number;
+	/** Cancel generic driver listener construction before readiness. */
+	signal?: AbortSignal;
 };
+
+export type ListenOptions =
+	| {
+		/** Reuse this 32-byte identity seed across restarts. */
+		readonly seed?: Uint8Array;
+		readonly host?: never;
+	}
+	| {
+		/** Share an existing Host and its session directory. */
+		readonly host: Host;
+		readonly seed?: never;
+	};
 
 const adoptIrohConnection = Symbol("adoptIrohConnection");
 const forgetIrohConnection = Symbol("forgetIrohConnection");
@@ -304,7 +325,7 @@ export class IrohNetlayer {
 		this.#releaseRequested = true;
 		const raw = this.#raw;
 		this.#raw = NULL;
-		this.#releasePromise = Promise.resolve(irohS().pancake_iroh_netlayer_release(raw));
+		this.#releasePromise = Promise.resolve(irohS().pancake_iroh_netlayer_release(raw)).then(irohCheck);
 		await this.#releasePromise;
 	}
 
@@ -377,7 +398,7 @@ export class IrohNetlayer {
 			try {
 				await close;
 			} finally {
-				await irohS().pancake_iroh_netlayer_release(raw);
+				irohCheck(await irohS().pancake_iroh_netlayer_release(raw));
 			}
 		})();
 		return this.#releasePromise;
@@ -917,68 +938,62 @@ async function dialResolving(
 	}
 }
 
-type AttachedProvider = {
-	readonly config: IrohConfig;
-	readonly endpoint: Promise<{ readonly nodeId: string }>;
-};
-
-// Iroh owns its endpoint configuration; the driver owns only provider
-// occupancy. This sidecar state prevents a later dial from silently changing
-// the reachability posture of the endpoint already attached to a loop.
-const attachedProviders = new WeakMap<DriverLoop, AttachedProvider>();
-
-function sameConfig(left: IrohConfig, right: IrohConfig): boolean {
-	return left.reachability === right.reachability &&
-		left.connectTimeoutMs === right.connectTimeoutMs &&
-		left.idleTimeoutMs === right.idleTimeoutMs &&
-		left.workerThreads === right.workerThreads;
-}
-
-/** Attach or reuse this package's resident on a generic driver loop. The loop
- * retains and releases the endpoint; this package remains the sole authority
- * for the endpoint's reachability and runtime configuration. */
+/** Attach this package's resident through the generic provider seam. The
+ * provider decides configuration equivalence; the driver owns occupancy. */
 export async function _ensureIrohProvider(
 	loop: DriverLoop,
 	config: IrohConfig,
-	exactConfig = false,
 ): Promise<{ readonly nodeId: string }> {
-	const existing = attachedProviders.get(loop);
-	if (existing != null) {
-		const compatible = exactConfig
-			? sameConfig(existing.config, config)
-			: existing.config.reachability === config.reachability;
-		if (!compatible) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"iroh endpoint already attached with different configuration",
-			);
-		}
-		return await existing.endpoint;
-	}
-
 	const retainedConfig = { ...config };
-	let state!: AttachedProvider;
-	const endpoint = (async (): Promise<{ readonly nodeId: string }> => {
-		const netlayer = await IrohNetlayer.open(retainedConfig, loop.wrapperHost().seed);
-		try {
-			const nodeId = netlayer.nodeId();
-			await netlayer.installProvider(loop);
-			return { nodeId };
-		} catch (error) {
-			await netlayer.release();
-			throw error;
-		}
-	})().catch((error) => {
-		if (attachedProviders.get(loop) === state) attachedProviders.delete(loop);
+	const netlayer = await IrohNetlayer.open(
+		retainedConfig,
+		loop.wrapperHost().seed,
+		config.signal,
+	);
+	try {
+		const nodeId = netlayer.nodeId();
+		await netlayer.installProvider(loop);
+		return { nodeId };
+	} catch (error) {
+		await netlayer.release();
 		throw error;
+	}
+}
+
+/** Configure an iroh endpoint package for `connect`. Reachability is provider
+ * configuration because it controls endpoint services established at open. */
+export function provider(config: IrohConfig): import("@pancake/runtime").DriverProvider {
+	return {
+		async install(loop) {
+			await _ensureIrohProvider(loop, config);
+		},
+	};
+}
+
+/** Configure an explicit byte-fed iroh connector. Native applications should
+ * normally prefer `provider`; this form is for embedders that deliberately own
+ * the channel pump. */
+export function connector(config: IrohConfig): Connector {
+	return new Connector([TRANSPORT_IROH], async (host, loc, request) => {
+		const directAddresses = stringHint(loc, HINT_DIRECT_ADDRESSES) ?? "";
+		const reachability = request.redeem && directAddresses.length > 0 ? Reachability.Direct : config.reachability;
+		const signals = [config.signal, request.signal].filter(
+			(value): value is AbortSignal => value != null,
+		);
+		const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+		return await _connectIroh(
+			loc.designator,
+			directAddresses,
+			reachability,
+			host,
+			request.handshakeTimeoutMs,
+			signal,
+		);
 	});
-	state = { config: retainedConfig, endpoint };
-	attachedProviders.set(loop, state);
-	return await endpoint;
 }
 
 /** Binding-internal iroh dial behind the core's `connect(locator)`. Application
- * code dials through `connect(locator, reachability[, host])` only. The local
+ * code dials through `connect(locator, { reachability, host })` only. The local
  * endpoint is ephemeral and released with the connection. `reachability` is
  * required. Needs the iroh ABI library (`zig build iroh-abi`).
  *
@@ -1035,7 +1050,9 @@ export async function _connectIroh(
 	// the host's live-session directory agrees — what a three-party handoff requires
 	// (ADR-0009/ADR-0056).
 	const transport = new IrohChannel(conn, loop, netlayer, true);
-	const cancelTransport = (): void => void transport.close();
+	const cancelTransport = (): void => {
+		void transport.close().catch((error) => host.recordCallerlessBindingFailure("iroh.abort.cleanup", error));
+	};
 	if (signal?.aborted) {
 		cancelTransport();
 		throw new PancakeError(CLOSED, "host released while dialing");
@@ -1048,8 +1065,7 @@ export async function _connectIroh(
 	try {
 		return await Session.establishDialedLocator(
 			host,
-			TRANSPORT_IROH,
-			nodeId,
+			bareLocator(TRANSPORT_IROH, nodeId),
 			transport,
 			handshakeTimeoutMs,
 			conn.remoteNodeId(),
@@ -1104,13 +1120,11 @@ export async function dialLocatorForRelay(
 
 /** The iroh view over the binding's generic driver listener owner. The
  * resident owns endpoint I/O and this class projects only iroh metadata. */
-export class IrohServer {
-	readonly #listener: DriverListener;
+export class IrohServer extends DriverServer {
 	readonly #nodeId: string;
-	#closed = false;
 
-	constructor(listener: DriverListener, nodeId: string) {
-		this.#listener = listener;
+	constructor(listener: DriverListener, nodeId: string, ownedLoop?: DriverLoop) {
+		super({ listener, ownedLoop });
 		this.#nodeId = nodeId;
 	}
 
@@ -1118,53 +1132,8 @@ export class IrohServer {
 		return this.#nodeId;
 	}
 
-	get host(): Host {
-		return this.#listener.host;
-	}
-
 	get directAddresses(): string {
-		return stringHint(this.#listenerLocator(), HINT_DIRECT_ADDRESSES) ?? "";
-	}
-
-	get uri(): string {
-		if (this.#closed) throw new PancakeError(CLOSED, "iroh server is closed");
-		return formatLocatorUri(this.#listener.locator());
-	}
-
-	#listenerLocator(): Locator {
-		if (this.#closed) throw new PancakeError(CLOSED, "iroh server is closed");
-		return this.#listener.locator();
-	}
-
-	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
-		try {
-			while (true) {
-				const session = await this.#listener.accept();
-				if (session == null) return;
-				yield session;
-			}
-		} finally {
-			await this.stopAdmission();
-		}
-	}
-
-	close(): void {
-		if (this.#closed) return;
-		this.#listener.close();
-		this.#closed = true;
-	}
-
-	stopAdmission(): Promise<void> {
-		try {
-			this.close();
-			return Promise.resolve();
-		} catch (error) {
-			return Promise.reject(error);
-		}
-	}
-
-	async [Symbol.asyncDispose](): Promise<void> {
-		await this.stopAdmission();
+		return stringHint(this.locator, HINT_DIRECT_ADDRESSES) ?? "";
 	}
 }
 
@@ -1181,43 +1150,49 @@ export class IrohServer {
  * A server that treats a live session as presence should set
  * `config.idleTimeoutMs`, because that is what ends a connection whose peer was
  * killed rather than closed and so lets `serve()` settle. */
-export async function listenIroh(
+export async function listen(
 	config: IrohConfig,
-	secretSeed?: Uint8Array,
-	host?: Host,
+	options: ListenOptions = {},
 ): Promise<IrohServer> {
-	const seed = secretSeed ?? host?.seed ?? crypto.getRandomValues(new Uint8Array(32));
-	if (secretSeed != null && secretSeed.length !== 32) {
-		throw new PancakeError(INVALID_ARGUMENT, "listenIroh: secretSeed must be 32 bytes");
+	const { seed: suppliedSeed, host } = options;
+	const seed = suppliedSeed ?? host?.seed ?? crypto.getRandomValues(new Uint8Array(32));
+	if (suppliedSeed != null && suppliedSeed.length !== 32) {
+		throw new PancakeError(INVALID_ARGUMENT, "listen: seed must be 32 bytes");
 	}
-	if (secretSeed != null && host != null) {
-		if (secretSeed.length !== 32 || host.seed.length !== 32) {
-			throw new PancakeError(INVALID_ARGUMENT, "listenIroh: seed must be 32 bytes");
-		}
-		for (let i = 0; i < 32; i++) {
-			if (secretSeed[i] !== host.seed[i]) {
-				throw new PancakeError(
-					INVALID_ARGUMENT,
-					"listenIroh: host seed must match secretSeed (one identity for endpoint and Host)",
-				);
-			}
-		}
+	if (suppliedSeed != null && host != null) {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			"listen: seed and host are alternative identity sources",
+		);
 	}
 	const existingLoop = host?.driverLoop;
 	const loop = existingLoop == null
 		? host == null ? DriverLoop.open({ seed }) : DriverLoop.takeHost(host)
 		: existingLoop as DriverLoop;
-	const createdLoop = existingLoop == null;
+	let listener: DriverListener | null = null;
 	try {
-		const endpoint = await _ensureIrohProvider(loop, config, true);
+		const endpoint = await _ensureIrohProvider(loop, config);
 		const endpointNodeId = endpoint.nodeId;
-		const listener = DriverListener.open(loop, TRANSPORT_IROH, endpointNodeId);
+		listener = await DriverListener.open(
+			loop,
+			TRANSPORT_IROH,
+			endpointNodeId,
+			config.signal,
+		);
 		listener.select();
-		const server = new IrohServer(listener, endpointNodeId);
-		loop.start();
+		const server = new IrohServer(
+			listener,
+			endpointNodeId,
+			host == null ? loop : undefined,
+		);
+		listener = null;
 		return server;
 	} catch (error) {
-		if (createdLoop) await loop.close();
+		const cleanups: Array<() => void | Promise<void>> = [];
+		const failedListener = listener;
+		if (failedListener != null) cleanups.push(() => failedListener.close());
+		if (host == null) cleanups.push(() => loop.close());
+		await retainCleanupFailures(error, cleanups);
 		throw error;
 	}
 }

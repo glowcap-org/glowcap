@@ -65,29 +65,32 @@ const darwin_evfilt_read: i16 = -1;
 const darwin_ev_add: u16 = 0x0001;
 const darwin_ev_delete: u16 = 0x0002;
 
-pub const Error = error{ReadinessUnavailable};
+pub const InitError = error{ReadinessUnavailable};
+pub const UpdateError = error{ReadinessUpdateFailed};
+pub const DrainError = error{ReadinessDrainFailed};
 
 pub const ReadySet = struct {
     /// The pollable set descriptor an embedder parks on.
     fd: i32,
     /// The cross-thread wake, a member of the set from birth.
     wake: wake_channel.WakeChannel,
+    wake_failure: wake_channel.FailureLatch = .{},
 
-    pub fn init() Error!ReadySet {
+    pub fn init() InitError!ReadySet {
         const set_fd: i32 = if (is_linux) blk: {
             const rc = linux.epoll_create1(linux.EPOLL.CLOEXEC);
-            if (linux.errno(rc) != .SUCCESS) return Error.ReadinessUnavailable;
+            if (linux.errno(rc) != .SUCCESS) return error.ReadinessUnavailable;
             break :blk @intCast(rc);
         } else if (is_darwin) blk: {
             const kq = kqueue();
-            if (kq < 0) return Error.ReadinessUnavailable;
+            if (kq < 0) return error.ReadinessUnavailable;
             break :blk kq;
-        } else return Error.ReadinessUnavailable;
+        } else return error.ReadinessUnavailable;
         errdefer closeFd(set_fd);
-        const wake = wake_channel.WakeChannel.open() catch return Error.ReadinessUnavailable;
+        const wake = wake_channel.WakeChannel.open() catch return error.ReadinessUnavailable;
         errdefer wake.deinit();
         var set = ReadySet{ .fd = set_fd, .wake = wake };
-        try set.add(wake.read);
+        set.add(wake.read) catch return error.ReadinessUnavailable;
         return set;
     }
 
@@ -106,13 +109,13 @@ pub const ReadySet = struct {
 
     /// Register readable interest in `fd`. Idempotent: a member already in
     /// the set is left as it was.
-    pub fn add(self: *ReadySet, fd: i32) Error!void {
+    pub fn add(self: *ReadySet, fd: i32) UpdateError!void {
         if (is_linux) {
             var ev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .fd = fd } };
             const rc = linux.epoll_ctl(self.fd, linux.EPOLL.CTL_ADD, fd, &ev);
             switch (linux.errno(rc)) {
                 .SUCCESS, .EXIST => {},
-                else => return Error.ReadinessUnavailable,
+                else => return error.ReadinessUpdateFailed,
             }
         } else if (is_darwin) {
             var change = DarwinKevent{
@@ -124,17 +127,21 @@ pub const ReadySet = struct {
                 .udata = 0,
             };
             if (kevent(self.fd, @ptrCast(&change), 1, null, 0, null) < 0) {
-                return Error.ReadinessUnavailable;
+                return error.ReadinessUpdateFailed;
             }
-        } else return Error.ReadinessUnavailable;
+        } else return error.ReadinessUpdateFailed;
     }
 
     /// Drop `fd` from the set. Tolerant of an fd that already left, because
     /// the close path and the release path sweep the same wire.
-    pub fn remove(self: *ReadySet, fd: i32) void {
+    pub fn remove(self: *ReadySet, fd: i32) UpdateError!void {
         if (is_linux) {
             var ev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .fd = fd } };
-            _ = linux.epoll_ctl(self.fd, linux.EPOLL.CTL_DEL, fd, &ev);
+            const rc = linux.epoll_ctl(self.fd, linux.EPOLL.CTL_DEL, fd, &ev);
+            switch (linux.errno(rc)) {
+                .SUCCESS, .NOENT => {},
+                else => return error.ReadinessUpdateFailed,
+            }
         } else if (is_darwin) {
             var change = DarwinKevent{
                 .ident = @intCast(fd),
@@ -144,16 +151,21 @@ pub const ReadySet = struct {
                 .data = 0,
                 .udata = 0,
             };
-            _ = kevent(self.fd, @ptrCast(&change), 1, null, 0, null);
-        }
+            const rc = kevent(self.fd, @ptrCast(&change), 1, null, 0, null);
+            if (rc < 0 and std.c.errno(rc) != .NOENT)
+                return error.ReadinessUpdateFailed;
+        } else return error.ReadinessUpdateFailed;
     }
 
     /// Make the set readable from any thread, so a parked owner returns and
-    /// re-enters its step. Best-effort under the wake-channel invariant: a
-    /// refused write means unread wake bytes already hold the set readable,
-    /// so no wake is lost.
-    pub fn postWake(self: *const ReadySet) void {
-        self.wake.nudge();
+    /// re-enters its step. A full channel is a successful coalesced wake; a
+    /// broken channel is returned to the runtime that owns the parked work.
+    pub fn postWake(self: *ReadySet) wake_channel.Failure!void {
+        try self.wake_failure.check();
+        _ = self.wake.nudge() catch |err| {
+            self.wake_failure.record(err);
+            return err;
+        };
     }
 
     /// The wake channel's read half, for a wait that polls it as its own row
@@ -167,26 +179,35 @@ pub const ReadySet = struct {
     /// forever. Darwin also requires draining queued kqueue notifications:
     /// polling the kqueue fd makes it readable, but the event stays queued
     /// until a `kevent` read consumes it.
-    pub fn drainWake(self: *const ReadySet) void {
-        self.wake.drain();
-        self.drainQueuedEvents();
+    pub fn drainWake(self: *ReadySet) (wake_channel.Failure || DrainError)!void {
+        try self.wake_failure.check();
+        self.wake.drain() catch |err| {
+            self.wake_failure.record(err);
+            return err;
+        };
+        try self.drainQueuedEvents();
     }
 
-    fn drainQueuedEvents(self: *const ReadySet) void {
+    fn drainQueuedEvents(self: *const ReadySet) DrainError!void {
         if (!is_darwin) return;
         var events: [32]DarwinKevent = undefined;
         var timeout = DarwinTimespec{ .tv_sec = 0, .tv_nsec = 0 };
         // One read consumes the queued wake notification. Do not loop: read
         // filters are level-triggered, so a genuinely readable member would
         // be returned forever until its owning transport services it.
-        _ = kevent(
-            self.fd,
-            null,
-            0,
-            &events,
-            @intCast(events.len),
-            @ptrCast(&timeout),
-        );
+        while (true) {
+            const rc = kevent(
+                self.fd,
+                null,
+                0,
+                &events,
+                @intCast(events.len),
+                @ptrCast(&timeout),
+            );
+            if (rc >= 0) return;
+            if (std.c.errno(rc) == .INTR) continue;
+            return error.ReadinessDrainFailed;
+        }
     }
 };
 

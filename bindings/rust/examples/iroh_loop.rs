@@ -3,7 +3,7 @@
 //! `zig build iroh-loop` gate.
 //!
 //! The iroh netlayer has one I/O model — an event-driven readiness loop. This
-//! gate proves it through the binding: one [`IrohServer`] runs a single readiness
+//! gate proves it through the binding: one [`Server`] runs a single readiness
 //! loop (an `AsyncFd` over the endpoint's readiness fd, ADR-0057) and serves
 //! every accepted connection's peer from the one tokio current-thread runtime.
 //! Many clients dial it at once, each over its own iroh endpoint, fetch the
@@ -21,11 +21,9 @@
 
 use std::rc::Rc;
 
-use pancake_rust_dogfood::iroh::IrohStream;
-use pancake_rust_dogfood::{
-	connect, format_peer_uri, listen_iroh, Argument, IrohConfig, Reachability, Session,
-	TRANSPORT_IROH,
-};
+use pancake_rust_dogfood::iroh::Reachability;
+use pancake_rust_dogfood::iroh::Stream;
+use pancake_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session};
 use tokio::io::AsyncWriteExt;
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -48,7 +46,13 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn run() -> Result<(), Fail> {
-	let server = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
+	let server = Rc::new(
+		iroh::listen(
+			iroh::Config::new(Reachability::LocalDiscovery),
+			iroh::ListenOptions::default(),
+		)
+		.await?,
+	);
 	let server_id = server.node_id().to_string();
 	println!("rust-iroh-loop: server endpoint id {server_id}");
 
@@ -68,7 +72,7 @@ async fn run() -> Result<(), Fail> {
 
 	// A valid but incomplete outer frame occupies one handshake lane. Later
 	// clients must still complete before that lane's handshake timeout expires.
-	let mut silent = IrohStream::connect(&server_id, "", Reachability::LocalDiscovery).await?;
+	let mut silent = Stream::connect(&server_id, "", Reachability::LocalDiscovery).await?;
 	silent.write_all(b"1").await?;
 
 	// Fan out all clients at once: they share nothing, so the only thing that can
@@ -106,11 +110,17 @@ async fn run() -> Result<(), Fail> {
 
 	// Host teardown owns admission on every transport. A task parked on iroh's
 	// reactor must wake terminally rather than retaining the endpoint.
-	let closing = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
+	let closing = Rc::new(
+		iroh::listen(
+			iroh::Config::new(Reachability::LocalDiscovery),
+			iroh::ListenOptions::default(),
+		)
+		.await?,
+	);
 	let accept_server = Rc::clone(&closing);
 	let pending_accept = tokio::task::spawn_local(async move { accept_server.accept().await });
 	tokio::task::yield_now().await;
-	closing.host().close();
+	closing.host().close(PendingWork::Cancel).await?;
 	let closed_accept = tokio::time::timeout(std::time::Duration::from_secs(2), pending_accept)
 		.await
 		.map_err(|_| "Host release did not wake iroh accept")??;
@@ -120,9 +130,9 @@ async fn run() -> Result<(), Fail> {
 	closing.close()?;
 
 	println!(
-        "rust-iroh-loop: OK, {NUM_CONNS} concurrent iroh connections, {CALLS_PER_CONN} calls each, \
+		"rust-iroh-loop: OK, {NUM_CONNS} concurrent iroh connections, {CALLS_PER_CONN} calls each, \
          served from one loop over the readiness fd + non-blocking frame I/O"
-    );
+	);
 	Ok(())
 }
 
@@ -139,8 +149,12 @@ fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
 // local-discovery book resolves it), fetch the greeter, and call it
 // `CALLS_PER_CONN` times, checking every reply.
 async fn client_once(server_id: String) -> Result<(), Fail> {
-	let locator = format_peer_uri(TRANSPORT_IROH, &server_id, &Default::default())?;
-	let session = connect(&locator, Some(Reachability::LocalDiscovery), None).await?;
+	let locator = pancake_rust_dogfood::iroh::locator(&server_id, None);
+	let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
+		Reachability::LocalDiscovery,
+	))]))
+	.await?;
+	let session = runtime.connect(&locator, ConnectOptions::default()).await?;
 	let greeter = session.fetch("greeter").await?;
 	for _ in 0..CALLS_PER_CONN {
 		let reply = session
@@ -150,6 +164,6 @@ async fn client_once(server_id: String) -> Result<(), Fail> {
 			return Err(format!("wrong reply: {reply:?}").into());
 		}
 	}
-	session.close();
+	session.close(PendingWork::Cancel).await?;
 	Ok(())
 }

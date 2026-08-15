@@ -20,6 +20,13 @@
 # It is the lifecycle detail of an existing step, not a new user command — the
 # public `zig build docs-serve` is unchanged.
 #
+# It also keeps generated site example tabs fresh. Zine watches `site/content`
+# and reloads when those pages change; CapTP transport snippets live under
+# `site/examples/` and only land in the pages after `gen-site-examples`. A
+# background poll regenerates when snippets (or the assembler) change, so the
+# preview does not stay stale until someone remembers the gen step. Expensive
+# steps such as `bench-site-report` stay opt-in.
+#
 # Residual limit: SIGKILL is untrappable — a SIGKILL of this launcher (or of an
 # ancestor in a way that never lets the watcher run) cannot be intercepted, and
 # the isolated inner group may briefly outlive it. Likewise, a bare single-pid
@@ -35,6 +42,85 @@ set -u
 
 zig="${1:?usage: docs-serve.sh <zig-exe> <build-args...>}"
 shift
+
+# Zine defaults to 1990, which is also commonly held by an editor or a
+# devcontainer port forward. Keep the zero-argument command useful by choosing
+# the first free preview port; an explicit -Dport remains exact and fails if
+# its requested port is unavailable.
+has_port=false
+for arg in "$@"; do
+  case "${arg}" in
+    -Dport=*) has_port=true ;;
+  esac
+done
+if [ "${has_port}" = false ]; then
+  port=1990
+  while [ "${port}" -lt 2000 ] && (printf '' >"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; do
+    port=$((port + 1))
+  done
+  if [ "${port}" -ge 2000 ]; then
+    echo "docs-serve: no free preview port in 1990-1999" >&2
+    exit 1
+  fi
+  echo "docs-serve: using http://127.0.0.1:${port}/" >&2
+  set -- "$@" "-Dport=${port}"
+fi
+
+# Fingerprint of every input `gen-site-examples` reads. Content checksum, not
+# mtime: same-second edits still register, and the poll stays dependency-free
+# (no inotify/entr).
+examples_stamp() {
+  {
+    find site/examples -type f 2>/dev/null
+    printf '%s\n' tools/gen/site_examples.zig
+  } | LC_ALL=C sort | while IFS= read -r path; do
+    [ -f "${path}" ] || continue
+    # path + bytes: renaming or editing either one invalidates the stamp
+    printf '%s\0' "${path}"
+    cat "${path}"
+  done | cksum
+}
+
+# ui/tokens.css is the authority; site/assets/tokens.css is a symlink. Zine
+# watches under site/, and a symlink target edit does not always notify, so
+# nudge style.css (which @imports the tokens) when the authority changes.
+ui_tokens_stamp() {
+  if [ -f ui/tokens.css ]; then
+    cksum <ui/tokens.css
+  else
+    printf 'missing\n'
+  fi
+}
+
+# Keep generated tabs and shared UI tokens in step with Zine's reload loop.
+# Runs in this launcher's process group (not the inner Zine group) so reap of
+# the Zine subtree never kills a mid-flight `zig build gen-site-examples`.
+examples_watch_loop() {
+  local stamp tokens
+  stamp="$(examples_stamp)"
+  tokens="$(ui_tokens_stamp)"
+  while true; do
+    sleep 1
+    local next next_tokens
+    next="$(examples_stamp)"
+    if [ "${next}" != "${stamp}" ]; then
+      stamp="${next}"
+      echo "docs-serve: site/examples changed; regenerating tabs…" >&2
+      if ! "${zig}" build gen-site-examples; then
+        echo "docs-serve: gen-site-examples failed (preview may be stale)" >&2
+      fi
+    fi
+    next_tokens="$(ui_tokens_stamp)"
+    if [ "${next_tokens}" != "${tokens}" ]; then
+      tokens="${next_tokens}"
+      echo "docs-serve: ui/tokens.css changed; nudging site CSS watch…" >&2
+      touch site/assets/style.css 2>/dev/null || true
+    fi
+  done
+}
+
+examples_watch_loop &
+examples_watcher=$!
 
 # The inner build needs its own process group, so that the reap below can signal
 # the whole subtree — the inner zig build runner and the Zine server it spawns —
@@ -67,6 +153,11 @@ reap() {
   kill -KILL -- "-${inner_pgid}" 2>/dev/null || true
 }
 
+stop_side_watchers() {
+  kill "${examples_watcher}" 2>/dev/null || true
+  wait "${examples_watcher}" 2>/dev/null || true
+}
+
 # Ancestors whose exit means this preview is over: our direct parent (the inner
 # build runner that `zig build` spawned) and its parent (the outer
 # `zig build docs-serve` the user launched). A signal aimed only at an ancestor
@@ -83,14 +174,15 @@ outer=$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' ')
 ) &
 watcher=$!
 
-trap 'reap; kill "${watcher}" 2>/dev/null; trap - EXIT; exit 130' INT
-trap 'reap; kill "${watcher}" 2>/dev/null; trap - EXIT; exit 143' TERM
-trap 'reap; kill "${watcher}" 2>/dev/null; trap - EXIT; exit 129' HUP
-trap 'reap; kill "${watcher}" 2>/dev/null' EXIT
+trap 'reap; stop_side_watchers; kill "${watcher}" 2>/dev/null; trap - EXIT; exit 130' INT
+trap 'reap; stop_side_watchers; kill "${watcher}" 2>/dev/null; trap - EXIT; exit 143' TERM
+trap 'reap; stop_side_watchers; kill "${watcher}" 2>/dev/null; trap - EXIT; exit 129' HUP
+trap 'reap; stop_side_watchers; kill "${watcher}" 2>/dev/null' EXIT
 
 wait "${inner_pgid}"
 status=$?
 trap - EXIT
 kill "${watcher}" 2>/dev/null || true
+stop_side_watchers
 reap
 exit "${status}"

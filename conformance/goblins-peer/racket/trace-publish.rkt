@@ -65,7 +65,7 @@
 ;; and this is how the vat's own end is named on screen. This word must never
 ;; be folded into the one pancake's bindings state: it is a different producer
 ;; reporting a different fact, and a shared constant would erase exactly the
-;; distinction the field exists to carry. `zig build meta-check`
+;; distinction the field exists to carry. `zig build source-check`
 ;; (`checkTraceViewerVocabulary`) pins both words so neither can drift into the
 ;; other.
 (define self-profile "goblins")
@@ -348,7 +348,7 @@
   ;; carried by the endpoint into the state it replays to viewers, unbounded,
   ;; and read by nobody.
   ;;
-  ;; The schema is `TraceEvent` in `bindings/ts/stack/trace.ts`, which is where
+  ;; The schema is `TraceEvent` in `bindings/ts/runtime/trace.ts`, which is where
   ;; to go when this fires: either the field belongs there and this list has
   ;; not caught up, or it does not and the record should not be saying it.
   (check-equal? (sort (map symbol->string (hash-keys opened)) string<?)

@@ -171,8 +171,11 @@ matter which vocabulary the caller speaks.
 - **Session.deinit**: an accepted view releases its one session
   (`core.releaseSession` breaks its parked vows, fail-closes its sibling
   answers, frees the shell) and closes its wire. A connect-owned view tears
-  down the whole private bundle. `Server.close` sweeps every remaining
-  session, then the listener, then the host.
+  down the whole private bundle. `Server.close` stops listener admission and
+  returns the final runtime teardown outcome when its lease is last; already
+  yielded sessions retain their leases and remain usable. Implicit destruction
+  sends an otherwise callerless teardown failure to the process-installed
+  `SessionOptions.unhandled_failure` observer.
 
 ### Boundaries (hard, not advisory)
 
@@ -184,9 +187,9 @@ matter which vocabulary the caller speaks.
 - **One thread drives one `driver.HostRuntime`** — inherited from the core's
   unsynchronized contract and its debug owner assert.
 - Redeem connect inherits its provider. Driver providers begin connects
-  nonblocking; a native Zig stream netlayer without staged-dial support keeps
-  the blocking fallback, whose connect syscall is outside the handshake
-  budget. The handshake itself remains bounded either way.
+  nonblocking; a native Zig stream netlayer may instead declare the blocking
+  arm of its one tagged dial operation, whose connect syscall is outside the
+  handshake budget. The handshake itself remains bounded either way.
 - No 500k claim: the owning face is the application tier. Its per-session
   cost — shell + peer + two wire buffers — and its per-host cost — one
   node — are named in the memory rule; the completion loop remains the scale

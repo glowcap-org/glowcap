@@ -7,24 +7,27 @@ CPython 3.11 or newer on an LP64 platform is required.
 ```python
 import asyncio
 
-from pancake import connect, tcp_locator, VowBroken
+from pancake import Runtime, tcp, VowBroken
 
 
 async def main():
-    session = await connect(tcp_locator("127.0.0.1", 9099))
-    session.serve()
-
-    greeter = await session.fetch("greeter")
-    try:
-        print(await session.send(greeter, "greet", ["world"]))
-    except VowBroken as reason:
-        print(f"the greeter refused: {reason}")
-
-    await session.close()
+    peer_key = "<64 lowercase hex characters from the server>"
+    async with Runtime.open(provider=tcp.provider()) as runtime:
+        async with await runtime.connect(
+            tcp.noise.locator(peer_key, "127.0.0.1", 9099)
+        ) as session:
+            greeter = await session.fetch("greeter")
+            try:
+                print(await session.send(greeter, "greet", ["world"]))
+            except VowBroken as reason:
+                print(f"the greeter refused: {reason}")
 
 
 asyncio.run(main())
 ```
+
+`fetch` and `send` start the inbound loop on demand, so a client that only
+makes calls does not need `session.serve()`.
 
 ## Sessions and actors
 
@@ -32,26 +35,32 @@ Python values map directly to pancake values: integers, floats, booleans,
 bytes, strings, and lists, plus `Symbol`, `Keyword`, `Set`, `Tagged`, and the
 capability type `Ref`.
 
-`await listen(host, port)` returns a `Server` whose iterator yields a `Session`
-for each partner. `publish` and `spawn` host ordinary Python callables. `send`
-returns a `RemotePromise`, implemented as an `asyncio.Future`, and that promise
-can be the target of another send.
+`await tcp.listen(host, port)` returns a `tcp.Server` whose iterator yields a
+`Session` for each partner. `publish` and `spawn` host ordinary Python
+callables. `send` returns a `RemotePromise`, implemented as an
+`asyncio.Future`, and that promise can be the target of another send.
 
-Under `connect` and `listen`, a `tcp`, `keyed-tcp`, `noise-tcp`, or `iroh`
+Under `Runtime` and `listen`, a `tcp`, `keyed-tcp`, `noise-tcp`, or `iroh`
 connection runs on pancake's native loop posture: Python loads the separate
 Host and driver archives, and one stepping native loop owns the provider,
 framing, pumping, and session release while asyncio parks on its readiness
-descriptor. The TCP archive supplies the complete TCP provider package; the
-driver starts with no providers and receives it through the common provider
-ABI. A routed `keyed-relay` or `noise-relay` locator likewise loads the relay
-archive and installs its complete provider package. Both roads carry the same
-`Session` surface.
+descriptor. The application supplies `tcp.provider(config)`,
+`iroh.provider(config)`, or another transport package explicitly; the driver
+starts with no providers and receives the selected package through the common
+provider ABI. A routed `keyed-relay` or `noise-relay` locator likewise loads
+the relay archive and installs its complete provider package. Both roads carry
+the same `Session` surface.
 
-`listen_keyed_tcp` and `listen_noise_tcp` return native-loop servers whose
-`uri()` is ready to hand to `connect`; pass a 32-byte `seed` to keep a durable
-designator across restarts. The native loop owns admission policy. A wildcard
-`bind_host` requires `advertised_host`, the dialable name or address placed in
-the Host locator; pancake does not guess that reachability from the bind.
+`Runtime.open(adopt_host=host, ...)` explicitly transfers an existing Host into
+the Runtime. `await runtime.close()` is then that Host's terminal shutdown
+barrier.
+
+`tcp.listen`, `tcp.keyed.listen`, and `tcp.noise.listen` return the same
+`tcp.Server` surface. Its canonical `locator` and `uri` are ready to hand to
+`Runtime.connect`; pass a 32-byte `seed` to keep a durable designator across restarts.
+The native loop owns admission. A wildcard `bind_host` requires
+`advertised_host`, the dialable name or address placed in the Host locator;
+pancake does not guess that reachability from the bind.
 
 A shared host makes handoff transparent across several sessions. The less
 common `send_redeeming` call returns both the answer and `via`, the direct
@@ -63,21 +72,22 @@ only in the session where it was exported.
 | Module | Purpose |
 | --- | --- |
 | `pancake` | Async sessions, hosts, values, locators, and actors. |
-| `pancake.tcp` | Blocking TCP netlayer, listener, and connection handles. |
+| `pancake.tcp` | Typed TCP-profile locators, the complete provider package, and blocking frame handles. |
 | `pancake.inproc` | Blocking in-process connections. |
-| `pancake.onion` | Tor onion connections, through a Tor daemon you run. Both handles expose `readiness_fd()` for a caller with its own loop. |
-| `pancake.iroh` | Optional encrypted QUIC and `listen_iroh`. |
+| `pancake.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for an embedder-owned loop. |
+| `pancake.iroh` | Optional encrypted QUIC and `listen`. |
 | `pancake.relay` | Native `keyed-relay`/`noise-relay` provider composition. |
 
-`connect` loads `pancake.iroh` only when it sees an iroh locator. A TCP-only
-program never loads that library.
+The application imports only the transport modules it composes. A TCP-only
+program never loads the iroh library.
 
 A `keyed-relay` locator names a peer that opens no socket and holds inbound
 connections at a relay under its key. When the locator carries a
-`rendezvous-relay` hint, `connect` routes through the native relay provider.
-For a bare locator, assign `Host.rendezvous_url` (the mapping from designator
-to the relay's rendezvous WebSocket URL); `connect` then uses the explicit
-WebSocket byte-channel fallback. That fallback's client is the one optional
+`rendezvous-relay` hint, `Runtime.connect` routes through the native relay provider.
+For a bare locator, use `relay.connector(config)`: the route comes from the
+locator's hint or the connector's own configuration, the same two authorities
+every binding reads. The connector is an explicit byte-fed
+integration, not an automatic fallback. Its client is the one optional
 dependency, kept out of the core: install `pancake[rendezvous]`. Repository
 proofs resolve that extra from the committed lock with
 `uv run --project bindings/python --extra rendezvous --locked`.

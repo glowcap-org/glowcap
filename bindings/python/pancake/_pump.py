@@ -6,7 +6,7 @@ read raw bytes off the transport, hand them to the core's stream delimiter
 ``pancake_host_session_feed_bytes`` (which owns framing), drain the host's
 action queue, and write what ``take_outbound`` drains — plus the keyed
 handshake, the feed-refusal path (``last_abort``), and the EOF teardown that
-``break_far_vows`` classifies as closure. Session methods wrap these through
+``transport_closed`` reports to the core. Session methods wrap these through
 binding-internal seams (``raw`` / ``host`` / …); CapTP verbs stay
 in :mod:`pancake._session`.
 """
@@ -51,39 +51,66 @@ async def _run_handshake(session) -> None:
 
 
 async def _serve_loop(session) -> None:
+    failure: BaseException | None = None
     try:
         # Frames that rode behind the handshake's tail wait in the session's
         # own tail; an empty feed dispatches them before parking on the wire.
         await _feed(session, b"")
         while True:
             if session.released:
-                return
+                break
             chunk = await session.transport.read()
             if chunk is None:
-                return  # clean EOF
+                # Leave the read loop, then report transport closure and
+                # retire the wrapper below. Returning here would resolve
+                # serve() while the Host still indexed a dead session.
+                session.mark_transport_lost()
+                break  # clean EOF
             await _feed(session, chunk)
-    except (asyncio.CancelledError, OSError):
+    except (asyncio.CancelledError, OSError) as error:
         # A read cancelled by our own close is a clean shutdown; any other
         # failure is a real fault the awaiting caller should see.
         if not session.is_closing:
-            raise
-    finally:
-        # The wire is gone: pending far vows can never settle, so break
-        # them (classified as closure — `_closing` is set first) and
-        # release the conn, freeing the fd. Idempotent with an application
-        # `close()`.
+            session.mark_transport_lost()
+            session.record_wire_failure(error)
+            failure = error
+    except BaseException as error:
         if not session.is_closing:
-            session.closing_flag = True
-            try:
-                msg = b"connection closed"
-                buf, ptr = _byte_buf(msg)
-                _check_host(_host.pancake_host_session_break_far_vows(
-                    session.raw, ptr, len(msg),
-                ))
-                await session.host.kick_actions()
-            except Exception:
-                pass  # teardown is best-effort; release still reclaims the rows
+            session.mark_transport_lost()
+            session.record_wire_failure(error)
+            failure = error
+
+    # Preserve a feed/read failure as primary. On a clean EOF, failure to tell
+    # the core that the wire disappeared is itself the serve failure; it must
+    # not look like a successful end of stream. An application-driven close
+    # already has its own result path, so its redundant report remains cleanup.
+    if not session.released:
+        was_closing = session.is_closing
+        session.closing_flag = True
+        try:
+            msg = b"connection closed"
+            buf, ptr = _byte_buf(msg)
+            _check_host(_host.pancake_host_session_transport_closed(
+                session.raw, ptr, len(msg),
+            ))
+            # The physical loss retires close-relevant session state; wake
+            # any parked close driver.
+            session.host.signal_close_activity()
+            await session.host.kick_actions()
+        except BaseException as error:
+            if failure is None and not was_closing:
+                session.record_wire_failure(error)
+                failure = error
+        try:
             session.close_transport()
+        except BaseException as error:
+            if failure is None and not was_closing:
+                session.record_wire_failure(error)
+                failure = error
+
+    if failure is not None:
+        raise failure
+    session.raise_wire_failure()
 
 
 async def _feed(session, chunk: bytes) -> None:
@@ -108,6 +135,9 @@ async def _feed(session, chunk: bytes) -> None:
         finally:
             _exit_deliver(prior)
         session.host.drain_parked_releases()
+        # The feed dispatched frames and may have advanced close-relevant
+        # state even when it queued no action; wake any parked close driver.
+        session.host.signal_close_activity()
         if rc == _OK:
             break
         if rc == _WOULD_BLOCK:
@@ -124,11 +154,15 @@ async def _raise_feed_refusal(session, rc: int) -> None:
     # FLUSH — not a private take_outbound path.
     message = _host_last_error()
     abort = last_abort(session)
+    drain_failure: BaseException | None = None
     try:
         await session.host.kick_actions()
-    except Exception:
-        pass  # the transport may already be gone; the local typed error stands
-    raise PancakeError(rc, message, abort=abort)
+    except BaseException as error:
+        drain_failure = error
+    refusal = PancakeError(rc, message, abort=abort)
+    if drain_failure is not None:
+        raise refusal from drain_failure
+    raise refusal
 
 
 def last_abort(session) -> Optional[AbortDetail]:
@@ -152,6 +186,17 @@ def last_abort(session) -> Optional[AbortDetail]:
         kind=text(info.kind_name, info.kind_name_len) if info.has_kind else None,
         message=text(info.message, info.message_len),
         error_name=text(info.error_name, info.error_name_len),
+        abort_delivery_error_name=(
+            text(info.abort_delivery_error_name, info.abort_delivery_error_name_len)
+            if info.abort_delivery_error_name_len
+            else None
+        ),
+        secondary_error_name=(
+            text(info.secondary_error_name, info.secondary_error_name_len)
+            if info.secondary_error_name_len
+            else None
+        ),
+        secondary_error_count=info.secondary_error_count,
     )
 
 
@@ -184,9 +229,10 @@ async def flush_outbound(session) -> None:
                 if prefix_len.value:
                     await session.transport.write(bytes(prefix[:prefix_len.value]))
                 await session.transport.write(frame)
-        except BaseException:
+        except BaseException as error:
             # `take_outbound` transferred the frame and a failed/cancelled
             # write may have put only a prefix on the stream. The session is
             # no longer retryable; release it so every far vow settles closed.
+            session.record_outbound_failure(error)
             session.close_transport()
             raise

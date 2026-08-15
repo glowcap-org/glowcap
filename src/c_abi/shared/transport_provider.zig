@@ -4,6 +4,12 @@
 //! descriptors; multiplexed transports keep one shared readiness descriptor and
 //! stable connection ids through `PancakeMultiplexedTransport`. The driver normalizes
 //! registration and locator semantics, not incompatible ownership models.
+//!
+//! Handle-producing callbacks transfer outputs only when they return
+//! `PANCAKE_OK`. On every other status the provider retains and cleans any
+//! partial work and leaves output slots untouched. `finish_connect` and
+//! `finish_listen` consume their input attempt on every return; cancel is only
+//! for an attempt that was never passed to finish.
 
 const model = @import("model");
 const locator = @import("locator.zig");
@@ -11,6 +17,8 @@ const locator = @import("locator.zig");
 pub const PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION: u32 = 1;
 pub const PANCAKE_TRANSPORT_PROFILE_ABI_VERSION: u32 = 1;
 pub const PANCAKE_STREAM_TRANSPORT_ABI_VERSION: u32 = 1;
+pub const PANCAKE_LISTEN_READY: u32 = 0;
+pub const PANCAKE_LISTEN_PENDING: u32 = 1;
 pub const PANCAKE_TRANSPORT_EXEC_STREAM: u32 = 1;
 pub const PANCAKE_TRANSPORT_EXEC_MULTIPLEXED: u32 = 2;
 
@@ -31,6 +39,71 @@ pub const PancakeTransportProfile = extern struct {
     designator_scheme: u32,
     sealed_channel: u32,
 };
+
+/// Borrowed provider-owned configuration for one dial or listener operation.
+/// The driver validates the null/size shape and forwards it unchanged to the
+/// provider selected by the locator or transport symbol. The provider owns the
+/// payload type and must copy any values retained after the start callback.
+/// A null pointer with size zero means inherit provider defaults.
+pub const PancakeTransportOperationOptions = extern struct {
+    data: ?*const anyopaque,
+    size: usize,
+};
+
+/// Structured failure output for provider callbacks that expose this output.
+/// The callback receives caller-owned storage and must leave it empty on success.
+/// On failure, `result` matches the returned PANCAKE_ERR_* status and
+/// `primary_name` names the provider's exact cause. A non-zero
+/// `secondary_count` carries the first cleanup/consequence name and its stable
+/// result; later consequences are represented by the count. Cause names are
+/// immutable process-lifetime identifiers (normally string literals), allowing
+/// the driver to retain them without allocating or copying on the wire path.
+pub const PancakeProviderFailure = extern struct {
+    result: i32,
+    primary_name: ?[*]const u8,
+    primary_name_len: usize,
+    secondary_result: i32,
+    secondary_name: ?[*]const u8,
+    secondary_name_len: usize,
+    secondary_count: u32,
+};
+
+pub fn emptyProviderFailure() PancakeProviderFailure {
+    return .{
+        .result = 0,
+        .primary_name = null,
+        .primary_name_len = 0,
+        .secondary_result = 0,
+        .secondary_name = null,
+        .secondary_name_len = 0,
+        .secondary_count = 0,
+    };
+}
+
+pub fn setProviderFailure(out: ?*PancakeProviderFailure, result: i32, cause: anyerror) void {
+    const slot = out orelse return;
+    const name = @errorName(cause);
+    slot.* = emptyProviderFailure();
+    slot.result = result;
+    slot.primary_name = name.ptr;
+    slot.primary_name_len = name.len;
+}
+
+pub fn providerFailureEmpty(report: PancakeProviderFailure) bool {
+    return report.result == 0 and report.primary_name == null and report.primary_name_len == 0 and
+        report.secondary_result == 0 and report.secondary_name == null and
+        report.secondary_name_len == 0 and report.secondary_count == 0;
+}
+
+pub fn failProvider(out: ?*PancakeProviderFailure, result: i32, cause: anyerror) i32 {
+    setProviderFailure(out, result, cause);
+    return result;
+}
+
+pub fn operationOptionsAreInherited(raw: ?*const PancakeTransportOperationOptions) bool {
+    const options = raw orelse return true;
+    return options.data == null and options.size == 0;
+}
 
 /// Project the model-owned locator/channel semantics into their C layout.
 /// Transport archives call this rather than maintaining parallel switches.
@@ -54,19 +127,47 @@ pub fn profileFromMetadata(metadata: model.transport.Metadata) PancakeTransportP
 pub const PancakeStreamStartConnectFn = *const fn (
     ctx: ?*anyopaque,
     locator_view: ?*const locator.PancakeLocatorView,
+    options: ?*const PancakeTransportOperationOptions,
     out_attempt: ?*?*anyopaque,
     out_readiness_fd: ?*i32,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 pub const PancakeStreamFinishConnectFn = *const fn (
     attempt: ?*anyopaque,
     out_conn: ?*?*anyopaque,
     out_readiness_fd: ?*i32,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 pub const PancakeStreamCancelConnectFn = *const fn (
     attempt: ?*anyopaque,
-) callconv(.c) void;
+    out_failure: ?*PancakeProviderFailure,
+) callconv(.c) i32;
+
+pub const PancakeStreamFinishListenFn = *const fn (
+    attempt: ?*anyopaque,
+    out_listener: ?*?*anyopaque,
+    out_failure: ?*PancakeProviderFailure,
+) callconv(.c) i32;
+
+pub const PancakeStreamCancelListenFn = *const fn (
+    attempt: ?*anyopaque,
+    out_failure: ?*PancakeProviderFailure,
+) callconv(.c) i32;
+
+/// Tagged ownership result shared by stream and multiplexed listener setup.
+/// READY carries only `listener`. Stream PENDING carries `attempt` plus a
+/// readiness descriptor; multiplexed PENDING carries neither because its
+/// driver-minted route id and shared descriptor already identify completion.
+/// A provider may return PENDING only when its execution table supplies the
+/// complete finish/cancel listener-completion pair.
+pub const PancakeListenResult = extern struct {
+    state: u32,
+    listener: ?*anyopaque,
+    attempt: ?*anyopaque,
+    readiness_fd: i32,
+};
 
 pub const PancakeStreamListenFn = *const fn (
     ctx: ?*anyopaque,
@@ -74,13 +175,16 @@ pub const PancakeStreamListenFn = *const fn (
     requested_designator_len: usize,
     identity_designator: ?[*]const u8,
     identity_designator_len: usize,
-    out_listener: ?*?*anyopaque,
+    options: ?*const PancakeTransportOperationOptions,
+    out_result: ?*PancakeListenResult,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 pub const PancakeStreamListenerWaitFn = *const fn (
     ctx: ?*anyopaque,
     listener: ?*anyopaque,
     timeout_ms: i32,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 pub const PancakeStreamListenerReadinessFdFn = *const fn (
@@ -106,17 +210,29 @@ pub const PancakeTransportListenerAdvertiseFn = *const fn (
     sink: locator.PancakeLocatorSinkFn,
 ) callconv(.c) i32;
 
+/// Query or copy opaque provider-owned listener restoration state. Writes the
+/// complete size to `out_len`; a short output is untouched and returns
+/// `PANCAKE_ERR_BUFFER_TOO_SMALL`.
+pub const PancakeTransportListenerRestorationStateFn = *const fn (
+    listener_ctx: ?*anyopaque,
+    out: ?[*]u8,
+    cap: usize,
+    out_len: ?*usize,
+) callconv(.c) i32;
+
 pub const PancakeStreamAcceptFn = *const fn (
     ctx: ?*anyopaque,
     listener: ?*anyopaque,
     out_conn: ?*?*anyopaque,
     out_readiness_fd: ?*i32,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 pub const PancakeStreamListenerCloseFn = *const fn (
     ctx: ?*anyopaque,
     listener: ?*anyopaque,
-) callconv(.c) void;
+    out_failure: ?*PancakeProviderFailure,
+) callconv(.c) i32;
 
 pub const PancakeStreamReadFn = *const fn (
     ctx: ?*anyopaque,
@@ -138,12 +254,24 @@ pub const PancakeStreamWriteAllFn = *const fn (
 pub const PancakeStreamConnCloseFn = *const fn (
     ctx: ?*anyopaque,
     conn: ?*anyopaque,
+    out_failure: ?*PancakeProviderFailure,
+) callconv(.c) i32;
+
+/// Atomically claim the connection's first retained read/write failure into
+/// `out_failure`. Write the all-zero value when no failure remains.
+pub const PancakeStreamConnTakeFailureFn = *const fn (
+    ctx: ?*anyopaque,
+    conn: ?*anyopaque,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) void;
 
 /// One stream-native transport profile. Connection callbacks are required;
-/// staged dial and listen are each complete or absent operation groups. A
+/// staged dial and the base listener capability are each complete or absent
+/// operation groups. Listener completion is a separate optional finish/cancel
+/// pair; without it `listen` must return READY. A
 /// dial attempt owns its readiness descriptor until exactly one finish or
-/// cancel consumes it. Callbacks
+/// cancel consumes it, and a PENDING listener attempt has the same ownership
+/// rule. Callbacks
 /// return `PANCAKE_OK` or a `PANCAKE_ERR_*` value except `read`, whose
 /// byte-count contract is explicit; handles and descriptors remain
 /// provider-owned until the matching close callback.
@@ -155,16 +283,19 @@ pub const PancakeStreamTransport = extern struct {
     finish_connect: ?PancakeStreamFinishConnectFn,
     cancel_connect: ?PancakeStreamCancelConnectFn,
     listen: ?PancakeStreamListenFn,
-    listener_wait_ready: ?PancakeStreamListenerWaitFn,
+    finish_listen: ?PancakeStreamFinishListenFn = null,
+    cancel_listen: ?PancakeStreamCancelListenFn = null,
     listener_wait_acceptable: ?PancakeStreamListenerWaitFn,
     listener_readiness_fd: ?PancakeStreamListenerReadinessFdFn,
     listener_locator: ?PancakeTransportListenerLocatorFn,
     listener_advertise: ?PancakeTransportListenerAdvertiseFn,
+    listener_restoration_state: ?PancakeTransportListenerRestorationStateFn = null,
     accept: ?PancakeStreamAcceptFn,
     listener_close: ?PancakeStreamListenerCloseFn,
     read: ?PancakeStreamReadFn,
     write_all: ?PancakeStreamWriteAllFn,
     conn_close: ?PancakeStreamConnCloseFn,
+    conn_take_failure: ?PancakeStreamConnTakeFailureFn,
 };
 
 /// One tagged package entry. `implementation` points to
@@ -178,19 +309,36 @@ pub const PancakeTransportProviderEntry = extern struct {
     implementation: ?*const anyopaque,
 };
 
-pub const PancakeTransportRetainFn = *const fn (ctx: ?*anyopaque) callconv(.c) i32;
-pub const PancakeTransportReleaseFn = *const fn (ctx: ?*anyopaque) callconv(.c) void;
+pub const PancakeTransportRetainFn = *const fn (
+    ctx: ?*anyopaque,
+    out_failure: ?*PancakeProviderFailure,
+) callconv(.c) i32;
+pub const PancakeTransportReleaseFn = *const fn (
+    ctx: ?*anyopaque,
+    out_failure: ?*PancakeProviderFailure,
+) callconv(.c) i32;
+/// Decide whether two packages produced by this provider implementation carry
+/// the same complete effective configuration. The driver calls this only when
+/// both packages advertise the same profile set and use this exact callback;
+/// return 1 for equivalent and 0 for different.
+pub const PancakeTransportProviderSameConfigurationFn = *const fn (
+    ctx: ?*anyopaque,
+    other_ctx: ?*anyopaque,
+) callconv(.c) u8;
 
 /// A provider package installed atomically through the driver's generic
 /// registration verb. The driver copies every table and retains one package
 /// lease before publication; it releases that lease only after all listeners,
-/// connections, and copied callbacks have retired.
+/// connections, and copied callbacks have retired. Re-registering the same
+/// profile set is idempotent only when `same_configuration` is the same
+/// function and reports equivalent package contexts.
 pub const PancakeTransportProvider = extern struct {
     abi_version: u32,
     struct_size: usize,
     entries: ?[*]const PancakeTransportProviderEntry,
     entry_count: usize,
     lease_ctx: ?*anyopaque,
+    same_configuration: ?PancakeTransportProviderSameConfigurationFn,
     retain: ?PancakeTransportRetainFn,
     release: ?PancakeTransportReleaseFn,
 };

@@ -151,8 +151,9 @@ pub const Event = struct {
 pub fn resolutionFromResolverCallback(
     args: model.view.Args,
 ) model.view.ProjectError!model.view.Resolution {
-    const tag_arg = try args.at(0);
-    const payload = try args.at(1);
+    var it = args.iterator();
+    const tag_arg = (try it.next()) orelse return error.MalformedView;
+    const payload = (try it.next()) orelse return error.MalformedView;
     const tag_symbol = switch (tag_arg) {
         .symbol => |symbol| symbol,
         else => return error.MalformedView,

@@ -33,6 +33,22 @@ const dial_opts: driver.SessionOptions = .{
 
 // --- Post-side refusals (no host, no thread) --------------------------------
 
+test "settle mailbox rolls back a post whose wake fails" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const mailbox = try driver.SettleMailbox.init(std.testing.allocator, 1);
+    defer mailbox.deinit();
+
+    _ = std.posix.system.close(mailbox.channel.write);
+    mailbox.channel.write = -1;
+
+    try std.testing.expectError(
+        error.WakeNudgeFailed,
+        mailbox.post(threaded.io(), 1, .{ .broken = "not admitted" }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), mailbox.count);
+}
+
 test "settle mailbox: full, oversized, and capability-bearing posts refuse loudly" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -151,7 +167,7 @@ test "off-turn settle over HostRuntime: a worker thread's post wakes the poll wa
         .ephemeral,
         dial_opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -161,7 +177,7 @@ test "off-turn settle over HostRuntime: a worker thread's post wakes the poll wa
     var worker_stop = std.atomic.Value(bool).init(false);
     const worker_thread = try std.Thread.spawn(.{}, worker, .{ mb, &parked, &worker_stop });
 
-    var host_future = try io.concurrent(hostRuntimeServe, .{ &server, &parked });
+    var host_future = try io.concurrent(hostRuntimeServe, .{ server, &parked });
 
     const client_result = blk: {
         const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
@@ -169,7 +185,7 @@ test "off-turn settle over HostRuntime: a worker thread's post wakes the poll wa
         const client = driver.connect(
             allocator,
             &netlayers,
-            tcp.locator(&designator_buf, address),
+            tcp.locatorFromAddress(&designator_buf, address),
             .ephemeral,
             dial_opts,
         ) catch |err| break :blk err;
@@ -230,7 +246,7 @@ fn loopServerTask(
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const bound = tcp.locator(&designator_buf, bound_addr).designator;
+    const bound = tcp.locatorFromAddress(&designator_buf, bound_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
     try bridge.attachSettleMailbox(mb);
     shared.port.store(loop.port().?, .release);
@@ -267,7 +283,7 @@ test "off-turn settle over the completion loop: the wake recv applies the worker
         const client = driver.connect(
             allocator,
             &netlayers,
-            tcp.locator(&designator_buf, address),
+            tcp.locatorFromAddress(&designator_buf, address),
             .ephemeral,
             dial_opts,
         ) catch |err| break :blk err;
@@ -281,7 +297,7 @@ test "off-turn settle over the completion loop: the wake recv applies the worker
     // Stop the loop through the mailbox's own wake — the stopper's share of
     // the sanctioned cross-thread entry, not a connect-and-drop.
     shared.done.store(true, .release);
-    mb.wake();
+    try mb.wake();
     const server_result = server_future.await(io);
     mb.deinit();
     try client_result;
@@ -318,7 +334,7 @@ fn workerSwallowingItsWake(mb: *driver.SettleMailbox, out: *std.atomic.Value(u64
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
     mb.post(io, id, .{ .fulfilled = .{ .string = "applied at the loop top" } }) catch unreachable;
-    mb.drainWake();
+    mb.drainWake() catch unreachable;
 }
 
 test "off-turn settle applies at the pump top, not only when the wake wins the poll" {
@@ -346,7 +362,7 @@ test "off-turn settle applies at the pump top, not only when the wake wins the p
         .ephemeral,
         dial_opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -354,7 +370,7 @@ test "off-turn settle applies at the pump top, not only when the wake wins the p
     var parked = std.atomic.Value(u64).init(0);
     var done = std.atomic.Value(bool).init(false);
     const worker_thread = try std.Thread.spawn(.{}, workerSwallowingItsWake, .{ mb, &parked });
-    var host_future = try io.concurrent(hostRuntimeServeStepping, .{ &server, &parked, &done });
+    var host_future = try io.concurrent(hostRuntimeServeStepping, .{ server, &parked, &done });
 
     const client_result = blk: {
         const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
@@ -362,7 +378,7 @@ test "off-turn settle applies at the pump top, not only when the wake wins the p
         const client = driver.connect(
             allocator,
             &netlayers,
-            tcp.locator(&designator_buf, address),
+            tcp.locatorFromAddress(&designator_buf, address),
             .ephemeral,
             dial_opts,
         ) catch |err| break :blk err;

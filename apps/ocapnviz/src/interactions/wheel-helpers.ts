@@ -82,9 +82,7 @@ function linearWheel(ev: WheelInput, surface: SurfaceId): WheelEffect {
   const horizontalIntent = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ||
     ev.shiftKey;
   if (horizontalIntent) {
-    const dx = Math.abs(ev.deltaX) > Math.abs(ev.deltaY)
-      ? ev.deltaX
-      : ev.deltaY;
+    const dx = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
     return { kind: "pan-step", surface, delta: { dx, dy: 0 } };
   }
   // Default vertical scroll on a linear track: zoom around cursor.

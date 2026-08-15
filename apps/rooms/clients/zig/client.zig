@@ -239,7 +239,7 @@ fn runTcpRoom(io: std.Io, allocator: std.mem.Allocator, locator: []const u8, sta
         io,
         allocator,
         &.{tcp_resident.netlayer()},
-        tcp.at(locator),
+        tcp.locator(locator),
         roomsSessionOpts().handshake,
         roomsSessionOpts().settle,
         state,
@@ -264,7 +264,7 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
     const reachability: @import("iroh").Reachability = if (hints.len > 0) .direct else .discovery;
     const iroh = @import("iroh");
     var resident = try iroh.Resident.init(io, null, .{ .reachability = reachability });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
     // A userspace-multiplexed iroh stream has no pollable per-connection fd;
     // the one-connection borrowing driver blocks in the resident itself.
     try dialVia(io, allocator, &.{resident.netlayer()}, loc, .unbounded, .unbounded, state, room_name, nick, line);

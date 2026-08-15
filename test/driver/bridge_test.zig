@@ -257,7 +257,7 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const bound = tcp.locator(&designator_buf, bound_addr).designator;
+    const bound = tcp.locatorFromAddress(&designator_buf, bound_addr).designator;
     shared.exporter_port.store(loop.port().?, .release);
     try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
 
@@ -405,7 +405,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const gifter_designator = tcp.locator(&designator_buf, gifter_designator_addr).designator;
+    const gifter_designator = tcp.locatorFromAddress(&designator_buf, gifter_designator_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), gifter_designator, &.{});
 
     var loop_err: ?anyerror = null;
@@ -447,7 +447,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     defer r_loop.deinit();
     var r_designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port().?);
-    const r_designator = tcp.locator(&r_designator_buf, r_designator_addr).designator;
+    const r_designator = tcp.locatorFromAddress(&r_designator_buf, r_designator_addr).designator;
     try r_bridge.attach(model.transport.Known.tcp.metadata(), r_designator, &.{});
     try r_bridge.dialOutbound(.{
         .transport = tcp.transport_name,
@@ -538,7 +538,7 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
     var loop_err: ?anyerror = null;
@@ -622,7 +622,7 @@ test "a second attach is refused" {
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
     try std.testing.expectError(
         error.AlreadyAttached,
@@ -672,7 +672,7 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
     var done = std.atomic.Value(bool).init(false);

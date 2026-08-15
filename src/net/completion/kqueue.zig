@@ -36,6 +36,7 @@ const builtin = @import("builtin");
 const completion = @import("loop.zig");
 const ScratchPool = @import("scratch_pool.zig").ScratchPool;
 const socket_tcp = @import("socket_tcp.zig");
+const tcp_keepalive = @import("tcp_keepalive.zig");
 
 comptime {
     if (!builtin.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
@@ -126,6 +127,10 @@ pub const Backend = struct {
         _ = self;
         _ = fd;
         return null;
+    }
+
+    pub fn applyKeepalive(_: *Backend, fd: Fd, keepalive: completion.Keepalive) tcp_keepalive.ApplyError!void {
+        return tcp_keepalive.apply(@intCast(fd), keepalive);
     }
 
     pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
@@ -330,7 +335,7 @@ pub const Backend = struct {
                     .recv => |ud| {
                         var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
                         if (ev.flags & EV_ERROR != 0) {
-                            // result stays -1
+                            comp.failure = completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data))));
                         } else if (self.scratch_pool.acquire()) |idx| {
                             const buf = self.scratch_pool.buffer(idx);
                             const r = c.recv(fd, buf.ptr, buf.len, 0);
@@ -350,12 +355,13 @@ pub const Backend = struct {
                                         // can ever complete, so a failure here
                                         // does have to end the connection.
                                         p.read = .idle;
+                                        comp.failure = error.KeventFailed;
                                         out[produced] = comp;
                                         produced += 1;
                                     };
                                     continue;
                                 },
-                                else => {},
+                                else => comp.failure = completion.failureFromErrno(std.posix.errno(r)),
                             };
                             comp.result = @intCast(r);
                             if (r > 0) {
@@ -379,7 +385,7 @@ pub const Backend = struct {
                     .accept => |ud| {
                         var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
                         if (ev.flags & EV_ERROR != 0) {
-                            // result stays -1
+                            comp.failure = completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data))));
                         } else {
                             const accepted = accept(fd, null, null);
                             if (accepted < 0) switch (std.posix.errno(accepted)) {
@@ -390,12 +396,13 @@ pub const Backend = struct {
                                 .AGAIN, .INTR => {
                                     self.register(fd, c.EVFILT.READ) catch {
                                         p.read = .idle;
+                                        comp.failure = error.KeventFailed;
                                         out[produced] = comp;
                                         produced += 1;
                                     };
                                     continue;
                                 },
-                                else => {},
+                                else => comp.failure = completion.failureFromErrno(std.posix.errno(accepted)),
                             };
                             // Darwin does not inherit nonblocking across
                             // accept(2), and a blocking send at write-readiness
@@ -408,6 +415,7 @@ pub const Backend = struct {
                             if (accepted >= 0 and (!socket_tcp.setNonblocking(accepted) or !socket_tcp.setNoSigpipe(accepted))) {
                                 _ = close(accepted);
                                 comp.result = -1;
+                                comp.failure = error.SocketConfigurationFailed;
                             } else {
                                 comp.result = accepted;
                             }
@@ -421,9 +429,16 @@ pub const Backend = struct {
                 switch (p.write) {
                     .idle => continue,
                     .connect => |ud| {
-                        const result: i32 = if (ev.flags & EV_ERROR != 0) -1 else connectResult(fd);
+                        const failure = if (ev.flags & EV_ERROR != 0)
+                            completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data))))
+                        else
+                            connectFailure(fd);
                         p.write = .idle;
-                        out[produced] = .{ .user_data = ud, .result = result };
+                        out[produced] = .{
+                            .user_data = ud,
+                            .result = if (failure == null) 0 else -1,
+                            .failure = failure,
+                        };
                         produced += 1;
                     },
                     .send => |s| {
@@ -438,14 +453,18 @@ pub const Backend = struct {
                                 .AGAIN, .INTR => {
                                     self.register(fd, c.EVFILT.WRITE) catch {
                                         p.write = .idle;
-                                        out[produced] = .{ .user_data = s.ud, .result = -1 };
+                                        out[produced] = .{ .user_data = s.ud, .result = -1, .failure = error.KeventFailed };
                                         produced += 1;
                                     };
                                     continue;
                                 },
                                 else => {
                                     p.write = .idle;
-                                    out[produced] = .{ .user_data = s.ud, .result = -1 };
+                                    out[produced] = .{
+                                        .user_data = s.ud,
+                                        .result = -1,
+                                        .failure = completion.failureFromErrno(std.posix.errno(sent)),
+                                    };
                                     produced += 1;
                                     continue;
                                 },
@@ -456,7 +475,11 @@ pub const Backend = struct {
                             continue;
                         }
                         p.write = .idle;
-                        out[produced] = .{ .user_data = s.ud, .result = -1 };
+                        out[produced] = .{
+                            .user_data = s.ud,
+                            .result = -1,
+                            .failure = completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data)))),
+                        };
                         produced += 1;
                     },
                 }
@@ -520,9 +543,10 @@ fn accept(sockfd: c.fd_t, addr: ?*c.sockaddr, addrlen: ?*c.socklen_t) i32 {
     return c.accept(sockfd, addr, addrlen);
 }
 
-fn connectResult(fd: c.fd_t) i32 {
+fn connectFailure(fd: c.fd_t) ?anyerror {
     var so_error: c_int = 0;
     var len: c.socklen_t = @sizeOf(c_int);
-    if (c.getsockopt(fd, c.SOL.SOCKET, c.SO.ERROR, &so_error, &len) < 0) return -1;
-    return if (so_error == 0) 0 else -1;
+    if (c.getsockopt(fd, c.SOL.SOCKET, c.SO.ERROR, &so_error, &len) < 0)
+        return error.GetsockoptFailed;
+    return if (so_error == 0) null else completion.failureFromErrno(@enumFromInt(so_error));
 }

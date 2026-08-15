@@ -8,35 +8,33 @@ VS Code and Cursor automatically reuse two parts of the host:
 Use the forwarded SSH agent. Do not mount private key files into the
 container.
 
-The repository explicitly bind-mounts configuration that the editor does not
-forward:
+The repository keeps configuration that the editor does not forward in named
+Docker volumes:
 
-| Tool | Host path | Purpose |
+| Tool | Container path | Purpose |
 | --- | --- | --- |
 | Claude Code | `~/.claude` | Login, skills, and memory |
 | GitHub CLI | `~/.config/gh` | `gh` authentication |
 | opencode | `~/.local/share/opencode` | Login |
 | opencode | `~/.config/opencode` | Providers and default model |
+| Codex | `~/.codex` | Login, config, and sessions |
 | Agent resources | `~/.config/agents` | User-level resources for `.agents/` |
 
-`initialize.sh` creates these paths before Docker sees them. This prevents
-Docker from creating root-owned directories on a new machine. Each mount uses
-`${localEnv:HOME}`, so every contributor gets their own host configuration.
-Delete any mount you do not want.
+The volumes persist across rebuilds and are scoped to one worktree identity.
+They do not expose the host's credential files or another worktree's agent
+sessions to code in a checkout. Log in once from that container when a tool
+first needs access.
 
-The opencode and agent mounts target their own subdirectories rather than all
-of `~/.config`; mounting the whole directory would overlap the GitHub CLI mount
-and expose unrelated configuration.
+The image creates every target before an empty volume is first mounted, and
+`post-create.sh` aligns its ownership with the runtime `vscode` UID. The source
+check rejects host-home mounts in the committed configuration, so credential
+sharing cannot return as an unnoticed convenience edit.
 
 ## Common login problems
 
-If `gh auth login` stored its token in macOS Keychain or GNOME Keyring, the
-token may not appear in `~/.config/gh/hosts.yml`. The bind mount then carries
-configuration but no credential. Set `GH_TOKEN` in the container or run
-`gh auth login` there. The `gh` binary itself comes from the Docker image.
-
-Claude Code credentials are in `~/.claude/.credentials.json`. opencode
-credentials are in `~/.local/share/opencode/auth.json`.
+Run `gh auth login` and each agent tool's login command inside the container.
+The `gh` binary and agent CLIs come from the image; their resulting state stays
+in the named volumes above.
 
 GPG signing is not forwarded. Install `gnupg2` and forward the GPG agent socket
 if you need signed commits. Personal shell dotfiles belong in the editor's

@@ -13,8 +13,8 @@ const model = @import("model");
 const engine = @import("engine");
 
 /// An opaque capability in one Host composition. The registry pointer is the
-/// scope proof. The C adapter supplies opaque process-unique ids so its
-/// pointer-free raw handle also fails closed when presented to another Host.
+/// scope proof. A pointer-free projection uses an adapter-injected process-wide
+/// issuer so its raw handle also fails closed when presented to another Host.
 /// `raw` exists only for the session memo and later ABI projection.
 pub const Ref = struct {
     registry: *const Registry,
@@ -78,10 +78,17 @@ const Key = union(enum) {
 
 const CapabilityId = enum(u64) { _ };
 
-/// Optional adapter-owned source for ids that leave the native scoped `Ref`.
-/// The C adapter supplies a keyed permutation of one process-wide monotonic
-/// issuer; the sans-I/O core stays unsynchronized and uses one Host-local
-/// source by default.
+/// One fresh local identity minted before an actor becomes observable. This is
+/// a short-lived transaction token: Host owns the reserve/commit sequence and
+/// never stores it or lets another registry operation intervene.
+pub const FreshLocalReservation = struct {
+    registry: *Registry,
+    id: CapabilityId,
+};
+
+/// Optional source for ids that leave the native scoped `Ref`. Native callers
+/// need no issuer because the Registry pointer carries scope; pointer-free
+/// adapters inject their own process-wide authority.
 pub const IdIssuer = struct {
     ctx: ?*anyopaque = null,
     next: *const fn (?*anyopaque) error{CapabilitySpaceExhausted}!u64,
@@ -117,8 +124,8 @@ comptime {
 /// Host-owned canonical capability rows. Storage grows to the high-water mark
 /// of simultaneously live rows. Released slots are reused, but public ids are
 /// never reused by this registry, so stale handles fail the Host-owned `by_id`
-/// lookup. A C adapter supplies opaque ids whose issuer also separates Hosts;
-/// native refs carry the registry pointer as their scope proof.
+/// lookup. Pointer-free projections use opaque ids whose issuer also separates
+/// Hosts; native refs carry the Registry pointer as their scope proof.
 pub const Registry = struct {
     slots: std.ArrayListUnmanaged(Slot) = .empty,
     free_head: ?u32 = null,
@@ -153,17 +160,41 @@ pub const Registry = struct {
         self.* = .{};
     }
 
-    /// Reserve every backing slot a fresh target homed on `peer_id` can need.
-    /// The caller uses this before making that target externally observable;
-    /// after it succeeds, retaining one fresh target cannot fail for allocation
-    /// or capability-space exhaustion. A free slot is already sufficient.
-    pub fn reserveFreshLocal(self: *Registry, allocator: std.mem.Allocator) Error!void {
+    /// Mint an id and reserve every backing slot a fresh local target needs.
+    /// The Host calls this immediately before spawning or publishing an actor,
+    /// then commits without any intervening registry operation. An id is
+    /// deliberately burned when the later actor operation fails: public ids
+    /// are never reused, including across rolled-back transactions.
+    pub fn reserveFreshLocal(self: *Registry, allocator: std.mem.Allocator) Error!FreshLocalReservation {
         try self.by_target.ensureUnusedCapacity(allocator, 1);
         try self.by_id.ensureUnusedCapacity(allocator, 1);
         if (self.free_head == null) {
             if (self.slots.items.len > std.math.maxInt(u32)) return error.CapabilitySpaceExhausted;
             try self.slots.ensureUnusedCapacity(allocator, 1);
         }
+        return .{ .registry = self, .id = try self.nextId() };
+    }
+
+    /// Commit the fresh local target promised by `reserveFreshLocal`. This is
+    /// infallible because the reservation already minted the id and reserved
+    /// both indexes and one slot. Actor ids are Vat-monotonic, so a freshly
+    /// spawned actor cannot already have a live canonical row.
+    pub fn commitFreshLocal(self: *Registry, reservation: FreshLocalReservation, actor_id: u64) Ref {
+        std.debug.assert(reservation.registry == self);
+        const target: Target = .{ .local = actor_id };
+        std.debug.assert(!self.by_target.contains(target.key()));
+        std.debug.assert(!self.by_id.contains(reservation.id));
+
+        const acquired = self.acquireSlotAssumeCapacity();
+        acquired.slot.state = .{ .live = .{
+            .id = reservation.id,
+            .target = target,
+            .retains = 1,
+        } };
+        const ref = Ref{ .registry = self, .id = reservation.id };
+        self.by_id.putAssumeCapacity(reservation.id, acquired.index);
+        self.by_target.putAssumeCapacity(target.key(), ref);
+        return ref;
     }
 
     /// Retain `target`, reusing its live Host identity when already observed.
@@ -198,7 +229,6 @@ pub const Registry = struct {
         return ref;
     }
 
-    /// The still-live target behind `ref`, or null for a stale/foreign id.
     /// Whether a canonical row for `target` already exists — the creation
     /// probe `Host` uses to pair an actor root with a fresh local slot
     /// (ADR-0101).
@@ -206,6 +236,7 @@ pub const Registry = struct {
         return self.by_target.contains(target.key());
     }
 
+    /// The still-live target behind `ref`, or null for a stale/foreign id.
     pub fn resolve(self: *const Registry, ref: Ref) ?Target {
         const slot_index = self.slotFor(ref) orelse return null;
         const slot = &self.slots.items[slot_index];
@@ -272,6 +303,21 @@ pub const Registry = struct {
         if (self.slots.items.len > std.math.maxInt(u32)) return error.CapabilitySpaceExhausted;
         const index: u32 = @intCast(self.slots.items.len);
         try self.slots.append(allocator, .{ .state = .{ .free = null } });
+        return .{ .index = index, .slot = &self.slots.items[index] };
+    }
+
+    fn acquireSlotAssumeCapacity(self: *Registry) struct { index: u32, slot: *Slot } {
+        if (self.free_head) |index| {
+            const slot = &self.slots.items[index];
+            self.free_head = switch (slot.state) {
+                .free => |next| next,
+                else => unreachable,
+            };
+            return .{ .index = index, .slot = slot };
+        }
+        std.debug.assert(self.slots.items.len <= std.math.maxInt(u32));
+        const index: u32 = @intCast(self.slots.items.len);
+        self.slots.appendAssumeCapacity(.{ .state = .{ .free = null } });
         return .{ .index = index, .slot = &self.slots.items[index] };
     }
 

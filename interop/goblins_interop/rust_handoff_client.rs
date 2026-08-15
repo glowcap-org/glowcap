@@ -19,7 +19,7 @@
 //! Needs `racket` plus the `goblins` collection on PATH; run via
 //! `zig build rust-goblins-handoff`.
 
-use pancake_rust_dogfood::{connect, tcp_locator, Argument, Ref};
+use pancake_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -53,12 +53,7 @@ async fn main() -> Result<(), Fail> {
 
 	// The `Session` is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
-	let result = match tokio::time::timeout(
-		helpers::INTEROP_TIMEOUT,
-		local.run_until(converse(swiss, port)),
-	)
-	.await
-	{
+	let result = match tokio::time::timeout(helpers::INTEROP_TIMEOUT, local.run_until(converse(swiss, port))).await {
 		Ok(result) => result,
 		Err(_) => Err("rust-goblins-handoff timed out".into()),
 	};
@@ -69,7 +64,10 @@ async fn main() -> Result<(), Fail> {
 async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	// `connect` completes the keyed handshake; the host's retained identity is
 	// the recipient key the gift Alice deposits will name.
-	let session = connect(&tcp_locator(HOST, port), None, None).await?;
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())])).await?;
+	let session = runtime
+		.connect(&tcp::locator(HOST, port), ConnectOptions::default())
+		.await?;
 	println!("rust-goblins-handoff: session open (recipient -> alice)");
 
 	let introducer = session.fetch(&swiss).await?;
@@ -78,8 +76,8 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	// The introduction: Alice returns Bob's greeter as a handoff give. The
 	// binding redeems it transparently, so this resolves to an ordinary capability.
 	let granted = session.send(&introducer, "get-greeter", &[]).await?;
-	let greeter = Ref::try_from(&granted)
-		.map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
+	let greeter =
+		Ref::try_from(&granted).map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
 	println!("rust-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref");
 
 	// Call the greeter. The send routes straight to Bob (the exporter); the reply
@@ -91,15 +89,13 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 		Argument::String(text) if text.contains("pancake-carol") => {
 			println!("rust-goblins-handoff: greeter replied: {text}");
 		}
-		other => {
-			return Err(format!("greeter reply did not carry the name back: {other:?}").into())
-		}
+		other => return Err(format!("greeter reply did not carry the name back: {other:?}").into()),
 	}
 
 	println!(
-        "rust-goblins-handoff OK: the Rust binding redeemed a three-party handoff from live Goblins \
+		"rust-goblins-handoff OK: the Rust binding redeemed a three-party handoff from live Goblins \
          and called the exporter directly"
-    );
-	session.close();
+	);
+	session.close(pancake_rust_dogfood::PendingWork::Cancel).await?;
 	Ok(())
 }

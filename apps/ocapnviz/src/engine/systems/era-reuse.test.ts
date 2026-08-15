@@ -31,10 +31,7 @@ import { assert, assertEquals } from "@std/assert";
 import { TimelineDocument, type TimelineEvent } from "../timeline.ts";
 import { Engine } from "../engine.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
-import {
-  attachedEndpoint,
-  unattributedEndpoint,
-} from "../../schema/topology.ts";
+import { attachedEndpoint, unattributedEndpoint } from "../../schema/topology.ts";
 
 function engineTest(name: string, fn: () => void): void {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
@@ -389,9 +386,7 @@ engineTest("a reconnect does not throw the room and pull it back", () => {
   // its own width has not visibly moved.
   assert(
     worst < 6,
-    `a reconnect moved ${worstAt} by ${
-      worst.toFixed(1)
-    } world units mid-transition`,
+    `a reconnect moved ${worstAt} by ${worst.toFixed(1)} world units mid-transition`,
   );
 });
 
@@ -478,8 +473,6 @@ engineTest("ending a peer's life takes it out of every later era", () => {
   );
   // The world is the authority for what stands at a moment, so the two agree.
   e.seekTo(5000);
-  const drawn = [...e.world.with("peer", "position")].some((x) =>
-    x.peer.id === "b"
-  );
+  const drawn = [...e.world.with("peer", "position")].some((x) => x.peer.id === "b");
   assertEquals(drawn, false, "the world drew a peer whose life had ended");
 });

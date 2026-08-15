@@ -10,12 +10,13 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const net = pancake.net;
-const keyed_relay = net.keyed_relay;
+const keyed_relay = net.relay;
 const ws_relay = @import("../support/ws_relay.zig");
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
@@ -258,6 +259,10 @@ const AdmissionPlatform = struct {
     pub const Fd = i32;
     pub const adapter_depth = 0;
     pub const ConnectTarget = ip.IpAddress;
+
+    pub fn applyKeepalive(_: *AdmissionPlatform, _: Fd, _: net.completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
 
     fail_dial: bool = false,
     fail_send: bool = false,
@@ -1655,15 +1660,21 @@ test "keyed-relay listen owns a stalled initial registration asynchronously" {
         relay.await(io) catch {};
     }
 
-    const listener = try resident.netlayer().listen(allocator, .{
+    var result = switch (resident.netlayer().listen(allocator, .{
         .designator = "",
         .identity = identity.publicKey(),
-    });
+    })) {
+        .admitted => |result| result,
+        .failed => |failure| return failure.cause,
+    };
+    defer netlayer_test.deinit(&result);
     try wait.untilFlag(io, wait.default_deadline_ms, &connected);
-    try std.testing.expect(!try listener.waitReady(20));
-    try std.testing.expectError(error.BindFailed, listener.localLocator(allocator));
-    try std.testing.expect(!try listener.waitAcceptable(20));
-    listener.close();
+    const attempt = switch (result) {
+        .pending => |*pending| pending,
+        .ready => return error.UnexpectedReadyListener,
+    };
+    var pollfds: [1]std.posix.pollfd = undefined;
+    try std.testing.expectEqual(null, try net.waitAnyReadable(&.{}, &pollfds, 20, &.{attempt.readinessFd()}));
 }
 
 test "keyed-relay listener close wakes and joins a parked readiness wait" {
@@ -1685,11 +1696,10 @@ test "keyed-relay listener close wakes and joins a parked readiness wait" {
 
     var pong_seen = std.atomic.Value(bool).init(false);
     var relay = try io.concurrent(holdParkedRegistration, .{ io, &server, &pong_seen });
-    const listener = try resident.netlayer().listen(allocator, .{
+    const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "",
         .identity = identity.publicKey(),
     });
-    try std.testing.expect(try listener.waitReady(1000));
     const expected_designator = identity.publicKey().toDesignator();
     const locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, locator);
@@ -1698,7 +1708,7 @@ test "keyed-relay listener close wakes and joins a parked readiness wait" {
     var waiter = try io.concurrent(waitOnRegisteredListener, .{ listener, &wait_err });
 
     try wait.untilFlag(io, wait.default_deadline_ms, &pong_seen);
-    listener.close();
+    netlayer_test.close(listener);
     waiter.await(io);
     try std.testing.expectEqual(error.ConnectionLost, wait_err.?);
     try relay.await(io);
@@ -1742,7 +1752,7 @@ fn serveOneRegistrationThenStallReplacement(
     try wait.untilFlag(io, wait.default_deadline_ms, release);
 }
 
-test "keyed-relay listener withdraws and recovers a stalled replacement" {
+test "keyed-relay listener recovers a stalled replacement without invalidating its locator" {
     const allocator = std.testing.allocator;
     var threaded = Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -1777,30 +1787,22 @@ test "keyed-relay listener withdraws and recovers a stalled replacement" {
         &release,
     });
     defer {
+        send_recovered.store(true, .release);
         release.store(true, .release);
-        relay.await(io) catch {};
+        _ = relay.cancel(io) catch {};
     }
 
     var listener_arena = std.heap.ArenaAllocator.init(allocator);
     var listener_arena_live = true;
     defer if (listener_arena_live) listener_arena.deinit();
-    const listener = try resident.netlayer().listen(listener_arena.allocator(), .{
+    const listener = try netlayer_test.listenBlocking(resident.netlayer(), listener_arena.allocator(), .{
         .designator = "",
         .identity = identity.publicKey(),
     });
     var listener_live = true;
-    defer if (listener_live) listener.close();
+    defer if (listener_live) netlayer_test.close(listener);
     try std.testing.expect(try listener.waitAcceptable(1000));
-    // The relay spent the first registration when it paired this ready socket.
-    // Until accept starts a replacement, the listener must not advertise a
-    // cold-dial route that no longer exists.
-    try std.testing.expect(!try listener.waitReady(0));
-    // A positive wait has the same observation-only contract while the sole
-    // accepted slot is occupied. It must not start a second registration that
-    // could overwrite this socket before accept consumes it.
-    try std.testing.expect(!try listener.waitReady(20));
     try std.testing.expect(!replacement_seen.load(.acquire));
-    try std.testing.expectError(error.BindFailed, listener.localLocator(allocator));
     // The listener's replacement leg is its own lifetime. Destroying the
     // factory before accept must not leave that task borrowing URL slices.
     resident.deinit();
@@ -1813,23 +1815,36 @@ test "keyed-relay listener withdraws and recovers a stalled replacement" {
     defer conn.deinit();
 
     try wait.untilFlag(io, wait.default_deadline_ms, &replacement_seen);
-    try std.testing.expectError(error.BindFailed, listener.localLocator(allocator));
+    const stalled_locator = try listener.localLocator(allocator);
+    model.freePeerLocator(allocator, stalled_locator);
     try std.testing.expect(
         !try listener.waitAcceptable(20),
     );
 
     drop_replacement.store(true, .release);
     try wait.untilFlag(io, wait.default_deadline_ms, &dropped_replacement);
-    try std.testing.expectError(error.BindFailed, listener.localLocator(allocator));
-    try std.testing.expect(try listener.waitReady(1000));
+    const recovering_locator = try listener.localLocator(allocator);
+    model.freePeerLocator(allocator, recovering_locator);
     try wait.untilFlag(io, wait.default_deadline_ms, &recovered_seen);
-    const recovered_locator = try listener.localLocator(allocator);
+    const recovery_deadline = wait.deadlineAfter(io, wait.default_deadline_ms);
+    var recovered_locator: model.PeerLocator = undefined;
+    while (true) {
+        recovered_locator = listener.localLocator(allocator) catch |err| switch (err) {
+            error.BindFailed => {
+                if (wait.expired(io, recovery_deadline)) return error.WaitTimedOut;
+                std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+                continue;
+            },
+            else => return err,
+        };
+        break;
+    }
     model.freePeerLocator(allocator, recovered_locator);
     send_recovered.store(true, .release);
     try std.testing.expect(try listener.waitAcceptable(1000));
 
     release.store(true, .release);
-    listener.close();
+    netlayer_test.close(listener);
     listener_live = false;
 
     // Accept transfers the pinned stream to the peer. Releasing every byte of
@@ -1911,20 +1926,18 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     // The relay fixture accepts that leg first and pings it before accepting
     // the rendezvous leg, proving the parked task is live before data arrives.
     const registered_nl = registered.netlayer();
-    const listener = try registered_nl.listen(allocator, .{
+    const listener = try netlayer_test.listenBlocking(registered_nl, allocator, .{
         .designator = "",
         .identity = identity.publicKey(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
 
     var serve_future = try io.concurrent(serveRegistered, .{ listener, identity.publicKey(), allocator });
 
-    // Registration is background-owned, so nothing else orders the cold dial
-    // behind it: under CPU load the dial leg can win the race to the relay's
-    // accept and land where the fixture expects the registration leg. The
-    // readiness edge the listener contract carries for exactly this
-    // (`waitReady`) is the sequencing, not a sleep.
-    try std.testing.expect(try listener.waitReady(10_000));
+    // `listenBlocking` consumes the pending construction result only after
+    // registration, so the cold dial cannot race the relay's registration
+    // accept. The operation's readiness edge supplies the ordering, not a
+    // sleep in this test.
 
     // The dialing peer: cold dial the registered key through the relay.
     var peer = stubNegotiatingPeer(allocator);
@@ -1944,7 +1957,7 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     };
     const client_result = blk: {
         const nl = dialer.netlayer();
-        var conn = nl.dial(&peer, locator, .{ .read = read_buf, .write = write_buf }) catch |err| break :blk err;
+        var conn = nl.dial(&peer, locator, .{ .read = read_buf, .write = write_buf }, .inherit) catch |err| break :blk err;
         defer conn.deinit();
         fetch_pump.handshakeToOpen(&peer, &conn, startSession("client")) catch |err| break :blk err;
         const reference = fetch_pump.settleFetch(allocator, &peer, &conn, "thermostat") catch |err| break :blk err;
@@ -2012,13 +2025,12 @@ test "keyed-relay routes a cold dial through the target's other relay" {
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &target_server, allocator });
 
-    const listener = try registered.netlayer().listen(allocator, .{
+    const listener = try netlayer_test.listenBlocking(registered.netlayer(), allocator, .{
         .designator = "",
         .identity = identity.publicKey(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
     var serve_future = try io.concurrent(serveRegistered, .{ listener, identity.publicKey(), allocator });
-    try std.testing.expect(try listener.waitReady(10_000));
 
     const advertised = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, advertised);
@@ -2041,7 +2053,7 @@ test "keyed-relay routes a cold dial through the target's other relay" {
 
     const locator = advertised;
     const client_result = blk: {
-        var conn = dialer.netlayer().dial(&peer, locator, .{ .read = read_buf, .write = write_buf }) catch |err|
+        var conn = dialer.netlayer().dial(&peer, locator, .{ .read = read_buf, .write = write_buf }, .inherit) catch |err|
             break :blk err;
         defer conn.deinit();
         fetch_pump.handshakeToOpen(&peer, &conn, startSession("client")) catch |err|
@@ -2175,13 +2187,12 @@ const FailedDialJournal = struct {
         ctx: ?*anyopaque,
         _: usize,
         conn_ctx: ?*anyopaque,
-        opened: bool,
-        _: net.completion.CloseReason,
+        report: net.completion.CloseReport,
     ) void {
         const self: *FailedDialJournal = @ptrCast(@alignCast(ctx.?));
         std.debug.assert(conn_ctx == null);
         self.closes += 1;
-        self.opened = opened;
+        self.opened = report.opened;
     }
 };
 
@@ -2266,18 +2277,17 @@ test "keyed-relay completion loop: evented cold dial fetches through relay" {
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &server, allocator });
 
     const registered_nl = registered.netlayer();
-    const listener = try registered_nl.listen(allocator, .{
+    const listener = try netlayer_test.listenBlocking(registered_nl, allocator, .{
         .designator = "",
         .identity = identity.publicKey(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
 
     var serve_future = try io.concurrent(serveRegistered, .{ listener, identity.publicKey(), allocator });
 
     // The same sequencing the blocking test needs: the fixture accepts the
     // registration leg first, so the cold dial waits for the background
     // registration through the listener's readiness edge.
-    try std.testing.expect(try listener.waitReady(10_000));
 
     var done = std.atomic.Value(bool).init(false);
     var client_ctx = LoopClientCtx{ .allocator = allocator, .done = &done };
@@ -2342,7 +2352,7 @@ test "keyed-relay dial refuses a non-key designator and a listen without registr
     };
     try std.testing.expectError(
         error.InvalidAddress,
-        nl.dial(&peer, bad, .{ .read = &read_buf, .write = &write_buf }),
+        nl.dial(&peer, bad, .{ .read = &read_buf, .write = &write_buf }, .inherit),
     );
     var backend = try admissionBackend(allocator);
     defer deinitAdmissionBackend(&backend);
@@ -2352,8 +2362,7 @@ test "keyed-relay dial refuses a non-key designator and a listen without registr
     );
 
     // A dial-only resident (no register URL, no identity) refuses listen.
-    try std.testing.expectError(
-        error.InvalidAddress,
-        nl.listen(allocator, .{ .designator = "" }),
-    );
+    const listen_outcome = nl.listen(allocator, .{ .designator = "" });
+    try std.testing.expect(listen_outcome == .failed);
+    try std.testing.expectEqual(error.InvalidAddress, listen_outcome.failed.cause);
 }

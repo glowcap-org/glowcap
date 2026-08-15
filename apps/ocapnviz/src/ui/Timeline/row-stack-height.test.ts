@@ -88,9 +88,7 @@ Deno.test("the stack height covers every row the walk yields", () => {
     for (const row of rows) {
       assert(
         row.y + row.height <= height,
-        `a ${row.kind} row reaches ${
-          row.y + row.height
-        }, past a stack of ${height}`,
+        `a ${row.kind} row reaches ${row.y + row.height}, past a stack of ${height}`,
       );
     }
     const last = rows[rows.length - 1];

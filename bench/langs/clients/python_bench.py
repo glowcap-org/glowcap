@@ -20,8 +20,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "bindings" / "python"))
 
-from pancake import Session, Ref, connect, listen, tcp_locator  # noqa: E402
-
+from pancake import Ref, Runtime, Session, tcp  # noqa: E402
 CLIENT = "python"
 RUNTIME = f"cpython/{platform.python_version()}"
 
@@ -84,8 +83,8 @@ async def warm(conn: Session, root, n: int, unit=run_unit) -> None:
     gc.collect()
 
 
-async def run_latency(host: str, port: int, n: int) -> None:
-    conn = await connect(tcp_locator(host, port))
+async def run_latency(runtime: Runtime, host: str, port: int, n: int) -> None:
+    conn = await runtime.connect(tcp.locator(host, port))
     root = await conn.fetch("root")
     await warm(conn, root, n)
     lats = []
@@ -104,8 +103,8 @@ async def run_latency(host: str, port: int, n: int) -> None:
     })
 
 
-async def run_throughput(host: str, port: int, n: int) -> None:
-    conn = await connect(tcp_locator(host, port))
+async def run_throughput(runtime: Runtime, host: str, port: int, n: int) -> None:
+    conn = await runtime.connect(tcp.locator(host, port))
     root = await conn.fetch("root")
     await warm(conn, root, n, run_unit_pipelined)
     t0 = now()
@@ -120,10 +119,10 @@ async def run_throughput(host: str, port: int, n: int) -> None:
     })
 
 
-async def run_connections(host: str, port: int, n: int) -> None:
+async def run_connections(runtime: Runtime, host: str, port: int, n: int) -> None:
     warm_conns = []
     for _ in range(min(n, 5)):
-        c = await connect(tcp_locator(host, port))
+        c = await runtime.connect(tcp.locator(host, port))
         await c.fetch("root")
         warm_conns.append(c)
     gc.collect()
@@ -133,7 +132,7 @@ async def run_connections(host: str, port: int, n: int) -> None:
     handles = []
     t0 = now()
     for _ in range(n):
-        c = await connect(tcp_locator(host, port))
+        c = await runtime.connect(tcp.locator(host, port))
         await c.fetch("root")
         handles.append(c)
     total = now() - t0
@@ -149,8 +148,8 @@ async def run_connections(host: str, port: int, n: int) -> None:
         await c.close()
 
 
-async def run_cold(host: str, port: int) -> None:
-    conn = await connect(tcp_locator(host, port))
+async def run_cold(runtime: Runtime, host: str, port: int) -> None:
+    conn = await runtime.connect(tcp.locator(host, port))
     root = await conn.fetch("root")
     await run_unit(conn, root)
     await conn.close()
@@ -193,7 +192,7 @@ async def measure_hits(conn: Session, target: Ref, n: int) -> list:
     return lats
 
 
-async def run_local(n: int) -> None:
+async def run_local(runtime: Runtime, n: int) -> None:
     # The `local` mode (see contract.md): (a) in_lang — a counter spawned on
     # this connection, dispatched in process by the binding's own local path;
     # (b) via_host — the same behavior published across a loopback pair inside
@@ -201,7 +200,7 @@ async def run_local(n: int) -> None:
     # pays wire codec, feed, trampoline, and marshal both ways. The
     # orchestrator's host/port arguments are unused; the pair is
     # self-contained.
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     accepted: list = []
 
     async def accept_one() -> None:
@@ -212,7 +211,7 @@ async def run_local(n: int) -> None:
             return
 
     accept_task = asyncio.ensure_future(accept_one())
-    dial = await connect(tcp_locator("127.0.0.1", server.port))
+    dial = await runtime.connect(tcp.locator("127.0.0.1", server.port))
 
     # (a) in_lang: the binding's in-process actor dispatch.
     local = dial.spawn(counter_behavior())
@@ -243,19 +242,20 @@ async def main() -> None:
     mode, host, port_str = sys.argv[1], sys.argv[2], sys.argv[3]
     port = int(port_str)
     n = int(sys.argv[4]) if len(sys.argv) > 4 else 0
-    if mode == "latency":
-        await run_latency(host, port, n)
-    elif mode == "throughput":
-        await run_throughput(host, port, n)
-    elif mode == "connections":
-        await run_connections(host, port, n)
-    elif mode == "cold":
-        await run_cold(host, port)
-    elif mode == "local":
-        await run_local(n)
-    else:
-        print(f"unknown mode: {mode}", file=sys.stderr)
-        sys.exit(2)
+    async with Runtime.open(provider=tcp.provider()) as runtime:
+        if mode == "latency":
+            await run_latency(runtime, host, port, n)
+        elif mode == "throughput":
+            await run_throughput(runtime, host, port, n)
+        elif mode == "connections":
+            await run_connections(runtime, host, port, n)
+        elif mode == "cold":
+            await run_cold(runtime, host, port)
+        elif mode == "local":
+            await run_local(runtime, n)
+        else:
+            print(f"unknown mode: {mode}", file=sys.stderr)
+            sys.exit(2)
 
 
 if __name__ == "__main__":

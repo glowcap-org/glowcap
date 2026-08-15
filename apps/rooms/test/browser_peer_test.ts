@@ -22,7 +22,7 @@
 // (the devcontainer image ships one). Run
 // it directly: `deno run --allow-all apps/rooms/test/browser_peer_test.ts`.
 //
-// The stack now bundles for a browser: `internal/ffi/runtime.ts` and
+// The runtime now bundles for a browser: `internal/ffi/runtime.ts` and
 // `internal/ffi/load.ts` carry no top-level await (Deno and the injected
 // adapter resolve synchronously; Bun loads via `ensureRuntimeReady`; the
 // archive cascade's `node:*` built-ins are static imports the browser bundle
@@ -74,11 +74,10 @@ async function waitForHttp(port: number): Promise<void> {
 	fail("serve.ts never published a room locator");
 }
 
-const BUNDLE_CONFIG =
-	new URL("../../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
+const BUNDLE_CONFIG = new URL("../../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
 
 // Bundle the probe for the browser through the web binding's browser-bundle
-// config, which stubs the stack's non-browser FFI adapters (node:net, bun:ffi)
+// config, which stubs the runtime's non-browser FFI adapters (node:net, bun:ffi)
 // so the single-file bundle resolves without a runtime the browser lacks.
 async function bundleProbe(): Promise<string> {
 	const { code, stdout, stderr } = await new Deno.Command("deno", {
@@ -112,6 +111,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",

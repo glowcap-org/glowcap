@@ -184,9 +184,7 @@ Deno.test("the resolver picks exactly the nodes the tool table takes", () => {
   // neither picked it nor refused it, so the click fell through to plain
   // selection and the tool quietly did something else.
   const nodeHit = (kind: NodeKind): Hit =>
-    kind === "peer"
-      ? dummyHit("stage-peer", { peerId: "bob" })
-      : dummyHit("stage-endpoint", { endpointId: "s1::b" });
+    kind === "peer" ? dummyHit("stage-peer", { peerId: "bob" }) : dummyHit("stage-endpoint", { endpointId: "s1::b" });
   for (const tool of ALL_TOOLS) {
     for (const kind of ["peer", "endpoint"] as const) {
       const r = resolveGesture(ctx({ hit: nodeHit(kind), activeTool: tool }));

@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // The live timeline endpoint: one WebSocket that carries the room's own
 // sessions AND every other peer's, in the versioned timeline schema ocapnviz's
 // Live mode consumes. Give the viewer the `ROOMS-VIZ-LISTENING` sturdyref and
@@ -46,18 +47,8 @@
 // one wire is two rows here, and a viewer drawing them one at a time would
 // invent the same learning sequence a live feed genuinely goes through.
 
-import {
-	currentSession,
-	formatSturdyRef,
-	Host,
-	Ref,
-	Session,
-	socketAddrDesignator,
-	tcpLocator,
-	TRANSPORT_TCP,
-	webSocketChannel,
-} from "@pancake/stack";
-import type { TraceEvent } from "@pancake/stack";
+import { currentSession, formatSturdyRef, Host, Ref, Session, TRANSPORT_TCP, webSocketChannel } from "@pancake/runtime";
+import type { TraceEvent } from "@pancake/runtime";
 import { DESIGNATOR_SCHEME_ADDRESS } from "@pancake/abi";
 import { VIZ_PUBLISH_PATH } from "../lib/viz_publish.ts";
 
@@ -428,8 +419,8 @@ export function startViz(port: number): VizServer {
 			onListen: ({ port: bound }) => {
 				boundPort = bound;
 				announceBound(bound);
-				const locator = tcpLocator("127.0.0.1", bound);
-				const ref = formatSturdyRef(locator, traceSwiss);
+				const locator = tcp.locator("127.0.0.1", bound);
+				const ref = formatSturdyRef(locator, traceSwiss, "v1_0");
 				announceSturdyref(ref);
 				console.error(`ROOMS-VIZ-LISTENING ${ref}`);
 			},
@@ -462,9 +453,9 @@ export function startViz(port: number): VizServer {
 						session = await Session.establishAccepted(traceHost, {
 							transport: TRANSPORT_TCP,
 							designatorScheme: DESIGNATOR_SCHEME_ADDRESS,
-							serverDesignator: socketAddrDesignator("127.0.0.1", boundPort),
+							serverDesignator: tcp.addressDesignator("127.0.0.1", boundPort),
 							channel: webSocketChannel(socket),
-							localAddress: socketAddrDesignator("127.0.0.1", boundPort),
+							localAddress: tcp.addressDesignator("127.0.0.1", boundPort),
 						});
 						acceptedSessions.add(session);
 						await session.serve().catch(() => {});
@@ -537,13 +528,12 @@ export function startViz(port: number): VizServer {
 			viewerSockets.clear();
 			const sessions = [...acceptedSessions];
 			acceptedSessions.clear();
-			// `Session.close()` is asynchronous even though this embedding's close
-			// lever is not. Keep the shared Host alive until every accepted session
-			// has stopped using it.
+			// This embedding's close lever cannot await. Keep the shared Host alive
+			// until every accepted session has stopped using it.
 			void Promise.allSettled([
 				...sessions.map((session) => session.close()),
 				...viewerTasks,
-			]).then(() => traceHost.release());
+			]).then(() => traceHost.close());
 		},
 	};
 }

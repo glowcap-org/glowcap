@@ -4,7 +4,7 @@
 // for every runtime's relay; the relay under test is named on the command line.
 //
 // Three processes keep the module graphs honest:
-//   serve_iroh_host.ts   native dlopen stack; binds a real iroh endpoint
+//   serve_iroh_host.ts   native dlopen runtime; binds a real iroh endpoint
 //                        (relay-less Direct on loopback) and publishes a greeter.
 //   the relay            the program under test, dialing `?locator=<uri>` over
 //                        iroh and piping bytes both ways without parsing them.

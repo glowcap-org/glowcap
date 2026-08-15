@@ -20,21 +20,48 @@
 ;;
 ;; This is the explicit blocking handle for the I/O backend: the embedder reads
 ;; a frame, feeds it to its byte-fed connection, and writes what the feed
-;; drains back. The async, scheduler-friendly path over Racket's own ports
-;; lives in the core's `async-connection` / `connect` / `listen`; this module
-;; is the direct C-ABI netlayer beneath it.
+;; drains back. The scheduler-friendly application path composes `tcp-provider`
+;; or `tcp-connector` into a Runtime; this module also exposes the direct C-ABI
+;; netlayer beneath it.
 
 (require ffi/unsafe
          ffi/unsafe/port
          "private/constants.rkt"
          "private/ffi-tcp.rkt"
+         "private/locator.rkt"
+         "private/socket-address.rkt"
+         "private/tcp-config.rkt"
+         (only-in "private/tcp-provider.rkt"
+                  tcp-provider tcp-connector)
+         (only-in "private/tcp-listen.rkt"
+                  server? server-host server-locator server-uri server-port
+                  server-close! accept listen listen-keyed-tcp listen-noise-tcp)
          "private/native-parent.rkt"
          "private/seam.rkt")
 
-(provide make-netlayer netlayer-release! netlayer-listen netlayer-connect
+(provide tcp-address-designator tcp-locator keyed-tcp-locator noise-tcp-locator
+         tcp-provider tcp-connector
+         make-tcp-keepalive (struct-out tcp-keepalive)
+         make-tcp-stream-options (struct-out tcp-stream-options)
+         make-tcp-config (struct-out tcp-config)
+         make-tcp-options
+         server? server-host server-locator server-uri server-port server-close!
+         accept listen listen-keyed-tcp listen-noise-tcp
+         make-netlayer netlayer-release! netlayer-listen netlayer-connect
          listener-port listener-readiness-fd listener-accept listener-release!
          connection-read-frame connection-write-frame! connection-release!
          tcp-last-error)
+
+(define (tcp-locator host port)
+  (locator TRANSPORT-TCP (tcp-address-designator host port) (hash) 'boolean-false))
+
+(define (keyed-tcp-locator designator host port)
+  (locator TRANSPORT-KEYED-TCP designator
+           (hash HINT-DIRECT-ADDRESSES (tcp-address-designator host port)) 'map))
+
+(define (noise-tcp-locator designator host port)
+  (locator TRANSPORT-NOISE-TCP designator
+           (hash HINT-DIRECT-ADDRESSES (tcp-address-designator host port)) 'map))
 
 ;; (tcp-last-error) -> the calling thread's last error message from the TCP
 ;; transport archive (`libpancake_net_transport_tcp`), or #f. The transport keeps
@@ -54,8 +81,8 @@
 (define (netlayer-forget! nl child)
   (native-parent-forget! (netlayer-owner nl) child))
 
-(define (make-netlayer)
-  (define-values (rc h) (pancake_tcp_netlayer_new))
+(define (make-netlayer [config (make-tcp-config)])
+  (define-values (rc h) (pancake_tcp_netlayer_new (tcp-config->c config)))
   (check/tcp rc)
   (define nl
     (netlayer
@@ -88,7 +115,8 @@
   (register-finalizer lst (lambda (q) (listener-release! q)))
   lst)
 
-(define (netlayer-connect nl host port [codec 'syrup] [max-frame 4096])
+(define (netlayer-connect nl host port [codec 'syrup] [max-frame 4096]
+                          #:options [options #f])
   (define bs (string->bytes/utf-8 host))
   (define cn
     (native-parent-open-child
@@ -96,7 +124,8 @@
      (lambda (parent-handle)
        (define-values (rc h)
          (pancake_tcp_connect parent-handle (pin-immobile bs) (bytes-length bs)
-                              port (codec-id codec) max-frame))
+                              port (optional-tcp-stream-options->c options)
+                              (codec-id codec) max-frame))
        (check/tcp rc)
        (connection h (make-semaphore 1) (make-semaphore 1) nl))
      connection-release!))
@@ -111,7 +140,8 @@
 (define (listener-readiness-fd lst)
   (or (listener-fd lst) (error 'listener-readiness-fd "listener is closed")))
 
-(define (listener-accept lst [codec 'syrup] [max-frame 4096])
+(define (listener-accept lst [codec 'syrup] [max-frame 4096]
+                         #:options [options #f])
   (call-with-semaphore
    (listener-accept-gate lst)
    (lambda ()
@@ -128,7 +158,10 @@
                          (lambda (_) 'closing))))
      (when (eq? outcome 'closing)
        (error 'listener-accept "listener is closed"))
-     (define-values (rc h) (pancake_tcp_accept (listener-handle lst) (codec-id codec) max-frame))
+     (define-values (rc h)
+       (pancake_tcp_accept (listener-handle lst)
+                           (optional-tcp-stream-options->c options)
+                           (codec-id codec) max-frame))
      (check/tcp rc)
      (define nl (listener-netlayer lst))
      (define cn
@@ -185,7 +218,10 @@
 
 (define (connection-release! cn)
   (when (connection-handle cn)
-    (pancake_tcp_conn_shutdown (connection-handle cn))
+    (define shutdown-failure #f)
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (raised) (set! shutdown-failure raised))])
+      (check/tcp (pancake_tcp_conn_shutdown (connection-handle cn))))
     (call-with-semaphore
      (connection-read-gate cn)
      (lambda ()
@@ -195,4 +231,5 @@
           (when (connection-handle cn)
             (pancake_tcp_conn_release (connection-handle cn))
             (set-connection-handle! cn #f)
-            (netlayer-forget! (connection-netlayer cn) cn))))))))
+            (netlayer-forget! (connection-netlayer cn) cn))))))
+    (when shutdown-failure (raise shutdown-failure))))

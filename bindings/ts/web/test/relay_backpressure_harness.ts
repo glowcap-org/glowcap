@@ -93,9 +93,7 @@ try {
 	clearTimeout(deadline);
 } catch (err) {
 	fail(
-		`${inv.label} backpressure scenario failed: ${
-			err instanceof Error ? err.message : String(err)
-		}`,
+		`${inv.label} backpressure scenario failed: ${err instanceof Error ? err.message : String(err)}`,
 	);
 } finally {
 	kill(relayProcess);

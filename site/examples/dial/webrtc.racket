@@ -1,0 +1,9 @@
+;; PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+;; The Racket WebRTC dial API is not yet public; this shows the planned shape.
+;; Signaling is a capability you already hold, not a constructor.
+;;
+;; (require "pancake.rkt" "pancake-webrtc.rkt")
+;;
+;; (define partner (webrtc-locator "<64 lowercase hex characters from the peer>"))
+;; (define runtime (open-runtime #:connectors (list (webrtc-connector signaling))))
+;; From here, the CapTP workflow is transport-independent.

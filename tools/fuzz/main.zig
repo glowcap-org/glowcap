@@ -41,7 +41,7 @@ const crash_artifact = ".zig-cache/f/crash";
 /// The run counts in them are how we know a run really searched.
 const coverage_dir = ".zig-cache/v";
 /// Every fuzz target lives in a file with this name, one directory under
-/// `test/`. `zig build meta-check` holds that, so scanning those files finds
+/// `test/`. `zig build source-check` holds that, so scanning those files finds
 /// every target there is.
 const target_file = "fuzz_test.zig";
 /// The prefix every fuzz target's test name carries. It is also what gets

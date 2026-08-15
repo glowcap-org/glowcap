@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
 const model = pancake.ocapn.model;
@@ -105,8 +106,8 @@ test "inproc netlayer: full keyed handshake + fetch + call round-trips with no s
     defer network.deinit();
 
     // Bind the listener before the client dials, so the switchboard has the node.
-    const listener = try network.netlayer().listen(allocator, .{ .designator = node_designator });
-    defer listener.close();
+    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = node_designator });
+    defer netlayer_test.close(listener);
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
     const client_result = callOnce(&network, allocator);
@@ -163,7 +164,7 @@ test "inproc netlayer: closing the listener wakes a parked accept cleanly" {
     var network = inproc.Network.init(allocator, io);
     defer network.deinit();
 
-    const listener = try network.netlayer().listen(allocator, .{ .designator = "close-me" });
+    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "close-me" });
 
     // Park an accept on its own fiber, give it time to reach the wait, then
     // close the listener out from under it. The woken accepter must observe
@@ -171,7 +172,7 @@ test "inproc netlayer: closing the listener wakes a parked accept cleanly" {
     // list, the waiter accounting in the close path is what makes that safe.
     var accept_future = try io.concurrent(acceptUntilClosed, .{ listener, allocator });
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
-    listener.close();
+    netlayer_test.close(listener);
     try accept_future.await(io);
 }
 
@@ -188,10 +189,10 @@ test "inproc netlayer: close joins a finite readiness wait before freeing storag
     var network = inproc.Network.init(allocator, io);
     defer network.deinit();
 
-    const listener = try network.netlayer().listen(allocator, .{ .designator = "finite-close" });
+    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "finite-close" });
     var waiter = try io.concurrent(waitFiniteUntilClosed, .{listener});
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
-    listener.close();
+    netlayer_test.close(listener);
     try waiter.await(io);
 }
 
@@ -210,8 +211,8 @@ test "inproc netlayer: unbounded waitAcceptable parks until a dial arrives" {
     var network = inproc.Network.init(allocator, io);
     defer network.deinit();
 
-    const listener = try network.netlayer().listen(allocator, .{ .designator = "wait-forever" });
-    defer listener.close();
+    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "wait-forever" });
+    defer netlayer_test.close(listener);
 
     var outcome = std.atomic.Value(u8).init(0);
     var waiter = try io.concurrent(waitAcceptableForever, .{ listener, &outcome });
@@ -226,7 +227,7 @@ test "inproc netlayer: unbounded waitAcceptable parks until a dial arrives" {
         .transport = inproc.transport_name,
         .designator = "wait-forever",
         .hints = model.Hints.emptyFalse(),
-    }, .{ .read = &read_buf, .write = &write_buf });
+    }, .{ .read = &read_buf, .write = &write_buf }, .inherit);
     defer conn.deinit();
 
     try waiter.await(io);
@@ -248,7 +249,7 @@ fn dialAgainstClose(network: *inproc.Network, allocator: std.mem.Allocator) anye
         .transport = inproc.transport_name,
         .designator = "race-me",
         .hints = model.Hints.emptyFalse(),
-    }, .{ .read = &read_buf, .write = &write_buf }) catch |err| switch (err) {
+    }, .{ .read = &read_buf, .write = &write_buf }, .inherit) catch |err| switch (err) {
         // The close won, two ways (ADR-0081): the listener was flagged closed
         // after this dial pinned it but before enqueue (ConnectionLost), or it
         // was already unregistered when the dial looked it up, so the dial never
@@ -269,7 +270,7 @@ test "inproc netlayer: closing the listener races concurrent dials without touch
     var network = inproc.Network.init(allocator, io);
     defer network.deinit();
 
-    const listener = try network.netlayer().listen(allocator, .{ .designator = "race-me" });
+    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "race-me" });
 
     // Fire a burst of dials and close the listener while they are in flight.
     // The dial path pins the listener between the registry lookup and the
@@ -280,7 +281,7 @@ test "inproc netlayer: closing the listener races concurrent dials without touch
     const dials = 8;
     var futures: [dials]std.Io.Future(anyerror!void) = undefined;
     for (&futures) |*f| f.* = try io.concurrent(dialAgainstClose, .{ &network, allocator });
-    listener.close();
+    netlayer_test.close(listener);
     var first_err: ?anyerror = null;
     for (&futures) |*f| f.await(io) catch |err| {
         if (first_err == null) first_err = err;
@@ -311,7 +312,7 @@ fn dialWhileArrivalNotifies(network: *inproc.Network) anyerror!void {
 }
 
 fn closeRawListener(listener: *inproc.InprocListener, returned: *std.atomic.Value(bool)) void {
-    listener.close();
+    std.testing.expect(listener.close() == null) catch unreachable;
     returned.store(true, .release);
 }
 
@@ -355,7 +356,7 @@ fn dialAgainstCloseDirect(network: *inproc.Network, allocator: std.mem.Allocator
         .transport = inproc.transport_name,
         .designator = "race-me",
         .hints = model.Hints.emptyFalse(),
-    }, .{ .read = &read_buf, .write = &write_buf });
+    }, .{ .read = &read_buf, .write = &write_buf }, .inherit);
     conn.deinit();
 }
 
@@ -388,8 +389,8 @@ test "the owning face refuses a transport with no pollable fd (ADR-0090)" {
     var network = inproc.Network.init(allocator, io);
     defer network.deinit();
 
-    const listener = try network.netlayer().listen(allocator, .{ .designator = "unpollable-node" });
-    defer listener.close();
+    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "unpollable-node" });
+    defer netlayer_test.close(listener);
 
     var accepter = try io.concurrent(acceptRawOnce, .{ listener, allocator });
     defer accepter.await(io) catch {};

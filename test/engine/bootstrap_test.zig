@@ -11,13 +11,14 @@ test "resolveForSwissnum fulfills with the mapped export, breaks on a miss" {
     defer sess.deinit();
     const export_position = try sess.registerBootstrapCap("k");
 
-    // no free: fulfill is a POD NearRef and the break reason is static, never
-    // route these through `freeMessage` (only `Peer.sendCopying`, which clones).
+    // Fulfill is a POD NearRef. The miss diagnostic is a named string dupe
+    // `send` owns on the wire path; this test must free it.
     const hit = try engine.bootstrap.resolveForSwissnum(&sess, null, null, .{ .swissnum = "k", .answer = .from(7) });
     try std.testing.expectEqual(@as(u64, 7), hit.resolve.answer.int());
     try std.testing.expectEqual(model.NearRef.object(export_position.int()), hit.resolve.resolution.fulfill.reference.near);
 
     const miss = try engine.bootstrap.resolveForSwissnum(&sess, null, null, .{ .swissnum = "nope", .answer = .from(9) });
+    defer model.freeMessage(std.testing.allocator, miss);
     try std.testing.expectEqualStrings("unknown swissnum", miss.resolve.resolution.@"break".message);
 }
 

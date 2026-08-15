@@ -140,9 +140,7 @@ async function startRelayProbe(): Promise<RelayProbe> {
 		}
 	})();
 
-	const timeout = new Promise<never>((_, reject) =>
-		setTimeout(() => reject(new Error("timeout")), 15_000)
-	);
+	const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15_000));
 	let readyPort: number;
 	try {
 		readyPort = await Promise.race([portReady, timeout]);

@@ -81,11 +81,11 @@ pub fn main(init: std.process.Init) !void {
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bind_addr = try tcp.parseHostPort(host_addr, port);
-    const bind_designator = tcp.locator(&designator_buf, bind_addr).designator;
+    const bind_designator = tcp.locatorFromAddress(&designator_buf, bind_addr).designator;
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind_designator }, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
-    defer server.close() catch {};
+    defer server.deinit();
 
     var addr_buf: [64]u8 = undefined;
     const local = try server.localDesignator(&addr_buf);

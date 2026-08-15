@@ -1,12 +1,12 @@
 // Browser arm of @pancake/iroh: iroh is a native-only transport, so a browser
 // dial rides a byte relay instead of QUIC. `browser-bundle.json` maps
-// `@pancake/iroh` (and `/internal`) here; the stack's one dial path
+// `@pancake/iroh` (and `/internal`) here; the runtime's one dial path
 // (`dial.ts`'s peer-id arm) lands in `_connectIroh`, which opens a WebSocket
 // to the relay `init({ relayUrl })` named and drives the ordinary handshake
 // over it. The relay only moves bytes; session authority stays end to end.
 
 import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@pancake/abi";
-import { webSocketChannel } from "../stack/ws_channel.ts";
+import { webSocketChannel } from "../runtime/websocket.ts";
 import { _relayUrl } from "./mod.ts";
 
 // The relay accepts this socket first and dials the far endpoint only after, so
@@ -24,7 +24,7 @@ const unavailable = (): never => {
 	throw new Error(NATIVE_ONLY);
 };
 
-export const listenIroh = unavailable;
+export const listen = unavailable;
 export const Reachability = {} as Record<string, never>;
 export class IrohConnection {
 	constructor() {
@@ -42,7 +42,7 @@ export class IrohServer {
 	}
 }
 
-/** The stack's peer-id dial arm in a browser: open the configured relay's
+/** The runtime's peer-id dial arm in a browser: open the configured relay's
  * WebSocket for the locator and establish the session over that byte pipe.
  * Signature mirrors the native `_connectIroh(nodeId, directAddresses,
  * reachability, host, handshakeTimeoutMs)`; reachability is the relay's concern
@@ -72,12 +72,12 @@ export async function _connectIroh(
 ): Promise<unknown> {
 	const relayUrl = _relayUrl();
 	if (relayUrl === null) throw new Error(NATIVE_ONLY);
-	const stack = await import("@pancake/stack");
+	const runtimeApi = await import("@pancake/runtime");
 	const hints = new Map<string, string>();
 	if (directAddresses.length > 0) {
-		hints.set(stack.HINT_DIRECT_ADDRESSES, directAddresses);
+		hints.set(runtimeApi.HINT_DIRECT_ADDRESSES, directAddresses);
 	}
-	const locator = stack.formatPeerUri(stack.TRANSPORT_IROH, nodeId, hints);
+	const locator = runtimeApi.formatPeerUri(runtimeApi.TRANSPORT_IROH, nodeId, hints);
 	const url = relayUrl(locator);
 	const ws = new WebSocket(url);
 	await new Promise<void>((resolve, reject) => {
@@ -89,14 +89,11 @@ export async function _connectIroh(
 		}, { once: true });
 	});
 	const channel = webSocketChannel(ws);
-	const asked = handshakeTimeoutMs === undefined
-		? stack.HANDSHAKE_TIMEOUT_MS
-		: handshakeTimeoutMs;
+	const asked = handshakeTimeoutMs === undefined ? runtimeApi.HANDSHAKE_TIMEOUT_MS : handshakeTimeoutMs;
 	try {
-		return await stack.Session.establishDialedLocator(
-			(host as InstanceType<typeof stack.Host> | undefined) ?? new stack.Host(),
-			stack.TRANSPORT_IROH,
-			nodeId,
+		return await runtimeApi.Session.establishDialedLocator(
+			(host as InstanceType<typeof runtimeApi.Host> | undefined) ?? new runtimeApi.Host(),
+			runtimeApi.bareLocator(runtimeApi.TRANSPORT_IROH, nodeId),
 			channel,
 			asked ? asked + RELAY_FAR_DIAL_ALLOWANCE_MS : asked,
 			nodeId,

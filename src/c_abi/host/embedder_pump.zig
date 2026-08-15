@@ -15,7 +15,7 @@ const driver_core = @import("driver_core");
 comptime {
     // Keep the C drain arm count lockstep with Zig HostAction.
     const tags = @typeInfo(driver_core.HostAction).@"union".fields;
-    if (tags.len != 7) {
+    if (tags.len != 8) {
         @compileError("embedder_pump: HostAction tag count changed — update drainHost switch");
     }
 }
@@ -37,7 +37,7 @@ comptime {
 /// - `close(host, action) !bool`
 /// - `needGiftId(host, action) !bool`
 /// - `complete(host, action) !bool` — owns SETTLE / FAIL
-/// - `dial(host, action) !bool`
+/// - `dial(host, action) !bool` — DIAL and CANCEL_DIAL effects
 ///
 pub const DrainResult = struct {
     acted: bool = false,
@@ -61,6 +61,7 @@ pub fn drainHost(comptime Driver: type, comptime Codes: type, host: ?*Driver.Pan
             Driver.PANCAKE_HOST_ACTION_NEED_GIFT_ID => try exec.needGiftId(host, &action),
             Driver.PANCAKE_HOST_ACTION_SETTLE, Driver.PANCAKE_HOST_ACTION_FAIL => try exec.complete(host, &action),
             Driver.PANCAKE_HOST_ACTION_DIAL => try exec.dial(host, &action),
+            Driver.PANCAKE_HOST_ACTION_CANCEL_DIAL => try exec.dial(host, &action),
             Driver.PANCAKE_HOST_ACTION_RESUME => return .{ .acted = true, .yielded = true },
             else => return error.UnknownHostAction,
         };

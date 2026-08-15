@@ -1,0 +1,14 @@
+(require "pancake.rkt" "pancake-relay.rkt")
+
+;; Noise_XK seals the CapTP stream end to end through the relay.
+(define peer-key "<64 lowercase hex characters from the server>")
+(define relay-url "wss://relay.example/rendezvous")
+(define partner (noise-relay-locator peer-key relay-url))
+(define runtime
+  (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
+;; From here, the CapTP workflow is transport-independent.
+(define session (runtime-connect runtime partner))
+(define greeter (session-fetch session "greeter")) ; a capability this peer published
+(printf "~a\n" (session-send session greeter 'greet "world"))
+(session-close! session)
+(runtime-close! runtime)

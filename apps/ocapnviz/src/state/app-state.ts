@@ -102,9 +102,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         mode: action.mode,
-        tool: toolsForMode(action.mode).includes(state.tool)
-          ? state.tool
-          : "select",
+        tool: toolsForMode(action.mode).includes(state.tool) ? state.tool : "select",
         firstPickNodeId: null,
       };
     case "set-tool":
@@ -224,15 +222,9 @@ export function loadPersistedTimelineView(): PersistedTimelineView | null {
     // Defensive shape check — drop malformed fields rather than
     // letting a bad stored value crash the panel.
     return {
-      ...(Array.isArray(parsed.expandedLanes)
-        ? { expandedLanes: parsed.expandedLanes }
-        : {}),
-      ...(Array.isArray(parsed.expandedCategories)
-        ? { expandedCategories: parsed.expandedCategories }
-        : {}),
-      ...(typeof parsed.gutterWidth === "number"
-        ? { gutterWidth: parsed.gutterWidth }
-        : {}),
+      ...(Array.isArray(parsed.expandedLanes) ? { expandedLanes: parsed.expandedLanes } : {}),
+      ...(Array.isArray(parsed.expandedCategories) ? { expandedCategories: parsed.expandedCategories } : {}),
+      ...(typeof parsed.gutterWidth === "number" ? { gutterWidth: parsed.gutterWidth } : {}),
     };
   } catch {
     return null;
@@ -302,13 +294,8 @@ export function makeInitialAppState(): AppState {
   const persisted = loadPersistedAppState();
   const live = readLiveOverride();
   const persistedMode = persisted?.mode;
-  const legacyLiveMode =
-    (persisted as { liveMode?: boolean } | null)?.liveMode === true;
-  const initialMode: AppMode = live !== null
-    ? "live"
-    : legacyLiveMode
-    ? "live"
-    : (persistedMode ?? "play");
+  const legacyLiveMode = (persisted as { liveMode?: boolean } | null)?.liveMode === true;
+  const initialMode: AppMode = live !== null ? "live" : legacyLiveMode ? "live" : (persistedMode ?? "play");
   return {
     scenarioId: persisted?.scenarioId ?? scenarios[0]?.id ?? "",
     mode: initialMode,

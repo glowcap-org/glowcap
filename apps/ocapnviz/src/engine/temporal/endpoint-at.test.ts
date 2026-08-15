@@ -32,12 +32,7 @@ import { assert, assertEquals } from "@std/assert";
 import { attachedEndpoint, sessionEndpoint } from "../../schema/topology.ts";
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { projectFromObservations } from "./project-from-observations.ts";
-import {
-  messageEffective,
-  sessionEffective,
-  sessionEndpointAt,
-  sessionEndpointPlaceAt,
-} from "./doc-resolver.ts";
+import { messageEffective, sessionEffective, sessionEndpointAt, sessionEndpointPlaceAt } from "./doc-resolver.ts";
 
 /** A one-session capture: the session opens with `b` loose and carrying a
  *  claim, and whatever moments the case adds land after it. */

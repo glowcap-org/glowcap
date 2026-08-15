@@ -17,6 +17,7 @@ from typing import NamedTuple, Optional, Union
 import ctypes
 
 from . import _constants as _abi
+from ._codec import _captp_version_id
 from ._errors import _check, PancakeError
 from ._ffi_ocapn import _lib, _LocatorHintView, _LocatorView
 
@@ -43,7 +44,7 @@ HintValue = Union[str, bytes, bool, int]
 class Locator(NamedTuple):
     """A parsed OCapN peer locator.
 
-    Dial resolves host:port through ``pancake_host_plan_dial``; apps that need
+    Transport modules own locator construction and realization; apps that need
     a bare designator split use :func:`designator_host_port`.
     """
 
@@ -119,7 +120,7 @@ class _OwnedLocator:
         ))
         return cls(raw)
 
-    def borrow_view(self) -> "ctypes.POINTER[_LocatorView]":
+    def borrow_view(self) -> "ctypes._Pointer[_LocatorView]":
         raw = ctypes.c_void_p()
         _check(_lib.pancake_locator_borrow_view(self.handle, ctypes.byref(raw)))
         return ctypes.cast(raw, ctypes.POINTER(_LocatorView))
@@ -228,11 +229,14 @@ def parse_locator(uri: str) -> Locator:
         return owned.value()
 
 
-def parse_sturdyref(uri: str) -> SturdyRef:
-    """Parse an ``ocapn://.../s/<swiss>`` sturdyref without losing authority."""
+def parse_sturdyref(uri: str, captp_version: str) -> SturdyRef:
+    """Parse an ``ocapn://.../s/<swiss>`` sturdyref under its CapTP profile
+    without losing authority."""
     raw = uri.encode("utf-8")
     out = ctypes.c_void_p()
-    _check(_lib.pancake_uri_parse_sturdyref(raw, len(raw), ctypes.byref(out)))
+    _check(_lib.pancake_uri_parse_sturdyref(
+        _captp_version_id(captp_version), raw, len(raw), ctypes.byref(out)
+    ))
     with _OwnedSturdyRef(out) as owned:
         return owned.value()
 
@@ -243,15 +247,15 @@ def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, 
     return _format_uri(transport, designator, None, hints)
 
 
-def format_sturdyref(locator_uri: str, swissnum: bytes) -> str:
-    """Format a peer URI plus opaque swiss authority through the core grammar."""
-    locator = parse_locator(locator_uri)
+def format_sturdyref(locator: Locator, swissnum: bytes, captp_version: str) -> str:
+    """Add opaque swiss authority to a typed locator and render a sturdyref
+    under the selected CapTP profile."""
     hints: dict[str, str] = {}
     for name, value in locator.hints.items():
         if not isinstance(value, str):
             raise TypeError(f"locator hint {name!r} has no lossless URI spelling")
         hints[name] = value
-    return _format_uri(locator.transport, locator.designator, swissnum, hints)
+    return _format_uri(locator.transport, locator.designator, swissnum, hints, captp_version)
 
 
 def _format_uri(
@@ -259,6 +263,7 @@ def _format_uri(
     designator: str,
     swissnum: "Optional[bytes]",
     hints: "Optional[dict[str, str]]" = None,
+    captp_version: "Optional[str]" = None,
 ) -> str:
     items = list((hints or {}).items())
     t = transport.encode("utf-8")
@@ -295,7 +300,9 @@ def _format_uri(
                 buf, cap, ctypes.byref(out_len),
             )
         else:
+            assert captp_version is not None
             rc = _lib.pancake_uri_format_sturdyref(
+                _captp_version_id(captp_version),
                 t, len(t), d, len(d), swissnum, len(swissnum),
                 key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
                 buf, cap, ctypes.byref(out_len),
@@ -320,19 +327,6 @@ def format_locator_uri(locator: Locator) -> str:
 
 
 
-def socket_addr_designator(host_or_peer, port: int | None = None) -> str:
-    """Render host:port as a tcp designator. IPv6 hosts need brackets so the
-    core last-colon split stays unambiguous. Accepts ``(host, port)`` from a
-    socket peername/getsockname, or ``(host, port)`` as two arguments."""
-    if port is None:
-        host, port = host_or_peer[0], int(host_or_peer[1])
-    else:
-        host = host_or_peer
-    if ":" in host and not (host.startswith("[") and host.endswith("]")):
-        return f"[{host}]:{port}"
-    return f"{host}:{port}"
-
-
 def designator_host_port(designator: str) -> "tuple[str, int]":
     """Split a bare designator as ``host:port`` through the core grammar
     (``pancake_designator_host_port``). Prefer this over minting a peer URI
@@ -348,34 +342,3 @@ def designator_host_port(designator: str) -> "tuple[str, int]":
     ))
     host = (ctypes.string_at(hp, hn.value).decode("utf-8") if hp.value and hn.value else "")
     return host, int(hport.value)
-
-def tcp_locator(host: str, port: int) -> str:
-    """Build a ``tcp`` locator from a literal host and port:
-    ``ocapn://host:port.tcp``, rendered through the core grammar. The convenience
-    for the common case, a caller holding a host and port passes
-    ``connect(tcp_locator(host, port))`` instead of hand-formatting the URI.
-    ``host:port`` is not a dial of its own; it is a locator like any other."""
-    return format_peer_uri(_abi.TRANSPORT_TCP, socket_addr_designator(host, port))
-
-
-def keyed_tcp_locator(designator: str, host: str, port: int) -> str:
-    """Build a ``keyed-tcp`` locator: the designator is the listener's Ed25519
-    public key in canonical hex, and ``host``/``port`` ride the
-    ``direct-addresses`` hint (ADR-0075). A partner dials with :func:`connect`
-    and re-dials after a restart with only the hint updated."""
-    return format_peer_uri(
-        _abi.TRANSPORT_KEYED_TCP,
-        designator,
-        {_abi.HINT_DIRECT_ADDRESSES: socket_addr_designator(host, port)},
-    )
-
-
-def noise_tcp_locator(designator: str, host: str, port: int) -> str:
-    """Build a ``noise-tcp`` locator from the listener's durable key and
-    bound address. The key remains the designator; the socket rides the
-    ``direct-addresses`` hint."""
-    return format_peer_uri(
-        _abi.TRANSPORT_NOISE_TCP,
-        designator,
-        {_abi.HINT_DIRECT_ADDRESSES: socket_addr_designator(host, port)},
-    )

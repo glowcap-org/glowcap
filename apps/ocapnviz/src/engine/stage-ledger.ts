@@ -470,11 +470,8 @@ export class StageLedger {
     // two reports is neither: it says WHO is there, and who is there is not
     // what is there. So a far end on the v1.0 floor that nobody has spoken
     // for joins unknown and learns when its own producer states something.
-    const farProfile =
-      (otherKey === opts?.partnerOwnName
-        ? opts?.partnerOwnProfile
-        : undefined) ??
-        (opts?.pancakePrivateProfile === true ? PANCAKE_PROFILE : undefined);
+    const farProfile = (otherKey === opts?.partnerOwnName ? opts?.partnerOwnProfile : undefined) ??
+      (opts?.pancakePrivateProfile === true ? PANCAKE_PROFILE : undefined);
     // Attributed means `otherKey` is a name somebody stated, so it is the
     // peer's key and its designator alike; unattributed it is the wire-scoped
     // stand-in for a side nobody spoke for, and no peer is drawn there.

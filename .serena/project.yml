@@ -1,43 +1,6 @@
 # the name by which the project can be referenced within Serena/when chatting with the LLM.
 project_name: "pancake"
 
-# list of languages for which language servers are started (LSP backend only); choose from:
-#   ada                 al                  angular             ansible             bash
-#   bsl                 clojure             cpp                 cpp_ccls            crystal
-#   csharp              csharp_omnisharp    cue                 dart                elixir
-#   elm                 erlang              fortran             fsharp              gdscript
-#   go                  groovy              haskell             haxe                hlsl
-#   html                java                json                julia               kotlin
-#   latex               lean4               lua                 luau                markdown
-#   matlab              msl                 nix                 ocaml               pascal
-#   perl                php                 php_phpactor        php_phpantom        powershell
-#   python              python_jedi         python_pyrefly      python_ty           r
-#   rego                ruby                ruby_solargraph     rust                scala
-#   scss                solidity            svelte              swift               systemverilog
-#   terraform           toml                typescript          typescript_vts      vue
-#   yaml                zig
-#   (This list may be outdated; generated with scripts/print_language_list.py;
-#   For the current list, see values of Language enum here:
-#   https://github.com/oraios/serena/blob/main/src/solidlsp/ls_config.py)
-# For some languages, there are alternative language servers, e.g. csharp_omnisharp, ruby_solargraph.)
-# Note:
-#   - For C, use cpp
-#   - For JavaScript, use typescript
-#   - For Angular projects, use angular (subsumes typescript+html; requires `npm install` in the project root)
-#   - For Svelte projects, use svelte (subsumes typescript/javascript for .svelte projects; requires npm)
-#   - For SCSS / Sass / plain CSS, use scss (some-sass-language-server handles all three)
-#   - For Free Pascal/Lazarus, use pascal
-# Special requirements:
-#   Some languages require additional setup/installations.
-#   See here for details: https://oraios.github.io/serena/01-about/020_programming-languages.html#language-servers
-# When using multiple languages, the first language server that supports a given file will be used for that file.
-# The first language is the default language and the respective language server will be used as a fallback.
-# Note that when using the JetBrains backend, language servers are not used and this list is correspondingly ignored.
-languages:
-- zig
-- markdown
-- yaml
-
 # the encoding used by text files in the project
 # For a list of possible encodings, see https://docs.python.org/3.11/library/codecs.html#standard-encodings
 encoding: "utf-8"
@@ -48,27 +11,8 @@ ignore_all_files_in_gitignore: true
 # initial prompt for the project. It will always be given to the LLM upon activating the project
 # (contrary to the memories, which are loaded on demand).
 initial_prompt: |
-  This repository is pancake: a Zig implementation of the OCapN / CapTP
-  substrate.
-
-  Read AGENTS.md first, use its Start Here table to match depth to the task.
-  Destination: docs/vision.md. Substantial work: .agents/skills/work/SKILL.md.
-
-  Agent guidance lives in .agents/. Core rules:
-    - .agents/rules/project-values.md
-    - .agents/rules/agent-scaffolding.md
-    - .agents/rules/serena-mcp.md
-
-  Use Serena first for Zig code symbol work: get_symbols_overview, find_symbol,
-  find_referencing_symbols, find_implementations, rename_symbol,
-  replace_symbol_body, and get_diagnostics_for_file. Use host file tools for
-  prose, config, literals, and byte-pinned edits.
-
-  Verification gate for Zig code:
-    zig build check
-
-  Focused scaffolding gate:
-    zig build meta-check
+  Read AGENTS.md first and follow its Start Here routing. Use Serena for Zig
+  symbol work as directed there; use host file tools for prose and config.
 
 # list of additional paths to ignore in this project.
 # Same syntax as gitignore, so you can use * and **.
@@ -83,7 +27,6 @@ initial_prompt: |
 ignored_paths:
 - .zig-cache
 - zig-out
-base_modes:
 
 # list of mode names that are to be activated by default, overriding the setting in the global configuration.
 # The full set of modes to be activated is base_modes (from global config) + default_modes + added_modes.
@@ -94,6 +37,11 @@ base_modes:
 # This setting can, in turn, be overridden by CLI parameters (--mode).
 # See https://oraios.github.io/serena/02-usage/050_configuration.html#modes
 default_modes:
+
+# list of mode names to be activated additionally for this project, e.g. ["query-projects"]
+# The full set of modes to be activated is base_modes (from global config) + default_modes + added_modes.
+# See https://oraios.github.io/serena/02-usage/050_configuration.html#modes
+added_modes:
 
 # list of tool names to exclude.
 # This extends the existing exclusions (e.g. from the global configuration)
@@ -109,16 +57,6 @@ included_optional_tools: []
 # This cannot be combined with non-empty excluded_tools or included_optional_tools.
 # Find the list of tools here: https://oraios.github.io/serena/01-about/035_tools.html
 fixed_tools: []
-
-# whether the project is in read-only mode
-# If set to true, all editing tools will be disabled and attempts to use them will result in an error
-# Added on 2025-04-18
-read_only: false
-
-# list of mode names to be activated additionally for this project, e.g. ["query-projects"]
-# The full set of modes to be activated is base_modes (from global config) + default_modes + added_modes.
-# See https://oraios.github.io/serena/02-usage/050_configuration.html#modes
-added_modes:
 
 # time budget (seconds) per tool call for the retrieval of additional symbol information
 # such as docstrings or parameter information.
@@ -156,17 +94,6 @@ ignored_memory_patterns: []
 # See https://oraios.github.io/serena/02-usage/050_configuration.html#language-server-specific-settings
 ls_specific_settings: {}
 
-# list of additional workspace folder paths for cross-package reference support.
-# Paths can be absolute or relative to the project root.
-# Each folder is registered as an LSP workspace folder, enabling language servers to discover
-# symbols and references across package boundaries, but these folders are not indexed by Serena,
-# i.e. the respective symbols will not be found using Serena's symbol search tools.
-# Example:
-#   additional_workspace_folders:
-#     - ../sibling-package
-#     - ../shared-lib
-ls_additional_workspace_folders: []
-
 # list of workspace folder paths (LSP backend only).
 # These folders will be used to build up Serena's symbol index.
 # Paths must be within the project root and should thus be relative to the project root.
@@ -178,6 +105,22 @@ ls_additional_workspace_folders: []
 #     - "./subproject2"
 ls_workspace_folders:
 - .
+
+# list of additional workspace folder paths for cross-package reference support.
+# Paths can be absolute or relative to the project root.
+# Each folder is registered as an LSP workspace folder, enabling language servers to discover
+# symbols and references across package boundaries, but these folders are not indexed by Serena,
+# i.e. the respective symbols will not be found using Serena's symbol search tools.
+# Example:
+#   additional_workspace_folders:
+#     - ../sibling-package
+#     - ../shared-lib
+ls_additional_workspace_folders: []
+
+# whether the project is in read-only mode
+# If set to true, all editing tools will be disabled and attempts to use them will result in an error
+# Added on 2025-04-18
+read_only: false
 
 # optional shell command to run before the language backend (LSP or JetBrains) is initialised.
 # the command runs in the project root directory and is only executed if the project is trusted
@@ -191,3 +134,42 @@ activation_command:
 # maximum time in seconds to wait for activation_command to complete before killing it (default 180s).
 # must be a positive number.
 activation_command_timeout: 180.0
+
+# list of language servers to start when using the LSP backend; choose from:
+#   ada                    al                     angular                ansible                bash
+#   bsl                    clojure                cpp                    cpp_ccls               crystal
+#   csharp                 csharp_omnisharp       cue                    dart                   deno
+#   elixir                 elm                    erlang                 fortran                fsharp
+#   gdscript               gleam                  go                     groovy                 haskell
+#   haxe                   hlsl                   html                   java                   json
+#   julia                  kotlin                 latex                  lean4                  lua
+#   luau                   markdown               matlab                 msl                    nextflow
+#   nix                    ocaml                  pascal                 perl                   php
+#   php_phpactor           php_phpantom           powershell             python                 python_basedpyright
+#   python_jedi            python_pyrefly         python_ty              qml                    r
+#   rego                   ruby                   ruby_solargraph        rust                   scala
+#   scss                   solidity               svelte                 swift                  systemverilog
+#   terraform              toml                   typescript             typescript_vts         vue
+#   wolfram                yaml                   zig
+#   (This list may be outdated; generated with scripts/print_language_list.py;
+#   For the current list, see values of the LanguageServerId enum here:
+#   https://github.com/oraios/serena/blob/main/src/solidlsp/ls_config.py)
+# For some languages, there are several alternative language servers, e.g. csharp_omnisharp, ruby_solargraph.)
+# Note:
+#   - For C, use cpp
+#   - For JavaScript, use typescript
+#   - For Angular projects, use angular (subsumes typescript+html; requires `npm install` in the project root)
+#   - For Svelte projects, use svelte (subsumes typescript/javascript for .svelte projects; requires npm)
+#   - For Deno projects, use deno (serves the same .ts/.js files as typescript; requires the deno CLI on PATH)
+#   - For SCSS / Sass / plain CSS, use scss (some-sass-language-server handles all three)
+#   - For Free Pascal/Lazarus, use pascal
+# Special requirements:
+#   Some language servers require additional setup/installations.
+#   See here for details: https://oraios.github.io/serena/01-about/020_programming-languages.html#language-servers
+# When using multiple language servers, the first language server that supports a given file will be used for that file.
+# The first language server is the default language and the respective language server will be used as a fallback.
+# Note that when using the JetBrains backend, language servers are not used and this list is correspondingly ignored.
+language_servers:
+- zig
+- markdown
+- yaml

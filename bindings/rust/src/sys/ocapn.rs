@@ -59,16 +59,63 @@ pub struct PancakeLocatorView {
 	pub hint_wire_form: c_uint,
 }
 
-pub type PancakeAllocFn =
-	unsafe extern "C" fn(user_data: *mut c_void, size: usize, alignment: usize) -> *mut c_void;
-pub type PancakeFreeFn =
-	unsafe extern "C" fn(user_data: *mut c_void, ptr: *mut c_void, size: usize, alignment: usize);
+pub type PancakeAllocFn = unsafe extern "C" fn(user_data: *mut c_void, size: usize, alignment: usize) -> *mut c_void;
+pub type PancakeFreeFn = unsafe extern "C" fn(user_data: *mut c_void, ptr: *mut c_void, size: usize, alignment: usize);
 
 #[repr(C)]
 pub struct PancakeAllocator {
 	pub alloc: PancakeAllocFn,
 	pub free: PancakeFreeFn,
 	pub user_data: *mut c_void,
+}
+
+#[repr(C)]
+pub struct PancakeFailureReport {
+	pub abi_version: c_uint,
+	pub struct_size: usize,
+	pub layer: c_uint,
+	pub scope_kind: c_uint,
+	pub scope_id: u64,
+	pub operation_id: u64,
+	pub primary_result: i32,
+	pub secondary_result: i32,
+	pub secondary_count: c_uint,
+	pub operation: *const c_uchar,
+	pub operation_len: usize,
+	pub primary_name: *const c_uchar,
+	pub primary_name_len: usize,
+	pub primary_message: *const c_uchar,
+	pub primary_message_len: usize,
+	pub secondary_name: *const c_uchar,
+	pub secondary_name_len: usize,
+	pub secondary_message: *const c_uchar,
+	pub secondary_message_len: usize,
+}
+
+#[repr(C)]
+pub struct PancakeFailureEvent {
+	pub abi_version: c_uint,
+	pub struct_size: usize,
+	pub sequence: u64,
+	pub dropped_before: u64,
+	pub layer: c_uint,
+	pub scope_kind: c_uint,
+	pub scope_id: u64,
+	pub operation_id: u64,
+	pub primary_result: i32,
+	pub secondary_result: i32,
+	pub secondary_count: c_uint,
+	pub flags: c_uint,
+	pub operation: *const c_uchar,
+	pub operation_len: usize,
+	pub primary_name: *const c_uchar,
+	pub primary_name_len: usize,
+	pub primary_message: *const c_uchar,
+	pub primary_message_len: usize,
+	pub secondary_name: *const c_uchar,
+	pub secondary_name_len: usize,
+	pub secondary_message: *const c_uchar,
+	pub secondary_message_len: usize,
 }
 
 #[repr(C)]
@@ -122,6 +169,14 @@ pub struct PancakeLastAbort {
 	/// Originating error name (process-static).
 	pub error_name: *const c_uchar,
 	pub error_name_len: usize,
+	/// Failure publishing the projected abort, when present (process-static).
+	pub abort_delivery_error_name: *const c_uchar,
+	pub abort_delivery_error_name_len: usize,
+	/// First cleanup or consequence failure, when present (process-static).
+	pub secondary_error_name: *const c_uchar,
+	pub secondary_error_name_len: usize,
+	/// Number of secondary failures observed; the first name is retained.
+	pub secondary_error_count: c_uint,
 }
 
 // The layout gate for the C-written out-structs this mirror hand-declares
@@ -156,14 +211,59 @@ const _: () = {
 	assert!(offset_of!(PancakeManagedFrame, len) == PANCAKE_MANAGED_FRAME_LEN_OFF);
 	assert!(offset_of!(PancakeManagedFrame, shape) == PANCAKE_MANAGED_FRAME_SHAPE_OFF);
 	assert!(offset_of!(PancakeManagedFrame, release) == PANCAKE_MANAGED_FRAME_RELEASE_OFF);
-	assert!(
-		offset_of!(PancakeManagedFrame, private_data) == PANCAKE_MANAGED_FRAME_PRIVATE_DATA_OFF
-	);
+	assert!(offset_of!(PancakeManagedFrame, private_data) == PANCAKE_MANAGED_FRAME_PRIVATE_DATA_OFF);
 
 	assert!(size_of::<PancakeAllocator>() == PANCAKE_ALLOCATOR_SIZE);
 	assert!(offset_of!(PancakeAllocator, alloc) == PANCAKE_ALLOCATOR_ALLOC_OFF);
 	assert!(offset_of!(PancakeAllocator, free) == PANCAKE_ALLOCATOR_FREE_OFF);
 	assert!(offset_of!(PancakeAllocator, user_data) == PANCAKE_ALLOCATOR_USER_DATA_OFF);
+
+	assert!(size_of::<PancakeFailureReport>() == PANCAKE_FAILURE_REPORT_SIZE);
+	assert!(offset_of!(PancakeFailureReport, abi_version) == PANCAKE_FAILURE_REPORT_ABI_VERSION_OFF);
+	assert!(offset_of!(PancakeFailureReport, struct_size) == PANCAKE_FAILURE_REPORT_STRUCT_SIZE_OFF);
+	assert!(offset_of!(PancakeFailureReport, layer) == PANCAKE_FAILURE_REPORT_LAYER_OFF);
+	assert!(offset_of!(PancakeFailureReport, scope_kind) == PANCAKE_FAILURE_REPORT_SCOPE_KIND_OFF);
+	assert!(offset_of!(PancakeFailureReport, scope_id) == PANCAKE_FAILURE_REPORT_SCOPE_ID_OFF);
+	assert!(offset_of!(PancakeFailureReport, operation_id) == PANCAKE_FAILURE_REPORT_OPERATION_ID_OFF);
+	assert!(offset_of!(PancakeFailureReport, primary_result) == PANCAKE_FAILURE_REPORT_PRIMARY_RESULT_OFF);
+	assert!(offset_of!(PancakeFailureReport, secondary_result) == PANCAKE_FAILURE_REPORT_SECONDARY_RESULT_OFF);
+	assert!(offset_of!(PancakeFailureReport, secondary_count) == PANCAKE_FAILURE_REPORT_SECONDARY_COUNT_OFF);
+	assert!(offset_of!(PancakeFailureReport, operation) == PANCAKE_FAILURE_REPORT_OPERATION_OFF);
+	assert!(offset_of!(PancakeFailureReport, operation_len) == PANCAKE_FAILURE_REPORT_OPERATION_LEN_OFF);
+	assert!(offset_of!(PancakeFailureReport, primary_name) == PANCAKE_FAILURE_REPORT_PRIMARY_NAME_OFF);
+	assert!(offset_of!(PancakeFailureReport, primary_name_len) == PANCAKE_FAILURE_REPORT_PRIMARY_NAME_LEN_OFF);
+	assert!(offset_of!(PancakeFailureReport, primary_message) == PANCAKE_FAILURE_REPORT_PRIMARY_MESSAGE_OFF);
+	assert!(offset_of!(PancakeFailureReport, primary_message_len) == PANCAKE_FAILURE_REPORT_PRIMARY_MESSAGE_LEN_OFF);
+	assert!(offset_of!(PancakeFailureReport, secondary_name) == PANCAKE_FAILURE_REPORT_SECONDARY_NAME_OFF);
+	assert!(offset_of!(PancakeFailureReport, secondary_name_len) == PANCAKE_FAILURE_REPORT_SECONDARY_NAME_LEN_OFF);
+	assert!(offset_of!(PancakeFailureReport, secondary_message) == PANCAKE_FAILURE_REPORT_SECONDARY_MESSAGE_OFF);
+	assert!(
+		offset_of!(PancakeFailureReport, secondary_message_len) == PANCAKE_FAILURE_REPORT_SECONDARY_MESSAGE_LEN_OFF
+	);
+
+	assert!(size_of::<PancakeFailureEvent>() == PANCAKE_FAILURE_EVENT_SIZE);
+	assert!(offset_of!(PancakeFailureEvent, abi_version) == PANCAKE_FAILURE_EVENT_ABI_VERSION_OFF);
+	assert!(offset_of!(PancakeFailureEvent, struct_size) == PANCAKE_FAILURE_EVENT_STRUCT_SIZE_OFF);
+	assert!(offset_of!(PancakeFailureEvent, sequence) == PANCAKE_FAILURE_EVENT_SEQUENCE_OFF);
+	assert!(offset_of!(PancakeFailureEvent, dropped_before) == PANCAKE_FAILURE_EVENT_DROPPED_BEFORE_OFF);
+	assert!(offset_of!(PancakeFailureEvent, layer) == PANCAKE_FAILURE_EVENT_LAYER_OFF);
+	assert!(offset_of!(PancakeFailureEvent, scope_kind) == PANCAKE_FAILURE_EVENT_SCOPE_KIND_OFF);
+	assert!(offset_of!(PancakeFailureEvent, scope_id) == PANCAKE_FAILURE_EVENT_SCOPE_ID_OFF);
+	assert!(offset_of!(PancakeFailureEvent, operation_id) == PANCAKE_FAILURE_EVENT_OPERATION_ID_OFF);
+	assert!(offset_of!(PancakeFailureEvent, primary_result) == PANCAKE_FAILURE_EVENT_PRIMARY_RESULT_OFF);
+	assert!(offset_of!(PancakeFailureEvent, secondary_result) == PANCAKE_FAILURE_EVENT_SECONDARY_RESULT_OFF);
+	assert!(offset_of!(PancakeFailureEvent, secondary_count) == PANCAKE_FAILURE_EVENT_SECONDARY_COUNT_OFF);
+	assert!(offset_of!(PancakeFailureEvent, flags) == PANCAKE_FAILURE_EVENT_FLAGS_OFF);
+	assert!(offset_of!(PancakeFailureEvent, operation) == PANCAKE_FAILURE_EVENT_OPERATION_OFF);
+	assert!(offset_of!(PancakeFailureEvent, operation_len) == PANCAKE_FAILURE_EVENT_OPERATION_LEN_OFF);
+	assert!(offset_of!(PancakeFailureEvent, primary_name) == PANCAKE_FAILURE_EVENT_PRIMARY_NAME_OFF);
+	assert!(offset_of!(PancakeFailureEvent, primary_name_len) == PANCAKE_FAILURE_EVENT_PRIMARY_NAME_LEN_OFF);
+	assert!(offset_of!(PancakeFailureEvent, primary_message) == PANCAKE_FAILURE_EVENT_PRIMARY_MESSAGE_OFF);
+	assert!(offset_of!(PancakeFailureEvent, primary_message_len) == PANCAKE_FAILURE_EVENT_PRIMARY_MESSAGE_LEN_OFF);
+	assert!(offset_of!(PancakeFailureEvent, secondary_name) == PANCAKE_FAILURE_EVENT_SECONDARY_NAME_OFF);
+	assert!(offset_of!(PancakeFailureEvent, secondary_name_len) == PANCAKE_FAILURE_EVENT_SECONDARY_NAME_LEN_OFF);
+	assert!(offset_of!(PancakeFailureEvent, secondary_message) == PANCAKE_FAILURE_EVENT_SECONDARY_MESSAGE_OFF);
+	assert!(offset_of!(PancakeFailureEvent, secondary_message_len) == PANCAKE_FAILURE_EVENT_SECONDARY_MESSAGE_LEN_OFF);
 
 	assert!(size_of::<PancakeLastAbort>() == PANCAKE_LAST_ABORT_SIZE);
 	assert!(offset_of!(PancakeLastAbort, domain) == PANCAKE_LAST_ABORT_DOMAIN_OFF);
@@ -174,40 +274,36 @@ const _: () = {
 	assert!(offset_of!(PancakeLastAbort, message_len) == PANCAKE_LAST_ABORT_MESSAGE_LEN_OFF);
 	assert!(offset_of!(PancakeLastAbort, error_name) == PANCAKE_LAST_ABORT_ERROR_NAME_OFF);
 	assert!(offset_of!(PancakeLastAbort, error_name_len) == PANCAKE_LAST_ABORT_ERROR_NAME_LEN_OFF);
+	assert!(
+		offset_of!(PancakeLastAbort, abort_delivery_error_name) == PANCAKE_LAST_ABORT_ABORT_DELIVERY_ERROR_NAME_OFF
+	);
+	assert!(
+		offset_of!(PancakeLastAbort, abort_delivery_error_name_len)
+			== PANCAKE_LAST_ABORT_ABORT_DELIVERY_ERROR_NAME_LEN_OFF
+	);
+	assert!(offset_of!(PancakeLastAbort, secondary_error_name) == PANCAKE_LAST_ABORT_SECONDARY_ERROR_NAME_OFF);
+	assert!(offset_of!(PancakeLastAbort, secondary_error_name_len) == PANCAKE_LAST_ABORT_SECONDARY_ERROR_NAME_LEN_OFF);
+	assert!(offset_of!(PancakeLastAbort, secondary_error_count) == PANCAKE_LAST_ABORT_SECONDARY_ERROR_COUNT_OFF);
 
 	assert!(size_of::<PancakeLocatorHintView>() == PANCAKE_LOCATOR_HINT_VIEW_SIZE);
 	assert!(offset_of!(PancakeLocatorHintView, name) == PANCAKE_LOCATOR_HINT_VIEW_NAME_OFF);
 	assert!(offset_of!(PancakeLocatorHintView, name_len) == PANCAKE_LOCATOR_HINT_VIEW_NAME_LEN_OFF);
 	assert!(offset_of!(PancakeLocatorHintView, kind) == PANCAKE_LOCATOR_HINT_VIEW_KIND_OFF);
 	assert!(offset_of!(PancakeLocatorHintView, bytes) == PANCAKE_LOCATOR_HINT_VIEW_BYTES_OFF);
-	assert!(
-		offset_of!(PancakeLocatorHintView, bytes_len) == PANCAKE_LOCATOR_HINT_VIEW_BYTES_LEN_OFF
-	);
-	assert!(
-		offset_of!(PancakeLocatorHintView, boolean_value)
-			== PANCAKE_LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF
-	);
-	assert!(
-		offset_of!(PancakeLocatorHintView, integer_value)
-			== PANCAKE_LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF
-	);
+	assert!(offset_of!(PancakeLocatorHintView, bytes_len) == PANCAKE_LOCATOR_HINT_VIEW_BYTES_LEN_OFF);
+	assert!(offset_of!(PancakeLocatorHintView, boolean_value) == PANCAKE_LOCATOR_HINT_VIEW_BOOLEAN_VALUE_OFF);
+	assert!(offset_of!(PancakeLocatorHintView, integer_value) == PANCAKE_LOCATOR_HINT_VIEW_INTEGER_VALUE_OFF);
 
 	assert!(size_of::<PancakeLocatorView>() == PANCAKE_LOCATOR_VIEW_SIZE);
 	assert!(offset_of!(PancakeLocatorView, abi_version) == PANCAKE_LOCATOR_VIEW_ABI_VERSION_OFF);
 	assert!(offset_of!(PancakeLocatorView, struct_size) == PANCAKE_LOCATOR_VIEW_STRUCT_SIZE_OFF);
 	assert!(offset_of!(PancakeLocatorView, transport) == PANCAKE_LOCATOR_VIEW_TRANSPORT_OFF);
-	assert!(
-		offset_of!(PancakeLocatorView, transport_len) == PANCAKE_LOCATOR_VIEW_TRANSPORT_LEN_OFF
-	);
+	assert!(offset_of!(PancakeLocatorView, transport_len) == PANCAKE_LOCATOR_VIEW_TRANSPORT_LEN_OFF);
 	assert!(offset_of!(PancakeLocatorView, designator) == PANCAKE_LOCATOR_VIEW_DESIGNATOR_OFF);
-	assert!(
-		offset_of!(PancakeLocatorView, designator_len) == PANCAKE_LOCATOR_VIEW_DESIGNATOR_LEN_OFF
-	);
+	assert!(offset_of!(PancakeLocatorView, designator_len) == PANCAKE_LOCATOR_VIEW_DESIGNATOR_LEN_OFF);
 	assert!(offset_of!(PancakeLocatorView, hints) == PANCAKE_LOCATOR_VIEW_HINTS_OFF);
 	assert!(offset_of!(PancakeLocatorView, hint_count) == PANCAKE_LOCATOR_VIEW_HINT_COUNT_OFF);
-	assert!(
-		offset_of!(PancakeLocatorView, hint_wire_form) == PANCAKE_LOCATOR_VIEW_HINT_WIRE_FORM_OFF
-	);
+	assert!(offset_of!(PancakeLocatorView, hint_wire_form) == PANCAKE_LOCATOR_VIEW_HINT_WIRE_FORM_OFF);
 };
 
 // The raw extern block is generated (`ocapn_fns_gen.rs`, `zig build

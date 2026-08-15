@@ -28,35 +28,54 @@
 ;; frames. This bound is intentionally independent from DEFAULT-FRAME-CAP.
 (define WS-MESSAGE-HIGH-WATER (arithmetic-shift 1 20))
 
-;; Open a WebSocket to `url-string` and adapt it. A connect failure raises;
-;; after the open, an error or close surfaces as end of stream, which the
-;; session's teardown classifies.
-(define (ws-transport url-string)
-  (define c (ws-connect (string->url url-string)))
+;; Open a WebSocket and adapt it. Procedures are injectable only at this private
+;; seam so dogfood can force asynchronous failures without a timing-dependent
+;; network peer.
+(define (ws-transport url-string
+                      #:connect [connect ws-connect]
+                      #:recv [recv ws-recv]
+                      #:send [send ws-send!]
+                      #:close [close ws-close!])
+  (define c (connect (string->url url-string)))
   (define ch (make-channel))
   (define closed? (box #f))
+  (define terminal (box #f))
+  (define failure (box #f))
   (define close-signal (make-semaphore 0))
+  (define close-requested? (box #f))
+  (define close-done (make-semaphore 0))
   (define close-token (gensym 'ws-closed))
   (define close-evt
     (wrap-evt (semaphore-peek-evt close-signal) (lambda (_) close-token)))
 
-  ;; A WebSocket close handshake may wait for a peer that has already stopped
-  ;; cooperating. Run that transport cleanup independently of the pump caller.
+  (define (record-failure! error)
+    (box-cas! failure #f error)
+    (box-cas! terminal #f error)
+    (semaphore-post close-signal)
+    (unbox failure))
+
+  ;; The WebSocket package may block while closing. Its foreign wait stays on
+  ;; an owned worker, and transport close joins the worker's exact result.
   (define (request-close!)
-    (thread
-     (lambda ()
-       (with-handlers ([(lambda (_e) #t) void])
-         (ws-close! c)))))
+    (when (box-cas! close-requested? #f #t)
+      (thread
+       (lambda ()
+         (dynamic-wind
+          void
+          (lambda ()
+            (with-handlers ([(lambda (error) (not (exn:break? error)))
+                             (lambda (error) (record-failure! error))])
+              (close c)))
+          (lambda () (semaphore-post close-done)))))))
 
   (define (stop!)
     (unless (unbox closed?)
       (set-box! closed? #t)
+      (box-cas! terminal #f eof)
       (semaphore-post close-signal)
       (request-close!)))
 
   (define (post! value)
-    ;; One synchronous handoff keeps the adapter bounded. The close event
-    ;; makes a blocked producer abandon the handoff during teardown.
     (define put-token (gensym 'ws-put))
     (define put-evt
       (wrap-evt (channel-put-evt ch value) (lambda (_) put-token)))
@@ -65,58 +84,56 @@
   (define (send-bytes! frame)
     (cond
       [(zero? (bytes-length frame))
-       (ws-send! c frame #:payload-type 'binary)]
+       (send c frame #:payload-type 'binary)]
       [else
-       ;; WebSocket message boundaries carry no CapTP meaning. Keep each send
-       ;; within the receive-side transport bound so a large frame remains
-       ;; byte-transparent through every binding and relay.
        (for ([start (in-range 0 (bytes-length frame) WS-MESSAGE-HIGH-WATER)])
-         (ws-send! c
-                   (subbytes frame start
-                             (min (bytes-length frame)
-                                  (+ start WS-MESSAGE-HIGH-WATER)))
-                   #:payload-type 'binary))]))
+         (send c
+               (subbytes frame start
+                         (min (bytes-length frame)
+                              (+ start WS-MESSAGE-HIGH-WATER)))
+               #:payload-type 'binary))]))
 
-  ;; The reader owns every `ws-recv`: it posts each binary message (or eof,
-  ;; once, at close/error) and ends. Posting eof rather than dying silently is
-  ;; what turns a dropped socket into the pump's clean end-of-stream.
-  (thread
-   (lambda ()
-     (let loop ()
-       (define msg
-         (with-handlers ([(lambda (_e) #t) (lambda (_e) eof)])
-           (ws-recv c #:payload-type 'binary)))
-       (cond
-         [(eof-object? msg) (post! eof)]
-         [(not (bytes? msg))
-          ;; The protocol is byte-transparent: text is not another spelling
-          ;; of protocol bytes. Refuse it and end the stream instead of letting
-          ;; `bytes-length` kill this reader silently.
-          (stop!)]
-         [(> (bytes-length msg) WS-MESSAGE-HIGH-WATER)
-          (stop!)]
-         [else
-          (when (post! msg) (loop))]))))
+  (define reader
+    (thread
+     (lambda ()
+       (with-handlers ([(lambda (error) (not (exn:break? error)))
+                        (lambda (error)
+                          (record-failure! error)
+                          (stop!))])
+         (let loop ()
+           (define msg (recv c #:payload-type 'binary))
+           (cond
+             [(eof-object? msg) (stop!)]
+             [(not (bytes? msg))
+              (error 'ws-transport "received a non-binary WebSocket message")]
+             [(> (bytes-length msg) WS-MESSAGE-HIGH-WATER)
+              (error 'ws-transport
+                     "received ~a bytes, above the ~a-byte transport bound"
+                     (bytes-length msg) WS-MESSAGE-HIGH-WATER)]
+             [else (when (post! msg) (loop))]))))))
 
   (async-transport
-   ;; write-frame!: bounded binary transport chunks; rfc6455 flushes per send.
    send-bytes!
    void
-   ;; read-some!: bytes beat wake (see the module header). Syncing the channel
-   ;; consumes the item it yields.
    (lambda (wake-evt)
-     (define (deliver v) (if (eof-object? v) eof v))
+     (define (deliver value)
+       (cond
+         [(exn? value) (raise value)]
+         [(eof-object? value) eof]
+         [else value]))
      (define ready (sync ch wake-evt close-evt))
      (cond
-       [(eq? ready close-token) eof]
+       [(eq? ready close-token) (deliver (or (unbox terminal) eof))]
        [(eq? ready wake-evt)
         (define again (channel-try-get ch))
         (cond
           [again (deliver again)]
-          [(unbox closed?) eof]
+          [(unbox closed?) (deliver (or (unbox terminal) eof))]
           [else 'woke])]
        [else (deliver ready)]))
-   ;; close!: idempotent; the reader unblocks on the closed socket and posts
-   ;; eof, so nothing waits on a dead connection or a blocked channel handoff.
    (lambda ()
-     (stop!))))
+     (stop!)
+     (sync (semaphore-peek-evt close-done))
+     (unless (eq? reader (current-thread)) (thread-wait reader))
+     (define error (unbox failure))
+     (when error (raise error)))))

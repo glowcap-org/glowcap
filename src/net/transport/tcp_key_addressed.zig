@@ -32,8 +32,26 @@ pub fn Profile(comptime transport: model.transport.Known) type {
     return struct {
         pub const transport_name = metadata.symbol;
 
+        /// Build a key-addressed locator without parsing or allocating.
+        /// `designator` is the peer's canonical key designator and
+        /// `direct_addresses` is the caller-owned address hint. The returned
+        /// locator borrows all three inputs, including `hint_storage`, until
+        /// the dial path has copied or retained the locator.
+        pub fn locator(
+            designator: []const u8,
+            direct_addresses: []const u8,
+            hint_storage: *[1]model.HintEntry,
+        ) model.PeerLocator {
+            return .{
+                .transport = transport_name,
+                .designator = designator,
+                .hints = model.Hints.forDirectAddresses(direct_addresses, hint_storage),
+            };
+        }
+
         pub const Resident = struct {
             io: std.Io,
+            stream_options: tcp.StreamOptions = .{},
 
             pub fn netlayer(self: *Resident) Netlayer {
                 return .{ .ctx = self, .vtable = &resident_vtable };
@@ -44,7 +62,7 @@ pub fn Profile(comptime transport: model.transport.Known) type {
 
         const resident_vtable: Netlayer.VTable = .{
             .profile = metadata,
-            .dial = residentDial,
+            .dial = .{ .blocking = residentDial },
             .listen = residentListen,
             .io = resident_ctx.io,
         };
@@ -54,12 +72,15 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             peer: *engine.Peer,
             loc: model.PeerLocator,
             bufs: Buffers,
+            options: netlayer.OperationOptions,
         ) netlayer.DialError!Connection {
             const self = resident_ctx.of(ctx);
+            const override = try options.decode(tcp.OperationOptions);
+            const stream_options = if (override) |value| value.stream else self.stream_options;
             const direct = netlayer.directAddrHint(loc.hints) orelse &.{};
             const address = addressing.resolveProfile(metadata, loc.designator, direct) catch
                 return error.InvalidAddress;
-            return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err|
+            return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write, stream_options) catch |err|
                 tcp.classifyConnect(err);
         }
 
@@ -67,7 +88,16 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             ctx: *anyopaque,
             allocator: std.mem.Allocator,
             config: netlayer.ListenConfig,
-        ) netlayer.ListenError!NetLayerListener {
+        ) netlayer.ListenStartOutcome {
+            return .{ .admitted = residentListenFallible(ctx, allocator, config) catch |err|
+                return .{ .failed = .init(err) } };
+        }
+
+        fn residentListenFallible(
+            ctx: *anyopaque,
+            allocator: std.mem.Allocator,
+            config: netlayer.ListenConfig,
+        ) netlayer.ListenError!netlayer.ListenResult {
             const self = resident_ctx.of(ctx);
             const address = addressing.parseDesignator(config.designator) catch return error.InvalidAddress;
             const public_key = config.identity orelse return error.InvalidAddress;
@@ -76,13 +106,18 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             box.* = .{
                 .listener = profile_listener.Listener.bind(transport, self.io, address, public_key) catch
                     return error.BindFailed,
+                .stream_options = if (try config.options.decode(tcp.OperationOptions)) |value|
+                    value.stream
+                else
+                    self.stream_options,
                 .allocator = allocator,
             };
-            return .{ .ctx = box, .vtable = &listener_vtable };
+            return .{ .ready = .{ .ctx = box, .vtable = &listener_vtable } };
         }
 
         const ListenerBox = struct {
             listener: profile_listener.Listener,
+            stream_options: tcp.StreamOptions,
             allocator: std.mem.Allocator,
         };
 
@@ -100,7 +135,8 @@ pub fn Profile(comptime transport: model.transport.Known) type {
 
         fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
             const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-            var raw = try box.listener.acceptRaw(bufs.read, bufs.write, .{});
+            var raw = box.listener.acceptRaw(bufs.read, bufs.write, box.stream_options) catch |err|
+                return tcp.classifyAccept(err);
             errdefer raw.close();
             return tcp.connectionOverRaw(peer, raw);
         }
@@ -118,10 +154,10 @@ pub fn Profile(comptime transport: model.transport.Known) type {
         fn listenerCanonicalizeLocator(
             ctx: *anyopaque,
             allocator: std.mem.Allocator,
-            locator: model.PeerLocator,
+            candidate: model.PeerLocator,
         ) netlayer.ListenError!model.PeerLocator {
             const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-            return box.listener.canonicalizeLocator(allocator, locator);
+            return box.listener.canonicalizeLocator(allocator, candidate);
         }
 
         fn listenerReadinessFd(ctx: *anyopaque) i32 {
@@ -129,10 +165,11 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             return box.listener.readinessFd();
         }
 
-        fn listenerClose(ctx: *anyopaque) void {
+        fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
             const box: *ListenerBox = @ptrCast(@alignCast(ctx));
             box.listener.deinit();
             box.allocator.destroy(box);
+            return null;
         }
     };
 }

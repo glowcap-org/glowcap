@@ -58,8 +58,9 @@ authority are separate values.
 
 Two in-tree precedents shape the thread story. The WebRTC endpoint already
 crosses threads safely: entries recorded into bounded staging, applied at
-harvest, with a self-pipe nudge whose `WouldBlock` means a wake is already
-pending (ADR-0089). And the completion loop's `runUntil` documents today's
+harvest, with a self-pipe nudge whose `WouldBlock` is coalesced success while
+every other fault terminalizes the owner (ADR-0089). And the completion loop's
+`runUntil` documents today's
 only cross-thread wake as "a connect-and-drop against the bound port is
 enough" — a workaround describing the seam this decision builds.
 
@@ -109,10 +110,12 @@ already use, and the C archive exports that transaction in the
    wait — gain a settle mailbox: entries recorded under a lock from any
    thread using that thread's `std.Io`, applied at the top of the owning
    thread's iteration, woken by a socketpair fd whose write follows the
-   ADR-0089 nudge invariant. The mailbox is bounded in rows and bytes; a full
-   mailbox refuses the worker's settle loudly rather than blocking the loop or
-   growing without bound. This replaces the connect-and-drop wake as the
-   sanctioned cross-thread entry.
+   ADR-0089 nudge contract. A failed wake rolls back the uncommitted post and
+   terminalizes the mailbox owner without abandoning rows admitted earlier.
+   The mailbox is bounded in rows and bytes; a full mailbox refuses the
+   worker's settle loudly rather than blocking the loop or growing without
+   bound. This replaces the connect-and-drop wake as the sanctioned
+   cross-thread entry.
 
 5. **Off-thread settles carry plain data only.** A settle recorded from
    another thread clones a capability-free resolution (strings, numbers,

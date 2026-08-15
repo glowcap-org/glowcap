@@ -42,12 +42,7 @@
  * thing; that difference is the whole of their storage halves.
  */
 
-import type {
-  PeerDefinition,
-  SessionDefinition,
-  TimelineDocument,
-  TimelineEvent,
-} from "./timeline.ts";
+import type { PeerDefinition, SessionDefinition, TimelineDocument, TimelineEvent } from "./timeline.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 import type { KeyframeTrack } from "./temporal/keyframes.ts";
 import {
@@ -394,10 +389,7 @@ export const SESSION_TRAJECTORY: Readonly<
     // The schema is the one authority for which states exist; the
     // picker offers exactly those, and there is no other.
     editor: { kind: "enum", options: SessionState.options, closed: true },
-    read: (ev, sessionId) =>
-      ev.kind === "session-state-changed" && ev.sessionId === sessionId
-        ? ev.state
-        : null,
+    read: (ev, sessionId) => ev.kind === "session-state-changed" && ev.sessionId === sessionId ? ev.state : null,
     observation: (id, sessionId, t, value) => ({
       id,
       kind: "session-state-changed",

@@ -9,10 +9,10 @@
 ;; this module together with the shared cstruct vocabulary.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"
-         "lib-resolve.rkt")
+         "ffi-shared.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_abi_version*
+                     pancake_context_next_failure*
                      pancake_locator_record_encode*
                      pancake_uri_parse_peer*
                      pancake_uri_parse_peer_in*
@@ -31,7 +31,8 @@
                      pancake_locator_designator*
                      pancake_designator_host_port*
                      pancake_locator_hint_count*
-                     pancake_locator_hint_wire_form*))
+                     pancake_locator_hint_wire_form*
+                     pancake_context_new*))
 
 (define ocapn-lib (open-pancake-archive "pancake_ocapn"))
 
@@ -48,9 +49,15 @@
                0)))
   (values out0 out1 out2))
 (define-pancake pancake_last_error (_fun _pointer _size -> _size))
-(define-pancake pancake_managed_frame_release (_fun _PancakeManagedFrame-pointer -> _void))
+(define-pancake pancake_context_report_failure (_fun _pointer (_or-null _PancakeFailureReport-pointer) -> _int32))
+(define-pancake pancake_context_next_failure*
+  (_fun _pointer (_or-null _PancakeFailureEvent-pointer) _pointer _size _pointer -> _int32)
+  #:c-id pancake_context_next_failure)
+(define pancake_context_next_failure (wrap-out1 pancake_context_next_failure* _size 0))
+(define-pancake pancake_context_release (_fun _pointer -> _void))
+(define-pancake pancake_managed_frame_release (_fun (_or-null _PancakeManagedFrame-pointer) -> _void))
 (define-pancake pancake_locator_record_encode*
-  (_fun _PancakeLocatorView-pointer _pointer _pointer -> _int32)
+  (_fun (_or-null _PancakeLocatorView-pointer) _pointer _pointer -> _int32)
   #:c-id pancake_locator_record_encode)
 (define (pancake_locator_record_encode locator)
   (call/outs (list (cons _pointer #f) (cons _size 0))
@@ -66,11 +73,11 @@
   #:c-id pancake_uri_parse_peer_in)
 (define pancake_uri_parse_peer_in (wrap-out1 pancake_uri_parse_peer_in* _pointer #f))
 (define-pancake pancake_uri_parse_sturdyref*
-  (_fun _pointer _size _pointer -> _int32)
+  (_fun _uint32 _pointer _size _pointer -> _int32)
   #:c-id pancake_uri_parse_sturdyref)
 (define pancake_uri_parse_sturdyref (wrap-out1 pancake_uri_parse_sturdyref* _pointer #f))
 (define-pancake pancake_uri_parse_sturdyref_in*
-  (_fun _pointer _pointer _size _pointer -> _int32)
+  (_fun _pointer _uint32 _pointer _size _pointer -> _int32)
   #:c-id pancake_uri_parse_sturdyref_in)
 (define pancake_uri_parse_sturdyref_in (wrap-out1 pancake_uri_parse_sturdyref_in* _pointer #f))
 (define-pancake pancake_uri_format_peer*
@@ -78,7 +85,7 @@
   #:c-id pancake_uri_format_peer)
 (define pancake_uri_format_peer (wrap-out1 pancake_uri_format_peer* _size 0))
 (define-pancake pancake_uri_format_sturdyref*
-  (_fun _pointer _size _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size _pointer _size _pointer -> _int32)
+  (_fun _uint32 _pointer _size _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size _pointer _size _pointer -> _int32)
   #:c-id pancake_uri_format_sturdyref)
 (define pancake_uri_format_sturdyref (wrap-out1 pancake_uri_format_sturdyref* _size 0))
 (define-pancake pancake_locator_new*
@@ -90,18 +97,17 @@
   #:c-id pancake_locator_new_in)
 (define pancake_locator_new_in (wrap-out1 pancake_locator_new_in* _pointer #f))
 (define-pancake pancake_locator_clone*
-  (_fun _PancakeLocatorView-pointer _pointer -> _int32)
+  (_fun (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
   #:c-id pancake_locator_clone)
 (define pancake_locator_clone (wrap-out1 pancake_locator_clone* _pointer #f))
 (define-pancake pancake_locator_clone_in*
-  (_fun _pointer _PancakeLocatorView-pointer _pointer -> _int32)
+  (_fun _pointer (_or-null _PancakeLocatorView-pointer) _pointer -> _int32)
   #:c-id pancake_locator_clone_in)
 (define pancake_locator_clone_in (wrap-out1 pancake_locator_clone_in* _pointer #f))
 (define-pancake pancake_locator_borrow_view*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_locator_borrow_view)
-(define pancake_locator_borrow_view
-  (wrap-out1 pancake_locator_borrow_view* _PancakeLocatorView-pointer/null #f))
+(define pancake_locator_borrow_view (wrap-out1 pancake_locator_borrow_view* _PancakeLocatorView-pointer/null #f))
 (define-pancake pancake_sturdyref_borrow_locator*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_sturdyref_borrow_locator)
@@ -115,10 +121,8 @@
              (lambda (out0 out1)
                (pancake_sturdyref_swissnum* sturdyref out0 out1))))
 (define-pancake pancake_sturdyref_release (_fun _pointer -> _void))
-(define-pancake pancake_locator_add_string
-  (_fun _pointer _pointer _size _pointer _size -> _int32))
-(define-pancake pancake_locator_add_bytes
-  (_fun _pointer _pointer _size _pointer _size -> _int32))
+(define-pancake pancake_locator_add_string (_fun _pointer _pointer _size _pointer _size -> _int32))
+(define-pancake pancake_locator_add_bytes (_fun _pointer _pointer _size _pointer _size -> _int32))
 (define-pancake pancake_locator_add_boolean (_fun _pointer _pointer _size _uint8 -> _int32))
 (define-pancake pancake_locator_add_integer (_fun _pointer _pointer _size _int64 -> _int32))
 (define-pancake pancake_locator_transport*
@@ -147,9 +151,13 @@
   #:c-id pancake_locator_hint_count)
 (define pancake_locator_hint_count (wrap-out1 pancake_locator_hint_count* _size 0))
 (define-pancake pancake_locator_hint_at
-  (_fun _pointer _size _PancakeLocatorHintView-pointer -> _int32))
+  (_fun _pointer _size (_or-null _PancakeLocatorHintView-pointer) -> _int32))
 (define-pancake pancake_locator_hint_wire_form*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_locator_hint_wire_form)
 (define pancake_locator_hint_wire_form (wrap-out1 pancake_locator_hint_wire_form* _uint32 0))
 (define-pancake pancake_locator_release (_fun _pointer -> _void))
+(define-pancake pancake_context_new*
+  (_fun _pointer -> _int32)
+  #:c-id pancake_context_new)
+(define pancake_context_new (wrap-out1 pancake_context_new* _pointer #f))

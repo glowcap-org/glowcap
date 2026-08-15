@@ -264,9 +264,7 @@ function peerTiming(row: PeerRow | undefined): TimeSpan {
   // about ONE peer cannot afford to. Change the rule and change both.
   const ended = firstEnding(row?.left, row?.unobserved);
   const start = joined ? explicitBound(joined.t) : implicitBound(0);
-  const duration = ended && joined
-    ? explicitBound(Math.max(0, ended.t - joined.t))
-    : ended
+  const duration = ended && joined ? explicitBound(Math.max(0, ended.t - joined.t)) : ended
     ? explicitBound(ended.t) // eternal-start, explicit end → start=0, duration=end
     : implicitBound(0);
   return markDerived({ start, duration });
@@ -295,9 +293,7 @@ function messageTiming(sent: MessageSent | undefined): TimeSpan {
   // live converter's "flight unobserved" sentinel and lands here
   // too — a zero flight is unobservable, so it takes the default
   // and the message visibly flies.
-  const flight = sent
-    ? Math.max(0, sent.arrivalT - sent.t) || DEFAULT_FLIGHT_MS
-    : DEFAULT_FLIGHT_MS;
+  const flight = sent ? Math.max(0, sent.arrivalT - sent.t) || DEFAULT_FLIGHT_MS : DEFAULT_FLIGHT_MS;
   return markDerived({ start, duration: explicitBound(flight) });
 }
 
@@ -355,9 +351,7 @@ function synthesizePeerDef(
   return {
     profile: joined.profile,
     ...(joined.label !== undefined ? { label: joined.label } : {}),
-    ...(joined.designator !== undefined
-      ? { designator: joined.designator }
-      : {}),
+    ...(joined.designator !== undefined ? { designator: joined.designator } : {}),
     // NOTE: position deliberately NOT copied from the event.
     // Authored positions live on the event payload mutably (the
     // keyframe-layout system rewrites them for force-directed
@@ -379,9 +373,7 @@ function synthesizeSessionDef(
     codec: opened.codec,
     captpVersion: opened.captpVersion,
     ...(opened.transport !== undefined ? { transport: opened.transport } : {}),
-    ...(opened.initialState !== undefined
-      ? { initialState: opened.initialState }
-      : {}),
+    ...(opened.initialState !== undefined ? { initialState: opened.initialState } : {}),
   };
 }
 
@@ -498,9 +490,7 @@ export function projectFromObservations(
     // Build the kfs track from observations only when the def
     // doesn't already carry one — tracks have no provenance marker
     // yet (see module header).
-    const stateTrack = def.keyframes?.state === undefined
-      ? trackFor(idx.stateChanges, id)
-      : undefined;
+    const stateTrack = def.keyframes?.state === undefined ? trackFor(idx.stateChanges, id) : undefined;
     // The endpoint tracks re-derive on every run, the way a peer's
     // name track does and unlike the state track beside them: an
     // attribution IS a live arrival, and a track kept after its first

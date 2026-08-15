@@ -22,7 +22,7 @@ vocabulary, or layer ownership need one. Accept the record before building code
 against it; [`CONTRIBUTING.md`](../../CONTRIBUTING.md) has the review rules.
 
 A record states its standing in frontmatter and nowhere else. `status` is one of
-`proposed`, `accepted`, or `superseded`, and `meta-check` refuses any other
+`proposed`, `accepted`, or `superseded`, and `source-check` refuses any other
 value, a missing `id` or `date`, an `id` that disagrees with the filename, and a
 superseded record that names no replacement. Prose is free to expand on where an
 accepted record's implementation stands, but a `**Status:**` line in the body is
@@ -32,5 +32,5 @@ invisible to the relation graph below, which is how five of them went unchecked.
 ADR frontmatter records replacement and refinement as different relations.
 `supersedes` means the older decision is no longer living guidance; `amends`
 means its substance remains accepted with a named correction. Both relations
-are reciprocal through `superseded_by` and `amended_by`, and `meta-check`
+are reciprocal through `superseded_by` and `amended_by`, and `source-check`
 rejects missing targets or one-sided links.

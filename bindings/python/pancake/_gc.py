@@ -76,6 +76,7 @@ class HostGc:
     def __init__(self) -> None:
         self.pending: list[int] = []
         self._h: Optional[GcHandle] = None
+        self._background_failure: Optional[BaseException] = None
 
     def bind(self, h: GcHandle) -> None:
         """Bind the live Host once so track/drain can schedule progress."""
@@ -113,24 +114,42 @@ class HostGc:
         if h is None:
             return
         self.pending.append(token)
-        h.schedule_drain(self.drain_gc)
+        h.schedule_drain(self._drain_scheduled)
 
     def drain_gc(self) -> None:
         # Drain the parked GC releases on the loop thread: one release delta
-        # per reclaimed token, then a kick so the op:gc-exports flushes.
-        # Best-effort — a refused release strands a partner export reclaimed at
-        # teardown, never a fault.
+        # per reclaimed token, then a kick so the op:gc-exports flushes. A
+        # token leaves the queue only after its native release commits.
+        if self._background_failure is not None:
+            failure = self._background_failure
+            self._background_failure = None
+            raise failure
         h = self._h
         if h is None or not self.pending or h.released:
             return
-        pending, self.pending = self.pending, []
-        for token in pending:
-            try:
+        committed = 0
+        try:
+            # Bound this pass to the tokens present at entry. A finalizer may
+            # append while the loop thread is draining; that work remains for
+            # the already-coalesced next pass.
+            for index in range(len(self.pending)):
+                token = self.pending[index]
                 ref = _ref_to_c(_ref_from_id(token))
-                _check_host(_host.pancake_host_ref_release(h.host_raw, ctypes.byref(ref), 1))
-            except Exception:  # noqa: BLE001 — best-effort
-                pass
+                _check_host(
+                    _host.pancake_host_ref_release(h.host_raw, ctypes.byref(ref), 1)
+                )
+                committed += 1
+        finally:
+            del self.pending[:committed]
         h.kick()
+
+    def _drain_scheduled(self) -> None:
+        """Run an unowned drain while retaining its first exact refusal."""
+        try:
+            self.drain_gc()
+        except BaseException as failure:
+            if self._background_failure is None:
+                self._background_failure = failure
 
 
 def release_ref(host_raw, ref: Ref) -> None:

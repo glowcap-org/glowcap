@@ -46,18 +46,20 @@ choices.
 ## Dev environment
 
 The committed [devcontainer](.devcontainer/) is the supported ready-to-build
-environment. Open the repository with **Dev Containers: Reopen in Container**,
-then run:
+environment. In the primary checkout, open the repository with **Dev
+Containers: Reopen in Container**. The host initializer creates the ignored
+checkout configuration and an isolated Docker egress network on first use;
+the container then verifies its toolchains automatically. Run:
 
 ```sh
-bash .devcontainer/post-create.sh
 zig build check
 ```
 
 Toolchain versions live in
 [`.devcontainer/pins.sh`](.devcontainer/pins.sh). The
 [devcontainer README](.devcontainer/README.md) covers maintenance and host
-integration.
+integration, including the one explicit port-offset choice required for a
+linked worktree.
 
 ## The checkout uses symlinks
 
@@ -67,7 +69,7 @@ documentation site and rooms app when they load shared UI assets.
 Linux and macOS need no extra setup. On Windows, enable Developer Mode or run
 `git config core.symlinks true` before checkout. Otherwise Git writes the link
 target as a small text file, often without an obvious error.
-`zig build meta-check` reports any broken link.
+`zig build source-check` reports any broken link.
 
 ## Verifying changes
 
@@ -84,7 +86,7 @@ Focused steps while iterating:
 ```sh
 zig build test                         # unit and integration tests
 zig build test -Dtest-filter=session   # tests with "session" in the name
-zig build meta-check                   # docs, overlays, and repository shape
+zig build source-check                 # cross-file source, docs, and repository contracts
 zig build oracle-check                 # protocol scenarios and Syrup fixtures
 zig build arch-check                   # dependency layers and core I/O ban
 zig build examples                     # public examples

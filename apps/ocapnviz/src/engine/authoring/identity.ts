@@ -27,11 +27,7 @@ export type RenameCategory = "peer" | "session" | "message";
 function renameCategoryToEntitiesKey(
   category: RenameCategory,
 ): "peers" | "sessions" | "messages" {
-  return category === "peer"
-    ? "peers"
-    : category === "session"
-    ? "sessions"
-    : "messages";
+  return category === "peer" ? "peers" : category === "session" ? "sessions" : "messages";
 }
 
 /** Validate-only: would `rekeyEntity(ctx, category, oldId, newId)`
@@ -57,8 +53,7 @@ export function checkRekeyCollision(
     return err({
       code: "collision",
       title: "ID already in use",
-      detail:
-        `${newId} is how a session end nothing has attributed is named, ` +
+      detail: `${newId} is how a session end nothing has attributed is named, ` +
         `so a peer cannot answer to it.`,
       recovery: "Pick an ID that does not end in “::a” or “::b”.",
     });

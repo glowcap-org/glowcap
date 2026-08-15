@@ -1,10 +1,5 @@
 import { assertEquals } from "@std/assert";
-import {
-  keyframeAt,
-  type KeyframeTrack,
-  removeKeyframe,
-  setKeyframe,
-} from "./keyframes.ts";
+import { keyframeAt, type KeyframeTrack, removeKeyframe, setKeyframe } from "./keyframes.ts";
 
 const stateTrack: KeyframeTrack<string> = [
   { t: 0, value: "negotiating" },

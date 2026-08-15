@@ -15,14 +15,11 @@
 use core::ffi::{c_int, c_uchar, c_uint, c_void};
 
 use super::host::{
-	PancakeAcceptPlan, PancakeDialPlan, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree,
-	PancakeHostPumpHooks, PancakeHostSession, PancakeHostTurn, PancakePartnerIdentity,
-	PancakeTraceCallback,
+	PancakeCloseOptions, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree, PancakeHostPumpHooks,
+	PancakeHostSession, PancakeHostTurn, PancakePartnerIdentity, PancakeTraceCallback,
 };
 use super::ocapn::{PancakeLocatorHintView, PancakeLocatorView};
-use crate::sys::{
-	PancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference,
-};
+use crate::sys::{PancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference};
 
 extern "C" {
 	pub fn pancake_host_new(
@@ -48,6 +45,10 @@ extern "C" {
 		local_turn_budget: c_uint,
 		out_host: *mut *mut PancakeHost,
 	) -> c_int;
+	pub fn pancake_host_diagnostic_id(host: *mut PancakeHost, out_id: *mut u64) -> c_int;
+	pub fn pancake_host_close(host: *mut PancakeHost, options: *const PancakeCloseOptions, now_ms: i64) -> c_int;
+	pub fn pancake_host_close_progress(host: *mut PancakeHost, now_ms: i64, out_state: *mut u32) -> c_int;
+	pub fn pancake_host_close_wait_ms(host: *mut PancakeHost, now_ms: i64, out_wait_ms: *mut i64) -> c_int;
 	pub fn pancake_host_release(host: *mut PancakeHost) -> c_int;
 	pub fn pancake_host_designator_from_seed(
 		seed: *const c_uchar,
@@ -55,15 +56,7 @@ extern "C" {
 		out: *mut c_uchar,
 		out_len: usize,
 	) -> c_int;
-	pub fn pancake_host_set_advertised_locator(
-		host: *mut PancakeHost,
-		locator: *const PancakeLocatorView,
-	) -> c_int;
-	pub fn pancake_host_ensure_advertised_locator(
-		host: *mut PancakeHost,
-		transport: *const c_uchar,
-		transport_len: usize,
-	) -> c_int;
+	pub fn pancake_host_set_advertised_locator(host: *mut PancakeHost, locator: *const PancakeLocatorView) -> c_int;
 	pub fn pancake_host_remove_advertised_locator(
 		host: *mut PancakeHost,
 		transport: *const c_uchar,
@@ -77,28 +70,19 @@ extern "C" {
 	) -> c_int;
 	pub fn pancake_host_session_open_dialed_locator(
 		host: *mut PancakeHost,
-		transport: *const c_uchar,
-		transport_len: usize,
-		designator: *const c_uchar,
-		designator_len: usize,
+		locator: *const PancakeLocatorView,
 		out_session: *mut *mut PancakeHostSession,
 	) -> c_int;
 	pub fn pancake_host_session_open_accepted(
 		host: *mut PancakeHost,
 		transport: *const c_uchar,
 		transport_len: usize,
+		designator_scheme: c_uint,
+		server_designator: *const c_uchar,
+		server_designator_len: usize,
+		accepted_local_addr: *const c_uchar,
+		accepted_local_addr_len: usize,
 		out_session: *mut *mut PancakeHostSession,
-	) -> c_int;
-	pub fn pancake_host_plan_dial(
-		transport: *const c_uchar,
-		transport_len: usize,
-		designator: *const c_uchar,
-		designator_len: usize,
-		direct_addresses_hint: *const c_uchar,
-		direct_addresses_hint_len: usize,
-		posture_policy: c_uint,
-		posture_value: c_uint,
-		out_plan: *mut PancakeDialPlan,
 	) -> c_int;
 	pub fn pancake_host_pending_dial(
 		host: *mut PancakeHost,
@@ -113,20 +97,19 @@ extern "C" {
 		reference: *const PancakeReference,
 		out_session: *mut *mut PancakeHostSession,
 	) -> c_int;
-	pub fn pancake_host_plan_accept(
-		designator_scheme: c_uint,
-		server_designator: *const c_uchar,
-		server_designator_len: usize,
-		accepted_local_addr: *const c_uchar,
-		accepted_local_addr_len: usize,
-		out_plan: *mut PancakeAcceptPlan,
+	pub fn pancake_host_session_close(
+		session: *mut PancakeHostSession,
+		options: *const PancakeCloseOptions,
+		now_ms: i64,
+	) -> c_int;
+	pub fn pancake_host_session_close_progress(
+		session: *mut PancakeHostSession,
+		now_ms: i64,
+		out_state: *mut u32,
 	) -> c_int;
 	pub fn pancake_host_session_release(session: *mut PancakeHostSession) -> c_int;
 	pub fn pancake_host_session_is_open(session: *mut PancakeHostSession) -> c_int;
-	pub fn pancake_host_session_trace_id(
-		session: *mut PancakeHostSession,
-		out_id: *mut u64,
-	) -> c_int;
+	pub fn pancake_host_session_trace_id(session: *mut PancakeHostSession, out_id: *mut u64) -> c_int;
 	pub fn pancake_host_session_feed_bytes(
 		session: *mut PancakeHostSession,
 		bytes: *const c_uchar,
@@ -145,17 +128,14 @@ extern "C" {
 		out_acted: *mut u32,
 		out_yielded: *mut u32,
 	) -> c_int;
-	pub fn pancake_host_dialed(
-		host: *mut PancakeHost,
-		ticket: u64,
-		session: *mut PancakeHostSession,
-	) -> c_int;
+	pub fn pancake_host_dialed(host: *mut PancakeHost, ticket: u64, session: *mut PancakeHostSession) -> c_int;
 	pub fn pancake_host_dial_failed(
 		host: *mut PancakeHost,
 		ticket: u64,
 		reason: *const c_uchar,
 		reason_len: usize,
 	) -> c_int;
+	pub fn pancake_host_dial_cancelled(host: *mut PancakeHost, ticket: u64) -> c_int;
 	pub fn pancake_host_provide_gift_id(
 		host: *mut PancakeHost,
 		ticket: u64,
@@ -187,11 +167,7 @@ extern "C" {
 		ctx: *mut c_void,
 		free: PancakeHostCtxFree,
 	) -> c_int;
-	pub fn pancake_host_unpublish(
-		host: *mut PancakeHost,
-		name: *const c_uchar,
-		name_len: usize,
-	) -> c_int;
+	pub fn pancake_host_unpublish(host: *mut PancakeHost, name: *const c_uchar, name_len: usize) -> c_int;
 	pub fn pancake_host_publish_durable(
 		host: *mut PancakeHost,
 		entropy: *const c_uchar,
@@ -202,11 +178,7 @@ extern "C" {
 		out_swiss: *mut c_uchar,
 		swiss_cap: usize,
 	) -> c_int;
-	pub fn pancake_host_remove_durable(
-		host: *mut PancakeHost,
-		swiss: *const c_uchar,
-		swiss_len: usize,
-	) -> c_int;
+	pub fn pancake_host_remove_durable(host: *mut PancakeHost, swiss: *const c_uchar, swiss_len: usize) -> c_int;
 	pub fn pancake_host_session_fetch(
 		session: *mut PancakeHostSession,
 		name: *const c_uchar,
@@ -225,11 +197,7 @@ extern "C" {
 		sturdyref_uri_len: usize,
 		out_vow: *mut u64,
 	) -> c_int;
-	pub fn pancake_host_set_trace(
-		host: *mut PancakeHost,
-		callback: PancakeTraceCallback,
-		ctx: *mut c_void,
-	) -> c_int;
+	pub fn pancake_host_set_trace(host: *mut PancakeHost, callback: PancakeTraceCallback, ctx: *mut c_void) -> c_int;
 	pub fn pancake_host_resolver_fulfill(
 		host: *mut PancakeHost,
 		resolver_id: u64,
@@ -272,12 +240,7 @@ extern "C" {
 		args_len: usize,
 		out_vow: *mut u64,
 	) -> c_int;
-	pub fn pancake_host_vow_index(
-		host: *mut PancakeHost,
-		vow: u64,
-		index: u64,
-		out_vow: *mut u64,
-	) -> c_int;
+	pub fn pancake_host_vow_index(host: *mut PancakeHost, vow: u64, index: u64, out_vow: *mut u64) -> c_int;
 	pub fn pancake_host_vow_untag(
 		host: *mut PancakeHost,
 		vow: u64,
@@ -309,23 +272,15 @@ extern "C" {
 		free: PancakeHostCtxFree,
 		out_ref: *mut PancakeReference,
 	) -> c_int;
-	pub fn pancake_host_turn_break(
-		turn: *mut PancakeHostTurn,
-		message: *const c_uchar,
-		message_len: usize,
-	) -> c_int;
-	pub fn pancake_host_ref_release(
-		host: *mut PancakeHost,
-		ref_: *const PancakeReference,
-		delta: u64,
-	) -> c_int;
+	pub fn pancake_host_turn_break(turn: *mut PancakeHostTurn, message: *const c_uchar, message_len: usize) -> c_int;
+	pub fn pancake_host_ref_release(host: *mut PancakeHost, ref_: *const PancakeReference, delta: u64) -> c_int;
 	pub fn pancake_host_session_published_ref(
 		session: *mut PancakeHostSession,
 		name: *const c_uchar,
 		name_len: usize,
 		out_ref: *mut PancakeReference,
 	) -> c_int;
-	pub fn pancake_host_session_break_far_vows(
+	pub fn pancake_host_session_transport_closed(
 		session: *mut PancakeHostSession,
 		message: *const c_uchar,
 		message_len: usize,
@@ -334,10 +289,7 @@ extern "C" {
 		session: *mut PancakeHostSession,
 		locator: *const PancakeLocatorView,
 	) -> c_int;
-	pub fn pancake_host_session_last_abort(
-		session: *mut PancakeHostSession,
-		out: *mut PancakeLastAbort,
-	) -> c_int;
+	pub fn pancake_host_session_last_abort(session: *mut PancakeHostSession, out: *mut PancakeLastAbort) -> c_int;
 	pub fn pancake_host_session_partner_identity(
 		session: *mut PancakeHostSession,
 		out: *mut PancakePartnerIdentity,

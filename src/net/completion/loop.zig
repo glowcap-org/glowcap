@@ -251,6 +251,7 @@ fn validateBackend(comptime Backend: type) void {
         "recycleRecv",
         "poll",
         "verifiedChannelKey",
+        "applyKeepalive",
     };
     inline for (required) |name| {
         if (!@hasDecl(Backend, name)) {
@@ -289,6 +290,10 @@ fn validateDialResolver(comptime DialResolver: type, comptime ConnectTarget: typ
 pub const Completion = struct {
     user_data: u64,
     result: i32,
+    /// Typed operation failure when `result < 0`. Backends that cannot recover
+    /// a more specific cause leave this null; the loop records an operation-
+    /// specific fallback so a negative result never tears down anonymously.
+    failure: ?anyerror = null,
     /// The connection handle produced by a successful accept. Kept separate
     /// from `result` because composable userspace backends use collision-free
     /// negative synthetic handles, while `result < 0` remains the uniform
@@ -310,6 +315,27 @@ pub const Completion = struct {
     /// this.
     recv_no_buffer: bool = false,
 };
+
+/// Project a platform errno onto the stable diagnostic vocabulary carried by
+/// `Completion.failure`. Backends retain the raw integer in `result`; this name
+/// is the portable fact close observers and bindings can act on.
+pub fn failureFromErrno(errno: std.posix.E) anyerror {
+    return switch (errno) {
+        .CONNABORTED => error.ConnectionAborted,
+        .CONNREFUSED => error.ConnectionRefused,
+        .CONNRESET => error.ConnectionResetByPeer,
+        .TIMEDOUT => error.TimedOut,
+        .NETDOWN => error.NetworkDown,
+        .NETUNREACH => error.NetworkUnreachable,
+        .HOSTUNREACH => error.HostUnreachable,
+        .PIPE => error.BrokenPipe,
+        .CANCELED => error.Canceled,
+        .BADF => error.InvalidFileDescriptor,
+        .NOMEM => error.OutOfMemory,
+        .NOSPC => error.SystemResources,
+        else => error.Unexpected,
+    };
+}
 
 /// The queue of ready completions a readiness backend fills and the loop drains,
 /// shared by the kqueue backend and the iroh completion `Backend`.
@@ -424,21 +450,31 @@ pub const CloseReason = enum {
     drain_kill,
 };
 
+/// Complete teardown evidence captured before the loop releases the peer.
+/// `failure` preserves the peer's typed local cause when one was recorded;
+/// absence means the close was requested or the transport supplied no cause.
+pub const CloseReport = struct {
+    opened: bool,
+    reason: CloseReason,
+    failure: ?engine.AbortInfo,
+};
+
 /// Close notification, fired once per connection at teardown, before
 /// `free_conn_ctx` releases the per-connection context. Receives the shared
 /// `ctx`, the per-connection context (null when the connection failed before
-/// `make_conn_ctx` ran), and `opened`: true when the connection completed its
-/// connect or accept, false when it failed before opening (e.g. a refused
-/// dial). This is the loop's only failure surface for a dialed connection,
+/// `make_conn_ctx` ran), and a `CloseReport` captured before peer teardown.
+/// `report.opened` distinguishes a completed connect/accept from a refusal;
+/// `report.failure` carries a recorded typed cause. This is the loop's only
+/// failure surface for a dialed connection,
 /// `dial` returns before the connect completes, so a refused dial is
 /// observable nowhere else.
 ///
 /// `slot` is the connection's loop index: refused dials tear down before
 /// `make_conn_ctx` runs (`conn_ctx` is null), so an embedder correlating an
 /// in-flight dial to a ticket needs the slot — `conn_ctx` alone cannot name
-/// it (ADR-0076 loop-side dial executor). `reason` names which of the loop's
-/// reclaims fired, or `.ordinary` for everything else.
-pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: CloseReason) void;
+/// it (ADR-0076 loop-side dial executor). `report.reason` names which of the
+/// loop's reclaims fired, or `.ordinary` for everything else.
+pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: CloseReport) void;
 
 /// Called on the loop owner thread whenever a public drive method returns,
 /// after dispatch has stopped and before the loop releases its own thread
@@ -548,7 +584,7 @@ pub const Options = struct {
     /// fires under `run`, not only at `closeAndDrain`: the moment any completion
     /// ends a connection — a partner's clean FIN, a read error from an RST, or a
     /// keepalive probe giving up on a dead remote host — the loop reclaims that
-    /// one slot and fires `on_close(…, opened)` for it, leaving the rest of the
+    /// one slot and fires `on_close` with its report, leaving the rest of the
     /// loop running (ADR-0081).
     on_close: ?OnClose = null,
     /// Optional quiescent ownership-transfer hook (see `OnDriverExit`).
@@ -559,9 +595,11 @@ pub const Options = struct {
     /// seat enters `.parked` (outbound high-water or fan-in throttle). Embedders
     /// scrape lag without an in-core HTTP monitor.
     on_park: ?OnPark = null,
-    /// Opt-in TCP keepalive. When set, all of idle/interval/count are applied
-    /// on every accepted and dialed TCP fd (best-effort). Null — the default —
-    /// leaves sockets without keepalive (NODELAY only). Do not "just enable"
+    /// Opt-in TCP keepalive. When set, all of idle/interval/count must apply
+    /// before an accepted or dialed connection is served. TCP-backed adapters
+    /// configure their physical socket; a transport without TCP keepalive
+    /// semantics refuses and closes that connection with a typed report. Null
+    /// — the default — leaves sockets without keepalive (NODELAY only). Do not "just enable"
     /// SO_KEEPALIVE: the OS idle default is hours. Rationale is NAT hold-open /
     /// dead-remote-host reclaim — not reaping a live orphaned process.
     ///
@@ -638,7 +676,7 @@ const close_retry_ms: i32 = 50;
 /// Outbound queue capacity a drained `front` retains (ADR-0042). The iroh
 /// sidecar keeps the same bound for its own per-connection buffer, in Rust
 /// (`NB_STEADY_BYTES`), so the ladder's footprint budget cannot split between
-/// them; `meta-check` holds the two numbers together.
+/// them; `source-check` holds the two numbers together.
 const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
 /// Per-connection slot bookkeeping ceiling (ADR-0045): the most a `Conn` may
@@ -1152,12 +1190,16 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // `shutdownFd` cannot cancel — iroh's is a documented no-op — the
             // ops these closes retire are the only reason some connections
             // ever complete, and sleeping first can mean sleeping on them.
-            self.retryPendingCloses();
-            self.retryListenerClose();
-            if (self.shutting_down)
-                self.retryWakeCancel()
-            else
-                self.retryWakeRearm();
+            try self.retryPendingCloses();
+            try self.retryListenerClose();
+            var wake_cancel_refusal: ?anyerror = null;
+            if (self.shutting_down) {
+                self.retryWakeCancel() catch |err| {
+                    wake_cancel_refusal = err;
+                };
+            } else {
+                try self.retryWakeRearm();
+            }
 
             // One adapter turn per loop turn. A continuation asks only for a
             // zero-time poll, not another callback in this stack frame, so
@@ -1205,6 +1247,12 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             self.resumeStarved(.all);
             self.reapDeadlines();
             self.drainFanInDirty();
+            // A refused wake cancel may race the target recv already becoming
+            // ready. Dispatch that completion before returning the refusal so
+            // shutdown can still make progress and a retry can finish safely.
+            // The refusal remains observable even when the race made the
+            // cancellation unnecessary.
+            if (wake_cancel_refusal) |err| return err;
             try dispatched;
         }
 
@@ -1213,7 +1261,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// `n` connections have been fully served and closed (the test-shaped
         /// stop condition). Per-connection failures close only their
         /// connection; the errors that escape here are loop-global, namely a
-        /// backend poll failure or a listener accept re-arm failure.
+        /// backend poll failure, listener accept failure, or listener accept
+        /// re-arm failure.
         pub fn run(self: *Self, stop: Stop) !void {
             const claimed = self.latchOwner();
             if (comptime std.debug.runtime_safety) std.debug.assert(claimed);
@@ -1296,7 +1345,6 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 self.wake_rearm_pending = false;
                 if (self.wake_armed) {
                     self.wake_cancel_submit_pending = true;
-                    self.retryWakeCancel();
                 } else {
                     self.wake = null;
                 }
@@ -1309,7 +1357,6 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                     // accept request because shutdown(2) on a listening socket
                     // is not a portable cancellation mechanism.
                     self.backend.shutdownFd(fd);
-                    self.retryListenerClose();
                 }
             }
 
@@ -1436,19 +1483,19 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                     if (comp.recv_no_buffer) {
                         self.wake_rearm_pending = true;
                     } else {
-                        self.onWakeCompletion(comp.result);
+                        try self.onWakeCompletion(comp.result);
                     }
                 },
                 .wake_cancel => {
                     std.debug.assert(self.wake_cancel_pending);
                     self.wake_cancel_pending = false;
                 },
-                // The only handler that may fail the loop: a dead accept re-arm
-                // is loop-global. Every per-connection handler resolves its own
-                // failures by closing that one connection.
+                // The only handler that may fail the loop: an accept operation
+                // or dead re-arm is loop-global. Every per-connection handler
+                // resolves its own failures by closing that one connection.
                 .accept => try self.onAccept(comp),
                 .connect => {
-                    self.onConnect(slot, comp.result);
+                    self.onConnect(slot, comp);
                     self.retireConnOp(slot);
                 },
                 // Each per-connection op decrements its in-flight count after the
@@ -1463,13 +1510,14 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                     self.retireConnOp(slot);
                 },
                 .send => {
-                    self.onSend(slot, comp.result);
+                    self.onSend(slot, comp);
                     self.retireConnOp(slot);
                 },
                 .close => {
                     if (comp.result < 0) {
                         if (slot < self.conns.len) {
                             const c = &self.conns[slot];
+                            c.peer.recordFailure(comp.failure orelse error.CloseFailed);
                             if (c.state == .closing) self.backend.closeFd(c.fd);
                         }
                         if (slot == self.conns.len) {
@@ -1515,24 +1563,29 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // `run`), the accepted fd must still be closed, not leaked.
             errdefer if (accepted) |fd| self.backend.closeFd(fd);
             try self.ensureAccepting();
-            const fd = accepted orelse return; // transient accept failure: the re-arm recovers
+            // Re-arming preserves readiness if the owner elects to drive the
+            // loop again, but it does not erase the completed operation's
+            // failure. There is no connection peer to carry an accept error,
+            // so the loop owner is its only honest diagnostic surface.
+            const fd = accepted orelse return comp.failure orelse error.AcceptFailed;
 
             const slot = self.freeSlot(.ordinary) orelse {
                 self.backend.closeFd(fd);
                 return;
             };
-            const peer = self.make_peer(self.make_ctx, self.allocator) catch {
+            const peer = self.make_peer(self.make_ctx, self.allocator) catch |err| {
                 self.pushFreeSlot(slot);
                 self.backend.closeFd(fd);
-                return;
+                return err;
             };
             const adopted = self.adoptSlot(slot, fd, peer, true, .ordinary);
             self.finishConnected(slot, adopted);
         }
 
-        fn onConnect(self: *Self, slot: usize, res: i32) void {
+        fn onConnect(self: *Self, slot: usize, comp: Completion) void {
             const c = self.liveConn(slot) orelse return;
-            if (res < 0) {
+            if (comp.result < 0) {
+                c.peer.recordFailure(comp.failure orelse error.ConnectFailed);
                 self.closeConn(slot, c);
                 return;
             }
@@ -1574,10 +1627,15 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // No per-connection read buffer is allocated: reads borrow from the
             // backend's shared pool, completion by completion (ADR-0054).
 
-            // Opt-in TCP keepalive: both accept and dial land here. Best-effort
-            // on non-TCP backends (iroh synthetic fds): apply fails quietly.
+            // Opt-in keepalive is a backend operation because adapters may use
+            // synthetic descriptors. Socket-backed adapters project to their
+            // physical stream; transports without TCP semantics refuse it.
             if (self.keepalive) |ka| {
-                tcp_keepalive.apply(@intCast(c.fd), ka);
+                self.backend.applyKeepalive(c.fd, ka) catch |err| {
+                    c.peer.recordFailure(err);
+                    self.closeConn(slot, c);
+                    return;
+                };
             }
 
             // Bind the per-connection application context to this connection's
@@ -1594,7 +1652,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 // names this connection when the hook returns. It may have
                 // been condemned, and the teardown it deferred runs below.
                 self.adopting_slot = slot;
-                const ctx = make(self.make_ctx, &c.peer, slot) catch {
+                const ctx = make(self.make_ctx, &c.peer, slot) catch |err| {
+                    c.peer.recordFailure(err);
                     self.adopting_slot = null;
                     if (self.adopting_teardown_deferred) {
                         self.adopting_teardown_deferred = false;
@@ -1624,12 +1683,12 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // wire behind its abort, which `.draining` exists to forbid.
             if (c.state != .open) return;
 
-            self.driveOut(slot, c) catch {
-                self.failConn(slot, c);
+            self.driveOut(slot, c) catch |err| {
+                self.failConnWith(slot, c, err);
                 return;
             };
             if (c.state != .open) return;
-            self.armOrPark(slot, c) catch self.closeConn(slot, c);
+            self.armOrPark(slot, c) catch |err| self.closeConnWith(slot, c, err);
         }
 
         /// The cross-connection outbound arm: encode and submit whatever is
@@ -1649,7 +1708,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             self.assertOwnerOrUnclaimed();
             if (self.tearing_down) return;
             const c = self.liveConn(slot) orelse return;
-            self.driveOut(slot, c) catch self.failConn(slot, c);
+            self.driveOut(slot, c) catch |err| self.failConnWith(slot, c, err);
         }
 
         /// The durable key (32-byte Ed25519) this connection's realizer proved
@@ -1669,12 +1728,14 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             return self.backend.verifiedChannelKey(c.fd);
         }
 
-        /// Close the connection at `slot` after a best-effort flush of
-        /// whatever the engine projected onto its outbound (typically an
-        /// `op:abort`) — the "arm, then close" entry a bridge's `close`
-        /// action needs. No-op on a free, closing, or tearing-down slot; the
-        /// teardown itself rides the ordinary close path, so in-flight ops
-        /// retire before the slot is reclaimed.
+        /// Close the connection at `slot` after flushing whatever the engine
+        /// projected onto its outbound (typically an `op:abort`) — the "arm,
+        /// then close" entry a bridge's `close` action needs. A projection or
+        /// send failure closes immediately and remains in the connection's
+        /// `CloseReport`; it is never mistaken for a successful flush. No-op
+        /// on a free, closing, or tearing-down slot; the teardown itself rides
+        /// the ordinary close path, so in-flight ops retire before the slot is
+        /// reclaimed.
         ///
         /// The first call starts the flush and waits for the partner to read
         /// it; a second call on the same slot says the caller will not wait, and
@@ -2064,6 +2125,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             if (comp.result <= 0) {
                 // result == 0 is a clean EOF; negative is a read error. Either
                 // ends the connection.
+                if (comp.result < 0)
+                    c.peer.recordFailure(comp.failure orelse error.ReadFailed);
                 return .close;
             }
 
@@ -2122,7 +2185,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 var ev = ev_in;
                 defer ev.deinit();
                 if (self.serve) |serve_fn| {
-                    serve_fn(c.app_ctx, &c.peer, &ev) catch {
+                    serve_fn(c.app_ctx, &c.peer, &ev) catch |err| {
+                        c.peer.emitFailure(err);
                         self.failConn(slot, c);
                         return;
                     };
@@ -2135,13 +2199,13 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 if (c.state != .open) return;
             }
 
-            self.driveOut(slot, c) catch {
-                self.failConn(slot, c);
+            self.driveOut(slot, c) catch |err| {
+                self.failConnWith(slot, c, err);
                 return;
             };
             if (c.state != .open) return;
 
-            self.armOrPark(slot, c) catch self.closeConn(slot, c);
+            self.armOrPark(slot, c) catch |err| self.closeConnWith(slot, c, err);
         }
 
         /// Push a slot onto the list at `head`. The caller guarantees it is on
@@ -2228,8 +2292,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 if (c.state != .open) continue;
                 // One owner for the arm-or-park decision (ADR-0042). Restating
                 // its branches here is how the two drift.
-                self.armOrPark(slot, c) catch {
-                    self.closeConn(slot, c);
+                self.armOrPark(slot, c) catch |err| {
+                    self.closeConnWith(slot, c, err);
                     continue;
                 };
                 // Only an actual arm consumed the buffer that freed.
@@ -2265,11 +2329,32 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             if (pendingFront(c) > 0) try self.submitSend(slot, c);
         }
 
+        /// Preserve a loop-owned operation failure unless the engine already
+        /// recorded that same cause while projecting its abort. Re-recording
+        /// it would erase any abort-delivery consequence already attached.
+        fn recordConnFailure(c: *Conn, err: anyerror) void {
+            if (c.peer.lastAbort()) |failure| {
+                if (std.mem.eql(u8, failure.error_name, @errorName(err))) return;
+            }
+            c.peer.recordFailure(err);
+        }
+
+        fn failConnWith(self: *Self, slot: usize, c: *Conn, err: anyerror) void {
+            recordConnFailure(c, err);
+            self.failConn(slot, c);
+        }
+
+        fn closeConnWith(self: *Self, slot: usize, c: *Conn, err: anyerror) void {
+            recordConnFailure(c, err);
+            self.closeConn(slot, c);
+        }
+
         /// Resolve a per-connection failure the way the blocking pump does
-        /// (`connection.pumpOver`): best-effort encode and flush whatever the
-        /// engine projected — typically an `op:abort` — then close this one
-        /// connection. Every error is swallowed; one bad partner never tears
-        /// down the loop.
+        /// (`connection.pumpOver`): encode and flush whatever the engine
+        /// projected — typically an `op:abort` — then close this one
+        /// connection. A failure producing or submitting those terminal bytes
+        /// is retained as the abort-delivery consequence; one bad partner
+        /// still tears down only its own connection.
         fn failConn(self: *Self, slot: usize, c: *Conn) void {
             if (c.state != .open) return;
             // Terminal failure is a lifecycle, not an outbound-queue flag.
@@ -2281,8 +2366,21 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // is a different wait from the slow-reader park it may replace, so
             // the refresh restarts the clock rather than inheriting it.
             self.refreshWaiting(c);
-            while ((c.peer.step() catch .idle) != .idle) {}
-            self.flushOutbound(slot, c) catch {
+            while (true) {
+                const outcome = c.peer.step() catch |err| {
+                    if (c.peer.lastAbort() == null)
+                        c.peer.recordFailure(err)
+                    else
+                        c.peer.recordAbortDeliveryFailure(err);
+                    break;
+                };
+                if (outcome == .idle) break;
+            }
+            self.flushOutbound(slot, c) catch |err| {
+                if (c.peer.lastAbort() == null)
+                    c.peer.recordFailure(err)
+                else
+                    c.peer.recordAbortDeliveryFailure(err);
                 self.closeConn(slot, c);
                 return;
             };
@@ -2321,20 +2419,21 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                     // recount has run. Leaving `.parked` for `.idle` cannot
                     // make an ineligible connection eligible.
                     self.unlinkParked(slot);
-                    self.armRecv(slot, c) catch self.closeConn(slot, c);
+                    self.armRecv(slot, c) catch |err| self.closeConnWith(slot, c, err);
                 }
             }
         }
 
-        fn onSend(self: *Self, slot: usize, res: i32) void {
+        fn onSend(self: *Self, slot: usize, comp: Completion) void {
             if (slot >= self.conns.len) return;
             const c = &self.conns[slot];
             if (c.state != .open and c.state != .draining) return;
-            if (res <= 0) {
+            if (comp.result <= 0) {
+                c.peer.recordFailure(comp.failure orelse error.WriteFailed);
                 self.closeConn(slot, c);
                 return;
             }
-            c.front_off += @intCast(res);
+            c.front_off += @intCast(comp.result);
             if (c.front_off < c.front.items.len) {
                 // Partial write: send the remainder. `front` is untouched
                 // since the original submit (appends went to `back`), so the
@@ -2342,8 +2441,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 // advance lowered `pendingOut` and may have taken it under the
                 // mark, so this is a drain like any other: the read resumes
                 // and the victims wake, not merely the deadline clearing.
-                self.submitSend(slot, c) catch {
-                    self.closeConn(slot, c);
+                self.submitSend(slot, c) catch |err| {
+                    self.closeConnWith(slot, c, err);
                     return;
                 };
                 self.resumeIfDrained(slot, c);
@@ -2371,7 +2470,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                     // resend bytes the partner already has, forever.
                     std.debug.assert(c.front.items.len == 0);
                     std.mem.swap(std.ArrayList(u8), &c.front, &c.back);
-                    self.submitSend(slot, c) catch self.closeConn(slot, c);
+                    self.submitSend(slot, c) catch |err| self.closeConnWith(slot, c, err);
                     // The swap can take this connection under the mark. It is
                     // terminal, so its own read stays down, but the refresh is
                     // what releases the sources it was throttling: they must
@@ -2385,8 +2484,8 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // Bytes queued on `back` while this write was in flight — and any
             // reply this drive encodes — swap into the emptied front and go
             // out now (`flushOutbound`).
-            self.driveOut(slot, c) catch {
-                self.failConn(slot, c);
+            self.driveOut(slot, c) catch |err| {
+                self.failConnWith(slot, c, err);
                 return;
             };
             self.resumeIfDrained(slot, c);
@@ -2443,7 +2542,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 if (c.state != .open or pendingOut(c) > self.outbound_high_water_bytes) continue;
                 self.unlinkParked(slot);
                 self.refreshWaiting(c);
-                self.armOrPark(slot, c) catch self.closeConn(slot, c);
+                self.armOrPark(slot, c) catch |err| self.closeConnWith(slot, c, err);
             }
         }
 
@@ -2521,15 +2620,11 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             self.assertOwnerOrUnclaimed();
             if (self.shutting_down or self.tearing_down) return error.ShuttingDown;
             std.debug.assert(self.wake == null); // one wake channel per loop
+            // Setup is transactional: a refused first submission leaves no
+            // borrowed descriptor or callback behind and reaches the caller
+            // through this fallible API.
+            try self.backend.submitRecv(userData(.wake, 0), fd);
             self.wake = .{ .fd = fd, .ctx = ctx, .handler = handler };
-            // A submit the backend cannot admit right now is ring pressure,
-            // not a bad fd. Leave the channel armed-pending so the bounded
-            // retry before the next wait picks it up, rather than reporting
-            // a failure whose only honest recovery is that same retry.
-            self.backend.submitRecv(userData(.wake, 0), fd) catch {
-                self.wake_rearm_pending = true;
-                return;
-            };
             self.wake_armed = true;
         }
 
@@ -2537,27 +2632,27 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// faulted channel (teardown pulled the mailbox) stays disarmed; a
         /// re-arm the backend cannot admit right now is retried before the
         /// next wait, bounded like an owed close.
-        fn onWakeCompletion(self: *Self, result: i32) void {
+        fn onWakeCompletion(self: *Self, result: i32) !void {
             const wake = self.wake orelse return;
             if (result <= 0) {
                 self.wake = null;
                 return;
             }
             wake.handler(wake.ctx);
-            self.backend.submitRecv(userData(.wake, 0), wake.fd) catch {
+            self.backend.submitRecv(userData(.wake, 0), wake.fd) catch |err| {
                 self.wake_rearm_pending = true;
-                return;
+                return err;
             };
             self.wake_armed = true;
         }
 
-        fn retryWakeRearm(self: *Self) void {
+        fn retryWakeRearm(self: *Self) !void {
             if (!self.wake_rearm_pending) return;
             const wake = self.wake orelse {
                 self.wake_rearm_pending = false;
                 return;
             };
-            self.backend.submitRecv(userData(.wake, 0), wake.fd) catch return;
+            try self.backend.submitRecv(userData(.wake, 0), wake.fd);
             self.wake_rearm_pending = false;
             self.wake_armed = true;
         }
@@ -2566,16 +2661,16 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// A refused cancel submission mints no completion and is retried on a
         /// bounded poll; an admitted one owns a distinct completion in addition
         /// to the target recv completion.
-        fn retryWakeCancel(self: *Self) void {
+        fn retryWakeCancel(self: *Self) !void {
             if (!self.wake_cancel_submit_pending) return;
             std.debug.assert(self.wake_armed);
             std.debug.assert(!self.wake_cancel_pending);
             const wake = self.wake orelse unreachable;
-            self.backend.submitCancel(
+            try self.backend.submitCancel(
                 userData(.wake_cancel, 0),
                 userData(.wake, 0),
                 wake.fd,
-            ) catch return;
+            );
             self.wake_cancel_submit_pending = false;
             self.wake_cancel_pending = true;
         }
@@ -2593,19 +2688,24 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// ops on a backend whose `shutdownFd` cannot cancel them, so a failed
         /// submit is not a state the loop may sit in. The failure is an
         /// allocation one, so the next batch usually takes it.
-        fn retryPendingCloses(self: *Self) void {
+        fn retryPendingCloses(self: *Self) !void {
             if (self.pending_close_submits == 0) return;
+            var first_err: ?anyerror = null;
             for (self.conns, 0..) |*c, slot| {
                 // `owns_fd_close` is set at exactly one site, the failed
                 // submit below, so it doubles as the marker for a close this
                 // loop still owes. Clearing it hands the fd back to the close
                 // op that just landed.
                 if (!c.owns_fd_close) continue;
-                self.backend.submitClose(userData(.close, slot), c.fd) catch continue;
+                self.backend.submitClose(userData(.close, slot), c.fd) catch |err| {
+                    if (first_err == null) first_err = err;
+                    continue;
+                };
                 c.owns_fd_close = false;
                 c.ops_in_flight += 1;
                 self.pending_close_submits -= 1;
             }
+            if (first_err) |err| return err;
         }
 
         /// Submit the listener cancellation/close when backend capacity admits
@@ -2613,10 +2713,10 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// accept operation pending; `closeFd` alone is not contracted to retire
         /// that operation. Retain the descriptor and retry instead of letting
         /// `closeAndDrain` return while the backend still owns an accept.
-        fn retryListenerClose(self: *Self) void {
+        fn retryListenerClose(self: *Self) !void {
             if (self.listener_close_pending) return;
             const fd = self.listener_close_fd orelse return;
-            self.backend.submitClose(userData(.close, self.conns.len), fd) catch return;
+            try self.backend.submitClose(userData(.close, self.conns.len), fd);
             self.listener_close_pending = true;
         }
 
@@ -2669,7 +2769,11 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // is still alive: this fires once per connection, and `opened`
             // tells a dialer whether the connection ever completed its
             // connect (a refused dial reports `opened == false`).
-            if (self.on_close) |on_close| on_close(self.make_ctx, slot, c.app_ctx, c.opened, c.close_reason);
+            if (self.on_close) |on_close| on_close(self.make_ctx, slot, c.app_ctx, .{
+                .opened = c.opened,
+                .reason = c.close_reason,
+                .failure = c.peer.lastAbort(),
+            });
             // Free the per-connection app context next: it may hold a vat that
             // borrows this peer, so it must release before the peer deinits.
             if (c.app_ctx) |app_ctx| {

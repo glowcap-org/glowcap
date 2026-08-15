@@ -68,7 +68,14 @@
 ;; local-discovery book resolves it), fetch the greeter, and call it
 ;; CALLS-PER-CONN times, checking every reply.
 (define (client-once)
-  (define session (connect (format-peer-uri TRANSPORT-IROH server-id) IROH-REACH-LOCAL-DISCOVERY))
+  ;; Every simulated peer owns a distinct endpoint and Host, so each call opens
+  ;; its own Runtime rather than sharing transport identity across clients.
+  (define runtime
+    (open-runtime
+     #:providers (list (iroh-provider
+                        (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))))
+  (define session
+    (runtime-connect runtime (iroh-locator server-id)))
   (dynamic-wind
    void
    (lambda ()
@@ -77,7 +84,9 @@
        (define reply (session-send session greeter-cap 'greet "world"))
        (unless (equal? reply GREETING)
          (error 'client (format "wrong reply: ~s" reply)))))
-   (lambda () (session-close! session))))
+   (lambda ()
+     (session-close! session)
+     (runtime-close! runtime))))
 
 ;; Fan out all clients at once: they share nothing, so the only thing that can
 ;; serve them all is the one server loop multiplexing.
@@ -120,7 +129,7 @@
                     (iroh-server-accept closing)
                     'accepted)))))
 (semaphore-wait closing-started)
-(host-release! (iroh-server-host closing))
+(host-close! (iroh-server-host closing))
 (define closing-terminal (sync/timeout 2 closing-result))
 (unless (exn? closing-terminal)
   (fail "racket-iroh-loop" "Host release did not stop a parked iroh accept"))

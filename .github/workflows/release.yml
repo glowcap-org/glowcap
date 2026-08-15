@@ -80,15 +80,15 @@ jobs:
         with:
           path: artifacts
 
-      - name: Assemble assets and combined checksums
+      - name: Assemble release archives and combined checksums
         if: steps.publish.outputs.enabled == 'true'
         run: |
-          mkdir assets
-          find artifacts -name '*.tar.gz' -exec mv {} assets/ \;
-          cat artifacts/*/SHA256SUMS | sort -k2 > assets/SHA256SUMS
-          ls -l assets
+          mkdir release-assets
+          find artifacts -name '*.tar.gz' -exec mv {} release-assets/ \;
+          cat artifacts/*/SHA256SUMS | sort -k2 > release-assets/SHA256SUMS
+          ls -l release-assets
 
-      - name: Create the release with assets
+      - name: Create the release with archives
         if: steps.publish.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -98,4 +98,4 @@ jobs:
             --title "pancake C archives $GITHUB_REF_NAME" \
             --verify-tag \
             --notes "Per-platform pancake C archive sets (static + shared libraries, headers, licenses). Verify with SHA256SUMS. The ABI version is reported by \`pancake_abi_version\`." \
-            assets/*
+            release-assets/*

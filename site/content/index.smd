@@ -23,25 +23,30 @@ already run.
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
 ```zig
+var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
+const partner = pancake.net.tcp.locator(designator);
 const session = try pancake.driver.connect(
     allocator,
-    &.{tcp_resident.netlayer()},
+    &netlayers,
     partner,
     .ephemeral,
     .{ .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } },
 );
-const greeter = try session.fetch("greeter"); // an opaque capability, by name
+defer session.deinit();
+const greeter = try session.fetch("greeter"); // a capability this peer published
+var arena = std.heap.ArenaAllocator.init(allocator);
+defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 ```
 
-That is the conversation: dial, fetch a capability by name, call it. The
-allocators and the transport around it are a few more lines.
-[Start building]($link.page('start')) walks all of them in Zig, then points at
-the same entry in C and each binding.
+That is the conversation: dial, fetch a capability this peer published, call
+it. [Start building]($link.page('start')) fills in the transport resident, the
+allocators, and the deadlines.
 
 pancake is not released yet. Pin a commit, and expect the API to move.
 [What you can depend on]($link.page('stability')) separates checked behavior
-from surfaces that still need outside evidence.
+from areas that still need external evidence.
 
 The protocol core does no I/O of its own. It is a synchronous state machine you
 feed bytes into and drain bytes out of, so sockets, threads, and scheduling stay
@@ -54,9 +59,10 @@ in your program where you can see them. Peers can meet over Tor
 
 Hold the library as a Zig package, a plain C ABI, or a native binding (Rust,
 TypeScript, Python, Racket). The TypeScript binding also compiles to
-WebAssembly, so the same session runs in the browser. A
-[CapTP CLI]($link.page('cli')) sits beside those surfaces: `zig build` puts the
-`pancake` binary in `zig-out/bin`.
+WebAssembly, so the same session runs in the browser. The [CapTP
+CLI]($link.page('cli')) exposes the same operations from a shell; `zig build`
+puts the `pancake` binary in `zig-out/bin`. [Choose an
+API]($link.page('surfaces')) compares all of these entry points.
 
 If the ideas are new, start at [Why OCapN]($link.page('why')). If you are ready
 to dial, go to [Start building]($link.page('start')).

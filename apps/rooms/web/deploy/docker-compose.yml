@@ -51,6 +51,9 @@ services:
       # Where the binding finds the prebuilt shared libraries (load.ts's first rung).
       PANCAKE_LIB_DIR: /libs
       DENO_DIR: /deno-dir
+      # One room authority across child and container restarts. This keeps the
+      # iroh endpoint id and every issued durable room link stable.
+      ROOMS_STATE: /state
       # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
       ROOMS_REACHABILITY: discovery
     volumes:
@@ -60,6 +63,7 @@ services:
       - ../../../../zig-out/lib:/libs:ro
       # A writable module cache, since the source mount is read-only.
       - rooms-deno-cache:/deno-dir
+      - rooms-state:/state
     restart: unless-stopped
     networks:
       - rooms-net
@@ -82,3 +86,4 @@ networks:
 
 volumes:
   rooms-deno-cache:
+  rooms-state:

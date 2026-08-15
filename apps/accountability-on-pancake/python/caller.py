@@ -29,15 +29,15 @@ from python_path import add_bindings_path  # noqa: E402
 add_bindings_path()
 
 from keri import Identity, b64url  # noqa: E402
-from pancake import VowBroken, connect, tcp_locator  # noqa: E402
-
+from pancake import Runtime, VowBroken, tcp  # noqa: E402
 
 async def run(port: int) -> None:
     print("accountability-on-pancake python caller")
     print(f"  connecting to 127.0.0.1:{port}…")
 
     # `connect` completes the keyed op:start-session handshake before returning.
-    session = await connect(tcp_locator("127.0.0.1", port))
+    runtime = await Runtime.open(provider=tcp.provider())
+    session = await runtime.connect(tcp.locator("127.0.0.1", port))
     # `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
     affordance = await session.fetch("affordance")
 
@@ -102,6 +102,7 @@ async def run(port: int) -> None:
     print(f"  correctly refused: {stale}")
 
     await session.close()
+    await runtime.close()
     print("\naccountability-on-pancake python caller OK: same application, two languages.")
 
 

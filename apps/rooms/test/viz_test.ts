@@ -17,14 +17,9 @@
 
 import { parseRecord, replayLines, startViz, type VizServer } from "../server/viz.ts";
 import { announceLines, publishUrl } from "../lib/viz_publish.ts";
-import { Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/stack";
-import type { TraceEvent } from "@pancake/stack";
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	const a = JSON.stringify(actual);
-	const b = JSON.stringify(expected);
-	if (a !== b) throw new Error(`expected ${b}, got ${a}`);
-}
+import { Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
+import type { TraceEvent } from "@pancake/runtime";
+import { assertEquals } from "./assert.ts";
 
 function assert(ok: boolean, what: string): void {
 	if (!ok) throw new Error(what);
@@ -177,21 +172,20 @@ class Viewer {
 		this.#closed = closed.finally(() => {
 			if (this.#released) return;
 			this.#released = true;
-			this.#host.release();
+			return this.#host.close();
 		});
 	}
 
 	static async connect(viz: VizServer): Promise<Viewer> {
 		const port = await viz.ready;
 		const sturdyref = await viz.sturdyref;
-		const locator = parseSturdyRef(sturdyref).locator;
+		const locator = parseSturdyRef(sturdyref, "v1_0").locator;
 		const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
 		await opened(socket);
 		const host = new Host(); // rooms-profile-exempt: production ocapnviz's v1.0 peer.
 		const session = await Session.establishDialedLocator(
 			host,
-			locator.transport,
-			locator.designator,
+			locator,
 			webSocketChannel(socket),
 		);
 		const closed = session.serve().catch(() => {});
@@ -480,9 +474,7 @@ Deno.test("a late viewer replays the live topology and no traffic", async () => 
 		assertEquals(viewer.of("ocapn.session-opened").length, 1);
 		assertEquals(viewer.of("ocapn.message-decoded").length, 0);
 		assert(
-			viewer.records.filter((r) => r.kind !== "trace.replay-end").every((r) =>
-				r.replay === true
-			),
+			viewer.records.filter((r) => r.kind !== "trace.replay-end").every((r) => r.replay === true),
 			"a replayed record was not marked as state",
 		);
 		peer.close();

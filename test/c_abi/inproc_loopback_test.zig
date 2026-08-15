@@ -22,6 +22,10 @@ const handshake = @import("../support/handshake.zig");
 
 const designator = "thermostat-room";
 
+fn releaseListener(listener: *ci.PancakeInprocListener) void {
+    std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_listener_release(listener)) catch unreachable;
+}
+
 const Transport = struct {
     pub const Conn = *ci.PancakeInprocConn;
     pub const Listener = *ci.PancakeInprocListener;
@@ -176,7 +180,7 @@ test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
         ci.pancake_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
     );
     const listener_ptr = listener.?;
-    defer ci.pancake_inproc_listener_release(listener_ptr);
+    defer releaseListener(listener_ptr);
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -226,6 +230,7 @@ test "c-abi inproc connect rejects bad arguments and a missing listener distinct
         c.PANCAKE_ERR_INVALID_ARGUMENT,
         ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, 999, frame_cap, &conn),
     );
+    try std.testing.expect(ci.pancake_inproc_last_error(null, 0) > 0);
     // A null required pointer is a null-pointer error.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_NULL_POINTER,
@@ -267,7 +272,7 @@ test "c-abi inproc readiness stays armed for every queued dial" {
         ci.pancake_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
     );
     const listener_ptr = listener.?;
-    defer ci.pancake_inproc_listener_release(listener_ptr);
+    defer releaseListener(listener_ptr);
 
     var fd: i32 = -1;
     try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_listener_readiness_fd(listener_ptr, &fd));
@@ -318,7 +323,7 @@ test "c-abi inproc release resolves a racing native accept" {
     var parked_accept = ParkedInprocAccept{ .listener = listener_ptr };
     var accept_future = try io.concurrent(parkedInprocAccept, .{&parked_accept});
     while (!parked_accept.started.load(.acquire)) std.Thread.yield() catch {};
-    ci.pancake_inproc_listener_release(listener_ptr);
+    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_listener_release(listener_ptr));
     accept_future.await(io);
     // The task may race release before acquiring the listener lease (CLOSED),
     // or release may interrupt an admitted accept (IO). Both are terminal and
@@ -335,7 +340,7 @@ test "c-abi inproc release resolves a racing native accept" {
         ci.pancake_inproc_listen(netlayer_ptr, pair_designator.ptr, pair_designator.len, &listener),
     );
     const pair_listener = listener.?;
-    defer ci.pancake_inproc_listener_release(pair_listener);
+    defer releaseListener(pair_listener);
     var dialed: ?*ci.PancakeInprocConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,

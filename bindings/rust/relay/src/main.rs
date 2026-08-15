@@ -7,7 +7,7 @@
 //! session authority run end to end and the relay holds no capability. The same
 //! five-part shape ADR-0086 names, in Rust: the WebSocket adapter is
 //! tokio-tungstenite, the pump is the two tasks in `pump`, the byte channel is a
-//! `TcpStream` or (with `--features iroh`) the binding's `IrohStream`, the dial
+//! `TcpStream` or (with `--features iroh`) the binding's `Stream`, the dial
 //! dispatcher is `handle`, and the config is the constant below. Backpressure is
 //! the awaited write on both legs: the target leg blocks on the kernel or the
 //! iroh sidecar, the browser-bound leg on tokio-tungstenite's sink. Teardown is
@@ -17,7 +17,7 @@
 //!   - `?to=host:port`  a raw TCP socket (byte-level, kernel-backpressured; no
 //!                      pancake dependency, the default build).
 //!   - `?locator=<ocapn-uri>`  an iroh byte channel dialed through the pancake
-//!                      Rust binding's `IrohNetlayer::connect_owned`, only with
+//!                      Rust binding's `Netlayer::connect_owned`, only with
 //!                      `--features iroh`.
 //!
 //! Prints `RUST-RELAY-READY <port>` on stdout once listening.
@@ -72,6 +72,36 @@ fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_BYTES_PER_SESSION: usize = 1 << 30; // 1 GiB
 
+#[derive(Debug)]
+struct RelayFailure {
+	primary: String,
+	secondary: Vec<String>,
+}
+
+impl RelayFailure {
+	fn new(message: impl Into<String>) -> Self {
+		Self {
+			primary: message.into(),
+			secondary: Vec::new(),
+		}
+	}
+
+	fn cleanup(mut self, message: impl Into<String>) -> Self {
+		self.secondary.push(message.into());
+		self
+	}
+}
+
+impl std::fmt::Display for RelayFailure {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.primary)?;
+		for secondary in &self.secondary {
+			write!(f, "; cleanup also failed: {secondary}")?;
+		}
+		Ok(())
+	}
+}
+
 /// The idle timeout, overridable by `PANCAKE_RELAY_IDLE_MS` for the conformance
 /// idle-timeout proof; a production run leaves it unset and gets the default.
 fn idle_timeout() -> Duration {
@@ -83,19 +113,28 @@ fn idle_timeout() -> Duration {
 }
 
 #[tokio::main]
-async fn main() {
-	let port: u16 = std::env::args()
-		.nth(1)
-		.and_then(|s| s.parse().ok())
-		.unwrap_or(0);
-	let listener = TcpListener::bind(("127.0.0.1", port))
-		.await
-		.expect("bind relay port");
-	let bound = listener.local_addr().expect("relay addr").port();
-	println!("RUST-RELAY-READY {bound}");
-	std::io::stdout().flush().ok();
-	while let Ok((stream, _)) = listener.accept().await {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let port: u16 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+	let listener = TcpListener::bind(("127.0.0.1", port)).await?;
+	let bound = listener.local_addr()?.port();
+	let mut stdout = std::io::stdout().lock();
+	writeln!(stdout, "RUST-RELAY-READY {bound}")?;
+	stdout.flush()?;
+	drop(stdout);
+	loop {
+		let (stream, _) = listener.accept().await?;
 		tokio::spawn(handle(stream));
+	}
+}
+
+fn lock_relay<'a, T>(mutex: &'a Mutex<T>, source: &str) -> std::sync::MutexGuard<'a, T> {
+	match mutex.lock() {
+		Ok(guard) => guard,
+		Err(poisoned) => {
+			eprintln!("relay: recovered poisoned {source} mutex");
+			mutex.clear_poison();
+			poisoned.into_inner()
+		}
 	}
 }
 
@@ -107,40 +146,40 @@ async fn handle(stream: TcpStream) {
 		if let Some(query) = req.uri().query() {
 			for pair in query.split('&') {
 				if let Some(value) = pair.strip_prefix("to=") {
-					parsed_cb.lock().unwrap().0 = Some(value.to_string());
+					lock_relay(&parsed_cb, "upgrade-target").0 = Some(value.to_string());
 				} else if let Some(value) = pair.strip_prefix("locator=") {
-					parsed_cb.lock().unwrap().1 = Some(percent_decode(value));
+					lock_relay(&parsed_cb, "upgrade-target").1 = Some(percent_decode(value));
 				}
 			}
 		}
 		Ok(resp)
 	};
-	let ws =
-		match tokio_tungstenite::accept_hdr_async_with_config(stream, callback, Some(ws_config()))
-			.await
-		{
-			Ok(ws) => ws,
-			Err(_) => return,
-		};
-	let (target_to, target_locator) = parsed.lock().unwrap().clone();
+	let ws = match tokio_tungstenite::accept_hdr_async_with_config(stream, callback, Some(ws_config())).await {
+		Ok(ws) => ws,
+		Err(_) => return,
+	};
+	let (target_to, target_locator) = lock_relay(&parsed, "upgrade-target").clone();
 
 	if let Some(locator) = target_locator {
 		dial_iroh_and_pump(ws, &locator).await;
 	} else if let Some(to) = target_to.filter(|t| t.contains(':')) {
 		match TcpStream::connect(&to).await {
-			Ok(tcp) => pump(ws, tcp).await,
+			Ok(tcp) => {
+				if let Err(error) = pump(ws, tcp).await {
+					eprintln!("relay: session failed: {error}");
+				}
+			}
 			Err(e) => {
 				eprintln!("relay: dial failed: {e}");
-				close_with(ws, CloseCode::Error, "relay dial failed").await;
+				if let Err(close) = close_with(ws, CloseCode::Error, "relay dial failed").await {
+					eprintln!("relay: WebSocket close after dial failure failed: {close}");
+				}
 			}
 		}
 	} else {
-		close_with(
-			ws,
-			CloseCode::Policy,
-			"relay requires ?to=host:port or ?locator=<uri>",
-		)
-		.await;
+		if let Err(close) = close_with(ws, CloseCode::Policy, "relay requires ?to=host:port or ?locator=<uri>").await {
+			eprintln!("relay: WebSocket policy close failed: {close}");
+		}
 	}
 }
 
@@ -149,20 +188,23 @@ async fn handle(stream: TcpStream) {
 /// missing or malformed target and `1011` for a dial that could not land;
 /// ADR-0086 is one contract with four implementations, so this one says the
 /// same thing.
-async fn close_with(mut ws: WebSocketStream<TcpStream>, code: CloseCode, reason: &'static str) {
-	let _ = ws
-		.close(Some(CloseFrame {
-			code,
-			reason: reason.into(),
-		}))
-		.await;
+async fn close_with(
+	mut ws: WebSocketStream<TcpStream>,
+	code: CloseCode,
+	reason: &'static str,
+) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+	ws.close(Some(CloseFrame {
+		code,
+		reason: reason.into(),
+	}))
+	.await
 }
 
 /// Pump bytes between the WebSocket and any byte channel, both directions, until
 /// either leg ends. Generic over the channel so the TCP socket and the iroh
 /// stream share one pump. Backpressure is the awaited write on each leg;
 /// teardown is pair-atomic.
-async fn pump<C>(ws: WebSocketStream<TcpStream>, channel: C)
+async fn pump<C>(ws: WebSocketStream<TcpStream>, channel: C) -> Result<(), RelayFailure>
 where
 	C: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -177,39 +219,62 @@ where
 	let transferred_a = transferred.clone();
 	let activity_a = last_activity.clone();
 	let mut leg_a = tokio::spawn(async move {
-		while let Some(Ok(msg)) = ws_read.next().await {
+		let mut failure = None;
+		while let Some(next) = ws_read.next().await {
+			let msg = match next {
+				Ok(msg) => msg,
+				Err(error) => {
+					failure = Some(RelayFailure::new(format!("reading WebSocket failed: {error}")));
+					break;
+				}
+			};
 			let bytes = match msg {
 				Message::Binary(b) => b,
 				// A byte relay cannot reinterpret a typed text message as protocol
 				// bytes. Ending this leg tears the pair down through the select below.
-				Message::Text(_) => break,
+				Message::Text(_) => {
+					failure = Some(RelayFailure::new("WebSocket sent text to the byte relay"));
+					break;
+				}
 				Message::Close(_) => break,
 				_ => continue,
 			};
-			*activity_a.lock().unwrap() = Instant::now();
-			if transferred_a.fetch_add(bytes.len(), Ordering::Relaxed) + bytes.len()
-				> MAX_BYTES_PER_SESSION
-			{
+			*lock_relay(&activity_a, "activity") = Instant::now();
+			if transferred_a.fetch_add(bytes.len(), Ordering::Relaxed) + bytes.len() > MAX_BYTES_PER_SESSION {
+				failure = Some(RelayFailure::new("relay session exceeded its byte budget"));
 				break;
 			}
-			if ch_write.write_all(&bytes).await.is_err() {
+			if let Err(error) = ch_write.write_all(&bytes).await {
+				failure = Some(RelayFailure::new(format!("writing target channel failed: {error}")));
 				break;
 			}
 		}
-		let _ = ch_write.shutdown().await;
+		if let Err(error) = ch_write.shutdown().await {
+			failure = Some(match failure {
+				Some(primary) => primary.cleanup(format!("shutting down target writer failed: {error}")),
+				None => RelayFailure::new(format!("shutting down target writer failed: {error}")),
+			});
+		}
+		failure.map_or(Ok(()), Err)
 	});
 
 	let transferred_b = transferred.clone();
 	let activity_b = last_activity.clone();
 	let mut leg_b = tokio::spawn(async move {
 		let mut buf = vec![0u8; READ_CHUNK];
+		let mut failure = None;
 		loop {
 			let n = match ch_read.read(&mut buf).await {
-				Ok(0) | Err(_) => break,
+				Ok(0) => break,
 				Ok(n) => n,
+				Err(error) => {
+					failure = Some(RelayFailure::new(format!("reading target channel failed: {error}")));
+					break;
+				}
 			};
-			*activity_b.lock().unwrap() = Instant::now();
+			*lock_relay(&activity_b, "activity") = Instant::now();
 			if transferred_b.fetch_add(n, Ordering::Relaxed) + n > MAX_BYTES_PER_SESSION {
+				failure = Some(RelayFailure::new("relay session exceeded its byte budget"));
 				break;
 			}
 			// Named boundary copy: tokio-tungstenite's `Message::binary` owns its
@@ -217,15 +282,18 @@ where
 			// the async send. Bounded by `READ_CHUNK` (64 KiB) and off pancake's
 			// own wire path — the WebSocket-sink shape of memory.md's binding
 			// outbound flush copy.
-			if ws_write
-				.send(Message::binary(buf[..n].to_vec()))
-				.await
-				.is_err()
-			{
+			if let Err(error) = ws_write.send(Message::binary(buf[..n].to_vec())).await {
+				failure = Some(RelayFailure::new(format!("writing WebSocket failed: {error}")));
 				break;
 			}
 		}
-		let _ = ws_write.close().await;
+		if let Err(error) = ws_write.close().await {
+			failure = Some(match failure {
+				Some(primary) => primary.cleanup(format!("closing WebSocket writer failed: {error}")),
+				None => RelayFailure::new(format!("closing WebSocket writer failed: {error}")),
+			});
+		}
+		failure.map_or(Ok(()), Err)
 	});
 
 	// Reclaim a stalled pair: complete once neither leg has moved a chunk for
@@ -234,7 +302,7 @@ where
 	let activity_w = last_activity.clone();
 	let mut watchdog = tokio::spawn(async move {
 		loop {
-			let idle_for = activity_w.lock().unwrap().elapsed();
+			let idle_for = lock_relay(&activity_w, "activity").elapsed();
 			if idle_for >= idle {
 				break;
 			}
@@ -242,16 +310,37 @@ where
 		}
 	});
 
-	tokio::select! {
-		_ = &mut leg_a => { leg_b.abort(); watchdog.abort(); }
-		_ = &mut leg_b => { leg_a.abort(); watchdog.abort(); }
-		_ = &mut watchdog => { leg_a.abort(); leg_b.abort(); }
-	}
+	let outcome = tokio::select! {
+		result = &mut leg_a => {
+			leg_b.abort();
+			watchdog.abort();
+			// Cancellation is the pair-atomic consequence of the selected leg's
+			// terminal outcome; join both owners before returning.
+			let _cancelled = leg_b.await;
+			let _cancelled = watchdog.await;
+			result
+		}
+		result = &mut leg_b => {
+			leg_a.abort();
+			watchdog.abort();
+			let _cancelled = leg_a.await;
+			let _cancelled = watchdog.await;
+			result
+		}
+		_ = &mut watchdog => {
+			leg_a.abort();
+			leg_b.abort();
+			let _cancelled = leg_a.await;
+			let _cancelled = leg_b.await;
+			return Ok(());
+		}
+	};
+	outcome.map_err(|error| RelayFailure::new(format!("relay leg task failed: {error}")))?
 }
 
 #[cfg(feature = "iroh")]
 async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
-	use pancake_rust_dogfood::iroh::{IrohConfig, IrohNetlayer};
+	use pancake_rust_dogfood::iroh::{Config, Netlayer};
 	use pancake_rust_dogfood::{parse_locator, Reachability};
 
 	let loc = match parse_locator(locator) {
@@ -274,7 +363,7 @@ async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
 			return;
 		}
 	};
-	let netlayer = match IrohNetlayer::new(IrohConfig::new(Reachability::Direct)).await {
+	let netlayer = match Netlayer::new(Config::new(Reachability::Direct)).await {
 		Ok(netlayer) => netlayer,
 		Err(e) => {
 			eprintln!("relay: iroh netlayer: {e}");
@@ -282,7 +371,11 @@ async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
 		}
 	};
 	match netlayer.connect_owned(&loc.designator, direct).await {
-		Ok(stream) => pump(ws, stream).await,
+		Ok(stream) => {
+			if let Err(error) = pump(ws, stream).await {
+				eprintln!("relay: iroh session failed: {error}");
+			}
+		}
 		Err(e) => eprintln!("relay: iroh dial failed: {e}"),
 	}
 }
@@ -326,7 +419,15 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-	use super::percent_decode;
+	use super::{percent_decode, RelayFailure};
+
+	#[test]
+	fn relay_failure_keeps_cleanup_after_the_primary() {
+		let error = RelayFailure::new("write failed").cleanup("close failed");
+		assert_eq!(error.primary, "write failed");
+		assert_eq!(error.secondary, ["close failed"]);
+		assert_eq!(error.to_string(), "write failed; cleanup also failed: close failed");
+	}
 
 	#[test]
 	fn percent_decode_survives_a_multibyte_char_after_a_percent() {

@@ -7,27 +7,9 @@
 .draft = false,
 ---
 
-Each path below is a runnable example.
-
-## See the whole system
-
-The rooms app is the fullest demonstration: several language bindings, a
-browser UI, live chat, and direct messages created by a three-party handoff.
-
-```sh
-zig build rooms-web-iroh
-```
-
-Open `http://localhost:8000`, pick a member, and choose **Message**. The room
-introduces the two members and then leaves their conversation path.
-
-Native peer-to-peer traffic rides encrypted
-[iroh]($link.page('transports/iroh')) there, so the command needs Cargo for the
-transport sidecar as well as Deno. There is a Deno-only
-`zig build rooms-web-tcp` that serves the same page over cleartext TCP, which
-authenticates no peer and carries CapTP in the clear. For the standardized
-Goblins path over Tor, `zig build demo-rooms-onion` runs one hosted service and
-two independent clients (needs Deno, Tor, and outbound network).
+Start with [Start building]($link.page('start')) or chapter 01 for a first
+call. The rooms app and the other demos below are complete programs on the
+same API.
 
 ## Learn the Zig API
 
@@ -50,12 +32,49 @@ Two later chapters isolate the capability moves that are easiest to miss:
 
 The [complete example guide](https://github.com/jimisaacs/pancake/blob/main/examples/README.md)
 continues down through actors, bootstrap lookup, and the raw engine.
+[Concepts]($link.page('concepts')) explains the handoff and pipelining behavior
+used by these examples; [The modules]($link.page('modules')) shows which API
+level each chapter exercises.
+
+## See the whole system
+
+The rooms app is the fullest demonstration: several language bindings, a
+browser UI, live chat, and direct messages created by a three-party handoff.
+
+```sh
+zig build rooms-web-iroh
+```
+
+Open `http://localhost:8000`, pick a member, and choose **Message**. The room
+introduces the two members and then leaves their conversation path.
+
+Native peer-to-peer traffic rides encrypted
+[iroh]($link.page('transports/iroh')) there, so the command needs Cargo for the
+transport sidecar as well as Deno. There is a Deno-only
+`zig build rooms-web-tcp` that serves the same page over cleartext TCP, which
+authenticates no peer and carries CapTP in the clear. For the standardized
+Goblins path over Tor, `zig build demo-rooms-onion` runs one hosted service and
+two independent clients (needs Deno, Tor, and outbound network).
+
+## Dial over any transport
+
+Each transport reaches the same `Session` API. The setup changes because each
+transport needs different authority: a socket address, a peer key, a relay, Tor,
+or a signaling capability. The `inproc` tab uses Zig because it shares an
+in-process switchboard directly; the other tabs use the managed TypeScript
+surface. The common contract begins once that authority has opened a channel;
+[Choosing a transport]($link.page('transports/choosing')) covers the different
+deployment and trust contracts.
+
+Each binding page owns its Dial and Listen matrix, while transport-family
+pages show the inverse view. This page keeps the runnable applications rather
+than a third snippet list.
 
 ## Embed from C
 
 [host_embedder_pump.c](https://github.com/jimisaacs/pancake/blob/main/examples/c/host_embedder_pump.c)
 is the first C program to read. It drives two byte-fed `PancakeHost` instances
-through the sole C CapTP application surface. Continue with
+through the C CapTP application API. Continue with
 [the C guide](https://github.com/jimisaacs/pancake/blob/main/docs/consuming-from-c.md)
 for linking, ownership, the host allocator, and transport composition.
 
@@ -69,4 +88,6 @@ for linking, ownership, the host allocator, and transport composition.
 
 Tasks and tools need Deno. Accountability runs a Zig host with Deno and Python
 callers. The same applications also serve as binding examples; the
-[bindings overview]($link.page('bindings')) points to each language.
+[bindings overview]($link.page('bindings')) points to each language. For a
+smaller first call, use [Start building]($link.page('start')) or the [CapTP
+CLI]($link.page('cli')).

@@ -96,9 +96,7 @@ export function layoutLaneLabels(
     const available = rightLimit - leftAnchor;
     if (available < minWidth) continue;
     const naturalWidth = input.label.length * advance;
-    const placedLabel = naturalWidth <= available
-      ? input.label
-      : truncateToWidth(input.label, available, advance);
+    const placedLabel = naturalWidth <= available ? input.label : truncateToWidth(input.label, available, advance);
     if (placedLabel.length === 0) continue;
     reversed.push({ id: input.id, x: leftAnchor, label: placedLabel });
     rightBoundary = leftAnchor;

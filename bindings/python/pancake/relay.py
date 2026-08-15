@@ -17,11 +17,38 @@ from ._errors import PancakeError
 from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _str_buf, _read_last_error
 from ._ffi_relay import _RelayConfig, _relay_lib
-from ._native import NativeHandle
+from ._locator import Locator
+from ._native import NativeHandle, _NativeHandleOwner
+from ._transport import (
+    Connector,
+    Provider,
+    _rollback_failed_provider,
+    _rollback_failed_transport,
+)
 
-__all__ = ["RelayConfig", "RelayRuntime", "install_provider"]
+__all__ = ["RelayConfig", "RelayRuntime", "provider", "connector", "keyed", "noise"]
 
 _RENDEZVOUS_RELAY_HINT = "rendezvous-relay"
+
+
+class _Profile:
+    __slots__ = ("_transport",)
+
+    def __init__(self, transport: str) -> None:
+        self._transport = transport
+
+    def locator(self, designator: str, relay_url: str) -> Locator:
+        """Build this relay profile's routed typed locator."""
+        return Locator(
+            self._transport,
+            designator,
+            {_RENDEZVOUS_RELAY_HINT: relay_url},
+            "map",
+        )
+
+
+keyed = _Profile(_c.TRANSPORT_KEYED_RELAY)
+noise = _Profile(_c.TRANSPORT_NOISE_RELAY)
 
 
 def _route_from_locator(locator) -> str | None:
@@ -67,10 +94,10 @@ class RelayConfig:
 
 
 def _release_runtime(raw) -> None:
-    _relay_lib.pancake_relay_runtime_release(raw)
+    _check_relay(_relay_lib.pancake_relay_runtime_release(raw))
 
 
-class RelayRuntime:
+class RelayRuntime(_NativeHandleOwner):
     """Owns the relay archive runtime until its provider is installed."""
 
     def __init__(self, config: RelayConfig):
@@ -105,22 +132,50 @@ class RelayRuntime:
         self._native.drop_reference()
 
 
-def install_provider(loop, config: RelayConfig | str, register_url: str = "") -> None:
-    """Install one shared keyed-relay/noise-relay package into ``loop``.
-
-    ``register_url`` is used only for listeners. Passing a string is a compact
-    dial-only form; use :class:`RelayConfig` when hosting too.
-    """
-    if loop._has_transport(_c.TRANSPORT_KEYED_RELAY.encode()):
-        return
+def provider(config: RelayConfig | str, register_url: str = "") -> Provider:
+    """Build the configured native keyed-relay/noise-relay package."""
     if isinstance(config, str):
         config = RelayConfig(config, register_url)
-    runtime = RelayRuntime(config)
-    try:
-        loop._install_provider(
-            lambda register: register(runtime._transport_provider())
-        )
-    except BaseException:
-        runtime.release()
-        raise
-    runtime._relinquish_provider_reference()
+
+    async def install(loop) -> None:
+        runtime = RelayRuntime(config)
+        try:
+            loop._install_provider(
+                lambda register: register(runtime._transport_provider())
+            )
+        except BaseException:
+            _rollback_failed_provider(loop, runtime.release)
+            raise
+        runtime._relinquish_provider_reference()
+
+    return Provider(install)
+
+
+def connector(config: RelayConfig | str) -> Connector:
+    """Build the explicit byte connector for clear keyed relay rendezvous."""
+    if isinstance(config, str):
+        config = RelayConfig(config)
+
+    async def realize(host, locator, handshake_timeout_ms):
+        route = _route_from_locator(locator) or config.relay_url
+        if not route:
+            raise PancakeError(
+                _c.ERR_INVALID_ARGUMENT,
+                "relay connector requires a rendezvous route in the locator or config",
+            )
+        from ._session import Session
+        from ._ws import connect_websocket
+
+        channel = await connect_websocket(_dial_url(route, locator.designator))
+        try:
+            return await Session.establish_dialed_locator(
+                host,
+                locator,
+                channel,
+                handshake_timeout_ms,
+            )
+        except BaseException:
+            await _rollback_failed_transport(host, channel)
+            raise
+
+    return Connector(("keyed-relay",), realize)

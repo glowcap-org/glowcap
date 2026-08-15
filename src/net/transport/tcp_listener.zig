@@ -53,7 +53,7 @@ pub const Listener = struct {
         return self.socket.readinessFd();
     }
 
-    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) error{ConnectionLost}!bool {
+    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) runtime.WaitError!bool {
         return self.socket.waitAcceptable(timeout_ms);
     }
 
@@ -62,11 +62,11 @@ pub const Listener = struct {
         read_buf: []u8,
         write_buf: []u8,
         options: runtime.StreamOptions,
-    ) netlayer.AcceptError!runtime.Connection {
+    ) runtime.AcceptError!runtime.Connection {
         return self.socket.accept(read_buf, write_buf, options);
     }
 
-    pub fn acceptStream(self: *Listener, options: runtime.StreamOptions) netlayer.AcceptError!std.Io.net.Stream {
+    pub fn acceptStream(self: *Listener, options: runtime.StreamOptions) runtime.AcceptError!std.Io.net.Stream {
         return self.socket.acceptStream(options);
     }
 

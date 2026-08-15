@@ -8,29 +8,14 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import {
-  endpointNodeId,
-  endpointStageId,
-  parseEndpointStageId,
-  SESSION_SIDES,
-} from "../../schema/topology.ts";
+import { endpointNodeId, endpointStageId, parseEndpointStageId, SESSION_SIDES } from "../../schema/topology.ts";
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 import { containsTime } from "../temporal/range.ts";
 import { peerEffective, sessionEffective } from "../temporal/doc-resolver.ts";
-import {
-  claimedPeerByEnd,
-  claimsOnStage,
-  endpointClaims,
-  sessionEnds,
-} from "../claims.ts";
+import { claimedPeerByEnd, claimsOnStage, endpointClaims, sessionEnds } from "../claims.ts";
 import type { GameWorld, Vec2 } from "../world.ts";
-import {
-  bezierAt,
-  bundleIndices,
-  curveBetween,
-  type SessionBundleEntry,
-} from "../session-geometry.ts";
+import { bezierAt, bundleIndices, curveBetween, type SessionBundleEntry } from "../session-geometry.ts";
 import { type EasingFn, smoothstep } from "../easing.ts";
 import {
   endpointLabelText,

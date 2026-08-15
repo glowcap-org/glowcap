@@ -10,4 +10,5 @@
 This route serves the generated Zig API reference for the public `pancake`
 module. If you are reading this text instead of the reference, the site was
 built without the autodoc step; the [API reference]($link.page('reference'))
-page describes both halves of the generated API.
+page describes the Zig and C entry points. [Start building]($link.page('start'))
+provides a complete client before you move to declaration-level detail.

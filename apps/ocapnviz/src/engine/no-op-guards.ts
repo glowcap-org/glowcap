@@ -51,22 +51,14 @@
  */
 
 import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
-import {
-  messageEffective,
-  peerEffective,
-  sessionEffective,
-} from "./temporal/doc-resolver.ts";
+import { messageEffective, peerEffective, sessionEffective } from "./temporal/doc-resolver.ts";
 import { keyframeExactlyAt, type KeyframeTrack } from "./temporal/keyframes.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 import { isDerived, type TimeSpan } from "./temporal/time-span.ts";
 import { authoredPeerPosition } from "./event-helpers.ts";
 import { findNode, type GameWorld } from "./world.ts";
 import { parseEndpointStageId } from "../schema/topology.ts";
-import {
-  allVisModeOnDoc,
-  categoryVisModeOnDoc,
-  rowVisModeOnDoc,
-} from "./visibility.ts";
+import { allVisModeOnDoc, categoryVisModeOnDoc, rowVisModeOnDoc } from "./visibility.ts";
 import type { BuilderIntent } from "./engine.ts";
 import { PEER_TRAJECTORY, SESSION_TRAJECTORY } from "./trajectory.ts";
 
@@ -230,11 +222,9 @@ export function isNoOpIntent(
     case "delete-session": {
       const obs = observationsOf(doc) as readonly TimelineEvent[];
       const hasEvent = obs.some(
-        (ev) =>
-          ev.kind === "session-opened" && ev.sessionId === intent.sessionId,
+        (ev) => ev.kind === "session-opened" && ev.sessionId === intent.sessionId,
       );
-      const hasEternal =
-        doc.entities?.sessions?.[intent.sessionId] !== undefined &&
+      const hasEternal = doc.entities?.sessions?.[intent.sessionId] !== undefined &&
         !hasEvent;
       return !hasEvent && !hasEternal;
     }
@@ -243,8 +233,7 @@ export function isNoOpIntent(
       const hasEvent = obs.some(
         (ev) => ev.kind === "message-sent" && ev.messageId === intent.messageId,
       );
-      const hasEternal =
-        doc.entities?.messages?.[intent.messageId] !== undefined &&
+      const hasEternal = doc.entities?.messages?.[intent.messageId] !== undefined &&
         !hasEvent;
       return !hasEvent && !hasEternal;
     }
@@ -303,9 +292,7 @@ export function isNoOpIntent(
     }
     case "move-entity-span": {
       const move = intent.move;
-      const eff = move.ref.kind === "peer"
-        ? peerEffective(doc, move.ref.id)
-        : sessionEffective(doc, move.ref.id);
+      const eff = move.ref.kind === "peer" ? peerEffective(doc, move.ref.id) : sessionEffective(doc, move.ref.id);
       // The gesture drives one edge; unmoved is a no-op. A translate
       // anchors on the start.
       const current = move.kind === "resize-end" ? eff.end : eff.start;
@@ -492,9 +479,7 @@ export function isNoOpIntent(
         return false;
       }
       if (p.designator !== undefined) {
-        const next = p.designator === null || p.designator === ""
-          ? undefined
-          : p.designator;
+        const next = p.designator === null || p.designator === "" ? undefined : p.designator;
         if (next !== end.designator) return false;
       }
       if (

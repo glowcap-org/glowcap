@@ -16,6 +16,9 @@ const engine = @import("engine");
 const crypto = foundation.crypto;
 
 pub const Error = error{
+    /// The driver could not allocate ownership state for the requested
+    /// operation.
+    OutOfMemory,
     /// A `fetch` ran to a clean connection close before the capability resolved.
     ConnectionClosed,
     /// A `fetch` settled broken: the partner answered the bootstrap fetch with a
@@ -44,6 +47,10 @@ pub const Error = error{
     /// connection's life; a host-owned redeem dial reserves it for the same
     /// silent-exporter case (ADR-0081).
     HandshakeTimedOut,
+    /// A Runtime or Host finish-close exhausted its explicit grace budget.
+    /// Teardown still escalates to cancel and reaches the closed barrier
+    /// before this outcome is reported.
+    CloseTimedOut,
     /// A blocking answer-wait (`settle` / `call` / `fetch`) made no progress
     /// within its caller-set budget: the partner opened a session then stalled
     /// without settling the vow. Bounded via `BlockingSession.settle`. Sibling
@@ -61,13 +68,13 @@ pub const Error = error{
     TransportAlreadyRegistered,
     /// A provider supplied an empty transport symbol.
     InvalidTransportName,
-    /// `Server.close` was called while accepted views still hold sessions of
-    /// the host it would free. Release every `*Session` from `accept` first.
-    SessionsStillOpen,
-    /// `Session.view` was asked to combine a `HostRuntime` with a session
-    /// minted by another runtime's core Host. A view borrows one existing
-    /// runtime/session relationship; it cannot establish or transfer it.
+    /// `Session.adopt` was asked to combine a `HostRuntime` with a session
+    /// minted by another runtime's core Host. Adoption transfers one existing
+    /// runtime/session relationship; it cannot establish a foreign one.
     SessionNotOwned,
+    /// A runtime wire has already been transferred into an owning `Session`
+    /// handle. A second adoption would create duplicate release authority.
+    SessionAlreadyOwned,
     /// `HostRuntime.Options` supplied a zero frame admission cap or wire
     /// buffer size, or no capacity for pending session opens. Every bound must
     /// be positive.
@@ -75,6 +82,20 @@ pub const Error = error{
     /// This host already has `Options.max_pending_opens` transport connects or
     /// CapTP handshakes in flight. Let one settle before admitting another.
     PendingOpenLimitReached,
+    /// A listener for this canonical transport profile is pending or active.
+    /// Close or cancel that listener before starting another on the profile.
+    ListenerProfileInUse,
+    /// An owning Host or Runtime has sealed its terminal close barrier and no
+    /// longer admits application operations or transport opens.
+    HostClosing,
+    /// This session has sealed its terminal close barrier. Protocol ingress
+    /// remains live while admitted work finishes, but no new application
+    /// operation may target it.
+    SessionClosing,
+    /// A Server method that requires its listener or owning runtime was called
+    /// after `Server.close`. Close itself is idempotent; every other operation
+    /// refuses before touching the released runtime lease.
+    ServerClosed,
     /// The owning host face was asked to bind a session over a transport that
     /// reports no pollable fd (inproc by design, a userspace stream). A
     /// blocking multiplex cannot wait on a stream with no readiness signal;
@@ -285,10 +306,10 @@ pub const AcceptIdentity = union(enum) {
     keyed: crypto.SecretKey,
 };
 
-/// A handle to the eventual result of a `Session.send` / `sendToAnswer` —
-/// `actors.Vow`, re-exported so a consumer holding only the driver
-/// vocabulary (the C ABI session archive) can name it without reaching into the
-/// actor layer. `settleVow` drives it to a `Settled`.
+/// The borrowing tier's handle to an eventual result: `actors.Vow`,
+/// re-exported so a consumer holding only the driver vocabulary can name it
+/// without reaching into the actor layer. `BlockingSession.settleVow` drives
+/// it to a `Settled`; the owning tier returns a Host-accounted `driver.Promise`.
 pub const Vow = actors.Vow;
 
 /// A local actor bound to an export position, the borrowing tier's form
@@ -379,7 +400,8 @@ pub const Settled = union(enum) {
 
 /// Captures a settling resolution into a caller-owned allocator as a
 /// `Settled`: the listener behind every blocking `call` / `settleVow` /
-/// `fetchSettled` on `BlockingSession` / `Session`. Lives on
+/// `fetchSettled` on `BlockingSession`, and `call` / `fetchSettled` /
+/// `Promise.settle` on `Session`. Lives on
 /// the caller's stack for that bounded drive. The listener contract cannot
 /// carry an error, so an allocation failure is recorded and surfaced after
 /// the drive returns.

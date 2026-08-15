@@ -66,13 +66,9 @@ export function pickerLabels(options: readonly PickerOption[]): string[] {
   const short = options.map((o) => elideIdentifier(o.id));
   const bare = names.map((name, i) => name ?? short[i]!);
   if (unique(bare)) return bare;
-  const qualified = names.map((name, i) =>
-    name === undefined ? short[i]! : `${name} (${short[i]})`
-  );
+  const qualified = names.map((name, i) => name === undefined ? short[i]! : `${name} (${short[i]})`);
   if (unique(qualified)) return qualified;
-  return names.map((name, i) =>
-    name === undefined ? options[i]!.id : `${name} (${options[i]!.id})`
-  );
+  return names.map((name, i) => name === undefined ? options[i]!.id : `${name} (${options[i]!.id})`);
 }
 
 function unique(labels: readonly string[]): boolean {

@@ -183,12 +183,8 @@ export function fitStageView(
   padding: number,
 ): StageView {
   const center = {
-    x: Number.isFinite(content.x) && Number.isFinite(content.width)
-      ? content.x + content.width / 2
-      : 0,
-    y: Number.isFinite(content.y) && Number.isFinite(content.height)
-      ? content.y + content.height / 2
-      : 0,
+    x: Number.isFinite(content.x) && Number.isFinite(content.width) ? content.x + content.width / 2 : 0,
+    y: Number.isFinite(content.y) && Number.isFinite(content.height) ? content.y + content.height / 2 : 0,
   };
   const usableW = size.width - padding * 2;
   const usableH = size.height - padding * 2;

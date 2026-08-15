@@ -53,6 +53,7 @@ pub const DriveError = driver_core.DriveError;
 pub const ServeOptions = driver_core.ServeOptions;
 pub const BeforeServeHook = driver_core.BeforeServeHook;
 pub const Error = driver_core.Error;
+pub const OperationFailure = @import("operation_failure.zig").OperationFailure;
 pub const SettleCapture = driver_core.SettleCapture;
 pub const SettleFlag = driver_core.SettleFlag;
 /// A cooperative fetch-then-deliver in flight (see
@@ -91,12 +92,9 @@ pub fn drawSessionSecret(io: std.Io) Error!crypto.SecretKey {
 }
 
 const blocking_session = @import("blocking_session.zig");
-/// The borrowing, caller-pumped session surface and the transport constructors that
-/// bind one (see `blocking_session.zig`), re-exported so callers reach them as
-/// `driver.BlockingSession`, `driver.connectVia`, and so on.
+/// The borrowing, caller-pumped session surface and transport-neutral constructors
+/// that bind one (see `blocking_session.zig`).
 pub const BlockingSession = blocking_session.BlockingSession;
-pub const connectTcp = blocking_session.connectTcp;
-pub const acceptTcp = blocking_session.acceptTcp;
 pub const connectVia = blocking_session.connectVia;
 pub const connectUri = blocking_session.connectUri;
 pub const acceptVia = blocking_session.acceptVia;
@@ -120,17 +118,25 @@ const session = @import("session.zig");
 const host_runtime = @import("host_runtime.zig");
 pub const HostRuntime = host_runtime.HostRuntime;
 pub const default_wire_buffer_bytes = host_runtime.default_wire_buffer_bytes;
+pub const default_listener_setup_ms = host_runtime.default_listener_setup_ms;
 pub const default_max_pending_opens = host_runtime.default_max_pending_opens;
 /// The owning, one-call application session `connect`/`listen` hand back
 /// (see `session.zig`), re-exported so callers reach them as
 /// `driver.Session`, `driver.connect`, `driver.listen`.
 pub const Session = session.Session;
+pub const Promise = session.Promise;
 pub const Server = session.Server;
 pub const SessionOptions = session.SessionOptions;
 /// How long a CapTP wait may take. Deliberately has no default in
 /// `SessionOptions`: an unbounded wait against a partner that goes silent parks
 /// the caller forever, so the choice is spelled rather than inherited.
 pub const Budget = driver_core.Budget;
+/// What explicit owner close does with work admitted before its barrier.
+pub const PendingWork = driver_core.PendingWork;
+/// How long finish may wait before it escalates to cancellation.
+pub const CloseGrace = driver_core.CloseGrace;
+/// The shared close barrier's observable result.
+pub const CloseOutcome = driver_core.CloseOutcome;
 pub const connect = session.connect;
 pub const connectUriOwned = session.connectUriOwned;
 pub const listen = session.listen;

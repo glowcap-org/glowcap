@@ -8,18 +8,12 @@
 // `RelayChannel`, so a held registered socket (the cold-dial rendezvous,
 // ADR-0088) can be the far side of another socket's relay.
 
-import {
-	type ByteSink,
-	type ByteSource,
-	relayBytes,
-	type RelayChannel,
-	type RelayConfig,
-} from "./relay.ts";
+import { type ByteSink, type ByteSource, relayBytes, type RelayChannel, type RelayConfig } from "./relay.ts";
 import {
 	type WebSocketByteChannel,
 	webSocketChannel as byteWebSocketChannel,
 	type WebSocketChannelOptions,
-} from "@pancake/stack/websocket";
+} from "@pancake/runtime/websocket";
 
 /** WebSocket-specific relay adapter limits. */
 export interface WebSocketRelayOptions extends WebSocketChannelOptions {

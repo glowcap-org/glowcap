@@ -285,9 +285,9 @@ Deno.test("a zoom repaints every selection mark", () => {
       // pinning either number here would be pinning the body's size.
       assert(
         w > atFull[i]! + 1,
-        `mark ${i} kept its world size across a zoom (${
-          atFull[i]!.toFixed(1)
-        } then ${w.toFixed(1)}), so it was never repainted and still shrinks ` +
+        `mark ${i} kept its world size across a zoom (${atFull[i]!.toFixed(1)} then ${
+          w.toFixed(1)
+        }), so it was never repainted and still shrinks ` +
           `with the camera`,
       );
     }

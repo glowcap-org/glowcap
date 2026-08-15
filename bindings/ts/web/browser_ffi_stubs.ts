@@ -1,7 +1,7 @@
 // Browser-bundle stubs for the non-browser FFI adapters' host imports.
 //
 // `@pancake/web` injects its own runtime adapter (FFI over wasm linear memory,
-// sockets over WebSocket) before `@pancake/stack` loads, so the stack's
+// sockets over WebSocket) before `@pancake/runtime` loads, so the runtime's
 // `node_net` and `bun` adapters are never selected in a browser. But a
 // single-file browser bundle still statically includes them (the runtime
 // selector's dynamic import over `./adapters/*` is glob-expanded by the
@@ -15,7 +15,7 @@ const unavailable = (): never => {
 };
 
 // Default export for `node:*` built-ins imported as a default (e.g.
-// `import process from "node:process"`). The stack's archive-cascade path is
+// `import process from "node:process"`). The runtime's archive-cascade path is
 // dead in a browser (the injected adapter's `dlopen` ignores paths), so these
 // are imported but never called.
 export default {};

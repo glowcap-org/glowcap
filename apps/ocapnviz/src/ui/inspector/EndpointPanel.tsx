@@ -26,19 +26,9 @@
 import { nodeActivityIn, type StageSelection } from "../../render/types.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findEndpoint, findSession } from "../../engine/world.ts";
-import {
-  captpVersionLabel,
-  parseEndpointStageId,
-  SESSION_SIDES,
-  UNNAMED_END_LABEL,
-} from "../../schema/topology.ts";
+import { captpVersionLabel, parseEndpointStageId, SESSION_SIDES, UNNAMED_END_LABEL } from "../../schema/topology.ts";
 import { sessionEndpointPlaceAt } from "../../engine/temporal/doc-resolver.ts";
-import {
-  ActivityChip,
-  AttributionChip,
-  EndpointKindLabel,
-  LifecycleChip,
-} from "../EntityChips.tsx";
+import { ActivityChip, AttributionChip, EndpointKindLabel, LifecycleChip } from "../EntityChips.tsx";
 import {
   type EditorBindings,
   Field,
@@ -92,9 +82,7 @@ function endpointInfo(engine: Engine, id: string) {
     // who is on it, and only the second one is open here. Messages on a
     // session with a loose end name that end's stage id, so this is the same
     // fold the end's own mark on the stage is drawn from.
-    activity: live
-      ? nodeActivityIn(engine.queries.messagesInFlight, id)
-      : ("idle" as const),
+    activity: live ? nodeActivityIn(engine.queries.messagesInFlight, id) : ("idle" as const),
   };
 }
 
@@ -191,17 +179,14 @@ export function EndpointFields(
         )
         : (
           <PanelHeading mono title={info.designator ?? UNNAMED_END_LABEL}>
-            {info.designator === undefined
-              ? UNNAMED_END_LABEL
-              : <Identifier value={info.designator} />}
+            {info.designator === undefined ? UNNAMED_END_LABEL : <Identifier value={info.designator} />}
           </PanelHeading>
         )}
       <EndpointKindLabel />
       <AttributionChip attribution={info.attributedBy} />
       <div style={placeholder}>
-        This is one end of a session, and nothing has proved who is on it.
-        Attach it to a peer on the session below, and the peer takes its place
-        here.
+        This is one end of a session, and nothing has proved who is on it. Attach it to a peer on the session below, and
+        the peer takes its place here.
       </div>
       <FieldGroup title="Details">
         <div style={kv}>

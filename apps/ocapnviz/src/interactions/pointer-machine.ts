@@ -120,9 +120,7 @@ function onPointerMove(
   event: Extract<PointerEvent_, { kind: "pointer-move" }>,
 ): { state: PointerMachineState; effects: Effect[] } {
   // Hover update is independent of fsm.
-  const hover = event.hit
-    ? { surface: event.hit.surface, hit: event.hit }
-    : null;
+  const hover = event.hit ? { surface: event.hit.surface, hit: event.hit } : null;
 
   switch (state.fsm.kind) {
     case "idle":

@@ -96,11 +96,10 @@ export function setCategoryVisModeOnDoc(
   const next = { ...(doc.categoryVisMode ?? {}) };
   if (mode === "visible") delete next[category];
   else next[category] = mode;
-  doc.categoryVisMode =
-    next.peers === undefined && next.sessions === undefined &&
+  doc.categoryVisMode = next.peers === undefined && next.sessions === undefined &&
       next.messages === undefined
-      ? undefined
-      : next;
+    ? undefined
+    : next;
   return true;
 }
 

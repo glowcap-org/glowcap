@@ -1,10 +1,4 @@
-import type {
-  BuiltinCodec,
-  CaptpVersion,
-  Codec,
-  PeerProfile,
-  SessionState,
-} from "../schema/topology.ts";
+import type { BuiltinCodec, CaptpVersion, Codec, PeerProfile, SessionState } from "../schema/topology.ts";
 import { KNOWN_PROFILES } from "../schema/topology.ts";
 
 /** Per-state segment fill colors for the Scrubber's session pills.
@@ -93,9 +87,7 @@ function contrastRatio(a: number, b: number): number {
  *  state, so a diamond can straddle two fills, and its tone stays
  *  the fixed categorical `warning` instead. */
 export function glyphOnFill(fill: number): number {
-  return contrastRatio(fill, GLYPH_INK) >= contrastRatio(fill, GLYPH_PAPER)
-    ? GLYPH_INK
-    : GLYPH_PAPER;
+  return contrastRatio(fill, GLYPH_INK) >= contrastRatio(fill, GLYPH_PAPER) ? GLYPH_INK : GLYPH_PAPER;
 }
 
 /** Edge color per CaptpVersion. Categorically distinct from PROFILE_COLORS. */
@@ -129,8 +121,7 @@ export const CODEC_LINE_STYLE: Record<BuiltinCodec, CodecLineStyle> = {
 export const CODEC_FALLBACK_LINE_STYLE: CodecLineStyle = "dotted";
 
 export function lineStyleForCodec(codec: Codec): CodecLineStyle {
-  const known: { readonly [name: string]: CodecLineStyle | undefined } =
-    CODEC_LINE_STYLE;
+  const known: { readonly [name: string]: CodecLineStyle | undefined } = CODEC_LINE_STYLE;
   return known[codec] ?? CODEC_FALLBACK_LINE_STYLE;
 }
 

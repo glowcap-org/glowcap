@@ -92,14 +92,16 @@ pub const socket = @import("socket.zig");
 pub const sync = @import("sync.zig");
 
 /// The cross-thread wake channel: a nonblocking socketpair a waiting thread
-/// polls (or arms a completion recv on) and any thread nudges, under the
-/// ADR-0089 nudge invariant. The off-turn settle mailbox rides it
-/// (ADR-0102). See `wake_channel.zig`.
+/// polls (or arms a completion recv on) and any thread nudges. `WouldBlock` is
+/// explicit coalesced success; every other write or drain fault is returned
+/// and first-failure latched by owners under ADR-0089. The off-turn settle
+/// mailbox rides it (ADR-0102). See `wake_channel.zig`.
 pub const wake_channel = @import("wake_channel.zig");
 pub const operation_owner = @import("operation_owner.zig");
 pub const OperationOwner = operation_owner.OperationOwner;
+pub const CancelableOperation = operation_owner.CancelableOperation;
 pub const OperationLatch = operation_owner.OperationLatch;
-pub const AsyncConnectCompletion = @import("async_connect.zig").Completion;
+pub const TransportOperationCompletion = @import("transport_operation_completion.zig").Completion;
 
 /// Opt-in TCP keepalive (idle/interval/count). One public door: the socket
 /// library. NAT hold-open / dead-remote-host reclaim — not orphan-process
@@ -112,11 +114,10 @@ pub const Keepalive = socket.Keepalive;
 /// See `transport/inproc.zig`.
 pub const inproc = @import("transport/inproc.zig");
 
-/// The keyed-relay netlayer (`keyed-relay`): RFC 6455 WebSocket client legs
-/// over TCP sockets, so a native peer dials — and registers to be dialed
-/// through — a relay's rendezvous (ADR-0088). The relay mapping is resident
-/// configuration, never locator bytes. See `transport/keyed_relay.zig`.
-pub const keyed_relay = @import("transport/keyed_relay.zig");
+/// The relay provider and its `keyed-relay` and `noise-relay` profiles. One
+/// configured package owns both realizations, including locator construction,
+/// WebSocket rendezvous, registration, and readiness.
+pub const relay = @import("transport/relay.zig");
 
 /// The sealing completion-backend adapter (`noise-relay`, ADR-0107): wraps
 /// any completion backend so a `.sealed` dial target completes the Noise_XK
@@ -142,6 +143,7 @@ pub const stream_shim = @import("stream_shim.zig");
 /// concept itself — the locator and its `transport` symbol —
 /// lives in `model`; this is only its I/O realization.
 pub const netlayer = @import("netlayer.zig");
+pub const OperationOptions = netlayer.OperationOptions;
 
 /// The multiplexed-resident contract (ADR-0112): a transport that multiplexes
 /// its connections behind one readiness descriptor — the iroh and WebRTC
@@ -149,6 +151,9 @@ pub const netlayer = @import("netlayer.zig");
 /// per-descriptor wires.
 pub const multiplexed_resident = @import("multiplexed_resident.zig");
 pub const MultiplexedResident = multiplexed_resident.MultiplexedResident;
+pub const MultiplexedDialRawStartOutcome = multiplexed_resident.RawDialStartOutcome;
+pub const MultiplexedDialRawFinishOutcome = multiplexed_resident.RawDialFinishOutcome;
+pub const MultiplexedExternalClaimRawOutcome = multiplexed_resident.RawExternalClaimOutcome;
 
 /// The aggregate readiness set (ADR-0112): every descriptor a poll-shaped
 /// HostRuntime waits on, mirrored into one kernel set whose own fd an embedder
@@ -233,11 +238,11 @@ else
 /// The host platform backend wrapped with native keyed-relay outbound dials.
 /// TCP accept/dial still ride the platform backend directly; `keyed-relay`
 /// dials are evented WebSocket client legs to a configured relay. Use
-/// `initWithBackend` with `keyed_relay.CompletionBackend(Backend).initWithRelay`
+/// `initWithBackend` with `relay.CompletionBackend(Backend).initWithRelay`
 /// when constructing the loop so the relay URL, WebSocket entropy, and optional
 /// send-staging commitment are explicit deployment state.
 pub const KeyedRelayBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-    keyed_relay.CompletionBackend(Backend)
+    relay.CompletionBackend(Backend)
 else
     struct {};
 
@@ -245,7 +250,7 @@ else
 /// outbound `keyed-relay`, so `driver.Bridge` can keep rendezvous redemption on
 /// the native scale path instead of its blocking side-wire fallback.
 pub const KeyedRelayLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-    completion.Loop(KeyedRelayBackend, keyed_relay.DialResolver)
+    completion.Loop(KeyedRelayBackend, relay.DialResolver)
 else
     struct {};
 
@@ -264,6 +269,6 @@ else
 /// peer reaches a relay-registered responder over a channel the relay cannot
 /// read.
 pub const NoiseRelayLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-    completion.Loop(NoiseRelayBackend, noise_completion.DialResolver(NoiseRelayBackend, keyed_relay.DialResolver))
+    completion.Loop(NoiseRelayBackend, noise_completion.DialResolver(NoiseRelayBackend, relay.DialResolver))
 else
     struct {};

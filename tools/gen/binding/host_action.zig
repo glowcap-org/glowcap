@@ -18,16 +18,17 @@ const Output = @import("output").Output;
 pub const step_name = "gen-binding-host-action";
 
 pub const outputs = [_]Output{
-    .{ .path = "bindings/ts/stack/internal/host_action.ts", .generate = generateTs },
+    .{ .path = "bindings/ts/runtime/internal/host_action.ts", .generate = generateTs },
     .{ .path = "bindings/python/pancake/_host_action_gen.py", .generate = generatePython },
     .{ .path = "bindings/rust/src/host_action_gen.rs", .generate = generateRust },
     .{ .path = "bindings/racket/private/host-action-gen.rkt", .generate = generateRacket },
 };
 
-/// Decode shape shared across languages. FLUSH and CLOSE both carry only `session`.
+/// Decode shape shared across languages.
 const Shape = enum {
     none,
     session,
+    close,
     ticket,
     settle,
     fail,
@@ -50,8 +51,9 @@ const arms = [_]Arm{
     .{ .name = "NEED_GIFT_ID", .value = cd.PANCAKE_HOST_ACTION_NEED_GIFT_ID, .variant = "NeedGiftId", .racket = "need-gift-id", .shape = .ticket },
     .{ .name = "SETTLE", .value = cd.PANCAKE_HOST_ACTION_SETTLE, .variant = "Settle", .racket = "settle", .shape = .settle },
     .{ .name = "FAIL", .value = cd.PANCAKE_HOST_ACTION_FAIL, .variant = "Fail", .racket = "fail", .shape = .fail },
-    .{ .name = "CLOSE", .value = cd.PANCAKE_HOST_ACTION_CLOSE, .variant = "Close", .racket = "close", .shape = .session },
+    .{ .name = "CLOSE", .value = cd.PANCAKE_HOST_ACTION_CLOSE, .variant = "Close", .racket = "close", .shape = .close },
     .{ .name = "RESUME", .value = cd.PANCAKE_HOST_ACTION_RESUME, .variant = "Resume", .racket = "resume", .shape = .none },
+    .{ .name = "CANCEL_DIAL", .value = cd.PANCAKE_HOST_ACTION_CANCEL_DIAL, .variant = "CancelDial", .racket = "cancel-dial", .shape = .ticket },
 };
 
 comptime {
@@ -62,6 +64,7 @@ comptime {
     if (arms[4].value != cd.PANCAKE_HOST_ACTION_FAIL) @compileError("arms FAIL value drift");
     if (arms[5].value != cd.PANCAKE_HOST_ACTION_CLOSE) @compileError("arms CLOSE value drift");
     if (arms[6].value != cd.PANCAKE_HOST_ACTION_RESUME) @compileError("arms RESUME value drift");
+    if (arms[7].value != cd.PANCAKE_HOST_ACTION_CANCEL_DIAL) @compileError("arms CANCEL_DIAL value drift");
 }
 
 fn writeUpperKebab(out: *std.ArrayList(u8), gpa: std.mem.Allocator, name: []const u8) !void {
@@ -86,6 +89,7 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     // lexical source order, independent of the protocol arm order used below;
     // coupling those two made a correct generated inventory fail `deno fmt`.
     const const_imports = [_][]const u8{
+        "HOST_ACTION_CANCEL_DIAL",
         "HOST_ACTION_CLOSE",
         "HOST_ACTION_DIAL",
         "HOST_ACTION_FAIL",
@@ -119,11 +123,11 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa,
         \\} from "@pancake/abi";
-        \\import { type Ptr } from "./ffi/runtime.ts";
+        \\import type { Ptr } from "./ffi/runtime.ts";
         \\import { readBytes } from "./seam.ts";
         \\import { readArg } from "../codec.ts";
         \\import { PancakeError } from "../errors.ts";
-        \\import { type Argument } from "../value.ts";
+        \\import type { Argument } from "../value.ts";
         \\
         \\const utf8Decoder = new TextDecoder();
         \\
@@ -151,15 +155,9 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     try tline(&out, gpa, 3, "readBytes(L.getPtr(dv, off), L.getUsize(dv, lenOff)),");
     try tline(&out, gpa, 2, ");");
     try tline(&out, gpa, 1, "switch (kind) {");
-    // FLUSH and CLOSE share a case — emit ticket/settle/fail individually,
-    // then one shared session case for both session-shaped arms.
     inline for (arms) |arm| {
-        if (arm.shape == .session) continue;
         try emitTsDecodeCase(&out, gpa, arm);
     }
-    try tline(&out, gpa, 2, "case HOST_ACTION_FLUSH:");
-    try tline(&out, gpa, 2, "case HOST_ACTION_CLOSE:");
-    try tline(&out, gpa, 3, "return { kind, session: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };");
     try tline(&out, gpa, 2, "default:");
     try tline(&out, gpa, 3, "throw new PancakeError(");
     try tline(&out, gpa, 4, "INVALID_ARGUMENT,");
@@ -228,7 +226,7 @@ fn tsHandlerName(gpa: std.mem.Allocator, arm: Arm) ![]u8 {
 }
 
 /// Emit one `HostActionHandlers` member. `deno fmt` wraps a member whose
-/// single-line form is wider than its 100-column print width, where the one
+/// single-line form is wider than its 120-column print width, where the one
 /// leading tab renders as the four-column indent width. The generator wraps at
 /// the same boundary so its raw output is already `deno fmt`-clean — the check
 /// compares bytes, and there is no formatter pass between generate and commit.
@@ -241,7 +239,7 @@ fn emitTsHandlerSignature(out: *std.ArrayList(u8), gpa: std.mem.Allocator, metho
     defer gpa.free(single);
     // The leading '\t' renders as four columns; the rest is one column each.
     const print_width = single.len - 1 + 4;
-    if (print_width <= 100) {
+    if (print_width <= 120) {
         try out.appendSlice(gpa, single);
         try out.append(gpa, '\n');
         return;
@@ -263,6 +261,11 @@ fn emitTsUnionMember(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm, 
             try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; session: Ptr }}", .{arm.name});
             try out.appendSlice(gpa, if (last) ";\n" else "\n");
         },
+        .close => {
+            try out.append(gpa, '\t');
+            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; session: Ptr; result: number }}", .{arm.name});
+            try out.appendSlice(gpa, if (last) ";\n" else "\n");
+        },
         .ticket => {
             try out.append(gpa, '\t');
             try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint }}", .{arm.name});
@@ -275,7 +278,7 @@ fn emitTsUnionMember(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm, 
         },
         .fail => {
             try out.append(gpa, '\t');
-            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint; message: string }}", .{arm.name});
+            try out.print(gpa, "| {{ kind: typeof HOST_ACTION_{s}; ticket: bigint; result: number; message: string }}", .{arm.name});
             try out.appendSlice(gpa, if (last) ";\n" else "\n");
         },
     }
@@ -287,16 +290,24 @@ fn emitTsDecodeCase(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !
     try out.print(gpa, "case HOST_ACTION_{s}:\n", .{arm.name});
     switch (arm.shape) {
         .none => try tline(out, gpa, 3, "return { kind };"),
+        .session => try tline(out, gpa, 3, "return { kind, session: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };"),
+        .close => {
+            try tline(out, gpa, 3, "return {");
+            try tline(out, gpa, 4, "kind,");
+            try tline(out, gpa, 4, "session: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF),");
+            try tline(out, gpa, 4, "result: dv.getInt32(L.HOST_ACTION_RESULT_OFF, true),");
+            try tline(out, gpa, 3, "};");
+        },
         .ticket => try tline(out, gpa, 3, "return { kind, ticket };"),
         .settle => try tline(out, gpa, 3, "return { kind, ticket, value: readArg(dv, L.HOST_ACTION_VALUE_OFF) };"),
         .fail => {
             try tline(out, gpa, 3, "return {");
             try tline(out, gpa, 4, "kind,");
             try tline(out, gpa, 4, "ticket,");
+            try tline(out, gpa, 4, "result: dv.getInt32(L.HOST_ACTION_RESULT_OFF, true),");
             try tline(out, gpa, 4, "message: view(L.HOST_ACTION_MESSAGE_OFF, L.HOST_ACTION_MESSAGE_LEN_OFF),");
             try tline(out, gpa, 3, "};");
         },
-        .session => unreachable,
     }
 }
 
@@ -406,6 +417,12 @@ fn emitPyClass(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !void 
             \\
             \\
         ),
+        .close => try out.appendSlice(gpa,
+            \\    session_ptr: int
+            \\    result: int
+            \\
+            \\
+        ),
         .ticket => try out.appendSlice(gpa,
             \\    ticket: int
             \\
@@ -419,6 +436,7 @@ fn emitPyClass(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !void 
         ),
         .fail => try out.appendSlice(gpa,
             \\    ticket: int
+            \\    result: int
             \\    message: str
             \\
             \\
@@ -440,6 +458,10 @@ fn emitPyDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !v
             \\        return {s}(session_ptr=a.session or 0)
             \\
         , .{arm.variant}),
+        .close => try out.print(gpa,
+            \\        return {s}(session_ptr=a.session or 0, result=a.result)
+            \\
+        , .{arm.variant}),
         .ticket => try out.print(gpa,
             \\        return {s}(ticket=a.ticket)
             \\
@@ -449,7 +471,7 @@ fn emitPyDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !v
             \\
         , .{arm.variant}),
         .fail => try out.print(gpa,
-            \\        return {s}(ticket=a.ticket, message=_view(a.message, a.message_len))
+            \\        return {s}(ticket=a.ticket, result=a.result, message=_view(a.message, a.message_len))
             \\
         , .{arm.variant}),
     }
@@ -496,7 +518,19 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
     }
     try out.appendSlice(gpa, "}\n\n");
     try out.appendSlice(gpa,
+        \\/// Whether `kind` names a generated host action. Check this before
+        \\/// decoding data received across the C boundary.
+        \\pub fn is_known_kind(kind: c_uint) -> bool {
+        \\    matches!(kind,
+    );
+    for (arms, 0..) |arm, index| {
+        if (index != 0) try out.appendSlice(gpa, " | ");
+        try out.print(gpa, "HOST_ACTION_{s}", .{arm.name});
+    }
+    try out.appendSlice(gpa, ")\n}\n\n");
+    try out.appendSlice(gpa,
         \\/// Decode a filled `PancakeHostAction` into an owned `HostAction`.
+        \\/// The caller must first prove `is_known_kind(raw.kind)`.
         \\pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
         \\
     );
@@ -561,6 +595,10 @@ fn emitRustVariant(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !v
     switch (arm.shape) {
         .none => unreachable,
         .session => try tline(out, gpa, 2, "session: usize,"),
+        .close => {
+            try tline(out, gpa, 2, "session: usize,");
+            try tline(out, gpa, 2, "result: i32,");
+        },
         .ticket => try tline(out, gpa, 2, "ticket: u64,"),
         .settle => {
             try tline(out, gpa, 2, "ticket: u64,");
@@ -568,6 +606,7 @@ fn emitRustVariant(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !v
         },
         .fail => {
             try tline(out, gpa, 2, "ticket: u64,");
+            try tline(out, gpa, 2, "result: i32,");
             try tline(out, gpa, 2, "message: String,");
         },
     }
@@ -592,6 +631,10 @@ fn emitRustDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) 
     switch (arm.shape) {
         .none => unreachable,
         .session => try tline(out, gpa, 3, "session: raw.session as usize,"),
+        .close => {
+            try tline(out, gpa, 3, "session: raw.session as usize,");
+            try tline(out, gpa, 3, "result: raw.result,");
+        },
         .ticket => unreachable,
         .settle => {
             try tline(out, gpa, 3, "ticket: raw.ticket,");
@@ -599,6 +642,7 @@ fn emitRustDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) 
         },
         .fail => {
             try tline(out, gpa, 3, "ticket: raw.ticket,");
+            try tline(out, gpa, 3, "result: raw.result,");
             try tline(out, gpa, 3, "message: view(raw.message, raw.message_len),");
         },
     }
@@ -623,9 +667,14 @@ fn generateRacket(gpa: std.mem.Allocator) ![]u8 {
         \\         "ffi-shared.rkt"
         \\         "ffi-host.rkt")
         \\
-        \\(provide HOST-ACTION-DIAL HOST-ACTION-FLUSH HOST-ACTION-NEED-GIFT-ID
-        \\         HOST-ACTION-SETTLE HOST-ACTION-FAIL HOST-ACTION-CLOSE
-        \\         HOST-ACTION-RESUME
+        \\(provide
+    );
+    inline for (arms) |arm| {
+        try out.appendSlice(gpa, "         HOST-ACTION-");
+        try writeUpperKebab(&out, gpa, arm.name);
+        try out.appendSlice(gpa, "\n");
+    }
+    try out.appendSlice(gpa,
         \\         host-decode-action!
         \\         host-dispatch-action!)
         \\
@@ -683,6 +732,10 @@ fn emitRacketDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm
             \\     (list '{s} (PancakeHostAction-session a))]
             \\
         , .{arm.racket}),
+        .close => try out.print(gpa,
+            \\     (list '{s} (PancakeHostAction-session a) (PancakeHostAction-result a))]
+            \\
+        , .{arm.racket}),
         .ticket => try out.print(gpa,
             \\     (list '{s} (PancakeHostAction-ticket a))]
             \\
@@ -694,7 +747,7 @@ fn emitRacketDecodeArm(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm
             \\
         , .{arm.racket}),
         .fail => try out.print(gpa,
-            \\     (list '{s} (PancakeHostAction-ticket a)
+            \\     (list '{s} (PancakeHostAction-ticket a) (PancakeHostAction-result a)
             \\           (view->string (PancakeHostAction-message a) (PancakeHostAction-message-len a)))]
             \\
         , .{arm.racket}),

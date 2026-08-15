@@ -9,22 +9,9 @@
 
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { checkDeliveredOrdering, checkMoveOrdering } from "../event-helpers.ts";
-import {
-  messageEffective,
-  peerEffective,
-  sessionEffective,
-} from "../temporal/doc-resolver.ts";
-import {
-  observationsOf,
-  primaryObservations,
-} from "../temporal/recording-access.ts";
-import {
-  asAuthored,
-  setSpanEndAt,
-  setSpanStartAt,
-  type TimeSpan,
-  translateSpan,
-} from "../temporal/time-span.ts";
+import { messageEffective, peerEffective, sessionEffective } from "../temporal/doc-resolver.ts";
+import { observationsOf, primaryObservations } from "../temporal/recording-access.ts";
+import { asAuthored, setSpanEndAt, setSpanStartAt, type TimeSpan, translateSpan } from "../temporal/time-span.ts";
 import { implicitBound } from "../temporal/bound.ts";
 import { notFoundError, validationError } from "../errors.ts";
 import { SESSION_TRAJECTORY, sessionMomentOf } from "../trajectory.ts";
@@ -37,9 +24,7 @@ export function growDurationToFit(
   ctx: AuthoringContext,
   event: TimelineEvent,
 ): void {
-  const need = event.kind === "message-sent"
-    ? Math.max(event.t, event.arrivalT)
-    : event.t;
+  const need = event.kind === "message-sent" ? Math.max(event.t, event.arrivalT) : event.t;
   if (need <= ctx.doc.duration) return;
   (ctx.doc as { duration: number }).duration = need;
   ctx.clock.setDuration(need);
@@ -307,9 +292,7 @@ export function moveEvent(
   const ev = events[idx]!;
   // resize-end's anchor is `newArrivalT`; translate / resize-start
   // both work off `newT`. Resolve once for the validation gate.
-  const anchorT = intent.kind === "resize-end"
-    ? intent.newArrivalT
-    : intent.newT;
+  const anchorT = intent.kind === "resize-end" ? intent.newArrivalT : intent.newT;
   if (anchorT < 0) {
     ctx.emitError(validationError(
       `Event time (${anchorT}) is before the timeline start.`,

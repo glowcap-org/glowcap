@@ -17,10 +17,11 @@ import { chromium } from "playwright";
 
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxOfferer } from "../lib/dm_inbox.ts";
-import { listenIroh, Reachability } from "@pancake/iroh";
+import * as iroh from "@pancake/iroh";
 import { Directory, Room } from "../lib/room_client.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { dial, roomsHost } from "../lib/locator.ts";
+import { openRoomsRuntime } from "../lib/runtime.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -72,6 +73,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -95,16 +97,20 @@ const bobHost = roomsHost(bobSeed);
 // connection. Bob never dials the browser, which cannot be dialed — the shared
 // `recordingReplyDm` owns that receiver primitive.
 const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got your DM: ${text}`);
-const bobEndpoint = await listenIroh(
-	{ reachability: Reachability.Direct },
-	bobSeed,
-	bobHost,
+const bobEndpoint = await iroh.listen(
+	{ reachability: iroh.Reachability.Direct },
+	{ host: bobHost },
 );
+const bobRuntime = await openRoomsRuntime({
+	host: bobHost,
+	iroh: { reachability: iroh.Reachability.Direct },
+});
 (async () => {
 	for await (const session of bobEndpoint) session.serve().catch(() => {});
 })();
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+let bobDirectory: Directory | null = null;
 try {
 	const roomUri = await locatorFrom(httpPort);
 
@@ -114,7 +120,8 @@ try {
 	// Bob joins the room and registers for direct messages, over iroh, keyed to
 	// his own Host so the inbox he publishes giftably is the one a redeem
 	// withdraws.
-	const bobDir = await Directory.connect(roomUri, (l) => dial(l, bobHost));
+	const bobDir = await Directory.connect(roomUri, (locator) => dial(locator, bobRuntime));
+	bobDirectory = bobDir;
 	const bobRoomRef = await enterOrOpen(bobDir, ROOM);
 	await Room.subscribe(bobDir.session, bobRoomRef, "bob");
 	const bobOfferer = inboxOfferer({ host: bobHost, dir: () => bobDir, behaviorFor: dmFor });
@@ -168,7 +175,9 @@ try {
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
+	await bobDirectory?.close().catch(() => {});
 	bobEndpoint.close();
+	await bobRuntime.close();
 	try {
 		web.kill();
 	} catch {

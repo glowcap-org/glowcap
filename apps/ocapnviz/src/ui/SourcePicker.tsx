@@ -111,11 +111,7 @@ export function SourcePicker(
   // it isn't playing.
   const current = source && source.kind !== "builtin"
     ? {
-      label: source.kind === "file"
-        ? source.name
-        : source.kind === "new"
-        ? "New document"
-        : "Live recording",
+      label: source.kind === "file" ? source.name : source.kind === "new" ? "New document" : "Live recording",
     }
     : null;
   return (
@@ -261,9 +257,7 @@ function ConnectionBadge({ connected }: { connected: boolean }) {
       style={connected ? connectedBadge : connectingBadge}
       // Connecting is the state a reader may sit in and wonder about, so it says
       // what is happening rather than only naming itself.
-      title={connected
-        ? "The live feed is connected"
-        : "Dialing the live feed — nothing arrives until it connects"}
+      title={connected ? "The live feed is connected" : "Dialing the live feed — nothing arrives until it connects"}
     >
       {connected ? "connected" : "connecting…"}
     </span>

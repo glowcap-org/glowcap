@@ -14,6 +14,11 @@ ABI fields reserve a compatibility mechanism; they do not manufacture history.
 Replacing an unsupported prerelease contract keeps its version at `1`; increment
 only when pancake intentionally supports a distinct older or released contract.
 
+Living-state docs and source comments describe the current shape, not the
+transition that produced it. Keep review labels, old names, and "formerly" or
+"during the transition" narration in git history or an ADR that still owns a
+decision. State missing work as a present boundary, not a promised future.
+
 The drift this guards against is importing a post-1.0 instinct into a pre-1.0
 codebase. "It would change a shared type," "it would touch the spine," "it would
 ripple through callers" all name a _migration_ cost, and there is no migration

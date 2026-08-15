@@ -44,7 +44,11 @@
 ;; Any sibling connection's verbs drain it on a pumping thread, where the host FFI
 ;; is safe to touch, and release one delta per parked token through
 ;; `pancake_host_ref_release` — never from the finalizer thread.
-(struct gc-state (channel scheduled))
+(struct gc-state (channel scheduled failure))
+
+(define (retain-gc-failure! gs failure)
+  (when (null? (unbox (gc-state-failure gs)))
+    (set-box! (gc-state-failure gs) (list failure))))
 
 ;; Coalesce a collection storm to one worker per Host. The finalizer only
 ;; enqueues and schedules; the worker owns Host FFI and closes the enqueue-vs-
@@ -55,7 +59,10 @@
      (lambda ()
        (let loop ()
          (define m (weak-box-value weak-host))
-         (when m (drain-host-gc! m))
+         (when m
+           (with-handlers ([(lambda (_) #t)
+                            (lambda (failure) (retain-gc-failure! gs failure))])
+             (drain-host-gc! m)))
          (set-box! (gc-state-scheduled gs) #f)
          (let ([pending (async-channel-try-get (gc-state-channel gs))])
            (when pending
@@ -65,13 +72,15 @@
 ;; Opt this session into distributed GC (ADR-0063), off by default. Once on,
 ;; a capability returned by `session-fetch` releases its Host retain
 ;; when Racket's collector reclaims the last reference to it, so the partner can
-;; release the matching export. Collection is best-effort on the collector's
-;; schedule. Capabilities lifted elsewhere (a `session-send` reply, a delivered
+;; release the matching export. Collection follows the collector's schedule;
+;; once parked, every release remains owned until native commit. Capabilities
+;; lifted elsewhere (a `session-send` reply, a delivered
 ;; argument, a `session-enliven` result the dedup cache owns) are outside this
 ;; seam. Returns the session for chaining.
 (define (session-with-gc! c)
   (hash-set! gc-enabled-connections c #t)
-  (hash-ref! gc-states (session-host c) (lambda () (gc-state (make-async-channel) (box #f))))
+  (hash-ref! gc-states (session-host c)
+             (lambda () (gc-state (make-async-channel) (box #f) (box '()))))
   ;; Force the lazy `with-host-drain` stub now, on this user thread: the GC
   ;; worker is spawned from the FFI finalizer thread, where module paths do
   ;; not resolve (parameterization capture does not carry the expander's
@@ -121,34 +130,64 @@
   (set-ref-released?! capability #t)
   (void))
 
+;; Release a drained FIFO prefix. On refusal, the uncommitted token and tail go
+;; back to the Host queue before the exact cause escapes.
+(define (release-drained! ch drained release-one)
+  (let loop ([remaining drained])
+    (unless (null? remaining)
+      (with-handlers ([(lambda (_) #t)
+                       (lambda (failure)
+                         (for ([id (in-list remaining)]) (async-channel-put ch id))
+                         (raise failure))])
+        (release-one (car remaining)))
+      (loop (cdr remaining)))))
+
 ;; Drain the parked GC releases on the calling (pumping) thread: one release
-;; delta per reclaimed token, then flush. Best-effort — a refused release
-;; strands a partner export reclaimed at teardown, never a fault. Called at the
-;; head of every session's verbs, so a sibling can drain a release after the
-;; arrival session has closed.
+;; delta per reclaimed token, then flush. Called at every session verb head, so
+;; a sibling can drain a release after the arrival session has closed. A worker
+;; failure has no caller, so the next verb receives its retained exact cause.
 (define (drain-host-gc! m)
   (define gs (hash-ref gc-states m #f))
   (when gs
+    (define retained (unbox (gc-state-failure gs)))
+    (unless (null? retained)
+      (set-box! (gc-state-failure gs) '())
+      (raise (car retained)))
     (define ch (gc-state-channel gs))
     (define drained
       (let loop ([acc '()])
         (define id (sync/timeout 0 ch))
-        (if id (loop (cons id acc)) acc)))
+        (if id (loop (cons id acc)) (reverse acc))))
     (unless (null? drained)
       (with-host-drain m
         (lambda ()
           (cond
             [(unbox (host-released? m)) no-drain-effects]
             [else
-             (for ([id (in-list drained)])
-               ;; Swallow every refusal, not only the broken-convertible ones:
-               ;; a release is best-effort by contract, and an escaping host
-               ;; error here would surface inside whichever unrelated verb
-               ;; head happened to run this drain.
-               (with-handlers ([(lambda (_) #t) void])
-                 (check/host (pancake_host_ref_release (host-ptr m) (make-PancakeReference id) 1))))
+             (release-drained!
+              ch drained
+              (lambda (id)
+                (check/host
+                 (pancake_host_ref_release (host-ptr m) (make-PancakeReference id) 1))))
              (drain-host-actions! m)]))
         #:allow-released? #t))))
 
 (define (drain-gc! c)
   (drain-host-gc! (session-host c)))
+
+(module+ test
+  (require rackunit)
+  (define ch (make-async-channel))
+  (define refusal (exn:fail "release refused" (current-continuation-marks)))
+  (define attempted '())
+  (check-exn
+   (lambda (raised) (eq? raised refusal))
+   (lambda ()
+     (release-drained!
+      ch '(11 12 13)
+      (lambda (id)
+        (set! attempted (cons id attempted))
+        (when (= id 12) (raise refusal))))))
+  (check-equal? (reverse attempted) '(11 12))
+  (check-equal? (async-channel-get ch) 12)
+  (check-equal? (async-channel-get ch) 13))

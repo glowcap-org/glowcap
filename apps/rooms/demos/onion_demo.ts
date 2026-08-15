@@ -5,10 +5,12 @@
 // broadcast. Product composition installs the onion provider explicitly; the
 // generic driver and binding remain unaware of concrete transports.
 
-import { formatPeerUri, type Session } from "@pancake/stack";
-import { DriverListener, DriverLoop } from "@pancake/stack/driver_loop";
-import { installProvider } from "@pancake/stack/transport/onion";
-import { type RoomsDial, runClient } from "../clients/deno/client.ts";
+import { formatPeerUri, parseLocator, Runtime } from "@pancake/runtime";
+import type { Session } from "@pancake/runtime";
+import { DriverListener, DriverLoop } from "@pancake/runtime/transport";
+import { installProvider, provider } from "@pancake/onion";
+import { runClient } from "../clients/deno/client.ts";
+import type { RoomsDial } from "../lib/locator.ts";
 import { roomsHost } from "../lib/locator.ts";
 import { serveDirectory } from "../server/main.ts";
 
@@ -39,19 +41,14 @@ function openLoop(controlEndpoint?: string): DriverLoop {
 	}
 }
 
-function onionDial(): RoomsDial {
+function onionDial(runtime: Runtime): RoomsDial {
 	return async (locator: string): Promise<Session> => {
-		const loop = openLoop();
-		loop.start();
 		const deadline = Date.now() + DIRECTORY_PUBLISH_BUDGET_MS;
 		while (true) {
 			try {
-				const session = await loop.connectSession(locator);
-				session.ownsHost = true;
-				return session;
+				return await runtime.connect(parseLocator(locator));
 			} catch (error) {
 				if (Date.now() >= deadline) {
-					await loop.close();
 					throw error;
 				}
 				await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -60,8 +57,26 @@ function onionDial(): RoomsDial {
 	};
 }
 
+async function runOnionClient(locator: string, nick: string, roster: string[]) {
+	await using runtime = await Runtime.open({
+		adoptHost: roomsHost(),
+		providers: [provider({ socks })],
+	});
+	return await runClient(
+		locator,
+		"onion-demo",
+		nick,
+		`hello from ${nick}`,
+		{
+			dial: onionDial(runtime),
+			roster,
+			timeoutMs: HANDSHAKE_BUDGET_MS,
+		},
+	);
+}
+
 const serverLoop = openLoop(control);
-const listener = DriverListener.open(serverLoop, TRANSPORT_ONION, "");
+const listener = await DriverListener.open(serverLoop, TRANSPORT_ONION, "");
 const published = listener.locator();
 if (published.hints.size !== 0) {
 	listener.close();
@@ -81,22 +96,14 @@ const accepted = {
 		}
 	},
 };
-const serving = serveDirectory(accepted);
+const serving = serveDirectory(listener.host, accepted);
 
 const roster = ["onion-ada", "onion-grace"];
 console.log(`rooms onion demo: server at ${locator}`);
 try {
-	const transcripts = await Promise.all(roster.map((nick) =>
-		runClient(
-			locator,
-			"onion-demo",
-			nick,
-			`hello from ${nick}`,
-			roster,
-			HANDSHAKE_BUDGET_MS,
-			onionDial(),
-		)
-	));
+	const transcripts = await Promise.all(
+		roster.map((nick) => runOnionClient(locator, nick, roster)),
+	);
 	for (const [index, transcript] of transcripts.entries()) {
 		if (transcript.length !== roster.length) {
 			throw new Error(

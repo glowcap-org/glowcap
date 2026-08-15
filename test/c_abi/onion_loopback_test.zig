@@ -36,8 +36,50 @@ const driver_options: cdrv.PancakeDriverOptions = .{
     .wire_buffer_bytes = 16 << 10,
     .max_pending_opens = 256,
     .handshake_ms = 1_000,
+    .listener_setup_ms = 1_000,
     .settle_ms = 1_000,
 };
+
+fn closeProviderListener(table: *const cdrv.PancakeStreamTransport, listener: *anyopaque) void {
+    std.testing.expectEqual(c.PANCAKE_OK, table.listener_close.?(table.ctx, listener, null)) catch unreachable;
+}
+
+fn releaseOnionListener(listener: *co.PancakeOnionListener) void {
+    std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listener_release(listener)) catch unreachable;
+}
+
+fn releaseOnionNetlayer(netlayer: ?*co.PancakeOnionNetlayer) void {
+    std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_release(netlayer)) catch unreachable;
+}
+
+fn releaseProvider(provider: cdrv.PancakeTransportProvider) void {
+    std.testing.expectEqual(c.PANCAKE_OK, provider.release.?(provider.lease_ctx, null)) catch unreachable;
+}
+
+fn closeProviderConn(table: *const cdrv.PancakeStreamTransport, raw: *anyopaque) void {
+    std.testing.expectEqual(c.PANCAKE_OK, table.conn_close.?(table.ctx, raw, null)) catch unreachable;
+}
+
+fn awaitDriverListenerReady(loop: ?*cdrv.PancakeDriverLoop, listener: u64) !void {
+    for (0..2_000) |_| {
+        var event: cdrv.PancakeDriverEvent = undefined;
+        const next = cdrv.pancake_driver_next_event(loop, &event);
+        if (next == c.PANCAKE_OK) {
+            switch (event.kind) {
+                cdrv.PANCAKE_DRIVER_EVENT_LISTENER_READY => {
+                    try std.testing.expectEqual(listener, event.listener_id);
+                    return;
+                },
+                cdrv.PANCAKE_DRIVER_EVENT_LISTENER_FAILED => return error.ListenerSetupFailed,
+                else => return error.UnexpectedDriverEvent,
+            }
+        }
+        try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, next);
+        const stepped = cdrv.pancake_driver_step(loop, 5);
+        try std.testing.expect(stepped == c.PANCAKE_OK or stepped == c.PANCAKE_ERR_WOULD_BLOCK);
+    }
+    return error.ListenerSetupTimedOut;
+}
 
 const LocatorCapture = struct {
     calls: usize = 0,
@@ -119,16 +161,49 @@ fn providerConnect(
 ) !i32 {
     var attempt: ?*anyopaque = null;
     var attempt_fd: i32 = -1;
-    const start = table.start_connect.?(table.ctx, locator, &attempt, &attempt_fd);
+    const start = table.start_connect.?(table.ctx, locator, null, &attempt, &attempt_fd, null);
     if (start != c.PANCAKE_OK) return start;
-    errdefer table.cancel_connect.?(attempt.?);
+    errdefer _ = table.cancel_connect.?(attempt.?, null);
     var fds = [_]std.posix.pollfd{.{
         .fd = attempt_fd,
         .events = std.posix.POLL.IN,
         .revents = 0,
     }};
     try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 10_000));
-    return table.finish_connect.?(attempt.?, out_conn, out_readiness_fd);
+    return table.finish_connect.?(attempt.?, out_conn, out_readiness_fd, null);
+}
+
+fn providerListen(
+    table: *const cdrv.PancakeStreamTransport,
+    requested_designator: []const u8,
+    out_listener: *?*anyopaque,
+) !i32 {
+    var result: cdrv.PancakeListenResult = undefined;
+    const start = table.listen.?(
+        table.ctx,
+        requested_designator.ptr,
+        requested_designator.len,
+        null,
+        0,
+        null,
+        &result,
+        null,
+    );
+    if (start != c.PANCAKE_OK) return start;
+    if (result.state == cdrv.PANCAKE_LISTEN_READY) {
+        out_listener.* = result.listener;
+        return c.PANCAKE_OK;
+    }
+    try std.testing.expectEqual(cdrv.PANCAKE_LISTEN_PENDING, result.state);
+    const attempt = result.attempt orelse return error.MissingListenAttempt;
+    errdefer _ = table.cancel_listen.?(attempt, null);
+    var fds = [_]std.posix.pollfd{.{
+        .fd = result.readiness_fd,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+    try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 10_000));
+    return table.finish_listen.?(attempt, out_listener, null);
 }
 
 /// A real, checksum-valid version 3 id, from the pinned Goblins source.
@@ -156,7 +231,7 @@ const Transport = struct {
     }
 
     pub fn releaseConn(conn: Conn) void {
-        co.pancake_onion_conn_release(conn);
+        _ = co.pancake_onion_conn_release(conn);
     }
 };
 
@@ -191,7 +266,7 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     defer daemon.stop();
 
     const netlayer = try netlayerFor(daemon);
-    defer co.pancake_onion_netlayer_release(netlayer);
+    defer releaseOnionNetlayer(netlayer);
     var provider: cdrv.PancakeTransportProvider = undefined;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
@@ -222,13 +297,13 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     var readiness_fd: i32 = -1;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        table.start_connect.?(table.ctx, &wrong_transport, &attempt, &readiness_fd),
+        table.start_connect.?(table.ctx, &wrong_transport, null, &attempt, &readiness_fd, null),
     );
     var short_view = wrong_transport;
     short_view.struct_size = @offsetOf(cdrv.PancakeLocatorView, "hints");
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        table.start_connect.?(table.ctx, &short_view, &attempt, &readiness_fd),
+        table.start_connect.?(table.ctx, &short_view, null, &attempt, &readiness_fd, null),
     );
     var hinted = wrong_transport;
     hinted.transport = "onion".ptr;
@@ -247,21 +322,21 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     hinted.hint_wire_form = cdrv.PANCAKE_HINTS_MAP;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        table.start_connect.?(table.ctx, &hinted, &attempt, &readiness_fd),
+        table.start_connect.?(table.ctx, &hinted, null, &attempt, &readiness_fd, null),
     );
 
     hinted.hints = null;
     hinted.hint_count = 0;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        table.start_connect.?(table.ctx, &hinted, &attempt, &readiness_fd),
+        table.start_connect.?(table.ctx, &hinted, null, &attempt, &readiness_fd, null),
     );
 
     var dial_locator = hinted;
     dial_locator.hint_wire_form = cdrv.PANCAKE_HINTS_BOOLEAN_FALSE;
     var dial_peer = try io.concurrent(ProviderDialPeer.run, .{ProviderDialPeer{ .daemon = daemon }});
     var dial_conn: ?*anyopaque = null;
-    defer if (dial_conn) |raw| table.conn_close.?(table.ctx, raw);
+    defer if (dial_conn) |raw| closeProviderConn(table, raw);
     try std.testing.expectEqual(
         c.PANCAKE_OK,
         try providerConnect(table, &dial_locator, &dial_conn, &readiness_fd),
@@ -274,15 +349,15 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     var dial_reply: [4]u8 = undefined;
     try providerReadAll(table, dial_conn.?, &dial_reply);
     try std.testing.expectEqualStrings("pong", &dial_reply);
-    table.conn_close.?(table.ctx, dial_conn.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, table.conn_close.?(table.ctx, dial_conn.?, null));
     dial_conn = null;
     try dial_peer.await(io);
 
     var listener: ?*anyopaque = null;
-    defer if (listener) |raw| table.listener_close.?(table.ctx, raw);
+    defer if (listener) |raw| closeProviderListener(table, raw);
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        table.listen.?(table.ctx, null, 0, null, 0, &listener),
+        try providerListen(table, "", &listener),
     );
     const listener_raw = listener.?;
     var local = LocatorCapture{};
@@ -326,10 +401,10 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     const client = try forward.connect(io);
     defer client.close(io);
     var accepted_conn: ?*anyopaque = null;
-    defer if (accepted_conn) |raw| table.conn_close.?(table.ctx, raw);
+    defer if (accepted_conn) |raw| closeProviderConn(table, raw);
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        table.accept.?(table.ctx, listener_raw, &accepted_conn, &readiness_fd),
+        table.accept.?(table.ctx, listener_raw, &accepted_conn, &readiness_fd, null),
     );
     try std.testing.expect(readiness_fd >= 0);
 
@@ -349,10 +424,10 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     var accepted_reply: ["from-provider".len]u8 = undefined;
     try client_reader.interface.readSliceAll(&accepted_reply);
     try std.testing.expectEqualStrings("from-provider", &accepted_reply);
-    table.conn_close.?(table.ctx, accepted_conn.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, table.conn_close.?(table.ctx, accepted_conn.?, null));
     accepted_conn = null;
 
-    table.listener_close.?(table.ctx, listener_raw);
+    try std.testing.expectEqual(c.PANCAKE_OK, table.listener_close.?(table.ctx, listener_raw, null));
     listener = null;
 }
 
@@ -366,23 +441,23 @@ test "c-abi onion provider transfers its runtime lease through listener and acce
     defer daemon.stop();
     const netlayer = try netlayerFor(daemon);
     var construction_alive = true;
-    defer if (construction_alive) co.pancake_onion_netlayer_release(netlayer);
+    defer if (construction_alive) releaseOnionNetlayer(netlayer);
     var provider: cdrv.PancakeTransportProvider = undefined;
     try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_transport_provider(netlayer, &provider));
-    try std.testing.expectEqual(c.PANCAKE_OK, provider.retain.?(provider.lease_ctx));
+    try std.testing.expectEqual(c.PANCAKE_OK, provider.retain.?(provider.lease_ctx, null));
     var provider_lease_alive = true;
-    defer if (provider_lease_alive) provider.release.?(provider.lease_ctx);
+    defer if (provider_lease_alive) releaseProvider(provider);
 
-    co.pancake_onion_netlayer_release(netlayer);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_release(netlayer));
     construction_alive = false;
 
     const entry = provider.entries.?[0];
     const table: *const cdrv.PancakeStreamTransport = @ptrCast(@alignCast(entry.implementation.?));
     var listener: ?*anyopaque = null;
-    defer if (listener) |raw| table.listener_close.?(table.ctx, raw);
-    try std.testing.expectEqual(c.PANCAKE_OK, table.listen.?(table.ctx, null, 0, null, 0, &listener));
+    defer if (listener) |raw| closeProviderListener(table, raw);
+    try std.testing.expectEqual(c.PANCAKE_OK, try providerListen(table, "", &listener));
 
-    provider.release.?(provider.lease_ctx);
+    try std.testing.expectEqual(c.PANCAKE_OK, provider.release.?(provider.lease_ctx, null));
     provider_lease_alive = false;
 
     var local = LocatorCapture{};
@@ -395,14 +470,14 @@ test "c-abi onion provider transfers its runtime lease through listener and acce
     const client = try forward.connect(io);
     defer client.close(io);
     var conn: ?*anyopaque = null;
-    defer if (conn) |raw| table.conn_close.?(table.ctx, raw);
+    defer if (conn) |raw| closeProviderConn(table, raw);
     var readiness_fd: i32 = -1;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        table.accept.?(table.ctx, listener.?, &conn, &readiness_fd),
+        table.accept.?(table.ctx, listener.?, &conn, &readiness_fd, null),
     );
 
-    table.listener_close.?(table.ctx, listener.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, table.listener_close.?(table.ctx, listener.?, null));
     listener = null;
 
     var client_read_buf: [8]u8 = undefined;
@@ -418,7 +493,7 @@ test "c-abi onion provider transfers its runtime lease through listener and acce
     var reply: [4]u8 = undefined;
     try client_reader.interface.readSliceAll(&reply);
     try std.testing.expectEqualStrings("pong", &reply);
-    table.conn_close.?(table.ctx, conn.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, table.conn_close.?(table.ctx, conn.?, null));
     conn = null;
 }
 
@@ -434,7 +509,7 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
 
     const netlayer = try netlayerFor(daemon);
     var construction_alive = true;
-    defer if (construction_alive) co.pancake_onion_netlayer_release(netlayer);
+    defer if (construction_alive) releaseOnionNetlayer(netlayer);
     var provider: cdrv.PancakeTransportProvider = undefined;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
@@ -470,7 +545,7 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
         c.PANCAKE_OK,
         cdrv.pancake_driver_add_provider(loop, &provider),
     );
-    co.pancake_onion_netlayer_release(netlayer);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_release(netlayer));
     construction_alive = false;
 
     var present: u8 = 0;
@@ -489,8 +564,10 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
         "onion".len,
         null,
         0,
+        null,
         &listener,
     ));
+    try awaitDriverListenerReady(loop, listener);
     var locator: cdrv.PancakeLocatorView = undefined;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
@@ -499,7 +576,41 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
     try std.testing.expectEqualStrings("onion", locator.transport.?[0..locator.transport_len]);
     try std.testing.expectEqualStrings(service_id, locator.designator.?[0..locator.designator_len]);
 
+    var restoration_len: usize = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_BUFFER_TOO_SMALL,
+        cdrv.pancake_driver_listener_restoration_state(loop, listener, null, 0, &restoration_len),
+    );
+    try std.testing.expectEqual(fake.service_key.len, restoration_len);
+
+    var short: [fake.service_key.len - 1]u8 = @splat(0xa5);
+    restoration_len = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_BUFFER_TOO_SMALL,
+        cdrv.pancake_driver_listener_restoration_state(loop, listener, &short, short.len, &restoration_len),
+    );
+    try std.testing.expectEqual(fake.service_key.len, restoration_len);
+    try std.testing.expectEqualSlices(u8, &([_]u8{0xa5} ** short.len), &short);
+
+    var restoration: [fake.service_key.len]u8 = undefined;
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        cdrv.pancake_driver_listener_restoration_state(
+            loop,
+            listener,
+            &restoration,
+            restoration.len,
+            &restoration_len,
+        ),
+    );
+    try std.testing.expectEqualStrings(fake.service_key, restoration[0..restoration_len]);
+
     const forward = try onion.Endpoint.parse(daemon.lastForwardTarget());
+    try std.testing.expectEqual(c.PANCAKE_OK, cdrv.pancake_driver_listener_close(loop, listener));
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NOT_FOUND,
+        cdrv.pancake_driver_listener_restoration_state(loop, listener, null, 0, &restoration_len),
+    );
     try std.testing.expectEqual(c.PANCAKE_OK, cdrv.pancake_driver_release(loop));
     loop_alive = false;
 
@@ -522,12 +633,12 @@ test "c-abi onion dialed provider connection owns its runtime lease" {
     defer daemon.stop();
     const netlayer = try netlayerFor(daemon);
     var construction_alive = true;
-    defer if (construction_alive) co.pancake_onion_netlayer_release(netlayer);
+    defer if (construction_alive) releaseOnionNetlayer(netlayer);
     var provider: cdrv.PancakeTransportProvider = undefined;
     try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_transport_provider(netlayer, &provider));
-    try std.testing.expectEqual(c.PANCAKE_OK, provider.retain.?(provider.lease_ctx));
+    try std.testing.expectEqual(c.PANCAKE_OK, provider.retain.?(provider.lease_ctx, null));
     var provider_lease_alive = true;
-    defer if (provider_lease_alive) provider.release.?(provider.lease_ctx);
+    defer if (provider_lease_alive) releaseProvider(provider);
 
     const entry = provider.entries.?[0];
     const table: *const cdrv.PancakeStreamTransport = @ptrCast(@alignCast(entry.implementation.?));
@@ -544,23 +655,23 @@ test "c-abi onion dialed provider connection owns its runtime lease" {
     };
     var peer = try io.concurrent(ProviderDialPeer.run, .{ProviderDialPeer{ .daemon = daemon }});
     var conn: ?*anyopaque = null;
-    defer if (conn) |raw| table.conn_close.?(table.ctx, raw);
+    defer if (conn) |raw| closeProviderConn(table, raw);
     var readiness_fd: i32 = -1;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
         try providerConnect(table, &locator, &conn, &readiness_fd),
     );
 
-    co.pancake_onion_netlayer_release(netlayer);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_release(netlayer));
     construction_alive = false;
-    provider.release.?(provider.lease_ctx);
+    try std.testing.expectEqual(c.PANCAKE_OK, provider.release.?(provider.lease_ctx, null));
     provider_lease_alive = false;
 
     try std.testing.expectEqual(c.PANCAKE_OK, table.write_all.?(table.ctx, conn.?, "ping".ptr, "ping".len));
     var reply: [4]u8 = undefined;
     try providerReadAll(table, conn.?, &reply);
     try std.testing.expectEqualStrings("pong", &reply);
-    table.conn_close.?(table.ctx, conn.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, table.conn_close.?(table.ctx, conn.?, null));
     conn = null;
     try peer.await(io);
 }
@@ -654,7 +765,7 @@ test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
     defer daemon.stop();
 
     const netlayer_ptr = try netlayerFor(daemon);
-    defer co.pancake_onion_netlayer_release(netlayer_ptr);
+    defer releaseOnionNetlayer(netlayer_ptr);
 
     var server = try io.concurrent(serveDialedPeer, .{ daemon, allocator });
 
@@ -672,7 +783,7 @@ test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
     const client_result = Loopback.fetchOnce(conn_ptr, allocator, startSession("client"));
 
     // Releasing the client lets the far peer observe EOF and finish.
-    co.pancake_onion_conn_release(conn_ptr);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_conn_release(conn_ptr));
     const server_result = server.await(io);
 
     try client_result;
@@ -688,7 +799,7 @@ test "c-abi onion connection shutdown wakes a native read before release" {
     var daemon = try fake.Daemon.start(allocator, io);
     defer daemon.stop();
     const netlayer = try netlayerFor(daemon);
-    defer co.pancake_onion_netlayer_release(netlayer);
+    defer releaseOnionNetlayer(netlayer);
 
     var accepted: std.atomic.Value(bool) = .init(false);
     var stop: std.atomic.Value(bool) = .init(false);
@@ -717,10 +828,10 @@ test "c-abi onion connection shutdown wakes a native read before release" {
     var read = try io.concurrent(ParkedOnionRead.run, .{&parked});
     try wait.untilFlag(io, 5_000, &parked.started);
 
-    co.pancake_onion_conn_shutdown(conn.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_conn_shutdown(conn.?));
     read.await(io);
     try std.testing.expect(parked.result != c.PANCAKE_OK);
-    co.pancake_onion_conn_release(conn.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_conn_release(conn.?));
 }
 
 test "c-abi onion accept: a forwarded circuit carries a session" {
@@ -734,7 +845,7 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
     defer daemon.stop();
 
     const netlayer_ptr = try netlayerFor(daemon);
-    defer co.pancake_onion_netlayer_release(netlayer_ptr);
+    defer releaseOnionNetlayer(netlayer_ptr);
 
     var id_buf: [co.PANCAKE_ONION_SERVICE_ID_LEN]u8 = undefined;
     var id_len: usize = 0;
@@ -752,7 +863,7 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
         &listener,
     ));
     const listener_ptr = listener.?;
-    defer co.pancake_onion_listener_release(listener_ptr);
+    defer releaseOnionListener(listener_ptr);
 
     // The id is the one the daemon reported, not one pancake chose, and the key
     // is what would restore the same address later.
@@ -824,7 +935,7 @@ test "c-abi onion listen queries its out-parameter lengths without a buffer" {
     config.control_endpoint_len = daemon.controlText().len;
     try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_new(&config, &netlayer));
     const netlayer_ptr = netlayer.?;
-    defer co.pancake_onion_netlayer_release(netlayer_ptr);
+    defer releaseOnionNetlayer(netlayer_ptr);
 
     // A null buffer with a length slot asks how much room the value needs, so a
     // caller can size its storage without hardcoding the constant.
@@ -840,7 +951,7 @@ test "c-abi onion listen queries its out-parameter lengths without a buffer" {
         null,
         &listener,
     ));
-    defer co.pancake_onion_listener_release(listener.?);
+    defer releaseOnionListener(listener.?);
     try std.testing.expectEqual(co.PANCAKE_ONION_SERVICE_ID_LEN, id_len);
 
     // A buffer too small for the id is the caller's error, and the listener is not
@@ -876,7 +987,7 @@ test "c-abi onion listener_wait reports a timeout rather than blocking forever" 
     config.control_endpoint_len = daemon.controlText().len;
     try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_new(&config, &netlayer));
     const netlayer_ptr = netlayer.?;
-    defer co.pancake_onion_netlayer_release(netlayer_ptr);
+    defer releaseOnionNetlayer(netlayer_ptr);
 
     var listener: ?*co.PancakeOnionListener = null;
     try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listen(
@@ -890,7 +1001,7 @@ test "c-abi onion listener_wait reports a timeout rather than blocking forever" 
         &listener,
     ));
     const listener_ptr = listener.?;
-    defer co.pancake_onion_listener_release(listener_ptr);
+    defer releaseOnionListener(listener_ptr);
 
     // Nothing has dialed, so the wait expires and reports not-ready. This is the
     // guard that lets a blocking accept loop check a stop flag.
@@ -977,7 +1088,7 @@ test "c-abi onion refuses a bad configuration and a bad designator distinctly" {
         co.pancake_onion_netlayer_new(&dial_only, &netlayer),
     );
     const netlayer_ptr = netlayer.?;
-    defer co.pancake_onion_netlayer_release(netlayer_ptr);
+    defer releaseOnionNetlayer(netlayer_ptr);
 
     var listener: ?*co.PancakeOnionListener = null;
     try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, co.pancake_onion_listen(
@@ -1020,6 +1131,7 @@ test "c-abi onion refuses a bad configuration and a bad designator distinctly" {
         frame_cap,
         &conn,
     ));
+    try std.testing.expect(co.pancake_onion_last_error(null, 0) > 0);
     // A well-formed designator with nothing listening at the socks endpoint is an
     // I/O fault with a cause, distinct from the argument faults above.
     co.pancake_onion_clear_last_error();
@@ -1059,7 +1171,7 @@ test "c-abi onion netlayer copies its configuration text" {
     config.control_endpoint_len = daemon.controlText().len;
     try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_netlayer_new(&config, &netlayer));
     const netlayer_ptr = netlayer.?;
-    defer co.pancake_onion_netlayer_release(netlayer_ptr);
+    defer releaseOnionNetlayer(netlayer_ptr);
 
     // Scribble over both sources. A netlayer that borrowed them would now reach
     // nowhere.
@@ -1078,7 +1190,7 @@ test "c-abi onion netlayer copies its configuration text" {
         null,
         &listener,
     ));
-    co.pancake_onion_listener_release(listener.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_listener_release(listener.?));
 
     // And the socks endpoint still works, which covers the copy `connect` reads.
     // Without this the test would pass while the socks text was borrowed, because
@@ -1094,7 +1206,7 @@ test "c-abi onion netlayer copies its configuration text" {
         &conn,
     );
     try std.testing.expectEqual(c.PANCAKE_OK, rc);
-    co.pancake_onion_conn_release(conn.?);
+    try std.testing.expectEqual(c.PANCAKE_OK, co.pancake_onion_conn_release(conn.?));
     _ = acceptor.await(io) catch {};
 }
 
@@ -1136,7 +1248,7 @@ const ConnectAttempt = struct {
             frame_cap,
             &conn,
         );
-        if (conn) |handle| co.pancake_onion_conn_release(handle);
+        if (conn) |handle| _ = co.pancake_onion_conn_release(handle);
     }
 };
 
@@ -1158,7 +1270,7 @@ const ListenAttempt = struct {
             null,
             &listener,
         );
-        if (listener) |handle| co.pancake_onion_listener_release(handle);
+        if (listener) |handle| releaseOnionListener(handle);
     }
 };
 
@@ -1194,7 +1306,7 @@ test "c-abi onion netlayer shutdown cancels a stalled connect" {
     );
     defer server.deinit(io);
     const netlayer = try silentNetlayer(&server, false);
-    defer co.pancake_onion_netlayer_release(netlayer);
+    defer releaseOnionNetlayer(netlayer);
 
     var accepted: std.atomic.Value(bool) = .init(false);
     var stop: std.atomic.Value(bool) = .init(false);
@@ -1231,7 +1343,7 @@ test "c-abi onion netlayer shutdown cancels a stalled listen" {
     );
     defer server.deinit(io);
     const netlayer = try silentNetlayer(&server, true);
-    defer co.pancake_onion_netlayer_release(netlayer);
+    defer releaseOnionNetlayer(netlayer);
 
     var accepted: std.atomic.Value(bool) = .init(false);
     var stop: std.atomic.Value(bool) = .init(false);

@@ -1,20 +1,23 @@
 //! Per-binding keyed-relay rendezvous proof: the Rust binding cold-dials a
 //! non-listening peer by its key designator through the reference relay's
 //! rendezvous bridge (ADR-0088). The core classifies the locator as the
-//! rendezvous dial shape; the binding opens the WebSocket leg the host's
-//! advertised locator names while the Host fallback is deliberately dead.
+//! rendezvous dial shape; the binding opens the WebSocket leg the locator's
+//! `rendezvous-relay` hint names, the one rendezvous routing authority.
 //!
 //! Run via `zig build rust-keyed-relay-rendezvous` (the harness passes
 //! `<locator>` after `--`).
 
-use pancake_rust_dogfood::{connect, Argument, Codec, Host};
+use pancake_rust_dogfood::{parse_locator, relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 use tokio::task::LocalSet;
 
 async fn scene(locator: String) -> Result<(), String> {
-	let host = Host::with_codec(Codec::Syrup);
-	host.set_rendezvous_url(move |id| format!("ws://127.0.0.1:1/relay?rendezvous={id}"))
+	let partner = parse_locator(&locator).map_err(|error| error.to_string())?;
+	let provider = relay::provider_for(&partner).map_err(|error| error.to_string())?;
+	let runtime = Runtime::open(RuntimeConfig::providers([provider]))
+		.await
 		.map_err(|e| e.to_string())?;
-	let session = connect(&locator, None, Some(host))
+	let session = runtime
+		.connect(&partner, ConnectOptions::default())
 		.await
 		.map_err(|e| e.to_string())?;
 	let greeter = session.fetch("greeter").await.map_err(|e| e.to_string())?;
@@ -27,7 +30,7 @@ async fn scene(locator: String) -> Result<(), String> {
 		Argument::String(s) if s == expected => {}
 		other => return Err(format!("unexpected greeting: {other:?}")),
 	}
-	session.close();
+	session.close(PendingWork::Cancel).await.map_err(|e| e.to_string())?;
 	Ok(())
 }
 
@@ -48,8 +51,8 @@ fn main() {
 	local.block_on(&rt, async {
 		scene(locator).await.expect("rendezvous dial");
 		println!(
-			"PASS: the Rust binding used the locator's rendezvous-relay route instead of \
-			 the dead Host fallback, and the keyed session answered"
+			"PASS: the Rust binding used the locator's rendezvous-relay route, \
+			 and the keyed session answered"
 		);
 	});
 }

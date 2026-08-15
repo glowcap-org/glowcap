@@ -1,12 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { clickActionFor, drillInActionFor } from "./click-actions.ts";
 import { dummyHit } from "./gesture-resolver.ts";
-import {
-  type EntityRef,
-  type Hit,
-  type ResolvedGesture,
-  type SelectionDocSnapshot,
-} from "./types.ts";
+import { type EntityRef, type Hit, type ResolvedGesture, type SelectionDocSnapshot } from "./types.ts";
 
 const EMPTY_DOC: SelectionDocSnapshot = {
   observations: [],

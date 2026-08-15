@@ -32,17 +32,84 @@ const Identity = driver.Identity;
 const Budget = driver.Budget;
 const Error = driver.Error;
 
+/// An allocation-free eventual result scoped to the owning Session. Its core
+/// vow row is pending work from creation until settlement, including when the
+/// caller ignores the value; use `Session.tell` for fire-and-forget delivery.
+/// Register `on` before stepping the runtime, matching `actors.Vow`'s one-shot
+/// listener contract.
+pub const Promise = struct {
+    owner: *Session,
+    home: *driver_core.HostSession,
+    id: u64,
+
+    pub fn send(self: Promise, verb: []const u8, args: []const Value) !Promise {
+        return self.owner.sendToPromise(self, verb, args);
+    }
+
+    pub fn settle(self: Promise, arena: std.mem.Allocator) !Reply {
+        return self.owner.settlePromise(self, arena);
+    }
+
+    pub fn on(self: Promise, listener: actors.Listener) !void {
+        return self.owner.observePromise(self, listener);
+    }
+};
+
 /// Options for `connect` and `listen` (see `driver.HostRuntime.Options`, the owning
 /// face these views ride).
 pub const SessionOptions = host_runtime.HostRuntime.Options;
 
+/// Heap-stable ownership shared by a one-call Server and the Sessions it has
+/// already yielded. The listener owns one lease and each accepted Session owns
+/// one more; closing the listener drops only its lease. The last lease tears
+/// down the runtime and every runtime-internal session that was never yielded.
+const SharedRuntime = struct {
+    runtime: host_runtime.HostRuntime,
+    allocator: std.mem.Allocator,
+    leases: usize = 1,
+
+    fn retain(self: *SharedRuntime) void {
+        // Every lease beyond the listener's owns a distinct heap-allocated
+        // Session, so the address space is exhausted before usize can be.
+        std.debug.assert(self.leases != std.math.maxInt(usize));
+        self.leases += 1;
+    }
+
+    fn releaseOutcome(self: *SharedRuntime) ?driver.OperationFailure {
+        std.debug.assert(self.leases != 0);
+        self.leases -= 1;
+        if (self.leases != 0) return null;
+        const allocator = self.allocator;
+        const failure = self.runtime.deinitOutcome();
+        allocator.destroy(self);
+        return failure;
+    }
+
+    fn releaseImplicit(self: *SharedRuntime) bool {
+        std.debug.assert(self.leases != 0);
+        self.leases -= 1;
+        if (self.leases != 0) return false;
+        const allocator = self.allocator;
+        if (self.runtime.deinitOutcome()) |failure| self.runtime.reportUnhandledFailure(failure);
+        allocator.destroy(self);
+        return true;
+    }
+
+    /// Deferred Session cleanup runs from HostRuntime's quiescent tail. True
+    /// means this was the final lease and the callback destroyed that runtime;
+    /// its caller must return without dereferencing the HostRuntime again.
+    fn releaseDeferred(self: *SharedRuntime) bool {
+        return self.releaseImplicit();
+    }
+};
+
 /// An application-facing session, the object a native Zig application holds:
-/// a view onto one session of a `driver.HostRuntime`. `connect` builds a
-/// private runtime and core Host underneath and hands back its one view
-/// (`deinit` tears the whole bundle down); `Server.accept` views borrow the
-/// server's shared runtime (`deinit` releases that one session and leaves the
-/// siblings serving).
-/// Heap-pinned: the pointer is stable for the session view's life.
+/// an owning handle for one session of a `driver.HostRuntime`. `connect` and
+/// `Server.accept` retain their heap-stable runtime; `adopt` transfers one
+/// caller-owned runtime wire into the same Session contract while borrowing
+/// the runtime itself. In every case `deinit` cancels and releases this
+/// session. A borrowed runtime must outlive its adopted Sessions.
+/// Heap-pinned: the pointer is stable for the session handle's life.
 ///
 /// Because the core Host routes every session, a reply that introduces a
 /// capability on a third machine settles as a live reference inside the wait:
@@ -51,67 +118,132 @@ pub const SessionOptions = host_runtime.HostRuntime.Options;
 pub const Session = struct {
     runtime: *host_runtime.HostRuntime,
     hs: *driver_core.HostSession,
-    /// What this view owns, and therefore what its `deinit` reclaims.
-    owner: Owner,
+    runtime_lease: RuntimeLease,
     allocator: std.mem.Allocator,
+    deferred_release: host_runtime.HostRuntime.DeferredSessionRelease,
+    active_calls: usize = 0,
+    native_release_complete: bool = false,
 
-    /// A session view is one of three things, and a two-state flag could name
-    /// only two of them. The third — a view onto a runtime the caller owns — was
-    /// the one that had no spelling, so callers wrote a struct literal for it
-    /// and `deinit` treated it as an accepted view: it decremented a counter
-    /// no constructor had incremented, then freed a pointer that was usually
-    /// on the stack. Naming the third state is what makes that unrepresentable
-    /// rather than merely documented.
-    pub const Owner = enum {
-        /// `Session.view`: borrowed. The caller owns the runtime and releases
-        /// the session, so `deinit` reclaims nothing and is safe on a value
-        /// that was never heap-allocated.
+    const RuntimeLease = union(enum) {
+        /// `Session.adopt`: the Session owns its wire, while its caller keeps
+        /// the surrounding runtime alive.
         borrowed,
-        /// `Server.accept`: one session of the server's shared runtime.
-        accepted,
-        /// `driver.connect`: the whole private bundle, runtime included.
-        private_runtime,
+        /// `connect` / `Server.accept`: the Session retains the runtime
+        /// allocation independently of the listener or any sibling Session.
+        retained: *SharedRuntime,
     };
 
-    /// A borrowed view onto a session a caller-owned `HostRuntime` already holds.
-    ///
-    /// By value, and owning nothing: releasing the session stays the caller's
-    /// job through `HostRuntime.releaseWire`, and tearing down the runtime stays its
-    /// own `deinit`. This exists so that shape has a constructor at all.
-    /// Without one, every caller wrote the struct literal, and a literal is
-    /// where the owner gets guessed.
-    pub fn view(runtime: *host_runtime.HostRuntime, hs: *driver_core.HostSession) Error!Session {
+    /// Transfer one wire from a caller-owned HostRuntime into an owning
+    /// Session. The runtime remains borrowed and must outlive the returned
+    /// handle; the caller must not also call `releaseWire` for `hs`.
+    pub fn adopt(runtime: *host_runtime.HostRuntime, hs: *driver_core.HostSession) Error!*Session {
         if (hs.host != runtime.core) return Error.SessionNotOwned;
-        const wire = runtime.wires.get(hs.peer_id) orelse return Error.SessionNotOwned;
-        if (wire.session != hs) return Error.SessionNotOwned;
-        return .{ .runtime = runtime, .hs = hs, .owner = .borrowed, .allocator = runtime.allocator };
+        const session = try runtime.allocator.create(Session);
+        errdefer runtime.allocator.destroy(session);
+        try runtime.claimSessionHandle(hs);
+        session.* = .{
+            .runtime = runtime,
+            .hs = hs,
+            .runtime_lease = .borrowed,
+            .allocator = runtime.allocator,
+            .deferred_release = .{
+                .session = hs,
+                .ctx = session,
+                .complete = completeDeferredRelease,
+            },
+        };
+        return session;
     }
 
-    /// Reclaim what this view owns. A borrowed view owns nothing, so this is
-    /// a no-op there; the runtime it points at is the caller's to tear down.
+    fn enterCall(self: *Session) void {
+        std.debug.assert(!self.native_release_complete);
+        self.active_calls += 1;
+        self.runtime.enterDriver();
+    }
+
+    fn leaveCall(self: *Session) void {
+        self.runtime.leaveDriver();
+        std.debug.assert(self.active_calls != 0);
+        self.active_calls -= 1;
+        if (self.active_calls == 0 and self.native_release_complete) _ = self.completeRelease();
+    }
+
+    /// Implicit cleanup always cancels, then releases the wire and its runtime
+    /// lease. Use `close(.{ .finish = budget })` first when pending operations
+    /// should receive a grace period.
     pub fn deinit(self: *Session) void {
-        switch (self.owner) {
-            .borrowed => return,
-            .private_runtime => {
-                self.runtime.deinit();
-                self.allocator.destroy(self.runtime);
-            },
-            .accepted => {
-                self.runtime.releaseWire(self.hs);
-                self.runtime.accepted_views -= 1;
-            },
+        if (self.runtime.withinCallback()) {
+            self.runtime.deferSessionRelease(&self.deferred_release) catch |err| {
+                // The wrapper cannot be consumed while its callback owns the
+                // Host latch. Retain the refusal at the surviving Runtime and
+                // leave this allocation pinned rather than terminating the
+                // embedding process or freeing live native authority.
+                self.runtime.noteTerminalFailure(err);
+            };
+            return;
         }
-        self.allocator.destroy(self);
+        self.enterCall();
+        defer self.leaveCall();
+        // `deinit` cannot return, but the Runtime can: retain the concrete
+        // close refusal in its sticky terminal channel before consuming this
+        // wrapper's release authority.
+        self.runtime.closeSession(self.hs, .cancel) catch |err|
+            self.runtime.noteTerminalFailure(err);
+        // A listener fired by cancel may have transferred release to the
+        // callback-safe queue. Its drain owns the wire and wrapper from here.
+        if (self.deferred_release.queued) return;
+        self.runtime.releaseWire(self.hs) catch |err| {
+            // Implicit destruction has no return recipient. A pre-commit
+            // release refusal leaves the native wire live, so retain the
+            // failure and pin this wrapper rather than pretending teardown
+            // committed or turning a library error into process death.
+            self.runtime.noteTerminalFailure(err);
+            return;
+        };
+        self.native_release_complete = true;
     }
 
-    /// Begin the bootstrap fetch for `name`, returning its vow without
-    /// blocking (see `driver_core.Served.beginFetch`).
-    pub fn beginFetch(self: *Session, name: []const u8) !actors.Vow {
+    fn completeDeferredRelease(ctx: *anyopaque) bool {
+        const self: *Session = @ptrCast(@alignCast(ctx));
+        if (self.active_calls != 0) {
+            self.native_release_complete = true;
+            return false;
+        }
+        return self.completeRelease();
+    }
+
+    fn completeRelease(self: *Session) bool {
+        const allocator = self.allocator;
+        const lease = self.runtime_lease;
+        allocator.destroy(self);
+        return switch (lease) {
+            .borrowed => false,
+            .retained => |shared| shared.releaseDeferred(),
+        };
+    }
+
+    /// Close this session under one monotonic pending-work policy. Repeated
+    /// calls observe the same barrier; cancel may escalate an in-progress
+    /// finish. Memory remains owned until `deinit`.
+    pub fn close(self: *Session, pending: driver.PendingWork) !void {
+        self.enterCall();
+        defer self.leaveCall();
+        return self.runtime.closeSession(self.hs, pending);
+    }
+
+    pub fn closeOutcome(self: *const Session) driver.CloseOutcome {
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
-        const vow = try self.hs.served.sendBootstrapFetch(&self.runtime.core.vat, name);
-        try self.runtime.core.flushSession(self.hs);
-        return vow;
+        return self.runtime.sessionCloseOutcome(self.hs);
+    }
+
+    /// Begin the bootstrap fetch for `name`, returning its Promise without
+    /// blocking (see `driver_core.Served.beginFetch`).
+    pub fn beginFetch(self: *Session, name: []const u8) !Promise {
+        self.enterCall();
+        defer self.leaveCall();
+        const id = try self.runtime.core.queueFetch(self.hs, name);
+        return .{ .owner = self, .home = self.hs, .id = id };
     }
 
     /// Chain fetch-then-send without blocking (see `Served.beginSendNamed`).
@@ -119,31 +251,27 @@ pub const Session = struct {
     /// of the lowered message, so the caller's slices are borrowed for this
     /// call only.
     pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
-        try self.hs.served.beginSendNamed(&self.runtime.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
-        try self.runtime.core.flushSession(self.hs);
+        try self.runtime.core.beginSendNamedValues(self.hs, pending, name, verb, args, scratch.allocator(), terminal);
     }
 
     /// Chain fetch-then-tell without blocking (see `Served.beginTellNamed`).
     pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, verb: []const u8, args: []const Value, terminal: actors.Listener) !void {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
-        try self.hs.served.beginTellNamed(&self.runtime.core.vat, pending, name, .{ .verb = verb, .args = lowered }, terminal);
-        try self.runtime.core.flushSession(self.hs);
+        try self.runtime.core.beginTellNamedValues(self.hs, pending, name, verb, args, scratch.allocator(), terminal);
     }
 
     /// Break every far vow still awaiting a partner answer (cancel / timeout /
     /// teardown). Stable `message` bytes are what listeners observe.
     pub fn breakFarVows(self: *Session, message: []const u8) void {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         self.hs.served.port.breakFarVows(message);
     }
 
@@ -162,8 +290,8 @@ pub const Session = struct {
     /// with a key yet; `HostError.PartnerUnverified` means this session does not
     /// verify its partner, so there is no proved identity to report.
     pub fn partnerIdentity(self: *Session) !driver_core.PartnerIdentity {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         return self.runtime.core.partnerIdentity(self.hs);
     }
 
@@ -175,8 +303,8 @@ pub const Session = struct {
     /// `Error.FetchBroken`; any other fulfill returns
     /// `Error.FetchNotACapability`.
     pub fn fetch(self: *Session, name: []const u8) !Capability {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         var capture = driver.FetchCapture{};
         const id = try self.runtime.core.fetch(self.hs, name);
         try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.FetchCapture.record });
@@ -190,8 +318,8 @@ pub const Session = struct {
     /// The reason-bearing fetch: the partner's settlement whole, lifted and
     /// materialized into `arena` (reset the arena to reclaim it).
     pub fn fetchSettled(self: *Session, name: []const u8, arena: std.mem.Allocator) !Reply {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         var capture = driver.SettleCapture{ .arena = arena };
         const id = try self.runtime.core.fetch(self.hs, name);
         try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
@@ -206,58 +334,31 @@ pub const Session = struct {
     /// (`ForeignArgument`). Returns `ConnectionClosed` if the partner leaves
     /// before the reply settles.
     pub fn call(self: *Session, target: Capability, verb: []const u8, args: []const Value, arena: std.mem.Allocator) !Reply {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
-        var scratch = std.heap.ArenaAllocator.init(self.allocator);
-        defer scratch.deinit();
-        const routed = try self.routedSend(target, verb, args, &scratch);
-        return self.replyVowOn(routed.session, routed.vow, arena);
+        self.enterCall();
+        defer self.leaveCall();
+        const promise = try self.queueSend(target, verb, args);
+        return self.replyVowId(promise.home, promise.id, arena);
     }
 
-    /// Eventual-send to `target`, returning the reply's vow without blocking;
-    /// settle it with `settleVow` or observe it with `on`. Args are borrowed
+    /// Eventual-send to `target`, returning its Promise without blocking.
+    /// Args are borrowed
     /// for this call: the actor layer owns its clone before this returns.
-    pub fn send(self: *Session, target: Capability, verb: []const u8, args: []const Value) !actors.Vow {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+    pub fn send(self: *Session, target: Capability, verb: []const u8, args: []const Value) !Promise {
+        self.enterCall();
+        defer self.leaveCall();
+        return self.queueSend(target, verb, args);
+    }
+
+    /// Lower one owning-tier delivery and commit it through the Host's routing,
+    /// vow, and pending-work authority without driving local settlement.
+    fn queueSend(self: *Session, target: Capability, verb: []const u8, args: []const Value) !Promise {
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const routed = try self.routedSend(target, verb, args, &scratch);
-        return routed.vow;
+        const id = try self.runtime.core.queueSendValues(self.hs, target, verb, args, scratch.allocator());
+        return .{ .owner = self, .home = try self.runtime.core.vowSession(id), .id = id };
     }
 
-    /// One lowered, routed delivery, the prologue `call` / `send` / `tell`
-    /// share: gate the target on object kind, lower it and the args on this
-    /// session, and route to the exporter session. The lowered args live in
-    /// `scratch`, which must outlive the served verb that consumes them.
-    const RoutedDelivery = struct { session: *driver_core.HostSession, target: actors.Ref, args: []const model.Argument };
-
-    fn routeDelivery(self: *Session, target: Capability, args: []const Value, scratch: *std.heap.ArenaAllocator) !RoutedDelivery {
-        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
-        // A local capability sends as its Vat actor directly: a same-side
-        // call needs no wire position, so no export is minted and no binding
-        // root is taken (ADR-0101).
-        if (self.runtime.core.localActorFor(target)) |local| {
-            return .{ .session = self.hs, .target = local, .args = lowered };
-        }
-        const target_ref = try self.targetForSend(target);
-        const routed = try self.runtime.core.routeSend(self.hs, target_ref, lowered);
-        return .{ .session = routed.session, .target = routed.target, .args = lowered };
-    }
-
-    /// The one lowered, routed eventual-send `call` / `send` share: route,
-    /// send, and flush a far send's encode. A near send queues a local turn
-    /// instead — driving it here would settle the vow before the caller could
-    /// register a listener, so the drive waits for the next flush or settle
-    /// (the borrowing tier's contract exactly).
-    fn routedSend(self: *Session, target: Capability, verb: []const u8, args: []const Value, scratch: *std.heap.ArenaAllocator) !struct { session: *driver_core.HostSession, vow: actors.Vow } {
-        const routed = try self.routeDelivery(target, args, scratch);
-        const vow = try routed.session.served.send(&self.runtime.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
-        if (routed.target == .far) try self.runtime.core.flushSession(routed.session);
-        return .{ .session = routed.session, .vow = vow };
-    }
-
-    /// Listen on the promise `target` names, returning a vow for its
+    /// Listen on the promise `target` names, returning a Promise for its
     /// settlement (see `Served.listenTo`). A promise this partner handed us
     /// settles through a notification it delivers, so this is how a received
     /// promise capability is waited on; `listenSettled` is the blocking form.
@@ -266,66 +367,45 @@ pub const Session = struct {
     /// settlement is redeemed on the way through, exactly as one arriving in
     /// a call's reply is. No object-kind gate here: a listen's usual target
     /// is a promise capability.
-    pub fn listenTo(self: *Session, target: Capability) !actors.Vow {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
-        return (try self.listenToRouted(target)).vow;
+    pub fn listenTo(self: *Session, target: Capability) !Promise {
+        self.enterCall();
+        defer self.leaveCall();
+        return self.queueListenTo(target);
     }
 
     /// Listen on the promise `target` names and block until it settles,
     /// lifting the outcome into `arena`.
     pub fn listenSettled(self: *Session, target: Capability, arena: std.mem.Allocator) !Reply {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
-        const routed = try self.listenToRouted(target);
-        // Drive the session the listen actually rides, which for a routed
-        // capability is the exporter's, not this view's.
-        return self.replyVowOn(routed.session, routed.vow, arena);
+        self.enterCall();
+        defer self.leaveCall();
+        const promise = try self.queueListenTo(target);
+        return self.replyVowId(promise.home, promise.id, arena);
     }
 
-    fn listenToRouted(self: *Session, target: Capability) !struct { session: *driver_core.HostSession, vow: actors.Vow } {
-        const target_ref = try self.runtime.core.lowerCapability(self.hs, target);
-        if (target_ref == .far) {
-            const routed = try self.runtime.core.routeSend(self.hs, target_ref, &.{});
-            const vow = try routed.session.served.listenTo(.{ .far = routed.target.far });
-            // The `op:listen` owes the wire its encode now, like a far send's.
-            try self.runtime.core.flushSession(routed.session);
-            return .{ .session = routed.session, .vow = vow };
-        }
-        // A near capability is local; the engine verb refuses the non-promise
-        // shapes with `InvalidReference`.
-        const vow = try self.hs.served.listenTo(target_ref);
-        return .{ .session = self.hs, .vow = vow };
+    fn queueListenTo(self: *Session, target: Capability) !Promise {
+        const id = try self.runtime.core.queueListenToCapability(self.hs, target);
+        return .{ .owner = self, .home = try self.runtime.core.vowSession(id), .id = id };
     }
 
-    /// Promise pipelining against a far `vow` (see `Served.sendToAnswer`).
-    pub fn sendToAnswer(self: *Session, vow: actors.Vow, verb: []const u8, args: []const Value) !actors.Vow {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+    fn sendToPromise(self: *Session, promise: Promise, verb: []const u8, args: []const Value) !Promise {
+        self.enterCall();
+        defer self.leaveCall();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const lowered = try self.runtime.core.lowerValues(self.hs, scratch.allocator(), args);
-        const next = try self.hs.served.sendToAnswer(&self.runtime.core.vat, vow, .{ .verb = verb, .args = lowered });
-        try self.runtime.core.flushSession(self.hs);
-        return next;
+        const id = try self.runtime.core.queueVowSendValues(promise.id, verb, args, scratch.allocator());
+        return .{ .owner = self, .home = promise.home, .id = id };
     }
 
-    /// Block until `vow` settles, lifting the outcome into `arena`.
-    pub fn settleVow(self: *Session, vow: actors.Vow, arena: std.mem.Allocator) !Reply {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
-        return self.replyVowOn(self.hs, vow, arena);
+    fn settlePromise(self: *Session, promise: Promise, arena: std.mem.Allocator) !Reply {
+        self.enterCall();
+        defer self.leaveCall();
+        return self.replyVowId(promise.home, promise.id, arena);
     }
 
-    /// The blocking settle every `Reply`-returning verb shares: capture the
-    /// wire-shaped settlement into `arena`, then lift it on `hs` — after the
-    /// wait, outside any listener fire, the same order the C ABI lifts at its
-    /// action drain. The lifted tree's spines live in `arena` and its leaves
-    /// alias the capture, which is why a reply has no `deinit`: reset the
-    /// arena and both go together.
-    fn replyVowOn(self: *Session, hs: *driver_core.HostSession, vow: actors.Vow, arena: std.mem.Allocator) !Reply {
+    /// The blocking settle every `Reply`-returning verb shares.
+    fn replyVowId(self: *Session, hs: *driver_core.HostSession, id: u64, arena: std.mem.Allocator) !Reply {
         var capture = driver.SettleCapture{ .arena = arena };
-        try self.awaitVow(hs, vow, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
+        try self.awaitVowIdOn(hs, id, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
         return self.replyFromSettled(hs, arena, try capture.finish());
     }
 
@@ -333,8 +413,8 @@ pub const Session = struct {
     /// `Reply` (the REPL's cooperative queue captures first and renders
     /// later; ordinary blocking verbs never need this).
     pub fn liftSettled(self: *Session, settled: Settled, arena: std.mem.Allocator) !Reply {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         return self.replyFromSettled(self.hs, arena, settled);
     }
 
@@ -348,40 +428,18 @@ pub const Session = struct {
         };
     }
 
-    /// The eventual-send target gate `call` / `send` / `tell` share: only an
-    /// object capability is a send target. A promise capability is listened on
-    /// (`listenTo`) or pipelined through its answer vow (`sendToAnswer`),
-    /// never sent to directly.
-    fn targetForSend(self: *Session, target: Capability) !model.Reference {
-        const target_ref = try self.runtime.core.lowerCapability(self.hs, target);
-        const object = switch (target_ref) {
-            .near => |near| near.kind == .object,
-            .far => |far| far.kind == .object,
-            else => false,
-        };
-        if (!object) return Error.UncallableTarget;
-        return target_ref;
-    }
-
     /// Register `listener` on host vow `id` behind a settle flag and block
     /// until it fires — the host-vow twin of `BlockingSession.awaitVow`. The
     /// flag lives on this frame for the whole wait, so the listener's ctx
     /// outlives every fire. No pre-pump flush: `core.fetch` and the vow verbs
     /// pump their own send before returning the id.
     fn awaitVowId(self: *Session, id: u64, listener: actors.Listener) !void {
-        var flag = driver.SettleFlag{ .inner = listener };
-        try self.runtime.core.vowOn(id, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
-        try self.pumpWait(self.hs, &flag.done);
+        return self.awaitVowIdOn(self.hs, id, listener);
     }
 
-    /// Register `listener` on a vat `vow` behind a settle flag, drive, and
-    /// block until it fires. Listener first, then the drive: a near target's
-    /// vow settles inside this flush's own local turn, firing the capture
-    /// before the pump parks.
-    fn awaitVow(self: *Session, hs: *driver_core.HostSession, vow: actors.Vow, listener: actors.Listener) !void {
+    fn awaitVowIdOn(self: *Session, hs: *driver_core.HostSession, id: u64, listener: actors.Listener) !void {
         var flag = driver.SettleFlag{ .inner = listener };
-        try hs.served.port.on(&hs.host.vat, vow, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
-        try self.runtime.core.flushSession(hs);
+        try self.runtime.core.vowOn(id, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
         try self.pumpWait(hs, &flag.done);
     }
 
@@ -400,21 +458,17 @@ pub const Session = struct {
     /// Fire-and-forget eventual-send (see `Served.tell`), routed exactly as
     /// `call` routes.
     pub fn tell(self: *Session, target: Capability, verb: []const u8, args: []const Value) !void {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         var scratch = std.heap.ArenaAllocator.init(self.allocator);
         defer scratch.deinit();
-        const routed = try self.routeDelivery(target, args, &scratch);
-        try routed.session.served.tell(&self.runtime.core.vat, routed.target, .{ .verb = verb, .args = routed.args });
-        try self.runtime.core.flushSession(routed.session);
+        try self.runtime.core.tellValues(self.hs, target, verb, args, scratch.allocator());
     }
 
-    /// Observe `vow` with a caller listener (see `Vat.on`). The listener fires
-    /// during a later pump on this session.
-    pub fn on(self: *Session, vow: actors.Vow, listener: actors.Listener) !void {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
-        return self.hs.served.port.on(&self.runtime.core.vat, vow, listener);
+    fn observePromise(self: *Session, promise: Promise, listener: actors.Listener) !void {
+        self.enterCall();
+        defer self.leaveCall();
+        return self.runtime.core.vowOn(promise.id, listener);
     }
 
     /// Spawn a local actor and return its opaque capability. `Behavior` is
@@ -422,23 +476,25 @@ pub const Session = struct {
     /// `Value` args and answers with a `Value`, so hosting code speaks opaque
     /// capabilities end to end.
     pub fn spawn(self: *Session, comptime Behavior: type, initial: Behavior) !Capability {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
-        const ref = try self.runtime.core.vat.spawn(driver_core.Hosting(Behavior), .{ .inner = initial });
-        errdefer self.runtime.core.vat.discardFreshActor(ref);
-        // The capability slot adopts the spawn root (ADR-0101); wire
-        // positions mint lazily at first marshal, so releasing the last
-        // handle of a never-passed spawn reclaims the actor.
-        return self.runtime.core.liftLocalActor(ref);
+        self.enterCall();
+        defer self.leaveCall();
+        return self.runtime.core.spawn(self.hs, driver_core.Hosting(Behavior), .{ .inner = initial });
     }
 
     /// Publish an actor a partner can `fetch` by `name`. `Behavior` is
     /// Value-shaped like `spawn`'s.
     pub fn publish(self: *Session, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
-        const exported = try self.hs.served.publish(&self.runtime.core.vat, name, driver_core.Hosting(Behavior), .{ .inner = initial });
-        return self.runtime.core.liftCapability(self.hs, exported.nearRef());
+        self.enterCall();
+        defer self.leaveCall();
+        return self.runtime.core.publish(self.hs, name, driver_core.Hosting(Behavior), .{ .inner = initial });
+    }
+
+    /// Return the Host capability published under `name` on this session, or
+    /// null when no session-local or Host-wide publication has that name.
+    pub fn publishedCapability(self: *Session, name: []const u8) !?Capability {
+        self.enterCall();
+        defer self.leaveCall();
+        return self.runtime.core.publishedCapability(self.hs, name);
     }
 
     /// Enliven a complete sturdyref by Host-level select-or-dial (ADR-0098
@@ -447,15 +503,15 @@ pub const Session = struct {
     /// the peer named in the sturdyref does. The settled capability arrives
     /// lifted, like every owning-tier reference.
     pub fn enliven(self: *Session, sturdy: model.SturdyRef) !Capability {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         return self.runtime.enliven(sturdy);
     }
 
     /// `enliven` from an `ocapn://…/s/…` sturdyref URI string.
     pub fn enlivenUri(self: *Session, uri_str: []const u8) !Capability {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         const sturdy = try model.uri.parseSturdyrefForProfile(
             self.allocator,
             self.hs.served.port.peer.session_state.captp_version,
@@ -469,8 +525,8 @@ pub const Session = struct {
     /// opaque identity — a later use fails closed — and, for a remote
     /// capability, queues its exact wire GC release.
     pub fn release(self: *Session, cap: Capability) !void {
-        self.runtime.enterDriver();
-        defer self.runtime.leaveDriver();
+        self.enterCall();
+        defer self.leaveCall();
         try self.runtime.core.releaseCapability(cap, 1);
     }
 
@@ -478,12 +534,16 @@ pub const Session = struct {
     /// live session's readable progress, feed it. Returns this session's
     /// `Progress` so a caller's loop can act on `.closed`.
     pub fn step(self: *Session) !net.Progress {
+        self.enterCall();
+        defer self.leaveCall();
         return (try self.runtime.stepSession(self.hs, -1)) orelse .idle;
     }
 
     /// Poll-guarded `step`: wait up to `timeout_ms` for readable progress, or
     /// null on timeout. The multiplexing convenience over `step`.
     pub fn stepReadable(self: *Session, timeout_ms: i32) !?net.Progress {
+        self.enterCall();
+        defer self.leaveCall();
         return self.runtime.stepSession(self.hs, timeout_ms);
     }
 
@@ -491,6 +551,8 @@ pub const Session = struct {
     /// reports `.closed`. Far vows break with the close reason inside the
     /// pump's release, exactly as on the borrowing tier.
     pub fn serve(self: *Session) !void {
+        self.enterCall();
+        defer self.leaveCall();
         while (true) {
             const progress = (try self.runtime.stepSession(self.hs, -1)) orelse continue;
             if (progress == .closed) return;
@@ -543,15 +605,30 @@ pub fn connect(
     const nl = net.netlayer.resolve(netlayers, locator.transport) orelse return Error.UnknownTransport;
     const io = nl.io() orelse return Error.TransportNotPollable;
 
-    const runtime = try allocator.create(host_runtime.HostRuntime);
-    errdefer allocator.destroy(runtime);
-    runtime.* = try host_runtime.HostRuntime.init(allocator, io, netlayers, identity, opts);
-    errdefer runtime.deinit();
+    const shared = try allocator.create(SharedRuntime);
+    errdefer allocator.destroy(shared);
+    shared.* = .{
+        .runtime = try host_runtime.HostRuntime.init(allocator, io, netlayers, identity, opts),
+        .allocator = allocator,
+    };
+    errdefer shared.runtime.deinit();
 
-    const hs = try runtime.connectLocator(locator);
+    const hs = try shared.runtime.connectLocator(locator, .inherit);
 
     const session = try allocator.create(Session);
-    session.* = .{ .runtime = runtime, .hs = hs, .owner = .private_runtime, .allocator = allocator };
+    errdefer allocator.destroy(session);
+    try shared.runtime.claimSessionHandle(hs);
+    session.* = .{
+        .runtime = &shared.runtime,
+        .hs = hs,
+        .runtime_lease = .{ .retained = shared },
+        .allocator = allocator,
+        .deferred_release = .{
+            .session = hs,
+            .ctx = session,
+            .complete = Session.completeDeferredRelease,
+        },
+    };
     return session;
 }
 
@@ -574,12 +651,19 @@ pub fn connectUriOwned(
 /// live-session directory, shared routing. That directory is what lets a give
 /// minted for one partner resolve its still-open gifter session when another
 /// withdraws it. Each `accept` hands back a
-/// `*Session` view freed by `Session.deinit`; release every accepted view
-/// before `close`, which tears down the listener and the shared host.
+/// `*Session` handle freed by `Session.deinit`. Closing the Server stops new
+/// accepts while those yielded Sessions retain the shared Host runtime.
 pub const Server = struct {
     runtime: *host_runtime.HostRuntime,
+    shared: *SharedRuntime,
     listener: net.netlayer.Listener,
     allocator: std.mem.Allocator,
+    closed: bool = false,
+    close_failure: ?driver.OperationFailure = null,
+
+    fn ensureOpen(self: *const Server) error{ServerClosed}!void {
+        if (self.closed) return error.ServerClosed;
+    }
 
     /// Write the bound dialable designator (with the kernel-chosen port when
     /// `listen` bound port 0) into `out` and return the written slice.
@@ -588,7 +672,7 @@ pub const Server = struct {
     /// caller signs from, and an empty designator published as a locator is a
     /// locator nobody can dial.
     pub fn localDesignator(self: *const Server, out: []u8) driver.Error![]const u8 {
-        const designator = self.advertisedLocator().designator;
+        const designator = (try self.advertisedLocator()).designator;
         if (designator.len == 0 or designator.len > out.len) return driver.Error.DesignatorUnavailable;
         @memcpy(out[0..designator.len], designator);
         return out[0..designator.len];
@@ -600,6 +684,7 @@ pub const Server = struct {
     /// externally mapped address, or another adapter-owned route instead.
     /// Already-open sessions retain the snapshot their hello signed.
     pub fn setAdvertisedLocator(self: *Server, locator: model.PeerLocator) !void {
+        try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
         if (!std.mem.eql(u8, locator.transport, self.listener.transportName()))
@@ -609,10 +694,24 @@ pub const Server = struct {
 
     /// Borrow the currently advertised locator. The view remains valid until
     /// `setAdvertisedLocator`, removal through the lower host tier, or close.
-    pub fn advertisedLocator(self: *const Server) model.PeerLocator {
+    pub fn advertisedLocator(self: *const Server) driver.Error!model.PeerLocator {
+        try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
         return self.runtime.core.advertisedLocator(self.listener.transportName()).?;
+    }
+
+    /// Query or copy opaque transport-owned state that restores this
+    /// listener's local address. Null means this transport has no restoration
+    /// state. The complete size is returned and a short output is untouched.
+    pub fn restorationState(
+        self: *const Server,
+        out: []u8,
+    ) (driver.Error || net.netlayer.RestorationStateError)!?usize {
+        try self.ensureOpen();
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        return try self.listener.restorationState(out);
     }
 
     /// Accept one partner into its own `*Session` view of the shared host.
@@ -622,6 +721,7 @@ pub const Server = struct {
     /// it lazily; exact gifts retain that actor independently of later name
     /// changes.
     pub fn publishGiftable(self: *Server, name: []const u8, comptime Behavior: type, initial: Behavior) !void {
+        try self.ensureOpen();
         return self.runtime.publishGiftable(name, Behavior, initial);
     }
 
@@ -629,7 +729,11 @@ pub const Server = struct {
     /// fetch misses on every accepted session, while issued capabilities and
     /// deposited gifts keep the exact actor. A minted durable name is refused
     /// here; it leaves through `removeDurable` (ADR-0098).
-    pub fn unpublish(self: *Server, name: []const u8) error{ UnknownPublication, ReservedDurableNamespace }!void {
+    pub fn unpublish(
+        self: *Server,
+        name: []const u8,
+    ) error{ ServerClosed, HostClosing, ReenteredHost, WrongThread, UnknownPublication, ReservedDurableNamespace }!void {
+        try self.ensureOpen();
         return self.runtime.unpublish(name);
     }
 
@@ -641,6 +745,7 @@ pub const Server = struct {
     /// sans-io core only ever sees the bytes. `Behavior` is Value-shaped like
     /// every owning-tier behavior.
     pub fn publishDurable(self: *Server, allocator: std.mem.Allocator, comptime Behavior: type, initial: Behavior) ![]u8 {
+        try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
         var entropy: [engine.durable_swiss_entropy_len]u8 = undefined;
@@ -657,18 +762,37 @@ pub const Server = struct {
     /// Remove a minted durable publication (see `driver_core.Host.removeDurable`):
     /// the old sturdyref misses from now on, while issued capabilities and
     /// deposited gifts keep the exact actor.
-    pub fn removeDurable(self: *Server, swiss: []const u8) error{ UnknownPublication, NotDurableName }!void {
+    pub fn removeDurable(
+        self: *Server,
+        swiss: []const u8,
+    ) error{ ServerClosed, HostClosing, ReenteredHost, WrongThread, UnknownPublication, NotDurableName }!void {
+        try self.ensureOpen();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
         return self.runtime.core.removeDurable(swiss);
     }
 
     pub fn accept(self: *Server) !*Session {
+        try self.ensureOpen();
         const hs = try self.runtime.acceptWire(self.listener, self.listener.transportName());
+        // `acceptWire` returned this Runtime's fresh, unclaimed session. A
+        // release refusal before publication is an ownership invariant defect.
+        errdefer self.runtime.releaseWire(hs) catch unreachable;
         const session = try self.allocator.create(Session);
         errdefer self.allocator.destroy(session);
-        session.* = .{ .runtime = self.runtime, .hs = hs, .owner = .accepted, .allocator = self.allocator };
-        self.runtime.accepted_views += 1;
+        try self.runtime.claimSessionHandle(hs);
+        self.shared.retain();
+        session.* = .{
+            .runtime = self.runtime,
+            .hs = hs,
+            .runtime_lease = .{ .retained = self.shared },
+            .allocator = self.allocator,
+            .deferred_release = .{
+                .session = hs,
+                .ctx = session,
+                .complete = Session.completeDeferredRelease,
+            },
+        };
         return session;
     }
 
@@ -676,20 +800,35 @@ pub const Server = struct {
     /// stop-friendly twin of blocking accept: poll, check a latch, then
     /// `accept`.
     pub fn waitAcceptable(self: *Server, timeout_ms: i32) !bool {
+        try self.ensureOpen();
         return self.listener.waitAcceptable(timeout_ms);
     }
 
-    /// Stop listening and tear down the shared host. Every accepted view must
-    /// be released first: they hold sessions of the host this frees, so
-    /// closing under one is a use-after-free. That is refused with
-    /// `Error.SessionsStillOpen` rather than asserted, because an assert
-    /// compiles out in ReleaseFast and would turn a caller's ordering mistake
-    /// into a silent dangle in exactly the build they ship.
-    pub fn close(self: *Server) Error!void {
-        if (self.runtime.accepted_views != 0) return Error.SessionsStillOpen;
-        self.listener.close();
-        self.runtime.deinit();
-        self.allocator.destroy(self.runtime);
+    /// Stop accepting and release the Server's runtime lease. Sessions already
+    /// yielded by `accept` retain the runtime and remain usable until their own
+    /// close/deinit barrier. No pending-work policy belongs here: listener
+    /// close is admission-only.
+    pub fn close(self: *Server) ?driver.OperationFailure {
+        if (self.closed) return self.close_failure;
+        self.closed = true;
+        if (self.listener.close()) |failure| {
+            self.close_failure = .fromChain(failure);
+            self.runtime.noteTerminalOperationFailure(self.close_failure.?);
+        }
+        if (self.shared.releaseOutcome()) |failure| self.close_failure = failure;
+        return self.close_failure;
+    }
+
+    /// Stop admission if needed, then release the owning Server handle.
+    pub fn deinit(self: *Server) void {
+        const allocator = self.allocator;
+        if (!self.closed) {
+            self.closed = true;
+            if (self.listener.close()) |failure|
+                self.runtime.noteTerminalOperationFailure(.fromChain(failure));
+            _ = self.shared.releaseImplicit();
+        }
+        allocator.destroy(self);
     }
 };
 
@@ -704,23 +843,25 @@ pub fn listen(
     config: net.netlayer.ListenConfig,
     identity: driver.AcceptIdentity,
     opts: SessionOptions,
-) !Server {
+) !*Server {
     // A transport with no pollable fd cannot back a multiplexed blocking wait;
     // refuse it by its own name rather than as an entropy failure.
     const io = netlayer.io() orelse return Error.TransportNotPollable;
-    const runtime = try allocator.create(host_runtime.HostRuntime);
-    errdefer allocator.destroy(runtime);
+    const shared = try allocator.create(SharedRuntime);
+    errdefer allocator.destroy(shared);
     // The server's own transport is its immutable dial table: an accepted
     // session that receives a give naming a third peer redeems it there.
     try host_runtime.HostRuntime.initWithOwnNetlayer(
-        runtime,
+        &shared.runtime,
         allocator,
         io,
         netlayer,
         acceptToIdentity(identity),
         opts,
     );
-    errdefer runtime.deinit();
+    shared.allocator = allocator;
+    shared.leases = 1;
+    errdefer shared.runtime.deinit();
 
     var listen_config = config;
     listen_config.identity = switch (identity) {
@@ -729,17 +870,20 @@ pub fn listen(
     };
     if (netlayer.designatorScheme() == .key and listen_config.identity == null)
         return Error.EphemeralIdentityOnKeyedTransport;
-    var listener = try netlayer.listen(allocator, listen_config);
-    errdefer listener.close();
-
-    // A rendezvous listener may own network registration in a cancellable
-    // background task. Do not sign or publish its locator until that task has
-    // made the locator reachable. Ordinary bound listeners are ready already.
-    const ready_timeout: i32 = switch (opts.handshake) {
-        .unbounded => -1,
-        .ms => |milliseconds| @max(milliseconds, 0),
+    var transport_listener = try shared.runtime.bindListener(
+        netlayer.transportName(),
+        listen_config.designator,
+        listen_config.options,
+    );
+    var owns_transport_listener = true;
+    errdefer if (owns_transport_listener) {
+        if (shared.runtime.closeListener(&transport_listener)) |failure|
+            shared.runtime.noteTerminalOperationFailure(failure);
     };
-    if (!try listener.waitReady(ready_timeout)) return Error.HandshakeTimedOut;
+    var listener = shared.runtime.takeStreamListener(&transport_listener) orelse return Error.TransportNotPollable;
+    owns_transport_listener = false;
+    errdefer if (listener.close()) |failure|
+        shared.runtime.noteTerminalOperationFailure(.fromChain(failure));
 
     const bound_locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, bound_locator);
@@ -752,9 +896,16 @@ pub fn listen(
                 return Error.UnheldIdentity;
         }
     }
-    try runtime.core.setAdvertisedLocator(bound_locator);
+    try shared.runtime.core.setAdvertisedLocator(bound_locator);
 
-    return .{ .runtime = runtime, .listener = listener, .allocator = allocator };
+    const server = try allocator.create(Server);
+    server.* = .{
+        .runtime = &shared.runtime,
+        .shared = shared,
+        .listener = listener,
+        .allocator = allocator,
+    };
+    return server;
 }
 
 /// Map the responder signing posture onto the dialer-shaped `Identity` the

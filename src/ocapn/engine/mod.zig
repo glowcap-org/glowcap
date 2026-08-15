@@ -15,6 +15,7 @@
 //! events. Everything that touches the outside world lives above this layer.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const codec = @import("codec");
 const foundation = @import("foundation");
@@ -69,9 +70,22 @@ pub const ActionFifo = fifo.ActionFifo;
 /// drained peer must fit back under the 2 KiB warmed per-connection budget,
 /// which freeing (rather than shrinking-to-bound) satisfies by construction.
 const steady_queue_bytes = 4096;
-/// The same bound, exposed so a test can size a burst past it rather than
-/// hardcoding the number.
-pub const fifo_steady_bytes = steady_queue_bytes;
+/// Narrow white-box support for engine tests. Empty in production builds so
+/// fixture constructors and budget constants never become library API.
+pub const testing = if (builtin.is_test) struct {
+    /// The queue-retention bound, exposed so a test can size a burst past it
+    /// without hardcoding the production value.
+    pub const queue_retain_bytes = steady_queue_bytes;
+
+    /// Already-open v1.0 peer for tests that inject frames directly. Real
+    /// sessions start with `Peer.initNegotiating` and authenticate
+    /// `op:start-session`.
+    pub fn initRawOpenPeer(allocator: std.mem.Allocator) Peer {
+        return Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
+            .captp_version = model.CaptpVersion.v1_0,
+        }));
+    }
+} else struct {};
 /// A `Node` connection handle (ADR-0066), re-exported alongside `Node`.
 pub const PeerId = @import("peer_id.zig").PeerId;
 pub const pairing = @import("pairing.zig");
@@ -368,6 +382,19 @@ pub const AbortInfo = struct {
     message: []const u8,
     /// `@errorName` of the originating Zig error.
     error_name: []const u8,
+    /// Failure encoding or queueing the projected abort.
+    /// Null means no abort applied or its terminal frame was published.
+    abort_delivery_error: ?anyerror = null,
+    /// The first cleanup or consequence failure after `error_name`. This is
+    /// separate from `abort_delivery_error`, whose meaning is specifically
+    /// failure to publish an `op:abort`.
+    secondary_error: ?anyerror = null,
+    /// Number of secondary failures observed. The first name is retained;
+    /// this count saturates at 255 rather than wrapping if a broken owner
+    /// reports more consequences than the bounded diagnostic can name. The
+    /// compact counter uses padding already paid by every Peer, so richer
+    /// failure reporting does not tax the 500k-session footprint budget.
+    secondary_error_count: u8 = 0,
 };
 
 /// One inbound `withdraw-gift` parked until its gift is deposited (ADR-0100).
@@ -465,7 +492,7 @@ pub const Peer = struct {
     /// Nothing outside this file names this field. Reads go through
     /// `demandedPartnerKey`, `verifiedChannelKey`, and
     /// `partnerDurableProvenance`; writes go through the two verbs below,
-    /// which is what makes them the whole story. `meta-check`'s
+    /// which is what makes them the whole story. `source-check`'s
     /// `checkDurablePinWriters` holds both halves.
     durable_pin: DurablePin = .{},
     /// The typed cause of the most recent local dispatch failure — read it
@@ -483,16 +510,6 @@ pub const Peer = struct {
     /// and authenticates `op:start-session` instead.
     pub fn init(allocator: std.mem.Allocator) Peer {
         return initWithSession(allocator, session.Session.init(allocator));
-    }
-
-    /// Already-open v1.0 fixture peer for tests that inject frames directly.
-    /// Real sessions should start with `initNegotiating` and authenticate
-    /// `op:start-session`; `next` should arrive through negotiation, not through
-    /// this raw-open shortcut.
-    pub fn initRawOpenFixture(allocator: std.mem.Allocator) Peer {
-        return initWithSession(allocator, session.Session.initWith(allocator, .{
-            .captp_version = model.CaptpVersion.v1_0,
-        }));
     }
 
     /// Negotiated knobs for `initNegotiatingWith`. Version, codec, and feature
@@ -1132,50 +1149,12 @@ pub const Peer = struct {
         advertised: model.PeerLocator,
         expected: model.Preference,
     ) session.Error!void {
-        const actual = try preferenceFromExactHints(advertised.hints);
+        // A named repeat of the one preference parse: the stamp above and
+        // `validateSend` each read the hints again. Session-open only, zero
+        // allocation; folding the three reads would thread parse state through
+        // the send path for a cost the wire never sees.
+        const actual = try session.parsePreferenceHints(advertised.hints);
         if (!std.meta.eql(actual, expected)) return session.Error.MalformedMessage;
-    }
-
-    fn preferenceFromExactHints(hints: model.Hints) session.Error!model.Preference {
-        var out = model.Preference.baseline;
-        var seen_version = false;
-        var seen_codec = false;
-        var seen_features = false;
-        for (hints.entries, 0..) |entry, i| {
-            for (hints.entries[0..i]) |seen| {
-                if (std.mem.eql(u8, seen.name, entry.name)) return session.Error.MalformedMessage;
-            }
-            if (std.mem.eql(u8, entry.name, model.transport.hint_captp_version)) {
-                if (seen_version) return session.Error.MalformedMessage;
-                seen_version = true;
-                const text = switch (entry.value) {
-                    .string => |value| value,
-                    else => return session.Error.MalformedMessage,
-                };
-                out.captp_version = model.CaptpVersion.fromWireString(text) orelse
-                    return session.Error.MalformedMessage;
-            } else if (std.mem.eql(u8, entry.name, model.transport.hint_codec)) {
-                if (seen_codec) return session.Error.MalformedMessage;
-                seen_codec = true;
-                const text = switch (entry.value) {
-                    .string => |value| value,
-                    else => return session.Error.MalformedMessage,
-                };
-                const id = std.fmt.parseInt(u16, text, 10) catch
-                    return session.Error.MalformedMessage;
-                out.codec = @enumFromInt(id);
-            } else if (std.mem.eql(u8, entry.name, model.transport.hint_features)) {
-                if (seen_features) return session.Error.MalformedMessage;
-                seen_features = true;
-                const text = switch (entry.value) {
-                    .string => |value| value,
-                    else => return session.Error.MalformedMessage,
-                };
-                out.features = model.FeatureSet.fromWireString(text) orelse
-                    return session.Error.MalformedMessage;
-            }
-        }
-        return out;
     }
 
     /// Queue the recipient half of a three-party handoff. Body lives in
@@ -1318,10 +1297,8 @@ pub const Peer = struct {
             // assertion would hold only in a safe build: `perf-check` and
             // `release-pack` compile it out. The overflow and allocation paths
             // are reported, as is a second profile claim in one hello.
-            for (carried, 0..) |entry, i| {
-                for (carried[0..i]) |seen| {
-                    if (std.mem.eql(u8, seen.name, entry.name)) return Error.DuplicateHintName;
-                }
+            if (model.firstDuplicateHintName(carried) != null) return Error.DuplicateHintName;
+            for (carried) |entry| {
                 // A caller that supplied the profile itself keeps its encoding:
                 // replacing it would change the bytes the partner verifies the
                 // signature over. No caller in this tree does, and this refuses
@@ -1617,10 +1594,13 @@ pub const Peer = struct {
         var prepared_fires = pipeline.prepareImportedPromiseFires(self, import_position, row_id, resolution) catch |err| {
             if (commit_under_pressure and (err == error.OutOfMemory or err == error.OutboundBackpressure)) {
                 // Preparation restored the listener list before returning.
-                // Every row check above still holds on this single-owner peer,
-                // so recording from preowned bytes is now infallible.
-                const stored = self.session_state.recordRelayedResolution(import_position, row_id, resolution) catch unreachable;
-                std.debug.assert(stored);
+                // Recording owns the preowned resolution on every outcome.
+                // Keep its ordinary typed refusals intact even though the row
+                // checks above make them lifecycle invariants here: a library
+                // must return a violated invariant to its owner, not terminate
+                // the process on the owner's behalf.
+                const stored = try self.session_state.recordRelayedResolution(import_position, row_id, resolution);
+                if (!stored) return;
                 std.debug.assert(self.pending_imported_fire_retries < std.math.maxInt(u32));
                 self.pending_imported_fire_retries += 1;
                 return;
@@ -1715,6 +1695,27 @@ pub const Peer = struct {
             .message = if (classified.abort) |a| a.message else "",
             .error_name = @errorName(err),
         };
+    }
+
+    /// Attach the consequence that prevented a projected abort from reaching
+    /// outbound. The originating failure remains authoritative in `lastAbort`;
+    /// this second name prevents its delivery failure from disappearing.
+    pub fn recordAbortDeliveryFailure(self: *Peer, err: anyerror) void {
+        const info = &(self.last_abort orelse unreachable);
+        info.abort_delivery_error = err;
+    }
+
+    /// Attach a cleanup or consequence failure without replacing the first
+    /// failure at this boundary. If no first failure exists, `err` becomes it;
+    /// callers therefore cannot accidentally manufacture a secondary-only
+    /// diagnostic.
+    pub fn recordSecondaryFailure(self: *Peer, err: anyerror) void {
+        const info = &(self.last_abort orelse {
+            self.recordFailure(err);
+            return;
+        });
+        if (info.secondary_error == null) info.secondary_error = err;
+        info.secondary_error_count +|= 1;
     }
 
     fn stepInner(self: *Peer) !StepOutcome {

@@ -35,20 +35,9 @@
 
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
-import {
-  type EngineError,
-  type EngineResult,
-  err,
-  ok,
-  validationError,
-} from "../errors.ts";
+import { type EngineError, type EngineResult, err, ok, validationError } from "../errors.ts";
 import type { EntityKind } from "./refs.ts";
-import {
-  ENTITY_EDGES,
-  EVENT_EDGES,
-  readEdgeRef,
-  writeEdgeRef,
-} from "./edges.ts";
+import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, writeEdgeRef } from "./edges.ts";
 import { type ClipboardEntities, type ClipboardPayload } from "./clipboard.ts";
 import { ENTITIES_KEY } from "./walk.ts";
 
@@ -132,9 +121,7 @@ function validateExternalRefs(
   }
   if (missing.length === 0) return null;
   return validationError(
-    `Paste references entities that don't exist in the target document: ${
-      missing.join(", ")
-    }.`,
+    `Paste references entities that don't exist in the target document: ${missing.join(", ")}.`,
     "Include the referenced entities in your selection before copying, " +
       "or add them to the destination first.",
   );
@@ -304,9 +291,7 @@ function mergeIntoDoc(
       observations: [] as TimelineEvent[],
     }],
   };
-  const sources = existingRecording.sources.map((src, i) =>
-    i === 0 ? { ...src, observations: allEvents } : src
-  );
+  const sources = existingRecording.sources.map((src, i) => i === 0 ? { ...src, observations: allEvents } : src);
   return {
     ...doc,
     recording: { ...existingRecording, sources },

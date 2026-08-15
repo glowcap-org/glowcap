@@ -71,7 +71,7 @@ export function spawnRelay(inv: RelayInvocation): Deno.ChildProcess {
 	}).spawn();
 }
 
-/** Spawn a native side process (dlopen stack; needs FFI), from the root. */
+/** Spawn a native side process (dlopen runtime; needs FFI), from the root. */
 export function spawnNative(script: string): Deno.ChildProcess {
 	return new Deno.Command(Deno.execPath(), {
 		args: [

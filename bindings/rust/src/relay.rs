@@ -9,13 +9,60 @@ use core::marker::PhantomData;
 
 use crate::error_slot::error_slot;
 use crate::sys::relay as ffi;
-use crate::{Context, Result};
+use crate::{Context, HintValue, HintWireForm, Locator, Result};
 
 error_slot!(
 	fn check_relay;
 	fn relay_last_error;
 	ffi::pancake_relay_last_error
 );
+
+fn profile_locator(transport: &str, designator: &str, relay_url: &str) -> Locator {
+	let mut hints = std::collections::BTreeMap::new();
+	hints.insert("rendezvous-relay".to_string(), HintValue::String(relay_url.to_string()));
+	Locator {
+		transport: transport.to_string(),
+		designator: designator.to_string(),
+		hints,
+		hint_wire_form: HintWireForm::Map,
+	}
+}
+
+fn route_from_locator(locator: &Locator) -> Result<&str> {
+	if locator.transport != crate::TRANSPORT_KEYED_RELAY && locator.transport != crate::TRANSPORT_NOISE_RELAY {
+		return Err(crate::Error::with_detail(
+			crate::sys::ERR_INVALID_ARGUMENT,
+			format!("relay provider cannot realize transport {:?}", locator.transport),
+		));
+	}
+	locator
+		.string_hint("rendezvous-relay")?
+		.filter(|route| !route.is_empty())
+		.ok_or_else(|| {
+			crate::Error::with_detail(
+				crate::sys::ERR_INVALID_ARGUMENT,
+				"relay locator requires a non-empty rendezvous-relay hint".to_string(),
+			)
+		})
+}
+
+/// Identity-addressed cleartext over the relay provider package.
+pub mod keyed {
+	use crate::Locator;
+
+	pub fn locator(designator: &str, relay_url: &str) -> Locator {
+		super::profile_locator(crate::TRANSPORT_KEYED_RELAY, designator, relay_url)
+	}
+}
+
+/// Noise_XK-sealed streams over the relay provider package.
+pub mod noise {
+	use crate::Locator;
+
+	pub fn locator(designator: &str, relay_url: &str) -> Locator {
+		super::profile_locator(crate::TRANSPORT_NOISE_RELAY, designator, relay_url)
+	}
+}
 
 /// URLs used to construct the shared native relay provider.
 #[derive(Clone, Copy, Debug)]
@@ -63,54 +110,73 @@ impl<'ctx> Runtime<'ctx> {
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
 		check_relay(unsafe { ffi::pancake_relay_runtime_new(&c, &mut raw) })?;
-		Ok(Self {
-			raw,
-			_ctx: PhantomData,
-		})
+		Ok(Self { raw, _ctx: PhantomData })
 	}
 
 	pub fn new_in(context: &'ctx Context, config: Config<'_>) -> Result<Self> {
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
 		check_relay(unsafe { ffi::pancake_relay_runtime_new_in(context.raw(), &c, &mut raw) })?;
-		Ok(Self {
-			raw,
-			_ctx: PhantomData,
-		})
+		Ok(Self { raw, _ctx: PhantomData })
 	}
 
-	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::TransportProvider<'_>> {
+	pub(crate) fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
 		let mut package = unsafe { core::mem::zeroed() };
 		check_relay(unsafe { ffi::pancake_relay_transport_provider(self.raw, &mut package) })?;
-		Ok(crate::driver_loop::TransportProvider {
+		Ok(crate::driver_loop::ProviderPackage {
 			package,
 			_owner: PhantomData,
 		})
+	}
+
+	/// Consume the constructor lease and report the native teardown barrier.
+	/// After provider installation this normally releases only that lease; the
+	/// driver reports final asynchronous teardown when it closes.
+	pub fn close(mut self) -> Result<()> {
+		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		check_relay(unsafe { ffi::pancake_relay_runtime_release(raw) })
 	}
 }
 
 impl Drop for Runtime<'_> {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_relay_runtime_release(self.raw) };
+		if !self.raw.is_null() {
+			if let Err(error) = check_relay(unsafe { ffi::pancake_relay_runtime_release(self.raw) }) {
+				crate::record_runtime_failure(crate::FailureLayer::Transport, "relay-runtime-drop-release", error);
+			}
+		}
 	}
 }
 
 /// Install the shared keyed-relay/noise-relay package into a native driver.
 pub fn install_provider(driver: &crate::driver_loop::DriverLoop, config: Config<'_>) -> Result<()> {
-	if driver.has_transport(crate::abi_constants::TRANSPORT_KEYED_RELAY)? {
-		return Ok(());
-	}
 	let runtime = Runtime::new(config)?;
-	driver.add_provider(runtime.transport_provider()?)
+	driver.add_provider(runtime.transport_provider()?)?;
+	runtime.close()
 }
 
-pub(crate) fn ensure_loop_provider(
-	loop_shared: &crate::driver_loop::LoopShared,
-	route: &str,
-) -> Result<()> {
-	if loop_shared.has_transport(crate::abi_constants::TRANSPORT_KEYED_RELAY)? {
-		return Ok(());
-	}
-	let runtime = Runtime::new(Config::dial_only(route))?;
-	loop_shared.add_provider(runtime.transport_provider()?)
+/// Configure this archive's keyed-relay/noise-relay package for a generic
+/// [`crate::Runtime::connect`] operation.
+pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
+	let relay_url = config.relay_url.to_owned();
+	let register_url = config.register_url.map(str::to_owned);
+	crate::driver_loop::Provider::new(move |lp| {
+		let relay_url = relay_url.clone();
+		let register_url = register_url.clone();
+		async move {
+			let runtime = Runtime::new(Config {
+				relay_url: &relay_url,
+				register_url: register_url.as_deref(),
+			})?;
+			lp.add_provider(runtime.transport_provider()?)?;
+			runtime.close()
+		}
+	})
+}
+
+/// Configure a dial-only native provider from a routed relay locator.
+/// Locator interpretation remains in this transport package rather than the
+/// generic dial path or application.
+pub fn provider_for(locator: &Locator) -> Result<crate::driver_loop::Provider> {
+	Ok(provider(Config::dial_only(route_from_locator(locator)?)))
 }

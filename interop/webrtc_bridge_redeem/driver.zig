@@ -236,7 +236,7 @@ fn exporterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, 
     const io = threaded.io();
 
     var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var node = Node{
         .designator = designatorOf(exporter_seed),
         .key = crypto.SecretKey.fromSeed(exporter_seed).publicKey(),
@@ -247,7 +247,7 @@ fn exporterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, 
 
     var session_root: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = Host.init(allocator, exporter_seed, session_root, blk: {
+    var host = try Host.init(allocator, exporter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -279,7 +279,7 @@ fn exporterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &shared.done, &loop_err });
     defer {
-        loop.backend.wake();
+        loop.backend.wake() catch |err| std.debug.panic("exporter wake failed: {s}", .{@errorName(err)});
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("exporter loop: {s}\n", .{@errorName(err)});
     }
@@ -407,7 +407,7 @@ fn gifterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, re
     const io = threaded.io();
 
     var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var node = Node{
         .designator = designatorOf(gifter_seed),
         .key = crypto.SecretKey.fromSeed(gifter_seed).publicKey(),
@@ -418,7 +418,7 @@ fn gifterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, re
 
     var session_root: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = Host.init(allocator, gifter_seed, session_root, blk: {
+    var host = try Host.init(allocator, gifter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -449,7 +449,7 @@ fn gifterTask(allocator: std.mem.Allocator, hub: *Hub, shared: *RedeemShared, re
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &shared.done, &loop_err });
     defer {
-        loop.backend.wake();
+        loop.backend.wake() catch |err| std.debug.panic("gifter wake failed: {s}", .{@errorName(err)});
         loop_future.await(io);
         if (loop_err) |err| std.debug.print("gifter loop: {s}\n", .{@errorName(err)});
     }
@@ -567,7 +567,7 @@ pub fn main(init: std.process.Init) !void {
 
     // R's loop starts first so G's dial-to-R cannot race a hub with no R row.
     var recipient_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer recipient_resident.deinit();
+    defer recipient_resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var recipient_node = Node{
         .designator = recipient_designator,
         .key = crypto.SecretKey.fromSeed(recipient_seed).publicKey(),
@@ -578,7 +578,7 @@ pub fn main(init: std.process.Init) !void {
 
     var recipient_session_root: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&recipient_session_root) catch return error.HandshakeEntropyFailed;
-    var recipient_host = Host.init(allocator, recipient_seed, recipient_session_root, blk: {
+    var recipient_host = try Host.init(allocator, recipient_seed, recipient_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -605,7 +605,7 @@ pub fn main(init: std.process.Init) !void {
 
     defer {
         shared.done.store(true, .release);
-        loop.backend.wake();
+        loop.backend.wake() catch |err| std.debug.panic("recipient wake failed: {s}", .{@errorName(err)});
         exporter_future.await(io) catch |err| std.debug.print("exporter: {s}\n", .{@errorName(err)});
         gifter_future.await(io) catch |err| std.debug.print("gifter: {s}\n", .{@errorName(err)});
         loop_future.await(io);

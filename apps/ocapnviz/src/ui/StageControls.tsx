@@ -36,13 +36,7 @@ import {
 } from "../render/stage-view.ts";
 import { FitGlyph, RecenterGlyph } from "./glyphs.tsx";
 import { ScrubInput } from "./Timeline/ScrubInput.tsx";
-import {
-  RADIUS,
-  SEGMENT_CELL,
-  segmentCellClass,
-  SIZE,
-  SPACE,
-} from "./tokens.ts";
+import { RADIUS, SEGMENT_CELL, segmentCellClass, SIZE, SPACE } from "./tokens.ts";
 
 /**
  * Keep the keyboard on the stage when one of these is clicked.

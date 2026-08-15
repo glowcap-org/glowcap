@@ -289,7 +289,9 @@ void pancake_iroh_sidecar_endpoint_close(pancake_iroh_sidecar_endpoint *ep);
 /* Release an endpoint handle. Blocks while iroh delivers queued connection
  * closes, then shuts the runtime down. Free every connection minted from this
  * endpoint first. NULL is a no-op. */
-void pancake_iroh_sidecar_endpoint_free(pancake_iroh_sidecar_endpoint *ep);
+/* Consumes ep and returns 0 after clean shutdown, or -1 when teardown panicked.
+ * No panic crosses the archive boundary. */
+int32_t pancake_iroh_sidecar_endpoint_free(pancake_iroh_sidecar_endpoint *ep);
 
 #ifdef __cplusplus
 }

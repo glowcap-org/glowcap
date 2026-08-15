@@ -52,42 +52,33 @@ export const enlivenASturdyref = TimelineDocument.parse({
       id: "a-joins",
       t: 0,
       kind: "peer-joined",
-      peerId:
-        "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
+      peerId: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
       label: "Client",
       profile: "pancake",
-      designator:
-        "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
+      designator: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
     },
     {
       id: "b-joins",
       t: 0,
       kind: "peer-joined",
-      peerId:
-        "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
+      peerId: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
       label: "Archive server",
       profile: "pancake",
-      designator:
-        "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
+      designator: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
     },
     {
       id: "session-opens",
       t: 0,
       kind: "session-opened",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       a: {
-        peer:
-          "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
-        designator:
-          "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
+        peer: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
+        designator: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
         attributedBy: "self-reported",
       },
       b: {
-        peer:
-          "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
-        designator:
-          "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
+        peer: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
+        designator: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
         attributedBy: "authenticated-transport",
       },
       transport: "iroh",
@@ -100,8 +91,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
       t: 200,
       kind: "message-sent",
       messageId: "ss-out",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       from: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
       to: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
       arrivalT: 400,
@@ -119,8 +109,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
       t: 500,
       kind: "message-sent",
       messageId: "ss-back",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       from: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
       to: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
       arrivalT: 700,
@@ -137,8 +126,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
       id: "session-open",
       t: 700,
       kind: "session-state-changed",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       state: "open",
     },
     {
@@ -146,8 +134,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
       t: 1100,
       kind: "message-sent",
       messageId: "enliven-fetch",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       from: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
       to: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
       arrivalT: 1500,
@@ -164,8 +151,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
       t: 1800,
       kind: "message-sent",
       messageId: "enliven-resolve",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       from: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
       to: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
       arrivalT: 2200,
@@ -182,8 +168,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
       t: 2600,
       kind: "message-sent",
       messageId: "set-target",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       from: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
       to: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
       arrivalT: 3000,
@@ -200,8 +185,7 @@ export const enlivenASturdyref = TimelineDocument.parse({
       t: 3300,
       kind: "message-sent",
       messageId: "set-target-resolve",
-      sessionId:
-        "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
+      sessionId: "80053a30eeef4d931d6bdd2870b1b2f063765a3b9ec2eb64dd08d9aa00dfa760",
       from: "91d4a70c5e38b26f0a7d1c94e5b830f26a4c9d7e13850bf6a2c04e7d9b3f18ea",
       to: "3c8f0b6e4a92d715086bf3c7e2a940d51b6c8e30f7a24d9b5e01c6a83f2d7b04",
       arrivalT: 3700,

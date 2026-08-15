@@ -37,6 +37,27 @@ pub struct PancakeHostSession {
 	_private: [u8; 0],
 }
 
+/// Terminal owner-close policy shared by byte-fed Hosts and native drivers.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PancakeCloseOptions {
+	pub abi_version: c_uint,
+	pub struct_size: usize,
+	pub pending: c_uint,
+	pub grace_mode: c_uint,
+	pub grace_ms: c_uint,
+}
+
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeCloseOptions>() == PANCAKE_CLOSE_OPTIONS_SIZE);
+	assert!(offset_of!(PancakeCloseOptions, abi_version) == PANCAKE_CLOSE_OPTIONS_ABI_VERSION_OFF);
+	assert!(offset_of!(PancakeCloseOptions, struct_size) == PANCAKE_CLOSE_OPTIONS_STRUCT_SIZE_OFF);
+	assert!(offset_of!(PancakeCloseOptions, pending) == PANCAKE_CLOSE_OPTIONS_PENDING_OFF);
+	assert!(offset_of!(PancakeCloseOptions, grace_mode) == PANCAKE_CLOSE_OPTIONS_GRACE_MODE_OFF);
+	assert!(offset_of!(PancakeCloseOptions, grace_ms) == PANCAKE_CLOSE_OPTIONS_GRACE_MS_OFF);
+};
+
 /// The current turn, passed to a behavior callback so it can forward, spawn,
 /// and break while handling a deliver. Valid only for that callback's
 /// duration.
@@ -84,6 +105,8 @@ pub struct PancakeHostAction {
 	/// FAIL: the break reason; NULL otherwise.
 	pub message: *const c_uchar,
 	pub message_len: usize,
+	/// CLOSE: `OK` or `TIMEOUT`; FAIL: `BROKEN` or `CLOSED`.
+	pub result: c_int,
 }
 
 // Pin the hand-mirrored layout on LP64 (the linux x86_64/aarch64 targets the
@@ -102,6 +125,7 @@ const _: () = {
 	assert!(offset_of!(PancakeHostAction, value) == PANCAKE_HOST_ACTION_VALUE_OFF);
 	assert!(offset_of!(PancakeHostAction, message) == PANCAKE_HOST_ACTION_MESSAGE_OFF);
 	assert!(offset_of!(PancakeHostAction, message_len) == PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF);
+	assert!(offset_of!(PancakeHostAction, result) == PANCAKE_HOST_ACTION_RESULT_OFF);
 };
 
 /// One shared arm callback for `PancakeHostPumpHooks` (flush, close,
@@ -133,98 +157,21 @@ const _: () = {
 	assert!(offset_of!(PancakeHostPumpHooks, ctx) == PANCAKE_HOST_PUMP_HOOKS_CTX_OFF);
 	assert!(offset_of!(PancakeHostPumpHooks, flush) == PANCAKE_HOST_PUMP_HOOKS_FLUSH_OFF);
 	assert!(offset_of!(PancakeHostPumpHooks, close) == PANCAKE_HOST_PUMP_HOOKS_CLOSE_OFF);
-	assert!(
-		offset_of!(PancakeHostPumpHooks, need_gift_id) == PANCAKE_HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF
-	);
+	assert!(offset_of!(PancakeHostPumpHooks, need_gift_id) == PANCAKE_HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF);
 	assert!(offset_of!(PancakeHostPumpHooks, complete) == PANCAKE_HOST_PUMP_HOOKS_COMPLETE_OFF);
 	assert!(offset_of!(PancakeHostPumpHooks, dial) == PANCAKE_HOST_PUMP_HOOKS_DIAL_OFF);
-};
-
-/// The resolved dial `pancake_host_plan_dial` hands back: `shape` selects the
-/// live fields (HOST_PORT fills host/port, PEER_ID fills addresses/reach). host and
-/// addresses borrow the caller's transport/designator/hint input buffers.
-#[repr(C)]
-pub struct PancakeDialPlan {
-	pub shape: c_uint,
-	pub host: *const c_uchar,
-	pub host_len: usize,
-	pub port: u16,
-	pub addresses: *const c_uchar,
-	pub addresses_len: usize,
-	pub reach_kind: c_uint,
-	pub reach_value: c_uint,
-}
-
-// Pin the hand-mirrored layout on LP64, against `layouts_gen`
-// (`zig build gen-binding-ffi-layouts`), reflected off the real Zig
-// `PancakeDialPlan`.
-const _: () = {
-	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakeDialPlan>() == PANCAKE_DIAL_PLAN_SIZE);
-	assert!(offset_of!(PancakeDialPlan, shape) == PANCAKE_DIAL_PLAN_SHAPE_OFF);
-	assert!(offset_of!(PancakeDialPlan, host) == PANCAKE_DIAL_PLAN_HOST_OFF);
-	assert!(offset_of!(PancakeDialPlan, host_len) == PANCAKE_DIAL_PLAN_HOST_LEN_OFF);
-	assert!(offset_of!(PancakeDialPlan, port) == PANCAKE_DIAL_PLAN_PORT_OFF);
-	assert!(offset_of!(PancakeDialPlan, addresses) == PANCAKE_DIAL_PLAN_ADDRESSES_OFF);
-	assert!(offset_of!(PancakeDialPlan, addresses_len) == PANCAKE_DIAL_PLAN_ADDRESSES_LEN_OFF);
-	assert!(offset_of!(PancakeDialPlan, reach_kind) == PANCAKE_DIAL_PLAN_REACH_KIND_OFF);
-	assert!(offset_of!(PancakeDialPlan, reach_value) == PANCAKE_DIAL_PLAN_REACH_VALUE_OFF);
-};
-
-/// Resolved accept from `pancake_host_plan_accept` (signing designator + hint).
-#[repr(C)]
-pub struct PancakeAcceptPlan {
-	pub designator: *const c_uchar,
-	pub designator_len: usize,
-	pub direct_addresses_hint: *const c_uchar,
-	pub direct_addresses_hint_len: usize,
-}
-
-const _: () = {
-	use core::mem::{offset_of, size_of};
-	assert!(size_of::<PancakeAcceptPlan>() == PANCAKE_ACCEPT_PLAN_SIZE);
-	assert!(offset_of!(PancakeAcceptPlan, designator) == PANCAKE_ACCEPT_PLAN_DESIGNATOR_OFF);
-	assert!(
-		offset_of!(PancakeAcceptPlan, designator_len) == PANCAKE_ACCEPT_PLAN_DESIGNATOR_LEN_OFF
-	);
-	assert!(
-		offset_of!(PancakeAcceptPlan, direct_addresses_hint)
-			== PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF
-	);
-	assert!(
-		offset_of!(PancakeAcceptPlan, direct_addresses_hint_len)
-			== PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF
-	);
 };
 
 const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<PancakePartnerIdentity>() == PANCAKE_PARTNER_IDENTITY_SIZE);
-	assert!(
-		offset_of!(PancakePartnerIdentity, session_key) == PANCAKE_PARTNER_IDENTITY_SESSION_KEY_OFF
-	);
-	assert!(
-		offset_of!(PancakePartnerIdentity, session_key_len)
-			== PANCAKE_PARTNER_IDENTITY_SESSION_KEY_LEN_OFF
-	);
-	assert!(
-		offset_of!(PancakePartnerIdentity, designator) == PANCAKE_PARTNER_IDENTITY_DESIGNATOR_OFF
-	);
-	assert!(
-		offset_of!(PancakePartnerIdentity, designator_len)
-			== PANCAKE_PARTNER_IDENTITY_DESIGNATOR_LEN_OFF
-	);
-	assert!(
-		offset_of!(PancakePartnerIdentity, locator_record)
-			== PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_OFF
-	);
-	assert!(
-		offset_of!(PancakePartnerIdentity, locator_record_len)
-			== PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF
-	);
-	assert!(
-		offset_of!(PancakePartnerIdentity, provenance) == PANCAKE_PARTNER_IDENTITY_PROVENANCE_OFF
-	);
+	assert!(offset_of!(PancakePartnerIdentity, session_key) == PANCAKE_PARTNER_IDENTITY_SESSION_KEY_OFF);
+	assert!(offset_of!(PancakePartnerIdentity, session_key_len) == PANCAKE_PARTNER_IDENTITY_SESSION_KEY_LEN_OFF);
+	assert!(offset_of!(PancakePartnerIdentity, designator) == PANCAKE_PARTNER_IDENTITY_DESIGNATOR_OFF);
+	assert!(offset_of!(PancakePartnerIdentity, designator_len) == PANCAKE_PARTNER_IDENTITY_DESIGNATOR_LEN_OFF);
+	assert!(offset_of!(PancakePartnerIdentity, locator_record) == PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_OFF);
+	assert!(offset_of!(PancakePartnerIdentity, locator_record_len) == PANCAKE_PARTNER_IDENTITY_LOCATOR_RECORD_LEN_OFF);
+	assert!(offset_of!(PancakePartnerIdentity, provenance) == PANCAKE_PARTNER_IDENTITY_PROVENANCE_OFF);
 };
 
 /// Borrowed verified partner identity from
@@ -299,30 +246,23 @@ const _: () = {
 	assert!(offset_of!(PancakeTraceEvent, codec) == PANCAKE_TRACE_EVENT_CODEC_OFF);
 	assert!(offset_of!(PancakeTraceEvent, captp_version) == PANCAKE_TRACE_EVENT_CAPTP_VERSION_OFF);
 	assert!(offset_of!(PancakeTraceEvent, designator) == PANCAKE_TRACE_EVENT_DESIGNATOR_OFF);
-	assert!(
-		offset_of!(PancakeTraceEvent, designator_len) == PANCAKE_TRACE_EVENT_DESIGNATOR_LEN_OFF
-	);
+	assert!(offset_of!(PancakeTraceEvent, designator_len) == PANCAKE_TRACE_EVENT_DESIGNATOR_LEN_OFF);
 	assert!(offset_of!(PancakeTraceEvent, transport) == PANCAKE_TRACE_EVENT_TRANSPORT_OFF);
 	assert!(offset_of!(PancakeTraceEvent, transport_len) == PANCAKE_TRACE_EVENT_TRANSPORT_LEN_OFF);
 	assert!(offset_of!(PancakeTraceEvent, session_id) == PANCAKE_TRACE_EVENT_SESSION_ID_OFF);
-	assert!(
-		offset_of!(PancakeTraceEvent, session_id_len) == PANCAKE_TRACE_EVENT_SESSION_ID_LEN_OFF
-	);
+	assert!(offset_of!(PancakeTraceEvent, session_id_len) == PANCAKE_TRACE_EVENT_SESSION_ID_LEN_OFF);
 	assert!(offset_of!(PancakeTraceEvent, verb) == PANCAKE_TRACE_EVENT_VERB_OFF);
 	assert!(offset_of!(PancakeTraceEvent, verb_len) == PANCAKE_TRACE_EVENT_VERB_LEN_OFF);
 	assert!(offset_of!(PancakeTraceEvent, frame) == PANCAKE_TRACE_EVENT_FRAME_OFF);
 	assert!(offset_of!(PancakeTraceEvent, frame_len) == PANCAKE_TRACE_EVENT_FRAME_LEN_OFF);
-	assert!(
-		offset_of!(PancakeTraceEvent, frame_total_len) == PANCAKE_TRACE_EVENT_FRAME_TOTAL_LEN_OFF
-	);
+	assert!(offset_of!(PancakeTraceEvent, frame_total_len) == PANCAKE_TRACE_EVENT_FRAME_TOTAL_LEN_OFF);
 	assert!(offset_of!(PancakeTraceEvent, dropped) == PANCAKE_TRACE_EVENT_DROPPED_OFF);
 	assert!(offset_of!(PancakeTraceEvent, digest) == PANCAKE_TRACE_EVENT_DIGEST_OFF);
 };
 
 /// The trace callback: called synchronously at the fact site, on the host's
 /// one thread, with `event` and its views borrowed for the call.
-pub type PancakeTraceCallback =
-	Option<unsafe extern "C" fn(ctx: *mut c_void, event: *const PancakeTraceEvent)>;
+pub type PancakeTraceCallback = Option<unsafe extern "C" fn(ctx: *mut c_void, event: *const PancakeTraceEvent)>;
 
 // The raw extern block is generated (`host_fns_gen.rs`, `zig build
 // gen-binding-rust-ffi`): types reflected from the Zig exports, parameter

@@ -88,8 +88,9 @@ piece is classified against the layer it lives in.
   I/O, and closure surface as stable peer-id readiness events with non-blocking
   try-I/O, so one reactor can serve many DataChannels. The private blocking byte
   calls exist only for the native `BlockingSession` adapter. Readiness uses a
-  coalescing self-pipe: a discarded `WouldBlock` write cannot lose a wake because
-  a full pipe is already poll-readable. That one `nudge` operation serves both
+  coalescing self-pipe: `WouldBlock` is success because a full pipe is already
+  poll-readable; every other write or drain fault is retained and terminalizes
+  the backend rather than disappearing. That one `nudge` operation serves both
   event publication and the re-wake after a short record drain, and the fd
   exposed to callers has its write direction shut down. Its `Cargo.lock` is
   committed, like iroh's, because the

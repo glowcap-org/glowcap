@@ -80,7 +80,7 @@ fn fetchOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !v
     // exercising designator parsing end to end rather than the raw-address shim.
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", address.getPort());
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
@@ -128,14 +128,14 @@ test "tcp.locator formats a host:port designator into fixed-width caller storage
     var buf: [tcp.designator_buf_len]u8 = undefined;
 
     const v4 = try tcp.parseHostPort("127.0.0.1", 9000);
-    const loc4 = tcp.locator(&buf, v4);
+    const loc4 = tcp.locatorFromAddress(&buf, v4);
     try std.testing.expectEqualStrings(tcp.transport_name, loc4.transport);
     try std.testing.expectEqualStrings("127.0.0.1:9000", loc4.designator);
     const back4 = try tcp.parseDesignator(loc4.designator);
     try std.testing.expect(back4.eql(&v4));
 
     const v6 = try tcp.parseHostPort("::1", 65535);
-    const loc6 = tcp.locator(&buf, v6);
+    const loc6 = tcp.locatorFromAddress(&buf, v6);
     try std.testing.expectEqualStrings("[::1]:65535", loc6.designator);
     try std.testing.expect(loc6.designator.len <= tcp.designator_buf_len);
     const back6 = try tcp.parseDesignator(loc6.designator);

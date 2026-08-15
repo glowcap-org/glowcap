@@ -1,10 +1,11 @@
+import * as tcp from "@pancake/tcp";
 // The rooms browser-peer proof:
 // a wasm browser peer drives the real room-directory capabilities through
 // serve.ts's `/relay` byte pipe, with no native dlopen anywhere in this process.
 //
 // This is the load-bearing slice — it retires the one real risk in
-// moving the browser onto the stack. Like `bindings/ts/web/test/web_peer_test.ts`,
-// it is its own process so the wasm adapter and any native stack never share a
+// moving the browser onto the runtime. Like `bindings/ts/web/test/web_peer_test.ts`,
+// it is its own process so the wasm adapter and any native runtime never share a
 // module graph: this process loads ONLY `@pancake/web`; the room server and
 // serve.ts's relay run as child processes with their own native graphs. If this
 // is green, the served-page work that remains (bundle the graph, swap the
@@ -18,9 +19,9 @@
 
 import { init } from "@pancake/web";
 // The profile constants only — importing `lib/locator.ts` would pull
-// `@pancake/stack` in before `init` installs the wasm adapter, and the stack
+// `@pancake/runtime` in before `init` installs the wasm adapter, and the runtime
 // binds its adapter at load. So the browser peer's Host is minted from the
-// stack `init` returns, wearing the same pair every other rooms peer wears.
+// `init` returns, wearing the same pair every other rooms peer wears.
 import { CAPTP_VERSION, CODEC } from "../lib/protocol.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
@@ -62,6 +63,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -77,20 +79,18 @@ const web = new Deno.Command("deno", {
 try {
 	await waitForHttp(httpPort);
 
-	// Load the stack over the wasm peer, dialing every locator through the
+	// Load the runtime over the wasm peer, dialing every locator through the
 	// relay: host:port becomes ws://<web-host>/relay?target=host:port.
-	const stack = await init({
+	const runtime = await init({
 		wasm: await Deno.readFile(WASM),
 		wsUrl: (host, port) => `ws://127.0.0.1:${httpPort}/relay?target=${host}:${port}`,
+		codec: CODEC,
+		captpVersion: CAPTP_VERSION,
 	});
 
 	// A plain tcp locator to the room server, dialed through the relay. The
 	// keyed handshake terminates inside the wasm session.
-	const session = await stack.connect(
-		stack.tcpLocator("127.0.0.1", roomPort),
-		undefined,
-		new stack.Host(undefined, { codec: CODEC, captpVersion: CAPTP_VERSION }),
-	);
+	const session = await runtime.connect(tcp.locator("127.0.0.1", roomPort));
 	session.serve().catch(() => {});
 	try {
 		// The real room vocabulary, as a capability call from the wasm peer —

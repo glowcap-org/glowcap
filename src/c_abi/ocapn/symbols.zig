@@ -22,9 +22,21 @@ pub const symbols = [_]Symbol{
         .out_params = &.{1},
         .racket_omit = "unused: the Racket binding keeps every archive on the library allocator",
     },
+    .{ .name = "pancake_context_report_failure", .pointer_params = &.{1} },
+    .{
+        .name = "pancake_context_allocate_lifecycle_id",
+        .out_params = &.{1},
+        .rust_omit = "native Host construction assigns Host identity; Rust currently owns no other Context-scoped diagnostic lifecycle",
+        .ts_omit = "native Host construction assigns Host identity; TypeScript currently owns no other Context-scoped diagnostic lifecycle",
+        .python_omit = "native Host construction assigns Host identity; Python currently owns no other Context-scoped diagnostic lifecycle",
+        .racket_omit = "native Host construction assigns Host identity; Racket currently owns no other Context-scoped diagnostic lifecycle",
+    },
+    .{
+        .name = "pancake_context_next_failure",
+        .out_params = &.{ 1, 2, 4 },
+    },
     .{
         .name = "pancake_context_release",
-        .racket_omit = "unused: the Racket binding keeps every archive on the library allocator",
     },
     .{ .name = "pancake_managed_frame_release", .out_params = &.{} },
     .{
@@ -41,10 +53,10 @@ pub const symbols = [_]Symbol{
         .section = "OCapN locator URIs — core vocabulary in libpancake_ocapn, so a consumer\nreaches them without any transport archive. The one grammar every binding\nshares.",
     },
     .{ .name = "pancake_uri_parse_peer_in", .out_params = &.{3} },
-    .{ .name = "pancake_uri_parse_sturdyref", .out_params = &.{2} },
-    .{ .name = "pancake_uri_parse_sturdyref_in", .out_params = &.{3} },
+    .{ .name = "pancake_uri_parse_sturdyref", .out_params = &.{3} },
+    .{ .name = "pancake_uri_parse_sturdyref_in", .out_params = &.{4} },
     .{ .name = "pancake_uri_format_peer", .out_params = &.{ 9, 11 } },
-    .{ .name = "pancake_uri_format_sturdyref", .out_params = &.{ 11, 13 } },
+    .{ .name = "pancake_uri_format_sturdyref", .out_params = &.{ 12, 14 } },
     .{ .name = "pancake_locator_new", .out_params = &.{5} },
     .{ .name = "pancake_locator_new_in", .out_params = &.{6} },
     .{ .name = "pancake_locator_clone", .out_params = &.{1} },
@@ -68,8 +80,7 @@ pub const symbols = [_]Symbol{
     // reason on its row.
     .{
         .name = "pancake_context_new",
-        .ts_omit = "unused: the TS binding mints contexts only through new_with_allocator",
-        .racket_omit = "unused: the Racket binding keeps every archive on the library allocator",
+        .out_params = &.{0},
     },
     .{
         .name = "pancake_clear_last_error",

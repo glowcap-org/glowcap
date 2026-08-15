@@ -125,6 +125,118 @@ typedef struct PancakeAllocator {
 int32_t pancake_context_new(PancakeContext **out_context);
 /* Create a context backed by caller callbacks. The callbacks must be thread-safe. */
 int32_t pancake_context_new_with_allocator(const PancakeAllocator *allocator, PancakeContext **out_context);
+/* Allocate a stable Context-local lifecycle identity. Zero is reserved for no identity; exhaustion leaves out_id unchanged. */
+int32_t pancake_context_allocate_lifecycle_id(PancakeContext *context, uint64_t *out_id);
+
+/* ── Unreturned failures ── */
+#define PANCAKE_FAILURE_EVENT_ABI_VERSION 1
+#define PANCAKE_FAILURE_LAYER_CORE 0
+#define PANCAKE_FAILURE_LAYER_DRIVER 1
+#define PANCAKE_FAILURE_LAYER_TRANSPORT 2
+#define PANCAKE_FAILURE_LAYER_BINDING 3
+#define PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER 4
+#define PANCAKE_FAILURE_SCOPE_PROCESS 0
+#define PANCAKE_FAILURE_SCOPE_CONTEXT 1
+#define PANCAKE_FAILURE_SCOPE_HOST 2
+#define PANCAKE_FAILURE_SCOPE_SESSION 3
+#define PANCAKE_FAILURE_SCOPE_LISTENER 4
+#define PANCAKE_FAILURE_SCOPE_TRANSPORT 5
+#define PANCAKE_FAILURE_SCOPE_OPERATION 6
+#define PANCAKE_FAILURE_TRUNCATED_OPERATION 1
+#define PANCAKE_FAILURE_TRUNCATED_PRIMARY_NAME 2
+#define PANCAKE_FAILURE_TRUNCATED_PRIMARY_MESSAGE 4
+#define PANCAKE_FAILURE_TRUNCATED_SECONDARY_NAME 8
+#define PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE 16
+typedef struct PancakeFailureReport {
+    /* PANCAKE_FAILURE_EVENT_ABI_VERSION */
+    uint32_t abi_version;
+    /* sizeof(PancakeFailureReport) */
+    size_t struct_size;
+    /* PANCAKE_FAILURE_LAYER_* */
+    uint32_t layer;
+    /* PANCAKE_FAILURE_SCOPE_* */
+    uint32_t scope_kind;
+    /* stable identity within the scope */
+    uint64_t scope_id;
+    /* stable operation identity, or zero */
+    uint64_t operation_id;
+    /* stable primary result, or zero */
+    int32_t primary_result;
+    /* stable first secondary result, or zero */
+    int32_t secondary_result;
+    /* total secondary failures */
+    uint32_t secondary_count;
+    /* required operation name */
+    const uint8_t *operation;
+    /* operation length */
+    size_t operation_len;
+    /* required primary cause name */
+    const uint8_t *primary_name;
+    /* primary name length */
+    size_t primary_name_len;
+    /* optional primary message */
+    const uint8_t *primary_message;
+    /* primary message length */
+    size_t primary_message_len;
+    /* optional first secondary cause name */
+    const uint8_t *secondary_name;
+    /* secondary name length */
+    size_t secondary_name_len;
+    /* optional first secondary message */
+    const uint8_t *secondary_message;
+    /* secondary message length */
+    size_t secondary_message_len;
+} PancakeFailureReport;
+typedef struct PancakeFailureEvent {
+    /* PANCAKE_FAILURE_EVENT_ABI_VERSION */
+    uint32_t abi_version;
+    /* sizeof(PancakeFailureEvent) */
+    size_t struct_size;
+    /* monotonic Context sequence */
+    uint64_t sequence;
+    /* records lost before this one */
+    uint64_t dropped_before;
+    /* PANCAKE_FAILURE_LAYER_* */
+    uint32_t layer;
+    /* PANCAKE_FAILURE_SCOPE_* */
+    uint32_t scope_kind;
+    /* stable identity within the scope */
+    uint64_t scope_id;
+    /* stable operation identity, or zero */
+    uint64_t operation_id;
+    /* stable primary result, or zero */
+    int32_t primary_result;
+    /* stable first secondary result, or zero */
+    int32_t secondary_result;
+    /* total secondary failures */
+    uint32_t secondary_count;
+    /* PANCAKE_FAILURE_TRUNCATED_* bitmask */
+    uint32_t flags;
+    /* operation in caller payload */
+    const uint8_t *operation;
+    /* operation length */
+    size_t operation_len;
+    /* primary cause name in caller payload */
+    const uint8_t *primary_name;
+    /* primary name length */
+    size_t primary_name_len;
+    /* primary message in caller payload */
+    const uint8_t *primary_message;
+    /* primary message length */
+    size_t primary_message_len;
+    /* first secondary cause name in caller payload */
+    const uint8_t *secondary_name;
+    /* secondary name length */
+    size_t secondary_name_len;
+    /* first secondary message in caller payload */
+    const uint8_t *secondary_message;
+    /* secondary message length */
+    size_t secondary_message_len;
+} PancakeFailureEvent;
+/* Record one failure only after its last deterministic return recipient has gone. Text fields must be valid UTF-8; the Context copies bounded code-point prefixes and retains no report pointer. Result codes must be zero or stable PANCAKE_ERR_* values; secondary fields must agree with secondary_count. */
+int32_t pancake_context_report_failure(PancakeContext *context, const PancakeFailureReport *report);
+/* Atomically claim the oldest unreturned failure into caller-owned payload storage. BUFFER_TOO_SMALL leaves it queued and reports the exact required bytes; WOULD_BLOCK reports an empty queue. */
+int32_t pancake_context_next_failure(PancakeContext *context, PancakeFailureEvent *out_event, uint8_t *out_payload, size_t payload_cap, size_t *out_required);
 /* Release a context after every handle created through it. */
 void pancake_context_release(PancakeContext *context);
 
@@ -173,6 +285,16 @@ typedef struct PancakeLastAbort {
     const uint8_t *error_name;
     /* error-name length */
     size_t error_name_len;
+    /* static abort-delivery error name */
+    const uint8_t *abort_delivery_error_name;
+    /* abort-delivery error-name length */
+    size_t abort_delivery_error_name_len;
+    /* static first secondary error name */
+    const uint8_t *secondary_error_name;
+    /* secondary error-name length */
+    size_t secondary_error_name_len;
+    /* secondary failure count (255 means 255 or more) */
+    uint32_t secondary_error_count;
 } PancakeLastAbort;
 
 /* ── Per-thread last error ── */
@@ -188,14 +310,14 @@ typedef struct PancakeSturdyRef PancakeSturdyRef;
 int32_t pancake_uri_parse_peer(const uint8_t *uri, size_t uri_len, PancakeLocator **out_locator);
 /* Parse a peer URI into a locator allocated through context. */
 int32_t pancake_uri_parse_peer_in(PancakeContext *context, const uint8_t *uri, size_t uri_len, PancakeLocator **out_locator);
-/* Parse an ocapn:// sturdyref URI into an owned sturdyref. */
-int32_t pancake_uri_parse_sturdyref(const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
-/* Parse a sturdyref URI through context. */
-int32_t pancake_uri_parse_sturdyref_in(PancakeContext *context, const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
+/* Parse an ocapn:// sturdyref URI under the selected PANCAKE_CAPTP_* profile into an owned sturdyref. */
+int32_t pancake_uri_parse_sturdyref(uint32_t captp_version, const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
+/* Parse a sturdyref URI under the selected PANCAKE_CAPTP_* profile through context. */
+int32_t pancake_uri_parse_sturdyref_in(PancakeContext *context, uint32_t captp_version, const uint8_t *uri, size_t uri_len, PancakeSturdyRef **out_sturdyref);
 /* Format a peer locator into a caller-owned buffer. */
 int32_t pancake_uri_format_peer(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
-/* Format a sturdyref into a caller-owned buffer. */
-int32_t pancake_uri_format_sturdyref(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *swissnum, size_t swissnum_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
+/* Format a sturdyref under the selected PANCAKE_CAPTP_* profile into a caller-owned buffer. */
+int32_t pancake_uri_format_sturdyref(uint32_t captp_version, const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *swissnum, size_t swissnum_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
 /* Construct an owned OCapN peer locator. */
 int32_t pancake_locator_new(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, uint32_t hint_wire_form, PancakeLocator **out_locator);
 /* Construct an OCapN peer locator allocated through context. */

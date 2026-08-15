@@ -7,13 +7,13 @@
 //! `/relay?rendezvous=` bridges onto it), and pumps frames between the two
 //! legs — unmasking each client frame and re-framing it unmasked, the
 //! byte-transparent shape `bindings/ts/relay/serve.ts` ships. The production
-//! client side under test is `net.keyed_relay`; everything here exists so that
+//! client side under test is `net.relay`; everything here exists so that
 //! client meets a spec-shaped far end without Deno.
 
 const std = @import("std");
 const pancake = @import("pancake");
 
-const keyed_relay = pancake.net.keyed_relay;
+const keyed_relay = pancake.net.relay;
 const Io = std.Io;
 const ip = Io.net;
 

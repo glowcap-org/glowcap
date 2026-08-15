@@ -18,7 +18,7 @@ optional `title` / `summary`; then a markdown taste body the subagent applies.
 **Hard rule for project personas:** committed files under `.agents/personas/`
 are anonymous lenses only (slug + taste). Named people and person-named slugs
 live only in user XDG (or untracked local files) — never in committed
-scaffolding. `zig build meta-check` refuses person-channeling phrasing in
+scaffolding. `zig build source-check` refuses person-channeling phrasing in
 tracked project personas.
 
 **Slug selection:** the operator names the slugs (or points at files under the

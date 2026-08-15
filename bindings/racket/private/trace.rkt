@@ -28,6 +28,9 @@
          trace-detach-host!)
 
 (define sink (box #f))
+;; The installed process-wide observer is the owner of its first callback
+;; failure. Observation stays non-load-bearing, but diagnostics never disappear
+;; at the native callback boundary.
 ;; The display label the application chose for its own endpoint, or #f. The `a`
 ;; endpoint itself is always the host's own key designator — what a partner
 ;; names it by, so one peer stays one node in a feed several producers share.
@@ -42,7 +45,7 @@
 ;; unknown to it. Each of the four bindings states the word itself, because it
 ;; is a claim about the binding tier rather than a fact the core or the C ABI
 ;; carries, so there is no declaration to generate it from. `zig build
-;; meta-check` (`checkTraceViewerVocabulary`) holds all four against each other,
+;; source-check` (`checkTraceViewerVocabulary`) holds all four against each other,
 ;; against the viewer that reads them, and against the Goblins publisher, which
 ;; states a different word and must keep stating it.
 (define self-profile "pancake")
@@ -53,7 +56,7 @@
 ;; finalizer out while an installer serializes against explicit release on the
 ;; Host's own lock. A raw pointer is never called through directly from this
 ;; registry.
-(struct trace-host (owner cookie designator install!) #:transparent)
+(struct trace-host (owner cookie designator install! report!) #:transparent)
 (define hosts (box '()))
 (define registry-gate (make-semaphore 1))
 (define trace-generation (box 0))
@@ -115,12 +118,15 @@
     [(= version CAPTP-V1-0) "1.0"]
     [else "unknown"]))
 
-(define (emit! ev)
+(define (emit! row ev)
   (define s (unbox sink))
   ;; Trace observation cannot become protocol control flow, and no Racket
   ;; exception may cross the native callback frame.
   (when s
-    (with-handlers ([exn? (lambda (_) (void))])
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (error)
+                       (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
+                         ((trace-host-report! row) error)))])
       (s ev))))
 
 (define (view->string ptr len)
@@ -139,15 +145,17 @@
     (memcpy event-storage borrowed-event (ctype-sizeof _PancakeTraceEvent))
     (define ev (ptr-ref event-storage _PancakeTraceEvent))
     (define cookie (if ctx (cast ctx _pointer _intptr) 0))
+    (define row
+      (with-registry
+       (lambda ()
+         (findf (lambda (candidate) (= (trace-host-cookie candidate) cookie))
+                (unbox hosts)))))
     (define session-id
       (format "live-h~a-s~a" cookie (PancakeTraceEvent-session ev)))
     (define kind (PancakeTraceEvent-kind ev))
     (define (endpoint-a)
       (with-registry
        (lambda ()
-         (define row
-           (findf (lambda (candidate) (= (trace-host-cookie candidate) cookie))
-                  (unbox hosts)))
          (if row (trace-host-designator row) ""))))
     (cond
       [(= kind TRACE-SESSION-OPEN)
@@ -180,9 +188,9 @@
          (if (unbox self-label)
              (hash-set carried 'a_label (unbox self-label))
              carried))
-       (emit! (if session-id-value
+       (when row (emit! row (if session-id-value
                   (hash-set labelled 'session_id session-id-value)
-                  labelled))]
+                  labelled)))]
       [(= kind TRACE-MESSAGE)
        (define op (view->string (PancakeTraceEvent-verb ev)
                                 (PancakeTraceEvent-verb-len ev)))
@@ -206,7 +214,7 @@
                 (for/list ([i (in-range TRACE-DIGEST-BYTES)])
                   (define h (number->string (array-ref (PancakeTraceEvent-digest ev) i) 16))
                   (if (= 1 (string-length h)) (string-append "0" h) h))))
-       (emit! (let* ([base (hasheq 'v 1 'sim_t_ns (now-ns)
+       (when row (emit! row (let* ([base (hasheq 'v 1 'sim_t_ns (now-ns)
                                    'kind "ocapn.message-decoded"
                                    'session session-id
                                    'digest digest
@@ -224,10 +232,11 @@
                    (hash-set (hash-set base 'len frame-total-len)
                              'summary
                              (hasheq 'len frame-total-len
-                                     'head_b64 (b64 (min frame-len PAYLOAD-CAP))))])))]
+                                     'head_b64 (b64 (min frame-len PAYLOAD-CAP))))]))))]
       [(= kind TRACE-SESSION-CLOSE)
-       (emit! (hasheq 'v 1 'sim_t_ns (now-ns) 'kind "ocapn.session-closed"
-                      'session session-id))])))
+       (when row
+         (emit! row (hasheq 'v 1 'sim_t_ns (now-ns) 'kind "ocapn.session-closed"
+                            'session session-id)))])))
 
 ;; The SET half of the annotation channel: an application states which
 ;; partner a session carries, named for the same session row the tap names. A
@@ -246,7 +255,7 @@
     (when row
       (define-values (rc id) (pancake_host_session_trace_id session-ptr))
       (when (zero? rc)
-        (emit! (hasheq 'v 1 'sim_t_ns (now-ns)
+        (emit! row (hasheq 'v 1 'sim_t_ns (now-ns)
                        'kind "ocapn.session-meta"
                        'session (format "live-h~a-s~a" (trace-host-cookie row) id)
                        'meta (hasheq 'label label)))))))
@@ -287,13 +296,13 @@
 ;; Binding-internal: a host reports its owner, serialized installer, and own key
 ;; designator at mint so an installed trace covers it, and a trace installed
 ;; later finds it without retaining it.
-(define (trace-attach-host! owner install! [designator ""])
+(define (trace-attach-host! owner install! [designator ""] [report! void])
   (define row
     (with-registry
      (lambda ()
        (define cookie (unbox next-cookie))
        (set-box! next-cookie (add1 cookie))
-       (define fresh (trace-host (make-weak-box owner) cookie designator install!))
+       (define fresh (trace-host (make-weak-box owner) cookie designator install! report!))
        (set-box! hosts (cons fresh (unbox hosts)))
        fresh)))
   (apply-current-trace! owner row))

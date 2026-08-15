@@ -43,11 +43,7 @@
  */
 
 import type { ModifierSet } from "../interactions/types.ts";
-import {
-  dispatchShortcut,
-  type KeyboardShortcutBindings,
-  type KeyEventFacts,
-} from "./keyboard-shortcuts.ts";
+import { dispatchShortcut, type KeyboardShortcutBindings, type KeyEventFacts } from "./keyboard-shortcuts.ts";
 
 /** Every gesture whose meaning is "while this key is held". */
 export type HeldGestureId = "space-pan" | "shift" | "alt";

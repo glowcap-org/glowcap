@@ -1,13 +1,15 @@
 // Per-binding keyed-relay rendezvous proof: the Deno (stack) binding
 // cold-dials a non-listening peer by its key designator through the reference
 // relay's rendezvous bridge (ADR-0088). The core classifies the locator as
-// the `rendezvous` dial shape; the stack opens the WebSocket leg the host's
-// advertised locator names while the Host's fallback is deliberately dead.
+// the `rendezvous` dial shape; the stack opens the WebSocket leg the
+// locator's `rendezvous-relay` hint names, the one rendezvous routing
+// authority.
 //
 // Run via `zig build deno-keyed-relay-rendezvous` (the harness passes
 // `<locator>`).
 
-import { connect, Host } from "@pancake/stack";
+import { parseLocator, Runtime } from "@pancake/runtime";
+import { connector } from "@pancake/relay";
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -15,11 +17,10 @@ function fail(message: string): never {
 }
 
 if (Deno.args.length < 1) fail("usage: deno_client.ts <locator>");
-const locator = Deno.args[Deno.args.length - 1];
+const partner = parseLocator(Deno.args[Deno.args.length - 1]);
 
-const host = new Host();
-host.setRendezvousUrl((id) => `ws://127.0.0.1:1/relay?rendezvous=${id}`);
-const session = await connect(locator, undefined, host);
+await using runtime = await Runtime.open({ connectors: [connector()] });
+const session = await runtime.connect(partner);
 session.serve().catch(() => {});
 try {
 	const greeter = await session.fetch("greeter");
@@ -31,7 +32,6 @@ try {
 }
 console.log(
 	"PASS: the Deno binding cold-dialed a registered peer by rendezvous — the core " +
-		"used the locator's rendezvous-relay route instead of the dead Host fallback, " +
-		"and the keyed session answered",
+		"used the locator's rendezvous-relay route, and the keyed session answered",
 );
 Deno.exit(0);

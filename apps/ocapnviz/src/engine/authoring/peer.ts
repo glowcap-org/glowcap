@@ -16,27 +16,13 @@ import { cascadeDelete } from "../schema/cascade.ts";
 import { restoreSnapshotInto, takeSnapshot } from "../snapshot.ts";
 import { implicitBound } from "../temporal/bound.ts";
 import { peerEffective } from "../temporal/doc-resolver.ts";
-import {
-  clearDuration,
-  clearStart,
-  setDuration,
-  setStart,
-} from "../temporal/time-span.ts";
+import { clearDuration, clearStart, setDuration, setStart } from "../temporal/time-span.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
 import type { TimelineEvent } from "../timeline.ts";
 import { notFoundError, validationError } from "../errors.ts";
 import type { AuthoringContext } from "./context.ts";
-import {
-  commitEntityAuthoring,
-  removeObservations,
-  upsertObservation,
-} from "./events.ts";
-import {
-  PEER_TRAJECTORY,
-  type PeerProperty,
-  type PeerUpdate,
-  peerUpdateStates,
-} from "../trajectory.ts";
+import { commitEntityAuthoring, removeObservations, upsertObservation } from "./events.ts";
+import { PEER_TRAJECTORY, type PeerProperty, type PeerUpdate, peerUpdateStates } from "../trajectory.ts";
 
 function defaultPeerTiming() {
   return { start: implicitBound(0), duration: implicitBound(0) };
@@ -125,9 +111,8 @@ export function updatePeer(
 /** The peer's own update observation at exactly `t` — the moment a
  *  write lands on and a clear reads from. One observation carries
  *  every property the peer restated at that instant. */
-const peerUpdateAt =
-  (peerId: string, t: number) => (ev: TimelineEvent): boolean =>
-    ev.kind === "peer-updated" && ev.peerId === peerId && ev.t === t;
+const peerUpdateAt = (peerId: string, t: number) => (ev: TimelineEvent): boolean =>
+  ev.kind === "peer-updated" && ev.peerId === peerId && ev.t === t;
 
 function updateAt(
   ctx: AuthoringContext,

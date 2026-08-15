@@ -39,8 +39,7 @@ from helpers import (  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Ref, connect, listen, socket_addr_designator, tcp_locator  # noqa: E402
-
+from pancake import Ref, Runtime, tcp  # noqa: E402
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-gift", 22122, max_port=65534)
 
@@ -87,7 +86,7 @@ async def run() -> None:
         # runs its accept loop. One node identity (gifter.host) serves both the
         # recipient connection and the exporter connection, so the give's
         # signature matches the deposit.
-        gifter = await listen(HOST, 0)
+        gifter = await tcp.listen(HOST, 0)
 
         async def accept_loop() -> None:
             async for session in gifter:
@@ -99,7 +98,10 @@ async def run() -> None:
         # Fetch a vendor, then lift Bob's greeter from an ordinary call reply.
         # The reply ref's home is this gifter<->Bob connection, so pancake can
         # re-gift it without an enrollment verb.
-        to_bob = await connect(tcp_locator(HOST, PORT), host=gifter.host)
+        gifter_runtime = await Runtime.open(
+            provider=tcp.provider(), host=gifter.host
+        )
+        to_bob = await gifter_runtime.connect(tcp.locator(HOST, PORT))
         to_bob.serve()
         vendor = await to_bob.fetch(VENDOR_SWISS)
         greeter = await to_bob.send(vendor, "", [])
@@ -119,7 +121,7 @@ async def run() -> None:
         # Spawn Carol (the Goblins recipient): she dials pancake's introducer,
         # asks for the greeter, redeems pancake's give, and calls Bob directly.
         carol = await asyncio.create_subprocess_exec(
-            RACKET, RECIPIENT_SCRIPT, socket_addr_designator(HOST, gifter_port), INTRODUCER_SWISS, str(PORT + 1),
+            RACKET, RECIPIENT_SCRIPT, tcp.address_designator(HOST, gifter_port), INTRODUCER_SWISS, str(PORT + 1),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -138,6 +140,7 @@ async def run() -> None:
 
         gifter.close()
         await to_bob.close()
+        await gifter_runtime.close()
         accept_task.cancel()
         try:
             await accept_task

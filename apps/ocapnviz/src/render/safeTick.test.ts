@@ -1,10 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { safeListener, safeTick } from "./safeTick.ts";
-import {
-  _resetErrorBusForTesting,
-  type AppError,
-  subscribeErrors,
-} from "../ui/error/error-bus.ts";
+import { _resetErrorBusForTesting, type AppError, subscribeErrors } from "../ui/error/error-bus.ts";
 
 function captured(): { items: AppError[]; off: () => void } {
   const items: AppError[] = [];

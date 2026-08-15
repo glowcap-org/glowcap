@@ -93,7 +93,7 @@
                 (macro "PANCAKE_VERSION_PATCH" 0))])]
     [else (hash-ref contract 'abi_version)]))
 
-;; All host aliases from tools/c-abi/c-abi-host-aliases.json (meta_check per-port presence).
+;; All host aliases from tools/c-abi/c-abi-host-aliases.json (source_check per-port presence).
 (define host-alias-corpus
   '("x86_64" "amd64" "x64"
     "aarch64" "arm64"

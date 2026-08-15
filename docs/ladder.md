@@ -108,8 +108,8 @@ Goblins currently dials only the TypeScript binding in CI.
 The transport contract supports plain TCP, keyed TCP, noise TCP and noise
 relay (ADR-0107's sealed channel), keyed relay, in-process pipes, iroh,
 WebRTC, and onion (the standardized Tor netlayer). TCP, iroh, WebRTC, and
-outbound keyed-relay have Host completion-loop integrations. The WebRTC one
-adopts signaled peers and dials through a configured signaling authority
+outbound keyed-relay have Host completion-loop integrations. The WebRTC path
+adopts signaled peers through a completion backend
 (`zig build webrtc-loop`). Native three-party redeem over a bare `webrtc`
 give is proved by `zig build webrtc-bridge-redeem`.
 

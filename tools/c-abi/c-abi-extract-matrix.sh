@@ -161,7 +161,7 @@ done
 # listing that the extract would still write. The validator must not see a
 # different archive than the extract does. Only the shell port both invokes
 # tar and owns its parser, so it is the one directly testable here; the other
-# ports' invocations live in their importers and are held by meta-check.
+# ports' invocations live in their importers and are held by source-check.
 if TAR_OPTIONS='--exclude=lib/evil.link' archive_hygiene_check "$FIX/link.tar.gz" "$PREFIX"; then
 	bad "shell TAR_OPTIONS (a hidden member should still be refused)"
 else
@@ -231,7 +231,7 @@ fi
 if command -v deno >/dev/null 2>&1; then
 	mkdir -p "$WORKDIR/loader-clean"
 	if TAR_OPTIONS='--exclude=lib/evil.link --exclude=lib/pancake ocapn.so' deno eval --quiet '
-import { safeExtractPrefix } from "./bindings/ts/stack/internal/ffi/load.ts";
+import { safeExtractPrefix } from "./bindings/ts/runtime/internal/ffi/load.ts";
 const [unsafeTar, cleanTar, rootTar, stage] = Deno.args;
 
 // The listing side: a member the hostile options would hide must still be
@@ -286,7 +286,7 @@ fi
 # Deno: same refuse policy as load.ts (list then reject)
 if command -v deno >/dev/null 2>&1; then
 	if deno eval --quiet '
-import { archiveListingViolation } from "./bindings/ts/stack/internal/ffi/archive_hygiene.ts";
+import { archiveListingViolation } from "./bindings/ts/runtime/internal/ffi/archive_hygiene.ts";
 function violation(tarball: string): string | null {
   const listing = new Deno.Command("tar", {
     args: ["--numeric-owner", "-tvzf", tarball],

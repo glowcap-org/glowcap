@@ -23,7 +23,7 @@
 //! exporter location) and are encoded and pumped when the enclosing call
 //! unwinds; the host-driving verbs (feed, feed_bytes, take_outbound,
 //! next_action, the dial/gift completions, open, publish/spawn,
-//! fetch/enliven, break_far_vows, release) are refused with
+//! fetch/enliven, break_far_vows, transport_closed, release) are refused with
 //! `PANCAKE_ERR_INVALID_ARGUMENT`.
 //!
 //! This is a *separate archive* from `libpancake_ocapn` (ADR-0059): it imports
@@ -52,10 +52,12 @@
 //! state, the behavior bridge, marshalling, and the error projection).
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const foundation = @import("foundation");
 const engine = @import("engine");
 const model = @import("model");
+const driver_core = @import("driver_core");
 
 // The shared C-ABI vocabulary leaf — types, codes, allocation, the last-error
 // slot — not the ocapn root, so this archive pulls none of the ocapn family's
@@ -74,6 +76,8 @@ pub const PancakeLocatorView = shared.PancakeLocatorView;
 pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_ADDRESS;
 pub const PANCAKE_DESIGNATOR_SCHEME_KEY = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
 pub const PANCAKE_HOST_OUTBOUND_PREFIX_CAP: usize = 32;
+pub const PANCAKE_HOST_DURABLE_ENTROPY_LEN: usize = engine.durable_swiss_entropy_len;
+pub const PANCAKE_HOST_DURABLE_SWISS_LEN: usize = engine.durable_swiss_len;
 comptime {
     std.debug.assert(PANCAKE_HOST_OUTBOUND_PREFIX_CAP >= foundation.stream_framing.prefix_buffer_bytes);
 }
@@ -83,8 +87,6 @@ comptime {
 /// embedded core and the completion projection here. Nothing in this
 /// namespace exports a symbol; a C consumer cannot name it.
 pub const embedding = struct {
-    const driver_core = @import("driver_core");
-
     pub const DriverClaim = struct {
         inst: *common.Instance,
 
@@ -99,37 +101,25 @@ pub const embedding = struct {
         /// Roll back a failed driver construction. No driver-owned operation
         /// may have escaped while construction was fallible.
         pub fn rollback(self: DriverClaim) void {
-            std.debug.assert(self.inst.runtime_owner == .driver);
-            self.inst.runtime_owner = .embedder;
+            std.debug.assert(self.inst.drive_owner == .driver);
+            self.inst.drive_owner = .embedder;
         }
     };
 
-    pub const ClaimError = error{
-        HostAlreadyOwned,
-        HostNotQuiescent,
-        ReenteredHost,
-    };
+    pub const ClaimError = error{HostAlreadyOwned};
 
-    /// Transactionally transfer the transport/action-drain half of a Host to
-    /// the native driver. Queued actions have not crossed the Host boundary and
-    /// move with it. A live byte-fed session or a borrowed/popped action already
-    /// has an embedder owner and therefore cannot be adopted.
+    /// Claim the C handle's transport/action-drain ownership for a native
+    /// driver construction. `HostRuntime.initWithCore` validates whether the
+    /// core itself can transfer; rollback restores this token if it cannot.
     pub fn claimForDriver(handle: ?*PancakeHost) ClaimError!?DriverClaim {
         const inst = common.instanceFrom(handle) orelse return null;
-        if (inst.runtime_owner != .embedder) return error.HostAlreadyOwned;
-        if (inst.core.in_callback) return error.ReenteredHost;
-        if (inst.core.sessions.count() != 0 or
-            inst.core.last_action != null or
-            inst.core.retry_last_action)
-        {
-            return error.HostNotQuiescent;
-        }
-        inst.runtime_owner = .driver;
+        if (inst.drive_owner != .embedder) return error.HostAlreadyOwned;
+        inst.drive_owner = .driver;
         return .{ .inst = inst };
     }
 
-    pub fn releaseFromDriver(handle: *PancakeHost) void {
-        common.releaseFromDriver(handle);
+    pub fn releaseFromDriver(handle: *PancakeHost) ?anyerror {
+        return common.releaseFromDriver(handle);
     }
 
     /// The C handle a core session projects as; the driver archive's events
@@ -161,7 +151,7 @@ pub const embedding = struct {
 
 /// Zig-only seams for exercising C-boundary transactions without exporting
 /// another ABI symbol. Production consumers cannot name this through a header.
-pub const testing = struct {
+pub const testing = if (builtin.is_test) struct {
     pub fn importObject(raw: ?*PancakeHostSession, position: u64) !void {
         const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         try session_ptr.served.port.peer.importObject(position);
@@ -187,7 +177,7 @@ pub const testing = struct {
         const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
         return session_ptr.served.port.peer.session_state.importRefcount(.from(position));
     }
-};
+} else struct {};
 
 // ── Shared value vocabulary (by layout, from c_abi_shared) ────────────────────
 
@@ -227,14 +217,81 @@ pub const wasm_layout_manifest = [_]WasmLayoutSpec{
     .{ .prefix = "HOST_ACTION", .T = PancakeHostAction },
     .{ .prefix = "HOST_PUMP_HOOKS", .T = PancakeHostPumpHooks },
     .{ .prefix = "DIAL_PLAN", .T = PancakeDialPlan },
-    .{ .prefix = "ACCEPT_PLAN", .T = PancakeAcceptPlan },
     .{ .prefix = "PARTNER_IDENTITY", .T = PancakePartnerIdentity },
     .{ .prefix = "TRACE_EVENT", .T = PancakeTraceEvent },
     .{ .prefix = "LOCATOR_HINT_VIEW", .T = shared.PancakeLocatorHintView },
     .{ .prefix = "LOCATOR_VIEW", .T = shared.PancakeLocatorView },
+    .{ .prefix = "CLOSE_OPTIONS", .T = shared.PancakeCloseOptions },
+    .{ .prefix = "FAILURE_REPORT", .T = shared.PancakeFailureReport },
+    .{ .prefix = "FAILURE_EVENT", .T = shared.PancakeFailureEvent },
 };
 
 pub const PancakeHost = opaque {};
+
+pub const PancakeCloseOptions = shared.PancakeCloseOptions;
+pub const PANCAKE_PENDING_CANCEL = shared.PANCAKE_PENDING_CANCEL;
+pub const PANCAKE_PENDING_FINISH = shared.PANCAKE_PENDING_FINISH;
+pub const PANCAKE_CLOSE_OPTIONS_ABI_VERSION = shared.PANCAKE_CLOSE_OPTIONS_ABI_VERSION;
+pub const PANCAKE_CLOSE_MAX_GRACE_MS = shared.PANCAKE_CLOSE_MAX_GRACE_MS;
+pub const PANCAKE_CLOSE_GRACE_UNSPECIFIED = shared.PANCAKE_CLOSE_GRACE_UNSPECIFIED;
+pub const PANCAKE_CLOSE_GRACE_FINITE = shared.PANCAKE_CLOSE_GRACE_FINITE;
+pub const PANCAKE_CLOSE_GRACE_UNBOUNDED = shared.PANCAKE_CLOSE_GRACE_UNBOUNDED;
+comptime {
+    std.debug.assert(PANCAKE_CLOSE_MAX_GRACE_MS == driver_core.max_finite_close_grace_ms);
+}
+
+pub const CloseOptionsError = error{
+    NullPointer,
+    UnsupportedLayout,
+    InvalidGraceMode,
+    InvalidGraceValue,
+    InvalidPending,
+} || driver_core.PendingWorkInput.Error;
+
+/// Validate the C record layout, map its discriminants, and delegate all
+/// pending-work semantics to the shared sans-I/O policy constructor. Archive
+/// faces add only their diagnostic prefix.
+pub fn parseCloseOptions(options: ?*const PancakeCloseOptions) CloseOptionsError!driver_core.PendingWork {
+    const opts = options orelse return error.NullPointer;
+    if (opts.abi_version != PANCAKE_CLOSE_OPTIONS_ABI_VERSION or
+        opts.struct_size < @sizeOf(PancakeCloseOptions)) return error.UnsupportedLayout;
+    const pending: driver_core.PendingWorkInput.Pending = switch (opts.pending) {
+        PANCAKE_PENDING_CANCEL => .cancel,
+        PANCAKE_PENDING_FINISH => .finish,
+        else => return error.InvalidPending,
+    };
+    const grace: driver_core.PendingWorkInput.GraceInput = switch (opts.grace_mode) {
+        PANCAKE_CLOSE_GRACE_UNSPECIFIED => if (opts.grace_ms == 0) .unspecified else return error.InvalidGraceValue,
+        PANCAKE_CLOSE_GRACE_FINITE => .{ .finite_ms = opts.grace_ms },
+        PANCAKE_CLOSE_GRACE_UNBOUNDED => if (opts.grace_ms == 0) .unbounded else return error.InvalidGraceValue,
+        else => return error.InvalidGraceMode,
+    };
+    return (driver_core.PendingWorkInput{ .pending = pending, .grace = grace }).resolve();
+}
+
+pub fn closeOptionsErrorCode(scope: []const u8, err: CloseOptionsError) i32 {
+    if (err == error.NullPointer) return shared.PANCAKE_ERR_NULL_POINTER;
+    const detail = switch (err) {
+        error.NullPointer => unreachable,
+        error.UnsupportedLayout => "unsupported PancakeCloseOptions layout",
+        error.CancelGraceSpecified => "cancel close does not accept grace",
+        error.FinishGraceRequired => "finish close requires finite or unbounded grace",
+        error.InvalidGraceMode => "close grace_mode is not a PANCAKE_CLOSE_GRACE_* value",
+        error.InvalidGraceValue => "unspecified or unbounded close grace requires grace_ms == 0",
+        error.InvalidPending => "close pending must be PANCAKE_PENDING_CANCEL or PANCAKE_PENDING_FINISH",
+    };
+    shared.setLastError("{s}: {s}", .{ scope, detail });
+    return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+}
+
+/// `pancake_host_lifecycle_state`: the Host still admits application work.
+pub const PANCAKE_LIFECYCLE_ACTIVE: u32 = 0;
+/// `pancake_host_lifecycle_state`: admission is sealed while admitted work runs.
+pub const PANCAKE_LIFECYCLE_FINISHING: u32 = 1;
+/// `pancake_host_lifecycle_state`: terminal session shutdown is in progress.
+pub const PANCAKE_LIFECYCLE_TERMINATING: u32 = 2;
+/// `pancake_host_lifecycle_state`: every session and queued Host effect retired.
+pub const PANCAKE_LIFECYCLE_CLOSED: u32 = 3;
 
 /// One byte-fed CapTP session a host minted (`pancake_host_session_open_dialed_locator` /
 /// `pancake_host_session_open_accepted`). Released with
@@ -273,6 +330,9 @@ pub const PANCAKE_HOST_ACTION_CLOSE: u32 = 5;
 /// work remaining. Return to the embedder scheduler before continuing
 /// `pancake_host_next_action`; this carries no session, ticket, or I/O request.
 pub const PANCAKE_HOST_ACTION_RESUME: u32 = 6;
+/// `PancakeHostAction.kind`: interrupt and join the external dial named by
+/// `ticket`, then acknowledge it through `pancake_host_dial_cancelled`.
+pub const PANCAKE_HOST_ACTION_CANCEL_DIAL: u32 = 7;
 
 /// Default maximum admissible frame for a host connection, mirroring
 /// `session.SessionLimits.max_frame_bytes` (1 MiB). Bindings pass this to
@@ -318,11 +378,12 @@ pub const PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = 24;
 pub const PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = 256;
 
 /// One embedder effect popped from `pancake_host_next_action`. `kind` selects
-/// the live fields: DIAL carries only `ticket` (borrow the pending view with
-/// `pancake_host_pending_dial`). FLUSH and CLOSE carry `session`;
+/// the live fields: DIAL and CANCEL_DIAL carry only `ticket` (DIAL borrows the
+/// pending view with `pancake_host_pending_dial`). FLUSH and CLOSE carry `session`;
 /// NEED_GIFT_ID carries `ticket`. SETTLE carries the settled vow id in
 /// `ticket` and the fulfilled value in `value`; FAIL carries the vow id in
-/// `ticket` and the break reason in `message`/`message_len`. Every popped byte
+/// `ticket`, the typed failure code in `result`, and the failure reason in
+/// `message`/`message_len`. Every popped byte
 /// view and `value`'s sub-structure are host-owned and valid until the next
 /// `pancake_host_next_action` call, which frees them. Unused fields are zeroed.
 pub const PancakeHostAction = extern struct {
@@ -332,6 +393,9 @@ pub const PancakeHostAction = extern struct {
     value: shared.PancakeArgument,
     message: ?[*]const u8,
     message_len: usize,
+    /// CLOSE: PANCAKE_OK or PANCAKE_ERR_TIMEOUT. FAIL: PANCAKE_ERR_BROKEN or
+    /// PANCAKE_ERR_CLOSED. Zero for every other kind.
+    result: i32,
 };
 
 /// One shared arm callback for `PancakeHostPumpHooks`: flush, close,
@@ -580,17 +644,6 @@ pub const PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT: u32 = 0;
 /// lands here too, having no identity to have authenticated.
 pub const PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED: u32 = 1;
 
-/// What an accepted session signs as its own locator: the designator a
-/// partner names it by, and the direct-addresses hint. Views borrow the caller's
-/// server_designator / accepted_local_addr, except the address-transport
-/// empty-address fallback, which is the static unreachable-client placeholder.
-pub const PancakeAcceptPlan = extern struct {
-    designator: ?[*]const u8,
-    designator_len: usize,
-    direct_addresses_hint: ?[*]const u8,
-    direct_addresses_hint_len: usize,
-};
-
 // ── Handle-family re-exports ─────────────────────────────────────────────────
 //
 // The `export fn`s below live in the handle-family leaves; the plain `@import`s
@@ -601,6 +654,11 @@ pub const PancakeAcceptPlan = extern struct {
 
 pub const pancake_host_new = host.pancake_host_new;
 pub const pancake_host_new_in = host.pancake_host_new_in;
+pub const pancake_host_diagnostic_id = host.pancake_host_diagnostic_id;
+pub const pancake_host_close = host.pancake_host_close;
+pub const pancake_host_close_progress = host.pancake_host_close_progress;
+pub const pancake_host_close_wait_ms = host.pancake_host_close_wait_ms;
+pub const pancake_host_lifecycle_state = host.pancake_host_lifecycle_state;
 pub const pancake_host_release = host.pancake_host_release;
 pub const pancake_host_designator_from_seed = host.pancake_host_designator_from_seed;
 pub const pancake_host_set_advertised_locator = host.pancake_host_set_advertised_locator;
@@ -610,11 +668,11 @@ pub const pancake_host_set_session_limits = host.pancake_host_set_session_limits
 pub const pancake_host_plan_dial = host.pancake_host_plan_dial;
 pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
 pub const pancake_host_reference_exporter = host.pancake_host_reference_exporter;
-pub const pancake_host_plan_accept = host.pancake_host_plan_accept;
 pub const pancake_host_next_action = host.pancake_host_next_action;
 pub const retryBorrowedAction = host.retryBorrowedAction;
 pub const pancake_host_dialed = host.pancake_host_dialed;
 pub const pancake_host_dial_failed = host.pancake_host_dial_failed;
+pub const pancake_host_dial_cancelled = host.pancake_host_dial_cancelled;
 pub const pancake_host_provide_gift_id = host.pancake_host_provide_gift_id;
 pub const pancake_host_gift_id_failed = host.pancake_host_gift_id_failed;
 pub const pancake_host_publish = host.pancake_host_publish;
@@ -627,6 +685,9 @@ pub const pancake_host_clear_last_error = host.pancake_host_clear_last_error;
 
 pub const pancake_host_session_open_dialed_locator = session.pancake_host_session_open_dialed_locator;
 pub const pancake_host_session_open_accepted = session.pancake_host_session_open_accepted;
+pub const pancake_host_session_close = session.pancake_host_session_close;
+pub const pancake_host_session_close_progress = session.pancake_host_session_close_progress;
+pub const pancake_host_session_lifecycle_state = session.pancake_host_session_lifecycle_state;
 pub const pancake_host_session_release = session.pancake_host_session_release;
 pub const pancake_host_session_is_open = session.pancake_host_session_is_open;
 pub const pancake_host_session_trace_id = session.pancake_host_session_trace_id;
@@ -652,6 +713,7 @@ pub const pancake_host_vow_untag = session.pancake_host_vow_untag;
 pub const pancake_host_vow_get = session.pancake_host_vow_get;
 pub const pancake_host_session_published_ref = session.pancake_host_session_published_ref;
 pub const pancake_host_session_break_far_vows = session.pancake_host_session_break_far_vows;
+pub const pancake_host_session_transport_closed = session.pancake_host_session_transport_closed;
 pub const pancake_host_session_set_exporter_location = session.pancake_host_session_set_exporter_location;
 pub const pancake_host_session_last_abort = session.pancake_host_session_last_abort;
 pub const pancake_host_session_partner_abort = session.pancake_host_session_partner_abort;
@@ -659,6 +721,7 @@ pub const pancake_host_session_partner_identity = session.pancake_host_session_p
 pub const pancake_host_session_bind_verified_channel_key = session.pancake_host_session_bind_verified_channel_key;
 
 pub const pancake_host_turn_forward = turn.pancake_host_turn_forward;
+pub const pancake_host_turn_session = turn.pancake_host_turn_session;
 pub const pancake_host_turn_defer = turn.pancake_host_turn_defer;
 pub const pancake_host_turn_send = turn.pancake_host_turn_send;
 pub const pancake_host_turn_tell = turn.pancake_host_turn_tell;

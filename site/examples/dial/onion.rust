@@ -1,0 +1,19 @@
+use pancake::onion::{self, Config};
+use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+
+// pancake starts no Tor; point the provider at an existing SOCKS endpoint.
+let partner = onion::locator("<56-character onion service id>");
+let runtime = Runtime::open(RuntimeConfig::providers([onion::provider(
+	Config::dial_only("/run/tor/socks"),
+)]))
+.await?;
+// From here, the CapTP workflow is transport-independent.
+let session = runtime.connect(&partner, ConnectOptions::default()).await?;
+let greeter = session.fetch("greeter").await?; // a capability this peer published
+match session.send(&greeter, "greet", &["world".into()]).await {
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+session.close(PendingWork::Cancel).await?;
+runtime.close(PendingWork::Cancel).await?;

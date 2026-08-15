@@ -33,6 +33,17 @@ const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
 
+fn listenReady(layer: net.netlayer.Netlayer, allocator: std.mem.Allocator, designator: []const u8) !net.netlayer.Listener {
+    var result = switch (layer.listen(allocator, .{ .designator = designator })) {
+        .admitted => |result| result,
+        .failed => |failure| return failure.cause,
+    };
+    return switch (result.requireReady()) {
+        .ready => |listener| listener,
+        .failed => |failure| failure.cause,
+    };
+}
+
 const frame_cap: usize = 4096;
 const greeting = "hello over the wire";
 
@@ -155,17 +166,14 @@ fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []
     var resident = net.tcp.Resident{ .io = io };
     const entries = [_]net.netlayer.Netlayer{resident.netlayer()};
 
-    var listener = try net.netlayer.resolve(&entries, net.tcp.transport_name).?.listen(allocator, .{
-        .designator = "127.0.0.1:0",
-        .hints = model.Hints.emptyFalse(),
-    });
-    defer listener.close();
+    var listener = try listenReady(net.netlayer.resolve(&entries, net.tcp.transport_name).?, allocator, "127.0.0.1:0");
+    defer std.debug.assert(listener.close() == null);
 
     const locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, locator);
 
     var host = try io.concurrent(hostOnce, .{ listener, allocator, driver.AcceptIdentity.ephemeral });
-    const client_result = clientMeasure(io, allocator, &entries, net.tcp.at(locator.designator), warmup, samples);
+    const client_result = clientMeasure(io, allocator, &entries, net.tcp.locator(locator.designator), warmup, samples);
     const host_result = host.await(io);
     try client_result;
     try host_result;
@@ -185,11 +193,8 @@ fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: [
     const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
     const client_entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
-    var listener = try net.netlayer.resolve(&server_entries, iroh.transport_name).?.listen(allocator, .{
-        .designator = "",
-        .hints = model.Hints.emptyFalse(),
-    });
-    defer listener.close();
+    var listener = try listenReady(net.netlayer.resolve(&server_entries, iroh.transport_name).?, allocator, "");
+    defer std.debug.assert(listener.close() == null);
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);
@@ -311,7 +316,7 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
 
     var session_root: [32]u8 = undefined;
     try io.randomSecure(&session_root);
-    var host = driver.core.Host.init(allocator, server_seed, session_root, .{
+    var host = try driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });

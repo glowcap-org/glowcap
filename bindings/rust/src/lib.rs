@@ -3,7 +3,7 @@
 //!
 //! The raw C ABI lives in the private `sys` module; nothing in it escapes.
 //! What you use is the application surface every pancake binding speaks —
-//! [`connect`]/[`listen`], a [`Session`] with `fetch`/`send`/`tell`/
+//! [`Runtime::connect`] plus transport-module `listen`, a [`Session`] with `fetch`/`send`/`tell`/
 //! `spawn`/`publish`, one opaque [`Ref`] capability type, a Rust [`Argument`]
 //! enum, and `Result` for fallible calls — over the symbol-disjoint
 //! `libpancake_host` and `libpancake_driver` archives (ADR-0112). The Host
@@ -37,7 +37,7 @@
 //! | `onion` | [`onion`] | `libpancake_net_transport_onion` | no |
 //! | `iroh` | [`iroh`] | `libpancake_net_transport_iroh` (dynamic) | no |
 //! | `relay` | [`relay`] | `libpancake_net_transport_relay` | no |
-//! | `async` | [`Session`], [`Host`], [`connect`]/[`listen`] | (none — native tokio) | no |
+//! | `async` | [`Session`], [`Host`], [`Runtime`] | (none — native tokio) | no |
 //!
 //! `tcp` and `inproc` are on by default. `onion` is opt-in because it needs a Tor
 //! daemon the deployment runs; pancake starts none. `iroh` is opt-in and implies `async`
@@ -62,13 +62,15 @@ pub use session_shared::Caretaker;
 #[cfg(feature = "async")]
 mod host;
 #[cfg(feature = "async")]
+mod lifecycle;
+#[cfg(feature = "async")]
 mod trace;
 #[cfg(feature = "async")]
-pub use host::{Host, HostOptions, Resolver};
+pub use host::{Host, HostOptions, ListenerIdentity, Resolver};
 #[cfg(feature = "async")]
-pub use trace::{
-	annotate_session, enable_trace, PayloadSummary, SessionMeta, TraceEvent, TraceKind, TraceSink,
-};
+pub use lifecycle::PendingWork;
+#[cfg(feature = "async")]
+pub use trace::{annotate_session, enable_trace, PayloadSummary, SessionMeta, TraceEvent, TraceKind, TraceSink};
 #[cfg(feature = "async")]
 mod trampoline;
 // Byte-fed embedder pump: feed / flush / serve-loop / feed-refusal (crate-private).
@@ -86,46 +88,35 @@ pub use promise::{AsSendTarget, RemotePromise};
 // Distributed GC (ADR-0063) ImportGuard + drain (Pass 3b).
 #[cfg(feature = "async")]
 mod gc;
-// Dial executor: plan + channel open + connect (Pass 3c).
+// Transport-neutral dial composition over explicit providers/connectors.
+#[cfg(feature = "async")]
+mod connector;
 #[cfg(feature = "async")]
 mod dial;
-// Server / listen / keyed-tcp host (Pass 3d).
 #[cfg(feature = "async")]
-mod listen;
+mod runtime;
+// TCP-provider listener implementation, re-exported only by `tcp`.
+#[cfg(all(feature = "async", any(feature = "tcp", feature = "iroh", feature = "onion")))]
+mod server;
 #[cfg(feature = "async")]
-pub use listen::{
-	listen, listen_advertised, listen_keyed_tcp, listen_keyed_tcp_advertised,
-	listen_keyed_tcp_with_options, listen_noise_tcp, listen_noise_tcp_advertised, listen_with_host,
-	listen_with_host_advertised, listen_with_host_options, listen_with_options, KeyedTcpServer,
-	ListenOptions, NoiseTcpServer, Server,
-};
+mod tcp_listen;
 // Generated HostAction kinds + decode (`zig build gen-binding-host-action`).
 #[cfg(feature = "async")]
 mod host_action_gen;
 
-// `connect` is the one dialer over an `ocapn://` locator, with one signature
-// across every build: `connect(uri, reachability, host)`. A `tcp` locator ignores the
-// reachability (pass `None`); an `iroh` locator requires it. `host` shares one
-// identity for handoffs on `tcp` / `keyed-tcp`. Without the iroh
-// feature the dialer still takes the reachability argument — so an `async` consumer's call
-// site never changes when iroh is turned on — and an `iroh` locator fails with a
-// rebuild hint instead of dialing. A tcp-only consumer therefore never links the
-// iroh companion library, yet writes the same call as an iroh-enabled one. Both
-// dialers bound the OCapN handshake; `connect_with_timeout` is the one that
-// lets the caller name the budget.
+// Runtime is the one managed dialer over a typed locator. ConnectOptions is the
+// per-operation call boundary; providers, connectors, Host identity, and the
+// handshake budget are installed once at Runtime construction.
 #[cfg(feature = "async")]
-pub use dial::{connect, connect_with_timeout, Reachability};
-#[cfg(feature = "iroh")]
-pub use iroh::{listen_iroh, listen_iroh_with_host, listen_iroh_with_seed, IrohConfig, IrohServer};
+pub use dial::ConnectOptions;
+#[cfg(feature = "async")]
+pub use runtime::{Runtime, RuntimeConfig};
 
 // Every pancake archive keeps its own thread-local last-error slot (ADR-0059);
 // this macro mints each family's checker/reader pair over its archive's extern
 // reader — the ocapn core here at the root, the host in `host`, and each
 // transport in its module. Unconditional: the core pair below is its first user.
 mod error_slot;
-
-#[cfg(any(feature = "relay", feature = "rendezvous"))]
-mod relay_route;
 
 // The blocking transports, each its own à-la-carte archive, linked only when
 // its feature is on (ADR-0059). They share the core value layout but never
@@ -143,29 +134,28 @@ pub mod tcp;
 // encrypted-QUIC byte-stream bridge the `Session` pump carries a session over.
 /// The native loop tier (ADR-0112): `DriverLoop` over `libpancake_driver`'s
 /// `pancake_driver_*` family, and the loop route the public
-/// [`connect`]/[`listen`] ride for the shapes the loop carries.
+/// [`Runtime::connect`] and transport-module listeners ride for the shapes the loop carries.
 #[cfg(feature = "async")]
 pub mod driver_loop;
+#[cfg(feature = "async")]
+pub use connector::{Connector, TransportOperationOptions};
 #[cfg(feature = "iroh")]
 pub mod iroh;
-#[cfg(feature = "rendezvous")]
-mod ws_stream;
 
 // OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only consumer reaches
 // the grammar without the iroh companion library. One grammar, no hand-rolled
-// percent codec. `tcp_locator` and `encode_peer_locator` are pure grammar over
-// the always-linked core too, so they ship in every build, async or not.
+// percent codec. Transport packages construct typed locators; this module owns
+// their generic model and explicit URI conversion.
 mod uri;
 pub use uri::{
-	designator_host_port, encode_peer_locator, format_peer_uri, format_sturdyref,
-	keyed_tcp_locator, noise_tcp_locator, parse_locator, parse_sturdyref, socket_addr_designator,
-	tcp_locator, HintValue, HintWireForm, Locator, SturdyRef,
+	designator_host_port, encode_peer_locator, format_locator_uri, format_peer_uri, format_sturdyref, parse_locator,
+	parse_sturdyref, HintValue, HintWireForm, Locator, SturdyRef,
 };
 
 /// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
 pub use abi_constants::{
-	HINT_DIRECT_ADDRESSES, TRANSPORT_INPROC, TRANSPORT_IROH, TRANSPORT_KEYED_RELAY,
-	TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP, TRANSPORT_WEBRTC,
+	HINT_DIRECT_ADDRESSES, TRANSPORT_INPROC, TRANSPORT_IROH, TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP,
+	TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_TCP, TRANSPORT_WEBRTC,
 };
 
 mod sys;
@@ -202,7 +192,9 @@ impl AbortDomain {
 /// The typed cause of a connection's most recent local dispatch failure, the
 /// safe projection of `pancake_host_session_last_abort`. The flat `PANCAKE_ERR_*`
 /// code names the failure family; this names the member: which layer refused,
-/// the projected `op:abort` kind when one applies, and the diagnostic strings.
+/// the projected `op:abort` kind when one applies, the originating diagnostic,
+/// any failure publishing that terminal abort, and bounded cleanup/consequence
+/// failures that followed the originating error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbortInfo {
 	/// Which layer refused the frame.
@@ -213,6 +205,12 @@ pub struct AbortInfo {
 	pub message: String,
 	/// The originating error name.
 	pub error_name: String,
+	/// Failure encoding or queueing the projected abort, when one occurred.
+	pub abort_delivery_error_name: Option<String>,
+	/// First cleanup or consequence failure after the originating error.
+	pub secondary_error_name: Option<String>,
+	/// Number of secondary failures observed; the first name is retained.
+	pub secondary_error_count: u32,
 }
 
 /// The failure family behind an [`Error`], the matchable form of its
@@ -273,14 +271,173 @@ pub enum ErrorKind {
 /// match its family with [`kind`](Error::kind) rather than the raw integer. When
 /// a `send` was broken by the partner it also carries the break reason, so the
 /// reason a partner gave for refusing a call is not lost behind a code.
+/// Cleanup failures retain their own typed `Error` values in observation order
+/// without replacing the originating failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error {
 	code: i32,
 	detail: Option<String>,
 	abort: Option<AbortInfo>,
+	secondary: Vec<Error>,
+	secondary_count: u32,
+}
+
+struct RuntimeFailureJournal {
+	failures: std::collections::VecDeque<FailureEvent>,
+	next_sequence: u64,
+}
+
+const RUNTIME_FAILURE_CAP: usize = 64;
+const FAILURE_PAYLOAD_CAP: usize = 512;
+static RUNTIME_FAILURES: std::sync::OnceLock<std::sync::Mutex<RuntimeFailureJournal>> = std::sync::OnceLock::new();
+#[cfg(all(test, feature = "async"))]
+pub(crate) static RUNTIME_FAILURE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn stable_failure_result(value: i32) -> i32 {
+	if value == sys::OK || (value <= sys::ERR_NULL_POINTER && value >= sys::ERR_TIMEOUT) {
+		value
+	} else {
+		sys::ERR_INTERNAL
+	}
+}
+
+fn bounded_failure_text(fields: [&str; 5]) -> ([String; 5], u32) {
+	let mut remaining = FAILURE_PAYLOAD_CAP;
+	let mut flags = 0;
+	let retained = std::array::from_fn(|index| {
+		let field = fields[index];
+		let mut copied = field.len().min(remaining);
+		while !field.is_char_boundary(copied) {
+			copied -= 1;
+		}
+		remaining -= copied;
+		if copied != field.len() {
+			// PANCAKE_FAILURE_TRUNCATED_* assigns one bit in field order.
+			flags |= 1 << index;
+		}
+		field[..copied].to_owned()
+	});
+	(retained, flags)
+}
+
+pub(crate) fn record_runtime_failure(layer: FailureLayer, operation: &str, error: Error) {
+	let journal = RUNTIME_FAILURES.get_or_init(|| {
+		std::sync::Mutex::new(RuntimeFailureJournal {
+			failures: std::collections::VecDeque::with_capacity(RUNTIME_FAILURE_CAP),
+			next_sequence: 1,
+		})
+	});
+	let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+	let mut dropped_before = 0;
+	if journal.failures.len() == RUNTIME_FAILURE_CAP {
+		let dropped = journal
+			.failures
+			.pop_front()
+			.map_or(1, |event| event.dropped_before.saturating_add(1));
+		if let Some(first) = journal.failures.front_mut() {
+			first.dropped_before = first.dropped_before.saturating_add(dropped);
+		} else {
+			dropped_before = dropped;
+		}
+	}
+	let sequence = journal.next_sequence;
+	journal.next_sequence = journal.next_sequence.saturating_add(1);
+	let primary_result = stable_failure_result(error.code);
+	let primary_name = error.diagnostic_name();
+	let primary_message = error.detail.as_deref().unwrap_or_default();
+	let secondary_result = error
+		.secondary
+		.first()
+		.map_or(0, |failure| stable_failure_result(failure.code));
+	let secondary_count = error.secondary_count;
+	let secondary_name = error.secondary.first().map_or("", Error::diagnostic_name);
+	let secondary_message = error
+		.secondary
+		.first()
+		.and_then(|failure| failure.detail.as_deref())
+		.unwrap_or_default();
+	let ([operation, primary_name, primary_message, secondary_name, secondary_message], truncated_fields) =
+		bounded_failure_text([
+			operation,
+			primary_name,
+			primary_message,
+			secondary_name,
+			secondary_message,
+		]);
+	journal.failures.push_back(FailureEvent {
+		sequence,
+		dropped_before,
+		layer,
+		scope: FailureScope::Process,
+		scope_id: 0,
+		operation_id: 0,
+		primary_result,
+		secondary_result,
+		secondary_count,
+		truncated_fields,
+		operation,
+		primary_name,
+		primary_message,
+		secondary_name,
+		secondary_message,
+	});
+	// `error` has been normalized into the cross-language diagnostic fact.
+	// Foreign exception identity remains adapter-local and is not an authority.
+	if sequence == u64::MAX {
+		journal.next_sequence = u64::MAX;
+	}
+}
+
+/// Atomically claim failures that outlived any Context or Host owner.
+pub fn take_runtime_failures() -> Vec<FailureEvent> {
+	let Some(journal) = RUNTIME_FAILURES.get() else {
+		return Vec::new();
+	};
+	let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+	journal.failures.drain(..).collect()
+}
+
+/// Render a caught panic payload without assuming that foreign or application
+/// code used one particular payload type.
+pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+	if let Some(text) = payload.downcast_ref::<&str>() {
+		(*text).to_string()
+	} else if let Some(text) = payload.downcast_ref::<String>() {
+		text.clone()
+	} else {
+		"callback panicked".to_string()
+	}
+}
+
+#[cfg(feature = "async")]
+pub(crate) fn retain_cleanup_failure(primary: Error, cleanup: Result<()>) -> Error {
+	match cleanup {
+		Ok(()) => primary,
+		Err(cleanup) => primary.with_secondary(cleanup),
+	}
 }
 
 impl Error {
+	fn diagnostic_name(&self) -> &'static str {
+		match self.kind() {
+			ErrorKind::NullPointer => "NullPointer",
+			ErrorKind::InvalidArgument => "InvalidArgument",
+			ErrorKind::Session => "Session",
+			ErrorKind::Codec => "Codec",
+			ErrorKind::Internal => "Internal",
+			ErrorKind::Closed => "Closed",
+			ErrorKind::Io => "Io",
+			ErrorKind::Malformed => "Malformed",
+			ErrorKind::FrameTooLarge => "FrameTooLarge",
+			ErrorKind::UnsupportedValue => "UnsupportedValue",
+			ErrorKind::Broken => "Broken",
+			ErrorKind::NotFound => "NotFound",
+			ErrorKind::BufferTooSmall => "BufferTooSmall",
+			ErrorKind::TimedOut => "TimedOut",
+			ErrorKind::Other(_) => "Other",
+		}
+	}
+
 	/// The negative `PANCAKE_ERR_*` code for this failure.
 	pub fn code(&self) -> i32 {
 		self.code
@@ -326,6 +483,25 @@ impl Error {
 		self.abort.as_ref()
 	}
 
+	/// Cleanup and consequence failures retained without replacing this error.
+	pub fn secondary_errors(&self) -> &[Error] {
+		&self.secondary
+	}
+
+	/// Total consequences observed, including any beyond the bounded exact list.
+	pub fn secondary_error_count(&self) -> u32 {
+		self.secondary_count
+	}
+
+	#[cfg(any(feature = "async", feature = "onion"))]
+	pub(crate) fn with_secondary(mut self, error: Error) -> Self {
+		self.secondary_count = self.secondary_count.saturating_add(1);
+		if self.secondary.len() < 64 {
+			self.secondary.push(error);
+		}
+		self
+	}
+
 	fn from_code(code: i32) -> Error {
 		// Snapshot the thread-local message now, while it still belongs to the
 		// call that just failed, matching the Python/Deno/Racket bindings.
@@ -333,6 +509,8 @@ impl Error {
 			code,
 			detail: last_error(),
 			abort: None,
+			secondary: Vec::new(),
+			secondary_count: 0,
 		}
 	}
 
@@ -343,6 +521,8 @@ impl Error {
 			code,
 			detail: Some(detail),
 			abort: None,
+			secondary: Vec::new(),
+			secondary_count: 0,
 		}
 	}
 
@@ -355,6 +535,8 @@ impl Error {
 			code,
 			detail,
 			abort: None,
+			secondary: Vec::new(),
+			secondary_count: 0,
 		}
 	}
 
@@ -369,6 +551,8 @@ impl Error {
 			code: sys::ERR_BROKEN,
 			detail: Some(message),
 			abort: None,
+			secondary: Vec::new(),
+			secondary_count: 0,
 		}
 	}
 
@@ -391,6 +575,86 @@ impl std::error::Error for Error {}
 
 /// The crate's result type: every fallible call fails with a typed [`Error`].
 pub type Result<T> = core::result::Result<T, Error>;
+
+/// The layer that observed an unreturnable failure.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureLayer {
+	Core,
+	Driver,
+	Transport,
+	Binding,
+	ApplicationObserver,
+	Other(u32),
+}
+
+impl FailureLayer {
+	fn from_abi(value: u32) -> Self {
+		match value {
+			abi_constants_gen::FAILURE_LAYER_CORE => Self::Core,
+			abi_constants_gen::FAILURE_LAYER_DRIVER => Self::Driver,
+			abi_constants_gen::FAILURE_LAYER_TRANSPORT => Self::Transport,
+			abi_constants_gen::FAILURE_LAYER_BINDING => Self::Binding,
+			abi_constants_gen::FAILURE_LAYER_APPLICATION_OBSERVER => Self::ApplicationObserver,
+			other => Self::Other(other),
+		}
+	}
+}
+
+/// The lifecycle owner whose operation produced an unreturnable failure.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureScope {
+	Process,
+	Context,
+	Host,
+	Session,
+	Listener,
+	Transport,
+	Operation,
+	Other(u32),
+}
+
+impl FailureScope {
+	fn from_abi(value: u32) -> Self {
+		match value {
+			abi_constants_gen::FAILURE_SCOPE_PROCESS => Self::Process,
+			abi_constants_gen::FAILURE_SCOPE_CONTEXT => Self::Context,
+			abi_constants_gen::FAILURE_SCOPE_HOST => Self::Host,
+			abi_constants_gen::FAILURE_SCOPE_SESSION => Self::Session,
+			abi_constants_gen::FAILURE_SCOPE_LISTENER => Self::Listener,
+			abi_constants_gen::FAILURE_SCOPE_TRANSPORT => Self::Transport,
+			abi_constants_gen::FAILURE_SCOPE_OPERATION => Self::Operation,
+			other => Self::Other(other),
+		}
+	}
+}
+
+/// One failure that had no remaining deterministic return recipient.
+///
+/// Context diagnostics are an ordered, bounded audit trail. They do not
+/// duplicate failures returned by an API, raised by a callback owner, or held
+/// by a close barrier. `dropped_before` reports records evicted before this
+/// claim; `secondary_count` preserves the number of consequences while the
+/// first consequence remains typed in `secondary_*`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailureEvent {
+	pub sequence: u64,
+	pub dropped_before: u64,
+	pub layer: FailureLayer,
+	pub scope: FailureScope,
+	pub scope_id: u64,
+	pub operation_id: u64,
+	pub primary_result: i32,
+	pub secondary_result: i32,
+	pub secondary_count: u32,
+	pub truncated_fields: u32,
+	pub operation: String,
+	pub primary_name: String,
+	pub primary_message: String,
+	pub secondary_name: String,
+	pub secondary_message: String,
+}
 
 error_slot::error_slot!(
 	// Maps a non-OK ocapn-family return code to an `Error` carrying the
@@ -434,11 +698,20 @@ unsafe extern "C" fn alloc_trampoline(
 	size: usize,
 	alignment: usize,
 ) -> *mut core::ffi::c_void {
-	std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+	match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 		let allocator = &*(user_data as *const Box<dyn ContextAllocator>);
 		allocator.alloc(size, alignment) as *mut core::ffi::c_void
-	}))
-	.unwrap_or(core::ptr::null_mut())
+	})) {
+		Ok(ptr) => ptr,
+		Err(payload) => {
+			record_runtime_failure(
+				FailureLayer::Binding,
+				"context-allocator-alloc-panic",
+				Error::with_detail(sys::ERR_INTERNAL, panic_message(payload.as_ref())),
+			);
+			core::ptr::null_mut()
+		}
+	}
 }
 
 unsafe extern "C" fn free_trampoline(
@@ -447,10 +720,16 @@ unsafe extern "C" fn free_trampoline(
 	size: usize,
 	alignment: usize,
 ) {
-	let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+	if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 		let allocator = &*(user_data as *const Box<dyn ContextAllocator>);
 		allocator.free(ptr as *mut u8, size, alignment);
-	}));
+	})) {
+		record_runtime_failure(
+			FailureLayer::Binding,
+			"context-allocator-free-panic",
+			Error::with_detail(sys::ERR_INTERNAL, panic_message(payload.as_ref())),
+		);
+	}
 }
 
 /// Shared native allocation policy retained by every high-level handle family
@@ -475,13 +754,8 @@ pub struct Context {
 impl Context {
 	/// A context backed by the library-owned allocator.
 	pub fn new() -> Result<Context> {
-		let mut raw: *mut sys::PancakeContext = core::ptr::null_mut();
-		check(unsafe { sys::pancake_context_new(&mut raw) })?;
 		Ok(Context {
-			inner: std::rc::Rc::new(ContextInner {
-				raw,
-				allocator: core::ptr::null_mut(),
-			}),
+			inner: std::rc::Rc::new(ContextInner::new()?),
 		})
 	}
 
@@ -507,6 +781,23 @@ impl Context {
 		})
 	}
 
+	/// Atomically claim the oldest unreturnable failure retained by this
+	/// context. A claimed event cannot reappear; events recorded concurrently
+	/// remain ordered for later claims.
+	pub fn next_failure(&self) -> Result<Option<FailureEvent>> {
+		self.inner.next_failure()
+	}
+
+	/// Atomically claim every unreturnable failure currently retained by this
+	/// context, in observation order.
+	pub fn take_failures(&self) -> Result<Vec<FailureEvent>> {
+		let mut failures = Vec::new();
+		while let Some(failure) = self.next_failure()? {
+			failures.push(failure);
+		}
+		Ok(failures)
+	}
+
 	#[cfg(any(feature = "tcp", feature = "inproc", feature = "onion"))]
 	pub(crate) fn raw(&self) -> *mut sys::PancakeContext {
 		self.inner.raw
@@ -515,6 +806,134 @@ impl Context {
 	#[cfg(feature = "async")]
 	pub(crate) fn retain_inner(&self) -> std::rc::Rc<ContextInner> {
 		std::rc::Rc::clone(&self.inner)
+	}
+}
+
+impl ContextInner {
+	pub(crate) fn new() -> Result<Self> {
+		let mut raw: *mut sys::PancakeContext = core::ptr::null_mut();
+		check(unsafe { sys::pancake_context_new(&mut raw) })?;
+		Ok(Self {
+			raw,
+			allocator: core::ptr::null_mut(),
+		})
+	}
+
+	#[cfg(feature = "async")]
+	pub(crate) fn report_failure(
+		&self,
+		layer: FailureLayer,
+		scope: FailureScope,
+		scope_id: u64,
+		operation_id: u64,
+		operation: &str,
+		error: &Error,
+	) {
+		let runtime_layer = layer;
+		let layer = match layer {
+			FailureLayer::Core => abi_constants_gen::FAILURE_LAYER_CORE,
+			FailureLayer::Driver => abi_constants_gen::FAILURE_LAYER_DRIVER,
+			FailureLayer::Transport => abi_constants_gen::FAILURE_LAYER_TRANSPORT,
+			FailureLayer::Binding => abi_constants_gen::FAILURE_LAYER_BINDING,
+			FailureLayer::ApplicationObserver => abi_constants_gen::FAILURE_LAYER_APPLICATION_OBSERVER,
+			FailureLayer::Other(_) => return,
+		};
+		let scope = match scope {
+			FailureScope::Process => abi_constants_gen::FAILURE_SCOPE_PROCESS,
+			FailureScope::Context => abi_constants_gen::FAILURE_SCOPE_CONTEXT,
+			FailureScope::Host => abi_constants_gen::FAILURE_SCOPE_HOST,
+			FailureScope::Session => abi_constants_gen::FAILURE_SCOPE_SESSION,
+			FailureScope::Listener => abi_constants_gen::FAILURE_SCOPE_LISTENER,
+			FailureScope::Transport => abi_constants_gen::FAILURE_SCOPE_TRANSPORT,
+			FailureScope::Operation => abi_constants_gen::FAILURE_SCOPE_OPERATION,
+			FailureScope::Other(_) => return,
+		};
+		let secondary = error.secondary.first();
+		let report = sys::PancakeFailureReport {
+			abi_version: 1,
+			struct_size: core::mem::size_of::<sys::PancakeFailureReport>(),
+			layer,
+			scope_kind: scope,
+			scope_id,
+			operation_id,
+			primary_result: error.code,
+			secondary_result: secondary.map_or(0, |failure| failure.code),
+			secondary_count: error.secondary_count,
+			operation: operation.as_ptr(),
+			operation_len: operation.len(),
+			primary_name: error.diagnostic_name().as_ptr(),
+			primary_name_len: error.diagnostic_name().len(),
+			primary_message: error.detail.as_deref().map_or(core::ptr::null(), str::as_ptr),
+			primary_message_len: error.detail.as_deref().map_or(0, str::len),
+			secondary_name: secondary.map_or(core::ptr::null(), |failure| failure.diagnostic_name().as_ptr()),
+			secondary_name_len: secondary.map_or(0, |failure| failure.diagnostic_name().len()),
+			secondary_message: secondary
+				.and_then(|failure| failure.detail.as_deref())
+				.map_or(core::ptr::null(), str::as_ptr),
+			secondary_message_len: secondary
+				.and_then(|failure| failure.detail.as_deref())
+				.map_or(0, str::len),
+		};
+		// Recording is observational. If the preferred Context refuses its own
+		// diagnostic input, retain both facts in the bounded surviving queue
+		// without replacing the protocol or teardown outcome.
+		let rc = unsafe { sys::pancake_context_report_failure(self.raw, &report) };
+		if rc != sys::OK {
+			record_runtime_failure(runtime_layer, operation, error.clone());
+			record_runtime_failure(FailureLayer::Binding, "diagnostic.record", Error::from_code(rc));
+		}
+	}
+
+	pub(crate) fn next_failure(&self) -> Result<Option<FailureEvent>> {
+		let mut event: sys::PancakeFailureEvent = unsafe { core::mem::zeroed() };
+		let mut required = 0usize;
+		let first =
+			unsafe { sys::pancake_context_next_failure(self.raw, &mut event, core::ptr::null_mut(), 0, &mut required) };
+		if first == sys::WOULD_BLOCK {
+			return Ok(None);
+		}
+		if first != sys::ERR_BUFFER_TOO_SMALL && first != sys::OK {
+			return Err(Error::from_code(first));
+		}
+		let mut payload = vec![0u8; required];
+		if first == sys::ERR_BUFFER_TOO_SMALL {
+			let rc = unsafe {
+				sys::pancake_context_next_failure(
+					self.raw,
+					&mut event,
+					payload.as_mut_ptr(),
+					payload.len(),
+					&mut required,
+				)
+			};
+			check(rc)?;
+		}
+
+		unsafe fn text(ptr: *const u8, len: usize) -> String {
+			if len == 0 {
+				String::new()
+			} else {
+				String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
+			}
+		}
+
+		Ok(Some(FailureEvent {
+			sequence: event.sequence,
+			dropped_before: event.dropped_before,
+			layer: FailureLayer::from_abi(event.layer),
+			scope: FailureScope::from_abi(event.scope_kind),
+			scope_id: event.scope_id,
+			operation_id: event.operation_id,
+			primary_result: event.primary_result,
+			secondary_result: event.secondary_result,
+			secondary_count: event.secondary_count,
+			truncated_fields: event.flags,
+			operation: unsafe { text(event.operation, event.operation_len) },
+			primary_name: unsafe { text(event.primary_name, event.primary_name_len) },
+			primary_message: unsafe { text(event.primary_message, event.primary_message_len) },
+			secondary_name: unsafe { text(event.secondary_name, event.secondary_name_len) },
+			secondary_message: unsafe { text(event.secondary_message, event.secondary_message_len) },
+		}))
 	}
 }
 
@@ -762,10 +1181,7 @@ pub(crate) struct SendArena {
 
 #[cfg(feature = "async")]
 impl SendArena {
-	pub(crate) fn build(
-		&mut self,
-		args: &[Argument],
-	) -> Result<(*const sys::PancakeArgument, usize)> {
+	pub(crate) fn build(&mut self, args: &[Argument]) -> Result<(*const sys::PancakeArgument, usize)> {
 		let mut out = Vec::with_capacity(args.len());
 		for a in args {
 			out.push(self.one(a)?);
@@ -853,12 +1269,8 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
 		sys::ARG_FLOAT64 => Argument::Float(c.float64),
 		sys::ARG_BOOLEAN => Argument::Boolean(c.boolean != 0),
 		sys::ARG_BYTES => Argument::Bytes(bytes_from_sys(c)),
-		sys::ARG_STRING => {
-			Argument::String(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned())
-		}
-		sys::ARG_SYMBOL => {
-			Argument::Symbol(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned())
-		}
+		sys::ARG_STRING => Argument::String(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
+		sys::ARG_SYMBOL => Argument::Symbol(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
 		sys::ARG_REFERENCE => Argument::Reference(Ref::from_sys(&c.reference)),
 		sys::ARG_LIST => Argument::List(args_from_sys(c.items, c.items_len)),
 		sys::ARG_SET => Argument::Set(args_from_sys(c.items, c.items_len)),
@@ -866,9 +1278,7 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
 			tag: String::from_utf8_lossy(&bytes_from_sys(c)).into_owned(),
 			value: args_from_sys(c.items, c.items_len),
 		},
-		sys::ARG_KEYWORD => {
-			Argument::Keyword(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned())
-		}
+		sys::ARG_KEYWORD => Argument::Keyword(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
 		sys::ARG_VOID => Argument::Void,
 		sys::ARG_BIG_INTEGER => Argument::BigInteger {
 			negative: c.boolean != 0,
@@ -950,7 +1360,6 @@ pub enum CaptpVersion {
 }
 
 impl CaptpVersion {
-	#[cfg(feature = "async")]
 	pub(crate) fn to_c(self) -> u32 {
 		match self {
 			CaptpVersion::V1_0 => sys::CAPTP_V1_0,
@@ -1040,10 +1449,7 @@ mod tests {
 		// A code outside every known family falls through to Other, carrying the
 		// raw value so a consumer can still read it.
 		let unrecognized = -999;
-		assert_eq!(
-			Error::from_code(unrecognized).kind(),
-			ErrorKind::Other(unrecognized)
-		);
+		assert_eq!(Error::from_code(unrecognized).kind(), ErrorKind::Other(unrecognized));
 	}
 
 	#[test]
@@ -1058,14 +1464,8 @@ mod tests {
 
 		// Owned and borrowed forms both convert.
 		assert_eq!(Argument::from(String::from("yo")).as_str(), Some("yo"));
-		assert_eq!(
-			Argument::from(vec![1u8, 2, 3]).as_bytes(),
-			Some(&[1, 2, 3][..])
-		);
-		assert_eq!(
-			Argument::from(b"hi".as_slice()).as_bytes(),
-			Some(&b"hi"[..])
-		);
+		assert_eq!(Argument::from(vec![1u8, 2, 3]).as_bytes(), Some(&[1, 2, 3][..]));
+		assert_eq!(Argument::from(b"hi".as_slice()).as_bytes(), Some(&b"hi"[..]));
 
 		// A mismatched accessor is `None`, never a panic.
 		assert_eq!(Argument::Boolean(true).as_str(), None);
@@ -1075,6 +1475,147 @@ mod tests {
 	fn reports_a_nonzero_abi_version() {
 		let (major, minor, patch) = abi_version();
 		assert!(major + minor + patch > 0);
+	}
+
+	#[test]
+	fn context_claims_structured_failures_once() {
+		let context = Context::new().unwrap();
+		let operation = b"listener.close";
+		let primary_name = b"CloseFailed";
+		let primary_message = b"socket refused shutdown";
+		let secondary_name = b"ReleaseFailed";
+		let secondary_message = b"descriptor remained live";
+		let report = sys::PancakeFailureReport {
+			abi_version: 1,
+			struct_size: core::mem::size_of::<sys::PancakeFailureReport>(),
+			layer: abi_constants_gen::FAILURE_LAYER_TRANSPORT,
+			scope_kind: abi_constants_gen::FAILURE_SCOPE_LISTENER,
+			scope_id: 31,
+			operation_id: 47,
+			primary_result: sys::ERR_IO,
+			secondary_result: sys::ERR_INTERNAL,
+			secondary_count: 2,
+			operation: operation.as_ptr(),
+			operation_len: operation.len(),
+			primary_name: primary_name.as_ptr(),
+			primary_name_len: primary_name.len(),
+			primary_message: primary_message.as_ptr(),
+			primary_message_len: primary_message.len(),
+			secondary_name: secondary_name.as_ptr(),
+			secondary_name_len: secondary_name.len(),
+			secondary_message: secondary_message.as_ptr(),
+			secondary_message_len: secondary_message.len(),
+		};
+		check(unsafe { sys::pancake_context_report_failure(context.inner.raw, &report) }).unwrap();
+
+		let failures = context.take_failures().unwrap();
+		assert_eq!(failures.len(), 1);
+		let failure = &failures[0];
+		assert_eq!(failure.sequence, 1);
+		assert_eq!(failure.dropped_before, 0);
+		assert_eq!(failure.layer, FailureLayer::Transport);
+		assert_eq!(failure.scope, FailureScope::Listener);
+		assert_eq!(failure.scope_id, 31);
+		assert_eq!(failure.operation_id, 47);
+		assert_eq!(failure.primary_result, sys::ERR_IO);
+		assert_eq!(failure.secondary_result, sys::ERR_INTERNAL);
+		assert_eq!(failure.secondary_count, 2);
+		assert_eq!(failure.operation, "listener.close");
+		assert_eq!(failure.primary_name, "CloseFailed");
+		assert_eq!(failure.primary_message, "socket refused shutdown");
+		assert_eq!(failure.secondary_name, "ReleaseFailed");
+		assert_eq!(failure.secondary_message, "descriptor remained live");
+		assert!(context.next_failure().unwrap().is_none());
+	}
+
+	#[cfg(feature = "async")]
+	#[test]
+	fn runtime_failure_journal_is_typed_bounded_and_saturation_aware() {
+		let _serial = RUNTIME_FAILURE_TEST_LOCK
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		take_runtime_failures();
+		for index in 0..=RUNTIME_FAILURE_CAP {
+			record_runtime_failure(
+				FailureLayer::Binding,
+				"test-drop",
+				Error::with_detail(sys::ERR_INTERNAL, format!("failure {index}")),
+			);
+		}
+		let diagnostics = take_runtime_failures();
+		assert_eq!(diagnostics.len(), RUNTIME_FAILURE_CAP);
+		assert_eq!(diagnostics[0].dropped_before, 1);
+		assert!(diagnostics.iter().all(|failure| failure.operation == "test-drop"));
+		assert_eq!(diagnostics[0].primary_message, "failure 1");
+
+		record_runtime_failure(
+			FailureLayer::Binding,
+			"test-payload-bound",
+			Error::with_detail(sys::ERR_INTERNAL, "x".repeat(FAILURE_PAYLOAD_CAP * 2)),
+		);
+		let bounded = take_runtime_failures().pop().unwrap();
+		assert_ne!(bounded.truncated_fields & (1 << 2), 0);
+		assert!(
+			bounded.operation.len()
+				+ bounded.primary_name.len()
+				+ bounded.primary_message.len()
+				+ bounded.secondary_name.len()
+				+ bounded.secondary_message.len()
+				<= FAILURE_PAYLOAD_CAP
+		);
+
+		let context = Context::new().unwrap();
+		let original = Error::with_detail(-99, "observer failed".to_owned());
+		context.inner.report_failure(
+			FailureLayer::ApplicationObserver,
+			FailureScope::Host,
+			17,
+			0,
+			"trace.sink",
+			&original,
+		);
+		let fallback = take_runtime_failures();
+		assert_eq!(fallback.len(), 2);
+		assert_eq!(fallback[0].layer, FailureLayer::ApplicationObserver);
+		assert_eq!(fallback[0].operation, "trace.sink");
+		assert_eq!(fallback[0].primary_message, "observer failed");
+		assert_eq!(fallback[1].layer, FailureLayer::Binding);
+		assert_eq!(fallback[1].operation, "diagnostic.record");
+		assert_eq!(fallback[1].primary_result, sys::ERR_INVALID_ARGUMENT);
+	}
+
+	#[cfg(feature = "async")]
+	#[test]
+	fn allocator_panics_are_contained_and_diagnosed() {
+		struct PanickingAllocator;
+
+		impl ContextAllocator for PanickingAllocator {
+			fn alloc(&self, _size: usize, _alignment: usize) -> *mut u8 {
+				panic!("allocator alloc panic");
+			}
+
+			unsafe fn free(&self, _ptr: *mut u8, _size: usize, _alignment: usize) {
+				panic!("allocator free panic");
+			}
+		}
+
+		let _serial = RUNTIME_FAILURE_TEST_LOCK
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		take_runtime_failures();
+		let allocator: Box<dyn ContextAllocator> = Box::new(PanickingAllocator);
+		let user_data = &allocator as *const Box<dyn ContextAllocator> as *mut core::ffi::c_void;
+		let allocated = unsafe { alloc_trampoline(user_data, 8, 8) };
+		assert!(allocated.is_null());
+		unsafe { free_trampoline(user_data, core::ptr::NonNull::<u8>::dangling().as_ptr().cast(), 8, 8) };
+
+		let diagnostics = take_runtime_failures();
+		assert!(diagnostics.iter().any(|failure| {
+			failure.operation == "context-allocator-alloc-panic" && failure.primary_message == "allocator alloc panic"
+		}));
+		assert!(diagnostics.iter().any(|failure| {
+			failure.operation == "context-allocator-free-panic" && failure.primary_message == "allocator free panic"
+		}));
 	}
 
 	#[test]

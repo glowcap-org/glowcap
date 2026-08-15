@@ -1,11 +1,21 @@
 import os
-from pancake import listen_noise_tcp
+from pancake import Argument, tcp
 
 # Same bind as keyed-tcp; Noise_XK seals every accepted CapTP stream.
 # Persist the 32-byte seed to keep the same key.
 seed = os.urandom(32)
-server = await listen_noise_tcp("127.0.0.1", 9099, seed=seed)
-print(server.uri)  # hand this locator to partners
-async for session in server:
-    session.publish("greeter", lambda _verb, args: f"hello, {args[0]}")
-    session.serve()
+async with await tcp.noise.listen("127.0.0.1", 9099, seed=seed) as server:
+    # From here, the CapTP workflow is transport-independent.
+    print(server.uri)  # hand this locator to partners
+
+    def greet(verb: str, args: list[Argument]) -> str:
+        if verb != "greet":
+            raise LookupError("no such method")
+        if len(args) != 1 or not isinstance(args[0], str):
+            raise TypeError("bad invocation")
+        return f"Hello, {args[0]}"
+
+    server.host.publish_giftable("greeter", greet)
+    async for accepted in server:
+        async with accepted as session:
+            await session.serve()

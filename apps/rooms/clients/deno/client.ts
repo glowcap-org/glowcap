@@ -27,10 +27,15 @@
 import { Directory, readPresence } from "../../lib/room_client.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { NOTIFY, POST, SUBSCRIBE } from "../../lib/protocol.ts";
-import { dial } from "../../lib/locator.ts";
-import type { Session } from "@pancake/stack";
+import { dial, isUriLocator, type RoomsDial } from "../../lib/locator.ts";
+import { openRoomsRuntime } from "../../lib/runtime.ts";
+import { Reachability } from "@pancake/iroh";
 
-export type RoomsDial = (locator: string) => Promise<Session>;
+export interface RunClientOptions {
+	readonly dial: RoomsDial;
+	readonly roster?: readonly string[];
+	readonly timeoutMs?: number;
+}
 
 /** Run one client session: enter the room, wait for every roster member to be
  * present, post `line`, and collect the chat line each roster member sends.
@@ -41,19 +46,17 @@ export async function runClient(
 	roomName: string,
 	nick: string,
 	line: string,
-	roster: string[] = [nick],
-	timeoutMs = 10000,
-	dialer: RoomsDial = dial,
+	options: RunClientOptions,
 ): Promise<string[]> {
-	const dir = await Directory.connect(locator, dialer);
+	const roster = options.roster ?? [nick];
+	const timeoutMs = options.timeoutMs ?? 10_000;
+	const dir = await Directory.connect(locator, options.dial);
 	const session = dir.session;
 	// Discovery: show the rooms that already have people in them, then follow the
 	// live list, both the snapshot (`list`) and the change feed (`watch`).
 	const live = await dir.list();
 	console.log(
-		`[${nick}] rooms: ${
-			live.length ? live.map((r) => `${r.name} (${r.count})`).join(", ") : "(none yet)"
-		}`,
+		`[${nick}] rooms: ${live.length ? live.map((r) => `${r.name} (${r.count})`).join(", ") : "(none yet)"}`,
 	);
 	await dir.watch((e) => console.log(`[${nick}] directory: ${e.kind} ${e.name} (${e.count})`));
 	const room = await enterOrOpen(dir, roomName);
@@ -134,12 +137,18 @@ if (import.meta.main) {
 		Deno.exit(2);
 	}
 	try {
+		await using runtime = await openRoomsRuntime({
+			iroh: isUriLocator(locator) ? { reachability: Reachability.Direct } : undefined,
+		});
 		await runClient(
 			locator,
 			roomName,
 			nick,
 			line,
-			rosterStr ? rosterStr.split(",") : [nick],
+			{
+				dial: (address) => dial(address, runtime),
+				roster: rosterStr ? rosterStr.split(",") : [nick],
+			},
 		);
 		Deno.exit(0);
 	} catch (err) {

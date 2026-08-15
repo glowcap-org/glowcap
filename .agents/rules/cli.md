@@ -21,10 +21,11 @@ green log is not a failure verdict.
 
 `check` needs no network, no submodules, and no live peer, and is the step to run
 while iterating; its cost is that a green `check` proves only that pancake agrees
-with pancake. It is not Zig-only: Cargo links the CLI tests' iroh sidecar, and
-two Bash harnesses make `tar` part of the hard floor. Deno and Python extend
-those harnesses when present and report explicit skips otherwise. **Run `check`
-in the devcontainer**, where the complete declared toolchain is pinned.
+with pancake. It is not Zig-only: Cargo links the CLI tests' iroh sidecar, two
+Bash harnesses make `tar` part of the hard floor, and Deno type-checks the
+TypeScript examples the documentation publishes. Python extends the Bash
+harnesses when present and reports an explicit skip otherwise. **Run `check` in
+the devcontainer**, where the complete declared toolchain is pinned.
 `check_runtimes` in `build.zig` names every program visible in the build graph
 and the scripts allowed to hide host-tool calls, so raising the hard floor is a
 reviewed edit rather than a silent one.
@@ -76,7 +77,7 @@ zig build check-external     # the external-authority half (needs uv + racket + 
 zig build test
 zig build test -Dtest-filter=substring   # only tests whose names match
 zig build arch-check
-zig build meta-check
+zig build source-check
 zig build oracle-check
 zig build fmt                # format Zig sources in place
 zig build cli-test           # hermetic pancake CLI goldens
@@ -91,8 +92,13 @@ The committed `.devcontainer/` is the canonical ready-to-build environment, and
 [`.devcontainer/pins.sh`](../../.devcontainer/pins.sh) owns every version and
 path ([`checksums.sh`](../../.devcontainer/checksums.sh) holds the per-arch
 checksums, and [`check-env-sync.sh`](../../.devcontainer/check-env-sync.sh) keeps
-`Dockerfile` and `devcontainer.json` aligned with it). After container open, run
-`bash .devcontainer/post-create.sh`, then `zig build check`; the notes are in
+`Dockerfile` and `devcontainer.json` aligned with it). Dependency updates run
+through [`update-pins.sh`](../../.devcontainer/update-pins.sh) (`check`, then
+`bump <dep>` / `bump --safe`), which fetches versions and checksums from each
+tool's release channel and validates the staged edit; do not hand-edit a pin
+against upstream. After container open, run
+`post-create.sh` verifies the environment automatically; then run `zig build
+check`. The notes are in
 [`.devcontainer/README.md`](../../.devcontainer/README.md). Serena MCP is
 client-started over stdio, see [serena-mcp](serena-mcp.md).
 
@@ -101,7 +107,7 @@ image build, cache ownership, and toolchain pin checks only.
 
 The browser proofs need no setup, because the image installs the pinned
 Playwright Chromium into `PLAYWRIGHT_BROWSERS_PATH`. The driving library must be
-that same version, so `meta-check` holds every Deno scope's `playwright` import
+that same version, so `source-check` holds every Deno scope's `playwright` import
 to `PLAYWRIGHT_VERSION` in `pins.sh` and refuses an inline
 `npm:playwright@<version>` specifier, which is a second pin that will drift. A
 browser step fails through `tools/check/playwright-preflight.sh`, which tells a
@@ -130,7 +136,7 @@ manual cleanup.
 The committed FFI tiers are generated too, and are never hand-edited. Each says
 so in its own first lines, a GENERATED header naming the `gen-*` step that
 writes it. Trust that header rather than any list, because a directory mixes
-generated and hand-written files freely: `bindings/ts/stack/internal/ffi/` holds
+generated and hand-written files freely: `bindings/ts/runtime/internal/ffi/` holds
 both, as does every binding tree and `include/pancake_*.h`.
 
 Changing a C signature means editing the Zig export, its row in that archive's
@@ -176,7 +182,7 @@ anywhere a partner can go silent: it parks the process and any golden that
 dials. (A `.ms` of zero or less is not the hang: it has already expired and
 times out immediately, in every build mode.) Product paths use
 `cli/ocapn.sessionOpts()` (finite ms), and tests that dial CapTP name a finite
-budget too. `meta-check` refuses `.unbounded` under `cli/` and under
+budget too. `source-check` refuses `.unbounded` under `cli/` and under
 `examples/zig/**`, where it is worse than a hang because a reader copies it;
 `test/cli/session_cases.zig` pins the silent-partner timeout. The
 buffer-explicit constructors take the handshake budget positionally and are

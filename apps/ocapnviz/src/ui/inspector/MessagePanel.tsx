@@ -12,11 +12,7 @@ import type { Engine } from "../../engine/engine.ts";
 import { findMessageInDoc } from "../../engine/event-helpers.ts";
 import { messageEffective } from "../../engine/temporal/doc-resolver.ts";
 import { PayloadViewer } from "./PayloadViewer.tsx";
-import {
-  LifecycleChip,
-  type LifecycleStatus,
-  MessageKindLabel,
-} from "../EntityChips.tsx";
+import { LifecycleChip, type LifecycleStatus, MessageKindLabel } from "../EntityChips.tsx";
 import {
   DivergenceHint,
   EditableIdField,
@@ -43,12 +39,7 @@ import {
   valueMono,
 } from "./shared.tsx";
 import { elideIdentifier, Identifier } from "../identifier.tsx";
-import {
-  isInSelection,
-  messageInfo,
-  peerInfo,
-  sessionInfo,
-} from "./entity-info.ts";
+import { isInSelection, messageInfo, peerInfo, sessionInfo } from "./entity-info.ts";
 import { sessionPairName } from "../session-name.ts";
 import type { EntityRefKey } from "../../interactions/types.ts";
 import type { Codec } from "../../schema/topology.ts";
@@ -130,9 +121,7 @@ export function MessageFields(
   // "flight unobserved" sentinel and the projection substitutes
   // the default flight, so the event value would show a zero
   // flight (and flip the lifecycle to "after" too early).
-  const effective = def !== undefined
-    ? messageEffective(engine.doc, id)
-    : undefined;
+  const effective = def !== undefined ? messageEffective(engine.doc, id) : undefined;
   const arrivalT = live?.arrivalT ?? effective?.end ?? sentEv?.arrivalT ?? 0;
 
   const lifecycle: LifecycleStatus = live
@@ -190,9 +179,7 @@ export function MessageFields(
       <FieldGroup title="Details">
         <div style={kv}>
           <Field label="id">
-            {editing && editor
-              ? <EditableIdField kind="message" id={id} editor={editor} />
-              : <Identifier value={id} />}
+            {editing && editor ? <EditableIdField kind="message" id={id} editor={editor} /> : <Identifier value={id} />}
           </Field>
           <Field label="from">
             <Identifier value={from} />
@@ -238,25 +225,13 @@ export function MessageFields(
         <div style={kv}>
           <OptionalTimeRow
             label="start"
-            t={def?.timing?.start.explicit
-              ? engine.intrinsicStart("messages", id)
-              : null}
+            t={def?.timing?.start.explicit ? engine.intrinsicStart("messages", id) : null}
             editing={editing}
-            onMove={editing && editor?.onSetMessageStart
-              ? (t) => editor.onSetMessageStart(id, t)
-              : undefined}
-            onClear={editor?.onClearMessageStart
-              ? () => editor.onClearMessageStart(id)
-              : undefined}
-            onSetAtPlayhead={editor?.onSetMessageStart
-              ? () => editor.onSetMessageStart(id, engine.clock.t)
-              : undefined}
-            min={carryingSessionId
-              ? engine.effectiveStart("sessions", carryingSessionId)
-              : 0}
-            max={def?.timing
-              ? def.timing.start.value + def.timing.duration.value
-              : duration}
+            onMove={editing && editor?.onSetMessageStart ? (t) => editor.onSetMessageStart(id, t) : undefined}
+            onClear={editor?.onClearMessageStart ? () => editor.onClearMessageStart(id) : undefined}
+            onSetAtPlayhead={editor?.onSetMessageStart ? () => editor.onSetMessageStart(id, engine.clock.t) : undefined}
+            min={carryingSessionId ? engine.effectiveStart("sessions", carryingSessionId) : 0}
+            max={def?.timing ? def.timing.start.value + def.timing.duration.value : duration}
             strictMax={def?.timing?.duration.explicit === true}
             scrubLabel="Message start time"
             editSession={editor}
@@ -282,9 +257,8 @@ export function MessageFields(
                     min={0}
                     max={Math.max(
                       0,
-                      (carryingSessionId
-                        ? engine.effectiveEnd("sessions", carryingSessionId)
-                        : duration) - def.timing.start.value,
+                      (carryingSessionId ? engine.effectiveEnd("sessions", carryingSessionId) : duration) -
+                        def.timing.start.value,
                     )}
                     strictMax={carryingSessionId !== undefined}
                     onChange={(dur) => editor.onSetMessageDuration(id, dur)}

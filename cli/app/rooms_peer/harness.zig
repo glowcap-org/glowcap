@@ -37,15 +37,20 @@ pub fn removeFile(io: Io, dir: []const u8, leaf: []const u8) void {
     Io.Dir.cwd().deleteFile(io, path) catch {};
 }
 
-/// Append a line to DIR/leaf under an exclusive sidecar lock.
-///
-/// std.Io.File has no append/seek, so the body is still read-modify-write.
-/// Without the lock, two concurrent `reply` processes each read the same
-/// prefix and the later write drops the earlier line — and when the dropped
-/// write was longer, `outbox.offset` can land mid-line and the drain stalls
-/// on garbage forever. Lock lives on `leaf.lock` so `overwriteFile` can
-/// replace the body inode without dropping the advisory lock.
-pub fn appendLine(io: Io, gpa: Allocator, dir: []const u8, leaf: []const u8, bytes: []const u8) !void {
+/// Exclusive sidecar lock for a harness leaf (`leaf.lock`). `overwriteFile`
+/// replaces the body inode; the lock file stays so a drain rewrite and a
+/// concurrent `reply` append cannot drop each other's line.
+pub const FileLock = struct {
+    io: Io,
+    file: Io.File,
+
+    pub fn unlock(self: FileLock) void {
+        self.file.unlock(self.io);
+        self.file.close(self.io);
+    }
+};
+
+pub fn lockLeaf(io: Io, dir: []const u8, leaf: []const u8) !FileLock {
     var lock_leaf_buf: [160]u8 = undefined;
     const lock_leaf = std.fmt.bufPrint(&lock_leaf_buf, "{s}.lock", .{leaf}) catch unreachable;
     var lock_path_buf: [512]u8 = undefined;
@@ -55,10 +60,18 @@ pub fn appendLine(io: Io, gpa: Allocator, dir: []const u8, leaf: []const u8, byt
         .truncate = false,
         .lock = .exclusive,
     });
-    defer {
-        lock_file.unlock(io);
-        lock_file.close(io);
-    }
+    return .{ .io = io, .file = lock_file };
+}
+
+/// Append a line to DIR/leaf under an exclusive sidecar lock.
+///
+/// std.Io.File has no append/seek, so the body is still read-modify-write.
+/// Without the lock, two concurrent `reply` processes each read the same
+/// prefix and the later write drops the earlier line, and an append racing
+/// the drain's compaction rewrite loses one side's lines the same way.
+pub fn appendLine(io: Io, gpa: Allocator, dir: []const u8, leaf: []const u8, bytes: []const u8) !void {
+    const lock = try lockLeaf(io, dir, leaf);
+    defer lock.unlock();
     const old = try readFile(io, gpa, dir, leaf);
     defer gpa.free(old);
     var list: std.ArrayList(u8) = .empty;
@@ -115,9 +128,61 @@ pub fn parseOutboxLine(gpa: Allocator, line: []const u8) ?OutboxLine {
     return .{ .text = text, .is_dm = is_dm, .peer = peer };
 }
 
+/// What the outbox drain does with one complete remainder line.
+pub const OutboxLineFate = enum {
+    /// Omit from the rewritten remainder (sent, empty, or invalid).
+    drop,
+    /// Keep this line and keep scanning later lines (blocked DM).
+    hold,
+    /// Keep this line and every later byte. Stop scanning.
+    stop,
+};
+
+/// Rewrite outbox remainder so sent lines vanish and blocked DMs stay, without
+/// inventing EOF. Incomplete trailing bytes (no newline) are always kept.
+/// `decide` sees one parsed JSON line; empty and non-JSON lines are dropped
+/// the same way the drain used to skip them.
+pub fn compactOutboxRemainder(
+    gpa: Allocator,
+    remainder: []const u8,
+    context: anytype,
+    comptime decide: anytype,
+) Allocator.Error![]u8 {
+    var kept: std.ArrayList(u8) = .empty;
+    errdefer kept.deinit(gpa);
+    var pos: usize = 0;
+    while (pos < remainder.len) {
+        const rel_nl = std.mem.indexOfScalar(u8, remainder[pos..], '\n') orelse {
+            try kept.appendSlice(gpa, remainder[pos..]);
+            break;
+        };
+        const line_end = pos + rel_nl;
+        const record = remainder[pos .. line_end + 1];
+        const trimmed = std.mem.trim(u8, remainder[pos..line_end], " \t\r");
+        const next = line_end + 1;
+        if (trimmed.len == 0) {
+            pos = next;
+            continue;
+        }
+        if (parseOutboxLine(gpa, trimmed)) |parsed| {
+            defer parsed.deinit(gpa);
+            switch (decide(context, parsed)) {
+                .drop => {},
+                .hold => try kept.appendSlice(gpa, record),
+                .stop => {
+                    try kept.appendSlice(gpa, remainder[pos..]);
+                    break;
+                },
+            }
+        }
+        pos = next;
+    }
+    return kept.toOwnedSlice(gpa);
+}
+
 /// Append one durable room post or direct message to the peer's outbox. A DM
 /// names its introduction target; the daemon resolves or opens that route
-/// before advancing the outbox cursor.
+/// before dropping that line. A blocked DM is held; later room posts still send.
 pub fn appendOutbox(io: Io, gpa: Allocator, dir: []const u8, text: []const u8, peer: ?[]const u8) !void {
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(gpa);
@@ -167,21 +232,20 @@ pub fn recordInbox(io: Io, gpa: Allocator, dir: []const u8, kind: []const u8, ch
     try appendLine(io, gpa, dir, "inbox.jsonl", list.items);
 }
 
-/// Persist the outbox drain cursor. Only call after tell + drainActions both
-/// succeeded for every line up to `offset`.
-///
-/// Reports whether it persisted. The write used to be swallowed, which made
-/// the fail-closed contract above unenforceable in the one case it is for: a
-/// read-only or full state directory left the cursor on disk behind the one in
-/// memory, so a restart resent every line since.
+/// Write `outbox.offset`. The drain compacts sent lines out of the file
+/// instead of advancing this mark, so nothing in the peer calls this anymore;
+/// tests use it to fabricate a state dir whose scrollback the drain must not
+/// resend.
 pub fn saveOutboxOffset(io: Io, dir: []const u8, offset: usize) error{PersistFailed}!void {
     var buf: [24]u8 = undefined;
     const text = std.fmt.bufPrint(&buf, "{d}\n", .{offset}) catch return error.PersistFailed;
     overwriteFile(io, dir, "outbox.offset", text) catch return error.PersistFailed;
 }
 
-/// Load a persisted outbox offset (unclamped). Missing or corrupt → 0 so a
-/// restart resumes from the start of undrained history. Never invent EOF.
+/// Load the persisted already-sent mark (unclamped). The drain treats bytes
+/// before it as sent scrollback and compacts only past it. Missing or corrupt
+/// → 0 so a restart resumes from the start of undrained history. Never invent
+/// EOF.
 pub fn loadOutboxOffset(io: Io, gpa: Allocator, dir: []const u8) usize {
     const raw = readFile(io, gpa, dir, "outbox.offset") catch return 0;
     defer gpa.free(raw);

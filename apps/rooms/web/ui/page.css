@@ -5,8 +5,18 @@
 :root {
 	--danger: light-dark(#b23b2e, #e07a5f);
 	--ok: var(--teal);
-	--warn: var(--accent);
+	/* Its own colour, not the accent's. A token defined as another token cannot
+	   move when the two meanings part, and these have: amber says "this room is
+	   yours" three rows above the dot that was using it to say "something is
+	   wrong". A warning that wears the page's most ordinary colour does not read
+	   as a warning, it reads as more accent. */
+	--warn: light-dark(#9a6b00, #f0b429);
 	--hover: light-dark(color-mix(in srgb, var(--ink) 6%, transparent), color-mix(in srgb, #ffffff 7%, transparent));
+	/* Palette colors are not automatically readable ink. The deeper arm clears
+	   small text on light paper; the brighter arm clears it on dark paper. Keep
+	   raw --accent/--teal for decorative marks and route words through these. */
+	--accent-ink: light-dark(var(--accent-deep), var(--accent));
+	--teal-ink: light-dark(var(--teal-deep), var(--teal));
 	/* The ground the page stands on: warm paper with a little of the accent
 	   poured in at the top. It is named because two surfaces stand on it, the
 	   body and the opening screen that covers the body until the interface is
@@ -25,6 +35,12 @@
 	--mine-from: light-dark(var(--accent-deep), var(--accent));
 	--mine-to: light-dark(#8a4708, var(--accent-deep));
 	--on-accent: light-dark(#fff8ef, #241a10);
+	/* An interactive wash inside our own message bubble. The bubble reverses
+	   both fill and ink between themes, so a page-surface hover cannot serve it:
+	   dark paper under dark on-accent ink was the broken Download state. Darken
+	   the light theme's deep bubble for cream ink; lighten the dark theme's
+	   bright bubble for cocoa ink. */
+	--mine-action-hover: light-dark(rgba(0, 0, 0, 0.14), rgba(255, 255, 255, 0.18));
 	/* light-dark() returns a colour, so it goes around the colour and not around
 	   the whole shadow. Wrapping the whole value parses as a colour function in
 	   the wrong place, the declaration is thrown away, and every box-shadow that
@@ -53,19 +69,36 @@
 	--avatar-8: #3a7d8c;
 	--avatar-9: #7a5c34;
 	--avatar-10: #2f6f78;
-	/* Controls come in two sizes and no others. A control that belongs to the
-	   application — anything in the topbar, the rail's own header, the composer —
-	   is --control-h, so the whole frame of the page is one height and reads as
-	   one set. A control that belongs to a row of content — the "+" on a section
-	   heading, the direct-line mark on a member — is --control-sm, because it is
-	   subordinate to the line it sits in and sizing it like the chrome would have
-	   it shouting over the thing it acts on. Anything reaching for a third number
-	   is really asking which of these two it is. */
+	/* Which directory a room or a direct line belongs to. Handed out in order,
+	   one per directory this tab holds, and never derived from a name.
+
+	   These follow the theme where the avatar ramp above does not, because the
+	   two marks sit on different grounds: an avatar chip carries white initials
+	   and must stay dark in both, while a directory mark is ink on the rail and
+	   has to flip with the paper.
+
+	   Amber, teal, and red are already spent — commitment, the quiet way out,
+	   and refusal — so what is left is one green and the blue-to-magenta arc.
+	   Five is what that arc holds at this separation; a sixth would have to sit
+	   inside a semantic band or inside another tone, and two directories wearing
+	   one colour claims a sameness that is not there. Where two are close in hue they
+	   are held apart in lightness instead.
+
+	   Colour is never the only channel: every row that wears one also names its
+	   directory in words. */
+	--dir-mark-1: light-dark(#145200, #6ab759);
+	--dir-mark-2: light-dark(#0269bd, #99c9ff);
+	--dir-mark-3: light-dark(#870b60, #ed81bf);
+	--dir-mark-4: light-dark(#552d9d, #af94fd);
+	--dir-mark-5: light-dark(#9546ac, #ecaffe);
+	/* Icon controls have three named sizes and no caller-owned geometry. Small
+	   belongs to a row of content, normal to application chrome, and large to the
+	   touch-primary composer controls. Text inputs and title chips still share
+	   --control-h because they are not icon buttons. */
+	--icon-button-small: 26px;
+	--icon-button-normal: 36px;
+	--icon-button-large: 42px;
 	--control-h: 36px;
-	/* The pancake mark, at whichever end of the chrome is holding it. One number
-	   for both homes: see `.mark-btn::before`. */
-	--mark-size: 20px;
-	--control-sm: 26px;
 	/* The composer's own text line. The padding that centres a single line in the
 	   input is derived from these two, so raising the control height for touch
 	   moves the padding with it. Held apart, the phone's taller control kept the
@@ -125,6 +158,429 @@ html[data-theme="dark"] {
 	display: block;
 	flex: none;
 }
+.icon-mark {
+	background: currentColor;
+	-webkit-mask: var(--mark-stack) center/contain no-repeat;
+	mask: var(--mark-stack) center/contain no-repeat;
+}
+/* The product mark keeps the same brand colour from the opening screen into
+   either of its two homes. The surrounding control remains a neutral toggle:
+   colour belongs to the mark; hover and held state belong to the button. */
+.mark-btn .icon-mark {
+	background: var(--accent);
+}
+
+/* One baseline for controls whose meaning is carried by an interface glyph.
+   Data attributes are the component's closed variant vocabulary: layout may
+   place a button, but it never restates reset, geometry, interaction, or icon
+   size. */
+.icon-button {
+	all: unset;
+	box-sizing: border-box;
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	width: var(--icon-button-normal);
+	height: var(--icon-button-normal);
+	border: 1px solid transparent;
+	border-radius: 9px;
+	color: var(--ink-soft);
+	line-height: 1;
+	cursor: pointer;
+	/* Palette context may change under a control (theme, authored bubble, media
+	   overlay). Interpolating ink and ground independently crosses illegible
+	   midpoints even when both endpoints clear contrast, so only motion moves. */
+	transition: transform .12s ease;
+}
+.icon-button[data-size="small"] {
+	width: var(--icon-button-small);
+	height: var(--icon-button-small);
+	border-radius: 7px;
+}
+.icon-button[data-size="large"] {
+	width: var(--icon-button-large);
+	height: var(--icon-button-large);
+	border-radius: 11px;
+}
+.icon-button[data-shape="circle"] {
+	border-radius: 50%;
+}
+.icon-button[data-variant="outline"] {
+	border-color: var(--rule);
+}
+.icon-button[data-variant="solid"] {
+	background: var(--paper-raised);
+}
+.icon-button[data-tone="accent"] {
+	color: var(--accent-ink);
+}
+.icon-button[data-tone="teal"] {
+	color: var(--teal-ink);
+}
+.icon-button[data-tone="danger"] {
+	color: var(--danger);
+}
+.icon-button[data-tone="inverse"] {
+	color: rgba(255, 255, 255, 0.9);
+}
+.icon-button[data-tone="on-accent"] {
+	color: var(--on-accent);
+	border-color: color-mix(in srgb, var(--on-accent) 34%, transparent);
+}
+.icon-button[data-tone="inverse"]:focus-visible {
+	outline-color: #fff;
+}
+.icon-button[data-tone="on-accent"]:focus-visible {
+	outline-color: var(--on-accent);
+}
+/* Hover is a pointer affordance. Restricting it to a pointer that can really
+   hover also prevents touch browsers from leaving the last tapped control in a
+   synthetic hover state. Disabled controls never take an interactive state. */
+@media (hover: hover) {
+	.icon-button:hover:not(:disabled) {
+		background: var(--hover);
+		color: var(--ink);
+	}
+	.icon-button[data-tone="accent"]:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+		color: var(--accent-ink);
+	}
+	.icon-button[data-tone="teal"]:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--teal) 14%, transparent);
+		border-color: color-mix(in srgb, var(--teal) 40%, transparent);
+		color: var(--teal-ink);
+	}
+	.icon-button[data-tone="danger"]:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--danger) 14%, transparent);
+		color: var(--danger);
+	}
+	.icon-button[data-tone="inverse"]:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.16);
+		color: #fff;
+	}
+	.icon-button[data-tone="on-accent"]:hover:not(:disabled) {
+		background: var(--mine-action-hover);
+		color: var(--on-accent);
+	}
+}
+.icon-button[data-variant="solid"][data-tone="accent"] {
+	border-color: transparent;
+	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
+	color: var(--on-accent);
+}
+.icon-button[data-variant="solid"][data-tone="inverse"] {
+	background: color-mix(in srgb, #000 45%, transparent);
+}
+@media (hover: hover) {
+	.icon-button[data-variant="solid"][data-tone="accent"]:hover:not(:disabled) {
+		filter: brightness(1.05);
+		transform: translateY(-1px);
+	}
+}
+/* Held on. It differs from hover in kind, not in degree, and it has to: a
+   toggle whose two states are the same wash a few percent apart answers
+   nothing, because a reader cannot tell the rail being open from the pointer
+   being over the button that opens it.
+
+   So a hover is a wash sitting on the surface, which leaves when the pointer
+   does. Held on is a filled chip with a drawn edge and a shadow falling
+   inwards, so it reads as pressed into the bar. A pointer passing over cannot
+   look like that. */
+.icon-button[aria-pressed="true"]:not([data-variant="solid"]) {
+	color: var(--accent-ink);
+	border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+	background: color-mix(in srgb, var(--accent) 26%, transparent);
+	box-shadow: inset 0 1px 2px var(--shadow-sm-color);
+}
+/* Pointing at a control already held on still answers. It deepens rather than
+   washing, because the chip is the state and a lighter film over it would read
+   as the state weakening. */
+@media (hover: hover) {
+	.icon-button[aria-pressed="true"]:not([data-variant="solid"]):hover:not(:disabled) {
+		background: color-mix(in srgb, var(--accent) 34%, transparent);
+		border-color: var(--accent);
+		color: var(--accent-ink);
+	}
+}
+/* Every icon control acknowledges the press itself, which no hover state can do
+   on a phone, where there is no hover at all.
+
+   It names the two attributes every button in this family carries, because it
+   has to outrank the one hover state that also moves a control — the solid
+   accent lift above. A button being pressed is under the pointer by definition,
+   so the two always meet, and the press is the one that should win: the control
+   goes down under the finger rather than staying lifted. */
+.icon-button[data-variant][data-tone]:active:not(:disabled) {
+	transform: scale(.93);
+}
+.icon-button:disabled {
+	opacity: .4;
+	cursor: not-allowed;
+	filter: none;
+	transform: none;
+}
+.icon-button-badge {
+	min-width: 2ch;
+	text-align: center;
+	font-size: 13px;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+.icon-button:has(.icon-button-badge) {
+	width: auto;
+	min-width: var(--icon-button-normal);
+	padding: 0 11px 0 9px;
+}
+
+/* And one baseline for controls whose meaning is carried by words (see
+   Button.tsx). Two variants, because a rooms form asks for two things: the
+   commitment at its foot, and a quiet secondary action. Treatment lives here;
+   the card that contains a button owns where it sits.
+
+   Only motion transitions, for the reason the icon family gives: a control can
+   sit on paper, on amber, or over a picture, and interpolating ink and ground
+   independently crosses illegible midpoints even when both ends clear
+   contrast. */
+.button {
+	all: unset;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	font: inherit;
+	line-height: 1.2;
+	text-align: center;
+	cursor: pointer;
+	transition: transform .12s ease;
+}
+.button[data-variant="primary"] {
+	padding: 12px;
+	border-radius: 11px;
+	font-weight: 800;
+	color: var(--on-accent);
+	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
+}
+.button[data-variant="primary"]:hover:not(:disabled) {
+	filter: brightness(1.05);
+}
+.button[data-variant="quiet"] {
+	padding: 4px 8px;
+	border-radius: 8px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--teal-ink);
+}
+.button[data-variant="quiet"]:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--teal) 12%, transparent);
+}
+/* A step sideways: a word that opens something further, sitting under a line of
+   text rather than in a row of controls. It takes no box at rest, because a box
+   here would make the line it lives under grow around it — which is the whole
+   reason this is its own role and not a smaller `quiet`.
+
+   It takes no colour of its own either. The other two variants are amber and
+   teal because they are the shape of a decision; this one is a word among
+   words, and colouring it would pull the eye off whatever it sits under — a
+   room's name, say, which is the thing that should win.
+
+   So it changes its ink and nothing else. Every place this variant is used sits
+   inside something that is already a hover surface of its own — a room's row, the
+   panel that adds one — and a ground appearing inside a ground that just changed
+   under the same pointer is two reveals for one gesture. The eye reads the
+   larger one and the smaller one only muddies its edge. Ink is the whole
+   treatment, which is also what tells this apart from the buttons: they are
+   objects that light up, and this is a word that answers to being approached.
+
+   Not an underline, and that is a rule rather than a preference: the one thing
+   this interface underlines is a real link inside a message (`.bubble a`).
+   Spending the same mark on a control would make the two indistinguishable, and
+   one of them navigates away from the page while the other opens a card over
+   it. */
+.button[data-variant="link"] {
+	font: inherit;
+	color: inherit;
+	border-radius: 4px;
+	transition: color .12s ease;
+}
+/* The same word grown into a line of its own, under the name it is about. It is
+   quieter than that name by size, it starts its content instead of centring it
+   the way a shape-shaped control does, and it carries a ground to be approached
+   by rather than only ink.
+
+   All of that is the variant's, not a caller's. It used to be a `link` wearing a
+   class that had to name itself twice to beat this family's `font: inherit` —
+   which is what a missing case looks like from the outside. Where the line goes
+   and how wide its mark column is remain the rail's to say. */
+/* A caption spans a whole line, so what is written on it sits in the middle of
+   that line as one piece: a glyph and the words it belongs to, together, inset
+   by whatever the line does not need. Both halves are stated because only one
+   of them survives a caption that lays its own contents out — `justify-content`
+   places flex children and does nothing to a grid, which is how the words came
+   to centre while the glyph stayed pinned at the far left.
+
+   And it is drawn at rest. A line with content floating in the middle of it and
+   no rectangle underneath reads as a stray caption rather than as something to
+   press, and the ground it takes under a pointer has to arrive as a change of
+   state rather than as the first news that this was a target at all.
+
+   The fill is the row's own tone, lifted: a veil of the page's paper over
+   whatever the row is drawn on, so the plate keeps the hue of the row it sits
+   in and stands a shade out of it. Which way that reads is the appearance's to
+   decide — on cream the plate lightens, in syrup it deepens — because both are
+   the same move, toward the ground the page itself is drawn on.
+
+   Toward paper and not away from it, because the words have nowhere to give.
+   A row being read is one of the two grounds in the rail with no headroom left,
+   which is why the caption on it already runs at full ink; the first fill tried
+   here mixed ink into the ground and took that row from 4.5 to 1 down to 4.36.
+   A tint moving toward paper cannot do that: the ink is chosen against paper
+   and the row's ground is a tint away from it, so this buys contrast rather
+   than spending it, in either appearance. */
+.button[data-variant="caption"] {
+	justify-content: center;
+	text-align: center;
+	font-size: 11px;
+	line-height: 1.25;
+	border: 1px solid var(--rule);
+	border-radius: 7px;
+	/* Lighter on cream than in syrup. The amber ground and the paper over it are
+	   close in light, so the same veil that clearly deepens a dark row barely
+	   lifts a pale one; the arms are stated apart rather than one number split
+	   the difference and read as almost nothing in the appearance most readers
+	   are in. */
+	--caption-plate: light-dark(
+		color-mix(in srgb, var(--paper) 78%, transparent),
+		color-mix(in srgb, var(--paper) 45%, transparent)
+	);
+	background: var(--caption-plate);
+	transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+}
+@media (hover: hover) {
+	.button[data-variant="link"]:hover:not(:disabled) {
+		color: var(--teal-ink);
+	}
+	/* A ground as well as ink, and only for the caption, because that one is not
+	   a word in a sentence: it is a line of its own spanning the row's whole
+	   width, so a reader aims at the line rather than at the words on it and has
+	   to be shown what they have got.
+
+	   Teal against the row's amber, which is this interface's existing pair: amber
+	   is the room, and this line goes somewhere else — to what is known about the
+	   directory the room is on, or to the card where another one is named. Two
+	   grounds nested is normally a muddle; two grounds saying two different things
+	   is the row telling a reader it has two targets in it. */
+	.button[data-variant="caption"]:hover:not(:disabled) {
+		border-color: color-mix(in srgb, var(--dir-mark, var(--teal)) 40%, var(--rule));
+		background: color-mix(in srgb, var(--dir-mark, var(--teal)) 14%, var(--caption-plate));
+	}
+}
+/* The words come up to full strength with it. Part of the same state change —
+   the whole line lights rather than only its ground — and it is what pays for
+   the wash: this text is small, and a tint under it at rest strength left the
+   directory colours sitting on 4.5 to 1 exactly, which is a line to stand clear
+   of rather than to land on. */
+.button[data-variant="caption"]:hover:not(:disabled) .rwhere-said,
+.button[data-variant="caption"]:active:not(:disabled) .rwhere-said {
+	opacity: 1;
+}
+/* Answered on a press as well, because a finger never hovers. Same colour, so
+   the two pointers learn one thing rather than each their own. */
+.button[data-variant="caption"]:active:not(:disabled) {
+	border-color: color-mix(in srgb, var(--dir-mark, var(--teal)) 40%, var(--rule));
+	background: color-mix(in srgb, var(--dir-mark, var(--teal)) 14%, var(--caption-plate));
+}
+/* Focus is the one case ink alone will not carry. A keyboard reader has no
+   pointer to say where they are, so this keeps the ring the rest of the
+   interface uses and lets the ring do the work the ground used to. */
+/* A word offered as a choice says when it is the one in force. Selected has to
+   differ from hovered in kind rather than in degree, so this is weight as well
+   as ink — hovering brings the teal, and choosing keeps it and leans on it.
+   Held by the family because any word offered this way answers the same
+   question, and a call site that drew its own would be the second of two that
+   drift. */
+.button[aria-pressed="true"] {
+	color: var(--teal-ink);
+	font-weight: 700;
+}
+.button[data-variant="link"]:focus-visible,
+.button[data-variant="caption"]:focus-visible {
+	color: var(--teal-ink);
+	outline: 2px solid var(--teal);
+	outline-offset: 2px;
+}
+/* A finger cannot approach, so both grow a hit area to be tapped by, taken as
+   padding against a negative margin so the line each sits on is no taller for
+   it.
+
+   Only the word in running text also carries the quiet teal at rest: it has no
+   other way to say it is a word you can press. The caption does — it is drawn
+   on a rectangle of its own — so it stays as it is until it is pressed, and
+   answers the press in its directory's colour the way a hover does. */
+@media (hover: none) {
+	.button[data-variant="link"],
+	.button[data-variant="caption"] {
+		padding-block: 7px;
+		margin-block: -7px;
+	}
+	.button[data-variant="link"] {
+		color: var(--teal-ink);
+	}
+}
+.button:active:not(:disabled) {
+	transform: translateY(1px);
+}
+/* Refused and in flight read differently. A refused button is barred and
+   dimmed. A busy one keeps more of its colour, because it is still the thing
+   you asked for, and its cursor says to wait rather than that you may not. */
+.button:disabled {
+	opacity: .45;
+	cursor: not-allowed;
+}
+.button[data-busy] {
+	opacity: .55;
+	cursor: progress;
+}
+
+/* Copying, and the one place its reply is drawn (see CopyButton.tsx). A copy
+   sends something somewhere the page cannot show, so the control answers for
+   it: the icon becomes a tick and this chip stands over the button for a
+   moment. It is placed above rather than beside because the callers sit in
+   tight rows — a hover toolbar over a message, a control beside a locator
+   field — where anything taking width would push the row around as it came and
+   went.
+
+   The chip is in the page whether or not it says anything, so that a reply is a
+   change inside a live region rather than a region arriving with the news.
+   Empty, it fades out to nothing and takes no pointer, which is why the state
+   is carried by opacity rather than by display. */
+.copy {
+	position: relative;
+	display: inline-flex;
+}
+.copy-said {
+	position: absolute;
+	bottom: calc(100% + 8px);
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 3;
+	padding: 3px 8px;
+	border-radius: 7px;
+	background: var(--ink);
+	color: var(--paper);
+	font-size: 11px;
+	font-weight: 700;
+	white-space: nowrap;
+	pointer-events: none;
+	box-shadow: var(--shadow-sm);
+	transition: opacity .16s ease;
+}
+.copy-said:empty {
+	opacity: 0;
+}
 /* The little state marks — a padlock on a direct conversation, the sigil in the
    room title — are icons sitting in a run of text, so they centre on the line
    rather than on the text baseline. */
@@ -137,10 +593,9 @@ html,
 body {
 	height: 100%;
 }
-/* Make the hidden attribute authoritative. Several toggled controls (the members
-   and notify buttons) hide via .hidden, but the display rules below (.ghost /
-   .icon set display: inline-flex) would otherwise override it and leave them
-   visible — e.g. a Members button lingering in a direct message. */
+/* Make the hidden attribute authoritative. Component display rules would
+   otherwise override it and leave a toggled control visible — e.g. a Members
+   button lingering in a direct message. */
 [hidden] {
 	display: none !important;
 }
@@ -164,11 +619,14 @@ body {
 	grid-template-columns: var(--rail-w) minmax(0, 1fr);
 }
 /* Collapsing a rail hands its width to the conversation, and both rails do it
-   the same way: the track goes away and the panel goes with it, at once. There
-   is no slide, because a panel that also gives up its space can only animate one
-   of the two — either the layout moves, which is a reflow every frame, or the
-   panel slides across ground it has already handed over. Neither is worth the
-   third of a second. */
+   the same way: the track goes away and the panel goes with it, at once. A
+   panel that also gives up its space cannot travel far: either the layout
+   moves with it, which is a reflow of the whole conversation every frame, or it
+   crosses ground it has already handed over, and the reader watches a gap it
+   has to fill. So the panel arrives from its own edge over a short distance,
+   under the fade that is doing most of the work, and the layout is settled
+   before the first frame of it. Nothing follows it out, because by then the
+   track is gone and there is nowhere left to leave from. */
 .app.rooms-hidden {
 	grid-template-columns: minmax(0, 1fr);
 }
@@ -190,6 +648,18 @@ button:focus-visible,
 /* Honour a reduced-motion preference: drop the transitions and the reconnect
    spinner's spin, so the interface holds still for anyone who asks the OS for
    less movement. */
+/* Reduced motion means less travel, not less feedback.
+
+   Asking for it should not turn a change into a jump cut: something that
+   vanishes between two frames can leave a reader unsure anything happened at
+   all, which is worse than the motion they asked to be spared. So repeated
+   animation stops, movement stops, and fades stay — short ones.
+
+   The duration is a near-zero rather than `none` on purpose, and it is
+   load-bearing beyond taste: `boot.ts` takes the opening screen down on the
+   fade's own `transitionend`, and a transition with no duration never fires
+   one. Writing `transition: none` here would strand that screen over the page
+   for every reader who has asked for less motion. */
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
@@ -198,15 +668,83 @@ button:focus-visible,
 		animation-iteration-count: 1 !important;
 		transition-duration: .001ms !important;
 	}
+	/* Two exceptions, both of which fade rather than travel, and both of which
+	   would otherwise change between two frames with nothing to show for it.
+
+	   The phone's member sheet is not among them: its only channel is the slide,
+	   and `visibility` already steps it in and out, so a near-zero duration lands
+	   it in place rather than losing it. */
+	.boot {
+		transition-duration: 150ms !important;
+	}
+	.banner,
+	.banner.show {
+		/* Keep the half of the transform that centres the pill and give up only
+		   the half that moves it. Dropping the transform outright would send it to
+		   the left edge of the column. */
+		transform: translateX(-50%) !important;
+		transition-duration: 150ms !important;
+	}
 }
 
-/* ── Sidebar ──────────────────────────────────────────────────────────── */
-.sidebar {
+/* ── The rails ────────────────────────────────────────────────────────────
+   Two of them flank the conversation: what you are in on the left, who is in
+   the room on the right. A reader sees both at once, so they are one surface
+   drawn twice, and a row's geometry is stated here for both of them rather
+   than by whichever list happened to need it first. */
+.sidebar,
+.members {
+	/* How wide the mark column is and what follows it. Every list in either rail
+	   draws the same shape — a mark, a name, and sometimes a caption under the
+	   name that has to start where the name starts — so the two numbers live once
+	   and each list says only where it differs. */
+	--mark-col: 14px;
+	--mark-gap: 8px;
+	/* How far the marks at a row's end sit from its edge, and deliberately less
+	   than the inset the text on the other side gets. A word is inset by the space
+	   around it; a mark is a box that already carries its own padding, so given the
+	   same number it comes to rest visibly further in than it sits from the top and
+	   bottom of its own row. This is the smaller number that makes the gap around
+	   it even. */
+	--mark-inset: 4px;
+	/* The line a list's label sits on. Named because the "+" beside one of them is
+	   told how far to hang out of it, and a label that quietly grew would leave
+	   that mark pinned to a number nothing checks. */
+	--label-line: 16px;
 	background: var(--rail-fill);
-	border-right: 1px solid var(--rule);
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+}
+/* What each list in either rail is called. A label, not a title competing with
+   the names under it: smaller and lighter than they are, with the space above
+   doing the separating. The two rails carry the same kind of list, so they carry
+   the same label — set differently on each side, it reads as one of the two
+   being slightly wrong without saying which.
+
+   The label is text and whatever sits at the line's end is a mark, so they take
+   the two insets their kinds take, which is also what puts a section's "+" on
+   the vertical the counts and leave marks below it stand on. */
+.section-head,
+.members h2 {
+	padding: 4px var(--mark-inset) 4px var(--row-pad);
+	font-size: 11px;
+	line-height: var(--label-line);
+	font-weight: 600;
+	letter-spacing: .1em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
+/* A label is the height of its own text. The "+" one of the two rails carries is
+   a touch target and taller than a word, so it hangs out of the line rather than
+   stretching it — otherwise it pushes its own label down and the two rails'
+   headings stop being level, which is the whole reason they are drawn by one
+   rule. The same overhang on the phone, where the target is larger again. */
+.section-head .icon-button {
+	margin-block: calc((var(--icon-button-small) - var(--label-line)) / -2);
+}
+.sidebar {
+	border-right: 1px solid var(--rule);
 	/* A zero-width track still holds its contents, and a control nobody can see
 	   is still a control the keyboard walks into — the same trap the roster sheet
 	   had. visibility takes the rail out of the tab order and the accessibility
@@ -214,6 +752,34 @@ button:focus-visible,
 	   comes back at the start of the opening. */
 	min-width: 0;
 	overflow: hidden;
+}
+/* The list arrives from its own edge; the mark above it does not move.
+   An animation runs when its element becomes rendered, so showing the rail is
+   the whole trigger and no class has to say so, on the phone as well, where the
+   same element is the list screen arriving.
+
+   The mark is left out because it is the one thing the two screens share: it
+   stands in the rail's header while the list is up and in the conversation's
+   header while it is not, in the same place both times, and on the phone the
+   swap happens under a thumb that has not moved, so a mark a few pixels off its
+   other home reads as the page redrawing rather than as the same control.
+   `sameMark` in the browser proof holds that to the pixel. Leaving the header
+   still also means the rail's ground and border are there from the first frame,
+   so nothing travels across a strip of bare page. */
+.sidebar > :not(.workspace) {
+	animation: panel-in-left .2s ease backwards;
+}
+@keyframes panel-in-left {
+	from {
+		opacity: 0;
+		transform: translateX(-16px);
+	}
+}
+@keyframes panel-in-right {
+	from {
+		opacity: 0;
+		transform: translateX(16px);
+	}
 }
 /* The rail's header measures itself exactly as the topbar does — the same
    hairline above, the same padding under it, the same control height inside —
@@ -264,45 +830,14 @@ button:focus-visible,
    That reading only survives if the mark does not move or change size when it
    changes homes, so its size is settled here for both and neither home restates
    it. Each home separately naming a size is how the two came to differ by a
-   pixel, which is small enough to read as a redraw rather than as travel. */
-.mark-btn::before {
-	content: "";
-	width: var(--mark-size);
-	height: var(--mark-size);
-	flex: none;
-	background: currentColor;
-	-webkit-mask: var(--mark-stack) center/contain no-repeat;
-	mask: var(--mark-stack) center/contain no-repeat;
-}
-.workspace .mark-btn {
-	all: unset;
-	box-sizing: border-box;
-	cursor: pointer;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex: none;
-	width: var(--control-h);
-	height: var(--control-h);
-	border-radius: 9px;
-	/* The same frame the topbar's controls wear. Bare, the mark read as the
-	   wordmark's decoration rather than the control that puts the rail away —
-	   the one thing it is not allowed to look like, since the topbar's copy of it
-	   is the only way back. Bordered and at the chrome's height, the two read as
-	   one control with two homes, which is what they are. */
-	border: 1px solid var(--rule);
-	color: var(--accent);
-}
-.workspace .mark-btn:hover {
-	background: color-mix(in srgb, var(--accent) 13%, transparent);
-	border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-}
+   pixel, which is small enough to read as a redraw rather than as travel. The
+   mark itself is the shared IconButton using the project-wide mask token. */
 .workspace small {
 	font-weight: 600;
 	font-size: 12px;
 	letter-spacing: .12em;
 	text-transform: uppercase;
-	color: var(--accent-deep);
+	color: var(--accent-ink);
 }
 /* Each section takes the height its list needs and no more, so the two read as
    one stack of headings. Letting the rooms section grow to fill instead pushed
@@ -325,31 +860,12 @@ button:focus-visible,
 	max-height: 50%;
 	border-top: 1px solid var(--rule);
 }
+/* How this rail's label carries its "+", the rest of it being the label both
+   rails share, up beside the numbers they share. */
 .section-head {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 4px var(--row-pad);
-	font-size: 12px;
-	font-weight: 700;
-	letter-spacing: .08em;
-	text-transform: uppercase;
-	color: var(--ink-soft);
-}
-.section-head button {
-	all: unset;
-	cursor: pointer;
-	width: var(--control-sm);
-	height: var(--control-sm);
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 7px;
-	color: var(--accent-deep);
-	font-size: 18px;
-}
-.section-head button:hover {
-	background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 #roomList {
 	margin: 4px 0 0;
@@ -358,67 +874,150 @@ button:focus-visible,
 	min-height: 0;
 	overflow-y: auto;
 }
-/* The row is a container; the button inside it is what opens the room, and on
-   the room you are in a second button sits beside it to leave. Nesting one
-   inside the other would be a control within a control, which no assistive
-   software can announce. */
-#roomList li {
+/* Warm rather than grey. The neutral wash is right over a message or a picture,
+   where a tint would stain what it covers; in the rail it is the one surface
+   that never picks up the product's own colour, and a list of rooms — the thing
+   the whole page is for — is where it should. Faint enough that the room being
+   read still wins on its own ground. */
+#roomList li:hover {
+	background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+/* ── One row, both lists ──────────────────────────────────────────────────
+   The rail draws one object twice: a mark, a name, the marks that end the row,
+   and a caption under the name saying which directory it is on. That geometry
+   is stated here once for both lists, and each list adds only its own colour,
+   its own mark, and its own badge.
+
+   Stating it once is not tidiness. A reset and a placement have to be the same
+   declaration, because `all: unset` clears grid placement too. While each list
+   carried its own copy of this rule, the direct list's copy sat far enough down
+   the file to wipe the placement written for it up here, and the mark that
+   closes a direct line came to rest a whole line above the row it ends. */
+
+/* The row is a container, and the button inside it is what opens the thing named
+   on it; on the one you are reading, a second button sits beside it to leave.
+   Nesting one inside the other would be a control within a control, which no
+   assistive software can announce.
+
+   So the row is one cell, and those two buttons share it. Leaving takes the
+   badge's own slot rather than a slot of its own: the row gives up no width to
+   hold it, and no name is cut short to make space for a mark that is not
+   showing. Sharing the cell is also what puts that mark on the line the badge is
+   on rather than on the row's full height — the same point until a directory
+   caption adds a second line, and eight pixels apart after it. Arithmetic here
+   would restate the row's padding and its line height and drift the next time
+   either moved. */
+#roomList li,
+#dmList li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	/* The row is what the bar marking the one being read is positioned against. */
 	position: relative;
+	/* Rows sit apart rather than stacking flush. Two pixels is enough to read as
+	   separate things once each row can be two lines tall. */
+	margin-bottom: 2px;
 	border-radius: 9px;
 	color: var(--ink);
+	transition: background-color .12s ease;
 }
-#roomList .room-open {
+/* The bar marking the row being read. Its height is the row's, less a little at
+   each end, rather than a number of its own: a row is one line tall until it
+   names its directory and then it is two, and a fixed bar that read as half the
+   height of a short row read as a third of a tall one. Stated once for both
+   lists — each says only what colour it is — because two copies of a geometry
+   is how the two rails come to disagree.
+
+   A real bar rather than an inset shadow, which would follow the pill's corner
+   radius and curve, reading as a bevel rather than as a mark. */
+#roomList li.here::before,
+#dmList li.here::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 7px;
+	bottom: 7px;
+	width: 3px;
+	border-radius: 0 3px 3px 0;
+}
+#roomList .room-open,
+#dmList .dm-open {
 	all: unset;
+	grid-area: 1 / 1;
 	box-sizing: border-box;
-	display: flex;
+	display: grid;
+	/* The last column is at least as wide as the leave mark, so the count and the
+	   mark that replaces it are centred on the same point. Aligning their right
+	   edges instead leaves the two a few pixels apart, and a mark that shifts as
+	   it appears reads as the row twitching under the pointer. */
+	grid-template-columns: auto minmax(0, 1fr) minmax(var(--icon-button-small), auto);
+	grid-template-areas: "mark name marks";
 	align-items: center;
-	gap: 8px;
+	column-gap: var(--mark-gap);
 	width: 100%;
-	padding: 7px var(--row-pad);
+	/* Even above and below. Padded 8 over 1, the button puts its own contents 3px
+	   below the centre of the cell it shares with the leave mark, and the mark
+	   then sits visibly off the count it replaced. The row closes at the bottom
+	   with its caption instead. */
+	padding: 6px var(--mark-inset) 6px var(--row-pad);
 	border-radius: 9px;
 	cursor: pointer;
 	color: inherit;
 }
-#roomList li:hover {
-	background: var(--hover);
+/* One template row, always. The caption is a sibling of that button and never a
+   child of it — a control cannot live inside a control — so a second row here
+   would hold nothing and add its own height to every captioned row. */
+#roomList .hash,
+#dmList .dmavatar {
+	grid-area: mark;
 }
-/* Leaving takes the badge's own slot rather than a slot of its own: the row
-   gives up no width to hold it, and no room's name is cut short to make space
-   for a mark that is not showing. The count is what a reader wants from this row
-   until the moment they reach for it, and it returns the moment they leave. */
+/* A name is a name. Left to inherit, a person's would come out at the page's own
+   fifteen while a room's was stated at fourteen, so one rail gave the same kind
+   of thing two sizes — visible as a half-step in weight down a list that is
+   meant to read as one column. */
+#roomList .rname,
+#dmList .rname {
+	grid-area: name;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 14px;
+}
+/* Centred in the slot rather than pushed to its end, so the mark that replaces
+   them arrives on the same point instead of a few pixels to the left.
+
+   They are labels, never controls, and none of them may take a press. They fade
+   to nothing when that mark takes their slot, and an element at zero opacity is
+   still perfectly good at swallowing clicks — the mark ended up visible,
+   enabled, correctly placed, and unpressable through its own middle, because
+   what it had just replaced was still lying on top of it. */
+#roomList .rcount,
+#dmList .dm-marks {
+	grid-area: marks;
+	justify-self: center;
+	pointer-events: none;
+	transition: opacity .12s ease;
+}
 #roomList .room-leave,
 #dmList .room-leave {
-	all: unset;
-	box-sizing: border-box;
-	position: absolute;
-	right: var(--row-pad);
-	top: 50%;
-	translate: 0 -50%;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 22px;
-	height: 22px;
-	border-radius: 7px;
-	cursor: pointer;
-	color: var(--danger);
+	grid-area: 1 / 1;
+	justify-self: end;
+	align-self: center;
+	margin-right: var(--mark-inset);
 	opacity: 0;
 	transition: opacity .12s ease;
 }
-#roomList li.joined:hover .rcount,
-#roomList li.joined:focus-within .rcount {
+#roomList li:hover .rcount,
+#roomList li:focus-within .rcount,
+#dmList li:hover .dm-marks,
+#dmList li:focus-within .dm-marks {
 	opacity: 0;
 }
-#roomList li.joined:hover .room-leave,
-#roomList li.joined:focus-within .room-leave {
+#roomList li:hover .room-leave,
+#roomList li:focus-within .room-leave,
+#dmList li:hover .room-leave,
+#dmList li:focus-within .room-leave {
 	opacity: 1;
-}
-#roomList .room-leave:hover,
-#dmList .room-leave:hover {
-	background: color-mix(in srgb, var(--danger) 16%, transparent);
-}
-#roomList .rcount {
-	transition: opacity .12s ease;
 }
 /* A finger cannot hover, so where there is no pointer the mark takes a place of
    its own beside the count instead of borrowing its slot: this rail is a screen
@@ -428,99 +1027,113 @@ button:focus-visible,
 @media (hover: none) {
 	#roomList li,
 	#dmList li {
-		display: flex;
-		align-items: center;
+		grid-template-columns: minmax(0, 1fr) auto;
 	}
-	#roomList .room-open,
-	#dmList .dm-open {
-		flex: 1;
-		min-width: 0;
-	}
-	#roomList li.joined .room-leave,
+	#roomList li .room-leave,
 	#dmList li .room-leave {
-		position: static;
-		translate: none;
-		flex: none;
-		margin-right: var(--row-pad);
+		grid-area: 1 / 2;
 		opacity: 1;
 	}
-	#roomList li.joined .rcount,
+	/* The caption runs under both columns rather than under the name alone, so a
+	   long locator is not squeezed into whatever the mark beside it left over. */
+	#roomList li .rwhere,
+	#dmList li .rwhere {
+		grid-area: 2 / 1 / 3 / 3;
+	}
+	#roomList li .rcount,
 	#dmList li .dm-marks {
 		opacity: 1;
 	}
 }
-/* Two different facts about a room, told apart. The bar says you are a member of
-   this one; the fill says it is also the thing on screen. They coincide most of
-   the time, and come apart exactly when a direct message is open — which used to
-   leave nothing anywhere saying which room you were still in, though the room is
-   what makes those people reachable in the first place. The list already had the
-   room in it; it just never said it was yours. */
-#roomList li.joined,
-#roomList li.here {
-	position: relative;
-}
-/* Four grounds, each a step warmer than the last: a room you are only looking
-   at in the list, one you are a member of, one you are also reading, and each of
-   those under the pointer. The membership tint is the faintest thing here on
-   purpose — the bar is what says it, and this only keeps the row from reading as
-   one of the others while the bar is doing the talking. */
-#roomList li.joined {
-	background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-#roomList li.joined:hover {
-	background: color-mix(in srgb, var(--accent) 11%, transparent);
-}
+/* Every row here is a room you are in, so the rail draws no membership tint:
+   with nothing to contrast against, a "you are a member" ground says nothing and
+   only costs the row on screen some of its own contrast. One distinction is
+   left — the room you are reading — carried by a bar and a fill together.
+   Membership is a distinction again in the browse list, where rooms you are not
+   in also appear, and it is drawn there.
+
+   The ink here is deeper than the accent ink the rest of the rail uses, because
+   the ground is deeper too. That token is stated to clear small text on paper,
+   and this row is paper with a sixth of the accent poured into it — so the ink
+   has to move away from the colour it is standing in rather than sit in it, the
+   same move the count badge and the selected direct line make. Taken an eighth
+   of the way toward the page's plain ink it clears the 4.5 small text needs in
+   both appearances and the hue is still amber, which the contrast check in the
+   browser proof holds. */
 #roomList li.here {
 	background: color-mix(in srgb, var(--accent) 16%, transparent);
-	color: var(--accent-deep);
+	color: color-mix(in srgb, var(--accent-ink) 85%, var(--ink));
+}
+/* At full strength on a selected row, in both lists. These two grounds are the
+   only ones in the rail with no headroom to turn anything down: turned to the
+   usual four fifths on either of them, the caption falls under the 4.5 small
+   text needs. So it keeps the row's own ink and lets its size be the whole of
+   the difference, which is where the two grounds agree even though their inks do
+   not.
+
+   The contrast check in the browser proof measures the amber one directly, in
+   both appearances, and the teal one follows from what else it measures rather
+   than from a scenario nobody can build. No proof can put a caption on a teal
+   row — that wants a tab holding two directories and an open direct line at
+   once, and none does — but a caption needs no measurement of its own here. At
+   full strength it wears the row's ink on the row's ground, which is what the
+   name beside it is, and that name is measured. Turned down on an ordinary row
+   it wears the page's ink on the rail's fill, because neither list paints a row
+   at rest, which is what the rooms list's own caption is, and that is measured
+   too. Same ink, same ground, and contrast does not know what size the text
+   is. */
+#roomList li.here .rwhere-said,
+#dmList li.here .rwhere-said {
+	opacity: 1;
 }
 #roomList li.here:hover {
 	background: color-mix(in srgb, var(--accent) 21%, transparent);
 }
-#roomList li.joined .rname {
-	font-weight: 600;
-}
-/* The marker is a real bar with its own geometry, centred on the row. An inset
-   shadow would follow the pill's corner radius and curve, which reads as a bevel
-   rather than a mark. */
-#roomList li.joined::before,
 #roomList li.here::before {
-	content: "";
-	position: absolute;
-	left: 0;
-	top: 50%;
-	translate: 0 -50%;
-	width: 3px;
-	height: 1.15em;
-	border-radius: 0 3px 3px 0;
 	background: var(--accent);
 }
+/* The sigil is the room row's directory mark: it is the only thing on the row
+   not already spoken for, and it costs no width. Quiet when nothing is marked —
+   a coloured sigil means "this fact", and with one directory there is no fact.
+   It does not warm with the row either, and that is deliberate: which directory
+   a room is on must not change because a pointer passed over it. */
 #roomList .hash {
-	color: var(--accent);
-	flex: none;
+	width: var(--mark-col);
+	text-align: center;
+	color: var(--dir-mark, var(--accent));
 	font-weight: 700;
 }
-#roomList .rname {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	flex: 1;
-}
+/* The badge stands on a wash of its own colour, so its ink has to move away from
+   that colour rather than sit in it. In syrup the readable teal *is* the teal,
+   which leaves ink and ground the same hue and the wash lifting the ground
+   toward the ink: measured, the count came out at 4.46 to 1 against the 4.5
+   small text needs. A sixth of the way toward the page's plain ink clears it in
+   both appearances and the badge is still teal — the same move the selected row
+   makes for the same reason, and held by the contrast check in the browser
+   proof. */
 #roomList .rcount {
-	font-size: 12px;
-	flex: none;
+	font-size: 10px;
 	background: color-mix(in srgb, var(--teal) 16%, transparent);
-	color: var(--teal-deep);
-	padding: 1px 8px;
-	border-radius: 9px;
-	min-width: 22px;
+	color: color-mix(in srgb, var(--teal-ink) 84%, var(--ink));
+	padding: 1px 6px;
+	border-radius: 7px;
+	min-width: 18px;
 	text-align: center;
 	font-weight: 600;
 }
 #roomList li.here .rcount {
 	background: color-mix(in srgb, var(--accent) 24%, transparent);
-	color: var(--accent-deep);
+	color: var(--accent-ink);
+}
+/* Two facts share one slot, so they must not look alike. How many people are in
+   a room is a standing fact and stays in the quiet teal the badge has always
+   worn; unread is something waiting for you, so it takes the accent and full
+   weight. A reader glancing down the rail should be able to find the rooms that
+   want them without reading a single number. */
+#roomList .rcount.unread {
+	background: color-mix(in srgb, var(--accent) 24%, transparent);
+	color: var(--accent-ink);
+	font-weight: 700;
 }
 #roomList .empty {
 	padding: 6px var(--row-pad);
@@ -528,30 +1141,193 @@ button:focus-visible,
 	font-size: 13px;
 	cursor: default;
 }
+/* The room you are about to be in, drawn as one of the rooms you are in.
+   It is the same item: a mark, a name, and a line under the name saying which
+   directory it belongs to — except the name is still being typed and the line is
+   still yours to change. Reading it as an item is what makes the whole panel one
+   thing rather than a field with two notes stacked under it, and it is why the
+   field below carries no border of its own. The container is the object here;
+   everything inside it is content. */
 .newroom {
 	display: none;
-	padding: 4px var(--row-pad) 0;
+	margin: 4px 0 0;
+	/* The row's insets, because this is a row: text on the left at the width a
+	   word takes, marks on the right at the narrower one a box takes. */
+	padding: 8px var(--mark-inset) 8px var(--row-pad);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--accent) 7%, transparent);
+	grid-template-columns: auto minmax(0, 1fr);
+	column-gap: var(--mark-gap);
+	row-gap: 1px;
+	align-items: center;
 }
 .newroom.show {
-	display: block;
+	display: grid;
+}
+/* Focus belongs to the panel, not to the field inside it. There is only one
+   thing to type in here, so a ring around the field would draw a second box
+   inside a box that is already the object. */
+.newroom:focus-within {
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.newroom .hash {
+	width: var(--mark-col);
+	text-align: center;
+	color: var(--dir-mark, var(--ink-soft));
+	font-weight: 700;
 }
 .newroom input {
 	width: 100%;
 	font: inherit;
-	padding: 7px 10px;
-	border-radius: 9px;
-	border: 1px solid var(--rule);
-	background: var(--paper);
+	font-size: 14px;
+	padding: 0;
+	border: 0;
+	background: none;
 	color: var(--ink);
+}
+.newroom input:focus {
+	outline: none;
 }
 .newroom input::placeholder {
 	color: var(--ink-soft);
 }
-.newroom input:focus {
-	outline: none;
-	border-color: var(--accent);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+/* The same line a room carries, spanning this panel's whole content box the way
+   it spans a row's. The panel's own padding is what insets it here, so unlike a
+   room row's caption it needs no margins: this one really is inside the columns
+   it lines up with. */
+.newroom .rwhere {
+	grid-column: 1 / -1;
+	margin: 0;
+	padding-block: 2px;
 }
+/* The addresses already in hand, under the field they fill. A row of words
+   rather than a list, because there are rarely more than two and each is a
+   directory's name at the size a caption is. */
+.locator-picks {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 12px;
+	/* Tucked up under the field these fill, by the same amount a label tucks down
+	   onto the field it names. At the form's full gap they sat as far from that
+	   field as the next question does, and read as a row of their own rather than
+	   as part of it. */
+	margin: calc(var(--field-tuck) * -1) 0 0;
+	font-size: 12px;
+}
+
+/* One mark per held directory, handed out in order by the store. The applied
+   property is `--dir-mark`, so a surface that wears one names it once and the
+   palette above stays the single place the colours live. */
+[data-dir="1"] {
+	--dir-mark: var(--dir-mark-1);
+}
+[data-dir="2"] {
+	--dir-mark: var(--dir-mark-2);
+}
+[data-dir="3"] {
+	--dir-mark: var(--dir-mark-3);
+}
+[data-dir="4"] {
+	--dir-mark: var(--dir-mark-4);
+}
+[data-dir="5"] {
+	--dir-mark: var(--dir-mark-5);
+}
+/* A row names its directory in a quiet second line under the name, drawn
+   whenever the mark beside it is and never without it: the colour is the glance,
+   and this is what a reader who cannot use colour reads instead.
+
+   It is a line rather than a word, spanning the row's whole content box from the
+   mark column on the left to the edge the count and the leave mark stand on.
+   That is what makes it a target a pointer can find without aiming — the room
+   above it is a full-width control, and the line under it answers the same way.
+
+   What sits in that box is a pair, centred: the directory's glyph and the words
+   naming it, together. It followed the columns above at first, the glyph under
+   the room's sigil and the words under the room's name, which lined the two
+   lines up but left the glyph flat against the left edge of its own rectangle
+   with nothing on the side a reader meets first. A pair in the middle is inset
+   by the whole of what the line does not need, and reads as one thing to press
+   rather than as two column entries that happen to share a row.
+
+   Only the box and what is in it are here. How the line is drawn — its size,
+   how it answers a pointer — belongs to the caption variant of the button
+   family, which is what this class stopped duplicating once that variant
+   existed. The rectangle at rest is this class's own, because it is what the
+   centring needs and no other caption is placed this way. */
+.rwhere {
+	/* The family's box is inline; this one is a line spanning its row. */
+	display: flex;
+	min-width: 0;
+}
+/* The glyph is the directory's own colour, the same one the sigil above it
+   wears, so the two lines of a row are marked as one thing by one colour rather
+   than each explaining itself. */
+.rwhere .icon-svg {
+	flex: none;
+	color: var(--dir-mark, currentColor);
+}
+/* Placed in the second column rather than left to flow into the first. A
+   caption that carries no glyph — a directory you are on with nothing open says
+   only why it is there — would otherwise start its words in the mark column and
+   sit a mark's width left of the name above it. Placing them says the two
+   columns are the row's, not a consequence of what happens to be in them.
+
+   Quieter than the name above by two means: size, and this. Turning it down
+   rather than diluting the ink, because dilution has to name a colour and the
+   only colour worth naming here is the row's own — and `currentColor` inside a
+   `color-mix` does not survive the appearance changing. It freezes at the light
+   arm of every `light-dark` token it reaches, so in syrup this caption went on
+   wearing a dark brown against a dark rail, 1.08 to 1, while the name above it
+   turned cream. Naming the token directly is fine; reaching it through
+   `currentColor` is not. Opacity composites at paint time and cannot freeze. */
+.rwhere-said {
+	/* Shrinks before the mark does, so a long directory name ends in an ellipsis
+	   rather than pushing the glyph it belongs to off the line. */
+	flex: 0 1 auto;
+	min-width: 0;
+	opacity: .72;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* Inset to the row's content box, so its two columns line up with the two above
+   it and its right edge stands where the count and the leave mark stand. The
+   caption cannot be inside the button that opens the room — a control inside a
+   control announces as neither — so it is a sibling, and a sibling has to be
+   told where that box is rather than being placed by the same grid. What it is
+   told is the row's own measurements, each named once above and only referred to
+   here, so moving the mark column, the gap, or either inset moves this line with
+   them instead of leaving it behind.
+
+   Its own box hugs its line, and the space under it belongs to the row. Taking
+   the row's bottom padding into this box instead made the rectangle run to the
+   pill's edge, which reads as the target being the bottom of the row rather than
+   the line on it. Two pixels above and below is enough for the ground to clear
+   the words without becoming a band. */
+#roomList .rwhere,
+#dmList .rwhere {
+	grid-area: 2 / 1;
+	margin: 0 var(--mark-inset) 0 var(--row-pad);
+	padding-block: 2px;
+}
+/* The row is one line until it has a directory to name, then two, and the space
+   under that second line is the row's to give. Affordable because these lists
+   are what you are in rather than everything a directory advertises, so they are
+   short by construction. */
+#roomList li:has(.rwhere),
+#dmList li:has(.rwhere) {
+	padding-bottom: 6px;
+}
+/* A direct line wears its directory on the avatar's rim. An outline rather than a
+   ring of box-shadows, so the gap shows the row's actual ground in every state
+   instead of a hardcoded one that is wrong on a raised or selected row. */
+#dmList li[data-dir] .dmavatar {
+	outline: 1px solid var(--dir-mark);
+	outline-offset: 2px;
+}
+/* What the connection is doing, under everything it carries. */
 .sidebar-foot {
 	margin-top: auto;
 	display: flex;
@@ -563,25 +1339,53 @@ button:focus-visible,
 	color: var(--ink-soft);
 }
 .dot {
-	width: 9px;
-	height: 9px;
+	/* Ten rather than nine, and sized border-box, so the two open phases below
+	   keep a visible hole once a 2px ring is taken out of them. */
+	width: 10px;
+	height: 10px;
+	box-sizing: border-box;
 	border-radius: 50%;
 	background: var(--ink-soft);
 	flex: none;
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 8%, transparent);
 }
+/* Four phases told apart by shape first and colour second.
+
+   Hue alone cannot carry this at nine pixels: two of the four were the same
+   amber, and one of those ambers was the accent that means "yours" everywhere
+   else in the same rail. So each phase takes a form a reader can name — filled,
+   open, broken, square — and the colour agrees with it rather than carrying it
+   alone. Read in grey, the four are still four.
+
+   Connecting and reconnecting are separated because they ask for different
+   things: one has never worked, so check what you typed; the other worked a
+   moment ago, so wait. */
 .dot.connected {
 	background: var(--ok);
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
 }
-.dot.connecting,
+.dot.connecting {
+	background: transparent;
+	border: 2px solid var(--ink-soft);
+}
 .dot.reconnecting {
-	background: var(--warn);
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+	background: transparent;
+	border: 2px solid var(--warn);
+	/* The gap is the mark. Turning it says "still trying", but the broken ring
+	   is what distinguishes this from connecting, so a reader who has asked for
+	   less motion loses the spin and keeps the fact. */
+	border-top-color: transparent;
+	animation: dot-turn 900ms linear infinite;
 }
 .dot.disconnected {
 	background: var(--danger);
+	border-radius: 2px;
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+@keyframes dot-turn {
+	to {
+		rotate: 360deg;
+	}
 }
 
 /* ── Main column ──────────────────────────────────────────────────────── */
@@ -628,27 +1432,22 @@ button:focus-visible,
 	align-items: center;
 	min-width: 0;
 }
-/* The room's name is the control that leaves it. Nothing else in this header is
-   about this room in particular, so a separate button beside the title only
-   asked which of the two the reader was meant to act on. The whole chip is the
-   button: it stands at the height of the icon buttons across the bar, takes a
-   hover ground like them, and shows the mark for what pressing it does only once
-   you are over it. The mark's place is held whether or not it is showing, so the
-   title never shifts under the pointer. */
-.topbar .title-btn {
-	all: unset;
-	box-sizing: border-box;
-	position: relative;
+/* The room's name is a title, and the mark beside it is the one control that
+   acts on it. That is the grammar this interface already uses for a chip whose
+   mark takes it away — the composer's attached files — and the header now reads
+   the same way: pressing the name does nothing, because a name is not a thing
+   you press, and leaving the room is the mark's job alone.
+
+   The mark keeps its place whether or not it is showing, so the title never
+   shifts under the pointer, and it stays quiet until a pointer is over the
+   heading, so a header at rest is a name rather than a name and a way to lose
+   it. */
+.topbar .title-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
 	min-width: 0;
 	height: var(--control-h);
-	/* Trailing room for the mark, and a leading inset the negative margin gives
-	   back, so the title still begins where it would with no chip around it. */
-	padding: 0 28px 0 8px;
-	margin-left: -8px;
-	border-radius: 9px;
 	font-size: 17px;
 	font-weight: 800;
 	letter-spacing: -.01em;
@@ -659,34 +1458,16 @@ button:focus-visible,
 	   the font's own metrics decide it. */
 	line-height: normal;
 	color: var(--ink);
-	cursor: default;
 	white-space: nowrap;
 }
-/* Before a room, and inside a direct message, there is nothing to leave. */
-.topbar .title-btn:disabled {
-	padding-right: 8px;
-}
-.topbar .title-btn:disabled .leave-x {
-	display: none;
-}
-.topbar .title-btn:not(:disabled) {
-	cursor: pointer;
-}
-.topbar .title-btn:not(:disabled):hover,
-.topbar .title-btn:not(:disabled):focus-visible {
-	background: var(--hover);
-}
 .topbar .leave-x {
-	position: absolute;
-	right: 6px;
-	display: inline-flex;
-	align-items: center;
-	color: var(--danger);
+	flex: none;
+	margin-left: 2px;
 	opacity: 0;
 	transition: opacity .12s ease;
 }
-.topbar .title-btn:not(:disabled):hover .leave-x,
-.topbar .title-btn:not(:disabled):focus-visible .leave-x {
+#roomTitle:hover .leave-x,
+#roomTitle:focus-within .leave-x {
 	opacity: 1;
 }
 .topbar h1 .hash {
@@ -698,7 +1479,7 @@ button:focus-visible,
    sigil is what claims a room, so it stays off until there is one, and the line
    holds the state instead — in the muted register the roster and the rails use
    for the same moment. */
-.topbar .title-btn:has(#roomSigil[hidden]) {
+.topbar .title-chip:has(#roomSigil[hidden]) {
 	color: var(--ink-soft);
 	font-weight: 600;
 }
@@ -708,20 +1489,10 @@ button:focus-visible,
 /* A toggle has to look toggled. The Members button has always carried
    aria-pressed, so assistive software knew whether the roster was up; everyone
    else was told only by the roster itself, which is the one thing the button
-   takes away. It wears the same "on" treatment as the notification bell beside
-   it. */
-.topbar .icon[aria-pressed="true"] {
-	color: var(--accent-deep);
-	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-	background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.topbar .icon[aria-pressed="true"]:hover {
-	background: color-mix(in srgb, var(--accent) 20%, transparent);
-	color: var(--accent-deep);
-}
-/* A floating connection-status pill that overlays the stream rather than
-   reflowing the page. It fades in with a small spinner, so it reads as a
-   transient "working on it" indicator, not a modal or an alert. */
+   takes away. */
+/* A floating status pill that overlays the stream rather than reflowing it.
+   Kind is explicit: ongoing work spins; an error is an alert with its own
+   treatment and never impersonates a reconnect attempt. */
 .banner {
 	position: absolute;
 	top: 14px;
@@ -747,7 +1518,7 @@ button:focus-visible,
 	opacity: 1;
 	transform: translateX(-50%) translateY(0);
 }
-.banner::before {
+.banner.working::before {
 	content: "";
 	width: 13px;
 	height: 13px;
@@ -756,8 +1527,23 @@ button:focus-visible,
 	border: 2px solid color-mix(in srgb, var(--warn) 30%, transparent);
 	border-top-color: var(--warn);
 }
-.banner.show::before {
+.banner.working.show::before {
 	animation: bannerspin .7s linear infinite;
+}
+.banner.error {
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+}
+.banner.error::before {
+	content: "!";
+	display: grid;
+	place-items: center;
+	width: 18px;
+	height: 18px;
+	flex: none;
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--danger) 14%, transparent);
+	color: var(--danger);
+	font-weight: 800;
 }
 @keyframes bannerspin {
 	to {
@@ -781,6 +1567,14 @@ button:focus-visible,
 .stream {
 	position: relative;
 	min-height: 0;
+}
+/* One authority for the bar's height: it sets the bar and the room the log
+   leaves for it, so the two cannot drift into overlapping. */
+.stream {
+	--topic-h: 34px;
+}
+.stream:has(#topic) #log {
+	padding-top: calc(16px + var(--topic-h));
 }
 #log {
 	position: absolute;
@@ -825,7 +1619,7 @@ button:focus-visible,
 	gap: 8px;
 	margin: 0 0 6px;
 	font-size: 17px;
-	color: var(--teal-deep);
+	color: var(--teal-ink);
 }
 .conv-intro p {
 	margin: 0;
@@ -880,7 +1674,11 @@ button:focus-visible,
 .row.mine .stack {
 	align-items: flex-end;
 }
-.who {
+/* Scoped to the stack it names. Unscoped, `.who` is a word general enough that
+   somewhere else in this page will want it, and the next element to carry the
+   class inherits a message author's indent for no reason it can see — which is
+   exactly what happened to the member list. */
+.stack .who {
 	font-size: 12px;
 	font-weight: 700;
 	color: var(--ink-soft);
@@ -908,22 +1706,25 @@ button:focus-visible,
 	border-top-right-radius: 6px;
 	border-top-left-radius: 16px;
 }
-/* Our own optimistic sends. A line dims while "sending", waiting on the wire to confirm
-   it, and tints "failed" when the send rejects. A failed bubble is a button: tap it, or
-   focus it and press Enter or Space, to send the same line again. */
+/* Our own optimistic sends. A line dims while "sending", waiting on the wire
+   to confirm it, and tints "failed" when the send rejects. Failure adds its
+   own retry action without turning message content or attachment controls into
+   one outer control. */
 .bubble.sending {
 	opacity: .55;
-}
-.bubble.failed {
-	cursor: pointer;
 }
 .row.mine .bubble.failed {
 	background: linear-gradient(135deg, var(--danger) 0%,
 		color-mix(in srgb, var(--danger) 78%, #000) 100%);
 }
-.bubble.failed:focus-visible {
-	outline: 2px solid var(--danger);
-	outline-offset: 2px;
+.delivery-failure {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: 6px;
+	font-size: 12px;
+	font-weight: 700;
 }
 .time {
 	font-size: 10.5px;
@@ -965,7 +1766,7 @@ button:focus-visible,
 	cursor: pointer;
 	border: 1px solid var(--rule);
 	background: var(--paper-raised);
-	color: var(--accent-deep);
+	color: var(--accent-ink);
 	font: inherit;
 	font-size: 13px;
 	font-weight: 700;
@@ -995,17 +1796,15 @@ button:focus-visible,
 	display: flex;
 	flex-direction: column;
 	background: var(--rail-fill);
+	/* The mirror of the rail's arrival, from the edge this rail belongs to. The
+	   phone turns it off: there the roster is a sheet that already travels, and
+	   an animated transform would take the transform the sheet is sliding on. */
+	animation: panel-in-right .2s ease backwards;
 }
-/* Same shape as a sidebar section head, so "Members" and "Rooms" sit on one line
-   across the two rails. */
+/* Drawn by the label rule both rails share; only the heading's own default
+   margin is this list's to answer for. */
 .members h2 {
 	margin: 0;
-	padding: 4px var(--row-pad);
-	font-size: 12px;
-	letter-spacing: .08em;
-	text-transform: uppercase;
-	color: var(--ink-soft);
-	font-weight: 700;
 }
 #presenceSummary {
 	margin: 2px 0 0;
@@ -1023,27 +1822,45 @@ button:focus-visible,
 	overflow-y: auto;
 	min-height: 0;
 }
+/* The rail's row, with a presence dot where a room has its sigil and a person's
+   name where a room has its own. The mark column and the gap after it are the
+   rail's numbers rather than this list's, so a name here starts on the same
+   vertical as a name in the other rail — four pixels apart is not something a
+   reader can name, but it is something they can see, and it made the two
+   columns of text look like one of them had been nudged. */
 #members li {
-	display: flex;
+	display: grid;
+	grid-template-columns: var(--mark-col) minmax(0, 1fr) auto;
 	align-items: center;
-	gap: 9px;
-	padding: 7px var(--row-pad);
-	/* The button plus this row's own 7px top and bottom. */
-	min-height: calc(var(--control-sm) + 14px);
+	column-gap: var(--mark-gap);
+	/* The row's own inset is the rail's too: a word on the left, and on the right
+	   a mark that carries its own padding. */
+	padding: 6px var(--mark-inset) 6px var(--row-pad);
+	/* Every row is as tall as one carrying a button, because only some of them do:
+	   a direct line is offered to a member the room says is reachable and to
+	   nobody else, so a row sized to its own contents would leave the list ragged
+	   down a column a reader scans. Stated as the button plus this row's own top
+	   and bottom, so it follows the target size up on a phone. */
+	min-height: calc(var(--icon-button-small) + 12px);
 	border-radius: 9px;
 }
-#members li:hover {
-	background: var(--hover);
-}
+/* No response to a pointer, because there is nothing here to press. A roster row
+   is a name and a state; the direct-line button beside it is the action, and it
+   answers for itself. The wash this row used to take under the pointer is the
+   one the other rail's rows take, where it means the row opens — so wearing it
+   here promised a press that never landed, on the two lists a reader sees side
+   by side. */
+/* Centred in the mark column rather than sized to fill it: the column is the
+   rail's width, and the dot is the size a presence dot should be. */
 #members .pip {
+	justify-self: center;
 	width: 9px;
 	height: 9px;
 	border-radius: 50%;
-	flex: none;
 	border: 1.5px solid currentColor;
 }
 #members .online {
-	color: var(--teal-deep);
+	color: var(--teal-ink);
 }
 #members .online .pip {
 	background: var(--teal);
@@ -1056,7 +1873,17 @@ button:focus-visible,
 #members .offline .pip {
 	background: transparent;
 }
+/* The name and the note about it share the row's one flexible column, so the
+   name gives way first: a reason for stepping away must never be what pushes a
+   member's name out of sight. */
+#members .name-line {
+	display: flex;
+	align-items: baseline;
+	gap: 0.35rem;
+	min-width: 0;
+}
 #members .name {
+	flex: 0 1 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1145,15 +1972,48 @@ button:focus-visible,
 .composer:has(.typing.show) .hint {
 	opacity: 0;
 }
+/* Rewriting a line already posted. It sits above the field rather than inside
+   it, so the words being changed are not competing with a label, and it carries
+   the way out beside its name because Escape is not discoverable. */
+.changing-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-bottom: 4px;
+	padding: 4px 10px;
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	background: var(--paper);
+}
+.changing-said {
+	font-size: 12px;
+	color: var(--ink-soft);
+}
 .composer form {
 	display: flex;
-	align-items: flex-end;
-	gap: 6px;
+	flex-direction: column;
+	gap: 4px;
 	border: 1px solid var(--rule);
 	border-radius: 14px;
-	padding: 6px 6px 6px 14px;
+	padding: 8px;
 	background: var(--paper-raised);
 	box-shadow: var(--shadow-sm);
+}
+.composer-input {
+	width: 100%;
+}
+.composer-actions,
+.composer-actions-left {
+	display: flex;
+	align-items: center;
+}
+.composer-actions {
+	justify-content: space-between;
+	width: 100%;
+}
+.composer-actions-left {
+	gap: 2px;
 }
 .composer form:focus-within {
 	border-color: var(--accent);
@@ -1166,7 +2026,8 @@ button:focus-visible,
 	border: 0;
 	background: none;
 	color: var(--ink);
-	padding: calc((var(--control-h) - var(--composer-line)) / 2) 0;
+	width: 100%;
+	padding: 5px 6px;
 	margin: 0;
 	outline: none;
 	resize: none;
@@ -1177,60 +2038,45 @@ button:focus-visible,
 .composer textarea::placeholder {
 	color: var(--ink-soft);
 }
-.composer button {
-	all: unset;
-	box-sizing: border-box;
-	cursor: pointer;
-	height: var(--control-h);
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 10px;
-}
-.composer .emoji-btn {
-	min-width: var(--control-h);
-	border-radius: 9px;
-	font-size: 18px;
-	color: var(--ink-soft);
-}
-.composer .emoji-btn:hover {
-	background: var(--hover);
-}
-.composer button[type="submit"] {
-	padding: 0 18px;
-	font-weight: 700;
-	color: var(--on-accent);
-	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
-}
-.composer button[type="submit"]:hover {
-	filter: brightness(1.05);
-}
-.composer button:disabled {
-	opacity: .4;
-	cursor: not-allowed;
-	filter: none;
-}
-
 /* ── Join card ────────────────────────────────────────────────────────── */
 /* A sibling of the message log, not a child of it: the log is repainted by
    clearing its children, and a join card living inside would be destroyed the
    first time a conversation rendered — leaving nothing to show a rejected nick.
    It covers the log while it is up, so it carries the paper background. */
+/* The card sits in the middle of the room it stands in for, and the room is
+   what it is: this screen is the conversation area until there is a
+   conversation, not a sheet laid over one.
+
+   Centred by auto margins rather than by the box's own alignment, because the
+   two behave differently exactly when it matters. Alignment centres a card that
+   is taller than the screen too, which pushes its top edge above the scrollable
+   area, where nothing can reach it; an auto margin resolves to zero the moment
+   there is no free space to share, so a card that outgrows the screen starts at
+   the top and scrolls. Centred when it fits, reachable when it does not, from
+   one rule. */
 .join-wrap {
 	position: absolute;
 	inset: 0;
 	z-index: 3;
 	overflow-y: auto;
 	background: var(--paper);
-	display: grid;
-	place-items: center;
+	display: flex;
+	justify-content: center;
 	padding: 24px;
 }
 .join {
+	margin: auto;
 	width: min(390px, 100%);
 	display: flex;
 	flex-direction: column;
 	gap: 13px;
+	/* One gap separates everything in this form, which is right between one
+	   question and the next and too much inside a single one. What belongs to a
+	   field — its label above, the addresses it can be filled from below — pulls
+	   itself back by this much, so a reader sees three groups rather than seven
+	   evenly spaced lines. Named because both ends of that have to move
+	   together. */
+	--field-tuck: 7px;
 	border: 1px solid var(--rule);
 	border-radius: 18px;
 	padding: 28px;
@@ -1238,6 +2084,20 @@ button:focus-visible,
 	box-shadow: var(--shadow);
 	position: relative;
 	overflow: hidden;
+}
+/* The join screen is not a modal — it is the whole of the page until there is a
+   room — but it arrives the way one does, and for the same reason: it is a card
+   over a ground, and coming towards the reader is what says so.
+
+   Keyed to the handover rather than to the card itself, because at first paint
+   the card is already laid out under the opening screen, and an entrance nobody
+   can see is an entrance spent. The opening screen announces the handover on the
+   document, so the card rises through the last of that fade. Coming back to this
+   screen after leaving a room re-runs it on its own, because the card is shown
+   with `display` and an element that becomes rendered starts its animations
+   again. */
+:root[data-boot="done"] .join {
+	animation: rise-in .18s ease backwards;
 }
 .join::before {
 	content: "";
@@ -1263,7 +2123,13 @@ button:focus-visible,
 	font-size: 12px;
 	font-weight: 700;
 	color: var(--ink-soft);
-	margin-bottom: -7px;
+	margin-bottom: calc(var(--field-tuck) * -1);
+}
+.join label .optional {
+	font-weight: 500;
+	color: var(--ink-soft);
+	opacity: .72;
+	margin-left: 4px;
 }
 .join input {
 	font: inherit;
@@ -1278,50 +2144,490 @@ button:focus-visible,
 	border-color: var(--accent);
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
-.join #joinBtn {
-	all: unset;
-	text-align: center;
-	cursor: pointer;
-	background: linear-gradient(135deg, var(--mine-from), var(--mine-to));
-	color: var(--on-accent);
-	padding: 12px;
-	border-radius: 11px;
-	font-weight: 800;
-	margin-top: 2px;
-}
-.join #joinBtn:hover {
-	filter: brightness(1.05);
-}
-.join #joinBtn:disabled {
-	opacity: .55;
-	cursor: progress;
-	filter: none;
-}
 /* The join card's shortcut into the rooms list. Its whole job is revealing a
    list that is off screen, and on desktop the list is already beside the card,
    so the button had nothing to do and did nothing when pressed. It belongs to
    the phone layout, where the list is a separate screen and this is the way to
-   it before you have joined anything. */
-.join .ghost-link {
-	all: unset;
+   it before you have joined anything. Visibility is all this card says about
+   it; how it draws is the button family's business. */
+.join #browseRoomsBtn {
 	display: none;
 	align-self: center;
-	cursor: pointer;
+}
+
+/* Settings: the same card the join form uses, inside a native dialog. Saving
+   reloads so the peer opens with the new locator. */
+.modal {
+	position: fixed;
+	inset: 0;
+	width: auto;
+	height: auto;
+	max-width: none;
+	max-height: none;
+	margin: 0;
+	border: 0;
+	color: inherit;
+	background: transparent;
+	overflow: visible;
+	padding: 24px;
+	place-items: center;
+}
+.modal[open] {
+	display: grid;
+}
+/* Blurring what a modal covers is what makes it read as a layer rather than as
+   a card that happened to land on top. It costs one composited pass over a page
+   that is not moving and not scrolling, which is the same bargain the topbar
+   already takes for its frosted band.
+
+   The blur is what the dim is for, so both arrive together. Coming in they are
+   the whole of the entrance for the ground, and the panel above scales up the
+   last few per cent into place: a modal that is over the page rather than in
+   it should look like it came towards the reader. Small numbers, because the
+   distance is short and a long throw on something you asked for reads as
+   waiting.
+
+   Entering only. A closed dialog is gone from the tree in the same frame the
+   press lands, so there is nothing left to animate out. */
+.modal::backdrop {
+	background: color-mix(in srgb, var(--ink) 28%, transparent);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+}
+.modal[open]::backdrop {
+	animation: ground-in .18s ease backwards;
+}
+/* The layer is what rises, not the card inside it. The card is a scroll
+   container, and a box that scrolls should not also be a box that is being
+   transformed: the two are worked out at different times, and an engine that
+   settles the scrolling layout while the transform is still running has no
+   reason to work it out again afterwards. The layer fills the screen and is
+   transparent, so scaling it about its own centre moves nothing a reader can
+   see except the card it holds, which is centred in it. */
+.modal[open] {
+	animation: rise-in .18s ease backwards;
+}
+/* Each of these is written as a `from` alone, so what it ends at is the
+   element's own style and no fill is needed to hold it there. `backwards` and
+   nothing else: `forwards` would leave the last frame applied for as long as
+   the element lives, which on the ones that move means a transform sitting on a
+   box for good, long after the fifth of a second it was for. */
+@keyframes ground-in {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes rise-in {
+	from {
+		opacity: 0;
+		transform: scale(.96);
+	}
+}
+/* Sized to the viewport a reader can actually see, and scrolled rather than
+   squeezed when it runs out.
+
+   `dvh` is the unit everything else here measures the viewport in, and this box
+   was the one place still on `vh`. They are the same number on a desktop, so
+   the difference only ever showed on a phone: `vh` is the tall viewport a
+   mobile browser has with its toolbars hidden, so a card sized to `90vh` is
+   taller than the screen while the toolbars are up, and it changes height under
+   the reader as they come and go.
+
+   The children hold their own height for the second half of the same problem. A
+   flex column that can shrink its items will do that before it scrolls, so the
+   scroll never engages and the panel inside is squashed instead, by an amount
+   each engine works out for itself. Held to their content, the box scrolls,
+   which is what `overflow-y` was asked for. */
+.modal-card {
+	width: min(420px, 100%);
+	max-height: min(90dvh, 720px);
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+	border: 1px solid var(--rule);
+	border-radius: 18px;
+	padding: 28px;
+	background: var(--paper-raised);
+	box-shadow: var(--shadow);
+	position: relative;
+}
+.modal-card > * {
+	flex: none;
+}
+.modal-card::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: 4px;
+	background: linear-gradient(90deg, var(--accent), var(--teal));
+}
+.settings-head {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.settings-head-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+/* The directory's own mark, worn by the card describing it. The same glyph its
+   rows carry in the rail and in the same colour, so arriving here from a
+   coloured line lands somewhere that agrees; a card that dropped the colour
+   would have a reader checking they opened the one they meant.
+
+   On the heading rather than as a band across the card, and at the size of the
+   words beside it. This is an identity, not a status: a wash over a panel this
+   size would make the colour the loudest thing in a card whose job is to answer
+   three quiet questions. */
+.dircard #dircardTitle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+/* Why a directory is not connected, under the word that says it is not. Its own
+   line because it is a sentence rather than a state, and quiet because the state
+   above it is what a reader came to check. */
+.dirfact-why {
+	display: block;
+	margin-top: 2px;
+	font-size: 12px;
+	color: var(--ink-soft);
+}
+.dircard-mark {
+	display: inline-flex;
+	flex: none;
+	color: var(--dir-mark, var(--ink-soft));
+}
+/* Window-level toggles that apply at once (theme, notifications). They sit
+   on the title so they stay in reach on Locators and Advanced alike, and so a
+   new sibling is one button in the row rather than another fieldset. */
+.settings-toggles {
+	display: flex;
+	gap: 8px;
+	flex: none;
+}
+.modal-card h2 {
+	margin: 0;
+	font-size: 21px;
+	letter-spacing: -.01em;
+}
+/* Segmented control. Rooms had none, and this is not ocapnviz's joined-seam
+   row: that language is a dense instrument. Here the well is recessed paper
+   and the chosen cell is a raised pill that slides, the same paper-and-shadow
+   the composer and the join card already speak.
+
+   Nested radii: the well matches the uri/choice cards (11px). The pad is the
+   inset, so the thumb's corner is well minus pad — a pill that does not follow
+   that subtraction reads as a sticker sitting on the well rather than as the
+   well's own contents. The gap is the same 3px so the two idle cells and the
+   travelling thumb share one rhythm.
+
+   The thumb carries the accent, lightly. Raised paper alone cannot: --paper and
+   --paper-raised are a hair apart on cream, so a pill drawn only in paper reads
+   as barely chosen, and barely chosen is the one thing this control must never
+   be. A tint and a tinted edge are enough. It stays paper, stays quieter than
+   the amber ring on a radio, and is unmistakably picked.
+
+   Each state says a different thing. An idle cell is soft ink on the well. A
+   hovered one comes up to full ink under a neutral wash, which is the pointer's
+   own colour and not the choice's. The chosen one is the thumb plus accent ink.
+   Nothing here disables, so nothing here draws a disabled cell. */
+.settings-tabs {
+	--tabs-pad: 3px;
+	--tabs-gap: 3px;
+	--tabs-r: 11px;
+	--tabs-thumb-r: calc(var(--tabs-r) - var(--tabs-pad));
+	position: relative;
+	isolation: isolate;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	align-items: stretch;
+	gap: var(--tabs-gap);
+	height: var(--control-h);
+	padding: var(--tabs-pad);
+	border: 1px solid var(--rule);
+	border-radius: var(--tabs-r);
+	background: var(--paper);
+	box-shadow: inset 0 1px 2px var(--shadow-sm-color);
+}
+.settings-tabs-thumb {
+	position: absolute;
+	z-index: 0;
+	top: var(--tabs-pad);
+	bottom: var(--tabs-pad);
+	left: var(--tabs-pad);
+	width: calc((100% - (2 * var(--tabs-pad)) - var(--tabs-gap)) / 2);
+	border-radius: var(--tabs-thumb-r);
+	background: color-mix(in srgb, var(--accent) 15%, var(--paper-raised));
+	/* Tinted edge plus the same lift the composer uses, so the pill reads as a
+	   chip standing in the well. Spread on the shadow, not a border, so the
+	   thumb stays the size of the cell it covers. */
+	box-shadow: var(--shadow-sm), 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+	pointer-events: none;
+	transition: transform .2s ease-out;
+}
+.settings-tabs[data-thumb="end"] .settings-tabs-thumb {
+	transform: translateX(calc(100% + var(--tabs-gap)));
+}
+.settings-tab {
+	all: unset;
+	box-sizing: border-box;
+	position: relative;
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 0;
+	border-radius: var(--tabs-thumb-r);
 	font: inherit;
 	font-size: 13px;
-	font-weight: 600;
-	color: var(--teal-deep);
-	padding: 4px 8px;
-	border-radius: 8px;
+	font-weight: 700;
+	letter-spacing: -.01em;
+	line-height: 1;
+	color: var(--ink-soft);
+	cursor: pointer;
+	user-select: none;
+	transition: color .12s ease, background-color .12s ease;
 }
-.join .ghost-link:hover {
-	background: color-mix(in srgb, var(--teal) 12%, transparent);
+.settings-tab[aria-selected="true"] {
+	color: var(--accent-ink);
+	font-weight: 800;
+}
+/* Hover lights the idle cell, never the chosen one — the thumb is already
+   there, and a wash on top of it reads as the pill flickering. Touch sticks
+   :hover, so the wash is pointer-only, the same lesson as the message acts. */
+@media (hover: hover) {
+	.settings-tab:hover:not([aria-selected="true"]) {
+		color: var(--ink);
+		background: var(--hover);
+	}
+}
+/* The global button ring is 2px / offset 2px, which would sit outside the
+   well. Offset 1px parks the ring in the 3px pad, flush with the well's
+   inner edge. z-index keeps it above the neighbouring cell. */
+.settings-tab:focus-visible {
+	z-index: 2;
+	outline-offset: 1px;
+}
+/* Opening moves focus here so the keyboard is in the dialog, not still on
+   the gear. A ring around the whole card would shout; Tab lands on a tab
+   and that ring is the one that should show. */
+.modal-card:focus,
+.modal-card:focus-visible {
+	outline: none;
+}
+/* A tab's panel is a name for a group of rows, not a box around them.
+   It used to be a flex column of its own, repeating the card's own rhythm one
+   level down, which meant the card's layout depended on a second container
+   agreeing about its own height. Mobile Safari did not agree: it gave the panel
+   forty-five pixels more than its rows came to, and a flex column packs its rows
+   at the top, so the difference stood at the bottom as a gap above the last
+   button in the card. With `display: contents` the rows are the card's own, laid
+   out on the one rhythm that was always drawing them, and there is no second
+   height for an engine to get wrong. The element and its role stay where they
+   are for anything reading the page rather than laying it out. */
+.modal-card [role="tabpanel"] {
+	display: contents;
+}
+.modal-card p.lead {
+	margin: 0;
+	color: var(--ink-soft);
+	font-size: 14px;
+}
+/* A named group of controls, drawn as an ordinary box.
+   `<fieldset>` and `<legend>` are what this means, and a `role="group"` with an
+   `aria-labelledby` is the same thing to a screen reader, but a fieldset is not
+   an ordinary box: every engine gives it a renderer of its own, older WebKit
+   refuses to make one a flex container at all, and the legend is lifted out of
+   flow into the border. Layout duty belongs to a box that only has to be a box.
+   The semantics stay on the element; only the layout moved. */
+.modal-card .group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+/* What a directory says about itself: a question on the left, its answer on the
+   right, in the order the questions occur to a reader. Two columns rather than
+   stacked pairs, because the answers are short and a column of them can be
+   compared down the page — and because the left column is then a list of what
+   can be asked, which is the shape of the surface as much as its content.
+
+   The label column is sized to its own text so a longer question moves both
+   columns together instead of wrapping under itself. */
+.dirfacts {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: baseline;
+	gap: 6px 14px;
+	margin: 2px 0 0;
+	font-size: 13px;
+}
+.dirfacts dt {
+	color: var(--ink-soft);
+	font-size: 12px;
+	font-weight: 700;
+}
+.dirfacts dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	display: flex;
+	align-items: center;
+	gap: 7px;
+}
+/* The connection dot sits on the text's own line rather than on the row's, so
+   it lines up with the word beside it the way it does in the rail's foot. */
+.dirfacts dd .dot {
+	flex: none;
+}
+.modal-card .group-label {
+	/* No margin of its own: the group's own gap is the spacing, the way it is
+	   between any two rows in the group. A legend used to sit four pixels from
+	   its first control because the engine lifted it out of the flex flow, where
+	   the gap could not reach it. */
+	margin: 0;
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--ink-soft);
+}
+.modal-card .uri-label {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--ink-soft);
+	margin: 0;
+}
+.modal-card .uri-label code {
+	font-weight: 600;
+	font-size: 11px;
+}
+/* A locator is a field only in the sense that it is a boxed value the reader
+   wants to take away; nothing in it can be typed into. So the box is the
+   control (see `CopyField` in Copy.tsx), and the mark in the corner says a
+   press does something rather than being the only place a press counts.
+
+   The corner is held open by the field's own trailing padding rather than by a
+   column beside the text, because a locator breaks anywhere: given a floated
+   corner to clear, the text would clear it on the first line and run under it
+   on every line after. Padding holds it open on all of them. */
+.copy-field {
+	all: unset;
+	box-sizing: border-box;
+	position: relative;
+	display: block;
+	width: 100%;
+	padding: 10px 34px 10px 12px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--paper);
+	font-size: 11px;
+	line-height: 1.4;
+	text-align: left;
+	color: var(--ink);
+	cursor: pointer;
+	transition: background .12s ease, border-color .12s ease;
+}
+.copy-field:not(:disabled):hover,
+.copy-field:focus-visible {
+	border-color: color-mix(in srgb, var(--accent) 34%, var(--rule));
+	background: color-mix(in srgb, var(--accent) 6%, var(--paper));
+}
+.copy-field:disabled {
+	cursor: default;
+	color: var(--ink-soft);
+}
+.copy-field-text {
+	display: block;
+	word-break: break-all;
+	user-select: all;
+}
+/* Pinned to the top of the box, so a locator taking three lines leaves the mark
+   where a locator taking one put it. It answers to the field rather than to
+   itself: it is quiet until the field is under a pointer or holds focus, and it
+   takes the tick's colour for as long as the reply stands. */
+.copy-field-mark {
+	position: absolute;
+	top: 9px;
+	right: 10px;
+	display: inline-flex;
+	color: var(--ink-soft);
+	opacity: .55;
+	transition: opacity .12s ease, color .12s ease;
+}
+.copy-field:not(:disabled):hover .copy-field-mark,
+.copy-field:focus-visible .copy-field-mark {
+	opacity: 1;
+}
+.copy-field[data-copied] .copy-field-mark {
+	opacity: 1;
 	color: var(--teal);
 }
-.join .ghost-link:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
+/* The reply stands over the corner it was pressed near, not over the middle of
+   a field that can be three lines tall. */
+.copy-field .copy-said {
+	left: auto;
+	right: 4px;
+	bottom: calc(100% - 2px);
+	transform: none;
 }
+.modal-card .choice {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 10px 12px;
+	align-items: start;
+	padding: 10px 12px;
+	border: 1px solid var(--rule);
+	border-radius: 11px;
+	background: var(--paper);
+	cursor: pointer;
+}
+.modal-card .choice:has(input:checked) {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.modal-card .choice input {
+	margin-top: 3px;
+}
+.modal-card .choice span {
+	font-size: 13px;
+	color: var(--ink-soft);
+	line-height: 1.4;
+}
+.modal-card .choice strong {
+	display: block;
+	font-size: 14px;
+	color: var(--ink);
+	margin-bottom: 2px;
+}
+.modal-card #vizUrl {
+	font: inherit;
+	padding: 11px 13px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--paper);
+	color: var(--ink);
+}
+.modal-card #vizUrl:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.modal-card p.hint {
+	margin: 0;
+	font-size: 12px;
+	color: var(--ink-soft);
+	line-height: 1.4;
+}
+.modal-card p.hint code {
+	font-size: 11px;
+}
+.modal-card > .button[data-variant="quiet"] {
+	align-self: center;
+}
+
 .error {
 	min-height: 1.2em;
 	margin: -4px 0 0;
@@ -1331,7 +2637,7 @@ button:focus-visible,
 
 /* ── Rich text inside bubbles ─────────────────────────────────────────── */
 .bubble a {
-	color: var(--teal-deep);
+	color: var(--teal-ink);
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
@@ -1348,8 +2654,33 @@ button:focus-visible,
 .row.mine .bubble code {
 	background: color-mix(in srgb, var(--on-accent) 20%, transparent);
 }
+.bubble .code-block {
+	max-width: min(70vw, 520px);
+	margin: 6px 0 2px;
+	padding: 10px 12px;
+	overflow-x: auto;
+	border: 1px solid var(--rule);
+	border-radius: 8px;
+	background: var(--paper);
+	color: var(--ink);
+	white-space: pre;
+	line-height: 1.45;
+	tab-size: 4;
+}
+.bubble .code-block code,
+.row.mine .bubble .code-block code {
+	display: block;
+	padding: 0;
+	border-radius: 0;
+	background: transparent;
+	color: inherit;
+	font-size: 12.5px;
+}
+.row.mine .bubble .code-block {
+	border-color: color-mix(in srgb, var(--on-accent) 28%, transparent);
+}
 .mention {
-	color: var(--accent-deep);
+	color: var(--accent-ink);
 	background: color-mix(in srgb, var(--accent) 16%, transparent);
 	padding: 0 4px;
 	border-radius: 5px;
@@ -1362,6 +2693,238 @@ button:focus-visible,
 .mention.you {
 	background: var(--mine-from);
 	color: var(--on-accent);
+}
+/* mIRC's sixteen colours, which every IRC client has drawn since the nineties
+   and which a bridged line names by number. They are literal rather than tokens
+   on purpose: these are not this interface's palette and must not drift with it
+   — the author of that line picked colour four, and colour four is red. They
+   only ever appear on text that arrived carrying them. */
+.irc-fg-0 {
+	color: #ffffff;
+}
+.irc-bg-0 {
+	background: #ffffff;
+}
+.irc-fg-1 {
+	color: #000000;
+}
+.irc-bg-1 {
+	background: #000000;
+}
+.irc-fg-2 {
+	color: #00007f;
+}
+.irc-bg-2 {
+	background: #00007f;
+}
+.irc-fg-3 {
+	color: #009300;
+}
+.irc-bg-3 {
+	background: #009300;
+}
+.irc-fg-4 {
+	color: #ff0000;
+}
+.irc-bg-4 {
+	background: #ff0000;
+}
+.irc-fg-5 {
+	color: #7f0000;
+}
+.irc-bg-5 {
+	background: #7f0000;
+}
+.irc-fg-6 {
+	color: #9c009c;
+}
+.irc-bg-6 {
+	background: #9c009c;
+}
+.irc-fg-7 {
+	color: #fc7f00;
+}
+.irc-bg-7 {
+	background: #fc7f00;
+}
+.irc-fg-8 {
+	color: #ffff00;
+}
+.irc-bg-8 {
+	background: #ffff00;
+}
+.irc-fg-9 {
+	color: #00fc00;
+}
+.irc-bg-9 {
+	background: #00fc00;
+}
+.irc-fg-10 {
+	color: #009393;
+}
+.irc-bg-10 {
+	background: #009393;
+}
+.irc-fg-11 {
+	color: #00ffff;
+}
+.irc-bg-11 {
+	background: #00ffff;
+}
+.irc-fg-12 {
+	color: #0000fc;
+}
+.irc-bg-12 {
+	background: #0000fc;
+}
+.irc-fg-13 {
+	color: #ff00ff;
+}
+.irc-bg-13 {
+	background: #ff00ff;
+}
+.irc-fg-14 {
+	color: #7f7f7f;
+}
+.irc-bg-14 {
+	background: #7f7f7f;
+}
+.irc-fg-15 {
+	color: #d2d2d2;
+}
+.irc-bg-15 {
+	background: #d2d2d2;
+}
+
+/* What a room is about, over what is being said in it.
+
+   A rule under it rather than a fill, because it sits between the header and the
+   conversation and a third surface there would make the page read as three
+   stacked panels. Quieter than a message and louder than the header's metadata:
+   it is not something anybody said, but it is the first thing worth reading.
+
+   One line, ellipsed. A topic is a sentence somebody wanted everybody to see,
+   and letting it wrap to four lines pushes the conversation off the screen to
+   make room for something that has not changed in a week — so it truncates, and
+   carries the whole of itself in a title the way every other truncating name in
+   this page does. */
+/* The message log fills this column absolutely, so the bar has to say it is on
+   top or it is a picture of a bar: the words show through and every press lands
+   in the log behind them. Messages pass underneath it, which is what its opaque
+   ground is for, and the log's own top padding below keeps the first of them
+   from starting out of sight. */
+.topic {
+	position: relative;
+	z-index: 2;
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	box-sizing: border-box;
+	min-height: var(--topic-h);
+	padding: 6px calc(var(--rail-pad) + var(--row-pad));
+	border-bottom: 1px solid var(--rule);
+	background: var(--paper-raised);
+	font-size: 13px;
+	color: var(--ink-soft);
+}
+/* The words take the row and give way at its end, so a long topic ends in an
+   ellipsis rather than pushing the way to change it off the edge. */
+.topic-said {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* Why somebody stepped away, beside their name in the member list. Quiet and
+   truncating, because it is a note about a person rather than a second name for
+   them, and a long one must not push the list about. */
+.away-said {
+	flex: 0 100 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11.5px;
+	font-style: italic;
+	color: var(--ink-soft);
+}
+/* Away is a way of being here, so its pip keeps the online dot's shape and says
+   so by weight rather than by turning into the offline ring. */
+#members li.away .pip {
+	opacity: 0.45;
+}
+
+/* A link in a topic is the reason topics have links, so it carries the weight
+   the rest of the line gives up rather than the quiet the bar is set in. */
+.topic a {
+	color: var(--teal-ink);
+}
+
+/* A line taken back. It keeps its place — a line that vanished would leave every
+   reply to it reading as a non-sequitur — and shows none of what it said, since
+   striking the words through would leave them readable while claiming they had
+   been withdrawn. */
+.bubble.withdrawn {
+	background: none;
+	border: 1px dashed var(--rule);
+	color: var(--ink-soft);
+	font-style: italic;
+}
+.withdrawn-said,
+.edited-said {
+	font-size: 11px;
+	color: var(--ink-soft);
+}
+/* After the words rather than among them, because it qualifies what was said
+   rather than being part of it. */
+.edited-said {
+	margin-left: 6px;
+	opacity: .8;
+}
+
+/* Quoted from somewhere else. A rule down the side rather than a fill, because a
+   quote inside a bubble is already on a surface and a second one would read as a
+   box within a box. The ink stays the bubble's, only quieter: this is still the
+   line's own text, said by somebody else. */
+.bubble blockquote {
+	margin: 4px 0;
+	padding: 2px 0 2px 10px;
+	border-left: 3px solid color-mix(in srgb, currentColor 28%, transparent);
+	opacity: .82;
+}
+/* Hidden until it is asked for. Covered, it is a control and looks like one to a
+   pointer; opened, it is ordinary text and stops being pressable, because there
+   is nothing left to ask. The covered form keeps the text in the document so it
+   still lays out at its real width — a spoiler that resizes the message when it
+   opens gives itself away before it is read. */
+.spoiler {
+	all: unset;
+	border-radius: 5px;
+	background: color-mix(in srgb, currentColor 78%, transparent);
+	color: transparent;
+	cursor: pointer;
+}
+.spoiler:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.spoiler.shown {
+	background: color-mix(in srgb, currentColor 12%, transparent);
+	color: inherit;
+	cursor: auto;
+}
+
+/* A call to the whole room. Addressed to you, so it carries the weight a
+   mention carries, but not *to you in particular* — so it takes the teal this
+   interface already spends on the other kind of reach rather than the amber a
+   name wears. Outlined instead of filled, because filling it would make it
+   compete with your own name in a line that carries both. */
+.mention.room {
+	color: var(--teal-ink);
+	background: color-mix(in srgb, var(--teal) 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 34%, transparent);
 }
 .row.them .bubble.hl {
 	/* A line that names you: a warm tint and a firmer border. The bubble's
@@ -1393,7 +2956,7 @@ button:focus-visible,
 	font-weight: 600;
 }
 .divider.unread {
-	color: var(--accent-deep);
+	color: var(--accent-ink);
 }
 .divider.unread::before,
 .divider.unread::after {
@@ -1403,13 +2966,47 @@ button:focus-visible,
 /* ── /me action lines ─────────────────────────────────────────────────── */
 .sys.action span {
 	font-style: italic;
-	color: var(--accent-deep);
+	color: var(--accent-ink);
 	background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* A notice is somebody speaking quietly rather than something happening, so it
+   takes the log's own ink rather than the action line's colour, and says what it
+   is by being set apart rather than by being loud. */
+.sys.notice span {
+	color: var(--ink-soft);
+	background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 /* ── Per-message hover actions ────────────────────────────────────────── */
 .row {
 	position: relative;
+}
+/* What you can do to one line of your own, as against the bar above the group
+   which acts on all of them. Outside the bubble on the side away from the text,
+   so it never covers a word, and revealed the same way the group's bar is: a
+   control that only exists under the pointer cannot be found by looking, but a
+   row of them on every line you ever wrote is a page full of chrome.
+
+   Kept off touch, where there is no pointer to reveal with and where the same
+   two acts are reachable by typing them. */
+.bubble {
+	position: relative;
+}
+.line-acts {
+	position: absolute;
+	top: 50%;
+	translate: 0 -50%;
+	right: calc(100% + 6px);
+	display: none;
+	gap: 2px;
+	z-index: 2;
+}
+@media (hover: hover) {
+	.bubble:hover .line-acts,
+	.bubble:focus-within .line-acts {
+		display: flex;
+	}
 }
 .row .acts {
 	position: absolute;
@@ -1452,68 +3049,8 @@ button:focus-visible,
 		transform: translateY(3px);
 	}
 }
-.row .acts button {
-	all: unset;
-	cursor: pointer;
-	font-size: 12.5px;
-	line-height: 1;
-	padding: 5px 7px;
-	border-radius: 7px;
-	color: var(--ink-soft);
-}
-.row .acts button:hover {
-	background: var(--hover);
-	color: var(--ink);
-}
-
-/* ── Topbar icon buttons (theme, notifications) ───────────────────────── */
-.topbar .icon {
-	all: unset;
-	/* Restore the global border-box that all:unset drops, so the 1px border sizes
-	   inside --control-h instead of adding 2px and making the icon buttons taller. */
-	box-sizing: border-box;
-	cursor: pointer;
-	width: var(--control-h);
-	height: var(--control-h);
-	flex: none;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 9px;
-	border: 1px solid var(--rule);
-	color: var(--ink-soft);
-	font-size: 15px;
-	/* Tight line box so the glyph centres in the button instead of riding high on
-	   the inherited 1.5 line-height. */
-	line-height: 1;
-}
-/* The roster's control carries the roster's number. A count belongs beside the
-   thing that opens the list it counts, not at the other end of the bar next to
-   the room's name — where collapsing the roster took the list away and left the
-   number stranded. The button widens to hold it and stays an icon button in
-   every other respect. */
-.topbar .count-btn {
-	width: auto;
-	min-width: var(--control-h);
-	padding: 0 11px 0 9px;
-	gap: 7px;
-	font-size: 13px;
-	font-weight: 700;
-}
-/* Two digits' worth of room, held whether or not both are used. Members come and
-   go constantly, and a button that resized on every arrival would walk the whole
-   toolbar sideways as it did; tabular figures keep each digit the same width as
-   the last, so within that reserve nothing moves at all. Only the step to "99+"
-   costs a glyph, and a room does not cross that line twice in an afternoon. */
-#memberCount {
-	min-width: 2ch;
-	text-align: center;
-	/* Its own size, not the button's. The phone layout scales the icon buttons up
-	   for the glyphs they hold, and a numeral told to be 20px is not a bigger
-	   picture, it is a shout. */
-	font-size: 13px;
-	font-variant-numeric: tabular-nums;
-}
+/* The roster control's badge lives in IconButton. It reserves two tabular
+   digits there, so ordinary joins and leaves do not walk the toolbar sideways. */
 /* The rooms rail's toggle, and the left-hand answer to the Members button at the
    other end of the topbar: one control per rail, each reporting whether its rail
    is showing. What it does differs by layout because the rails do — on desktop
@@ -1547,17 +3084,51 @@ button:focus-visible,
 #sheetScrim {
 	display: none;
 }
-.topbar .icon:hover {
-	background: var(--hover);
-	color: var(--ink);
+/* ── Emoji picker popup ───────────────────────────────────────────────── */
+/* Inline completion: the list a sigil raises over the composer. One column,
+   keyboard-first — the picked row is state, not :hover, so the arrows and the
+   pointer highlight the same way. Anchored like the emoji tray, sized to its
+   rows, and never taller than a handful: ranking already did the narrowing. */
+.complete-pop {
+	position: absolute;
+	bottom: 64px;
+	left: 20px;
+	right: 20px;
+	max-width: 360px;
+	display: flex;
+	flex-direction: column;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 12px;
+	padding: 4px;
+	box-shadow: var(--shadow);
+	z-index: 6;
 }
-.topbar .icon.on {
-	color: var(--accent-deep);
-	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-	background: color-mix(in srgb, var(--accent) 12%, transparent);
+.complete-row {
+	all: unset;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 10px;
+	border-radius: 8px;
+	font-size: 14px;
+	color: var(--ink);
+	cursor: pointer;
+}
+.complete-row.picked {
+	background: var(--hover);
+}
+.complete-glyph {
+	font-size: 17px;
+	flex: none;
+}
+.complete-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-/* ── Emoji picker popup ───────────────────────────────────────────────── */
 .emoji-pop {
 	position: absolute;
 	bottom: 64px;
@@ -1589,31 +3160,28 @@ button:focus-visible,
 
 /* ── Direct-message threads (sidebar) ─────────────────────────────────── */
 #dmList {
+	/* The one place the rail's mark column is a different width: a direct line
+	   wears a round chip of initials where a room wears a sigil. The caption under
+	   the name reads this, so it still starts at the name. */
+	--mark-col: 22px;
 	margin: 4px 0 0;
 	padding: 0;
 	list-style: none;
 	min-height: 0;
 	overflow-y: auto;
 }
-#dmList li {
-	position: relative;
-	border-radius: 9px;
-	color: var(--ink);
-}
-#dmList .dm-open {
-	all: unset;
-	box-sizing: border-box;
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	width: 100%;
-	padding: 7px var(--row-pad);
-	border-radius: 9px;
-	cursor: pointer;
-	color: inherit;
-}
+/* Only what a direct line adds to a rail row. Its shape, its spacing, and where
+   each part of it lands are the rail's, stated once for both lists beside the
+   rooms list above.
+
+   What it adds is a colour. The rooms above are the page's amber and these are
+   its teal, in the selected row and in the one under the pointer alike, at the
+   same two strengths on both lists. A neutral grey here was the odd one out: the
+   rail is where this interface does pick up its own colour, and a list that
+   selects in teal should warm in teal rather than reaching for the wash every
+   button in the page uses. */
 #dmList li:hover {
-	background: var(--hover);
+	background: color-mix(in srgb, var(--teal) 7%, transparent);
 }
 #dmList li.here:hover {
 	background: color-mix(in srgb, var(--teal) 23%, transparent);
@@ -1629,38 +3197,25 @@ button:focus-visible,
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	flex: none;
-	transition: opacity .12s ease;
 }
-#dmList li:hover .dm-marks,
-#dmList li:focus-within .dm-marks {
-	opacity: 0;
-}
-#dmList li:hover .room-leave,
-#dmList li:focus-within .room-leave {
-	opacity: 1;
-}
+/* The teal answer to what the selected room does with the amber, and for the
+   same reason: this row stands on a wash of its own colour, so its ink has to
+   move away from that colour rather than sit in it. In syrup the readable teal
+   *is* the teal, which leaves ink and ground the same hue with the wash lifting
+   one toward the other — measured, the name came out at 4.33 to 1 against the
+   4.5 small text needs. A sixth of the way toward the page's plain ink clears it
+   in both appearances, and the row is still teal. */
 #dmList li.here {
-	position: relative;
 	background: color-mix(in srgb, var(--teal) 18%, transparent);
-	color: var(--teal-deep);
+	color: color-mix(in srgb, var(--teal-ink) 84%, var(--ink));
 }
 #dmList li.here::before {
-	content: "";
-	position: absolute;
-	left: 0;
-	top: 50%;
-	translate: 0 -50%;
-	width: 3px;
-	height: 1.15em;
-	border-radius: 0 3px 3px 0;
 	background: var(--teal);
 }
 #dmList .dmavatar {
 	width: 22px;
 	height: 22px;
 	border-radius: 7px;
-	flex: none;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1668,21 +3223,12 @@ button:focus-visible,
 	font-weight: 700;
 	font-size: 10.5px;
 }
-#dmList .rname {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	flex: 1;
-}
 #dmList .lock {
-	flex: none;
 	color: var(--teal);
 	font-size: 11px;
 }
 #dmList .rcount {
 	font-size: 11px;
-	flex: none;
 	background: var(--mine-from);
 	color: var(--on-accent);
 	padding: 1px 7px;
@@ -1745,23 +3291,7 @@ button:focus-visible,
    looking, and the hidden button held its place in the row anyway — so every
    name it sat behind was cut short with a stretch of empty space beside it. */
 #members li .dm-btn {
-	all: unset;
-	box-sizing: border-box;
-	cursor: pointer;
-	margin-left: auto;
-	flex: none;
-	width: var(--control-sm);
-	height: var(--control-sm);
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	color: var(--teal-deep);
 	border: 1px solid color-mix(in srgb, var(--teal) 34%, transparent);
-	border-radius: 8px;
-}
-#members li .dm-btn:hover {
-	background: color-mix(in srgb, var(--teal) 14%, transparent);
-	color: var(--teal);
 }
 
 /* ── Direct-message provenance (topbar + in-stream note) ──────────────── */
@@ -1775,7 +3305,7 @@ button:focus-visible,
 	gap: 6px;
 	font-size: 12px;
 	font-weight: 600;
-	color: var(--teal-deep);
+	color: var(--teal-ink);
 	background: color-mix(in srgb, var(--teal) 14%, transparent);
 	border: 1px solid color-mix(in srgb, var(--teal) 30%, transparent);
 	padding: 4px 10px;
@@ -1800,20 +3330,17 @@ button:focus-visible,
 }
 
 /* A touch screen has no pointer to hover with, so a mark that waits for one is a
-   mark nobody there can find. The room's name still leaves the room; its mark
-   simply stands there, in the quiet ink the rest of the header uses, and takes
-   the warning colour under the finger rather than before it. */
+   mark nobody there can find. It simply stands beside the name, in the quiet ink
+   the rest of the header uses, and takes the warning colour under the finger
+   rather than before it. This is what the composer's attached files do with
+   their own mark, for the same reason. */
 @media (hover: none) {
-	.topbar .title-btn:not(:disabled) .leave-x {
+	.topbar .leave-x {
 		opacity: 1;
-		color: var(--ink-soft);
-	}
-	.topbar .title-btn:not(:disabled):active .leave-x {
-		color: var(--danger);
 	}
 }
 
-/* The phone layout. `dom.ts` matches this same width to decide whether to drive
+/* The phone layout. `store.ts` matches this same width to decide whether to drive
    the back button and the roster sheet; move one and move the other. */
 @media (max-width: 820px) {
 	/* A finger needs the whole of a control, so the small tier grows to the
@@ -1821,7 +3348,7 @@ button:focus-visible,
 	   touch, and the two tiers meeting at one number is the honest answer when
 	   the pointer is a fingertip. */
 	:root {
-		--control-sm: var(--control-h);
+		--icon-button-small: var(--icon-button-normal);
 	}
 	/* Master-detail on a phone: the sidebar (the rooms and DM list) and the
 	   workarea (a conversation, or the join card) each take the whole screen, and
@@ -1905,7 +3432,7 @@ button:focus-visible,
 		display: none;
 	}
 
-	/* The list keeps its base vertical layout and gains touch-sized rows and "+"
+	/* The list keeps its base vertical layout and gains touch-sized rows and add
 	   buttons; nothing is hidden, so creating a room and starting a DM work just
 	   like on desktop. */
 	.workspace {
@@ -1920,12 +3447,23 @@ button:focus-visible,
 		min-height: var(--header-h);
 		padding: calc(10px + var(--accent-line)) calc(var(--rail-pad) + var(--row-pad)) 10px;
 	}
-	.section-head button {
-		font-size: 21px;
-	}
+	/* Both lists pad the button, not the row around it. Padding on the row is
+	   space a finger can land in and nothing happens, which is the one place a
+	   larger target is worse than a smaller one.
+
+	   Eight pixels either side of the name's line puts the whole row at about
+	   forty, well over the twenty-four a target has to be and near what a list
+	   row usually is. The forty-four often quoted is for a control standing on
+	   its own; these stand in a column of identical rows, where the neighbour a
+	   finger might catch is another room and one more tap undoes it. */
 	#roomList .room-open,
-	#dmList li {
-		padding: 11px var(--row-pad);
+	#dmList .dm-open {
+		padding: 8px var(--row-pad);
+	}
+	/* The same overhang against the larger target a finger needs, so the heading
+	   stays the height of its own text here too. */
+	.section-head .icon-button {
+		margin-block: calc((var(--icon-button-normal) - var(--label-line)) / -2);
 	}
 	.newroom input {
 		font-size: 16px;
@@ -1940,11 +3478,12 @@ button:focus-visible,
 	.content {
 		grid-template-columns: minmax(0, 1fr);
 	}
+	/* Here the screen itself scrolls, so the wrap takes its place in the column
+	   rather than covering one. The card's own margins still centre it. */
 	.join-wrap {
 		position: static;
 		flex: 1 0 auto;
 		overflow: visible;
-		place-items: start center;
 		min-height: 100%;
 	}
 	/* The rail's header, measured to match, and inset to the same column: the mark
@@ -1979,9 +3518,20 @@ button:focus-visible,
 	/* Content-sized here, not stretched. Stretched, the chip filled the bar and
 	   carried its mark off to the far right, a whole screen from the name it
 	   belongs to; the heading around it does the filling instead. */
-	.topbar .title-btn {
+	.topbar .title-chip {
 		flex: 0 1 auto;
 		min-width: 0;
+	}
+	/* A mark that waits for a pointer is a mark half this layout's readers cannot
+	   find, and the ones with a pointer are on a bar narrow enough that hunting
+	   for it is the same problem. So here it simply stands beside the name. */
+	.topbar .leave-x {
+		opacity: 1;
+	}
+	/* The roster is a sheet here, and it already travels; an animated transform
+	   would take the transform it slides on. */
+	.members {
+		animation: none;
 	}
 	#roomName {
 		flex: 1;
@@ -2004,14 +3554,10 @@ button:focus-visible,
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	.topbar .icon {
-		font-size: 20px;
-	}
 	/* The phone has no rail beside the conversation, so the topbar carries the
 	   mark at all times: it is the only way to the list screen. */
 	#backBtn {
 		display: inline-flex;
-		font-size: 22px;
 	}
 	.join input,
 	.composer textarea {
@@ -2019,8 +3565,8 @@ button:focus-visible,
 	}
 	/* Here the rooms list is a screen of its own, so the shortcut to it earns
 	   its place. */
-	.join .ghost-link {
-		display: block;
+	.join #browseRoomsBtn {
+		display: inline-flex;
 	}
 	.composer-status .hint {
 		display: none;
@@ -2086,15 +3632,23 @@ button:focus-visible,
 		visibility: visible;
 		transform: translateY(0);
 	}
+	/* The dim comes up with the sheet rather than appearing under it already
+	   finished. It steps in and out of `visibility` exactly as the sheet does,
+	   which is what keeps a scrim at zero opacity from swallowing presses meant
+	   for the page behind it. */
 	#sheetScrim {
-		display: none;
+		display: block;
 		position: fixed;
 		inset: 0;
 		z-index: 39;
 		background: rgba(0,0,0,.4);
+		visibility: hidden;
+		opacity: 0;
+		transition: opacity .22s ease, visibility .22s ease;
 	}
 	.app.members-open #sheetScrim {
-		display: block;
+		visibility: visible;
+		opacity: 1;
 	}
 }
 
@@ -2244,4 +3798,445 @@ button:focus-visible,
 .boot-explain p {
 	margin: 0 0 10px;
 	color: var(--ink-soft);
+}
+
+/* ── Attachments ──────────────────────────────────────────────────────── */
+/* One send owns one attachment stack inside its bubble. Each child still owns
+   its transfer and control state; the stack is only the visual statement that
+   the files travelled together. */
+.attachment-set {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 6px;
+}
+/* Multiple pictures become one compact gallery without becoming one transfer.
+   Six tracks admit complete rows of one, two, or three balanced thumbnails.
+   Every tile remains its own openable attachment; non-image siblings span the
+   gallery so their readable row treatment is not squeezed into a thumbnail. */
+.attachment-set.image-grid {
+	display: grid;
+	grid-template-columns: repeat(6, minmax(0, 1fr));
+	width: 340px;
+	max-width: 100%;
+	gap: 4px;
+}
+.attachment-set.image-grid > .image-tile {
+	width: 100%;
+	min-width: 0;
+	max-width: none;
+	max-height: none;
+}
+.attachment-set.image-grid > .image-tile-full {
+	grid-column: 1 / -1;
+}
+.attachment-set.image-grid > .image-tile-half {
+	grid-column: span 3;
+}
+.attachment-set.image-grid > .image-tile-third {
+	grid-column: span 2;
+}
+.attachment-set.image-grid > :not(.image-tile) {
+	grid-column: 1 / -1;
+}
+/* A picture or a video sits in the bubble as itself, in a box drawn at its own
+   shape before its bytes arrive, so a log of media settles as it loads instead
+   of shoving every line below it down the page. Sound gets a player, and
+   everything else a row naming the file with the one control it needs. */
+.attach {
+	margin-top: 0;
+}
+.attach-media {
+	position: relative;
+	width: 100%;
+	max-width: 340px;
+	max-height: 340px;
+	border-radius: 12px;
+	overflow: hidden;
+	line-height: 0;
+}
+.attach-image {
+	all: unset;
+	box-sizing: border-box;
+	display: block;
+	position: relative;
+	width: 100%;
+	max-width: 340px;
+	max-height: 340px;
+	border-radius: 12px;
+	overflow: hidden;
+	cursor: zoom-in;
+}
+.attach-image:focus-visible,
+.attach-media .expand:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.attach-media img,
+.attach-media video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	background: var(--paper);
+}
+.attachment-set.image-grid > .image-tile img {
+	object-fit: cover;
+}
+/* A video plays where it was posted; this takes it full size. It sits out of
+   the way of the player's own controls, which own the bottom edge. */
+.attach-media .expand {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+}
+/* The box before the media: the same shape and corners, so nothing moves when
+   the two swap. */
+.attach-media.pending {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	padding: 9px;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+}
+/* A tile that failed says why in the space it was already holding: the reader
+   is deciding whether to press again, and the reason is what they decide on. */
+.attach-media.pending .why {
+	font-size: 12px;
+	line-height: 1.35;
+	text-align: center;
+	color: var(--ink-soft);
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+.attach-media.pending .pct {
+	font-size: 13px;
+	line-height: 1;
+	color: var(--ink-soft);
+	font-variant-numeric: tabular-nums;
+}
+.attach-media.pending .act {
+	all: unset;
+	box-sizing: border-box;
+	padding: 7px 13px;
+	border-radius: 8px;
+	border: 1px solid var(--rule);
+	background: var(--paper-raised);
+	color: var(--ink);
+	font-size: 13px;
+	line-height: 1.2;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+}
+.attach-media.pending .act:hover {
+	border-color: var(--accent-ink);
+	color: var(--accent-ink);
+}
+/* A rectangle that is going to become a picture says so with the space it is
+   already holding: light travels across it while the bytes are on the way. */
+.shimmer {
+	background-image: linear-gradient(
+		100deg,
+		transparent 20%,
+		color-mix(in srgb, var(--ink) 7%, transparent) 40%,
+		transparent 60%
+	);
+	background-size: 240% 100%;
+	background-repeat: no-repeat;
+	animation: attach-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes attach-shimmer {
+	from {
+		background-position: 160% 0;
+	}
+	to {
+		background-position: -60% 0;
+	}
+}
+/* Motion is decoration here: the percentage in the middle of the box carries
+   the same fact, and the shape is already reserved either way. */
+@media (prefers-reduced-motion: reduce) {
+	.shimmer {
+		animation: none;
+	}
+}
+/* Progress rides the bottom edge of the box it belongs to, so an upload shows
+   its own picture filling in rather than a number somewhere else. */
+.attach-media .upload {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 3px;
+	background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.attach-media .upload .bar {
+	display: block;
+	height: 100%;
+	background: var(--accent);
+	transition: width 120ms linear;
+}
+.attach-audio {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-width: 340px;
+}
+.attach-audio.pending {
+	flex-direction: row;
+	align-items: center;
+}
+.attach-audio audio {
+	width: 100%;
+	height: 34px;
+}
+.attach-audio .sub {
+	font-size: 12px;
+	color: var(--ink-soft);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.row.mine .attach-audio .sub {
+	color: var(--on-accent);
+}
+.attach-file {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 10px;
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	background: var(--paper);
+}
+/* Our own bubble reverses fill and ink between themes. Its attachment chip
+   therefore uses the same context-aware wash as an action on that bubble:
+   darker under cream ink, lighter under cocoa ink. */
+.row.mine .attach-file {
+	background: var(--mine-action-hover);
+	border-color: color-mix(in srgb, var(--on-accent) 28%, transparent);
+	color: var(--on-accent);
+}
+.attach-file .glyph {
+	display: flex;
+	color: var(--ink-soft);
+}
+.row.mine .attach-file .glyph {
+	color: var(--on-accent);
+}
+.attach-file .meta {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	flex: 1;
+}
+.attach-file .name {
+	font-size: 14px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.attach-file .sub {
+	font-size: 12px;
+	color: var(--ink-soft);
+}
+.row.mine .attach-file .sub {
+	color: var(--on-accent);
+}
+/* ── The media viewer ─────────────────────────────────────────────────── */
+/* Over the whole interface, dismissed by the backdrop the way Settings is —
+   and with none of its chrome. Settings is a panel because it is a form with
+   fields and a title; a picture is the content, and a frame around it would
+   only take space from it. The bar rides a legibility gradient rather than a
+   surface, because the media behind it can be any colour. */
+.viewer {
+	position: fixed;
+	inset: 0;
+	width: auto;
+	height: auto;
+	max-width: none;
+	max-height: none;
+	margin: 0;
+	border: 0;
+	color: inherit;
+	overflow: hidden;
+	place-items: center;
+	padding: 56px 20px 28px;
+	background: color-mix(in srgb, #000 76%, transparent);
+	cursor: zoom-out;
+}
+.viewer[open] {
+	display: grid;
+	animation: ground-in .18s ease backwards;
+}
+/* The picture rises the way the settings panel does; its ground does not, because
+   that ground is the whole screen and scaling it would show the page around its
+   edges. No blur either: the ground is opaque, so there is nothing behind it left
+   to see. The wait mark and the failure line are left out: one is already turning,
+   and the other is an error, which should arrive rather than make an entrance. */
+.viewer[open] img,
+.viewer[open] video {
+	animation: rise-in .18s ease backwards;
+}
+.viewer::backdrop {
+	background: #000;
+}
+.viewer-stage {
+	display: contents;
+	cursor: default;
+}
+.viewer img,
+.viewer video {
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+	border-radius: 6px;
+	cursor: default;
+}
+.viewer-wait {
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	border: 3px solid rgba(255, 255, 255, 0.25);
+	border-top-color: #fff;
+	animation: attach-spin 720ms linear infinite;
+}
+.viewer-failure {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 9px;
+	max-width: 420px;
+	color: rgba(255, 255, 255, 0.92);
+	font-size: 14px;
+	line-height: 1.5;
+	text-align: center;
+}
+@keyframes attach-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.viewer-wait {
+		animation: none;
+	}
+}
+.viewer-bar {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 10px 14px 22px;
+	background: linear-gradient(180deg, color-mix(in srgb, #000 62%, transparent), transparent);
+	cursor: default;
+}
+.viewer-bar .name {
+	flex: 1;
+	min-width: 0;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.92);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.viewer-bar .icon-button:focus-visible {
+	outline: 2px solid #fff;
+	outline-offset: 1px;
+}
+
+/* Dropping a file: the whole conversation column is the target, so the hint
+   covers it rather than hanging off one edge. It is inert until a drag is
+   over the column, so it never intercepts a click. */
+.drop-hint {
+	position: absolute;
+	inset: 8px;
+	z-index: 7;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2px dashed var(--accent);
+	border-radius: 16px;
+	background: color-mix(in srgb, var(--paper) 86%, transparent);
+	color: var(--accent-ink);
+	font-size: 15px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+}
+.stream.dropping .drop-hint {
+	opacity: 1;
+}
+.composer-files {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+	padding: 0 0 2px;
+	width: 100%;
+}
+.composer-file {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	max-width: 18rem;
+	min-width: 0;
+	padding: 4px 5px 4px 8px;
+	border: 1px solid var(--rule);
+	border-radius: 9px;
+	/* This remains a compact file object, not a miniature title button. The
+	   title contributes its interaction grammar below; the persistent surface,
+	   type mark, and metadata are what distinguish an attachment. */
+	background: color-mix(in srgb, var(--accent) 6%, var(--paper-raised));
+	transition: background .12s ease, border-color .12s ease;
+}
+.composer-file:hover,
+.composer-file:focus-within {
+	background: color-mix(in srgb, var(--accent) 11%, var(--paper-raised));
+	border-color: color-mix(in srgb, var(--accent) 30%, var(--rule));
+}
+.composer-file-kind {
+	color: var(--accent);
+	flex: none;
+}
+.composer-file-copy {
+	display: grid;
+	min-width: 0;
+	line-height: 1.15;
+}
+.composer-file-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	font-weight: 600;
+}
+.composer-file-size {
+	color: var(--ink-soft);
+	font-size: 10px;
+}
+.composer-file-remove {
+	flex: none;
+	opacity: 0;
+	transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+.composer-file:hover .composer-file-remove,
+.composer-file:focus-within .composer-file-remove {
+	opacity: 1;
+}
+@media (hover: none) {
+	.composer-file-remove {
+		opacity: 1;
+	}
+	.composer-file-remove:active {
+		color: var(--danger);
+	}
 }

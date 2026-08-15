@@ -54,7 +54,7 @@ Migration step 2 ships, with sessions still reusing keys. Designator grammar
 and authentication mechanism are separate contracts: every `.key`-scheme
 transport carries an `AuthenticationMechanism` row in the byte-fed table
 (`driver_core.vocab`) mirrored by its resident's vtable declaration, held in
-sync by `zig build meta-check`. keyed-TCP and keyed-relay hellos whose own
+sync by `zig build source-check`. keyed-TCP and keyed-relay hellos whose own
 designator has key form mint the credential
 (`engine.keyedHelloHints`, shared by the byte-fed Host and the blocking
 driver), and every session on those transports installs

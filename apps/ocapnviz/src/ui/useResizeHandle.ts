@@ -167,11 +167,7 @@ export function useResizeHandle(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const step = event.shiftKey ? KEY_STEP_COARSE_PX : KEY_STEP_PX;
       const towards = axis === "x"
-        ? event.key === "ArrowRight"
-          ? step
-          : event.key === "ArrowLeft"
-          ? -step
-          : 0
+        ? event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0
         : event.key === "ArrowDown"
         ? step
         : event.key === "ArrowUp"

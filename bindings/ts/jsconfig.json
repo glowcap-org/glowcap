@@ -7,11 +7,14 @@
 	"compilerOptions": {
 		"paths": {
 			"@pancake/abi": ["./abi/constants.ts"],
-			"@pancake/stack": ["./stack/mod.ts"],
-			"@pancake/stack/driver_loop": ["./stack/driver_loop.ts"],
-			"@pancake/stack/transport/tcp": ["./stack/transport/tcp.ts"],
-			"@pancake/stack/transport/inproc": ["./stack/transport/inproc.ts"],
-			"@pancake/stack/ffi": ["./stack/ffi.ts"],
+			"@pancake/runtime": ["./runtime/mod.ts"],
+			"@pancake/runtime/transport": ["./runtime/transport.ts"],
+			"@pancake/tcp": ["./tcp/mod.ts"],
+			"@pancake/tcp/transport": ["./tcp/transport.ts"],
+			"@pancake/inproc": ["./inproc/mod.ts"],
+			"@pancake/onion": ["./onion/mod.ts"],
+			"@pancake/relay": ["./relay/mod.ts"],
+			"@pancake/runtime/ffi": ["./runtime/ffi.ts"],
 			"@pancake/iroh": ["./iroh/mod.ts"],
 			"@pancake/iroh/internal": ["./iroh/internal.ts"],
 			"@pancake/web": ["./web/mod.ts"]

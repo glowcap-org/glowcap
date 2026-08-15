@@ -10,8 +10,7 @@
 ;; noise-relay; profile policy remains in the native driver.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"
-         "lib-resolve.rkt")
+         "ffi-shared.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_relay_runtime_new*))
 
@@ -22,9 +21,9 @@
 (define-pancake-relay pancake_relay_last_error (_fun _pointer _size -> _size))
 (define-pancake-relay pancake_relay_clear_last_error (_fun -> _void))
 (define-pancake-relay pancake_relay_runtime_new*
-  (_fun _PancakeRelayConfig-pointer _pointer -> _int32)
+  (_fun (_or-null _PancakeRelayConfig-pointer) _pointer -> _int32)
   #:c-id pancake_relay_runtime_new)
 (define pancake_relay_runtime_new (wrap-out1 pancake_relay_runtime_new* _pointer #f))
 (define-pancake-relay pancake_relay_transport_provider
-  (_fun _pointer _PancakeTransportProvider-pointer -> _int32))
-(define-pancake-relay pancake_relay_runtime_release (_fun #:blocking? #t _pointer -> _void))
+  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))
+(define-pancake-relay pancake_relay_runtime_release (_fun #:blocking? #t _pointer -> _int32))

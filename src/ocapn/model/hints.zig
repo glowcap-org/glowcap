@@ -3,6 +3,8 @@
 //! Shared by `PeerLocator` and handoff exporter locations so `handoff.zig` can
 //! name `Hints` without importing the model hub (which imports handoff).
 
+const std = @import("std");
+
 const transport = @import("transport.zig");
 
 pub const HintValue = union(enum) {
@@ -16,6 +18,18 @@ pub const HintEntry = struct {
     name: []const u8,
     value: HintValue,
 };
+
+/// One authority for the duplicate-name rule: hint names within one hint set
+/// are unique. Answers the first repeated name, or null when all are distinct;
+/// the caller maps a hit onto its own refusal error.
+pub fn firstDuplicateName(entries: []const HintEntry) ?[]const u8 {
+    for (entries, 0..) |entry, i| {
+        for (entries[0..i]) |seen| {
+            if (std.mem.eql(u8, seen.name, entry.name)) return entry.name;
+        }
+    }
+    return null;
+}
 
 pub const Hints = struct {
     entries: []const HintEntry = &.{},

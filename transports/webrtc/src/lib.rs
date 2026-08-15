@@ -43,10 +43,9 @@ use tokio::sync::Notify;
 use webrtc::data_channel::{DataChannel, DataChannelEvent, RTCDataChannelInit};
 use webrtc::error::{Error as WebrtcError, Result as WebrtcResult};
 use webrtc::peer_connection::{
-	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder,
-	PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer,
-	RTCPeerConnectionIceEvent, RTCPeerConnectionState, RTCSessionDescription, Registry,
-	SettingEngine,
+	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler,
+	RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
+	RTCSessionDescription, Registry, SettingEngine,
 };
 use webrtc::runtime::TokioRuntime;
 
@@ -64,6 +63,13 @@ const WORKER_THREADS: usize = 2;
 /// negatives name the failure family the resident maps to a Zig error.
 const OK: i32 = 0;
 const ERR: i32 = -1;
+
+fn teardown_status(f: impl FnOnce()) -> i32 {
+	match catch_unwind(AssertUnwindSafe(f)) {
+		Ok(()) => OK,
+		Err(_) => ERR,
+	}
+}
 /// A non-blocking call that cannot make progress yet: no candidate has gathered,
 /// the channel is not open, or a bounded queue has no room. The resident re-arms
 /// and retries, distinct from a hard error.
@@ -426,10 +432,7 @@ impl PeerConnectionEventHandler for PeerEvents {
 		// ICE can fail before any DataChannel close event exists. The once-only
 		// publication path is unit-tested; forcing a real ICE timeout would make
 		// the sidecar suite wait on network retry timers.
-		if matches!(
-			state,
-			RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed
-		) {
+		if matches!(state, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
 			publish_peer_closed(&self.shared);
 		}
 	}
@@ -582,11 +585,7 @@ async fn drain_outbound(dc: Arc<dyn DataChannel>, shared: Arc<PeerShared>) {
 /// invariant which makes the check and later append one-message-at-a-time:
 /// parking here stops draining the crate's event stream, and the SCTP receive
 /// window bounds the bytes the far peer can have in flight.
-async fn await_inbound_room(
-	inbound: &Arc<(Mutex<Inbound>, Condvar)>,
-	drained: &Notify,
-	incoming_len: usize,
-) -> bool {
+async fn await_inbound_room(inbound: &Arc<(Mutex<Inbound>, Condvar)>, drained: &Notify, incoming_len: usize) -> bool {
 	if incoming_len > INBOUND_BUFFER_BOUND {
 		return false;
 	}
@@ -759,9 +758,7 @@ pub extern "C" fn pancake_webrtc_sidecar_endpoint_new(
 
 /// Borrow the endpoint's readiness fd. It remains valid until endpoint free.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_readiness_fd(
-	endpoint: *const PancakeWebrtcEndpoint,
-) -> i32 {
+pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const PancakeWebrtcEndpoint) -> i32 {
 	catch_unwind(AssertUnwindSafe(|| {
 		endpoint
 			.as_ref()
@@ -837,12 +834,11 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(
 /// Release an endpoint. Peers retain the runtime defensively, but callers must
 /// still release every peer first so no readiness can outlive its owner.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_free(
-	endpoint: *mut PancakeWebrtcEndpoint,
-) {
-	if !endpoint.is_null() {
-		let _ = catch_unwind(AssertUnwindSafe(|| drop(Box::from_raw(endpoint))));
+pub unsafe extern "C" fn pancake_webrtc_sidecar_endpoint_free(endpoint: *mut PancakeWebrtcEndpoint) -> i32 {
+	if endpoint.is_null() {
+		return OK;
 	}
+	teardown_status(|| drop(Box::from_raw(endpoint)))
 }
 
 /// Create a peer. `is_offerer` chooses the role: an offerer creates the `ocapn`
@@ -962,12 +958,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_offer(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		let offer = match peer
-			.shared
-			.endpoint
-			.runtime()
-			.block_on(peer.pc.create_offer(None))
-		{
+		let offer = match peer.shared.endpoint.runtime().block_on(peer.pc.create_offer(None)) {
 			Ok(offer) => offer,
 			Err(_) => return ERR,
 		};
@@ -1003,12 +994,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_create_answer(
 			Some(peer) => peer,
 			None => return ERR,
 		};
-		let answer = match peer
-			.shared
-			.endpoint
-			.runtime()
-			.block_on(peer.pc.create_answer(None))
-		{
+		let answer = match peer.shared.endpoint.runtime().block_on(peer.pc.create_answer(None)) {
 			Ok(answer) => answer,
 			Err(_) => return ERR,
 		};
@@ -1162,9 +1148,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_id(peer: *const PancakeWebr
 /// Non-blocking channel-open check: `OK` once open, `WOULD_BLOCK` while the
 /// signaling/ICE/DTLS/SCTP establishment is still in progress, `ERR` if closed.
 #[no_mangle]
-pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_is_open(
-	peer: *const PancakeWebrtcPeer,
-) -> i32 {
+pub unsafe extern "C" fn pancake_webrtc_sidecar_peer_is_open(peer: *const PancakeWebrtcPeer) -> i32 {
 	catch_unwind(AssertUnwindSafe(|| {
 		let peer = match peer.as_ref() {
 			Some(peer) => peer,
@@ -1242,11 +1226,7 @@ pub unsafe extern "C" fn pancake_webrtc_sidecar_conn_try_read(
 		}
 		let mut guard = peer.shared.inbound.0.lock().unwrap();
 		if guard.buf.is_empty() {
-			return if guard.closed {
-				0
-			} else {
-				WOULD_BLOCK as isize
-			};
+			return if guard.closed { 0 } else { WOULD_BLOCK as isize };
 		}
 		let dst = std::slice::from_raw_parts_mut(buf, len);
 		let n = take_inbound(&mut guard, dst);
@@ -1458,9 +1438,7 @@ mod tests {
 	async fn a_message_waits_until_the_whole_message_fits_under_the_inbound_bound() {
 		let inbound = Arc::new((
 			Mutex::new(Inbound {
-				buf: std::iter::repeat(0u8)
-					.take(INBOUND_BUFFER_BOUND - 8)
-					.collect(),
+				buf: std::iter::repeat(0u8).take(INBOUND_BUFFER_BOUND - 8).collect(),
 				closed: false,
 			}),
 			Condvar::new(),
@@ -1543,10 +1521,7 @@ mod tests {
 		let mut state = readiness.state.lock().unwrap();
 		assert_eq!(state.subjects.len(), 2);
 		assert_eq!(state.subjects.pop_front(), Some(7));
-		assert_eq!(
-			state.events.remove(&7),
-			Some(EV_CANDIDATE | EV_OPEN | EV_WRITABLE)
-		);
+		assert_eq!(state.events.remove(&7), Some(EV_CANDIDATE | EV_OPEN | EV_WRITABLE));
 		assert_eq!(state.subjects.pop_front(), Some(9));
 		assert_eq!(state.events.remove(&9), Some(EV_READABLE));
 	}
@@ -1573,10 +1548,7 @@ mod tests {
 		let driver = shared.endpoint.driver_readiness().unwrap();
 
 		shared.endpoint.signal(7, EV_CANDIDATE | EV_OPEN);
-		let mut event = [PancakeWebrtcReadyEvent {
-			subject: 0,
-			events: 0,
-		}];
+		let mut event = [PancakeWebrtcReadyEvent { subject: 0, events: 0 }];
 		assert_eq!(signaling.drain(&mut event), 1);
 		assert_eq!(event[0].events, EV_CANDIDATE | EV_OPEN);
 		assert_eq!(driver.drain(&mut event), 1);
@@ -1604,10 +1576,7 @@ mod tests {
 		let mut byte = [0u8; 1];
 		let mut reader = &readiness.reader;
 		assert_eq!(reader.read(&mut byte).unwrap(), 1);
-		assert_eq!(
-			readiness.state.lock().unwrap().events.get(&7),
-			Some(&EV_READABLE)
-		);
+		assert_eq!(readiness.state.lock().unwrap().events.get(&7), Some(&EV_READABLE));
 	}
 
 	#[test]
@@ -1628,9 +1597,7 @@ mod tests {
 			buf: VecDeque::with_capacity(INBOUND_BUFFER_BOUND),
 			closed: false,
 		};
-		state
-			.buf
-			.extend(std::iter::repeat(7u8).take(STEADY_BUFFER_BYTES * 2));
+		state.buf.extend(std::iter::repeat(7u8).take(STEADY_BUFFER_BYTES * 2));
 		assert!(state.buf.capacity() > STEADY_BUFFER_BYTES);
 		let mut dest = vec![0u8; state.buf.len()];
 		assert_eq!(take_inbound(&mut state, &mut dest), dest.len());
@@ -1655,10 +1622,7 @@ mod tests {
 			closed: false,
 		};
 		let bytes = vec![9u8; OUTBOUND_BUFFER_BOUND + 17];
-		assert_eq!(
-			enqueue_outbound(&mut state, &bytes),
-			OUTBOUND_BUFFER_BOUND as isize
-		);
+		assert_eq!(enqueue_outbound(&mut state, &bytes), OUTBOUND_BUFFER_BOUND as isize);
 		assert_eq!(
 			enqueue_outbound(&mut state, &bytes[OUTBOUND_BUFFER_BOUND..]),
 			WOULD_BLOCK as isize
@@ -1667,10 +1631,7 @@ mod tests {
 		let sent = state.buf.split_to(STEADY_BUFFER_BYTES);
 		drop(sent);
 		state.queued_bytes -= STEADY_BUFFER_BYTES;
-		assert_eq!(
-			enqueue_outbound(&mut state, &bytes[OUTBOUND_BUFFER_BOUND..]),
-			17
-		);
+		assert_eq!(enqueue_outbound(&mut state, &bytes[OUTBOUND_BUFFER_BOUND..]), 17);
 		assert!(state.queued_bytes <= OUTBOUND_BUFFER_BOUND);
 	}
 
@@ -1702,10 +1663,7 @@ mod tests {
 		let shared = test_shared(7, inbound.clone(), open.clone(), drained, readiness.clone());
 
 		publish_peer_closed(&shared);
-		let mut events = [PancakeWebrtcReadyEvent {
-			subject: 0,
-			events: 0,
-		}];
+		let mut events = [PancakeWebrtcReadyEvent { subject: 0, events: 0 }];
 		assert_eq!(readiness.drain(&mut events), 1);
 		assert_eq!(events[0].subject, 7);
 		assert_eq!(events[0].events, EV_CLOSED);
@@ -1766,5 +1724,11 @@ mod tests {
 	#[test]
 	fn a_null_config_is_refused() {
 		assert!(pancake_webrtc_sidecar_endpoint_new(std::ptr::null()).is_null());
+	}
+
+	#[test]
+	fn teardown_panics_become_failures() {
+		assert_eq!(teardown_status(|| {}), OK);
+		assert_eq!(teardown_status(|| panic!("forced teardown panic")), ERR);
 	}
 }

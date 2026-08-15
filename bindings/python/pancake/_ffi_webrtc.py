@@ -80,6 +80,7 @@ def _webrtc():
             raise RuntimeError(
                 f"webrtc transport unavailable: could not load {_WEBRTC_LIB_FILE} from "
                 "PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system "
-                "library path. Build it with `zig build webrtc-abi` (needs cargo). " + str(exc)
+                "library path. Build it with `zig build webrtc-abi` (needs cargo). "
+                + str(exc)
             ) from exc
     return _webrtc_lib_cache

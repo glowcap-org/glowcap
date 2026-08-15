@@ -65,9 +65,7 @@ if (await pythonCanImport("nacl.signing")) {
 }
 
 console.log(
-	`accountability-on-pancake cross-seam demo: Zig host + ${
-		callers.map((c) => c.name).join(" + ")
-	} callers\n`,
+	`accountability-on-pancake cross-seam demo: Zig host + ${callers.map((c) => c.name).join(" + ")} callers\n`,
 );
 
 let failed = false;

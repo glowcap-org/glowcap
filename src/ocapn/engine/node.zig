@@ -288,6 +288,10 @@ pub const Node = struct {
     /// capability from the released session is as far as it can be from naming
     /// a live object in the session that inherits its numbers.
     freed_export_bases: std.ArrayListUnmanaged(u64) = .empty,
+    /// One preallocated return slot per live session. Session registration
+    /// reserves before publishing its export range; release then recycles that
+    /// range without allocation or a failure channel it cannot honestly use.
+    export_base_return_reservations: usize = 0,
     /// How much of `freed_export_bases` is already handed back out. The list is
     /// a queue read from this cursor and compacted in `takeExportBase`, so it
     /// stays proportional to the ranges actually outstanding.
@@ -346,6 +350,11 @@ pub const Node = struct {
     /// these seats from unrelated immediate actions until settlement spends or
     /// releases them.
     proxy_action_reservations: usize = 0,
+    /// One terminal failure seat per handoff redeem waiting on an exporter
+    /// dial. Owner cancellation cannot allocate, so admission holds these
+    /// seats until success transfers them to pending withdraws or a terminal
+    /// path spends them directly.
+    pending_dial_waiter_reservations: usize = 0,
     /// The most recently popped action; its byte views stay valid until the
     /// next `nextAction`, which frees them.
     last_action: ?Action = null,
@@ -427,6 +436,15 @@ pub const Node = struct {
     /// this makes equal numbering across sessions structurally unlikely, and a
     /// layer above cannot forget to ask.
     fn applyExportRange(self: *Node, target: *engine.Peer) !void {
+        const promised = std.math.add(
+            usize,
+            self.freed_export_bases.items.len,
+            self.export_base_return_reservations,
+        ) catch return error.OutOfMemory;
+        const required = std.math.add(usize, promised, 1) catch return error.OutOfMemory;
+        try self.freed_export_bases.ensureTotalCapacity(self.allocator, required);
+        self.export_base_return_reservations += 1;
+        errdefer self.export_base_return_reservations -= 1;
         const base = try self.takeExportBase();
         target.session_state.setExportBase(base, export_range_span);
     }
@@ -469,11 +487,14 @@ pub const Node = struct {
         return base;
     }
 
-    /// Take a released session's range back for reuse. Best effort: the release
-    /// path has nowhere to report to, and a range that fails to make it back
-    /// costs one slot out of a million, never correctness.
+    /// Take a released session's range back for reuse. Registration reserved
+    /// this exact return slot before the range became session authority, so
+    /// release is infallible and connection churn cannot spend the node's
+    /// finite range space under allocator pressure.
     fn recycleExportBase(self: *Node, base: u64) void {
-        self.freed_export_bases.append(self.allocator, base) catch return;
+        std.debug.assert(self.export_base_return_reservations != 0);
+        self.freed_export_bases.appendAssumeCapacity(base);
+        self.export_base_return_reservations -= 1;
     }
 
     /// A node bound to a caller-supplied durable identity `seed`, with empty
@@ -535,8 +556,10 @@ pub const Node = struct {
         while (dial_it.next()) |pending| {
             self.freePendingDialBytes(pending);
             for (pending.waiters.items) |waiter| self.allocator.free(waiter.give);
+            self.releasePendingDialWaiterReservations(pending.waiters.items.len);
             pending.waiters.deinit(self.allocator);
         }
+        std.debug.assert(self.pending_dial_waiter_reservations == 0);
         self.pending_dials.deinit(self.allocator);
         // Keys alias pending identity URIs freed above.
         self.pending_dial_by_identity.deinit(self.allocator);
@@ -964,14 +987,23 @@ pub const Node = struct {
 
     // ── Foreign-import routing (the gifter half) ─────────────────────────────
 
-    /// Enroll a fetched far import under a node-unique token (ADR-0069) and return
-    /// the token reference the application holds. `wire` is the real `far(position)`
-    /// on `home`. Two imports at the same wire position on different connections
-    /// get distinct tokens, so re-gifting one never resolves to the other. The
-    /// stored reference is a far (position-only, so it owns no heap); it is freed
-    /// through `freeReference` on `removePeer` and `deinit` for uniformity with the
-    /// redeemed route.
-    pub fn enrollForeign(self: *Node, home: PeerId, wire: model.Reference) !model.Reference {
+    pub const ForeignEnrollmentRollback = struct {
+        activated_lowering: bool,
+        home: PeerId,
+        position: model.ImportPosition,
+        token: u64,
+    };
+
+    pub const ForeignEnrollment = struct {
+        reference: model.Reference,
+        rollback: ?ForeignEnrollmentRollback,
+    };
+
+    /// Prepare a fetched far import under a node-unique token (ADR-0069).
+    /// A fresh route carries rollback authority for a larger operation that
+    /// has not yet made the token observable. Reusing a canonical enrollment
+    /// produces none.
+    pub fn prepareForeignEnrollment(self: *Node, home: PeerId, wire: model.Reference) !ForeignEnrollment {
         const far = switch (wire) {
             .far => |value| value,
             else => return error.NotAFarReference,
@@ -997,8 +1029,12 @@ pub const Node = struct {
                 }
             else
                 kind;
-            return .{ .far = .{ .import_position = .from(existing), .kind = enrolled_kind } };
+            return .{
+                .reference = .{ .far = .{ .import_position = .from(existing), .kind = enrolled_kind } },
+                .rollback = null,
+            };
         }
+        if (!home_peer.session_state.hasImport(far.import_position)) return error.UnknownImport;
         try self.foreign_imports.ensureUnusedCapacity(self.allocator, 1);
         const token = self.next_token;
         // The session row is the generation check `route` consults. Record it
@@ -1007,8 +1043,38 @@ pub const Node = struct {
         try home_peer.session_state.noteForeignToken(far.import_position, token);
         self.foreign_imports.putAssumeCapacity(token, .{ .peer_id = home, .reference = wire });
         self.next_token += 1;
+        const activated_lowering = !self.foreign_active;
         self.foreign_active = true;
-        return .{ .far = .{ .import_position = .from(token), .kind = kind } };
+        return .{
+            .reference = .{ .far = .{ .import_position = .from(token), .kind = kind } },
+            .rollback = .{
+                .activated_lowering = activated_lowering,
+                .home = home,
+                .position = far.import_position,
+                .token = token,
+            },
+        };
+    }
+
+    /// Undo one fresh enrollment before its token becomes observable. The
+    /// monotonic token remains burned; only the route and import-row memo move
+    /// back, so stale token values can never acquire a later meaning.
+    pub fn rollbackForeignEnrollment(self: *Node, rollback: ForeignEnrollmentRollback) void {
+        const home = self.peer(rollback.home) orelse unreachable;
+        std.debug.assert(home.session_state.foreignTokenFor(rollback.position) == rollback.token);
+        home.session_state.abandonForeignToken(rollback.position, rollback.token);
+        const removed = self.foreign_imports.fetchRemove(rollback.token) orelse unreachable;
+        std.debug.assert(removed.value.peer_id == rollback.home);
+        model.freeReference(self.allocator, removed.value.reference);
+        if (rollback.activated_lowering) {
+            std.debug.assert(self.foreign_imports.count() == 0);
+            self.foreign_active = false;
+        }
+    }
+
+    /// Enroll a fetched far import and publish its canonical token immediately.
+    pub fn enrollForeign(self: *Node, home: PeerId, wire: model.Reference) !model.Reference {
+        return (try self.prepareForeignEnrollment(home, wire)).reference;
     }
 
     /// The connection a fetched capability's `far_id` lives on, or null when the
@@ -1440,6 +1506,13 @@ pub const Node = struct {
         /// resulting session has an application owner even if every handoff
         /// withdrawal fails.
         application_owned: bool = false,
+        /// The Host handed this ticket to an external dial executor and has
+        /// not yet received success, failure, or cancellation completion.
+        effect_in_flight: bool = false,
+        /// Terminal Host close ordered the external executor to stop. Keep
+        /// the row alive until ordinary teardown so its borrowed locator does
+        /// not disappear beneath that executor.
+        cancel_requested: bool = false,
         waiters: std.ArrayListUnmanaged(Waiter) = .empty,
     };
 
@@ -1598,12 +1671,112 @@ pub const Node = struct {
     /// begins borrowing the next already-parsed path under the same ticket.
     pub fn pendingDial(self: *const Node, pending: PendingId) ?PendingDialView {
         const entry = self.pending_dials.get(pending) orelse return null;
+        if (entry.cancel_requested) return null;
         const path = entry.paths[entry.path_index];
         return .{
             .transport = path.transport,
             .designator = path.designator,
             .hints = path.hints,
         };
+    }
+
+    /// Commit delivery of one dial effect to an external executor. False
+    /// means the ticket became stale or terminal before delivery committed.
+    pub fn beginDialEffect(self: *Node, pending: PendingId) bool {
+        const entry = self.pending_dials.getPtr(pending) orelse return false;
+        if (entry.cancel_requested) return false;
+        std.debug.assert(!entry.effect_in_flight);
+        entry.effect_in_flight = true;
+        return true;
+    }
+
+    /// Roll back an adapter callback that refused before publishing the
+    /// external effect represented by its borrowed dial action.
+    pub fn rollbackDialEffect(self: *Node, pending: PendingId) void {
+        const entry = self.pending_dials.getPtr(pending) orelse return;
+        std.debug.assert(entry.effect_in_flight);
+        entry.effect_in_flight = false;
+    }
+
+    /// Seal every pending dial against future external delivery and yield each
+    /// already in-flight effect exactly once for physical cancellation.
+    /// Mutating values does not invalidate the map iterator.
+    pub const DialCancellationIterator = struct {
+        node: *Node,
+        pending_dials: std.AutoHashMapUnmanaged(PendingId, PendingDial).Iterator,
+
+        pub fn next(self: *DialCancellationIterator) ?PendingId {
+            while (self.pending_dials.next()) |entry| {
+                if (entry.value_ptr.cancel_requested) continue;
+                entry.value_ptr.cancel_requested = true;
+                self.node.settleCancelledDialWaiters(entry.value_ptr);
+                if (entry.value_ptr.effect_in_flight) return entry.key_ptr.*;
+                const pending = entry.value_ptr.*;
+                std.debug.assert(self.node.pending_dial_by_identity.remove(pending.identity));
+                self.node.pending_dials.removeByPtr(entry.key_ptr);
+                self.node.freeCancelledDial(pending);
+            }
+            return null;
+        }
+    };
+
+    pub fn requestDialCancellations(self: *Node) DialCancellationIterator {
+        return .{ .node = self, .pending_dials = self.pending_dials.iterator() };
+    }
+
+    pub fn pendingDialCount(self: *const Node) usize {
+        return self.pending_dials.count();
+    }
+
+    pub fn pendingGiftEffects(self: *const Node) usize {
+        return self.pending_gifts.count();
+    }
+
+    pub fn hasPendingGift(self: *const Node, ticket: u64) bool {
+        return self.pending_gifts.contains(ticket);
+    }
+
+    /// Terminal owner cancellation spends every entropy request before an
+    /// embedder can turn it into new handoff work. Queued ticket actions become
+    /// stale no-ops; failure storage and scheduler reservations retire here.
+    pub fn cancelPendingGifts(self: *Node) void {
+        var gifts = self.pending_gifts.valueIterator();
+        while (gifts.next()) |gift| {
+            if (gift.failure_reason != null) self.releaseProxyActionReservation();
+            gift.releaseFailure(self.allocator);
+        }
+        self.pending_gifts.clearRetainingCapacity();
+    }
+
+    /// A cancellation effect has physically retired. Idempotent when an
+    /// ordinary outcome won the race before the cancellation command ran.
+    pub fn dialCancelled(self: *Node, pending: PendingId) void {
+        const current = self.pending_dials.get(pending) orelse return;
+        if (!current.cancel_requested) return;
+        const entry = (self.pending_dials.fetchRemove(pending) orelse unreachable).value;
+        std.debug.assert(self.pending_dial_by_identity.remove(entry.identity));
+        self.freeCancelledDial(entry);
+    }
+
+    fn freeCancelledDial(self: *Node, pending: PendingDial) void {
+        var entry = pending;
+        std.debug.assert(entry.waiters.items.len == 0);
+        entry.waiters.deinit(self.allocator);
+        self.freePendingDialBytes(&entry);
+    }
+
+    fn settleCancelledDialWaiters(self: *Node, pending: *PendingDial) void {
+        self.releasePendingDialWaiterReservations(pending.waiters.items.len);
+        for (pending.waiters.items) |waiter| {
+            self.actions.pushReserved(.{ .fail = .{
+                .peer_id = waiter.recipient_peer,
+                .answer = waiter.answer,
+                .reason = .{ .static = "handoff redeem failed: host closing" },
+            } });
+            self.allocator.free(waiter.give);
+        }
+        pending.waiters.deinit(self.allocator);
+        pending.waiters = .empty;
     }
 
     fn hintValue(hints: model.Hints, name: []const u8) ?[]const u8 {
@@ -1709,7 +1882,12 @@ pub const Node = struct {
     /// immediate actions the caller is about to commit. `ActionFifo.reserve`
     /// reuses a dead prefix before it grows the backing.
     fn reserveActions(self: *Node, immediate: usize) !void {
-        const promised = std.math.add(usize, self.pending_withdraws.count(), self.proxy_action_reservations) catch
+        const handoff_promised = std.math.add(
+            usize,
+            self.proxy_action_reservations,
+            self.pending_dial_waiter_reservations,
+        ) catch return error.OutOfMemory;
+        const promised = std.math.add(usize, self.pending_withdraws.count(), handoff_promised) catch
             return error.OutOfMemory;
         const total = std.math.add(usize, promised, immediate) catch return error.OutOfMemory;
         try self.actions.reserve(self.allocator, total);
@@ -1723,6 +1901,11 @@ pub const Node = struct {
     fn releaseProxyActionReservation(self: *Node) void {
         std.debug.assert(self.proxy_action_reservations > 0);
         self.proxy_action_reservations -= 1;
+    }
+
+    fn releasePendingDialWaiterReservations(self: *Node, count: usize) void {
+        std.debug.assert(self.pending_dial_waiter_reservations >= count);
+        self.pending_dial_waiter_reservations -= count;
     }
 
     /// Spend one proxy's held action seat to drive the recipient Peer. This is
@@ -1839,7 +2022,9 @@ pub const Node = struct {
         // of opening a second connection.
         if (self.pending_dial_by_identity.get(staged.identity)) |pending_id| {
             const entry = self.pending_dials.getPtr(pending_id).?;
+            try self.reserveActions(1);
             try entry.waiters.append(self.allocator, waiter);
+            self.pending_dial_waiter_reservations += 1;
             return;
         }
 
@@ -1850,7 +2035,8 @@ pub const Node = struct {
         // action carries only the ticket (no verbatim URI dupe).
         try self.pending_dials.ensureUnusedCapacity(self.allocator, 1);
         try self.pending_dial_by_identity.ensureUnusedCapacity(self.allocator, 1);
-        try self.reserveActions(1);
+        // One immediate dial plus the waiter's allocation-free terminal seat.
+        try self.reserveActions(2);
         var pending: PendingDial = .{
             .identity = staged.identity,
             .paths = staged.paths,
@@ -1864,6 +2050,7 @@ pub const Node = struct {
         const identity = pending.identity;
         self.pending_dials.putAssumeCapacity(pending_id, pending);
         pending_owned = false;
+        self.pending_dial_waiter_reservations += 1;
         // Index key aliases the pending row's identity (one owner).
         self.pending_dial_by_identity.putAssumeCapacity(identity, pending_id);
         self.next_pending += 1;
@@ -1985,7 +2172,10 @@ pub const Node = struct {
     }
 
     fn exporterReady(self: *Node, pending: PendingId, exporter_peer: PeerId, selected: bool) !void {
-        const pending_view = self.pending_dials.get(pending) orelse return;
+        const pending_ptr = self.pending_dials.getPtr(pending) orelse return;
+        pending_ptr.effect_in_flight = false;
+        if (pending_ptr.cancel_requested) return;
+        const pending_view = pending_ptr.*;
         const waiter_count = pending_view.waiters.items.len;
         const redeem_only = waiter_count != 0 and !pending_view.application_owned and !selected;
         // A successful waiter consumes one flush action now and one terminal
@@ -1994,11 +2184,10 @@ pub const Node = struct {
         // redeem-only retirement, before removing the pending dial. Reserve
         // both maps for the same reason: after this preflight, every waiter is
         // guaranteed either a tracked withdrawal or an explicit failure.
-        const batch_actions = std.math.add(
-            usize,
-            std.math.mul(usize, waiter_count, 2) catch return error.OutOfMemory,
-            @intFromBool(redeem_only),
-        ) catch return error.OutOfMemory;
+        // Each waiter already holds its terminal seat. Add one immediate flush
+        // per successful withdraw and the possible redeem-only retirement.
+        const batch_actions = std.math.add(usize, waiter_count, @intFromBool(redeem_only)) catch
+            return error.OutOfMemory;
         try self.exporters.ensureUnusedCapacity(self.allocator, 1);
         try self.pending_withdraws.ensureUnusedCapacity(
             self.allocator,
@@ -2006,6 +2195,7 @@ pub const Node = struct {
         );
         try self.reserveActions(batch_actions);
         var entry = (self.pending_dials.fetchRemove(pending) orelse return).value;
+        self.releasePendingDialWaiterReservations(entry.waiters.items.len);
         defer {
             for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
             entry.waiters.deinit(self.allocator);
@@ -2061,16 +2251,16 @@ pub const Node = struct {
     /// is a no-op.
     pub fn dialFailed(self: *Node, pending: PendingId, reason: []const u8) !DialFailure {
         const pending_view = self.pending_dials.getPtr(pending) orelse return .stale;
+        pending_view.effect_in_flight = false;
+        if (pending_view.cancel_requested) return .stale;
         const waiter_count = pending_view.waiters.items.len;
 
         if (pending_view.path_index + 1 < pending_view.paths.len) {
-            try self.reserveActions(waiter_count + 1);
+            try self.reserveActions(1);
             pending_view.path_index += 1;
             self.actions.pushReserved(.{ .dial = .{ .pending = pending } });
             return .retry;
         }
-
-        try self.reserveActions(waiter_count);
 
         var buf: [256]u8 = undefined;
         const message = std.fmt.bufPrint(&buf, "handoff redeem failed: {s}", .{reason}) catch "handoff redeem failed";
@@ -2093,6 +2283,7 @@ pub const Node = struct {
         defer if (owned_reasons) |reasons| self.allocator.free(reasons);
 
         var entry = (self.pending_dials.fetchRemove(pending) orelse return .stale).value;
+        self.releasePendingDialWaiterReservations(entry.waiters.items.len);
         defer {
             self.freePendingDialBytes(&entry);
             for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
@@ -2359,7 +2550,7 @@ pub const Node = struct {
             model.ImportPosition.from(slot.import_pos),
             slot.row_id,
             .{ .@"break" = .{ .message = reason } },
-        ) catch {};
+        ) catch |err| recip.emitFailure(err);
         self.queueProxyFlush(peer_id);
     }
 
@@ -2385,7 +2576,7 @@ pub const Node = struct {
             model.ImportPosition.from(recipient.import_pos),
             recipient.row_id,
             resolution,
-        ) catch {};
+        ) catch |err| recip.recordFailure(err);
         if (recip.session_state.importedPromiseResolution(.from(recipient.import_pos)) != null)
             recipient.releaseFailure(self.allocator)
         else

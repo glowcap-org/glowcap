@@ -16,18 +16,48 @@
 (require ffi/unsafe
          racket/random
          "constants.rkt"
+         "ffi-ocapn.rkt"
          "ffi-shared.rkt"
          "ffi-host.rkt"
          "errors.rkt"
+         "finalizer-diagnostics.rkt"
          "locator.rkt"
          "trace.rkt"
          "codec.rkt"
-         "trampoline.rkt")
+         "trampoline.rkt"
+         "transport.rkt")
 
 (provide (all-defined-out))
 
 ;; Every session's maximum admissible frame; mirrors PANCAKE_DEFAULT_FRAME_CAP.
 (define HOST-FRAME-CAP DEFAULT-FRAME-CAP)
+
+(define (monotonic-ms)
+  (inexact->exact (floor (current-inexact-monotonic-milliseconds))))
+
+(define grace-unspecified (gensym 'grace-unspecified))
+
+(define (close-options who pending grace-ms)
+  (define pending-id
+    (case pending
+      [(cancel) PENDING-CANCEL]
+      [(finish) PENDING-FINISH]
+      [else #xffffffff]))
+  (define-values (grace-mode grace-value)
+    (cond
+      [(eq? grace-ms grace-unspecified) (values CLOSE-GRACE-UNSPECIFIED 0)]
+      [(not grace-ms) (values CLOSE-GRACE-UNBOUNDED 0)]
+      [(and (exact-nonnegative-integer? grace-ms) (<= grace-ms CLOSE-MAX-GRACE-MS))
+       (values CLOSE-GRACE-FINITE grace-ms)]
+      [else
+       (raise-pancake who ERR-INVALID-ARGUMENT
+                      (format "#:grace-ms must be #f or an integer from 0 through ~a"
+                              CLOSE-MAX-GRACE-MS))]))
+  (make-PancakeCloseOptions CLOSE-OPTIONS-ABI-VERSION
+                            (ctype-sizeof _PancakeCloseOptions)
+                            pending-id
+                            grace-mode
+                            grace-value))
 
 ;; The host. `ptr` is the PancakeHost handle; `lock`/`lock-owner` form the
 ;; reentrant host lock every `pancake_host_*` verb and action drain runs under;
@@ -44,15 +74,154 @@
 ;; iroh posture a hint-less handoff give is redeemed under (starting at the
 ;; generated `IROH-REACH-REDEEM-DEFAULT`, Discovery;
 ;; `set-host-redeem-reachability!` lowers it for a relay-policy deployment);
+;; `runtime-failure` is the first exception from Host-owned background work
+;; (notably a redeemed exporter session's serve thread); `close-result` boxes
+;; the terminal close outcome once release crosses
+;; terminal state, so a repeated `host-close!` re-observes it (a finish grace
+;; timeout included) instead of silently succeeding;
 ;; `released?` guards the handle against use after release; `driver-loop`
 ;; boxes the native loop this host is adopted over (ADR-0112), or #f for a
 ;; byte-fed host — when set, the action drain, session release, and host
 ;; release all route through the loop via the hooks below.
-(struct host ([ptr #:mutable] seed lock lock-owner sessions progress keep vows redeem-reachability rendezvous-url released? codec captp-version features driver-loop))
+(struct host ([ptr #:mutable] context diagnostic-id seed lock lock-owner sessions progress keep vows dial-workers redeem-reachability runtime-failure close-result released? codec captp-version features driver-loop connectors))
+
+;; One exact primary plus the first exact consequence and total consequence
+;; count. This is the binding attachment behind the shared diagnostic shape;
+;; explicit Host close remains the deterministic observing barrier.
+(struct terminal-failure-chain (primary secondary secondary-count) #:transparent)
+
+(define (record-host-runtime-failure! m error)
+  (let loop ()
+    (define old (unbox (host-runtime-failure m)))
+    (cond
+      [(and old
+            (or (eq? error (terminal-failure-chain-primary old))
+                (eq? error (terminal-failure-chain-secondary old))))
+       (terminal-failure-chain-primary old)]
+      [else
+       (define next
+         (if old
+             (terminal-failure-chain
+              (terminal-failure-chain-primary old)
+              (or (terminal-failure-chain-secondary old) error)
+              (min #xffffffff
+                   (add1 (terminal-failure-chain-secondary-count old))))
+             (terminal-failure-chain error #f 0)))
+       (if (box-cas! (host-runtime-failure m) old next)
+           (terminal-failure-chain-primary next)
+           (loop))])))
+
+(define (host-runtime-primary m)
+  (define failure (unbox (host-runtime-failure m)))
+  (and failure (terminal-failure-chain-primary failure)))
 
 ;; The native loop this host is adopted over, or #f. The one branch point
 ;; every loop-aware seam reads.
 (define (host-loop-of m) (unbox (host-driver-loop m)))
+
+;; A byte-fed Host is the owner of the explicit connector registry used by
+;; handoff redemption. Registration is keyed by the locator's transport symbol
+;; so a connector cannot accidentally answer for a different transport.
+(define (host-register-connector! m connector)
+  (unless (byte-connector? connector)
+    (raise-argument-error 'host-register-connector! "byte-connector?" connector))
+  (for ([transport (in-list (byte-connector-transports connector))])
+    (hash-set! (host-connectors m) transport connector))
+  connector)
+
+(define (host-connector-for m transport)
+  (call-with-host m (lambda () (hash-ref (host-connectors m) transport #f))))
+
+(define failure-layers '#(core driver transport binding application-observer))
+(define failure-scopes '#(process context host session listener transport operation))
+
+(define (failure-symbol vocabulary index fallback)
+  (if (< index (vector-length vocabulary)) (vector-ref vocabulary index) fallback))
+
+(define (failure-text ptr len)
+  (if (or (not ptr) (zero? len))
+      ""
+      (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)))
+
+(define (next-context-failure context)
+  (define event
+    (make-PancakeFailureEvent 1
+                              (ctype-sizeof _PancakeFailureEvent)
+                              0 0 0 0 0 0 0 0 0 0
+                              #f 0 #f 0 #f 0 #f 0 #f 0))
+  (define-values (first required)
+    (pancake_context_next_failure context event #f 0))
+  (cond
+    [(= first WOULD-BLOCK) #f]
+    [(= first ERR-BUFFER-TOO-SMALL)
+     (define payload (malloc required 'atomic))
+     (define-values (rc _required)
+       (pancake_context_next_failure context event payload required))
+     (check rc)
+     (failure-event
+      (PancakeFailureEvent-sequence event)
+      (PancakeFailureEvent-dropped-before event)
+      (failure-symbol failure-layers (PancakeFailureEvent-layer event) 'unknown)
+      (failure-symbol failure-scopes (PancakeFailureEvent-scope-kind event) 'unknown)
+      (PancakeFailureEvent-scope-id event)
+      (PancakeFailureEvent-operation-id event)
+      (PancakeFailureEvent-primary-result event)
+      (PancakeFailureEvent-secondary-result event)
+      (PancakeFailureEvent-secondary-count event)
+      (PancakeFailureEvent-flags event)
+      (failure-text (PancakeFailureEvent-operation event)
+                    (PancakeFailureEvent-operation-len event))
+      (failure-text (PancakeFailureEvent-primary-name event)
+                    (PancakeFailureEvent-primary-name-len event))
+      (failure-text (PancakeFailureEvent-primary-message event)
+                    (PancakeFailureEvent-primary-message-len event))
+      (failure-text (PancakeFailureEvent-secondary-name event)
+                    (PancakeFailureEvent-secondary-name-len event))
+      (failure-text (PancakeFailureEvent-secondary-message event)
+                    (PancakeFailureEvent-secondary-message-len event)))]
+    [else (check first)]))
+
+;; Atomically claim every callerless native failure currently retained by m.
+(define (host-take-failures! m)
+  (call-with-host
+   m
+   (lambda ()
+     (let loop ([claimed '()])
+       (define event (next-context-failure (host-context m)))
+       (if event (loop (cons event claimed)) (reverse claimed))))))
+
+(define (host-record-callerless-failure! m operation error)
+  (define operation-bytes (string->bytes/utf-8 operation))
+  (define name-bytes (string->bytes/utf-8 (format "~a" (or (object-name error) 'raised-value))))
+  (define message-bytes
+    (string->bytes/utf-8 (if (exn? error) (exn-message error) (format "~a" error))))
+  (define operation-buffer (pin-immobile operation-bytes))
+  (define name-buffer (pin-immobile name-bytes))
+  (define message-buffer (pin-immobile message-bytes))
+  (define report
+    (make-PancakeFailureReport
+     1 (ctype-sizeof _PancakeFailureReport)
+     FAILURE-LAYER-APPLICATION-OBSERVER FAILURE-SCOPE-HOST
+     (host-diagnostic-id m) 0 ERR-INTERNAL 0 0
+     operation-buffer (bytes-length operation-bytes)
+     name-buffer (bytes-length name-bytes)
+     message-buffer (bytes-length message-bytes)
+     #f 0 #f 0))
+  (record-callerless-with-fallback!
+   'application-observer operation error
+   (lambda () (check (pancake_context_report_failure (host-context m) report)))))
+
+;; Prefer the live Context without making failure of that recorder permission
+;; to lose either the original callerless failure or the recorder refusal.
+(define (record-callerless-with-fallback! layer operation error recorder)
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (recorder-error)
+                     (record-runtime-failure! layer operation error)
+                     (record-runtime-failure!
+                      'binding
+                      (string-append operation ".diagnostic")
+                      recorder-error))])
+    (recorder)))
 
 ;; ── The loop hooks (ADR-0112) ────────────────────────────────────────────────
 ;; `loop.rkt` fills these at module load — a loop-adopted host exists only
@@ -65,17 +234,34 @@
 ;; event dispatch, in place of `pancake_host_pump_drain`, which never runs
 ;; beside a loop.
 (define loop-drain-hook (box #f))
-;; Stop stepping and join the park thread, run by `host-release!` OUTSIDE
-;; the host lock (the park thread takes that lock to step).
+;; Stop stepping and join the park thread, run by the Host release worker
+;; OUTSIDE the host lock (the park thread takes that lock to step).
 (define loop-prestop-hook (box #f))
+;; Drive the native loop close policy and event projection to its terminal
+;; barrier before stepping stops.
+(define loop-close-barrier-hook (box #f))
+;; Forward one close request to a loop already being driven. Caller holds the
+;; Host lock; no lifecycle policy is interpreted here.
+(define loop-begin-close-hook (box #f))
 ;; Native teardown in place of `pancake_host_release`: the loop releases
 ;; itself and the wrapped host together.
 (define loop-native-release-hook (box #f))
 ;; A loop-owned session's release, through `pancake_driver_session_release`.
 (define loop-session-release-hook (box #f))
+;; Forward one loop-owned session close request while the caller holds the Host
+;; lock, then await a barrier whose requests were already forwarded.
+(define loop-begin-session-close-hook (box #f))
+(define loop-await-session-close-hook (box #f))
+;; Resolve and claim a loop-owned exporter session before constructing a
+;; binding wrapper for it.
+(define loop-claim-reference-exporter-hook (box #f))
 ;; Lazily wrap a session the loop minted internally (a redeem-dialed
 ;; exporter leg) as a public `session`.
 (define loop-wrap-session-hook (box #f))
+
+;; Byte-fed close driver installed by action.rkt after its drain executor is
+;; available. It executes core-issued effects and returns the terminal code.
+(define host-close-barrier-hook (box #f))
 
 ;; Release one native session handle through its owner: the loop for a
 ;; loop-adopted host, `pancake_host_session_release` for a byte-fed one.
@@ -83,7 +269,7 @@
   (define lp (host-loop-of m))
   (if lp
       ((unbox loop-session-release-hook) lp ptr)
-      (pancake_host_session_release ptr)))
+      (check/host (pancake_host_session_release ptr))))
 
 ;; `#:codec`, `#:captp-version`, and `#:features` are this host's signed
 ;; profile offer. Each session settles version and codec with its partner,
@@ -108,18 +294,38 @@
   ;; derives from it.
   (define seed+root (bytes-append durable-seed (crypto-random-bytes 32)))
   (define sbuf (pin-immobile seed+root)) ; pin: the GC may move it mid-call
+  (define-values (context-rc context) (pancake_context_new))
+  (check context-rc)
   (define-values (rc ptr)
-    (pancake_host_new sbuf 64 HOST-FRAME-CAP 1 (codec-id codec)
-                     (captp-version-id captp-version) (feature-mask features)
-                     local-turn-budget))
-  (check/host rc)
-  (define m (host ptr durable-seed (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
-                  (make-hasheq) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) (box #f) codec captp-version features (box #f)))
+    (pancake_host_new_in context sbuf 64 HOST-FRAME-CAP 1 (codec-id codec)
+                        (captp-version-id captp-version) (feature-mask features)
+                        local-turn-budget))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (error)
+                     (pancake_context_release context)
+                     (raise error))])
+    (check/host rc))
+  (define-values (identity-rc diagnostic-id) (pancake_host_diagnostic_id ptr))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (error)
+                     (define cleanup
+                       (with-handlers ([(lambda (_) #t) values])
+                         (check/host (pancake_host_release ptr))
+                         #f))
+                     (pancake_context_release context)
+                     (raise (if cleanup
+                                (retain-cleanup-failure error cleanup)
+                                error)))])
+    (check/host identity-rc))
+  (define m (host ptr context diagnostic-id durable-seed (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
+                  (make-hasheq) (make-hash) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) (box #f) (box #f) codec captp-version features (box #f) (make-hash)))
   ;; The host's own key designator, which is what a partner names it by: the
   ;; live trace reports it as this host's endpoint so one peer stays one node
   ;; in a feed several producers share.
-  (trace-attach-host! m host-install-trace! (designator-from-seed durable-seed))
-  (register-finalizer m (lambda (q) (host-release! q #:close-sessions? #f)))
+  (trace-attach-host!
+   m host-install-trace! (designator-from-seed durable-seed)
+   (lambda (error) (host-record-callerless-failure! m "trace.sink" error)))
+  (register-finalizer m host-finalize!)
   m)
 
 ;; A host with a fresh random identity seed — entropy drawn at the binding
@@ -131,95 +337,199 @@
              #:features features
              #:local-turn-budget local-turn-budget))
 
-;; How `host-release!` closes the sessions it still holds. `session.rkt` fills
-;; this in when it loads: it requires this module for CapTP verbs, so the
-;; import only runs one way and this module cannot name `session-close!`.
-(define close-session-hook (box #f))
-
-;; `promise.rkt` installs the binding-level vow teardown without introducing a
-;; host -> promise module cycle. It returns listener fire thunks, which release
-;; runs only after dropping the host lock.
-(define fail-host-vows-hook (box #f))
-
-;; Hosts whose explicit release was requested from inside a native callback.
-;; Pending is still live and must not suppress the finalizer.
+;; A close requested inside a native callback records policy in native state
+;; immediately. This set retains only which Host needs its release executor
+;; after the callback unwinds; it never mirrors or replays close policy.
 (define host-release-pending (make-hasheq))
 
-;; A Host release closes sessions, and a privately-owned session asks its Host
-;; to release as part of that close. Keep that recursive cleanup from entering
-;; native release a second time.
+;; One shared completion barrier per Host release. Repeated explicit close
+;; forwards its request to native state, then joins this barrier and observes
+;; the same result as the executor.
+(struct release-barrier (done result [worker #:mutable]) #:transparent)
+(struct release-result (error) #:transparent)
 (define host-release-active (make-hasheq))
 
-;; Release the host and everything it owns: close every session it still
-;; holds — the ones an application opened and the ones the host dialed to
-;; redeem handoffs alike — then free the handle. Closing a session closes that
-;; one connection; this is what closes the rest.
-;;
-;; `close-sessions?` is #f on the finalizer path. A finalizer runs on the
-;; collector's own thread, where touching a port is not safe, and a host being
-;; collected has no reachable sessions left for anyone to observe.
-(define (host-release! m #:close-sessions? [close-sessions? #t])
-  (cond
-    [(unbox (host-released? m)) (void)]
-    [(hash-ref host-release-active m #f) (void)]
-    [else
-     (define release-now?
-       (call-with-host/allow-released
-        m
-        (lambda ()
-          (if (inside-turn?)
-              (begin
-                (unless (hash-ref host-release-pending m #f)
-                  (hash-set! host-release-pending m #t)
-                  (host-park-release!
-                   m
-                   (lambda ()
-                     (hash-remove! host-release-pending m)
-                     (host-release! m #:close-sessions? close-sessions?))))
-                #f)
-              (begin
-                (hash-set! host-release-active m #t)
-                #t)))))
-     (when release-now?
-       (define fires '())
-       (dynamic-wind
-        void
-        (lambda ()
-          ;; A loop-adopted host: end stepping and join the park thread
-          ;; OUTSIDE the host lock, before native teardown — the park thread
-          ;; takes this same lock to step, so joining it under the lock
-          ;; would deadlock.
-          (let ([lp (host-loop-of m)])
-            (when lp ((unbox loop-prestop-hook) lp)))
-          (set!
-           fires
-           (call-with-host/allow-released
-            m
-            (lambda ()
-              (let ([close! (unbox close-session-hook)])
-                (when (and close-sessions? close!)
-                  (for ([c (in-list (hash-values (host-sessions m)))]) (close! c))))
-              ;; A refusal leaves the wrapper live. Only successful native
-              ;; teardown invalidates the pointer and crosses terminal state.
-              (let* ([ptr (host-ptr m)]
-                     [lp (host-loop-of m)]
-                     [fail-vows! (unbox fail-host-vows-hook)])
-                (if lp
-                    ((unbox loop-native-release-hook) lp)
-                    (check/host (pancake_host_release ptr)))
-                (trace-detach-host! m)
-                (set-host-ptr! m #f)
-                (set-box! (host-released? m) #t)
-                (let ([pending-fires
-                       (if fail-vows!
-                           (fail-vows! m "host released")
-                           (begin (hash-clear! (host-vows m)) '()))])
-                  (hash-clear! (host-keep m))
-                  (hash-clear! (host-sessions m))
-                  pending-fires))))))
-       (lambda () (hash-remove! host-release-active m)))
-       (for ([fire (in-list fires)])
-         (with-handlers ([(lambda (_e) #t) void]) (fire))))]))
+(define (publish-host-release! m barrier outcome)
+  ;; Once the native pointer moves, result publication and waiter wakeup are one
+  ;; uninterruptible binding transition. Remove only this barrier: a failed
+  ;; worker may already have allowed a later caller to install its retry.
+  (parameterize-break
+   #f
+   (set-box! (release-barrier-result barrier) outcome)
+   (set-box! (host-close-result m) outcome)
+   (call-with-host/terminal
+    m
+    (lambda ()
+      (when (eq? (hash-ref host-release-active m #f) barrier)
+        (hash-remove! host-release-active m))))
+   (semaphore-post (release-barrier-done barrier))))
+
+(define (run-host-release-worker! m barrier close-sessions?)
+  (define outcome
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (error)
+                       (record-host-runtime-failure! m error)
+                       (release-result (host-runtime-primary m)))])
+      (define close-code OK)
+      (dynamic-wind
+       void
+       (lambda ()
+         (let ([lp (host-loop-of m)])
+           (when close-sessions?
+             (set! close-code
+                   (if lp
+                       ((unbox loop-close-barrier-hook) lp)
+                       ((unbox host-close-barrier-hook) m)))
+             (unless (or (= close-code OK) (= close-code ERR-TIMEOUT))
+               (check/host close-code)))
+           ;; Stop stepping and join the park thread OUTSIDE the host lock,
+           ;; after the native barrier projected every terminal event.
+           (when lp ((unbox loop-prestop-hook) lp close-sessions?)))
+         (call-with-host/allow-released
+          m
+          (lambda ()
+            ;; A refusal leaves the wrapper live. Only successful native
+            ;; teardown invalidates the pointer and crosses terminal state.
+            (let* ([ptr (host-ptr m)]
+                   [lp (host-loop-of m)])
+              (if lp
+                  ((unbox loop-native-release-hook) lp)
+                  (check/host (pancake_host_release ptr)))
+              (pancake_context_release (host-context m))
+              (trace-detach-host! m)
+              (set-host-ptr! m #f)
+              (set-box! (host-released? m) #t)
+              (hash-clear! (host-vows m))
+              (hash-clear! (host-dial-workers m))
+              (hash-clear! (host-keep m))
+              (hash-clear! (host-sessions m))))))
+       void)
+      (when (= close-code ERR-TIMEOUT) (check/host close-code))
+      (release-result (host-runtime-primary m))))
+  (publish-host-release! m barrier outcome))
+
+;; Install the one retained worker while the caller holds the Host lock. The
+;; caller decides whether to join its barrier; callback-unwind drains only
+;; install it, because joining before the lock is released would deadlock the
+;; worker's first close-progress step.
+(define (start-host-release-worker!/locked m close-sessions?)
+  (define barrier (release-barrier (make-semaphore 0) (box #f) #f))
+  (hash-set! host-release-active m barrier)
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (error)
+                     (hash-remove! host-release-active m)
+                     (raise error))])
+    (set-release-barrier-worker!
+     barrier
+     (thread (lambda () (run-host-release-worker! m barrier close-sessions?)))))
+  barrier)
+
+(define (begin-host-close/locked! m options)
+  (define lp (host-loop-of m))
+  (if lp
+      ((unbox loop-begin-close-hook) lp options)
+      (check/host (pancake_host_close (host-ptr m) options (monotonic-ms)))))
+
+(define (drain-pending-host-release! m)
+  (call-with-host/terminal
+   m
+   (lambda ()
+     (define pending? (hash-has-key? host-release-pending m))
+     (hash-remove! host-release-pending m)
+     (when (and pending?
+                (not (unbox (host-released? m)))
+                (not (hash-ref host-release-active m #f)))
+       (start-host-release-worker!/locked m #t)))))
+
+;; The Host-wide close barrier: apply the pending-work policy, close every
+;; session the host still holds (the ones an application opened and the ones
+;; the host dialed to redeem handoffs alike), then free the handle. Closing a
+;; session closes that one connection; this is what closes the rest. A repeated
+;; call joins the in-progress barrier or re-observes the retained terminal
+;; outcome, a finish grace timeout included.
+(define (host-close! m
+                     #:pending [pending 'cancel]
+                     #:grace-ms [grace-ms grace-unspecified])
+  (host-release/options! m (close-options 'host-close! pending grace-ms) #t))
+
+;; Native loop retirement has already crossed its close barrier. Release the
+;; loop/Host allocation without beginning a second policy request.
+(define (host-release-after-native-close! m)
+  (host-release/options! m #f #f))
+
+;; A failed loop has already stopped ordinary stepping, so it cannot drive a
+;; second native close policy. Install its memory-only release barrier before
+;; returning to the failing park/retirement thread, but leave that thread free
+;; to exit: the release worker joins it during `loop-prestop!`.
+(define (host-release-after-native-close/async! m)
+  (call-with-host/terminal
+   m
+   (lambda ()
+     (parameterize-break
+      #f
+      (unless (or (unbox (host-released? m))
+                  (hash-ref host-release-active m #f))
+        (start-host-release-worker!/locked m #f)))))
+  (void))
+
+;; A finalizer runs on the collector's thread, where touching a port is unsafe.
+;; An unreachable Host has no reachable session wrapper; native release owns
+;; the remaining physical cleanup.
+(define (host-finalize! m)
+  (host-release/options! m #f #f))
+
+(define (host-release/options! m options close-sessions?)
+  (define disposition
+    (call-with-host/terminal
+     m
+     (lambda ()
+       ;; No break may land between the native request and installing its one
+       ;; retained driver. The worker itself remains interruptible while it
+       ;; waits; only its terminal publication is protected.
+       (parameterize-break
+        #f
+        (cond
+          ;; A policy request against a released Host re-observes the retained
+          ;; terminal outcome; memory-only release and the finalizer stay
+          ;; silent, because the collector's thread must never raise.
+          [(unbox (host-released? m))
+           (if options
+               (list 'observed (unbox (host-close-result m)))
+               '(released))]
+          [(hash-ref host-release-active m #f)
+           => (lambda (barrier)
+                (when (and options (not (unbox (host-released? m))))
+                  (begin-host-close/locked! m options))
+                (if (inside-turn?) '(deferred) (list 'wait barrier)))]
+          [(inside-turn?)
+           ;; Native close records the admission barrier under the callback latch;
+           ;; only effect driving and release wait for the enclosing turn to unwind.
+           (when options (begin-host-close/locked! m options))
+           (define already-pending? (hash-has-key? host-release-pending m))
+           (hash-set! host-release-pending m #t)
+           (unless already-pending?
+             (host-park-release! m (lambda () (drain-pending-host-release! m))))
+           '(deferred)]
+          [else
+           (when options (begin-host-close/locked! m options))
+           (list 'wait (start-host-release-worker!/locked m close-sessions?))])))))
+  ;; A close request issued outside a turn is close-relevant activity: a
+  ;; driver already parked on host progress with no finite deadline must
+  ;; re-check. A mid-turn request needs no bump here, because the enclosing
+  ;; drain bumps when the turn unwinds; bumping earlier lets the turn's own
+  ;; pump observe closure before the parked release executes.
+  (when (eq? (car disposition) 'wait) (host-bump-progress! m))
+  (case (car disposition)
+    [(released deferred) (void)]
+    [(observed)
+     (define result (cadr disposition))
+     (when (and result (release-result-error result))
+       (raise (release-result-error result)))]
+    [(wait)
+     (define barrier (cadr disposition))
+     (sync (semaphore-peek-evt (release-barrier-done barrier)))
+     (define result (unbox (release-barrier-result barrier)))
+     (when (release-result-error result) (raise (release-result-error result)))]))
 
 ;; ── The reentrant host lock ───────────────────────────────────────────────────
 ;; One thread (or one green-thread scheduler) drives one host; nothing in the C
@@ -326,9 +636,13 @@
   (define ptr
     (call-with-host m
       (lambda ()
-        (define-values (rc p) (pancake_host_reference_exporter (host-ptr m) (ref->c ref)))
-        (check/host rc)
-        p)))
+        (define wire (ref->c ref))
+        (define lp (host-loop-of m))
+        (if lp
+            ((unbox loop-claim-reference-exporter-hook) lp wire)
+            (let-values ([(rc p) (pancake_host_reference_exporter (host-ptr m) wire)])
+              (check/host rc)
+              p)))))
   (and ptr
        (or (host-session-for-ptr m ptr)
            ;; A loop-owned host redeems handoffs inside its own steps
@@ -387,15 +701,6 @@
      (call-with-host m
        (lambda ()
          (check/host (pancake_host_set_advertised_locator (host-ptr m) view)))))))
-
-;; Retain a transport location without displacing an acceptable location
-;; already selected for another transport.
-(define (host-ensure-advertised-locator! m transport)
-  (define bs (string->bytes/utf-8 transport))
-  (call-with-host m
-    (lambda ()
-      (check/host (pancake_host_ensure_advertised_locator
-                   (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
 
 (define (host-remove-advertised-locator! m transport)
   (define bs (string->bytes/utf-8 transport))
@@ -514,11 +819,3 @@
 (define (host-redeem-reachability-value m) (unbox (host-redeem-reachability m)))
 (define (set-host-redeem-reachability! m reachability)
   (set-box! (host-redeem-reachability m) reachability))
-
-;; The keyed-relay rendezvous mapping (ADR-0088): a procedure from the peer's
-;; key designator to the relay rendezvous WebSocket URL that bridges onto its
-;; held inbound socket — the keyed-relay sibling of the redeem-reachability
-;; posture above. #f until configured; a keyed-relay dial refuses without it.
-(define (host-rendezvous-url-value m) (unbox (host-rendezvous-url m)))
-(define (set-host-rendezvous-url! m url-of)
-  (set-box! (host-rendezvous-url m) url-of))

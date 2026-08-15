@@ -35,9 +35,9 @@ use serde_json::json;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::peer_connection::{
-	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder,
-	PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit,
-	RTCPeerConnectionIceEvent, RTCSessionDescription, Registry, SettingEngine,
+	register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler,
+	RTCConfigurationBuilder, RTCIceCandidateInit, RTCPeerConnectionIceEvent, RTCSessionDescription, Registry,
+	SettingEngine,
 };
 use webrtc::runtime::TokioRuntime;
 
@@ -85,9 +85,7 @@ impl PeerConnectionEventHandler for ProbeHandler {
 						let _ = dc.send(BytesMut::from(reply.as_bytes())).await;
 						let _ = done_tx.send(ok).await;
 					}
-					DataChannelEvent::OnClose
-					| DataChannelEvent::OnClosing
-					| DataChannelEvent::OnError => break,
+					DataChannelEvent::OnClose | DataChannelEvent::OnClosing | DataChannelEvent::OnError => break,
 					_ => {}
 				}
 			}
@@ -142,10 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			};
 			match value.get("type").and_then(|t| t.as_str()) {
 				Some("offer") => {
-					let sdp = value
-						.get("sdp")
-						.and_then(|s| s.as_str())
-						.unwrap_or_default();
+					let sdp = value.get("sdp").and_then(|s| s.as_str()).unwrap_or_default();
 					let offer = match RTCSessionDescription::offer(sdp.to_string()) {
 						Ok(offer) => offer,
 						Err(_) => continue,
@@ -157,21 +152,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 						Ok(answer) => answer,
 						Err(_) => continue,
 					};
-					if pc_reader
-						.set_local_description(answer.clone())
-						.await
-						.is_err()
-					{
+					if pc_reader.set_local_description(answer.clone()).await.is_err() {
 						continue;
 					}
 					emit(&json!({ "type": "answer", "sdp": answer.sdp }));
 				}
 				Some("candidate") => {
-					let init: RTCIceCandidateInit =
-						match value.get("candidate").cloned().map(serde_json::from_value) {
-							Some(Ok(init)) => init,
-							_ => continue,
-						};
+					let init: RTCIceCandidateInit = match value.get("candidate").cloned().map(serde_json::from_value) {
+						Some(Ok(init)) => init,
+						_ => continue,
+					};
 					let _ = pc_reader.add_ice_candidate(init).await;
 				}
 				_ => {}
@@ -192,9 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	if verdict {
 		emit(&json!({ "type": "result", "ok": true }));
 	} else {
-		emit(
-			&json!({ "type": "result", "ok": false, "reason": "unexpected message from the browser" }),
-		);
+		emit(&json!({ "type": "result", "ok": false, "reason": "unexpected message from the browser" }));
 	}
 
 	// Give the reply time to reach the browser over the channel before this

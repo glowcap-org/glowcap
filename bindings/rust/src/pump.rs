@@ -4,7 +4,7 @@
 //! host's action queue, and write what `pancake_host_session_take_outbound`
 //! drains. CapTP verbs, hosting, and vows stay on `Session`; this module owns
 //! the conn byte path (handshake, serve loop, feed, flush, feed-refusal, EOF /
-//! `pancake_host_session_break_far_vows`).
+//! `pancake_host_session_transport_closed`).
 
 use std::rc::Rc;
 
@@ -23,8 +23,9 @@ use crate::{sys, AbortDomain, AbortInfo, Error, Result};
 /// application frames coalesced behind start-session stay buffered until the
 /// serve loop — otherwise a pipelined fetch would answer before the object it
 /// names exists. Abandonment on failure stays on `Session::establish`.
+#[cfg(any(test, feature = "iroh"))]
 pub(crate) async fn run_handshake(shared: &Rc<SessionShared>) -> Result<()> {
-	shared.host.kick_actions().await;
+	shared.host.kick_actions().await?;
 	let Some(mut reader) = shared.reader.borrow_mut().take() else {
 		return Err(Error::with_detail(
 			sys::ERR_INTERNAL,
@@ -55,12 +56,15 @@ pub(crate) async fn run_handshake(shared: &Rc<SessionShared>) -> Result<()> {
 /// drain the action queue. Returns when the connection closes cleanly; a
 /// transport or protocol error ends the loop and the teardown below breaks
 /// the vows.
-pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
+pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 	let Some(mut reader) = shared.reader.borrow_mut().take() else {
-		return;
+		return Err(Error::with_detail(
+			sys::ERR_INTERNAL,
+			"the connection's read half is already taken".to_string(),
+		));
 	};
 	let mut chunk = vec![0u8; READ_CHUNK];
-	let result: Result<()> = async {
+	let mut outcome: Result<()> = async {
 		// Frames that rode behind the handshake's tail wait in the session's
 		// own tail; an empty feed dispatches them before parking on the wire.
 		feed(&shared, &[]).await?;
@@ -90,28 +94,30 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
 		}
 	}
 	.await;
-	// A feed refusal already wrote the typed op:abort for the partner and
-	// the teardown below carries the local consequence; the error itself
-	// has no caller on a background task.
-	let _ = result;
-	// The wire is gone: pending far vows can never settle, so break them
-	// and release the conn, freeing the fd. Idempotent with an application
-	// `close()`.
-	if !shared.closing() {
+	// A feed refusal already wrote the typed op:abort for the partner. Preserve
+	// that primary error while teardown carries the local consequence.
+	// The wire is gone: report the physical fact so the core retires the
+	// session and settles pending work, then release the connection.
+	// Idempotent with an application `close()`.
+	if !shared.released.get() {
 		shared.closing.set(true);
 		let message = b"connection closed";
-		let _ = unsafe {
-			ffi::pancake_host_session_break_far_vows(
-				shared.ptr.get(),
-				message.as_ptr(),
-				message.len(),
-			)
-		};
+		let reported = check_host(unsafe {
+			ffi::pancake_host_session_transport_closed(shared.ptr.get(), message.as_ptr(), message.len())
+		});
+		if outcome.is_ok() {
+			outcome = reported;
+		}
 		// Route the break's FAIL completions before the release retires the
 		// connection.
-		shared.host.kick_actions().await;
+		if let Err(error) = shared.host.kick_actions().await {
+			if outcome.is_ok() {
+				outcome = Err(error);
+			}
+		}
 		shared.close_transport();
 	}
+	outcome
 }
 
 /// Feed freshly read bytes to the core's stream delimiter: the session's
@@ -141,16 +147,20 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 		};
 		drop(_deliver);
 		drain_pending_releases();
+		// Fed bytes can advance close-relevant state (a partner's finish
+		// acknowledgment, a settle) even when the drain below finds nothing
+		// queued, so every feed wakes the parked close drivers itself.
+		shared.host.note_close_activity();
 		if rc == sys::OK {
 			break;
 		}
 		if rc == sys::WOULD_BLOCK {
-			shared.host.kick_actions().await;
+			shared.host.kick_actions().await?;
 			continue;
 		}
 		return Err(feed_refusal(shared, rc).await);
 	}
-	shared.host.kick_actions().await;
+	shared.host.kick_actions().await?;
 	Ok(())
 }
 
@@ -160,29 +170,40 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 /// same spine as a steady FLUSH — not a private `take_outbound` path.
 async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 	let message = host_last_error();
-	let abort = last_abort(shared);
-	// The transport may already be gone; the local typed error stands.
-	shared.host.kick_actions().await;
-	Error::with_transport_detail(rc, message).with_abort(abort)
+	let (abort, abort_failure) = match last_abort(shared) {
+		Ok(abort) => (abort, None),
+		Err(error) => (None, Some(error)),
+	};
+	// The local typed refusal remains primary; retain every diagnostic failure
+	// that happened while projecting it instead of silently dropping context.
+	let drain_failure = shared.host.kick_actions().await.err();
+	let mut details = Vec::new();
+	if let Some(primary) = message {
+		details.push(primary);
+	}
+	if let Some(error) = abort_failure {
+		details.push(format!("last-abort diagnostic also failed: {error}"));
+	}
+	if let Some(error) = drain_failure {
+		details.push(format!("action drain also failed: {error}"));
+	}
+	let detail = (!details.is_empty()).then(|| details.join("; "));
+	Error::with_transport_detail(rc, detail).with_abort(abort)
 }
 
 /// The typed cause of this CapTP session's most recent local dispatch failure,
 /// or `None` when none has been recorded. The flat per-feed error code
 /// names the failure family; this names the member.
-fn last_abort(shared: &SessionShared) -> Option<AbortInfo> {
+fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 	if shared.released.get() {
-		return None;
+		return Ok(None);
 	}
 	let mut raw: sys::PancakeLastAbort = unsafe { core::mem::zeroed() };
 	let rc = unsafe { ffi::pancake_host_session_last_abort(shared.ptr.get(), &mut raw) };
 	if rc == sys::WOULD_BLOCK {
-		return None; // no abort recorded
+		return Ok(None); // no abort recorded
 	}
-	if rc != sys::OK {
-		// Best-effort diagnostic on an already-refused feed: the primary
-		// refusal error stands, and a failed read only loses the detail.
-		return None;
-	}
+	crate::host::check_host(rc)?;
 	// The C views are process-static; copy them into owned strings so the
 	// info outlives any later host call.
 	let text = |ptr: *const u8, len: usize| -> String {
@@ -192,12 +213,17 @@ fn last_abort(shared: &SessionShared) -> Option<AbortInfo> {
 			String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
 		}
 	};
-	Some(AbortInfo {
+	Ok(Some(AbortInfo {
 		domain: AbortDomain::from_abi(raw.domain),
 		kind: (raw.has_kind != 0).then(|| text(raw.kind_name, raw.kind_name_len)),
 		message: text(raw.message, raw.message_len),
 		error_name: text(raw.error_name, raw.error_name_len),
-	})
+		abort_delivery_error_name: (!raw.abort_delivery_error_name.is_null() && raw.abort_delivery_error_name_len != 0)
+			.then(|| text(raw.abort_delivery_error_name, raw.abort_delivery_error_name_len)),
+		secondary_error_name: (!raw.secondary_error_name.is_null() && raw.secondary_error_name_len != 0)
+			.then(|| text(raw.secondary_error_name, raw.secondary_error_name_len)),
+		secondary_error_count: raw.secondary_error_count,
+	}))
 }
 
 /// Drain every encoded outbound frame on this CapTP session and write it to
@@ -218,10 +244,7 @@ pub(crate) async fn flush_outbound(shared: &Rc<SessionShared>) -> Result<()> {
 	}
 	let writer = Rc::clone(&shared.writer);
 	let guard = writer.lock().await;
-	let mut guard = WriterLease {
-		inner: guard,
-		shared,
-	};
+	let mut guard = WriterLease { inner: guard, shared };
 	let mut in_flight = None;
 	loop {
 		if shared.released.get() {
@@ -276,10 +299,7 @@ async fn write_all_or_closed(
 	}
 }
 
-async fn flush_or_closed(
-	shared: &SessionShared,
-	sink: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
-) -> Result<()> {
+async fn flush_or_closed(shared: &SessionShared, sink: &mut Box<dyn tokio::io::AsyncWrite + Unpin>) -> Result<()> {
 	tokio::select! {
 		biased;
 		_ = shared.closed.notified() => Err(Error::from_code(sys::ERR_CLOSED)),

@@ -22,10 +22,7 @@
  */
 
 import type { TimelineDocument } from "../engine/timeline.ts";
-import {
-  peerLabelAt,
-  sessionEndpointPlaceAt,
-} from "../engine/temporal/doc-resolver.ts";
+import { peerLabelAt, sessionEndpointPlaceAt } from "../engine/temporal/doc-resolver.ts";
 import { type SessionSide, UNNAMED_END_LABEL } from "../schema/topology.ts";
 import { elideIdentifier } from "./elide.ts";
 
@@ -78,9 +75,7 @@ export function sessionEndName(
     return { text: label, opaque: label === place.peer };
   }
   const claim = doc.entities?.sessions?.[sessionId]?.[side].designator;
-  return claim === undefined
-    ? { text: UNNAMED_END_LABEL, opaque: false }
-    : { text: claim, opaque: true };
+  return claim === undefined ? { text: UNNAMED_END_LABEL, opaque: false } : { text: claim, opaque: true };
 }
 
 /**
@@ -100,7 +95,6 @@ export function sessionPairName(
   sessionId: string,
   t: number,
 ): string {
-  const read = (side: SessionSide) =>
-    elideIdentifier(sessionEndName(doc, sessionId, side, t).text);
+  const read = (side: SessionSide) => elideIdentifier(sessionEndName(doc, sessionId, side, t).text);
   return `${read("a")}${SESSION_PAIR_SEPARATOR}${read("b")}`;
 }

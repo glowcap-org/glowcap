@@ -80,9 +80,7 @@ async function main(): Promise<void> {
 	deliver = (line) => void apply(line);
 	for (const line of buffered.splice(0)) deliver(line);
 
-	peer.onLocalCandidate((candidate) =>
-		globalThis.harnessSignal(JSON.stringify({ type: "candidate", candidate }))
-	);
+	peer.onLocalCandidate((candidate) => globalThis.harnessSignal(JSON.stringify({ type: "candidate", candidate })));
 
 	const offer = await peer.createOffer();
 	globalThis.harnessSignal(JSON.stringify({ type: "offer", sdp: offer }));
@@ -98,8 +96,7 @@ async function main(): Promise<void> {
 	const channel = peer.channel();
 	const session = await stack.Session.establishDialedLocator(
 		new stack.Host(),
-		"webrtc",
-		designator,
+		stack.bareLocator("webrtc", designator),
 		channel,
 	);
 	session.serve().catch(() => {});

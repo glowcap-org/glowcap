@@ -11,30 +11,43 @@
 ;; in `ffi-shared.rkt`, the binding's types leaf.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"
-         "lib-resolve.rkt")
+         "ffi-shared.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_driver_take_host*
+                     pancake_driver_lifecycle_state*
+                     pancake_driver_step_wait_ms*
                      pancake_driver_dial*
                      pancake_driver_adopt_external*
                      pancake_driver_listen*
-                     pancake_driver_readiness_fd*))
+                     pancake_driver_listener_restoration_state*
+                     pancake_driver_readiness_fd*
+                     pancake_driver_claim_reference_exporter*
+                     pancake_driver_session_lifecycle_state*))
 
 (define loop-lib (open-pancake-archive "pancake_driver"))
 
 (define-ffi-definer define-driver-loop loop-lib)
 
 (define-driver-loop pancake_driver_take_host*
-  (_fun _pointer _PancakeDriverOptions-pointer _pointer -> _int32)
+  (_fun _pointer (_or-null _PancakeDriverOptions-pointer) _pointer -> _int32)
   #:c-id pancake_driver_take_host)
 (define pancake_driver_take_host (wrap-out1 pancake_driver_take_host* _pointer #f))
+(define-driver-loop pancake_driver_close (_fun _pointer (_or-null _PancakeCloseOptions-pointer) -> _int32))
+(define-driver-loop pancake_driver_retire (_fun _pointer -> _int32))
+(define-driver-loop pancake_driver_lifecycle_state*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id pancake_driver_lifecycle_state)
+(define pancake_driver_lifecycle_state (wrap-out1 pancake_driver_lifecycle_state* _uint32 0))
+(define-driver-loop pancake_driver_step_wait_ms*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id pancake_driver_step_wait_ms)
+(define pancake_driver_step_wait_ms (wrap-out1 pancake_driver_step_wait_ms* _int32 0))
 (define-driver-loop pancake_driver_release (_fun _pointer -> _int32))
 (define-driver-loop pancake_driver_add_provider
-  (_fun _pointer _PancakeTransportProvider-pointer -> _int32))
-(define-driver-loop pancake_driver_has_transport
-  (_fun _pointer _pointer _size _pointer -> _int32))
+  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))
+(define-driver-loop pancake_driver_has_transport (_fun _pointer _pointer _size _pointer -> _int32))
 (define-driver-loop pancake_driver_dial*
-  (_fun _pointer _PancakeLocatorView-pointer _pointer -> _int32)
+  (_fun _pointer (_or-null _PancakeLocatorView-pointer) (_or-null _PancakeTransportOperationOptions-pointer) _pointer -> _int32)
   #:c-id pancake_driver_dial)
 (define pancake_driver_dial (wrap-out1 pancake_driver_dial* _uint64 0))
 (define-driver-loop pancake_driver_adopt_external*
@@ -42,13 +55,17 @@
   #:c-id pancake_driver_adopt_external)
 (define pancake_driver_adopt_external (wrap-out1 pancake_driver_adopt_external* _uint64 0))
 (define-driver-loop pancake_driver_listen*
-  (_fun #:blocking? #t _pointer _pointer _size _pointer _size _pointer -> _int32)
+  (_fun #:blocking? #t _pointer _pointer _size _pointer _size (_or-null _PancakeTransportOperationOptions-pointer) _pointer -> _int32)
   #:c-id pancake_driver_listen)
 (define pancake_driver_listen (wrap-out1 pancake_driver_listen* _uint64 0))
 (define-driver-loop pancake_driver_listener_locator
-  (_fun _pointer _uint64 _PancakeLocatorView-pointer -> _int32))
+  (_fun _pointer _uint64 (_or-null _PancakeLocatorView-pointer) -> _int32))
+(define-driver-loop pancake_driver_listener_restoration_state*
+  (_fun _pointer _uint64 _pointer _size _pointer -> _int32)
+  #:c-id pancake_driver_listener_restoration_state)
+(define pancake_driver_listener_restoration_state (wrap-out1 pancake_driver_listener_restoration_state* _size 0))
 (define-driver-loop pancake_driver_listener_advertise
-  (_fun _pointer _uint64 _PancakeLocatorView-pointer -> _int32))
+  (_fun _pointer _uint64 (_or-null _PancakeLocatorView-pointer) -> _int32))
 (define-driver-loop pancake_driver_listener_select (_fun _pointer _uint64 -> _int32))
 (define-driver-loop pancake_driver_listener_close (_fun _pointer _uint64 -> _int32))
 (define-driver-loop pancake_driver_readiness_fd*
@@ -58,8 +75,18 @@
 (define-driver-loop pancake_driver_step (_fun _pointer _int32 -> _int32))
 (define-driver-loop pancake_driver_detach_thread (_fun _pointer -> _int32))
 (define-driver-loop pancake_driver_wake (_fun _pointer -> _int32))
-(define-driver-loop pancake_driver_next_event
-  (_fun _pointer _PancakeDriverEvent-pointer -> _int32))
+(define-driver-loop pancake_driver_next_event (_fun _pointer (_or-null _PancakeDriverEvent-pointer) -> _int32))
+(define-driver-loop pancake_driver_claim_reference_exporter*
+  (_fun _pointer (_or-null _PancakeReference-pointer) _pointer -> _int32)
+  #:c-id pancake_driver_claim_reference_exporter)
+(define pancake_driver_claim_reference_exporter (wrap-out1 pancake_driver_claim_reference_exporter* _pointer #f))
+(define-driver-loop pancake_driver_session_close
+  (_fun _pointer _pointer (_or-null _PancakeCloseOptions-pointer) -> _int32))
+(define-driver-loop pancake_driver_session_lifecycle_state*
+  (_fun _pointer _pointer _pointer -> _int32)
+  #:c-id pancake_driver_session_lifecycle_state)
+(define pancake_driver_session_lifecycle_state (wrap-out1 pancake_driver_session_lifecycle_state* _uint32 0))
+(define-driver-loop pancake_driver_session_serve (_fun _pointer _pointer -> _int32))
 (define-driver-loop pancake_driver_session_release (_fun _pointer _pointer -> _int32))
 (define-driver-loop pancake_driver_last_error (_fun _pointer _size -> _size))
 (define-driver-loop pancake_driver_clear_last_error (_fun -> _void))

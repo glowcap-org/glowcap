@@ -91,7 +91,7 @@ fn joinLoop(io: std.Io, resident: *iroh.Resident, loop: *IrohLoop, loop_done: *s
     while (!loop_done.load(.acquire)) {
         if (harness.expired(io, drain_deadline)) break;
         resident.close();
-        loop.backend.wake();
+        loop.backend.wake() catch |err| std.debug.panic("bridge wake failed: {s}", .{@errorName(err)});
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
     loop_future.await(io);
@@ -161,13 +161,13 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!vo
     const io = threaded.io();
 
     var resident = try iroh.Resident.init(io, &exporter_seed, .{ .reachability = .local_discovery });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const id = resident.nodeId(&id_buf);
 
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = Host.init(allocator, exporter_seed, session_root, blk: {
+    var host = try Host.init(allocator, exporter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -332,7 +332,7 @@ fn gifterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!void
     const io = threaded.io();
 
     var resident = try iroh.Resident.init(io, &gifter_seed, .{ .reachability = .local_discovery });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const id = resident.nodeId(&id_buf);
     const id_owned = try allocator.dupe(u8, id);
@@ -341,7 +341,7 @@ fn gifterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!void
 
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = Host.init(allocator, gifter_seed, session_root, blk: {
+    var host = try Host.init(allocator, gifter_seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -480,7 +480,7 @@ pub fn main(init: std.process.Init) !void {
     // Publish R's id and start its loop before G/E so G's dial-to-R cannot
     // race a not-yet-polling listener.
     var recipient_resident = try iroh.Resident.init(io, &recipient_seed, .{ .reachability = .local_discovery });
-    defer recipient_resident.deinit();
+    defer recipient_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
     var recipient_id_buf: [iroh.node_id_len]u8 = undefined;
     const recipient_id = recipient_resident.nodeId(&recipient_id_buf);
     const recipient_id_owned = try allocator.dupe(u8, recipient_id);
@@ -489,7 +489,7 @@ pub fn main(init: std.process.Init) !void {
 
     var recipient_session_root: [32]u8 = undefined;
     io.randomSecure(&recipient_session_root) catch return error.HandshakeEntropyFailed;
-    var recipient_host = Host.init(allocator, recipient_seed, recipient_session_root, blk: {
+    var recipient_host = try Host.init(allocator, recipient_seed, recipient_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;

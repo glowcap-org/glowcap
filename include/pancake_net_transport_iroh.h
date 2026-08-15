@@ -180,7 +180,7 @@ int32_t pancake_iroh_netlayer_new_with_diagnostic_in(PancakeContext *context, co
 void pancake_iroh_netlayer_close(PancakeIrohNetlayer *netlayer);
 /* Release the netlayer, its endpoint, and the runtime. Every connection made
    from it must already be released. NULL is a no-op. */
-void pancake_iroh_netlayer_release(PancakeIrohNetlayer *netlayer);
+int32_t pancake_iroh_netlayer_release(PancakeIrohNetlayer *netlayer);
 /* Write this endpoint's id — its Ed25519 public key, the dialable designator —
    into out as lowercase hex, and the byte count into out_len. cap must be at
    least the id length (64) or the call is PANCAKE_ERR_BUFFER_TOO_SMALL. No

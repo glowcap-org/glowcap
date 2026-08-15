@@ -25,25 +25,10 @@ import {
   type LayoutConfig,
 } from "./keyframe-layout-system.ts";
 import { claimedPeerByEnd } from "../claims.ts";
-import {
-  haloRadius,
-  LOOSE_END_CLAIMING,
-  NODE_RADIUS,
-} from "../../render/draw-helpers.ts";
-import {
-  bezierAt,
-  claimTargets,
-  computeSessionBundles,
-  curveBetween,
-  drawnSessionCurve,
-} from "../session-geometry.ts";
+import { haloRadius, LOOSE_END_CLAIMING, NODE_RADIUS } from "../../render/draw-helpers.ts";
+import { bezierAt, claimTargets, computeSessionBundles, curveBetween, drawnSessionCurve } from "../session-geometry.ts";
 import { scenarios } from "../../fixtures/index.ts";
-import {
-  endpointStageId,
-  SESSION_SIDES,
-  type SessionEndpoint,
-  type SessionSide,
-} from "../../schema/topology.ts";
+import { endpointStageId, SESSION_SIDES, type SessionEndpoint, type SessionSide } from "../../schema/topology.ts";
 
 // d3-force leaves a d3-timer handle behind under Deno; same workaround as
 // `keyframe-layout-system.test.ts`.
@@ -486,8 +471,7 @@ function bundledSessionEdges(): BundledEdge[] {
       sessionId: string,
       side: SessionSide,
       end: SessionEndpoint,
-    ): string | undefined =>
-      end.peer ?? claimed.get(endpointStageId(sessionId, side));
+    ): string | undefined => end.peer ?? claimed.get(endpointStageId(sessionId, side));
     const system = new KeyframeLayoutSystem(doc, {
       ...DEFAULT_LAYOUT_CONFIG,
       mode: doc.layoutMode ?? DEFAULT_LAYOUT_CONFIG.mode,
@@ -568,9 +552,7 @@ layoutTest(
       );
       assert(
         toPeer < NEAR_PEER,
-        `a claim on a ${
-          edge.length.toFixed(0)
-        }-unit edge landed far enough out to read as a node of its own`,
+        `a claim on a ${edge.length.toFixed(0)}-unit edge landed far enough out to read as a node of its own`,
       );
       // A claim the recordings actually draw sits where that arithmetic says,
       // which is what makes the band above a measurement of the picture rather
@@ -598,9 +580,7 @@ layoutTest(
       ringGapOn(shortest, CLAIM_LEAN) >= RING_DAYLIGHT,
       `the claim's ring comes within ${
         ringGapOn(shortest, CLAIM_LEAN).toFixed(0)
-      } of the peer's on the shortest edge the recordings settle, which is ${
-        shortest.toFixed(0)
-      } long`,
+      } of the peer's on the shortest edge the recordings settle, which is ${shortest.toFixed(0)} long`,
     );
     assert(
       ringGapOn(shortest, 3 / 4) < RING_DAYLIGHT,

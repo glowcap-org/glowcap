@@ -81,14 +81,10 @@ function makeRowIndexes(): DocIndexEdge[] {
           } else {
             nextField[key] = [...next];
           }
-          const hasAny = Object.keys(nextField).some((k) =>
-            nextField[k] !== undefined
-          );
+          const hasAny = Object.keys(nextField).some((k) => nextField[k] !== undefined);
           return {
             ...doc,
-            [field]: hasAny
-              ? (nextField as TimelineDocument[typeof field])
-              : undefined,
+            [field]: hasAny ? (nextField as TimelineDocument[typeof field]) : undefined,
           };
         },
       });

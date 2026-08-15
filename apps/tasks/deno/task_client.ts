@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // A small, friendly client for the tasks board, built on pancake actors.
 //
 // On the connection API this is barely a layer: connect, fetch the board by
@@ -10,7 +11,7 @@
 //   for await (const tasks of board.updates) console.log(tasks);
 //   await board.leave();
 
-import { type Argument, connect, type Ref, type Session, tcpLocator } from "@pancake/stack";
+import { type Argument, type Ref, Runtime, type Session } from "@pancake/runtime";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 
 export interface Task {
@@ -35,6 +36,7 @@ function parseSnapshot(raw: Argument): Task[] {
 
 export class TaskBoard {
 	#session: Session;
+	#runtime: Runtime;
 	#board: Ref;
 	#snapshots!: ReadableStreamDefaultController<Task[]>;
 	#leaving = false;
@@ -43,7 +45,8 @@ export class TaskBoard {
 	 * state. Ends when you `leave` or the board hangs up. */
 	readonly updates: ReadableStream<Task[]>;
 
-	private constructor(session: Session, board: Ref) {
+	private constructor(runtime: Runtime, session: Session, board: Ref) {
+		this.#runtime = runtime;
 		this.#session = session;
 		this.#board = board;
 		this.updates = new ReadableStream<Task[]>({
@@ -54,10 +57,11 @@ export class TaskBoard {
 	}
 
 	static async join(host: string, port: number): Promise<TaskBoard> {
-		const session = await connect(tcpLocator(host, port));
+		const runtime = await Runtime.open({ providers: [tcp.provider()] });
+		const session = await runtime.connect(tcp.locator(host, port));
 		session.serve().catch(() => {});
 		const board = await session.fetch(BOARD);
-		const self = new TaskBoard(session, board);
+		const self = new TaskBoard(runtime, session, board);
 
 		const watcher = session.spawn((verb, args) => {
 			if (verb !== UPDATE) throw new Error(`watcher has no method ${verb}`);
@@ -90,6 +94,7 @@ export class TaskBoard {
 		this.#leaving = true;
 		this.#session.close();
 		await this.#session.serve().catch(() => {});
+		await this.#runtime.close();
 	}
 
 	#push(raw: Argument): void {

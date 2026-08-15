@@ -109,7 +109,8 @@
       ;; Snapshot and restore stay; the divergence chart and its mutable-vs-
       ;; persistent vocabulary were pulled off the public page — that detail
       ;; lives only in the benchmark programs' own .md reports now.
-      (check-true (regexp-match? #px"Snapshot — µs" region))
+      (check-true (regexp-match? #px"Snapshot \\(µs by actor count\\)" region))
+      (check-true (regexp-match? #px"shared O\\(objects\\) trend" region))
       (check-false (regexp-match? #px"Divergence|pancake mutable|pancake persistent|entries / actor" region)))
     (test-case "iroh"
       (define h (parse-iroh iroh-out))

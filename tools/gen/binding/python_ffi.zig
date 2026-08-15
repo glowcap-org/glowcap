@@ -35,7 +35,7 @@ pub const outputs = [_]Output{
 /// `module.PancakeIrohConfig` → `PancakeIrohConfig`.
 const baseName = @import("reflect").baseName;
 
-/// `PancakeDialPlan` → `_DialPlan`, the hand mirrors' naming rule.
+/// `PancakeDialPlan` -> `_DialPlan`, the hand mirrors' naming rule.
 fn mirrorName(comptime T: type) []const u8 {
     const base = baseName(T);
     if (!std.mem.startsWith(u8, base, "Pancake"))
@@ -71,9 +71,10 @@ fn pyParamType(comptime T: type, comptime specials: []const Special) []const u8 
                     u32 => "u32_p",
                     u64 => "u64_p",
                     usize => "size_p",
-                    // A signed out-parameter: the readiness descriptor the onion
-                    // archive hands back.
+                    // Signed out-parameters: the readiness descriptor the onion
+                    // archive hands back, and the close-wait budget.
                     i32 => "i32_p",
+                    i64 => "i64_p",
                     else => @compileError("unmapped scalar pointer width"),
                 } else "P",
                 .@"struct" => break :blk "ctypes.POINTER(" ++ mirrorName(p.child) ++ ")",
@@ -141,9 +142,10 @@ const aliases = [_]Alias{
     .{ .name = "u32", .def = "u32 = ctypes.c_uint32", .also = "u32_p" },
     .{ .name = "u64", .def = "u64 = ctypes.c_uint64", .also = "u64_p" },
     .{ .name = "i32", .def = "i32 = ctypes.c_int32", .also = "i32_p" },
-    .{ .name = "i64", .def = "i64 = ctypes.c_int64" },
+    .{ .name = "i64", .def = "i64 = ctypes.c_int64", .also = "i64_p" },
     .{ .name = "size_p", .def = "size_p = ctypes.POINTER(size)" },
     .{ .name = "i32_p", .def = "i32_p = ctypes.POINTER(i32)" },
+    .{ .name = "i64_p", .def = "i64_p = ctypes.POINTER(i64)" },
     .{ .name = "u16_p", .def = "u16_p = ctypes.POINTER(u16)" },
     .{ .name = "u32_p", .def = "u32_p = ctypes.POINTER(u32)" },
     .{ .name = "u64_p", .def = "u64_p = ctypes.POINTER(u64)" },
@@ -196,13 +198,13 @@ fn renderArchive(
         if (!declared) return error.UndeclaredSigTypeParam;
     }
 
-    // The def line, wrapped one-per-line past 100 columns.
+    // The def line, wrapped one-per-line past 120 columns.
     var def_width: usize = 4 + fn_name.len + 2 + 1;
     inline for (params, 0..) |param, i| {
         if (i != 0) def_width += 2;
         def_width += param.len;
     }
-    if (def_width <= 100) {
+    if (def_width <= 120) {
         try out.print(gpa, "def {s}(", .{fn_name});
         inline for (params, 0..) |param, i| {
             if (i != 0) try out.appendSlice(gpa, ", ");
@@ -253,13 +255,13 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
     try renderArchive(gpa, &out, c, "ocapn_sigs", &.{
-        "_Allocator", "_ManagedFrame", "_LocatorHintView", "_LocatorView",
+        "_Allocator", "_ManagedFrame", "_LocatorHintView", "_LocatorView", "_FailureReport", "_FailureEvent",
     }, "``libpancake_ocapn`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cd, "driver_sigs", &.{
-        "_Argument",    "_Reference",    "_ManagedFrame",    "_LastAbort",
-        "_DialPlan",    "_AcceptPlan",   "_HostPumpHooks",   "_LocatorHintView",
-        "_LocatorView", "_HostBehavior", "_PartnerIdentity", "_TraceCallback",
+        "_Argument",        "_Reference",       "_ManagedFrame", "_LastAbort",
+        "_HostPumpHooks",   "_LocatorHintView", "_LocatorView",  "_HostBehavior",
+        "_PartnerIdentity", "_TraceCallback",   "_CloseOptions",
     }, "``libpancake_host`` signatures, in the inventory's order.", &.{
         .{ .T = cd.PancakeHostBehavior, .spelling = "_HostBehavior" },
         .{ .T = cd.PancakeHostCtxFree, .spelling = "P" },
@@ -267,10 +269,13 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cdr, "loop_sigs", &.{
-        "_DriverOptions", "_DriverEvent", "_LocatorView", "_TransportProvider",
+        "_DriverOptions",             "_CloseOptions",      "_DriverEvent", "_LocatorView", "_Reference",
+        "_TransportOperationOptions", "_TransportProvider",
     }, "``libpancake_driver`` loop-family signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, ct, "tcp_sigs", &.{ "_Frame", "_ManagedFrame", "_TransportProvider" }, "``libpancake_net_transport_tcp`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, ct, "tcp_sigs", &.{
+        "_Frame", "_ManagedFrame", "_TcpConfig", "_TcpStreamOptions", "_TransportProvider",
+    }, "``libpancake_net_transport_tcp`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cin, "inproc_sigs", &.{ "_Frame", "_ManagedFrame" }, "``libpancake_net_transport_inproc`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");

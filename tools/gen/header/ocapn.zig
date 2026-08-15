@@ -51,6 +51,26 @@ const locator_consts = [_][]const u8{
     "PANCAKE_HINT_INTEGER",             "PANCAKE_HINTS_MAP",
     "PANCAKE_HINTS_BOOLEAN_FALSE",
 };
+const failure_consts = [_][]const u8{
+    "PANCAKE_FAILURE_EVENT_ABI_VERSION",
+    "PANCAKE_FAILURE_LAYER_CORE",
+    "PANCAKE_FAILURE_LAYER_DRIVER",
+    "PANCAKE_FAILURE_LAYER_TRANSPORT",
+    "PANCAKE_FAILURE_LAYER_BINDING",
+    "PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER",
+    "PANCAKE_FAILURE_SCOPE_PROCESS",
+    "PANCAKE_FAILURE_SCOPE_CONTEXT",
+    "PANCAKE_FAILURE_SCOPE_HOST",
+    "PANCAKE_FAILURE_SCOPE_SESSION",
+    "PANCAKE_FAILURE_SCOPE_LISTENER",
+    "PANCAKE_FAILURE_SCOPE_TRANSPORT",
+    "PANCAKE_FAILURE_SCOPE_OPERATION",
+    "PANCAKE_FAILURE_TRUNCATED_OPERATION",
+    "PANCAKE_FAILURE_TRUNCATED_PRIMARY_NAME",
+    "PANCAKE_FAILURE_TRUNCATED_PRIMARY_MESSAGE",
+    "PANCAKE_FAILURE_TRUNCATED_SECONDARY_NAME",
+    "PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE",
+};
 
 const const_doc_entries = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_OK", .doc = "Success." },
@@ -76,6 +96,9 @@ const emitted_fn_names = [_][]const u8{
     "pancake_managed_frame_release",
     "pancake_context_new",
     "pancake_context_new_with_allocator",
+    "pancake_context_allocate_lifecycle_id",
+    "pancake_context_report_failure",
+    "pancake_context_next_failure",
     "pancake_context_release",
     "pancake_last_error",
     "pancake_clear_last_error",
@@ -135,7 +158,7 @@ comptime {
     @setEvalBranchQuota(40000);
     E.guardFns("c_abi", "pancake_");
 
-    const all = version_consts ++ error_consts ++ discriminant_consts ++ locator_consts;
+    const all = version_consts ++ error_consts ++ discriminant_consts ++ locator_consts ++ failure_consts;
     for (@typeInfo(c).@"struct".decls) |decl| {
         if (!std.mem.startsWith(u8, decl.name, "PANCAKE_")) continue;
         if (@typeInfo(@TypeOf(@field(c, decl.name))) != .int) continue;
@@ -201,6 +224,26 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try emitFn(&b, gpa, "pancake_context_new", &.{"out_context"}, "Create a context backed by the library allocator.");
     try emitFn(&b, gpa, "pancake_context_new_with_allocator", &.{ "allocator", "out_context" }, "Create a context backed by caller callbacks. The callbacks must be thread-safe.");
+    try emitFn(&b, gpa, "pancake_context_allocate_lifecycle_id", &.{ "context", "out_id" }, "Allocate a stable Context-local lifecycle identity. Zero is reserved for no identity; exhaustion leaves out_id unchanged.");
+    try section(&b, gpa, "Unreturned failures");
+    inline for (failure_consts) |name| try emitConst(&b, gpa, name);
+    try emitStruct(&b, gpa, c.PancakeFailureReport, "PancakeFailureReport", &.{
+        "PANCAKE_FAILURE_EVENT_ABI_VERSION", "sizeof(PancakeFailureReport)",       "PANCAKE_FAILURE_LAYER_*",        "PANCAKE_FAILURE_SCOPE_*",
+        "stable identity within the scope",  "stable operation identity, or zero", "stable primary result, or zero", "stable first secondary result, or zero",
+        "total secondary failures",          "required operation name",            "operation length",               "required primary cause name",
+        "primary name length",               "optional primary message",           "primary message length",         "optional first secondary cause name",
+        "secondary name length",             "optional first secondary message",   "secondary message length",
+    });
+    try emitStruct(&b, gpa, c.PancakeFailureEvent, "PancakeFailureEvent", &.{
+        "PANCAKE_FAILURE_EVENT_ABI_VERSION",         "sizeof(PancakeFailureEvent)",            "monotonic Context sequence",                   "records lost before this one",
+        "PANCAKE_FAILURE_LAYER_*",                   "PANCAKE_FAILURE_SCOPE_*",                "stable identity within the scope",             "stable operation identity, or zero",
+        "stable primary result, or zero",            "stable first secondary result, or zero", "total secondary failures",                     "PANCAKE_FAILURE_TRUNCATED_* bitmask",
+        "operation in caller payload",               "operation length",                       "primary cause name in caller payload",         "primary name length",
+        "primary message in caller payload",         "primary message length",                 "first secondary cause name in caller payload", "secondary name length",
+        "first secondary message in caller payload", "secondary message length",
+    });
+    try emitFn(&b, gpa, "pancake_context_report_failure", &.{ "context", "report" }, "Record one failure only after its last deterministic return recipient has gone. Text fields must be valid UTF-8; the Context copies bounded code-point prefixes and retains no report pointer. Result codes must be zero or stable PANCAKE_ERR_* values; secondary fields must agree with secondary_count.");
+    try emitFn(&b, gpa, "pancake_context_next_failure", &.{ "context", "out_event", "out_payload", "payload_cap", "out_required" }, "Atomically claim the oldest unreturned failure into caller-owned payload storage. BUFFER_TOO_SMALL leaves it queued and reports the exact required bytes; WOULD_BLOCK reports an empty queue.");
     try emitFn(&b, gpa, "pancake_context_release", &.{"context"}, "Release a context after every handle created through it.");
 
     try section(&b, gpa, "Application values");
@@ -218,9 +261,11 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "child count",
     });
     try emitStruct(&b, gpa, c.PancakeLastAbort, "PancakeLastAbort", &.{
-        "PANCAKE_ABORT_DOMAIN_*", "whether kind_name is present", "static kind name",
-        "kind length",            "static message",               "message length",
-        "static Zig error name",  "error-name length",
+        "PANCAKE_ABORT_DOMAIN_*",                          "whether kind_name is present",      "static kind name",
+        "kind length",                                     "static message",                    "message length",
+        "static Zig error name",                           "error-name length",                 "static abort-delivery error name",
+        "abort-delivery error-name length",                "static first secondary error name", "secondary error-name length",
+        "secondary failure count (255 means 255 or more)",
     });
 
     try section(&b, gpa, "Per-thread last error");
@@ -235,10 +280,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
     try emitFn(&b, gpa, "pancake_uri_parse_peer", &.{ "uri", "uri_len", "out_locator" }, "Parse an ocapn:// peer URI into an owned locator.");
     try emitFn(&b, gpa, "pancake_uri_parse_peer_in", &.{ "context", "uri", "uri_len", "out_locator" }, "Parse a peer URI into a locator allocated through context.");
-    try emitFn(&b, gpa, "pancake_uri_parse_sturdyref", &.{ "uri", "uri_len", "out_sturdyref" }, "Parse an ocapn:// sturdyref URI into an owned sturdyref.");
-    try emitFn(&b, gpa, "pancake_uri_parse_sturdyref_in", &.{ "context", "uri", "uri_len", "out_sturdyref" }, "Parse a sturdyref URI through context.");
+    try emitFn(&b, gpa, "pancake_uri_parse_sturdyref", &.{ "captp_version", "uri", "uri_len", "out_sturdyref" }, "Parse an ocapn:// sturdyref URI under the selected PANCAKE_CAPTP_* profile into an owned sturdyref.");
+    try emitFn(&b, gpa, "pancake_uri_parse_sturdyref_in", &.{ "context", "captp_version", "uri", "uri_len", "out_sturdyref" }, "Parse a sturdyref URI under the selected PANCAKE_CAPTP_* profile through context.");
     try emitFn(&b, gpa, "pancake_uri_format_peer", &.{ "transport", "transport_len", "designator", "designator_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a peer locator into a caller-owned buffer.");
-    try emitFn(&b, gpa, "pancake_uri_format_sturdyref", &.{ "transport", "transport_len", "designator", "designator_len", "swissnum", "swissnum_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a sturdyref into a caller-owned buffer.");
+    try emitFn(&b, gpa, "pancake_uri_format_sturdyref", &.{ "captp_version", "transport", "transport_len", "designator", "designator_len", "swissnum", "swissnum_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a sturdyref under the selected PANCAKE_CAPTP_* profile into a caller-owned buffer.");
     try emitFn(&b, gpa, "pancake_locator_new", &.{ "transport", "transport_len", "designator", "designator_len", "hint_wire_form", "out_locator" }, "Construct an owned OCapN peer locator.");
     try emitFn(&b, gpa, "pancake_locator_new_in", &.{ "context", "transport", "transport_len", "designator", "designator_len", "hint_wire_form", "out_locator" }, "Construct an OCapN peer locator allocated through context.");
     try emitFn(&b, gpa, "pancake_locator_clone", &.{ "view", "out_locator" }, "Clone a borrowed locator view into an owned OCapN locator.");

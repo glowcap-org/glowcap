@@ -1,15 +1,21 @@
-use pancake::{listen, Argument};
+use pancake::{tcp, Argument};
 
 // Plain TCP binds the host and port you choose.
-let server = listen(("127.0.0.1", 9099)).await?;
+let server = tcp::listen("127.0.0.1", 9099, tcp::ListenOptions::default()).await?;
+// From here, the CapTP workflow is transport-independent.
+println!("{}", server.uri()?); // hand this locator to partners
+server.host().publish_giftable("greeter", || Box::new(greeter))?;
 loop {
     let session = server.accept().await?;
-    session.publish("greeter", |_verb, args| {
-        let name = match args.first() {
-            Some(Argument::String(s)) => s.as_str(),
-            _ => "friend",
-        };
-        Ok(Argument::String(format!("hello, {name}").into()))
-    })?;
-    let _ = session.serve();
+    session.serve().await?;
+}
+
+fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
+    if verb != "greet" {
+        return Err("no such method".into());
+    }
+    let Some(Argument::String(name)) = args.first() else {
+        return Err("bad invocation".into());
+    };
+    Ok(Argument::String(format!("Hello, {name}").into()))
 }

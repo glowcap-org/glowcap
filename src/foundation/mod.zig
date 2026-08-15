@@ -11,6 +11,7 @@
 pub const id = @import("id.zig");
 pub const frame = @import("frame.zig");
 pub const spill = @import("spill.zig");
+pub const failure_chain = @import("failure_chain.zig");
 pub const stream_framing = @import("stream_framing.zig");
 pub const crypto = @import("crypto.zig");
 pub const noise = @import("noise.zig");
@@ -20,6 +21,8 @@ pub const Frame = frame.Frame;
 pub const FrameShape = frame.FrameShape;
 pub const FrameView = frame.FrameView;
 pub const Spill = spill.Spill;
+pub const FailureChain = failure_chain.FailureChain;
+pub const FailureClassification = failure_chain.Classification;
 pub const PeerId = id.PeerId;
 pub const SessionId = id.SessionId;
 pub const PeerKey = crypto.PeerKey;

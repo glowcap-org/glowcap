@@ -18,7 +18,21 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_onion_transport_provider", .out_params = &.{1} },
     .{ .name = "pancake_onion_netlayer_new", .out_params = &.{1} },
     .{ .name = "pancake_onion_netlayer_shutdown" },
-    .{ .name = "pancake_onion_netlayer_release", .blocking = true, .nonblocking = true },
+    .{
+        .name = "pancake_onion_netlayer_release",
+        .blocking = true,
+        .nonblocking = true,
+        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
+    },
+    .{
+        .name = "pancake_onion_netlayer_release_with_diagnostic",
+        .out_params = &.{ 1, 3 },
+        .blocking = true,
+        .nonblocking = true,
+        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
+        .python_omit = shared.symbols.diagnosed.python_uses_tls,
+        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
+    },
     // Every row below reaches Tor, so each is both `blocking` (it may park the
     // calling OS thread) and `nonblocking` (a JS runtime must dispatch it off the
     // event loop). The second mark makes the TypeScript surface's Tor-reaching
@@ -136,7 +150,21 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_onion_conn_shutdown" },
     .{ .name = "pancake_onion_conn_release", .blocking = true, .nonblocking = true },
     .{ .name = "pancake_onion_listener_shutdown" },
-    .{ .name = "pancake_onion_listener_release", .blocking = true, .nonblocking = true },
+    .{
+        .name = "pancake_onion_listener_release",
+        .blocking = true,
+        .nonblocking = true,
+        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
+    },
+    .{
+        .name = "pancake_onion_listener_release_with_diagnostic",
+        .out_params = &.{ 1, 3 },
+        .blocking = true,
+        .nonblocking = true,
+        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
+        .python_omit = shared.symbols.diagnosed.python_uses_tls,
+        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
+    },
     // The rows below are omitted from the TypeScript table, each for the reason
     // on its row.
     .{

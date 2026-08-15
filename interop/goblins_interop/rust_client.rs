@@ -10,7 +10,7 @@
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
 //! `racket` plus `goblins` on PATH; `zig build rust-goblins-interop`.
 
-use pancake_rust_dogfood::{connect, tcp_locator, Argument};
+use pancake_rust_dogfood::{format_locator_uri, tcp, Argument, ConnectOptions, Runtime, RuntimeConfig};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -60,14 +60,15 @@ async fn main() -> Result<(), Fail> {
 async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	// `connect` completes the keyed handshake; reaching here means Goblins
 	// accepted our signed start-session and we accepted its.
-	let locator = tcp_locator(HOST, port);
-	let session = connect(&locator, None, None).await?;
+	let locator = tcp::locator(HOST, port);
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())])).await?;
+	let session = runtime.connect(&locator, ConnectOptions::default()).await?;
 	println!("rust-goblins-interop: session open, keyed start-session accepted by goblins");
 
 	// A sturdyref names a peer, and the enliven checks that peer against the
 	// session it rides (ADR-0098). Build it from the very locator this session
 	// dialed, so the two cannot drift apart.
-	let sturdyref = format!("{locator}/s/{sturdyref_path}");
+	let sturdyref = format!("{}/s/{sturdyref_path}", format_locator_uri(&locator)?);
 	let echo = session.enliven(&sturdyref).await?;
 	println!("rust-goblins-interop: enlivened goblins echo cap, calling it");
 
@@ -83,9 +84,7 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 			other => Err(format!("echo reply is not a one-bytes list: {other:?}").into()),
 		}
 	}
-	let reply = session
-		.send(&echo, "", &[b"pancake-ping".as_slice().into()])
-		.await?;
+	let reply = session.send(&echo, "", &[b"pancake-ping".as_slice().into()]).await?;
 	assert_echoed(&reply, b"pancake-ping")?;
 
 	let again = session.enliven(&sturdyref).await?;
@@ -96,13 +95,9 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 		.send(&again, "", &[b"pancake-ping-again".as_slice().into()])
 		.await?;
 	assert_echoed(&reply_again, b"pancake-ping-again")?;
-	println!(
-		"rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved"
-	);
+	println!("rust-goblins-interop: repeat enliven same Host identity (dedup), second call resolved");
 
-	println!(
-		"rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins"
-	);
-	session.close();
+	println!("rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins");
+	session.close(pancake_rust_dogfood::PendingWork::Cancel).await?;
 	Ok(())
 }

@@ -7,7 +7,7 @@ leaked memory.
 They are not hand-written and they are not readable; that is fine. What matters
 is that each one is replayed by the ordinary test suite, so a bug the fuzzer
 caught once cannot come back unnoticed. Wire a new file into `regression_seeds`
-in `../fuzz_test.zig`; `zig build meta-check` fails if a file here is not wired,
+in `../fuzz_test.zig`; `zig build source-check` fails if a file here is not wired,
 because a regression test that never runs is worse than none.
 
 Where a directory serves more than one target, each target has its own seed

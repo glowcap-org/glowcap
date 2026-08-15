@@ -7,6 +7,38 @@
 //! [`crate::sys`].
 #![allow(dead_code)]
 
+use super::layouts_gen::*;
+pub use super::layouts_gen::{PANCAKE_TCP_OPERATION_OPTIONS_SIZE, PANCAKE_TCP_OPERATION_OPTIONS_STREAM_OFF};
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PancakeTcpStreamOptions {
+	pub keepalive_idle_sec: u32,
+	pub keepalive_interval_sec: u32,
+	pub keepalive_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PancakeTcpConfig {
+	pub stream: PancakeTcpStreamOptions,
+}
+
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeTcpStreamOptions>() == PANCAKE_TCP_STREAM_OPTIONS_SIZE);
+	assert!(
+		offset_of!(PancakeTcpStreamOptions, keepalive_idle_sec) == PANCAKE_TCP_STREAM_OPTIONS_KEEPALIVE_IDLE_SEC_OFF
+	);
+	assert!(
+		offset_of!(PancakeTcpStreamOptions, keepalive_interval_sec)
+			== PANCAKE_TCP_STREAM_OPTIONS_KEEPALIVE_INTERVAL_SEC_OFF
+	);
+	assert!(offset_of!(PancakeTcpStreamOptions, keepalive_count) == PANCAKE_TCP_STREAM_OPTIONS_KEEPALIVE_COUNT_OFF);
+	assert!(size_of::<PancakeTcpConfig>() == PANCAKE_TCP_CONFIG_SIZE);
+	assert!(offset_of!(PancakeTcpConfig, stream) == PANCAKE_TCP_CONFIG_STREAM_OFF);
+};
+
 #[repr(C)]
 pub struct PancakeTcpNetlayer {
 	_private: [u8; 0],

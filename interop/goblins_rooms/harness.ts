@@ -33,7 +33,8 @@
 
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
-import { CAPTP_VERSION_WIRE, type TraceEvent } from "@pancake/stack";
+import { CAPTP_VERSION_WIRE, type TraceEvent } from "@pancake/runtime";
+import { connectVizViewer, vizPortOf } from "../../apps/rooms/test/viz_viewer.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
  *
@@ -68,11 +69,13 @@ function fail(message: string): never {
 	throw new Error(message);
 }
 
-/** Read the server's stderr until it announces the trace broadcast, then keep
+/** Read the server's stderr until it announces its trace capability, then keep
  * draining it to the log so anything the server says afterwards is visible when
- * a member fails. The room's own port comes off stdout through
- * `readAnnouncedLocator`; this is the other announcement. */
-async function awaitVizUrl(stream: ReadableStream<Uint8Array>): Promise<string> {
+ * a member fails. The room's own locator comes off stdout through
+ * `readAnnouncedLocator`; this is the other announcement, and it is a sturdyref
+ * rather than an address: a viewer enlivens it, and it names where the endpoint
+ * listens for the producers that write to it. */
+async function awaitVizSturdyref(stream: ReadableStream<Uint8Array>): Promise<string> {
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
 	let buf = "";
@@ -124,20 +127,25 @@ interface SessionRow {
 	sessionId?: string;
 }
 
-/** Follow the server's live trace broadcast, the same WebSocket ocapnviz's Live
- * mode connects to, and keep one row per session.
+/** Follow the server's live trace, the same way ocapnviz's Live mode does, and
+ * keep one row per session.
  *
- * It resolves only once the socket is open, and the members are started after
- * that. The broadcast does replay the sessions that are live when a viewer
+ * Records arrive through a capability rather than as frames off a socket: the
+ * endpoint hands them to an inbox this viewer spawns, after enlivening the
+ * sturdyref the server announced. `viz_viewer.ts` is the one place that
+ * connection is made, so this harness reads the endpoint through exactly the
+ * shape the browser proofs and production ocapnviz do.
+ *
+ * It resolves only once the viewer is subscribed, and the members are started
+ * after that. The endpoint does replay the sessions that are live when a viewer
  * connects, but nothing replays a session that opened and closed in the gap, so
  * connecting first is what makes this a reading rather than a race. */
-function watchTrace(
-	url: string,
-): Promise<{ rows: Map<string, SessionRow>; close: () => void }> {
+async function watchTrace(
+	sturdyref: string,
+): Promise<{ rows: Map<string, SessionRow>; close: () => Promise<void> }> {
 	const rows = new Map<string, SessionRow>();
-	const socket = new WebSocket(url);
-	socket.onmessage = (event) => {
-		const ev = JSON.parse(event.data) as TraceEvent;
+	const viewer = await connectVizViewer(vizPortOf(sturdyref), sturdyref, (record) => {
+		const ev = record as unknown as TraceEvent;
 		const row = rows.get(ev.session) ?? {};
 		if (ev.kind === "ocapn.session-opened") {
 			row.codec = ev.codec;
@@ -148,11 +156,8 @@ function watchTrace(
 			row.label = ev.meta.label;
 		} else return;
 		rows.set(ev.session, row);
-	};
-	return new Promise((resolve, reject) => {
-		socket.onopen = () => resolve({ rows, close: () => socket.close() });
-		socket.onerror = () => reject(new Error(`could not follow the trace at ${url}`));
 	});
+	return { rows, close: () => viewer.close() };
 }
 
 /** The one session the room annotated with `label`, or a failure naming what the
@@ -220,12 +225,18 @@ let trace: { rows: Map<string, SessionRow>; close: () => void } | null = null;
 try {
 	// Both announcements come out before the first member dials: the trace URL on
 	// stderr, the room's own locator on stdout.
-	const vizUrl = await awaitVizUrl(server.stderr);
+	const vizRef = await awaitVizSturdyref(server.stderr);
 	const locator = await readAnnouncedLocator(server, ANNOUNCE_MS);
 	drainRest(server.stdout);
-	console.log(`${GATE}: rooms server at ${locator}, live trace at ${vizUrl}`);
+	console.log(`${GATE}: rooms server at ${locator}, live trace at ${vizRef}`);
 
-	trace = await watchTrace(vizUrl);
+	trace = await watchTrace(vizRef);
+	// The vat is a producer rather than a viewer, and the two halves of this
+	// endpoint are reached differently: a viewer enlivens the capability above,
+	// while a producer opens a socket and writes records to it. So the vat is
+	// told where the endpoint listens, which the endpoint itself names in the
+	// sturdyref it announced.
+	const publishUrl = `ws://127.0.0.1:${vizPortOf(vizRef)}/`;
 
 	// Both members enter the same room and each waits to hear the other. The
 	// pancake client posts once its whole roster is present; the Goblins vat
@@ -253,7 +264,7 @@ try {
 				PANCAKE_NICK,
 			],
 			ROOT,
-			{ ROOMS_VIZ_URL: vizUrl },
+			{ ROOMS_VIZ_URL: publishUrl },
 		),
 	]);
 
@@ -328,7 +339,7 @@ try {
 	failed = true;
 	console.error(`${GATE} FAILED: ${err instanceof Error ? err.message : err}`);
 } finally {
-	trace?.close();
+	await trace?.close();
 	await stopSpawnedServer(server);
 }
 

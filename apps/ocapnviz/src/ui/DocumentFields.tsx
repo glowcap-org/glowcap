@@ -64,23 +64,11 @@ import type { Engine } from "../engine/engine.ts";
 import type { AppMode } from "../state/app-state.ts";
 import { stageCamera } from "../render/stage-camera.ts";
 import { ClearGlyph, PinGlyph } from "./glyphs.tsx";
-import {
-  DEFAULT_STAGE_VIEW,
-  formatStageZoom,
-  initialStageView,
-  sameStageView,
-} from "../render/stage-view.ts";
+import { DEFAULT_STAGE_VIEW, formatStageZoom, initialStageView, sameStageView } from "../render/stage-view.ts";
 import type { EditSession } from "./inspector/shared.tsx";
 import type { BufferSourceInfo } from "../state/app-state.ts";
 import { stateChipBase } from "./EntityChips.tsx";
-import {
-  Field,
-  InlineTextField,
-  TimeScrubInput,
-  valueMono,
-  valueName,
-  valueText,
-} from "./inspector/shared.tsx";
+import { Field, InlineTextField, TimeScrubInput, valueMono, valueName, valueText } from "./inspector/shared.tsx";
 import { c, SPACE } from "./tokens.ts";
 import { useDocVersion } from "./useDocVersion.ts";
 
@@ -121,9 +109,7 @@ export function DocumentFields(
       <>
         {said.map((row) => (
           <Field key={row.label} label={row.label}>
-            {"instant" in row && row.instant
-              ? <Stamp at={row.text!} />
-              : <span style={row.style}>{row.text}</span>}
+            {"instant" in row && row.instant ? <Stamp at={row.text!} /> : <span style={row.style}>{row.text}</span>}
           </Field>
         ))}
         <OriginRow source={source} edited={edited} />
@@ -378,9 +364,7 @@ function OpeningView(
   return (
     <span style={openingRow}>
       <span style={valueMono}>
-        {`${formatStageZoom(opensAt.zoom)} at ${
-          Math.round(opensAt.center.x)
-        }, ${Math.round(opensAt.center.y)}`}
+        {`${formatStageZoom(opensAt.zoom)} at ${Math.round(opensAt.center.x)}, ${Math.round(opensAt.center.y)}`}
       </span>
       {editor !== undefined && (
         <span style={openingButtons}>
@@ -395,9 +379,7 @@ function OpeningView(
               // undo.
               editor.beginEdit("Set where the document opens");
               engine.setOpeningView(
-                sameStageView(settled, DEFAULT_STAGE_VIEW)
-                  ? undefined
-                  : settled,
+                sameStageView(settled, DEFAULT_STAGE_VIEW) ? undefined : settled,
               );
               editor.endEdit();
             }}

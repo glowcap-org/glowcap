@@ -25,6 +25,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_viz_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { connectVizViewer, scrapeVizSturdyref } from "./viz_viewer.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -57,19 +58,13 @@ async function waitForHttp(port: number): Promise<void> {
 	fail("serve.ts did not answer with a room locator");
 }
 
-/** A viewer on the endpoint, exactly as ocapnviz connects. */
+/** A viewer on the endpoint, exactly as ocapnviz connects: the WebSocket is
+ * only the byte channel, and records arrive through an inbox capability after
+ * enlivening the sturdyref the server announced. */
 type Record_ = Record<string, unknown>;
-async function watch(port: number): Promise<Record_[]> {
+async function watch(port: number, sturdyref: string): Promise<Record_[]> {
 	const seen: Record_[] = [];
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
-	socket.onmessage = (msg) => {
-		if (typeof msg.data === "string") seen.push(JSON.parse(msg.data));
-	};
-	await new Promise<void>((resolve, reject) => {
-		socket.onopen = () => resolve();
-		socket.onerror = () =>
-			reject(new Error("the live timeline endpoint would not accept a viewer"));
-	});
+	await connectVizViewer(port, sturdyref, (record) => seen.push(record));
 	return seen;
 }
 
@@ -109,6 +104,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -118,9 +114,12 @@ const web = new Deno.Command("deno", {
 	],
 	cwd: ROOT,
 	env: { ROOMS_VIZ_PORT: String(vizPort) },
-	stdout: "piped",
-	stderr: "inherit",
+	stdout: "inherit",
+	stderr: "piped",
 }).spawn();
+// The viz sturdyref rides the server's stderr; the scraper tees the stream
+// through so the run stays observable.
+const vizRef = scrapeVizSturdyref(web.stderr);
 
 let browser: Browser | null = null;
 try {
@@ -132,7 +131,7 @@ try {
 		fail(`the page is told the endpoint is on ${servedPort}, not ${vizPort}`);
 	}
 
-	const seen = await watch(vizPort);
+	const seen = await watch(vizPort, await vizRef);
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const alice = await joinAs(browser, httpPort, "web-alice");
@@ -244,9 +243,7 @@ try {
 		`PASS: a browser-to-browser direct message reached the live timeline — ${opens.length} ` +
 			`sessions from ${scopes.size} producers on one feed, the room out of the DM's path, ` +
 			`the direct conversation carried from ${dmSessionIds.length} end(s) under one ` +
-			`session id ${
-				dm.session_id.slice(0, 12)
-			}… with ${dmTraffic.length} message records on it`,
+			`session id ${dm.session_id.slice(0, 12)}… with ${dmTraffic.length} message records on it`,
 	);
 } finally {
 	clearTimeout(deadline);

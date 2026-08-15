@@ -1,11 +1,5 @@
 import { type With, World } from "miniplex";
-import type {
-  CaptpVersion,
-  Codec,
-  PeerProfile,
-  SessionSide,
-  SessionState,
-} from "../schema/topology.ts";
+import type { CaptpVersion, Codec, PeerProfile, SessionSide, SessionState } from "../schema/topology.ts";
 
 /**
  * ECS world. The world *is* the graph — no parallel data structure.

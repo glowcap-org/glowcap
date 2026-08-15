@@ -19,12 +19,15 @@ from ._ffi_ocapn import _lib, _read_last_error
 
 _OK = _abi.OK
 
+
 def abi_version() -> tuple[int, int, int]:
     """The linked library's ``(major, minor, patch)`` ABI version."""
     major = ctypes.c_uint32()
     minor = ctypes.c_uint32()
     patch = ctypes.c_uint32()
-    _lib.pancake_abi_version(ctypes.byref(major), ctypes.byref(minor), ctypes.byref(patch))
+    _lib.pancake_abi_version(
+        ctypes.byref(major), ctypes.byref(minor), ctypes.byref(patch)
+    )
     return (major.value, minor.value, patch.value)
 
 
@@ -48,12 +51,18 @@ class AbortDetail:
     counterpart of the C ABI's ``PancakeLastAbort``. ``domain`` names the layer
     that refused (``"codec"``, ``"session"``, or ``"foreign"``), ``kind`` the
     projected ``op:abort`` kind when one exists, ``message`` the static
-    diagnostic, and ``error_name`` the originating error."""
+    diagnostic, ``error_name`` the originating error, and
+    ``abort_delivery_error_name`` a failure publishing the terminal abort,
+    and ``secondary_error_name`` / ``secondary_error_count`` the bounded
+    cleanup or consequence failures that followed the originating error."""
 
     domain: str
     kind: Optional[str]
     message: str
     error_name: str
+    abort_delivery_error_name: Optional[str]
+    secondary_error_name: Optional[str]
+    secondary_error_count: int
 
 
 class PancakeError(Exception):
@@ -67,7 +76,12 @@ class PancakeError(Exception):
     and why.
     """
 
-    def __init__(self, code: int, message: Optional[str] = None, abort: Optional[AbortDetail] = None):
+    def __init__(
+        self,
+        code: int,
+        message: Optional[str] = None,
+        abort: Optional[AbortDetail] = None,
+    ):
         if message:
             super().__init__(f"pancake error {code}: {message}")
         else:
@@ -75,6 +89,41 @@ class PancakeError(Exception):
         self.code = code
         self.message = message
         self.abort = abort
+        self.secondary: tuple[BaseException, ...] = ()
+        self.secondary_count = 0
+
+
+def _retain_cleanup_failure(
+    primary: BaseException, cleanup: BaseException
+) -> BaseException:
+    """Retain a later native cleanup failure without replacing its cause."""
+    if isinstance(primary, PancakeError):
+        primary.secondary_count = min((1 << 32) - 1, primary.secondary_count + 1)
+        if len(primary.secondary) < 64:
+            primary.secondary += (cleanup,)
+    else:
+        primary.add_note(f"additional pancake cleanup failure: {cleanup}")
+    return primary
+
+
+_FAILURE_CHAIN_CAP = 64
+
+
+def _retain_terminal_failure(
+    retained: list[BaseException], total: int, error: BaseException
+) -> int:
+    """Retain one distinct observed occurrence and return its saturated count.
+
+    Re-projecting the exact same exception object is idempotent. A different
+    exception is a different occurrence even when it came from the same
+    operation, so operation labels must never be used as deduplication keys.
+    """
+    if any(previous is error for previous in retained):
+        return total
+    total = min((1 << 32) - 1, total + 1)
+    if len(retained) < _FAILURE_CHAIN_CAP:
+        retained.append(error)
+    return total
 
 
 def _check(code: int) -> None:
@@ -116,6 +165,11 @@ class VowBroken(PancakeError):
         self.reason = reason
 
 
+def _vow_failure(code: int, reason: str) -> PancakeError:
+    """Project a core-issued vow failure code into the typed hierarchy."""
+    return VowBroken(reason) if code == _abi.ERR_BROKEN else PancakeError(code, reason)
+
+
 class FetchFailed(PancakeError):
     """Raised when a ``fetch`` settles, but not with a capability.
 
@@ -125,5 +179,7 @@ class FetchFailed(PancakeError):
     is ``ERR_BROKEN``, matching the other bindings."""
 
     def __init__(self, name: str):
-        super().__init__(_abi.ERR_BROKEN, f'fetch("{name}") did not resolve to a capability')
+        super().__init__(
+            _abi.ERR_BROKEN, f'fetch("{name}") did not resolve to a capability'
+        )
         self.name = name

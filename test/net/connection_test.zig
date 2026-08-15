@@ -330,9 +330,9 @@ test "pumpOver flushes the peer's queued outbound frames" {
 
 // R2 apex: the write-half abort-flush contract `Connection.flush` and `pumpOver`
 // share through `encodeAndFlush`. When `stepToIdle` fails it has already
-// projected the fail-loud `op:abort` onto outbound; the catch must best-effort
-// drain that abort to the wire (so the partner sees the close) and then surface
-// the classified cause. Previously only the read-half apply abort was pinned.
+// projected the fail-loud `op:abort` onto outbound; the catch drains that abort
+// to the wire and surfaces either the classified cause or an explicit terminal
+// delivery failure. Previously only the read-half apply abort was pinned.
 test "encodeAndFlush drains the projected abort to the wire when stepToIdle fails, then surfaces the cause" {
     const allocator = std.testing.allocator;
 
@@ -354,7 +354,7 @@ test "encodeAndFlush drains the projected abort to the wire when stepToIdle fail
     defer spill.deinit(allocator);
 
     // pumpOver runs encodeAndFlush first: stepToIdle fails on the duplicate, the
-    // catch best-effort drains the projected abort to `w`, then classifies it.
+    // catch drains the projected abort to `w`, then classifies it.
     try std.testing.expectError(error.ProtocolAbort, net.pumpOver(&peer, &empty, &writer, &spill));
 
     // The fail-loud `op:abort` reached the wire (the contract's whole point), and
@@ -362,4 +362,57 @@ test "encodeAndFlush drains the projected abort to the wire when stepToIdle fail
     try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "op:abort") != null);
     const cause = peer.lastAbort().?;
     try std.testing.expectEqual(engine.abort_projection.Domain.session, cause.domain);
+}
+
+test "encodeAndFlush reports a refused projected-abort write without losing its protocol cause" {
+    const allocator = std.testing.allocator;
+
+    var peer = stubNegotiatingPeer(allocator);
+    defer peer.deinit();
+    try peer.feedOwned(try startSessionFrame(allocator, "remote"));
+    try peer.feedOwned(try startSessionFrame(allocator, "remote"));
+
+    var empty = std.Io.Reader.fixed("");
+    var no_space: [0]u8 = .{};
+    var writer = std.Io.Writer.fixed(&no_space);
+    var spill: net.Spill = .{};
+    defer spill.deinit(allocator);
+
+    try std.testing.expectError(error.AbortFlushFailed, net.pumpOver(&peer, &empty, &writer, &spill));
+    const cause = peer.lastAbort().?;
+    try std.testing.expectEqual(engine.abort_projection.Domain.session, cause.domain);
+    try std.testing.expectEqualStrings("DuplicateStartSession", cause.error_name);
+}
+
+test "a connection-owned transport failure is claimed exactly once" {
+    const Fixture = struct {
+        failure: ?pancake.foundation.FailureChain,
+
+        fn close(_: *anyopaque) void {}
+        fn socket(_: *anyopaque) ?std.Io.net.Socket.Handle {
+            return null;
+        }
+        fn take(ctx: *anyopaque) ?pancake.foundation.FailureChain {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            const failure = self.failure;
+            self.failure = null;
+            return failure;
+        }
+    };
+
+    var fixture = Fixture{ .failure = .init(error.ReadFailed) };
+    var peer = stubNegotiatingPeer(std.testing.allocator);
+    defer peer.deinit();
+    var reader = std.Io.Reader.fixed("");
+    var storage: [1]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&storage);
+    var conn = net.Connection.init(undefined, &peer, &reader, &writer, .{
+        .ctx = &fixture,
+        .close_fn = Fixture.close,
+        .socket_handle_fn = Fixture.socket,
+        .take_failure_fn = Fixture.take,
+    });
+    const failure = conn.takeFailure().?;
+    try std.testing.expectEqual(error.ReadFailed, failure.cause);
+    try std.testing.expect(conn.takeFailure() == null);
 }

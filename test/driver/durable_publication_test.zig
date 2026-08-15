@@ -40,7 +40,7 @@ test "durable publication uses the host's selected acceptable location" {
         .ephemeral,
         dial_opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
 
     const selected: model.PeerLocator = .{
         .transport = "test-proxy",
@@ -109,9 +109,9 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     var done = std.atomic.Value(bool).init(false);
 
     var first = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer first.close() catch {};
+    defer first.deinit();
     var second = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer second.close() catch {};
+    defer second.deinit();
     var addr_buf: [64]u8 = undefined;
     const first_designator = try allocator.dupe(u8, try first.localDesignator(&addr_buf));
     defer allocator.free(first_designator);
@@ -127,10 +127,10 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     var no_remove = std.atomic.Value(bool).init(true);
 
     var first_serving = try io.concurrent(ServeDurable(FirstService).run, .{
-        &first, allocator, &first_uri, &first_published, &remove_requested, &removed, &done,
+        first, allocator, &first_uri, &first_published, &remove_requested, &removed, &done,
     });
     var second_serving = try io.concurrent(ServeDurable(SecondService).run, .{
-        &second, allocator, &second_uri, &second_published, &no_remove, &no_remove, &done,
+        second, allocator, &second_uri, &second_published, &no_remove, &no_remove, &done,
     });
     defer {
         done.store(true, .release);
@@ -144,7 +144,7 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     // The client dials only the first server. Enlivening the first sturdyref
     // must select that live dialed session rather than opening a second one.
     var dial_buf: [64]u8 = undefined;
-    const client = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
+    const client = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
     defer client.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -171,7 +171,7 @@ test "durable publication: select-or-dial enlivens over the selected and the fre
     while (!removed.load(.acquire)) {
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
     }
-    const late = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
+    const late = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&dial_buf, try tcp.parseDesignator(first_designator)), .ephemeral, dial_opts);
     defer late.deinit();
     try std.testing.expectError(driver.Error.FetchBroken, late.enlivenUri(first_uri.?));
     const still = try client.call(first_cap, "poke", &.{}, arena);

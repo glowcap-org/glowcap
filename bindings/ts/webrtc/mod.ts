@@ -7,5 +7,19 @@
 // with the room out of the byte path; a browser and a native peer each run their
 // own half (the native half is the `pancake_webrtc_*` sidecar).
 
+import type { Locator } from "@pancake/runtime";
+import { TRANSPORT_WEBRTC } from "@pancake/abi";
+
+/** Build the hint-free locator for a WebRTC peer's keyed identity. */
+export function locator(designator: string): Locator {
+	return {
+		transport: TRANSPORT_WEBRTC,
+		designator,
+		hints: new Map(),
+		hintWireForm: "boolean-false",
+	};
+}
+
 export { rtcChannel } from "./channel.ts";
+export { acceptRemoteCandidate, connector, type SignalingAuthority } from "./connector.ts";
 export { RtcPeer, type RtcPeerInit } from "./peer.ts";

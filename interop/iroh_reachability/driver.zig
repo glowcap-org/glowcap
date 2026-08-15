@@ -167,11 +167,17 @@ pub fn main(init: std.process.Init) !void {
     const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
     const client_entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
-    var listener = try net.netlayer.resolve(&server_entries, iroh.transport_name).?.listen(allocator, .{
+    var listen_result = switch (net.netlayer.resolve(&server_entries, iroh.transport_name).?.listen(allocator, .{
         .designator = "",
-        .hints = model.Hints.emptyFalse(),
-    });
-    defer listener.close();
+    })) {
+        .admitted => |result| result,
+        .failed => |failure| return failure.cause,
+    };
+    var listener = switch (listen_result.requireReady()) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
+    defer std.debug.assert(listener.close() == null);
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator, server_secret });
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(publish_settle_ms), .real) catch {};

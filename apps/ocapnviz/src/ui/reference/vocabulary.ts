@@ -159,28 +159,23 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 };
 
 /** Where the reasoning behind the verdicts lives. */
-export const TRANSPORTS_PAGE_URL =
-  "https://jimisaacs.github.io/pancake/transports/choosing/";
-export const TRANSPORTS_PAGE_NOTE =
-  "The project's choosing-a-transport page carries the assessment behind " +
+export const TRANSPORTS_PAGE_URL = "https://jimisaacs.github.io/pancake/transports/choosing/";
+export const TRANSPORTS_PAGE_NOTE = "The project's choosing-a-transport page carries the assessment behind " +
   "these verdicts: when to reach for each netlayer, how far it can be " +
   "trusted, and what the path proves. The rows here are the same claims, " +
   "said for the words this app shows on a session.";
 
 export const CODEC_ROWS: Record<CodecReferenceOption, ReferenceEntry> = {
   syrup: {
-    says:
-      "Syrup is Spritely's self-describing binary encoding, and every OCapN " +
+    says: "Syrup is Spritely's self-describing binary encoding, and every OCapN " +
       "peer can read it.",
   },
   capnp: {
-    says:
-      "Two ends write Cap'n Proto's pointer encoding only when both of them " +
+    says: "Two ends write Cap'n Proto's pointer encoding only when both of them " +
       "offered it at the hello.",
   },
   unknown: {
-    says:
-      "The trace said this session negotiated a codec this ABI generation " +
+    says: "The trace said this session negotiated a codec this ABI generation " +
       "does not name. The viewer keeps that fact separate from both built-ins.",
   },
 };
@@ -197,19 +192,16 @@ export const CAPTP_VERSION_ROWS: Record<
   ReferenceEntry
 > = {
   v1_0: {
-    says:
-      "The OCapN specification writes this version, and it is what a Spritely " +
+    says: "The OCapN specification writes this version, and it is what a Spritely " +
       "Goblins peer speaks.",
   },
   next: {
-    says:
-      "This is pancake's own forward version, and it is valid only with a " +
+    says: "This is pancake's own forward version, and it is valid only with a " +
       "pancake host at each end. A session running it therefore tells the " +
       "viewer both of its peers are pancake.",
   },
   unknown: {
-    says:
-      "The trace said this session negotiated a CapTP profile this viewer " +
+    says: "The trace said this session negotiated a CapTP profile this viewer " +
       "does not name. The viewer keeps that fact separate from the 1.0 floor.",
   },
 };
@@ -225,8 +217,7 @@ export const PROFILE_ROWS: Record<ProfileOption, ReferenceEntry> = {
       "producer says so, and nothing ever concludes it from what a peer does.",
   },
   other: {
-    says:
-      "Nobody has named this peer's implementation. Every peer starts here, " +
+    says: "Nobody has named this peer's implementation. Every peer starts here, " +
       "and it changes the moment the viewer is told.",
   },
 };

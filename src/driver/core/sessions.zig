@@ -18,7 +18,10 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
+const host_close = @import("host_close.zig");
 const host_pump = @import("host_pump.zig");
+const dial_plan = @import("dial_plan.zig");
+const capability = @import("capability.zig");
 const served_mod = @import("served.zig");
 const vocab = @import("vocab.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
@@ -32,6 +35,7 @@ const DialTarget = host_mod.DialTarget;
 const Served = served_mod.Served;
 const crypto = foundation.crypto;
 const session_seed_domain = host_mod.session_seed_domain;
+const DialSource = union(enum) { mint: void, over: *engine.Peer };
 
 /// Mint the dialing half of a session to the peer `locator` names:
 /// register the outbound with the crossed-hellos table, register the session
@@ -45,6 +49,19 @@ const session_seed_domain = host_mod.session_seed_domain;
 /// `Loop.dialLocator` completes; this path mints the peer.
 pub fn openDialedLocator(self: *Host, locator: model.PeerLocator) !*HostSession {
     return openDialedWith(self, .mint, locator.transport, locator.designator);
+}
+
+/// Realize one dial effect the core admitted before its current close barrier.
+/// The ticket, not an adapter-side lifecycle exception, is the authority that
+/// permits minting its session while Host finish is sealed.
+pub fn openPendingDial(self: *Host, ticket: engine.Node.PendingId) !?*HostSession {
+    try self.refuseReentry();
+    switch (self.lifecyclePhase()) {
+        .active, .finishing => {},
+        .terminating, .closed => return null,
+    }
+    const locator = self.node.pendingDial(ticket) orelse return null;
+    return try openDialedCommitted(self, .mint, locator.transport, locator.designator);
 }
 
 /// `openDialedLocator` over a peer the embedder owns and pins at a stable
@@ -71,11 +88,21 @@ pub fn openDialedOver(
 /// points cannot drift.
 pub fn openDialedWith(
     self: *Host,
-    source: union(enum) { mint: void, over: *engine.Peer },
+    source: DialSource,
     transport: []const u8,
     partner_designator: []const u8,
 ) !*HostSession {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
+    return openDialedCommitted(self, source, transport, partner_designator);
+}
+
+fn openDialedCommitted(
+    self: *Host,
+    source: DialSource,
+    transport: []const u8,
+    partner_designator: []const u8,
+) !*HostSession {
     const advertised = try requireAcceptableLocator(self);
     try refuseDuplicateDial(self, transport, partner_designator);
     // The designator is borrowed all the way to `mintShell`, which dupes it
@@ -125,10 +152,38 @@ pub fn openDialedWith(
     return helloAndEnroll(self, session, advertised);
 }
 
+/// Ensure an accepted session will have an acceptable location without
+/// displacing deployment policy. Resolves what this accept would sign
+/// (`dial_plan.planAccept`), completes it, and retains it, selecting it only
+/// when nothing is selected yet. An explicitly set advertised locator (a
+/// rendezvous route carrying its relay hint, a published address) is the
+/// deployment's claim of reachability; an accept that overwrote it with the
+/// listener-derived fallback would strip the hints a handoff recipient needs
+/// to dial this peer back.
+pub fn ensureAcceptAdvertisedLocator(
+    self: *Host,
+    scheme: model.transport.DesignatorScheme,
+    server_designator: []const u8,
+    accepted_local_addr: []const u8,
+    transport: []const u8,
+) !void {
+    const plan = dial_plan.planAccept(scheme, server_designator, accepted_local_addr);
+    var hint_buf: [1]model.HintEntry = undefined;
+    const candidate: model.PeerLocator = .{
+        .transport = transport,
+        .designator = plan.designator,
+        .hints = model.Hints.forDirectAddresses(plan.direct_addresses_hint, &hint_buf),
+    };
+    const complete = try self.prepareAdvertisedLocator(self.allocator, candidate);
+    defer model.freePeerLocator(self.allocator, complete);
+    try self.node.ensureAdvertisedLocator(complete);
+}
+
 /// Mint the accepting half of a session using this node's selected acceptable
 /// location, which may intentionally use another transport (ADR-0109).
 pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
     const advertised = try requireAcceptableLocator(self);
     const session = try mint(self, .accepted, transport);
     if ((try self.transportProfile(transport)).sealed_channel) {
@@ -144,6 +199,7 @@ pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession 
 /// routes through the peer but never frees it.
 pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []const u8) !*HostSession {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
     const advertised = try requireAcceptableLocator(self);
     const session = try mintOver(self, peer, .accepted, transport);
     if ((try self.transportProfile(transport)).sealed_channel) {
@@ -245,12 +301,12 @@ pub fn refuseDuplicateDial(self: *const Host, transport: []const u8, partner_des
 /// duplicates (dual-accept) keep the already-indexed session and condemn
 /// the newcomer.
 pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.view.StartSession) !void {
-    if (session.condemned) return;
+    if (session.isTerminating()) return;
     // With signature verification disabled, `session_pubkey` is only a
     // partner assertion. It cannot identify a peer for deduplication or
     // authorize early handoff verification.
     if (!session.served.port.peer.verify_partner_handshake) return;
-    const partner_key = crypto.PeerKey.fromSlice(ss.session_pubkey) catch return;
+    const partner_key = try crypto.PeerKey.fromSlice(ss.session_pubkey);
     const side = try engine.handoff_names.sideName(&partner_key.bytes);
     // Two questions, and only the second identifies a *peer* once each
     // session draws its own key (ADR-0097). A matching session key means
@@ -449,7 +505,7 @@ pub fn unindexSession(self: *Host, session: *HostSession) void {
 pub fn liveIndexedSession(self: *const Host, peer_id: ?engine.PeerId) ?*HostSession {
     const pid = peer_id orelse return null;
     const session = self.sessions.get(pid) orelse return null;
-    if (session.condemned) return null;
+    if (session.lifecyclePhase() != .active and session.lifecyclePhase() != .finishing) return null;
     return session;
 }
 
@@ -462,7 +518,7 @@ pub fn dialedSessionFor(self: *Host, transport: []const u8, designator: []const 
     self.assertOwner();
     const peer_id = self.dialed_by_target.get(target(transport, designator)) orelse return null;
     const session = self.sessions.get(peer_id) orelse return null;
-    if (session.condemned) return null;
+    if (session.lifecyclePhase() != .active and session.lifecyclePhase() != .finishing) return null;
     return session;
 }
 
@@ -474,7 +530,7 @@ fn target(transport: []const u8, designator: []const u8) DialTarget {
 /// from the transport scheme that the designator is a key; byte shape alone
 /// carries no such authority.
 pub fn refuseUnheldIdentity(self: *const Host, designator: []const u8) error{UnheldIdentity}!void {
-    const claimed = crypto.PeerKey.fromDesignator(designator) orelse return;
+    const claimed = crypto.PeerKey.fromDesignator(designator) orelse return error.UnheldIdentity;
     const held = self.node.secretKey().publicKey();
     if (!std.mem.eql(u8, claimed.asBytes(), held.asBytes())) return error.UnheldIdentity;
 }
@@ -506,6 +562,10 @@ pub fn releaseSession(self: *Host, session: *HostSession) HostError!void {
     self.in_callback = true;
     {
         defer self.in_callback = false;
+        // A release is terminal even when the embedder skipped the explicit
+        // close verb. Record that fact before breaking vows so their completion
+        // classification comes from core lifecycle, not adapter call order.
+        host_close.markSessionTerminating(self, session);
         session.served.port.breakFarVows(session.served.closeReason("connection released"));
         // The preflight above proves this is the owning thread and outside a
         // callback. A live owned shell therefore has one inactive ingress;
@@ -516,11 +576,12 @@ pub fn releaseSession(self: *Host, session: *HostSession) HostError!void {
 
     if (session.role == .dialed)
         self.hellos.unregister(self.allocator, target(session.transport, session.role.dialed));
+    finishSessionOpen(self, session);
     unindexSession(self, session);
-    std.debug.assert(self.sessions.remove(session.peer_id));
     const peer_id = session.peer_id;
     _ = self.capabilities.invalidatePeer(peer_id);
-    vows_mod.dropVowRows(self, peer_id);
+    vows_mod.dropVowRows(self, session, session.served.closeReason("connection released"));
+    std.debug.assert(self.sessions.remove(peer_id));
     freeSessionShell(self, session);
     self.node.removePeer(peer_id);
     host_pump.finishVerb(self) catch |err| switch (err) {
@@ -535,9 +596,9 @@ pub fn releaseSession(self: *Host, session: *HostSession) HostError!void {
 }
 
 pub fn cancelSessionIngress(self: *Host, session: *HostSession, reason: []const u8) !void {
-    if (session.ingress_cancelled) return;
+    if (session.control.ingress_cancelled) return;
     try self.vat.cancelIngress(session.served.port.ingress, reason);
-    session.ingress_cancelled = true;
+    session.control.ingress_cancelled = true;
 }
 
 pub fn condemnRemainingSessions(self: *Host, message: []const u8) void {
@@ -663,12 +724,93 @@ pub fn enroll(self: *Host, session: *HostSession) void {
     session.served.serve_options = .{ .hook_ctx = session, .before_serve = Host.hostBeforeServe };
     session.served.port.setResolveInterceptor(.{ .ctx = session, .func = Host.hostResolveInterceptor });
     self.sessions.putAssumeCapacity(session.peer_id, session);
+    std.debug.assert(!session.control.open_pending);
+    session.control.open_pending = true;
+    self.beginSessionOperation(session);
     if (session.role == .dialed) {
         self.dialed_by_target.putAssumeCapacity(
             target(session.transport, session.role.dialed),
             session.peer_id,
         );
     }
+}
+
+/// Retire one admitted session-open operation after either handshake success
+/// or terminal teardown. The shell remains a live resource after success, but
+/// it is no longer pending work for Host finish.
+pub fn finishSessionOpen(self: *Host, session: *HostSession) void {
+    if (!session.control.open_pending) return;
+    session.control.open_pending = false;
+    self.finishSessionOperation(session);
+}
+
+fn prepareLocalCapability(self: *Host, session: *HostSession) !capability.FreshLocalReservation {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
+    return self.reserveFreshCapability(session);
+}
+
+/// Publish a Zig actor under one session's bootstrap namespace and return its
+/// Host-scoped capability. Export allocation, publication rollback, actor
+/// rooting, and capability adoption are one core transaction.
+pub fn publish(
+    self: *Host,
+    session: *HostSession,
+    name: []const u8,
+    comptime Behavior: type,
+    initial: Behavior,
+) !capability.Ref {
+    const reservation = try prepareLocalCapability(self, session);
+
+    const exported = try session.served.publish(&self.vat, name, Behavior, initial);
+    return self.retainReservedLocalCapability(reservation, exported.ref);
+}
+
+/// Publish a foreign-callback actor under one session's bootstrap namespace
+/// and return its Host-scoped capability. Adapters only construct the
+/// HostedActor trampoline; the transaction remains identical to `publish`.
+pub fn publishHosted(
+    self: *Host,
+    session: *HostSession,
+    name: []const u8,
+    hosted: actors.HostedActor,
+) !capability.Ref {
+    var hosted_pending = true;
+    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+
+    const reservation = try prepareLocalCapability(self, session);
+
+    hosted_pending = false;
+    const exported = try session.served.publishHosted(&self.vat, name, hosted);
+    return self.retainReservedLocalCapability(reservation, exported.ref);
+}
+
+/// Spawn a Zig actor and adopt its spawn root into one opaque Host capability.
+/// Wire positions remain lazy until the capability is marshalled.
+pub fn spawn(self: *Host, session: *HostSession, comptime Behavior: type, initial: Behavior) !capability.Ref {
+    const reservation = try prepareLocalCapability(self, session);
+
+    const actor = try self.vat.spawn(Behavior, initial);
+    errdefer self.vat.discardFreshActor(actor);
+    return self.adoptReservedLocalCapability(reservation, actor);
+}
+
+/// Foreign-callback twin of `spawn`.
+pub fn spawnHosted(
+    self: *Host,
+    session: *HostSession,
+    hosted: actors.HostedActor,
+) !capability.Ref {
+    var hosted_pending = true;
+    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+
+    const reservation = try prepareLocalCapability(self, session);
+
+    hosted_pending = false;
+    const actor = try self.vat.spawnHosted(hosted);
+    errdefer self.vat.discardFreshActor(actor);
+    return self.adoptReservedLocalCapability(reservation, actor);
 }
 
 /// Free one session's owned shell after it has been unregistered from every
@@ -678,6 +820,8 @@ pub fn enroll(self: *Host, session: *HostSession) void {
 /// a dialed session, `hellos.unregister`): the transport and designator bytes
 /// back the dial index key until this frees their shared block.
 pub fn freeSessionShell(self: *Host, session: *HostSession) void {
+    finishSessionOpen(self, session);
+    _ = self.session_close_timing.remove(session.peer_id); // tolerant: only a finite explicit finish owns a timing row
     // The export range is not given back here: `engine.Node.removePeer`
     // reclaims it from the peer that held it, so the draw and the return
     // sit on the same side of the boundary.
@@ -702,6 +846,7 @@ pub fn failOpen(self: *Host, session: *HostSession) void {
     unindexSession(self, session);
     // tolerant: enrolled only when the failure came after `enroll`.
     _ = self.sessions.remove(session.peer_id);
+    finishSessionOpen(self, session);
     const peer_id = session.peer_id;
     cancelSessionIngress(self, session, session.served.closeReason("session open failed")) catch unreachable;
     freeSessionShell(self, session);

@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+source "${dir}/lib.sh"
+pancake_require_devcontainer "verify-ptrace"
+
 tmp="$(mktemp -t pancake-ptrace-XXXXXX)"
 trap 'rm -f "${tmp}" "${tmp}.c"' EXIT
 

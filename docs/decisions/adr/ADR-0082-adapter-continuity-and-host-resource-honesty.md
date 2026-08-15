@@ -71,9 +71,11 @@ never onto the sans-io CapTP core.
    survives Host process restart under an embedder-supplied store). Identity
    netlayers (keyed-tcp, iroh) already carry durable designators; this posture
    is the registry catching up. Until a store is wired, `Host.init` refuses
-   `.durable_bootstrap` with a panic so the arm cannot silently behave as
-   ephemeral. It is not CapTP message replay, not a Kafka commit log, and not
-   SwingSet orthogonal persistence in the engine.
+   `.durable_bootstrap` with `DurableBootstrapUnavailable` before publishing a
+   Host, so the arm cannot silently behave as ephemeral. The embedder decides
+   whether that initialization failure ends its process. It is not CapTP
+   message replay, not a Kafka commit log, and not SwingSet orthogonal
+   persistence in the engine.
 
 ## Scope (what this does not decide)
 

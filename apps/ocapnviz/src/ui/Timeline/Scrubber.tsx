@@ -18,33 +18,16 @@
  *  - Double-click: fit-all.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Container, Graphics, Rectangle } from "pixi.js";
 import type { ClockSnapshot } from "../../engine/clock.ts";
-import type {
-  MoveIntent,
-  MoveSpanIntent,
-} from "../../engine/authoring/events.ts";
+import type { MoveIntent, MoveSpanIntent } from "../../engine/authoring/events.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { observationsOf } from "../../engine/temporal/recording-access.ts";
 import { applyRowOrder, momentOf } from "../../engine/event-helpers.ts";
 import { momentEffective } from "../../engine/temporal/doc-resolver.ts";
-import {
-  type SelectMode,
-  selectModeFromModifiers,
-  type StageSelection,
-} from "../../render/types.ts";
-import {
-  entityKey,
-  type EntityRefKey,
-  type SurfaceGestureCtx,
-} from "../../interactions/types.ts";
+import { type SelectMode, selectModeFromModifiers, type StageSelection } from "../../render/types.ts";
+import { entityKey, type EntityRefKey, type SurfaceGestureCtx } from "../../interactions/types.ts";
 import { useGestureSurface } from "../../interactions/use-gesture-surface.ts";
 
 const SCRUBBER_SURFACE_TAG = "timeline";
@@ -79,19 +62,8 @@ import {
   type TimelineView,
   tToCanvasPx,
 } from "./state.ts";
-import {
-  entitiesInRect,
-  GUTTER_DRAG_GRAB_PX,
-  hitTestEvents,
-  hitTestGutter,
-  type ScrubberHit,
-} from "./hit-test.ts";
-import {
-  eyeballHoverStatus,
-  scrubberHoverAt,
-  timelineCursor,
-  type TimelineGesture,
-} from "./timeline-cursor.ts";
+import { entitiesInRect, GUTTER_DRAG_GRAB_PX, hitTestEvents, hitTestGutter, type ScrubberHit } from "./hit-test.ts";
+import { eyeballHoverStatus, scrubberHoverAt, timelineCursor, type TimelineGesture } from "./timeline-cursor.ts";
 import { drawScrubberScene } from "./scrubber-paint.ts";
 
 /** Default host `title` when the pointer is not on a gutter eyeball. */
@@ -138,9 +110,7 @@ export function scrubberHeight(
     orderedEntities: Record<Exclude<LaneKind, "ruler">, readonly string[]>;
   },
 ): number {
-  const rows = details === undefined
-    ? { peers: [], sessions: [], messages: [] }
-    : details.orderedEntities;
+  const rows = details === undefined ? { peers: [], sessions: [], messages: [] } : details.orderedEntities;
   return RULER_HEIGHT + RULER_TOP_PAD +
     rowStackHeight(
       expanded,
@@ -727,15 +697,14 @@ export function Scrubber(
       // idiom as `bandActive` / `snapActive`; the snapshot
       // captures the live `finalIndex` for each frame.
       const drag = dragRef.current;
-      const rowDrag: RowDragSnapshot | null =
-        drag?.kind === "row-drag" && drag.moved
-          ? {
-            category: drag.category,
-            entityId: drag.entityId,
-            startIndex: drag.startIndex,
-            finalIndex: drag.finalIndex,
-          }
-          : null;
+      const rowDrag: RowDragSnapshot | null = drag?.kind === "row-drag" && drag.moved
+        ? {
+          category: drag.category,
+          entityId: drag.entityId,
+          startIndex: drag.startIndex,
+          finalIndex: drag.finalIndex,
+        }
+        : null;
       const rowDragActive = rowDrag !== null;
       // Event retimes mutate `doc` inside a transaction without
       // bumping `docVersion`, so React props stay stale until
@@ -1206,11 +1175,7 @@ export function Scrubber(
         // click has a visible effect (Inspector follows + stage
         // halo lights up) and matches what clicking the entity
         // anywhere else does.
-        const kind = drag.category === "peers"
-          ? "peer"
-          : drag.category === "sessions"
-          ? "session"
-          : "message";
+        const kind = drag.category === "peers" ? "peer" : drag.category === "sessions" ? "session" : "message";
         onSelectEvent?.({ kind, id: drag.entityId });
       }
     }
@@ -1836,9 +1801,7 @@ function applyEventDragMove(
   // to read its eventId and times.
   if (drag.hit.drag === null) return;
   const plan = drag.hit.drag;
-  const dt = plotWidth > 0
-    ? totalDx * (view.windowEnd - view.windowStart) / plotWidth
-    : 0;
+  const dt = plotWidth > 0 ? totalDx * (view.windowEnd - view.windowStart) / plotWidth : 0;
   // Entity-addressed spans (freshly authored entities with no
   // observation events): same gestures, dispatched through
   // `move-entity-span`. Handled before the event-addressed switch
@@ -1852,21 +1815,13 @@ function applyEventDragMove(
       drag.txOpen = true;
     }
     const rawEntityT = Math.max(0, plan.originalT + dt);
-    const newEntityT = e.shiftKey
-      ? snapToMajorTick(rawEntityT, view, plotWidth)
-      : rawEntityT;
+    const newEntityT = e.shiftKey ? snapToMajorTick(rawEntityT, view, plotWidth) : rawEntityT;
     onMoveEntitySpan?.({
-      kind: plan.kind === "entity-span-body"
-        ? "translate"
-        : plan.edge === "left"
-        ? "resize-start"
-        : "resize-end",
+      kind: plan.kind === "entity-span-body" ? "translate" : plan.edge === "left" ? "resize-start" : "resize-end",
       ref: plan.ref,
       newT: newEntityT,
     });
-    snapLineRef.current = e.shiftKey
-      ? tToCanvasPx(newEntityT, rect.width, view)
-      : null;
+    snapLineRef.current = e.shiftKey ? tToCanvasPx(newEntityT, rect.width, view) : null;
     return;
   }
   const dragEventId = plan.eventId;
@@ -1876,26 +1831,20 @@ function applyEventDragMove(
   // Anchor t for snap/bulk math: span/moment plans use originalT;
   // message plans use `start` (sent time) as the anchor, since that's
   // the dragged endpoint for body and left-edge gestures.
-  const anchorT = plan.kind === "message-edge" || plan.kind === "message-body"
-    ? plan.start
-    : plan.originalT;
+  const anchorT = plan.kind === "message-edge" || plan.kind === "message-body" ? plan.start : plan.originalT;
   if (drag.bulkOriginals) {
     // BULK: translate every selected event by the same dt. Snap (when
     // held) snaps the DRAGGED event first, then applies the same
     // effective dt to the rest, so the user's primary value lands on
     // the grid and the cohort stays in step.
     const rawAnchor = Math.max(0, anchorT + dt);
-    const snappedAnchor = e.shiftKey
-      ? snapToMajorTick(rawAnchor, view, plotWidth)
-      : rawAnchor;
+    const snappedAnchor = e.shiftKey ? snapToMajorTick(rawAnchor, view, plotWidth) : rawAnchor;
     const effectiveDt = snappedAnchor - anchorT;
     for (const orig of drag.bulkOriginals) {
       const newT = Math.max(0, orig.t + effectiveDt);
       onMoveEvent({ kind: "translate", eventId: orig.eventId, newT });
     }
-    snapLineRef.current = e.shiftKey
-      ? tToCanvasPx(snappedAnchor, rect.width, view)
-      : null;
+    snapLineRef.current = e.shiftKey ? tToCanvasPx(snappedAnchor, rect.width, view) : null;
     return;
   }
   // Single-event path. One switch over the drag plan kind routes
@@ -1907,17 +1856,13 @@ function applyEventDragMove(
       if (plan.edge === "right") {
         const sentT = plan.start;
         const rawArrival = Math.max(sentT, plan.end + dt);
-        const newArrival = e.shiftKey
-          ? Math.max(sentT, snapToMajorTick(rawArrival, view, plotWidth))
-          : rawArrival;
+        const newArrival = e.shiftKey ? Math.max(sentT, snapToMajorTick(rawArrival, view, plotWidth)) : rawArrival;
         onMoveEvent({
           kind: "resize-end",
           eventId: dragEventId,
           newArrivalT: newArrival,
         });
-        snapLineRef.current = e.shiftKey
-          ? tToCanvasPx(newArrival, rect.width, view)
-          : null;
+        snapLineRef.current = e.shiftKey ? tToCanvasPx(newArrival, rect.width, view) : null;
       } else {
         // Left edge: sent moves, arrival stays pinned. Clamp sent ≤ arrival.
         const clampedT = Math.min(newT, plan.end);
@@ -1926,18 +1871,14 @@ function applyEventDragMove(
           eventId: dragEventId,
           newT: clampedT,
         });
-        snapLineRef.current = e.shiftKey
-          ? tToCanvasPx(newT, rect.width, view)
-          : null;
+        snapLineRef.current = e.shiftKey ? tToCanvasPx(newT, rect.width, view) : null;
       }
       return;
     }
     case "message-body":
     case "span-body": {
       onMoveEvent({ kind: "translate", eventId: dragEventId, newT });
-      snapLineRef.current = e.shiftKey
-        ? tToCanvasPx(newT, rect.width, view)
-        : null;
+      snapLineRef.current = e.shiftKey ? tToCanvasPx(newT, rect.width, view) : null;
       return;
     }
     case "span-edge": {
@@ -1949,9 +1890,7 @@ function applyEventDragMove(
           ? { kind: "resize-start", eventId: dragEventId, newT }
           : { kind: "translate", eventId: dragEventId, newT },
       );
-      snapLineRef.current = e.shiftKey
-        ? tToCanvasPx(newT, rect.width, view)
-        : null;
+      snapLineRef.current = e.shiftKey ? tToCanvasPx(newT, rect.width, view) : null;
       return;
     }
     case "moment": {
@@ -1967,17 +1906,13 @@ function applyEventDragMove(
       // gesture from asking for one.
       const anchorEv = events.find((ev) => ev.id === dragEventId);
       const moment = anchorEv === undefined ? null : momentOf(anchorEv);
-      const dispatchT = moment === null
-        ? newT
-        : momentEffective(doc, moment.lane, moment.owner, newT);
+      const dispatchT = moment === null ? newT : momentEffective(doc, moment.lane, moment.owner, newT);
       onMoveEvent({
         kind: "translate",
         eventId: dragEventId,
         newT: dispatchT,
       });
-      snapLineRef.current = e.shiftKey
-        ? tToCanvasPx(dispatchT, rect.width, view)
-        : null;
+      snapLineRef.current = e.shiftKey ? tToCanvasPx(dispatchT, rect.width, view) : null;
       return;
     }
   }

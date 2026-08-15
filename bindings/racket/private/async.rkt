@@ -38,10 +38,14 @@
 ;; flag guarding the C handle after `session-close!` (no host verb may touch
 ;; a released session). `session` boxes the owning `session` once it is built, so a
 ;; flush can reach the host from the pump handle alone.
-(struct async-connection (transport tail-resumed? reader closed? released? session) #:transparent)
+;; `serve-hook` is a box holding a thunk `session-serve` runs once before its
+;; first pump: how a loop-backed session announces post-open setup is done so
+;; the native loop starts delivering its inbound. Byte-fed connections keep
+;; the default no-op; their serve loop's empty feed is the same announcement.
+(struct async-connection (transport tail-resumed? reader closed? released? session serve-hook) #:transparent)
 
 (define (make-async-connection transport)
-  (async-connection transport (box #f) (box #f) (box #f) (box #f) (box #f)))
+  (async-connection transport (box #f) (box #f) (box #f) (box #f) (box #f) (box void)))
 
 ;; The TCP port transport: frames concatenate into the byte stream and flush
 ;; once; a fill reads whatever is ready, waiting on the port and the wake event

@@ -117,11 +117,13 @@ pub const AnswerName = position.AnswerName;
 const hint_types = @import("hints.zig");
 pub const HintValue = hint_types.HintValue;
 pub const HintEntry = hint_types.HintEntry;
+pub const firstDuplicateHintName = hint_types.firstDuplicateName;
 pub const Hints = hint_types.Hints;
 
 const peer_locator = @import("peer_locator.zig");
 pub const PeerLocator = peer_locator.PeerLocator;
 pub const validatePeerLocator = peer_locator.validate;
+pub const validateLocatorHintAddition = peer_locator.validateHintAddition;
 pub const PeerLocatorValidationError = peer_locator.ValidationError;
 
 pub const SessionPubkey = struct {

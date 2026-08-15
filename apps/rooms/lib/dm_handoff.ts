@@ -33,13 +33,15 @@
 // and this runner drives the identical handoff and assertions over it.
 
 import process from "node:process";
-import { type Behavior, type Host, Ref, type Session } from "@pancake/stack";
+import { Ref } from "@pancake/runtime";
+import type { Behavior, Host, Session } from "@pancake/runtime";
 import { serveDirectory } from "../server/main.ts";
 import { dial } from "./locator.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./protocol.ts";
 import { INTRODUCTION_PENDING, roomErrorOf } from "./errors.ts";
 import { inboxOfferer } from "./dm_inbox.ts";
 import { Directory } from "./room_client.ts";
+import type { RoomsRuntime } from "./locator.ts";
 
 /** A stream of inbound sessions: each value yielded is one accepted connection. Both
  * Bob's direct-dial accepts and the room's listener are this same shape. */
@@ -50,14 +52,19 @@ type SessionStream = AsyncIterable<Session>;
  * dial), its dialable locator, and a listener close. */
 interface MemberEndpoint {
 	host: Host;
+	runtime: RoomsRuntime;
 	sessions: SessionStream;
 	locator: string;
-	close(): void;
+	close(): void | Promise<void>;
 }
 
 /** The rendezvous room's listener (served as the directory) and its dialable
  * locator. */
 interface RoomEndpoint {
+	/** The Host the room's directory is published on. The directory belongs to
+	 * the Host rather than to any one accepted session, so it has to be reachable
+	 * before the first dial rather than published as each arrives. */
+	host: Host;
 	listener: SessionStream;
 	locator: string;
 	close(): void | Promise<void>;
@@ -130,8 +137,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		bobInbox.push({ from: peer, text: String(args[0]) });
 		return null;
 	};
-	const received = (from: string, text: string) =>
-		bobInbox.some((m) => m.from === from && m.text === text);
+	const received = (from: string, text: string) => bobInbox.some((m) => m.from === from && m.text === text);
 
 	try {
 		const bob = await t.startMember("bob");
@@ -150,13 +156,16 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		})();
 
 		const room = await t.startRoom();
-		const roomServe = serveDirectory(room.listener);
+		const roomServe = serveDirectory(room.host, room.listener);
 
 		// Bob dials the room on his own Host and registers his dialable locator, so
 		// `introduce` can hand an inbox of his on as a gift. The shared `inboxOfferer`
 		// answers the directory's requests for one, which is the same code the
 		// browser peer runs.
-		const bobDirectory = await Directory.connect(room.locator, (l) => dial(l, bob.host));
+		const bobDirectory = await Directory.connect(
+			room.locator,
+			(locator) => dial(locator, bob.runtime),
+		);
 		let asked: string | null = null;
 		const bobOfferer = inboxOfferer({
 			host: bob.host,
@@ -178,7 +187,7 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		// Carol registers too: the room grants her the name Bob's inbox is minted
 		// for, and it is the name the directory reads off her connection rather than
 		// anything she says in a message.
-		const carolToRoom = await dial(room.locator, carol.host);
+		const carolToRoom = await dial(room.locator, carol.runtime);
 		carolToRoom.serve().catch(() => {});
 		const carolDir = await carolToRoom.fetch(DIRECTORY);
 		let carolRegistered = false;
@@ -231,8 +240,8 @@ export async function runDmHandoff(t: DmTransport): Promise<void> {
 		carolToRoom.close();
 		await bobDirectory.close();
 		await room.close();
-		bob.close();
-		carol.close();
+		await bob.close();
+		await carol.close();
 		await Promise.allSettled([bobAccept, carolAccept, roomServe]);
 		process.exit(0);
 	} catch (err) {

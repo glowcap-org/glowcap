@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
 const model = pancake.ocapn.model;
@@ -56,11 +57,11 @@ test "noise-tcp: a sealed session opens over loopback and both legs hold the cha
         .{ .keyed = server_secret },
         dial_opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
 
     // The dial locator, copied off the advertised one before the accept task
     // starts: the key designator says who, the hint says where.
-    const advertised = server.advertisedLocator();
+    const advertised = try server.advertisedLocator();
     var designator_buf: [crypto.PeerKey.designator_len]u8 = undefined;
     @memcpy(designator_buf[0..advertised.designator.len], advertised.designator);
     const designator = designator_buf[0..advertised.designator.len];
@@ -70,7 +71,7 @@ test "noise-tcp: a sealed session opens over loopback and both legs hold the cha
     const hint = hint_buf[0..advertised_hint.len];
     try std.testing.expectEqualStrings(&server_secret.publicKey().toDesignator(), designator);
 
-    var host_future = try io.concurrent(hostOnce, .{&server});
+    var host_future = try io.concurrent(hostOnce, .{server});
     const client_result = clientAsserts(allocator, io, designator, hint);
     const host_result = host_future.await(io);
     try client_result;
@@ -134,11 +135,11 @@ test "noise-tcp: the borrowing blocking tier refuses the sealed symbol on both h
         .{ .handshake = .{ .ms = 1_000 }, .settle = .{ .ms = 1_000 } },
     ));
 
-    const listener = try resident.netlayer().listen(allocator, .{
+    const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = secret.publicKey(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
     try std.testing.expectError(driver.Error.SealedChannelRequiresHost, driver.acceptVia(
         allocator,
         listener,

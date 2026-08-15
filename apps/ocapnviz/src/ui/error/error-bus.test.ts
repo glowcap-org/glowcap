@@ -1,10 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import {
-  _resetErrorBusForTesting,
-  type AppError,
-  pushError,
-  subscribeErrors,
-} from "./error-bus.ts";
+import { _resetErrorBusForTesting, type AppError, pushError, subscribeErrors } from "./error-bus.ts";
 import { collisionError, internalError } from "../../engine/errors.ts";
 
 function sample(): AppError {

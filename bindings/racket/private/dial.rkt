@@ -1,28 +1,19 @@
 #lang racket/base
-;; The dial executor (binding spine Pass 3c): one path that turns a parsed
-;; locator into an open, handshaken `session`, shared by `connect` and
-;; handoff-redeem alike.
+;; The dial executor: one path that turns an OCapN locator into an open,
+;; handshaken `session`, shared by Runtime dialing and handoff redemption.
 ;;
-;; Every dial decision — the host:port grammar, the direct-addresses hint rule,
-;; the peer-id reachability posture, the scheme dispatch, and the typed errors —
-;; is resolved once in the core by `pancake_host_plan_dial`, which hands back a
-;; `PancakeDialPlan`. This module holds no dial business logic: it marshals the
-;; posture, reads the plan into a language sum, and performs the one thing the
-;; core cannot — the byte-channel open (`tcp-connect`, or the iroh companion).
-;; Adding a transport is a core change, not an edit here. Session owns
-;; mint/handshake (`establish-dialed-locator-session` /
-;; `establish-accepted-session`); this module owns plan + channel open + the
-;; public `connect` dialer.
+;; Locator semantics belong to OCapN and transport realization belongs to the
+;; selected product package. This module only chooses between two explicit
+;; seams: a driver-provider for a native loop or a byte-connector for a
+;; byte-fed Host. It never classifies a locator into a transport-specific sum.
 ;;
 ;; Lazy-require breaks the session ↔ dial cycle: dial lazy-requires session
-;; for establish / serve / drain choreography; the public barrel
+;; for serve / drain choreography; the public barrel
 ;; (`pancake.rkt`) requires dial directly.
 
 (require ffi/unsafe
-         racket/tcp
          racket/lazy-require
          "constants.rkt"
-         "iroh-companion.rkt"
          "ffi-host.rkt"
          "ffi-shared.rkt"
          "errors.rkt"
@@ -30,6 +21,7 @@
          "locator.rkt"
          "async.rkt"
          "host.rkt"
+         "transport.rkt"
          (only-in "codec.rkt" feature-mask)
          "action.rkt"
          ;; The handshake bound lives with the deadline machinery it feeds, so
@@ -37,276 +29,200 @@
          (only-in "pump.rkt" HANDSHAKE-TIMEOUT-MS))
 
 (lazy-require
- ;; The WebSocket client loads only when a keyed-relay dial runs, so a minimal
- ;; install without rfc6455 pays nothing until it asks for a rendezvous.
- ["ws-transport.rkt" (ws-transport)]
- ;; The native loop tier (ADR-0112) loads only when a native provider dial
- ;; actually rides it; only the bare-locator Host fallback stays byte-fed.
  ["loop.rkt"
  (open-driver-loop
+   driver-loop?
    driver-loop-start!
    driver-loop-abort!
    loop-connect-session)]
- ["tcp-provider.rkt" (driver-loop-add-tcp!)]
- ["relay-provider.rkt"
-  (driver-loop-add-relay!
-   locator-relay-route
-   relay-dial-url)]
  ["session.rkt"
-  (establish-dialed-locator-session
-   session-close!
+  (session-close!
    session-serve
    session-ptr
-   session-owns-host?
    with-host-drain)])
 
-(provide (struct-out host-port-dial)
-         (struct-out peer-id-dial)
-         (struct-out rendezvous-dial)
-         (struct-out signaling-dial)
-         plan-dial
-         dial-parsed-locator
-         dial-exporter
+(provide dial-exporter
          run-dial!
-         connect)
+         retain-host-cleanup-failure!
+         runtime?
+         runtime-host
+         open-runtime
+         runtime-connect
+         runtime-close!)
 
-;; ── The dial executor (a DIAL action's binding half) ─────────────────────────
-;; The host asks for a dial with a ticket only; the executor borrows the
-;; complete pending locator via `pancake_host_pending_dial` (no URI re-parse), then dials.
-;; Which netlayer answers — and under which reachability posture — is the
-;; binding's decision, never the ABI's. A `tcp` locator dials its host:port; an
-;; `iroh` locator with a direct-address hint dials it relay-less (Direct), and a
-;; bare node id resolves under the host's configured redeem posture (default Discovery;
-;; `set-host-redeem-reachability!` lowers it), so one give shape covers an
-;; offline direct dial and an internet dial-by-id alike. The iroh companion
-;; loads on demand, only for an iroh give; `iroh-companion.rkt` owns where it
-;; lives and loads it exactly once even when several threads dial at once.
+(struct runtime (host mode handshake-timeout-ms) #:transparent)
 
-;; A resolved dial from `pancake_host_plan_dial`: language sum over the C
-;; shape flag (mirrors Zig DialPlan). Plan views alias the pinned input
-;; buffers; decode those subslices only — a non-alias is a contract break.
-(struct host-port-dial (host port) #:transparent)
-(struct peer-id-dial (addresses reach-kind reach-value) #:transparent)
-;; A keyed-relay locator names a peer with no dialable address: the byte path
-;; is the relay rendezvous bridge the dialing host is configured for (ADR-0088).
-(struct rendezvous-dial () #:transparent)
-(struct signaling-dial () #:transparent)
+;; A provider owns its archive and policy. The generic loop confirms the
+;; runtime registration through the driver's package authority.
+(define (install-provider! lp provider m)
+  (unless (driver-provider? provider)
+    (raise-argument-error 'open-runtime "driver-provider?" provider))
+  ((driver-provider-install! provider) lp m))
 
-;; `sources` pairs each pinned base pointer with the Racket bytes it copied,
-;; so the alias arithmetic runs on addresses the collector cannot move.
-(define (decode-plan-view sources ptr len)
-  (cond
-    [(or (not ptr) (= len 0)) ""]
-    [else
-     (define vp (cast ptr _pointer _uintptr))
-     (or (for/or ([src (in-list sources)])
-           (define base (cast (car src) _pointer _uintptr))
-           (define bs (cdr src))
-           (and (<= base vp)
-                (<= (+ vp len) (+ base (bytes-length bs)))
-                (bytes->string/utf-8
-                 (subbytes bs (- vp base) (+ (- vp base) len))
-                 #\uFFFD)))
-         (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
-                        "dial plan view does not alias input buffers"))]))
-
-(define (plan-dial transport designator addrs policy value)
-  (define tb (string->bytes/utf-8 transport))
-  (define db (string->bytes/utf-8 designator))
-  (define hb (string->bytes/utf-8 addrs))
-  ;; Pin before the call and hold the pins across the view decode: the plan's
-  ;; views alias these buffers, and a collection between call and decode
-  ;; would move an unpinned bytevector out from under the returned addresses.
-  (define dpin (pin-immobile db))
-  (define hpin (pin-immobile hb))
-  (define plan (make-PancakeDialPlan 0 #f 0 0 #f 0 0 0))
-  (check/host (pancake_host_plan_dial (pin-immobile tb) (bytes-length tb)
-                                      dpin (bytes-length db)
-                                      hpin (bytes-length hb) policy value plan))
-  (define sources (list (cons dpin db) (cons hpin hb)))
-  (define shape (PancakeDialPlan-shape plan))
-  (cond
-    [(= shape DIAL-SHAPE-PEER-ID)
-     (peer-id-dial
-      (decode-plan-view sources (PancakeDialPlan-addresses plan) (PancakeDialPlan-addresses-len plan))
-      (PancakeDialPlan-reach-kind plan)
-      (PancakeDialPlan-reach-value plan))]
-    [(= shape DIAL-SHAPE-HOST-PORT)
-     (host-port-dial
-      (decode-plan-view sources (PancakeDialPlan-host plan) (PancakeDialPlan-host-len plan))
-      (PancakeDialPlan-port plan))]
-    [(= shape DIAL-SHAPE-SIGNALING) (signaling-dial)]
-    [(= shape DIAL-SHAPE-RENDEZVOUS) (rendezvous-dial)]
-    [else (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
-                         "unknown dial shape ~a" shape)]))
-
-;; The one dial path for `connect` and handoff redeem alike: no dispatch, no
-;; grammar, no posture — the core resolves all of that in `pancake_host_plan_dial`,
-;; and this opens the byte channel it names. `handshake-timeout-ms` bounds the
-;; keyed handshake that follows the channel open, the same bound the accept rule
-;; carries; #f (or 0) waits forever.
-(define (dial-parsed-locator m loc
-                             #:reachability [reach #f]
-                             #:redeem? [redeem? #f]
-                             #:handshake-timeout-ms
-                             [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
-  (define-values (policy value)
-    (cond [redeem? (values DIAL-POSTURE-REDEEM 0)]
-          [reach (values DIAL-POSTURE-EXPLICIT reach)]
-          [else (values DIAL-POSTURE-EXPLICIT-NONE 0)]))
+(define (dial-byte-fed connector m loc handshake-timeout-ms)
+  (unless (byte-connector? connector)
+    (raise-argument-error 'connect "byte-connector?" connector))
   (define transport (locator-transport loc))
-  (define designator (locator-designator loc))
-  (define addrs (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
-  (define plan (plan-dial transport designator addrs policy value))
+  (unless (byte-connector-supports? connector transport)
+    (raise-pancake 'connect ERR-INVALID-ARGUMENT
+                   "the supplied connector does not advertise transport \"~a\""
+                   transport))
+  ((byte-connector-realize connector) m loc handshake-timeout-ms))
+
+(define (check-runtime-host-options adopted-host seed codec captp-version features)
+  (when (and adopted-host seed)
+    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                   "#:adopt-host and #:seed are mutually exclusive"))
+  (when (and adopted-host codec (not (eq? codec (host-codec adopted-host))))
+    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                   "#:codec ~a conflicts with the Host's ~a"
+                   codec (host-codec adopted-host)))
+  (when (and adopted-host captp-version
+             (not (eq? captp-version (host-captp-version adopted-host))))
+    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                   "#:captp-version ~a conflicts with the Host's ~a"
+                   captp-version (host-captp-version adopted-host)))
+  (when (and adopted-host features
+             (not (= (feature-mask features)
+                     (feature-mask (host-features adopted-host)))))
+    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                   "#:features ~a conflicts with the Host's ~a"
+                   features (host-features adopted-host))))
+
+(define (runtime-host-for adopted-host seed codec captp-version features)
+  (or adopted-host
+      (if seed
+          (make-host seed
+                     #:codec (or codec 'syrup)
+                     #:captp-version (or captp-version 'v1_0)
+                     #:features (or features 'full))
+          (make-fresh-host
+           #:codec (or codec 'syrup)
+           #:captp-version (or captp-version 'v1_0)
+           #:features (or features 'full)))))
+
+(define (check-composition who values predicate transports-of label)
+  (unless (and (list? values) (pair? values) (andmap predicate values))
+    (raise-argument-error who (format "non-empty (listof ~a?)" label) values))
+  (define seen (make-hash))
+  (for* ([value (in-list values)]
+         [transport (in-list (transports-of value))])
+    (when (hash-ref seen transport #f)
+      (raise-pancake who ERR-INVALID-ARGUMENT
+                     "Runtime composition repeats transport \"~a\""
+                     transport))
+    (hash-set! seen transport #t)))
+
+;; Construct one long-lived Host plus exactly one transport execution model.
+;; Provider and connector values retain their own archive/configuration policy;
+;; connectors advertise the symbols this binding routes, while the native
+;; driver registry alone owns provider symbols.
+(define (open-runtime #:providers [providers #f]
+                      #:connectors [connectors #f]
+                      #:adopt-host [adopted-host #f]
+                      #:seed [seed #f]
+                      #:codec [codec #f]
+                      #:captp-version [captp-version #f]
+                      #:features [features #f]
+                      #:handshake-timeout-ms
+                      [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
+  (when (eq? (and providers #t) (and connectors #t))
+    (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                   "supply exactly one of #:providers or #:connectors"))
+  (check-runtime-host-options adopted-host seed codec captp-version features)
+  (define m (runtime-host-for adopted-host seed codec captp-version features))
   (cond
-    [(peer-id-dial? plan)
-     (define reach-kind (peer-id-dial-reach-kind plan))
-     (define reach*
-       (cond [(= reach-kind DIAL-REACH-DIRECT) (iroh-ref 'IROH-REACH-DIRECT)]
-             [(= reach-kind DIAL-REACH-CONFIGURED) (host-redeem-reachability-value m)]
-             [else (peer-id-dial-reach-value plan)]))
-     (if (host-loop-of m)
-         (dial-shared-loop m (host-loop-of m) loc reach*
-                           #:redeem? redeem?
-                           #:plan plan)
-         (dial-adopted-host m loc reach*
-                            handshake-timeout-ms #:redeem? redeem?
-                            #:plan plan))]
-    [(rendezvous-dial? plan)
-     (define route (locator-relay-route loc))
-     (if (and route (not redeem?))
-       (if (host-loop-of m)
-           (dial-shared-loop m (host-loop-of m) loc reach
-                             #:redeem? #f #:plan plan)
-           (dial-adopted-host m loc reach handshake-timeout-ms
-                              #:redeem? #f #:plan plan))
-       (let ([url-of (host-rendezvous-url-value m)])
-         (unless (or route url-of)
-           (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                          "relay dial: locator has no rendezvous-relay hint and the Host has no rendezvous mapping"))
-         (let ([url (if route (relay-dial-url route designator) (url-of designator))])
-           (establish-dialed-locator-session m transport designator (ws-transport url)
-                                             #:handshake-timeout-ms handshake-timeout-ms))))]
-    [(signaling-dial? plan)
-     (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                    "signaling dial requires an explicit signaling byte-channel integration")]
-    [(host-port-dial? plan)
-     (if (host-loop-of m)
-         (dial-shared-loop m (host-loop-of m) loc
-                           reach #:redeem? redeem? #:plan plan)
-         (dial-adopted-host m loc reach
-                            handshake-timeout-ms #:redeem? redeem?
-                            #:plan plan))]
-    [else (raise-pancake 'connect ERR-INVALID-ARGUMENT "unknown dial plan")]))
+    [providers
+     (unless (and (list? providers) (pair? providers)
+                  (andmap driver-provider? providers))
+       (raise-argument-error 'open-runtime
+                             "non-empty (listof driver-provider?)"
+                             providers))
+     (define existing-loop (host-loop-of m))
+     (define lp (or existing-loop
+                    (open-driver-loop #:host m
+                                      #:handshake-ms (or handshake-timeout-ms 0))))
+     (with-handlers ([(lambda (_) #t)
+                      (lambda (e)
+                        (when (and (not existing-loop) (not adopted-host))
+                          (driver-loop-abort! lp))
+                        (raise e))])
+       (for ([provider (in-list providers)])
+         (install-provider! lp provider m))
+       (driver-loop-start! lp)
+       (runtime m lp handshake-timeout-ms))]
+    [else
+     (check-composition 'open-runtime connectors byte-connector?
+                        byte-connector-transports 'byte-connector)
+     (when (host-loop-of m)
+       (unless adopted-host (host-close! m))
+       (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                      "a native-loop Host cannot be transferred to a connector Runtime"))
+     ;; Validate the complete registry before mutating the Host, so installation
+     ;; is transactional even when the caller supplied it.
+     (for* ([connector (in-list connectors)]
+            [transport (in-list (byte-connector-transports connector))])
+       (when (host-connector-for m transport)
+         (unless adopted-host (host-close! m))
+         (raise-pancake 'open-runtime ERR-INVALID-ARGUMENT
+                        "Host already has a connector for transport \"~a\""
+                        transport)))
+     (for ([connector (in-list connectors)])
+       (host-register-connector! m connector))
+     (runtime m 'byte-fed handshake-timeout-ms)]))
+
+(define (runtime-connect rt loc #:options [options #f])
+  (unless (runtime? rt) (raise-argument-error 'runtime-connect "runtime?" rt))
+  (unless (locator? loc) (raise-argument-error 'runtime-connect "locator?" loc))
+  (define transport (locator-transport loc))
+  (define mode (runtime-mode rt))
+  (cond
+    [(driver-loop? mode)
+     (loop-connect-session mode loc options)]
+    [else
+     (when options
+       (raise-pancake 'runtime-connect ERR-INVALID-ARGUMENT
+                      "operation options are not supported by this connector Runtime"))
+     (define connector (host-connector-for (runtime-host rt) transport))
+     (unless connector
+       (raise-pancake 'runtime-connect ERR-INVALID-ARGUMENT
+                      "Runtime has no connector for transport \"~a\""
+                      transport))
+     (dial-byte-fed connector (runtime-host rt) loc
+                    (runtime-handshake-timeout-ms rt))]))
+
+(define (runtime-close! rt
+                        #:pending [pending 'cancel]
+                        #:grace-ms [grace-ms grace-unspecified])
+  (unless (runtime? rt) (raise-argument-error 'runtime-close! "runtime?" rt))
+  ;; Every explicit request reaches the shared native barrier. In particular,
+  ;; a later cancel must be able to escalate an in-progress finish.
+  (host-close! (runtime-host rt) #:pending pending #:grace-ms grace-ms))
 
 (define (dial-exporter m loc
                        #:handshake-timeout-ms
                        [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
-  (dial-parsed-locator m loc #:redeem? #t
-                       #:handshake-timeout-ms handshake-timeout-ms))
-
-;; ── The native loop route (ADR-0112) ─────────────────────────────────────────
-
-;; The iroh reachability a resolved peer-id plan names, for a loop dial. A
-;; CONFIGURED posture arises only on a redeem plan, so a bare loop dial
-;; falls back to the redeem default; a shared loop host answers with its
-;; own configured posture.
-(define (loop-peer-reach plan m)
-  (define reach-kind (peer-id-dial-reach-kind plan))
-  (cond
-    [(= reach-kind DIAL-REACH-DIRECT) IROH-REACH-DIRECT]
-    [(= reach-kind DIAL-REACH-CONFIGURED)
-     (if m (host-redeem-reachability-value m) IROH-REACH-REDEEM-DEFAULT)]
-    [else (peer-id-dial-reach-value plan)]))
-
-(define (adopt-iroh! lp reach m)
-  ((iroh-ref 'iroh-adopt-loop!) lp ((iroh-ref 'make-iroh-config) reach)
-   #:seed (and m (host-seed m))))
-
-;; The loop route for a bare bounded dial: the public `connect` path for the
-;; shapes the loop carries — native TCP host:port, iroh endpoint, and routed
-;; relay provider dials — one loop per connection, with the session
-;; owning its loop so `session-close!` tears everything down, exactly the
-;; one-host-per-connect ownership the byte-fed dial has.
-;; Dial on a host a native loop already owns: the shared-host sibling for
-;; `connect` with `#:host` naming a loop-backed
-;; server's host. The loop is that host's one drain and release authority,
-;; so the dial stages on it — the session shares the host's identity and
-;; live-session directory, and the loop's handshake budget bounds it. A
-;; transport the loop cannot carry is refused, never silently dialed
-;; byte-fed on a host the loop owns.
-(define (dial-shared-loop m lp loc reachability
-                          #:redeem? [redeem? #f] #:plan [resolved-plan #f])
   (define transport (locator-transport loc))
-  (define designator (locator-designator loc))
-  (define addrs (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
-  (define-values (policy value)
-    (if redeem?
-        (values DIAL-POSTURE-REDEEM 0)
-        (if reachability
-        (values DIAL-POSTURE-EXPLICIT reachability)
-        (values DIAL-POSTURE-EXPLICIT-NONE 0))))
-  (define plan (or resolved-plan (plan-dial transport designator addrs policy value)))
+  (define lp (host-loop-of m))
   (cond
-    [(host-port-dial? plan)
-     (driver-loop-add-tcp! lp)
+    [lp
      (loop-connect-session lp loc)]
-    [(peer-id-dial? plan)
-     (adopt-iroh! lp (loop-peer-reach plan m) m)
-     (loop-connect-session lp loc)]
-    [(rendezvous-dial? plan)
-     (define route (locator-relay-route loc))
-     (unless route
-       (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                      "native relay provider requires a rendezvous-relay locator hint"))
-     (driver-loop-add-relay! lp route)
-     (loop-connect-session lp loc)]
+    [(host-connector-for m transport)
+     (dial-byte-fed (host-connector-for m transport) m loc handshake-timeout-ms)]
     [else
      (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                    "the native loop that owns this host carries no \"~a\" dial; open this connection from a byte-fed host instead"
+                    "Host has no explicit connector for transport \"~a\""
                     transport)]))
 
-;; Transfer a caller-owned Host before a native provider dial. The
-;; transfer is the only ownership transition; after it succeeds the same Host
-;; wrapper remains the session's authority and the loop owns its release.
-(define (dial-adopted-host m loc reachability
-                           handshake-timeout-ms #:redeem? [redeem? #f]
-                           #:plan [resolved-plan #f])
-  (define transport (locator-transport loc))
-  (define designator (locator-designator loc))
-  (define addrs (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
-  (when (or (not handshake-timeout-ms) (not (positive? handshake-timeout-ms)))
-    (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                   "native TCP and iroh drivers require a positive handshake timeout"))
-  (define-values (policy value)
-    (if redeem?
-        (values DIAL-POSTURE-REDEEM 0)
-        (if reachability
-        (values DIAL-POSTURE-EXPLICIT reachability)
-        (values DIAL-POSTURE-EXPLICIT-NONE 0))))
-  (define plan (or resolved-plan (plan-dial transport designator addrs policy value)))
-  (define lp
-    (open-driver-loop #:host m #:handshake-ms handshake-timeout-ms))
+;; Cleanup is a second outcome, not the dial's outcome. Keep its exact first
+;; failure on the owning Host so the close barrier can return it, while letting
+;; the dial executor finish reporting the original refusal to its waiting vow.
+(define (retain-host-cleanup-failure! m cleanup)
   (with-handlers ([(lambda (_) #t)
-                   (lambda (e) (driver-loop-abort! lp) (raise e))])
-    (cond
-      [(host-port-dial? plan) (driver-loop-add-tcp! lp)]
-      [(peer-id-dial? plan)
-       (adopt-iroh! lp (loop-peer-reach plan m) m)
-       (void)]
-      [(rendezvous-dial? plan)
-       (define route (locator-relay-route loc))
-       (unless route
-         (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                        "native relay provider requires a rendezvous-relay locator hint"))
-       (driver-loop-add-relay! lp route)]
-      [else
-       (driver-loop-abort! lp)
-       (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                      "the supplied Host's driver has no native \"~a\" provider"
-                      transport)])
-    (driver-loop-start! lp)
-    (loop-connect-session lp loc)))
+                   (lambda (error)
+                     (record-host-runtime-failure! m error)
+                     (void))])
+    (cleanup)))
 
 ;; Execute one DIAL action, post-lock — the drain parks it among the fires,
 ;; because the dial is a connect syscall plus a whole keyed handshake and
@@ -318,7 +234,7 @@
 ;; dial breaks every waiting redeem with the reason. The exporter connection
 ;; is kept pumped by a background serve so the withdraw's resolution — and
 ;; any later routed traffic — is read.
-(define (run-dial! m ticket)
+(define (run-dial! m ticket [cancelled? (lambda () #f)])
   ;; Ticket-only DIAL: clone the complete parsed locator, then dial. The
   ;; dynamic-wind after-thunk is the terminal guard: a break aimed at the
   ;; executing green thread cannot strand the already-popped ticket.
@@ -329,7 +245,8 @@
    void
    (lambda ()
      (with-handlers ([converts-to-broken?
-                      (lambda (e) (set! failure (exn->message e)))])
+                      (lambda (e)
+                        (set! failure (exn->message e)))])
        (define-values (rc locator-view)
          (pancake_host_pending_dial (host-ptr m) ticket))
        (check/host rc)
@@ -353,61 +270,22 @@
      (parameterize-break
       #f
       (if reported?
-          (thread (lambda () (with-handlers ([converts-to-broken? void]) (session-serve c))))
+          (thread
+           (lambda ()
+             (with-handlers ([converts-to-broken?
+                              (lambda (error)
+                                (record-host-runtime-failure! m error))])
+               (session-serve c))))
           (begin
             ;; Roll back the opened session before failure is reported, matching
             ;; the transactional C Host contract.
             (when c
-              (with-handlers ([(lambda (_e) #t) void]) (session-close! c)))
-            (unless (unbox (host-released? m))
-              (with-handlers
-                  ([(lambda (_e) #t) void])
+              (retain-host-cleanup-failure! m (lambda () (session-close! c))))
+            (unless (or (cancelled?) (unbox (host-released? m)))
+              (retain-host-cleanup-failure!
+               m
+               (lambda ()
                 (with-host-drain m
                   (lambda ()
                     (host-dial-failed! m ticket failure)
-                    (drain-host-actions! m)))))))))))
-
-;; Dial a partner from its `ocapn://` locator: parse once, call
-;; `pancake_host_plan_dial`, and open the byte channel the plan names. There is
-;; no other dial: a literal address is a `tcp` locator, built with `tcp-locator`.
-;; The core owns transport dispatch and grammar. `reachability` (an
-;; IROH-REACH-* posture) is required only when the locator's transport is
-;; `iroh`; a `tcp` locator ignores it, so a plain TCP dial needs nothing but the
-;; locator. An iroh locator with no posture fails closed rather than guessing one.
-;; `#:host` shares one CapTP host identity and handoff router across several
-;; sessions — the gifter side of a three-party handoff, where the same host
-;; both serves recipients (via `listen`/`accept`) and dials the exporter it
-;; re-gifts from. Omit it for a standalone session with a fresh identity.
-;; `#:handshake-timeout-ms` bounds the keyed handshake at `HANDSHAKE-TIMEOUT-MS`
-;; by default, so a partner that accepts the connection and then says nothing
-;; costs this dial an ERR-TIMEOUT rather than the calling thread; pass #f (or 0)
-;; to wait forever.
-(define (connect uri [reachability #f] #:host [shared-host #f] #:codec [codec #f]
-                 #:captp-version [captp-version #f] #:features [features #f]
-                 #:handshake-timeout-ms [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
-  (define loc (parse-locator uri))
-  ;; Fail closed on conflicting Host-owned protocol options: a fresh host is
-  ;; minted with them, and a shared host already carries them.
-  (when (and shared-host codec (not (eq? codec (host-codec shared-host))))
-    (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                   "#:codec ~a conflicts with the shared host's ~a" codec (host-codec shared-host)))
-  (when (and shared-host captp-version (not (eq? captp-version (host-captp-version shared-host))))
-    (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                   "#:captp-version ~a conflicts with the shared host's ~a"
-                   captp-version (host-captp-version shared-host)))
-  (when (and shared-host features
-             (not (= (feature-mask features)
-                     (feature-mask (host-features shared-host)))))
-    (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                   "#:features ~a conflicts with the shared host's ~a"
-                   features (host-features shared-host)))
-  (define m (or shared-host (make-fresh-host #:codec (or codec 'syrup)
-                                              #:captp-version (or captp-version 'v1_0)
-                                              #:features (or features 'full))))
-  (define c (dial-parsed-locator m loc
-                                 #:reachability reachability
-                                 #:handshake-timeout-ms handshake-timeout-ms))
-  ;; A host this connect had to mint has no other owner, so the session it
-  ;; returns closes it; a caller-supplied one is the caller's to close.
-  (unless shared-host (set-box! (session-owns-host? c) #t))
-  c)
+                    (drain-host-actions! m))))))))))))

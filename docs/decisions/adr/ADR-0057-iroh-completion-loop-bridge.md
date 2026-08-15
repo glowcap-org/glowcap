@@ -106,11 +106,13 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
 - **The wakeup primitive is a self-pipe** (`socketpair`, both ends
   non-blocking): portable across Linux and the BSD/macOS targets the project
   cross-compiles for, no `cfg` fork, and registered with the loop's `poll` like
-  any other fd. A discarded `WouldBlock` write cannot lose a wake: it means
-  unread bytes already fill the pipe, so the fd is already poll-readable. The
-  same `Readiness.nudge` operation is used for event publication and to re-wake
-  a bounded drain that leaves records queued; interrupted writes retry. The fd
-  exposed to consumers has its write direction shut down. An `eventfd` or
+  any other fd. A `WouldBlock` write is coalesced success: unread bytes already
+  fill the pipe, so the fd is already poll-readable. Interrupted writes retry;
+  every other write or drain fault is retained by the owning runtime and
+  terminalizes its admitted operations. The same `Readiness.nudge` operation
+  is used for event publication and to re-wake a bounded drain that leaves
+  records queued. The fd exposed to consumers has its write direction shut
+  down. An `eventfd` or
   io_uring registered fd would shave one syscall but split the code per-OS; the
   self-pipe is the portable choice that holds.
 - **Back-pressure is a bounded flow-control ceiling, not a drop or an abort.**
@@ -166,7 +168,7 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
 ## Consequences
 
 - New surfaces, shipped: an event-driven superset of the
-  `pancake_iroh_sidecar_*` seam (held to one shape by the `tools/check/meta_check.zig`
+  `pancake_iroh_sidecar_*` seam (held to one shape by the `tools/check/source_check.zig`
   parity check, like the rest of the seam) and a non-blocking variant of the
   resident's stream wrappers driven by `iroh.Backend` + Bridge.
 - **The loop consumer lives in the resident (`src/net/transport/iroh.zig`), not

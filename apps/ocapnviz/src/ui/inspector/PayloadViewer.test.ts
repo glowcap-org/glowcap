@@ -1,11 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import {
-  derivationNote,
-  hexGroupFor,
-  loadPersistedViewMode,
-  payloadState,
-  renderPayload,
-} from "./PayloadViewer.tsx";
+import { derivationNote, hexGroupFor, loadPersistedViewMode, payloadState, renderPayload } from "./PayloadViewer.tsx";
 
 // Deno provides a real localStorage, so the round trip runs against
 // the same storage the browser uses.

@@ -7,9 +7,10 @@
 .draft = false,
 ---
 
-Call a capability from your shell, host a short-lived peer, open a REPL, or
-wire CapTP into an agent over MCP. The binary is the same library as the Zig
-package, not a second stack. More recipes live in
+Call a capability from your shell, host a peer, inspect a live session in the
+REPL, or expose CapTP tools over MCP. The command uses the same Host and
+transport implementations as the library. Complete command and configuration
+reference:
 [docs/cli.md](https://github.com/jimisaacs/pancake/blob/main/docs/cli.md).
 
 ```sh
@@ -20,8 +21,8 @@ pancake help
 
 ## Round-trip
 
-The demo greeter lives in the CLI adapter, not the library, and it is the same
-greeter the README uses: verb `greet` plus one argument becomes `Hello, <arg>`.
+The CLI's demo greeter accepts the verb `greet` and one argument, then returns
+`Hello, <arg>`.
 `--publish` serves one partner and then exits, and `Ctrl+C` or `SIGTERM` stops
 a waiting or serving `listen` cleanly with exit 0. Run terminal A first, then
 paste its printed locator (the peer's dialable `ocapn://` address) into `LOC`
@@ -48,18 +49,18 @@ pancake --json ocapn call "$LOC" greeter greet world
 
 ## REPL, MCP, and completion
 
-The same binary serves agents over MCP and completes your shell. `pancake repl`
+The binary also serves agents over MCP and completes your shell. `pancake repl`
 opens an interactive CapTP lab on a live session: the exports, imports, and
 answers appear beside the prompt as you type the verbs, and typing `guide`
 turns on a staged walkthrough. The REPL and `probe` want a live listener, so
-those recipes stay in docs/cli.md.
+their full recipes are in the [CLI guide](https://github.com/jimisaacs/pancake/blob/main/docs/cli.md).
 
 ```sh
 pancake mcp --tools default                # agent control plane
 eval "$(pancake completion bash)"          # tab completion
-# probe / REPL: see docs/cli.md (need a fresh or long-lived listen)
 ```
 
-When the round-trip works, the [demo apps]($link.page('examples')) are the
-next act: the same verbs driving a chat room, a task board, and a capability
-showcase across five languages.
+For the library API behind these commands, continue to [Start
+building]($link.page('start')). The [demo apps]($link.page('examples')) use the
+same operations in a chat room, a task board, and a capability-oriented tool
+service across five languages.

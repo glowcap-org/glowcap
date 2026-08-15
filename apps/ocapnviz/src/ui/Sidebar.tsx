@@ -10,11 +10,7 @@
 
 import type { StageSelection } from "../render/types.ts";
 import type { Engine } from "../engine/engine.ts";
-import {
-  type EntityKind,
-  type EntityRefKey,
-  parseEntityKey,
-} from "../interactions/types.ts";
+import { type EntityKind, type EntityRefKey, parseEntityKey } from "../interactions/types.ts";
 import { documentHolds } from "../interactions/selection-store.ts";
 import { PANEL, SPACE } from "./tokens.ts";
 import { useClockSnapshot } from "./useClockSnapshot.ts";
@@ -22,23 +18,10 @@ import { useDocVersion } from "./useDocVersion.ts";
 import { TrashGlyph } from "./glyphs.tsx";
 import { type EditorBindings, placeholder } from "./inspector/shared.tsx";
 import { PeerConnections, PeerFields } from "./inspector/PeerPanel.tsx";
-import {
-  SessionConnections,
-  SessionFields,
-} from "./inspector/SessionPanel.tsx";
-import {
-  MessageConnections,
-  MessageFields,
-} from "./inspector/MessagePanel.tsx";
-import {
-  EndpointConnections,
-  EndpointFields,
-} from "./inspector/EndpointPanel.tsx";
-import {
-  AnchorNote,
-  deleteSelection,
-  SelectionFields,
-} from "./inspector/SelectionPanel.tsx";
+import { SessionConnections, SessionFields } from "./inspector/SessionPanel.tsx";
+import { MessageConnections, MessageFields } from "./inspector/MessagePanel.tsx";
+import { EndpointConnections, EndpointFields } from "./inspector/EndpointPanel.tsx";
+import { AnchorNote, deleteSelection, SelectionFields } from "./inspector/SelectionPanel.tsx";
 import { deletionPhrase } from "./inspector/selection-summary.ts";
 import { sessionsTouchingPeer } from "./inspector/entity-info.ts";
 
@@ -183,8 +166,7 @@ export function EntityDetails(
     return (
       <div style={sectionPanel}>
         <div style={placeholder}>
-          Tap a peer node, session edge, or message in flight on the canvas to
-          inspect it.
+          Tap a peer node, session edge, or message in flight on the canvas to inspect it.
         </div>
       </div>
     );

@@ -20,8 +20,8 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`) and
 // a live internet connection; run via `zig build deno-iroh-reachability`.
 
-import { connect, formatPeerUri, type Session, TRANSPORT_IROH } from "@pancake/stack";
-import { type IrohServer, listenIroh, Reachability } from "@pancake/iroh";
+import { Runtime, type Session } from "@pancake/runtime";
+import { type IrohServer, listen, locator, provider, Reachability } from "@pancake/iroh";
 import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const GATE = "deno-iroh-reachability";
@@ -51,7 +51,7 @@ async function acceptLoop(server: IrohServer, served: Session[]): Promise<void> 
 }
 
 // ── Server: a giftable greeter, dialable by node id alone over discovery ────
-const server = await listenIroh({ reachability: Reachability.Discovery });
+const server = await listen({ reachability: Reachability.Discovery });
 server.host.publishGiftable("greeter", greeter);
 const serverId = server.nodeId;
 const served: Session[] = [];
@@ -61,7 +61,10 @@ console.log(
 );
 
 // ── Client: dial by node id ALONE — empty hints — over real n0 discovery ────
-const client = await connect(formatPeerUri(TRANSPORT_IROH, serverId), Reachability.Discovery);
+const runtime = await Runtime.open({
+	providers: [provider({ reachability: Reachability.Discovery })],
+});
+const client = await runtime.connect(locator(serverId));
 console.log(`${GATE}: client dialed by node id alone and opened the keyed session`);
 
 const greeterRef = await client.fetch("greeter");
@@ -79,8 +82,9 @@ console.log(
 // Teardown: close the dialing connection, then every accepted connection, then
 // the server, closing the server ends its accept loop, which we await so no
 // readiness fd reader outlives the endpoint it watches.
-client.close();
-for (const session of served) session.close();
-server.close();
+await client.close();
+await runtime.close();
+for (const session of served) await session.close();
+await server.close();
 await serverTask;
 Deno.exit(0);

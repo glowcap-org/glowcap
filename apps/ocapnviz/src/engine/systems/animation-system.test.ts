@@ -1,11 +1,6 @@
 import { assert, assertAlmostEquals } from "@std/assert";
 import { CLAIM_LEAN } from "./keyframe-layout-system.ts";
-import {
-  bezierAt,
-  claimTargets,
-  computeSessionBundles,
-  drawnSessionCurve,
-} from "../session-geometry.ts";
+import { bezierAt, claimTargets, computeSessionBundles, drawnSessionCurve } from "../session-geometry.ts";
 import { Engine } from "../engine.ts";
 import { TimelineDocument } from "../timeline.ts";
 
@@ -122,9 +117,7 @@ Deno.test("5 simultaneous A→B messages monotonically move sender→receiver (n
       if (cur <= prev) {
         throw new Error(
           `${id} not monotonic: sample ${i - 1} = ${prev}, ` +
-            `sample ${i} = ${cur} (sampleTimes ${sampleTimes[i - 1]}, ${
-              sampleTimes[i]
-            })`,
+            `sample ${i} = ${cur} (sampleTimes ${sampleTimes[i - 1]}, ${sampleTimes[i]})`,
         );
       }
     }

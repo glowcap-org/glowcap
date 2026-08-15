@@ -50,10 +50,10 @@ fn runUnit(conn: *driver.Session, root: driver.Capability, arena: std.mem.Alloca
 /// round trip at a time.
 fn runUnitPipelined(conn: *driver.Session, root: driver.Capability, arena: std.mem.Allocator) !void {
     const create = try conn.send(root, "create", &.{.{ .bytes = "benchmark" }});
-    _ = try conn.sendToAnswer(create, "assign", &.{.{ .bytes = "alice" }});
-    _ = try conn.sendToAnswer(create, "complete", &.{});
-    const status_promise = try conn.sendToAnswer(create, "status", &.{});
-    const status = try conn.settleVow(status_promise, arena);
+    _ = try create.send("assign", &.{.{ .bytes = "alice" }});
+    _ = try create.send("complete", &.{});
+    const status_promise = try create.send("status", &.{});
+    const status = try status_promise.settle(arena);
     const ok = status == .fulfilled and status.fulfilled == .bytes and
         std.mem.eql(u8, status.fulfilled.bytes, "done");
     if (!ok) return error.StatusNotDone;
@@ -78,7 +78,7 @@ fn lessThanU64(_: void, a: u64, b: u64) bool {
 
 fn connectOne(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !*driver.Session {
     var tcp_resident = tcp.Resident{ .io = io };
-    return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(designator), .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
 }
 
 fn runLatency(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, n: usize) !void {
@@ -247,13 +247,13 @@ fn percentileNs(sorted_ns: []const u64, p: f64) f64 {
 fn runLocal(io: std.Io, allocator: std.mem.Allocator, n: usize) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const local_designator = try server.localDesignator(&addr_buf);
 
     var group: std.Io.Group = .init;
     defer group.cancel(io);
-    try group.concurrent(io, serveLocalCounter, .{&server});
+    try group.concurrent(io, serveLocalCounter, .{server});
 
     var conn = try connectOne(io, allocator, local_designator);
     defer conn.deinit();
@@ -321,7 +321,7 @@ pub fn main(init: std.process.Init) !void {
     const port = try std.fmt.parseInt(u16, port_str, 10);
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort(host, port);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
 
     if (std.mem.eql(u8, mode, "latency")) {
         try runLatency(io, allocator, designator, n);

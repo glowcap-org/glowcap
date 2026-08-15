@@ -13,8 +13,8 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::ocapn::{
-	PancakeAllocator, PancakeContext, PancakeLocator, PancakeLocatorHintView, PancakeLocatorView,
-	PancakeManagedFrame, PancakeSturdyRef,
+	PancakeAllocator, PancakeContext, PancakeFailureEvent, PancakeFailureReport, PancakeLocator,
+	PancakeLocatorHintView, PancakeLocatorView, PancakeManagedFrame, PancakeSturdyRef,
 };
 
 extern "C" {
@@ -24,6 +24,14 @@ extern "C" {
 		allocator: *const PancakeAllocator,
 		out_context: *mut *mut PancakeContext,
 	) -> c_int;
+	pub fn pancake_context_report_failure(context: *mut PancakeContext, report: *const PancakeFailureReport) -> c_int;
+	pub fn pancake_context_next_failure(
+		context: *mut PancakeContext,
+		out_event: *mut PancakeFailureEvent,
+		out_payload: *mut c_uchar,
+		payload_cap: usize,
+		out_required: *mut usize,
+	) -> c_int;
 	pub fn pancake_context_release(context: *mut PancakeContext);
 	pub fn pancake_managed_frame_release(frame: *mut PancakeManagedFrame);
 	pub fn pancake_locator_record_encode(
@@ -32,11 +40,7 @@ extern "C" {
 		out_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_locator_record_bytes_release(bytes: *mut c_uchar, len: usize);
-	pub fn pancake_uri_parse_peer(
-		uri: *const c_uchar,
-		uri_len: usize,
-		out_locator: *mut *mut PancakeLocator,
-	) -> c_int;
+	pub fn pancake_uri_parse_peer(uri: *const c_uchar, uri_len: usize, out_locator: *mut *mut PancakeLocator) -> c_int;
 	pub fn pancake_uri_parse_peer_in(
 		context: *mut PancakeContext,
 		uri: *const c_uchar,
@@ -44,12 +48,14 @@ extern "C" {
 		out_locator: *mut *mut PancakeLocator,
 	) -> c_int;
 	pub fn pancake_uri_parse_sturdyref(
+		captp_version: c_uint,
 		uri: *const c_uchar,
 		uri_len: usize,
 		out_sturdyref: *mut *mut PancakeSturdyRef,
 	) -> c_int;
 	pub fn pancake_uri_parse_sturdyref_in(
 		context: *mut PancakeContext,
+		captp_version: c_uint,
 		uri: *const c_uchar,
 		uri_len: usize,
 		out_sturdyref: *mut *mut PancakeSturdyRef,
@@ -69,6 +75,7 @@ extern "C" {
 		out_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_uri_format_sturdyref(
+		captp_version: c_uint,
 		transport: *const c_uchar,
 		transport_len: usize,
 		designator: *const c_uchar,
@@ -101,19 +108,13 @@ extern "C" {
 		hint_wire_form: c_uint,
 		out_locator: *mut *mut PancakeLocator,
 	) -> c_int;
-	pub fn pancake_locator_clone(
-		view: *const PancakeLocatorView,
-		out_locator: *mut *mut PancakeLocator,
-	) -> c_int;
+	pub fn pancake_locator_clone(view: *const PancakeLocatorView, out_locator: *mut *mut PancakeLocator) -> c_int;
 	pub fn pancake_locator_clone_in(
 		context: *mut PancakeContext,
 		view: *const PancakeLocatorView,
 		out_locator: *mut *mut PancakeLocator,
 	) -> c_int;
-	pub fn pancake_locator_borrow_view(
-		loc: *const PancakeLocator,
-		out_view: *mut *const PancakeLocatorView,
-	) -> c_int;
+	pub fn pancake_locator_borrow_view(loc: *const PancakeLocator, out_view: *mut *const PancakeLocatorView) -> c_int;
 	pub fn pancake_sturdyref_borrow_locator(
 		sturdyref: *const PancakeSturdyRef,
 		out_view: *mut *const PancakeLocatorView,
@@ -173,10 +174,7 @@ extern "C" {
 		idx: usize,
 		out_hint: *mut PancakeLocatorHintView,
 	) -> c_int;
-	pub fn pancake_locator_hint_wire_form(
-		loc: *mut PancakeLocator,
-		out_wire_form: *mut u32,
-	) -> c_int;
+	pub fn pancake_locator_hint_wire_form(loc: *mut PancakeLocator, out_wire_form: *mut u32) -> c_int;
 	pub fn pancake_locator_release(loc: *mut PancakeLocator);
 	pub fn pancake_context_new(out_context: *mut *mut PancakeContext) -> c_int;
 	pub fn pancake_clear_last_error();

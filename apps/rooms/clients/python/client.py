@@ -73,6 +73,7 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
                 break
     finally:
         await room.leave()
+        await directory.close()
     if not want <= seen:
         missing = ", ".join(sorted(want - seen))
         raise RuntimeError(f"{nick} saw lines from {len(seen)}/{len(want)} members before the room ended (missing: {missing})")

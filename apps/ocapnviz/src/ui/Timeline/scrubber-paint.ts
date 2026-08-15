@@ -23,23 +23,12 @@ import type { Graphics } from "pixi.js";
 import type { ClockSnapshot } from "../../engine/clock.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { entityKey, type EntityRefKey } from "../../interactions/types.ts";
-import {
-  clampRectToBounds,
-  paintMarchingAntsBand,
-} from "../../render/geometry.ts";
+import { clampRectToBounds, paintMarchingAntsBand } from "../../render/geometry.ts";
 import { themedColors } from "../../render/palette.ts";
 import type { StageSelection } from "../../render/types.ts";
 import { drawGhostPlayhead } from "./ghostPlayhead.ts";
-import {
-  drawCategoryHeader,
-  drawRowGutter,
-  type EyeGlyphMode,
-} from "./gutter-paint.ts";
-import {
-  buildLaneBundle,
-  laneBundleColorsFromTheme,
-  laneRowLabel,
-} from "./lane-bundle.ts";
+import { drawCategoryHeader, drawRowGutter, type EyeGlyphMode } from "./gutter-paint.ts";
+import { buildLaneBundle, laneBundleColorsFromTheme, laneRowLabel } from "./lane-bundle.ts";
 import { drawLaneGlyphs, drawLaneSpans, orderEntities } from "./lane-paint.ts";
 import {
   CATEGORY_HEADER_HEIGHT,
@@ -52,14 +41,7 @@ import {
   scrubberPlotBounds,
   wholeRowsHeight,
 } from "./row-layout.ts";
-import {
-  gutterWidthOf,
-  type LaneKind,
-  plotStartXOf,
-  plotWidthOf,
-  type TimelineView,
-  tToCanvasPx,
-} from "./state.ts";
+import { gutterWidthOf, type LaneKind, plotStartXOf, plotWidthOf, type TimelineView, tToCanvasPx } from "./state.ts";
 import type { TextPool } from "./textPool.ts";
 import { generateTicks, pickTickStep } from "./ticks.ts";
 import { FONT, SIZE, type Theme } from "../tokens.ts";
@@ -254,9 +236,7 @@ export function drawScrubberScene(
 
       const laneData = bundle[lane];
       const laneKindSingular = laneKindForSelection(lane);
-      const highlightId = selection?.kind === laneKindSingular
-        ? selection.id
-        : null;
+      const highlightId = selection?.kind === laneKindSingular ? selection.id : null;
       // Halo applies to BOTH the single-selection id and every
       // entity in the unified selection set. `spanId` is the
       // owning entity's id; we form the entity ref key for this
@@ -745,9 +725,5 @@ export function drawScrubberScene(
 function laneKindForSelection(
   lane: Exclude<LaneKind, "ruler">,
 ): "peer" | "session" | "message" {
-  return lane === "peers"
-    ? "peer"
-    : lane === "sessions"
-    ? "session"
-    : "message";
+  return lane === "peers" ? "peer" : lane === "sessions" ? "session" : "message";
 }

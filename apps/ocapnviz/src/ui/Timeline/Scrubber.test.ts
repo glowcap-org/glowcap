@@ -13,14 +13,7 @@ import {
 } from "./label-layout.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { projectFromObservations } from "../../engine/temporal/project-from-observations.ts";
-import {
-  applyWheel,
-  clampView,
-  type LaneKind,
-  pan,
-  type TimelineView,
-  zoomAround,
-} from "./state.ts";
+import { applyWheel, clampView, type LaneKind, pan, type TimelineView, zoomAround } from "./state.ts";
 
 // Same advance the Scrubber renders at (mono font, SIZE.xs = 9 px).
 const ADVANCE = monoAdvance(9);

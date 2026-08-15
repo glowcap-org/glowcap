@@ -18,5 +18,5 @@ are in [`interop/_common/`](../../interop/_common/).
 | [`iroh_redeem_posture/`](iroh_redeem_posture/) | The recipient's redeem policy controls a hint-free iroh handoff | `zig build bindings-iroh-redeem-posture` and language siblings |
 | [`keyed_relay_rendezvous/`](keyed_relay_rendezvous/) | A binding cold-dials a registered non-listening peer through the reference relay's rendezvous bridge ([ADR-0088](../../docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)) | `zig build bindings-keyed-relay-rendezvous` and language siblings |
 
-`zig build meta-check` also reads these scripts. Every wrapped
+`zig build source-check` also reads these scripts. Every wrapped
 `pancake_host_*` verb must appear in a script that a build step runs.

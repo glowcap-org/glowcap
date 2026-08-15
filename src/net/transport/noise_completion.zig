@@ -344,6 +344,14 @@ pub fn CompletionBackend(comptime Inner: type) type {
             return self.inner.verifiedChannelKey(fd);
         }
 
+        pub fn applyKeepalive(self: *Self, fd: Fd, keepalive: completion.Keepalive) !void {
+            if (idFromFd(fd)) |id| {
+                const c = self.conns.get(id) orelse return error.FileDescriptorNotASocket;
+                return self.inner.applyKeepalive(c.inner_fd, keepalive);
+            }
+            return self.inner.applyKeepalive(fd, keepalive);
+        }
+
         pub fn startDial(self: *Self, user_data: u64, target: ConnectTarget) !Fd {
             return switch (target) {
                 .plain => |inner_target| self.inner.startDial(user_data, inner_target),

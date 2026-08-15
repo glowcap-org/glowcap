@@ -50,7 +50,9 @@ export interface RelayConfig {
  * caller's closure over its own transport, e.g. closing the WebSocket) — so
  * the other leg's pending read settles and the session never half-closes.
  * The idle timeout runs the same teardown. Both closes are idempotent here;
- * the caller does not need to close anything again after this resolves.
+ * the caller does not need to close anything again after this settles. EOF,
+ * the byte cap, and the idle timeout resolve normally; an I/O or teardown
+ * failure rejects with the exact first cause after both legs have stopped.
  */
 export async function relayBytes(
 	source: ByteSource,
@@ -61,14 +63,26 @@ export async function relayBytes(
 ): Promise<void> {
 	let bytesTransferred = 0;
 	let timeoutHandle: number | null = null;
+	let teardownStarted = false;
+	const failures: unknown[] = [];
+
+	const retainFailure = (error: unknown) => {
+		failures.push(error);
+	};
 
 	const teardown = () => {
+		if (teardownStarted) return;
+		teardownStarted = true;
 		try {
 			channel.close();
-		} catch { /* already closed */ }
+		} catch (error) {
+			retainFailure(error);
+		}
 		try {
 			closeSource();
-		} catch { /* already closed */ }
+		} catch (error) {
+			retainFailure(error);
+		}
 	};
 
 	// An inactivity timeout, not a lifetime cap: any chunk in either direction
@@ -81,11 +95,8 @@ export async function relayBytes(
 	};
 	resetIdleTimeout();
 
-	const overCap = () =>
-		config.maxBytesPerSession > 0 && bytesTransferred > config.maxBytesPerSession;
+	const overCap = () => config.maxBytesPerSession > 0 && bytesTransferred > config.maxBytesPerSession;
 
-	// Each leg swallows its own error: a failed read or write is an end of the
-	// session, answered by teardown, not a rejection for the caller to route.
 	const legA = (async () => {
 		try {
 			while (true) {
@@ -96,7 +107,9 @@ export async function relayBytes(
 				if (overCap()) break;
 				await channel.write(chunk);
 			}
-		} catch { /* leg ended */ }
+		} catch (error) {
+			retainFailure(error);
+		}
 	})();
 
 	const legB = (async () => {
@@ -109,7 +122,9 @@ export async function relayBytes(
 				if (overCap()) break;
 				await sink.write(chunk);
 			}
-		} catch { /* leg ended */ }
+		} catch (error) {
+			retainFailure(error);
+		}
 	})();
 
 	try {
@@ -118,5 +133,15 @@ export async function relayBytes(
 		if (timeoutHandle !== null) clearTimeout(timeoutHandle);
 		teardown();
 		await Promise.allSettled([legA, legB]);
+	}
+	if (failures.length > 0) {
+		const failure = failures[0];
+		const secondaryFailures = failures.slice(1);
+		if (failure instanceof Error && secondaryFailures.length > 0) {
+			failure.cause = secondaryFailures.length === 1
+				? secondaryFailures[0]
+				: new AggregateError(secondaryFailures, "additional relay teardown failures");
+		}
+		throw failure;
 	}
 }

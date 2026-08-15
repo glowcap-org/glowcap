@@ -66,9 +66,7 @@ export function useLayoutSizes(): [
         | ((s: LayoutSizes) => LayoutSizes),
     ) => {
       setSizes((s) => {
-        const next = typeof updater === "function"
-          ? updater(s)
-          : { ...s, ...updater };
+        const next = typeof updater === "function" ? updater(s) : { ...s, ...updater };
         return clampSizes(next);
       });
     },
@@ -112,8 +110,7 @@ export function useStageVisibility(): [
     );
   }, [visibility]);
   const toggle = useCallback(
-    (layer: keyof StageVisibility) =>
-      setVisibility((v) => ({ ...v, [layer]: !v[layer] })),
+    (layer: keyof StageVisibility) => setVisibility((v) => ({ ...v, [layer]: !v[layer] })),
     [],
   );
   const reset = useCallback(() => {
@@ -131,9 +128,7 @@ export function useTheme(): [Theme, () => void] {
     if (typeof globalThis.window === "undefined") return "light";
     const stored = globalThis.localStorage?.getItem(THEME_STORAGE_KEY);
     if (stored === "dark" || stored === "light") return stored;
-    return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -434,8 +429,7 @@ export function useLiveConnection(input: {
     // belongs on the error bus beside every other thing the user can
     // get wrong. Left to throw out of this effect body it would reach
     // `AppErrorBoundary` instead and replace the running app.
-    const onError = (error: EngineError) =>
-      pushError({ error, source: "engine" });
+    const onError = (error: EngineError) => pushError({ error, source: "engine" });
     // One dial, two things built on it. Recording adds the document and the
     // appender folding arrivals into it (`startLiveMode`); idle is the dial
     // and nothing else (`dialLiveFeed`). They differ in what they hand back,
@@ -445,9 +439,7 @@ export function useLiveConnection(input: {
       engine: Engine | null;
       feed: LiveFeed;
       dispose: () => void;
-    } = recording
-      ? startLiveMode(dial)
-      : { ...dialLiveFeed(dial), engine: null };
+    } = recording ? startLiveMode(dial) : { ...dialLiveFeed(dial), engine: null };
     setCaptureEngine(handle.engine);
     return () => {
       handle.dispose();

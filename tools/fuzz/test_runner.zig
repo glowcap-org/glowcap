@@ -13,7 +13,7 @@
 // break a commitment PROVENANCE.md makes in public. The fix is one token and
 // it is described above; anyone is welcome to take it there.
 //
-// `zig build meta-check` holds everything below the marker against the
+// `zig build source-check` holds everything below the marker against the
 // installed toolchain, and will tell you to delete this whole file on the day
 // Zig no longer needs the rename.
 // ---- Zig's file begins here ----

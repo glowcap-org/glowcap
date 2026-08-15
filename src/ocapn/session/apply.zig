@@ -111,54 +111,12 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
             } else if (ss.acceptable_location.designator.len > 0) {
                 self.partner_designator = try self.key_arena.allocator().dupe(u8, ss.acceptable_location.designator);
             }
-            self.partner_preference = partnerPreference(ss);
+            self.partner_preference = try validate.parsePreferenceHints(ss.acceptable_location.hints);
             if (self.handshake_local_sent) try self.transitionToOpen();
             self.handshake_remote_received = true;
         },
         else => {},
     }
-}
-
-/// What the partner's hello says it prefers. Absent hints mean the baseline: an
-/// implementation that has never heard of these names speaks it, and so does
-/// one that deliberately asks for it.
-fn partnerPreference(ss: anytype) model.Preference {
-    var out: model.Preference = .{};
-    if (hintString(ss, model.transport.hint_captp_version)) |text| {
-        if (model.CaptpVersion.fromWireString(text)) |version| out.captp_version = version;
-    }
-    if (hintString(ss, model.transport.hint_codec)) |text| {
-        if (std.fmt.parseInt(u16, text, 10)) |id| {
-            out.codec = @enumFromInt(id);
-        } else |_| {}
-    }
-    if (hintString(ss, model.transport.hint_features)) |text| {
-        out.features = model.FeatureSet.fromWireString(text) orelse unreachable;
-    }
-    return out;
-}
-
-/// One hint by name, from either start-session shape. An unreadable or
-/// non-string hint reads as absent for legacy advisory hints. The signed
-/// `pancake/features` authority hint is validated before apply reaches here.
-fn hintString(ss: anytype, name: []const u8) ?[]const u8 {
-    const hints = ss.acceptable_location.hints;
-    if (comptime @hasDecl(@TypeOf(hints), "findNamed")) {
-        const found = hints.findNamed(name) catch return null;
-        const value = found orelse return null;
-        return switch (value) {
-            .string => |text| text,
-            else => null,
-        };
-    }
-    for (hints.entries) |entry| {
-        if (!std.mem.eql(u8, entry.name, name)) continue;
-        return switch (entry.value) {
-            .string => |text| text,
-            else => null,
-        };
-    }
-    return null;
 }
 
 /// The partner's session public key as raw bytes, from either start-session

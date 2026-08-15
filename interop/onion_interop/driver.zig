@@ -67,11 +67,14 @@ pub fn main(init: std.process.Init) !void {
     defer daemon.stop();
     std.debug.print("onion-interop: tor bootstrapped, socks {s}\n", .{daemon.socks_path});
 
-    var first_listener = try onion.Listener.create(gpa, io, .{
+    var first_listener = switch (onion.Listener.create(gpa, io, .{
         .socks = daemon.socks_path,
         .control_endpoint = daemon.control_path,
         .auth = .{ .cookie = daemon.cookie() },
-    });
+    })) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
     const service_id = try gpa.dupe(u8, first_listener.designator());
     defer gpa.free(service_id);
     const service_key = try gpa.dupe(u8, first_listener.serviceKey());
@@ -89,7 +92,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .swissnum = swiss,
     };
-    first_listener.deinit();
+    if (first_listener.deinit()) |failure| return failure.cause;
     std.debug.print("onion-interop: recorded ocapn://{s}.onion before server restart\n", .{service_id});
 
     const cookie_path = try std.fmt.allocPrint(gpa, "{s}/control_auth_cookie", .{daemon.dir});
@@ -150,13 +153,16 @@ fn serveRestored(
 
     const cookie = try std.Io.Dir.cwd().readFileAlloc(io, cookie_path, gpa, .limited(4096));
     defer gpa.free(cookie);
-    var listener = try onion.Listener.create(gpa, io, .{
+    var listener = switch (onion.Listener.create(gpa, io, .{
         .socks = socks,
         .control_endpoint = control,
         .auth = .{ .cookie = cookie },
         .service_key = service_key,
-    });
-    defer listener.deinit();
+    })) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
+    defer std.debug.assert(listener.deinit() == null);
     if (!std.mem.eql(u8, listener.designator(), expected_service_id))
         return error.RestoredServiceChangedAddress;
     std.debug.print("onion-interop: fresh server process restored ocapn://{s}.onion\n", .{listener.designator()});

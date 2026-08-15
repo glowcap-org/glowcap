@@ -15,58 +15,26 @@
  */
 
 import { FitGlyph } from "../glyphs.tsx";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
-import type {
-  MoveIntent,
-  MoveSpanIntent,
-} from "../../engine/authoring/events.ts";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { MoveIntent, MoveSpanIntent } from "../../engine/authoring/events.ts";
 import type { Engine } from "../../engine/engine.ts";
 import type { TimelineEvent } from "../../engine/timeline.ts";
 import { observationsOf } from "../../engine/temporal/recording-access.ts";
 import { formatClockTime as formatTime } from "../format.ts";
 import type { StageSelection } from "../../render/types.ts";
-import {
-  entityKey,
-  type EntityRefKey,
-  type SelectMode,
-  type SurfaceGestureCtx,
-} from "../../interactions/types.ts";
+import { entityKey, type EntityRefKey, type SelectMode, type SurfaceGestureCtx } from "../../interactions/types.ts";
 import { isTextInputTarget } from "../../interactions/text-input-target.ts";
 import { LiveControls } from "../LiveControls.tsx";
 import { useClockSnapshot } from "../useClockSnapshot.ts";
 import { useDocVersion } from "../useDocVersion.ts";
-import {
-  loadPersistedTimelineView,
-  savePersistedTimelineView,
-} from "../../state/app-state.ts";
-import {
-  c,
-  FONT,
-  RADIUS,
-  segmentCellClass,
-  SIZE,
-  SPACE,
-  WEIGHT,
-} from "../tokens.ts";
+import { loadPersistedTimelineView, savePersistedTimelineView } from "../../state/app-state.ts";
+import { c, FONT, RADIUS, segmentCellClass, SIZE, SPACE, WEIGHT } from "../tokens.ts";
 import { eventEntityRef } from "./event-entity-ref.ts";
 import { Overview, OVERVIEW_HEIGHT } from "./Overview.tsx";
 import { MAX_LIVE_WINDOW_MS, Scrubber } from "./Scrubber.tsx";
 import { ScrubInput } from "./ScrubInput.tsx";
 import type { LaneKind } from "./state.ts";
-import {
-  defaultView,
-  MIN_WINDOW_MS,
-  type TimelineView,
-  zoomAround,
-} from "./state.ts";
+import { defaultView, MIN_WINDOW_MS, type TimelineView, zoomAround } from "./state.ts";
 
 /** React-`setState`-shaped view setter. The updater form is
  * required by wheel handlers — they fire faster than React
@@ -304,15 +272,9 @@ export function TimelinePanel(
       if (!persisted) return base;
       return {
         ...base,
-        ...(persisted.expandedLanes
-          ? { expandedLanes: new Set(persisted.expandedLanes) }
-          : {}),
-        ...(persisted.expandedCategories
-          ? { expandedCategories: new Set(persisted.expandedCategories) }
-          : {}),
-        ...(typeof persisted.gutterWidth === "number"
-          ? { gutterWidth: persisted.gutterWidth }
-          : {}),
+        ...(persisted.expandedLanes ? { expandedLanes: new Set(persisted.expandedLanes) } : {}),
+        ...(persisted.expandedCategories ? { expandedCategories: new Set(persisted.expandedCategories) } : {}),
+        ...(typeof persisted.gutterWidth === "number" ? { gutterWidth: persisted.gutterWidth } : {}),
       };
     },
   );
@@ -325,9 +287,7 @@ export function TimelinePanel(
     savePersistedTimelineView({
       expandedLanes: [...view.expandedLanes],
       expandedCategories: [...view.expandedCategories],
-      ...(typeof view.gutterWidth === "number"
-        ? { gutterWidth: view.gutterWidth }
-        : {}),
+      ...(typeof view.gutterWidth === "number" ? { gutterWidth: view.gutterWidth } : {}),
     });
   }, [view.expandedLanes, view.expandedCategories, view.gutterWidth]);
 
@@ -426,9 +386,7 @@ export function TimelinePanel(
           ...defaultView(doc.duration),
           expandedLanes: cur.expandedLanes,
           expandedCategories: cur.expandedCategories,
-          ...(cur.gutterWidth !== undefined
-            ? { gutterWidth: cur.gutterWidth }
-            : {}),
+          ...(cur.gutterWidth !== undefined ? { gutterWidth: cur.gutterWidth } : {}),
         }),
       });
     }
@@ -732,8 +690,7 @@ export function TimelinePanel(
         {live && !live.recording
           ? (
             <div style={liveIdleHint}>
-              Record captures from the feed from the moment you press it. The
-              connection is already open.
+              Record captures from the feed from the moment you press it. The connection is already open.
             </div>
           )
           : scrubberWidth > 0 && (
@@ -744,9 +701,7 @@ export function TimelinePanel(
                 width={scrubberWidth}
                 hoverTRef={hoverTRef}
                 onSetView={setView}
-                allVisMode={cycleAllVisibility
-                  ? engine.allVisMode()
-                  : undefined}
+                allVisMode={cycleAllVisibility ? engine.allVisMode() : undefined}
                 onCycleAllVisibility={cycleAllVisibility}
                 viewMaxWidth={viewMaxWidth}
                 viewPanMaxT={viewPanMaxT}
@@ -786,8 +741,7 @@ export function TimelinePanel(
                 onMoveEntitySpan={onMoveEntitySpan}
                 beginEdit={beginEdit}
                 endEdit={endEdit}
-                toggleCategory={(cat) =>
-                  dispatch({ kind: "toggle-category", category: cat })}
+                toggleCategory={(cat) => dispatch({ kind: "toggle-category", category: cat })}
                 cycleRowVisibility={cycleRowVisibility}
                 cycleCategoryVisibility={cycleCategoryVisibility}
                 commitRowReorder={commitRowReorder}

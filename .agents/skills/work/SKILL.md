@@ -150,7 +150,7 @@ zig build check
 Use focused gates while iterating (see [cli rule](../../rules/cli.md)).
 When host tooling is missing but the devcontainer is already running, invoke the
 same command through `.agents/skills/work/bin/pancake-dev`, for example
-`.agents/skills/work/bin/pancake-dev zig build meta-check`.
+`.agents/skills/work/bin/pancake-dev zig build source-check`.
 
 ## 5. Compound (leave the next agent better off)
 
@@ -159,7 +159,7 @@ same command through `.agents/skills/work/bin/pancake-dev`, for example
 - Fix doc drift in files you touched; leave prose more readable than you found
   it.
 - Do not leave "someone should fix X later" without recording X as a present
-  boundary in vision, `docs/boundaries.md`, or an ADR. `zig build meta-check`
+  boundary in vision, `docs/boundaries.md`, or an ADR. `zig build source-check`
   refuses unowned deferral markers in first-party source for the same reason.
 - Scaffolding changes answer to
   [agent-scaffolding](../../rules/agent-scaffolding.md): the lesson lands at the

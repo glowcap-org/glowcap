@@ -33,6 +33,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_viz_lifecycle_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { connectVizViewer, scrapeVizSturdyref } from "./viz_viewer.ts";
 
 /** One record off the endpoint, as the converter takes it, and the shape of
  * one event it produces. Both are open records here: this file states no
@@ -310,9 +311,7 @@ function statesOnlyWhatHappened(since: StageEvent[], what: string): void {
 		.map((e) => str(e, "sessionId"));
 	if (closed.length > 0) {
 		fail(
-			`${what}, but the timeline closed ${
-				closed.join(", ")
-			} — a session that opened and never ended`,
+			`${what}, but the timeline closed ${closed.join(", ")} — a session that opened and never ended`,
 		);
 	}
 	const left = since
@@ -327,19 +326,12 @@ function statesOnlyWhatHappened(since: StageEvent[], what: string): void {
 }
 
 /** Watch the endpoint the way ocapnviz does, keeping the projected picture up
- * to date as records arrive. */
-async function watch(port: number): Promise<Picture> {
+ * to date as records arrive: the WebSocket is only the byte channel, and
+ * records arrive through an inbox capability after enlivening the sturdyref
+ * the server announced. */
+async function watch(port: number, sturdyref: string): Promise<Picture> {
 	const picture = new Picture();
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
-	socket.onmessage = (msg) => {
-		if (typeof msg.data !== "string") return;
-		picture.apply(JSON.parse(msg.data) as FeedRecord);
-	};
-	await new Promise<void>((resolve, reject) => {
-		socket.onopen = () => resolve();
-		socket.onerror = () =>
-			reject(new Error("the live timeline endpoint would not accept a viewer"));
-	});
+	await connectVizViewer(port, sturdyref, (record) => picture.apply(record as FeedRecord));
 	return picture;
 }
 
@@ -447,6 +439,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -456,14 +449,17 @@ const web = new Deno.Command("deno", {
 	],
 	cwd: ROOT,
 	env: { ROOMS_VIZ_PORT: String(vizPort) },
-	stdout: "piped",
-	stderr: "inherit",
+	stdout: "inherit",
+	stderr: "piped",
 }).spawn();
+// The viz sturdyref rides the server's stderr; the scraper tees the stream
+// through so the run stays observable.
+const vizRef = scrapeVizSturdyref(web.stderr);
 
 let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
-	const picture = await watch(vizPort);
+	const picture = await watch(vizPort, await vizRef);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	// ── Two members in one room: three peers, two sessions ──
@@ -538,7 +534,7 @@ try {
 		);
 	}
 
-	const rejoined = await watch(vizPort);
+	const rejoined = await watch(vizPort, await vizRef);
 	await settles(
 		rejoined,
 		"a viewer joining now sees the room and the direct message already there",
@@ -550,9 +546,7 @@ try {
 			p.joins("rooms", NICK2) &&
 			p.edgeBetween(NICK1, NICK2) !== null,
 	);
-	const learned = rejoined.journal.filter((e) =>
-		str(e, "kind") === "session-endpoint-attributed"
-	);
+	const learned = rejoined.journal.filter((e) => str(e, "kind") === "session-endpoint-attributed");
 	if (learned.length > 0) {
 		fail(
 			`a viewer handed the whole topology at once reported learning ${learned.length} thing(s) it was told outright: ` +
@@ -579,9 +573,7 @@ try {
 		"the direct line travelled on the direct session",
 		(p) => p.messages.slice(before).some((m) => m.session === dmEdge && m.op === "dm"),
 	);
-	const strays = picture.messages.slice(before).filter((m) =>
-		m.op === "dm" && m.session !== dmEdge
-	);
+	const strays = picture.messages.slice(before).filter((m) => m.op === "dm" && m.session !== dmEdge);
 	if (strays.length > 0) {
 		fail(`a direct message was drawn on ${strays.length} session(s) other than the direct one`);
 	}

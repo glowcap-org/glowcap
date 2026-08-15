@@ -22,15 +22,7 @@
  * mounts (only one WebGL context per canvas, ever).
  */
 
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Application } from "pixi.js";
 import { RegionRegistry } from "./RegionRegistry.ts";
 import { themedColors } from "./palette.ts";
@@ -131,9 +123,7 @@ export function UnifiedCanvas(
         // needs to know (modal) and reloading typically succeeds.
         pushError({
           error: importError(
-            `PixiJS failed to initialize: ${
-              caught instanceof Error ? caught.message : String(caught)
-            }`,
+            `PixiJS failed to initialize: ${caught instanceof Error ? caught.message : String(caught)}`,
             "Reload the page. If it keeps happening, your browser may not support WebGL.",
           ),
           source: "engine",

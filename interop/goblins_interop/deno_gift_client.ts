@@ -22,7 +22,8 @@
 // Needs `deno` + `racket` + the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-gift`.
 
-import { connect, listen, Ref, socketAddrDesignator, tcpLocator } from "@pancake/stack";
+import { Ref, Runtime } from "@pancake/runtime";
+import * as tcp from "@pancake/tcp";
 import { acceptLoop, awaitGreeterReady, fail, parsePort } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -82,14 +83,15 @@ try {
 	// pancake (the gifter) listens for the recipient on an ephemeral port and runs
 	// its accept loop. One node identity serves both the recipient connection and
 	// the exporter connection, so the give's signature matches the deposit.
-	const gifter = listen(HOST, 0);
+	const gifter = await tcp.listen(HOST, 0);
+	const runtime = await Runtime.open({ providers: [tcp.provider()], adoptHost: gifter.host });
 	const gifterAccept = acceptLoop(gifter);
-	const gifterPort = await gifter.ready();
+	const gifterPort = gifter.port;
 
 	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. That
 	// reply ref's home is the gifter↔Bob connection, which is what lets pancake
 	// re-gift it across to the recipient without an enrollment verb.
-	const toBob = await connect(tcpLocator(HOST, PORT), undefined, gifter.host);
+	const toBob = await runtime.connect(tcp.locator(HOST, PORT));
 	toBob.serve().catch(() => {});
 	const vendor = await toBob.fetch(VENDOR_SWISS);
 	const greeter = await toBob.send(vendor, "", []);
@@ -112,7 +114,7 @@ try {
 	carol = new Deno.Command(RACKET, {
 		args: [
 			RECIPIENT_SCRIPT,
-			socketAddrDesignator(HOST, gifterPort),
+			tcp.addressDesignator(HOST, gifterPort),
 			INTRODUCER_SWISS,
 			String(PORT + 1),
 		],
@@ -143,6 +145,7 @@ try {
 
 	gifter.close();
 	toBob.close();
+	await runtime.close();
 	await Promise.allSettled([gifterAccept]);
 } finally {
 	try {

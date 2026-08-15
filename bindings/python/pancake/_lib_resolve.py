@@ -41,8 +41,10 @@ from typing import NoReturn
 def _lib_file(stem: str) -> str:
     """Platform-specific shared-library filename for an archive stem."""
     return (
-        f"lib{stem}.dylib" if sys.platform == "darwin"
-        else f"{stem}.dll" if sys.platform == "win32"
+        f"lib{stem}.dylib"
+        if sys.platform == "darwin"
+        else f"{stem}.dll"
+        if sys.platform == "win32"
         else f"lib{stem}.so"
     )
 
@@ -70,9 +72,7 @@ def _contract() -> dict:
         if loaded.get("require_checksum") is not True:
             raise RuntimeError("c-abi-resolve.json: require_checksum must be true")
         if not isinstance(loaded.get("releases_published"), bool):
-            raise RuntimeError(
-                "c-abi-resolve.json: releases_published must be a bool"
-            )
+            raise RuntimeError("c-abi-resolve.json: releases_published must be a bool")
         _CONTRACT = loaded
     return _CONTRACT
 
@@ -114,7 +114,9 @@ def _abi_version(dev_root: pathlib.Path | None, contract: dict) -> str:
     return str(contract["abi_version"])
 
 
-def _apply_contract_template(tmpl: str, *, version: str, target: str, cache_base: str = "") -> str:
+def _apply_contract_template(
+    tmpl: str, *, version: str, target: str, cache_base: str = ""
+) -> str:
     return (
         tmpl.replace("{version}", version)
         .replace("{target}", target)
@@ -122,7 +124,7 @@ def _apply_contract_template(tmpl: str, *, version: str, target: str, cache_base
     )
 
 
-# All host aliases from tools/c-abi/c-abi-host-aliases.json (meta_check per-port presence).
+# All host aliases from tools/c-abi/c-abi-host-aliases.json (source_check per-port presence).
 _HOST_ALIAS_CORPUS = (
     "x86_64",
     "amd64",
@@ -179,7 +181,9 @@ def _cache_lib_dir(contract: dict, version: str, target: str) -> pathlib.Path:
     base = _cache_base(contract)
     layout = str(contract["cache_layout"])
     return pathlib.Path(
-        _apply_contract_template(layout, version=version, target=target, cache_base=str(base))
+        _apply_contract_template(
+            layout, version=version, target=target, cache_base=str(base)
+        )
     )
 
 
@@ -207,7 +211,9 @@ def _download(url: str, dest: pathlib.Path, *, max_bytes: int, user_agent: str) 
     with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 — HTTPS gated
         length = resp.headers.get("Content-Length")
         if length is not None and int(length) > max_bytes:
-            raise OSError(f"Content-Length {length} exceeds max_tarball_bytes {max_bytes}")
+            raise OSError(
+                f"Content-Length {length} exceeds max_tarball_bytes {max_bytes}"
+            )
         written = 0
         with dest.open("wb") as out:
             while True:
@@ -262,12 +268,17 @@ def _safe_extract_lib(
             if not (member.isfile() or member.isdir()):
                 raise OSError(f"refusing non-file tar member: {member.name}")
             dest = (stage / name).resolve()
-            if not str(dest).startswith(str(stage_resolved) + os.sep) and dest != stage_resolved:
+            if (
+                not str(dest).startswith(str(stage_resolved) + os.sep)
+                and dest != stage_resolved
+            ):
                 raise OSError(f"tar member escapes stage: {member.name}")
             tf.extract(member, path=stage, set_attrs=False)
 
 
-def _fetch_into_cache(contract: dict, version: str, target: str, cache_lib: pathlib.Path) -> None:
+def _fetch_into_cache(
+    contract: dict, version: str, target: str, cache_lib: pathlib.Path
+) -> None:
     base = os.environ.get(
         "PANCAKE_RELEASE_BASE_URL",
         contract["default_release_base_url"],
@@ -276,8 +287,12 @@ def _fetch_into_cache(contract: dict, version: str, target: str, cache_lib: path
     max_bytes = int(contract["max_tarball_bytes"])
     max_sums = int(contract["max_sums_bytes"])
     user_agent = str(contract["user_agent"])
-    tag = _apply_contract_template(str(contract["release_tag_template"]), version=version, target=target)
-    tarball = _apply_contract_template(str(contract["tarball_template"]), version=version, target=target)
+    tag = _apply_contract_template(
+        str(contract["release_tag_template"]), version=version, target=target
+    )
+    tarball = _apply_contract_template(
+        str(contract["tarball_template"]), version=version, target=target
+    )
     extract_prefix = str(contract["extract_prefix"])
     url = f"{base}/{tag}/{tarball}"
     cache_root = cache_lib.parent

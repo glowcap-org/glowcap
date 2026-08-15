@@ -9,9 +9,9 @@ mod board;
 mod demo_run;
 
 use board::Board;
-use pancake::tcp_locator;
+use pancake::{tcp, Locator};
 
-async fn run_client(locator: &str, nick: &str, task_text: &str) -> Result<(), String> {
+async fn run_client(locator: &Locator, nick: &str, task_text: &str) -> Result<(), String> {
 	let board = Board::join(locator).await?;
 
 	let id = board.add(&format!("[{nick}] {task_text}")).await?;
@@ -53,11 +53,10 @@ async fn main() {
 		eprintln!("usage: tasks-client <host> <port> <nick> <task-text> (port must be a number)");
 		std::process::exit(2);
 	};
-	let locator = tcp_locator(&args[1], port);
+	let locator = tcp::locator(&args[1], port);
 	let nick = args[3].clone();
 	let task_text = args[4].clone();
 
-	let result =
-		demo_run::run_with_timeout(&nick, 15, run_client(&locator, &nick, &task_text)).await;
+	let result = demo_run::run_with_timeout(&nick, 15, run_client(&locator, &nick, &task_text)).await;
 	demo_run::exit_on_result(&nick, "client", result);
 }

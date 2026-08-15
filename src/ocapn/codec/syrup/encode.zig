@@ -42,12 +42,12 @@ const CountSink = struct {
 
     const counting = true;
 
-    fn append(self: *CountSink, byte: u8) error{}!void {
+    pub fn append(self: *CountSink, byte: u8) error{}!void {
         _ = byte;
         self.total += 1;
     }
 
-    fn appendSlice(self: *CountSink, bytes: []const u8) error{}!void {
+    pub fn appendSlice(self: *CountSink, bytes: []const u8) error{}!void {
         self.total += bytes.len;
     }
 };
@@ -58,16 +58,18 @@ const SliceSink = struct {
 
     const counting = false;
 
-    // The bounds checks are the measure/emit agreement assertion, live in every
-    // build mode: past this point a divergence would write out of bounds.
-    fn append(self: *SliceSink, byte: u8) error{}!void {
-        if (self.cursor >= self.buf.len) @panic("syrup encode: emit overran the measured length");
+    // The bounds checks ratify measure/emit agreement in every build mode.
+    // A defect remains an operation failure instead of becoming an
+    // out-of-bounds write or a process-fatal assertion.
+    pub fn append(self: *SliceSink, byte: u8) error{EncoderInvariantViolation}!void {
+        if (self.cursor >= self.buf.len) return error.EncoderInvariantViolation;
         self.buf[self.cursor] = byte;
         self.cursor += 1;
     }
 
-    fn appendSlice(self: *SliceSink, bytes: []const u8) error{}!void {
-        if (self.buf.len - self.cursor < bytes.len) @panic("syrup encode: emit overran the measured length");
+    pub fn appendSlice(self: *SliceSink, bytes: []const u8) error{EncoderInvariantViolation}!void {
+        if (self.cursor > self.buf.len or self.buf.len - self.cursor < bytes.len)
+            return error.EncoderInvariantViolation;
         @memcpy(self.buf[self.cursor..][0..bytes.len], bytes);
         self.cursor += bytes.len;
     }
@@ -116,9 +118,12 @@ pub fn renderRecordExact(
         allocator.free(storage);
         return err;
     };
-    // Guards memory safety, so it stays live in every build mode: a short fill
-    // would hand out uninitialized storage as wire bytes.
-    if (fill.cursor != storage.len) @panic("syrup encode: emit cursor diverged from the measured length");
+    // A short fill would hand out uninitialized storage as wire bytes. Refuse
+    // it and release the unpublished allocation just like an overfill.
+    if (fill.cursor != storage.len) {
+        allocator.free(storage);
+        return error.EncoderInvariantViolation;
+    }
     return storage;
 }
 

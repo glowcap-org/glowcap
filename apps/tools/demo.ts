@@ -109,8 +109,7 @@ await runCrossLangDemo(
 		listenMiss: "coordinator never announced its port",
 		roster,
 		failLine: "tools demo FAILED: an agent did not prove the capability properties",
-		okLine: (langs) =>
-			`tools demo OK: ${langs} proved delegation, attenuation, and revocation over OCapN`,
+		okLine: (langs) => `tools demo OK: ${langs} proved delegation, attenuation, and revocation over OCapN`,
 	},
 	pinPort,
 	attach,

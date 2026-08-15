@@ -56,6 +56,7 @@
    (hasheq 'IROH-REACH-DIRECT (dynamic-require iroh-path 'IROH-REACH-DIRECT)
            'make-iroh-config (dynamic-require iroh-path 'make-iroh-config)
            'dial-locator-for-relay (dynamic-require iroh-path 'dial-locator-for-relay)
+           'dial-byte-transport (dynamic-require iroh-path 'dial-byte-transport)
            'iroh-loop-provider-parts (dynamic-require iroh-path 'iroh-loop-provider-parts)
            'iroh-adopt-loop! (dynamic-require iroh-path 'iroh-adopt-loop!))))
 

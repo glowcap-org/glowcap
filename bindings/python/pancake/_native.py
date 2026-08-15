@@ -15,6 +15,15 @@ from contextlib import contextmanager
 from functools import partial
 from typing import Callable, Iterator
 
+from ._failure import FailureLayer, _record_runtime_failure
+
+
+def _release_finalized(label: str, release_once: Callable[[], None]) -> None:
+    try:
+        release_once()
+    except BaseException as error:
+        _record_runtime_failure(FailureLayer.BINDING, f"{label}.finalize", error)
+
 
 def _release_retaining_parent(
     release: Callable[[object], None], raw: object, _keepalive: object
@@ -48,13 +57,16 @@ class NativeHandle:
         self._active = 0
         self._closing = False
         self._released = False
+        self._terminal_failures: list[BaseException] = []
         self._condition = threading.Condition()
         release_once: Callable[[], None] = (
             partial(release, raw)
             if keepalive is None
             else partial(_release_retaining_parent, release, raw, keepalive)
         )
-        self._finalizer = weakref.finalize(self, release_once)
+        self._finalizer = weakref.finalize(
+            self, _release_finalized, label, release_once
+        )
 
     @contextmanager
     def lease(self) -> Iterator[object]:
@@ -88,21 +100,30 @@ class NativeHandle:
         """
         self._retire(shutdown=False)
 
+    @property
+    def terminal_failures(self) -> tuple[BaseException, ...]:
+        """Explicit retirement failures in operation order."""
+        with self._condition:
+            return tuple(self._terminal_failures)
+
     def _retire(self, *, shutdown: bool) -> None:
         with self._condition:
             if self._closing:
                 while not self._released:
                     self._condition.wait()
+                terminal_failures = tuple(self._terminal_failures)
+                if terminal_failures:
+                    raise terminal_failures[0]
                 return
             self._closing = True
             raw = self._raw
 
-        failure: BaseException | None = None
+        failures: list[BaseException] = []
         if shutdown and raw and self._shutdown is not None:
             try:
                 self._shutdown(raw)
             except BaseException as error:
-                failure = error
+                failures.append(error)
 
         with self._condition:
             while self._active != 0:
@@ -116,12 +137,23 @@ class NativeHandle:
             if claimed:
                 self._release(claimed)
         except BaseException as error:
-            if failure is None:
-                failure = error
+            if not any(retained is error for retained in failures):
+                failures.append(error)
         finally:
             with self._condition:
+                self._terminal_failures.extend(failures)
                 self._released = True
                 self._condition.notify_all()
 
-        if failure is not None:
-            raise failure
+        if failures:
+            raise failures[0]
+
+
+class _NativeHandleOwner:
+    """Shared diagnostics projection for wrappers owning ``self._native``."""
+
+    _native: NativeHandle
+
+    @property
+    def terminal_failures(self) -> tuple[BaseException, ...]:
+        return self._native.terminal_failures

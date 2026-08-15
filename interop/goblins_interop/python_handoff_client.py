@@ -30,8 +30,7 @@ from helpers import fail, insert_bindings_path, parse_port, read_swiss  # noqa: 
 
 insert_bindings_path()
 
-from pancake import Ref, connect, tcp_locator  # noqa: E402
-
+from pancake import Ref, Runtime, tcp  # noqa: E402
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-handoff", 22114, max_port=65534)
 RACKET = "racket"
@@ -48,28 +47,29 @@ async def converse() -> None:
         swiss = await read_swiss(proc, "python-goblins-handoff", miss="never saw the introducer readiness line")
         print(f"python-goblins-handoff: alice published introducer swiss={swiss} on {HOST}:{PORT}")
 
-        session = await connect(tcp_locator(HOST, PORT))
-        print("python-goblins-handoff: session open (recipient -> alice)")
-        session.serve()
+        async with Runtime.open(provider=tcp.provider()) as runtime:
+            session = await runtime.connect(tcp.locator(HOST, PORT))
+            print("python-goblins-handoff: session open (recipient -> alice)")
+            session.serve()
 
-        introducer = await session.fetch(swiss)
-        print("python-goblins-handoff: enlivened alice's introducer, asking for the greeter")
+            introducer = await session.fetch(swiss)
+            print("python-goblins-handoff: enlivened alice's introducer, asking for the greeter")
 
-        greeter = await session.send(introducer, "get-greeter", [])
-        if not isinstance(greeter, Ref):
-            fail("python-goblins-handoff", f"introduction did not redeem to a capability: {greeter!r}")
-        print("python-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref")
+            greeter = await session.send(introducer, "get-greeter", [])
+            if not isinstance(greeter, Ref):
+                fail("python-goblins-handoff", f"introduction did not redeem to a capability: {greeter!r}")
+            print("python-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref")
 
-        reply = await session.send(greeter, "", ["pancake-carol"])
-        if not isinstance(reply, str) or "pancake-carol" not in reply:
-            fail("python-goblins-handoff", f"greeter reply did not carry the name back: {reply!r}")
-        print(f"python-goblins-handoff: greeter replied: {reply}")
+            reply = await session.send(greeter, "", ["pancake-carol"])
+            if not isinstance(reply, str) or "pancake-carol" not in reply:
+                fail("python-goblins-handoff", f"greeter reply did not carry the name back: {reply!r}")
+            print(f"python-goblins-handoff: greeter replied: {reply}")
 
-        print(
-            "python-goblins-handoff OK: the Python binding redeemed a three-party "
-            "handoff from live Goblins and called the exporter directly"
-        )
-        await session.close()
+            print(
+                "python-goblins-handoff OK: the Python binding redeemed a three-party "
+                "handoff from live Goblins and called the exporter directly"
+            )
+            await session.close()
     finally:
         try:
             proc.kill()

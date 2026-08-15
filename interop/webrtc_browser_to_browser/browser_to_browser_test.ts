@@ -23,8 +23,7 @@ import { type Browser, chromium } from "playwright";
 
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const WASM = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
-const BUNDLE_CONFIG =
-	new URL("../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
+const BUNDLE_CONFIG = new URL("../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -90,8 +89,7 @@ let browser: Browser | null = null;
 try {
 	const probeJs = await bundleProbe();
 	const wasmBytes = await Deno.readFile(WASM);
-	const page =
-		`<!doctype html><meta charset=utf-8><title>webrtc browser-to-browser probe</title>` +
+	const page = `<!doctype html><meta charset=utf-8><title>webrtc browser-to-browser probe</title>` +
 		`<pre id=status>connecting…</pre><script type=module>${probeJs}</script>`;
 
 	const relay = new SignalRelay();

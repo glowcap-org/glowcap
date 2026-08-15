@@ -20,7 +20,7 @@
 //   deno run --allow-ffi --allow-read --allow-net --allow-env apps/rooms/demos/dm_back_demo.ts
 
 import process from "node:process";
-import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/stack";
+import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { inboxOfferer } from "../lib/dm_inbox.ts";
 import { serveDirectory } from "../server/main.ts";
@@ -28,6 +28,7 @@ import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/loca
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
 import { waitUntil } from "../lib/dm_handoff.ts";
+import { openRoomsRuntime } from "../lib/runtime.ts";
 
 const ROOM = "lobby";
 const DM_TEXT = "hi Bob, privately, from a non-listening sender";
@@ -46,15 +47,16 @@ async function main(): Promise<void> {
 	const dmFor = (_peer: string) => recordingReplyDm(bobInbox, (text) => `got your DM: ${text}`);
 
 	// The room.
-	const room = roomsListen("127.0.0.1", 0);
-	const roomLocator = loopbackTcpDesignator(await room.ready());
-	const roomServe = serveDirectory(room);
+	const room = await roomsListen("127.0.0.1", 0);
+	const roomLocator = loopbackTcpDesignator(room.port);
+	const roomServe = serveDirectory(room.host, room);
 
 	// Bob: one Host that listens (the redeem target) and dials the room (so
 	// `register` can fetch his `dm` on the room session).
 	const bobHost = roomsHost();
-	const bob = roomsListen("127.0.0.1", 0, bobHost);
-	const bobLocator = loopbackTcpDesignator(await bob.ready());
+	const bob = await roomsListen("127.0.0.1", 0, bobHost);
+	const bobRuntime = await openRoomsRuntime({ host: bobHost });
+	const bobLocator = loopbackTcpDesignator(bob.port);
 	let bobAccepts = 0;
 	(async () => {
 		for await (const session of bob) {
@@ -63,7 +65,7 @@ async function main(): Promise<void> {
 		}
 	})();
 
-	const bobDir = await Directory.connect(roomLocator, (l) => dial(l, bobHost));
+	const bobDir = await Directory.connect(roomLocator, (locator) => dial(locator, bobRuntime));
 	const bobRoomRef = await enterOrOpen(bobDir, ROOM);
 	await Room.subscribe(bobDir.session, bobRoomRef, "bob");
 	// Bob mints an inbox for each peer the directory asks him for; that inbox is
@@ -80,7 +82,8 @@ async function main(): Promise<void> {
 	// which redeems the introduction and hosts a reply inbox on that session.
 	const carolReplies: string[] = [];
 	const carolHost = roomsHost();
-	const carol = await Directory.connect(roomLocator, (l) => dial(l, carolHost));
+	const carolRuntime = await openRoomsRuntime({ host: carolHost });
+	const carol = await Directory.connect(roomLocator, (locator) => dial(locator, carolRuntime));
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
 	const line = await DirectMessage.open(carol, "bob", (text) => {
 		carolReplies.push(`bob: ${text}`);
@@ -110,6 +113,8 @@ async function main(): Promise<void> {
 	await carol.close();
 	await bobDir.close();
 	bob.close();
+	await carolRuntime.close();
+	await bobRuntime.close();
 	await room.close();
 	await roomServe.catch(() => {});
 	process.exit(0);

@@ -1,8 +1,4 @@
-import {
-  endpointNodeId,
-  endpointStageId,
-  SESSION_SIDES,
-} from "../schema/topology.ts";
+import { endpointNodeId, endpointStageId, SESSION_SIDES } from "../schema/topology.ts";
 import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 

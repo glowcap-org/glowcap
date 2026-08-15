@@ -33,10 +33,12 @@
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^6.0.5",
     "@deno/vite-plugin": "npm:@deno/vite-plugin@^2.0.3",
     "@pancake/abi": "../../bindings/ts/abi/constants.ts",
-    "@pancake/stack": "../../bindings/ts/stack/mod.ts",
-    "@pancake/stack/ffi": "../../bindings/ts/stack/ffi.ts",
-    "@pancake/stack/websocket": "../../bindings/ts/stack/ws_channel.ts",
-    "@pancake/stack/transport/inproc": "../../bindings/ts/stack/transport/inproc.ts",
+    "@pancake/runtime": "../../bindings/ts/runtime/mod.ts",
+    "@pancake/runtime/ffi": "../../bindings/ts/runtime/ffi.ts",
+    "@pancake/runtime/transport": "../../bindings/ts/runtime/transport.ts",
+    "@pancake/runtime/websocket": "../../bindings/ts/runtime/websocket.ts",
+    "@pancake/inproc": "../../bindings/ts/inproc/mod.ts",
+    "@pancake/tcp/transport": "../../bindings/ts/web/browser_tcp_stub.ts",
     "@pancake/web": "../../bindings/ts/web/mod.ts",
     "@pancake/iroh": "../../bindings/ts/web/browser_iroh_stub.ts",
     "@pancake/iroh/internal": "../../bindings/ts/web/browser_iroh_stub.ts",
@@ -48,7 +50,7 @@
     // resolves its browser by a build number the version chooses, the
     // devcontainer image installs the browser .devcontainer/pins.sh names, and
     // a range here would let the library drift off the browser on disk.
-    // `zig build meta-check` holds the two together.
+    // `zig build source-check` holds the two together.
     "playwright": "npm:playwright@1.62.1"
   },
   "compilerOptions": {
@@ -66,7 +68,7 @@
   },
   "fmt": {
     "useTabs": false,
-    "lineWidth": 80,
+    "lineWidth": 120,
     "indentWidth": 2,
     "semiColons": true,
     "singleQuote": false,

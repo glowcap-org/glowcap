@@ -209,9 +209,7 @@ export function momentOf(
     // A peer update that states nothing changes nothing, so it is
     // not a moment. `trajectory.ts` owns what "states something"
     // means, property by property.
-    return peerUpdateStates(ev).length > 0
-      ? { lane: "peers", owner: ev.peerId }
-      : null;
+    return peerUpdateStates(ev).length > 0 ? { lane: "peers", owner: ev.peerId } : null;
   }
   return null;
 }

@@ -5,6 +5,7 @@
 // pins that incompatibility directly.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { connectVizViewer, scrapeVizSturdyref, vizPortOf } from "../../apps/rooms/test/viz_viewer.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 const WEB = new URL("../../apps/rooms/web/serve.ts", import.meta.url).pathname;
@@ -201,20 +202,20 @@ function liveWireIds(records: TimelineRecord[]): Set<string> {
 	return live;
 }
 
-async function watchTimeline(port: number): Promise<{
+/** A viewer on the live timeline, connected the way ocapnviz connects.
+ *
+ * Records arrive through a capability the endpoint hands this viewer's inbox
+ * after the announced sturdyref is enlivened, so this harness reads the
+ * endpoint through the same shape as the browser proofs. */
+async function watchTimeline(sturdyref: string): Promise<{
 	records: TimelineRecord[];
-	close: () => void;
+	close: () => Promise<void>;
 }> {
 	const records: TimelineRecord[] = [];
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
-	socket.onmessage = (message) => {
-		if (typeof message.data === "string") records.push(JSON.parse(message.data));
-	};
-	await new Promise<void>((resolve, reject) => {
-		socket.onopen = () => resolve();
-		socket.onerror = () => reject(new Error("the timeline endpoint refused the matrix viewer"));
+	const viewer = await connectVizViewer(vizPortOf(sturdyref), sturdyref, (record) => {
+		records.push(record as TimelineRecord);
 	});
-	return { records, close: () => socket.close() };
+	return { records, close: () => viewer.close() };
 }
 
 async function joinWeb(
@@ -366,6 +367,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -378,7 +380,10 @@ const web = new Deno.Command("deno", {
 	cwd: ROOT,
 	env: { ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "null",
-	stderr: "inherit",
+	// Read rather than inherited, because the trace capability is announced on
+	// this stream and a viewer needs it. `scrapeVizSturdyref` tees it onward, so
+	// nothing the server says is lost by reading it here.
+	stderr: "piped",
 }).spawn();
 
 const deadline = setTimeout(() => {
@@ -397,7 +402,7 @@ let timeline: { records: TimelineRecord[]; close: () => void } | null = null;
 try {
 	const locator = await locatorAt(httpPort);
 	const vizUrl = `ws://127.0.0.1:${vizPort}/`;
-	timeline = await watchTimeline(vizPort);
+	timeline = await watchTimeline(await scrapeVizSturdyref(web.stderr));
 	gobA = new ChatPeer(GOB_A, locator, FULL, vizUrl);
 	gobB = new ChatPeer(GOB_B, locator, FULL, vizUrl);
 	await Promise.all([gobA.ready(FULL), gobB.ready(FULL)]);
@@ -520,7 +525,7 @@ try {
 	}
 } finally {
 	clearTimeout(deadline);
-	timeline?.close();
+	await timeline?.close();
 	if (browser) await browser.close().catch(() => {});
 	for (const peer of [gobA, gobB]) peer?.kill();
 	for (const peer of [gobA, gobB]) if (peer) await peer.child.status.catch(() => {});

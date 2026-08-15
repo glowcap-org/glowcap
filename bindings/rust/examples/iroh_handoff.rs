@@ -26,14 +26,11 @@
 //! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`); run
 //! via `zig build rust-iroh-handoff`.
 
-use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use pancake_rust_dogfood::{
-	connect, format_peer_uri, listen_iroh, parse_locator, Argument, IrohConfig, Reachability, Ref,
-	Session, HINT_DIRECT_ADDRESSES, TRANSPORT_IROH,
-};
+use pancake_rust_dogfood::iroh::Reachability;
+use pancake_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -45,57 +42,50 @@ const NAME: &str = "rust-iroh-carol";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
 	helpers::ignore_port_args()?;
-	// The `Session`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
+	// The `Session`/`Server` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
 }
 
 async fn run() -> Result<(), Fail> {
 	// ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct)).await?);
-	exporter
-		.host()
-		.publish_giftable("greeter", || Box::new(greeter()));
+	let exporter =
+		Rc::new(iroh::listen(iroh::Config::new(Reachability::Direct), iroh::ListenOptions::default()).await?);
+	exporter.host().publish_giftable("greeter", || Box::new(greeter()))?;
 	let (exporter_id, exporter_addrs) = dialable(&exporter).await?;
 	accept_loop(Rc::clone(&exporter));
 	println!("rust-iroh-handoff: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
-	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::Direct)).await?);
+	let gifter = Rc::new(iroh::listen(iroh::Config::new(Reachability::Direct), iroh::ListenOptions::default()).await?);
 	let gifter_host = gifter.host();
 	// Wait for the gifter endpoint's direct addresses so its `uri()` is dialable
 	// under the relay-less Direct posture.
 	let (gifter_id, _) = dialable(&gifter).await?;
-	let mut hints = BTreeMap::new();
-	hints.insert(HINT_DIRECT_ADDRESSES.to_string(), exporter_addrs.clone());
-	let exporter_uri = format_peer_uri(TRANSPORT_IROH, &exporter_id, &hints)?;
-	let to_exporter = connect(
-		&exporter_uri,
-		Some(Reachability::Direct),
-		Some(gifter_host.clone()),
+	let exporter_locator = pancake_rust_dogfood::iroh::locator(&exporter_id, Some(&exporter_addrs));
+	let gifter_runtime = Runtime::open(
+		RuntimeConfig::providers([iroh::provider(iroh::Config::new(Reachability::Direct))]).adopt_host(&gifter_host),
 	)
 	.await?;
+	let to_exporter = gifter_runtime
+		.connect(&exporter_locator, ConnectOptions::default())
+		.await?;
 	let greeter_ref = to_exporter.fetch("greeter").await?;
 	// Mutate the held greeter, then replace the alias with a decoy: the give
 	// must retain the exact mutated actor, never whatever the alias resolves
 	// to at withdrawal (ADR-0096's exact-object identity, on the binding path).
 	let primed = to_exporter
-		.send(
-			&greeter_ref,
-			"prime",
-			&[Argument::String("gifter-mark".into())],
-		)
+		.send(&greeter_ref, "prime", &[Argument::String("gifter-mark".into())])
 		.await?;
 	if primed.as_str() != Some("primed") {
 		return Err(format!("prime did not land: {primed:?}").into());
 	}
 	exporter.host().publish_giftable("greeter", || {
 		Box::new(|_verb: &str, _args: &[Argument]| Ok(Argument::from("decoy")))
-	});
+	})?;
 	// The exporter's own signed session record names it by node id alone — not
 	// dialable under the relay-less Direct posture — so record its full dialable
 	// location (id + direct-addresses) as the give's exporter location.
-	let exporter_locator = parse_locator(&exporter_uri)?;
 	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
 	gifter_host.publish_giftable("introducer", move || {
 		let greeter = greeter_ref.clone();
@@ -106,16 +96,22 @@ async fn run() -> Result<(), Fail> {
 				Err(format!("introducer: no such verb {verb:?}"))
 			}
 		})
-	});
+	})?;
 	accept_loop(Rc::clone(&gifter));
 	println!("rust-iroh-handoff: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────
-	let recipient = connect(&gifter.uri()?, Some(Reachability::Direct), None).await?;
+	let recipient_runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
+		Reachability::Direct,
+	))]))
+	.await?;
+	let recipient = recipient_runtime
+		.connect(&gifter.locator()?, ConnectOptions::default())
+		.await?;
 	let introducer = recipient.fetch("introducer").await?;
 	let granted = recipient.send(&introducer, "get-greeter", &[]).await?;
-	let greeter = Ref::try_from(&granted)
-		.map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
+	let greeter =
+		Ref::try_from(&granted).map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
 	println!("rust-iroh-handoff: recipient redeemed the give, got the greeter as an ordinary ref");
 
 	let reply = recipient
@@ -125,9 +121,7 @@ async fn run() -> Result<(), Fail> {
 		Argument::String(text) if text.contains(NAME) && text.contains("gifter-mark") => {
 			println!("rust-iroh-handoff: greeter replied: {text}");
 		}
-		other => {
-			return Err(format!("greeter reply did not carry the name back: {other:?}").into())
-		}
+		other => return Err(format!("greeter reply did not carry the name back: {other:?}").into()),
 	}
 
 	println!(
@@ -138,15 +132,15 @@ async fn run() -> Result<(), Fail> {
 	// Teardown: close the dialing connections; the exporter/gifter accept loops
 	// are still parked on `accept().await` and are cancelled when this function
 	// returns and the enclosing `LocalSet` is dropped.
-	recipient.close();
-	to_exporter.close();
+	recipient.close(PendingWork::Cancel).await?;
+	to_exporter.close(PendingWork::Cancel).await?;
 	Ok(())
 }
 
 // Serve every connection a server accepts for the life of the run: the loop
 // holds its own `Rc` to the server and parks on `accept().await`, so it is
 // cancelled with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<pancake_rust_dogfood::IrohServer>) {
+fn accept_loop(server: Rc<pancake_rust_dogfood::iroh::Server>) {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
 		while let Ok(session) = server.accept().await {
@@ -161,11 +155,7 @@ fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
 	let mut mark = String::new();
 	move |verb: &str, args: &[Argument]| {
 		if verb == "prime" {
-			mark = args
-				.first()
-				.and_then(Argument::as_str)
-				.unwrap_or("")
-				.to_string();
+			mark = args.first().and_then(Argument::as_str).unwrap_or("").to_string();
 			return Ok("primed".into());
 		}
 		if verb == "greet" {
@@ -180,7 +170,7 @@ fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
 // An iroh endpoint reports its direct addresses asynchronously after bind, so
 // wait for at least one before reading the dialable id+addresses, a give with no
 // direct-addresses hint is not dialable under the relay-less Direct posture.
-async fn dialable(server: &pancake_rust_dogfood::IrohServer) -> Result<(String, String), Fail> {
+async fn dialable(server: &pancake_rust_dogfood::iroh::Server) -> Result<(String, String), Fail> {
 	for _ in 0..1000 {
 		let addrs = server.direct_addresses()?;
 		if !addrs.is_empty() {

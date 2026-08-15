@@ -202,7 +202,7 @@ capabilities.
 		<li>Every request carries a credential, and the credential names you, not the action. The service looks you up in its permission table and decides.</li>
 		<li>You want the thumbnailer to shrink one album. Your token is the smallest thing you have to hand it, so the thumbnailer now holds everything your account can do.</li>
 		<li>The thumbnailer has a bug, and it deletes your photos. The service allowed it, because every request looked like it came from you. This failure is old enough to have a name: the confused deputy.</li>
-		<li>The same story under capability rules. You signed in once, and what came back was a live reference to your album. Holding that reference is the permission, and there is no permission table.</li>
+		<li>Under capability rules, signing in returns a live reference to your album. Holding that reference is the permission, and there is no permission table.</li>
 		<li>You pass the thumbnailer a reference to that one album. It never learns who you are, and it cannot reach anything else of yours. That single move, passing the reference, is delegation.</li>
 		<li>You would rather it could not delete anything, so you hand it a wrapper instead: an object of yours, running in your process, that forwards reads to the album and refuses the rest. The Photos service never knows the wrapper exists. This narrowed grant is attenuation.</li>
 		<li>When the job is done, you cut your wrapper, and every copy of that grant dies with it. Your own reference still works, and the service was never consulted. Revocation here is surgery on one grant.</li>

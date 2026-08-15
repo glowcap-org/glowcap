@@ -15,6 +15,10 @@ owner can hold the value; a shim is not "shim versus break the world" when the
 world is yours to change ([prerelease](prerelease.md) — there is no migration
 to pay).
 
+Cross-surface consistency is part of that derivation: a negligible cost off
+the wire path, paid so sibling fronts keep one contract, earns its name more
+easily than a micro-saving earns an asymmetry.
+
 The ledger at the end of this rule is the list of copies that survived that
 derivation. Each entry names the contract that requires it and what deleting it
 would cost. **Do not "optimize" one away without re-deriving its contract**, and
@@ -57,9 +61,13 @@ wrong.
   propagate pressure without calling it: the same `OutboundBackpressure` name
   means a partner-owned cap only at the inbound boundary. The diagnostic is a
   static `[]const u8` borrowed by encode, so there is no message clone. The path
-  is best-effort: an encode or append failure is swallowed so it cannot mask the
-  original dispatch error, and the session still closes when the projection
-  requires it, even with no queued frame.
+  retains an encode or append failure as `AbortInfo.abort_delivery_error` while
+  returning the original dispatch error, and the session still closes when the
+  projection requires it, even with no queued frame. Host admission reserves
+  the resulting flush notification, so publishing that embedder effect is
+  infallible after the session exists. Cleanup consequences retain their first
+  name and bounded count in `AbortInfo.secondary_error`; its saturation test
+  and the `Peer` size gate keep that diagnosis inside already-paid padding.
 - Test-support copy helpers (`test/support/frame.zig`, for example
   `copyFromBorrowed`) materialize borrowed wire bytes for assertions. **Copy
   helpers belong in `test/support`, never in a production module.**
@@ -74,7 +82,7 @@ wrong.
   `std.debug.assert(map.remove(k))` still runs the remove in release and only
   adds the check in safe builds. Only a genuinely idempotent ensure-absent
   removal discards the bool, and then it carries an inline `// idempotent:` or
-  `// tolerant:` justification. `meta-check` holds this for every
+  `// tolerant:` justification. `source-check` holds this for every
   `_ = <map>.remove(` / `.fetchRemove(` / `.swapRemove(` in `src/`.
 
 ## Footprint budgets that bite
@@ -124,7 +132,7 @@ symbol that owns the cost, and that symbol's doc comment carries the argument:
 the hazard, the lifetime, and what breaks if the copy is deleted. Read it before
 touching the site. This list exists so nothing is unnamed and so a reviewer can
 see the whole budget at once; duplicating each argument here would give one fact
-two authorities that drift apart. `meta-check` holds every symbol below to a
+two authorities that drift apart. `source-check` holds every symbol below to a
 declaration under `src/`, so a rename breaks the entry instead of quietly
 pointing it at nothing.
 
@@ -152,8 +160,9 @@ pointing it at nothing.
   fails loud instead of overflowing the stack.
 - **Introduced-import event patch** — `Event.introduced_far_imports`
   (`engine/inbound.zig`). One gpa dupe per reference-introducing deliver, because
-  the event outlives the turn record. Best-effort by contract: apply has already
-  committed, so an OOM leaves the field null and `gc` walks for itself.
+  the event outlives the turn record. The dupe is acquired before authority
+  applies; OOM refuses the transaction instead of changing the event's
+  bookkeeping shape after commit.
 - **Set-uniqueness compare budget** — `checkInboundSetUniqueness`,
   `SessionLimits.max_compare_visits`. Borrowed elements hash and compare as
   views, so nothing materializes, but two sets compare as multisets and a
@@ -222,13 +231,14 @@ pointing it at nothing.
   in the same validated wire operation; ordinary sends allocate nothing here.
 - **Sturdyref enliven dedup** — `Session.notePendingEnliven` (ADR-0012). One
   swissnum dupe per in-flight row, moved into the resolved cache on fulfillment.
-  Non-load-bearing: an overflow evicts and a failed insert is swallowed, because
-  a miss costs one bootstrap-fetch round-trip, not correctness.
+  A full resolved cache evicts before insertion; an in-flight row reserves both
+  cache structures before committing the fetch, so allocation failure refuses
+  the enliven transaction rather than silently disabling dedup.
 - **Freed export ranges** — `engine.Node.freed_export_bases`. Export ranges are a
   fixed budget, so a released session's range comes back and is re-handed
-  oldest-first. The draw and the return sit on the same side of the boundary,
-  which is why no layer above keeps a session's base. Best-effort: the release
-  path has nowhere to report OOM, and a lost range costs one slot in a million.
+  oldest-first. Registration reserves the exact future return slot before the
+  range becomes session authority, making release infallible under allocator
+  pressure; no layer above keeps a session's base.
 - **Canonical set and struct ordering** — `writeCanonicalSet`,
   `writeCanonicalStruct`, `writeHintDict`, `encodeArgumentSetList`. Encode each
   element once and sort the encodings, turn scratch freed before encode returns.
@@ -251,6 +261,10 @@ pointing it at nothing.
   before an infallible commit removes the gift, so queue OOM leaves it
   retryable. **Because a consumed row is gone, the row count _is_ the live-gift
   count**, so `max_deposited_gifts` needs no parallel counter.
+- **Swissnum miss diagnostic** — `resolveForSwissnum` (`engine/bootstrap.zig`).
+  One string dupe on the unknown-name break path, because the diagnostic must
+  outlive the resolving frame and `send` frees the resolution it rides in. The
+  fulfill arm is POD and allocates nothing.
 - **Parked withdraw** — `Peer.pending_withdraws` (ADR-0100). One compact verified
   claim per early `withdraw-gift`, retaining neither signature, exporter locator,
   receiving names, nor signed envelope. Bounded by `max_pending_withdraws` and
@@ -298,16 +312,18 @@ pointing it at nothing.
 - **Retired boxes** — `Vat.retired_boxes`. A `become` install swaps the cell's
   box but its reference falls at the next outermost turn, because an _earlier_
   frame of the same actor may already have returned a reply borrowing it, leaving
-  no live frame to copy it. `stageBecome` reserves one slot per open frame, not
-  per stage. What the list holds is one outermost turn's installs, so a handler
-  looping over a becoming actor retains one box per iteration.
+  no live frame to copy it. Registration escrows one pointer slot per live actor
+  so last-root release and teardown never allocate; `stageBecome` additionally
+  reserves one slot per open frame, not per stage. Burst backing is replaced
+  transactionally at the next outer-turn boundary, while the live-actor escrow
+  remains.
 - **Turn-forward context** — `Vat.forwardTurn`. One gpa `ForwardContext` per
   forwarded turn that answers the wire, freed when its listener fires or swept by
   `freeOwnedForwardContexts`.
 - **Actor roots** — one `u32` per row (ADR-0101). Each relationship holds one
   root, transferred at the seam that owns it; root zero retires the row past any
-  running frame and parks the box on the retired list. On reservation failure the
-  row stays: a bounded leak, never a dangling box.
+  running frame and parks the box on the retirement capacity registration
+  escrowed before the actor became visible.
 - **Persistent map nodes** — `persistent.PersistentMap` (ADR-0061). O(log n)
   fresh nodes per write with refcounted structural sharing; an immutable trie is
   acyclic, so the count frees with no collector, and retains happen only after
@@ -408,9 +424,10 @@ pointing it at nothing.
   return without entering the runtime; an async drain task sends bounded chunks
   through `DataChannel::send`. The crate's SCTP receive window and send buffer
   are separately bounded at the same layer. Readiness is endpoint-owned, and its
-  self-pipe writes are best-effort **under one invariant**: `WouldBlock` means
-  the pipe already holds unread bytes, so the fd is already readable and no wake
-  was lost.
+  self-pipe writes distinguish sent, safely coalesced, and failed outcomes.
+  `WouldBlock` alone is coalesced success because unread bytes already make the
+  fd readable; every other write or drain fault is latched by the owning
+  runtime and settles or terminalizes its admitted work.
 - **WebRTC signaling transfer** — `SignalPayloadPool` in the native completion
   backend. `provideAnswer` and `provideRemoteCandidate` are callable from
   foreign threads, while a caller-supplied Zig allocator may be single-threaded.
@@ -453,9 +470,9 @@ pointing it at nothing.
   `ev_writable`, never a copy. An EOF marks the wire closed and breaks its vows
   **without freeing**, because a view still holds the pointers: the
   close-and-release split. Poll scratch grows once and then allocates nothing.
-- **Pending open rows** — `HostRuntime.startConnectLocator`,
+- **Pending open rows** — `HostRuntime.startDial`,
   `HostRuntime.startAcceptWire`, and the redeem drain into
-  `HostRuntime.stageConnect` (ADR-0112). One gpa row per in-flight dial or
+  `HostRuntime.stageDial` (ADR-0112). One gpa row per in-flight dial or
   accept, carrying stage, deadline, and outcome route; no byte payload because
   the locator is consumed at stage time. The shared `max_pending_opens`
   admission bound limits these rows and their pre-open sessions/wires across
@@ -469,7 +486,7 @@ pointing it at nothing.
   aliases the settle capture rather than re-cloning, which is why `Reply` is
   arena-only and carries no `deinit`.**
 - **Settle capture** — one `model.cloneArgument` or broken-reason dupe per
-  blocking wait (`BlockingSession.call`, `Session.settleVow`, `SettleCapture`).
+  blocking wait (`BlockingSession.call`, `driver.Promise.settle`, `SettleCapture`).
   Severs the turn-borrowed resolution so the returned `Settled` outlives the
   drive. `fetch` and `enliven` stay allocation-free.
 - **Unobserved vow completion** — `driver_core` host `queueCompletion`. One deep
@@ -499,6 +516,11 @@ pointing it at nothing.
 - **Host session indexes** — `Host.partner_by_side`, `dialed_by_designator`
   (ADR-0012). O(1) dial and partner-key refusal at the 500k tier, on the gpa with
   precise frees, because rows leave individually.
+- **Session close timing** — `Host.session_close_timing` (ADR-0114). One gpa map
+  row per finite-grace session close, removed at `Host.markSessionTerminating`
+  or tolerantly at `freeSessionShell`. Cancel and unbounded finishes pay
+  nothing, so an open session stores no deadline; the timing lives out of line
+  for exactly that reason, argued at the declaration.
 - **Host session locator identity** — `Host.mintShell` (ADR-0098). One owned block
   holding the transport (and, for a dial, the selected designator), because the
   sturdyref peer check needs the actual session transport and a signed locator

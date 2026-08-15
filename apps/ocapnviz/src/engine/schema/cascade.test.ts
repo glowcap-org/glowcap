@@ -163,8 +163,7 @@ Deno.test("cascadeRewrite: rename peer alice → alyssa", () => {
 
   // Observations are immutable — events still carry the old id.
   const origAliceEv = primaryObservations(doc).find(
-    (e): e is Extract<typeof e, { kind: "peer-joined" }> =>
-      e.kind === "peer-joined" && e.peerId === "alice",
+    (e): e is Extract<typeof e, { kind: "peer-joined" }> => e.kind === "peer-joined" && e.peerId === "alice",
   );
   assert(origAliceEv);
 
@@ -260,8 +259,7 @@ Deno.test("cascadeRewrite: a rename reaches the peer inside an endpoint", () => 
   const r = cascadeRewrite(doc, "peer", "alice", "alyssa");
   assert(r.ok);
   const opened = primaryObservations(r.value).find(
-    (e): e is Extract<typeof e, { kind: "session-opened" }> =>
-      e.kind === "session-opened",
+    (e): e is Extract<typeof e, { kind: "session-opened" }> => e.kind === "session-opened",
   );
   assert(opened);
   assertEquals(opened.a.peer, "alyssa");
@@ -304,8 +302,7 @@ Deno.test("cascadeRewrite: a rename reaches an end that attached later", () => {
   const r = cascadeRewrite(doc, "peer", "alice", "alyssa");
   assert(r.ok);
   const attached = primaryObservations(r.value).find(
-    (e): e is Extract<typeof e, { kind: "session-endpoint-attributed" }> =>
-      e.kind === "session-endpoint-attributed",
+    (e): e is Extract<typeof e, { kind: "session-endpoint-attributed" }> => e.kind === "session-endpoint-attributed",
   );
   assert(attached);
   assertEquals(attached.peerId, "alyssa");

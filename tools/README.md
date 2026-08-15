@@ -6,7 +6,7 @@ here.
 
 | Path | Owns |
 |------|------|
-| [`check/`](check/) | Build checks and hygiene (`arch_check`, `meta_check`) |
+| [`check/`](check/) | Build checks and hygiene (`arch_check`, `source_check`) |
 | [`gen/`](gen/) | Header and binding generators, shared verify/emit harness |
 | [`c-abi/`](c-abi/) | Operator scripts and JSON fixtures for C-ABI resolve |
 | [`fuzz/`](fuzz/) | Fuzz driver and the patched Zig test runner described in [`PROVENANCE.md`](../PROVENANCE.md) |

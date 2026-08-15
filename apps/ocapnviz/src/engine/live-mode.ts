@@ -129,9 +129,7 @@ export function dialLiveFeed(opts: FeedDial): {
   dispose: () => void;
 } {
   const feed = new LiveFeed(opts.sturdyref, opts.peerFactory);
-  const unsubConnection = opts.onConnectionChange
-    ? feed.onConnectionChange(opts.onConnectionChange)
-    : () => {};
+  const unsubConnection = opts.onConnectionChange ? feed.onConnectionChange(opts.onConnectionChange) : () => {};
   const unsubError = opts.onError ? feed.onError(opts.onError) : () => {};
   feed.connect();
   return {
@@ -166,8 +164,7 @@ export function startLiveMode(
     id: "live",
     metadata: {
       "dct:title": "Live timeline-event feed",
-      "dct:description":
-        `Live event stream from ${opts.sturdyref}. New events append as they arrive.`,
+      "dct:description": `Live event stream from ${opts.sturdyref}. New events append as they arrive.`,
     },
     duration: opts.durationMs ?? 60 * 60 * 1000, // 1h default
     recording: {

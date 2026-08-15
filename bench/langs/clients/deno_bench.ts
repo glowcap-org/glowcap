@@ -5,7 +5,8 @@
 //
 //   deno run --allow-ffi --allow-read --allow-net deno_bench.ts <mode> <host> <port> <n>
 
-import { type Argument, connect, listen, type Ref, type Session, tcpLocator } from "@pancake/stack";
+import { type Argument, type Ref, Runtime, type Session } from "@pancake/runtime";
+import * as tcp from "@pancake/tcp";
 
 const CLIENT = "deno";
 const RUNTIME = `deno/${Deno.version.deno}`;
@@ -14,6 +15,7 @@ const [mode, host, portStr, nStr] = Deno.args;
 const port = Number(portStr);
 const N = Number(nStr ?? "0");
 const decoder = new TextDecoder();
+await using runtime = await Runtime.open({ providers: [tcp.provider()] });
 
 // V8 only exposes a manual collection under `--v8-flags=--expose-gc`, which the
 // orchestrator passes; calling it before each measured window gives Deno the
@@ -77,7 +79,7 @@ async function warm(
 }
 
 async function runLatency(): Promise<void> {
-	const conn = await connect(tcpLocator(host, port));
+	const conn = await runtime.connect(tcp.locator(host, port));
 	const root = await conn.fetch("root");
 	await warm(conn, root);
 	const lats: number[] = [];
@@ -105,7 +107,7 @@ async function runLatency(): Promise<void> {
 }
 
 async function runThroughput(): Promise<void> {
-	const conn = await connect(tcpLocator(host, port));
+	const conn = await runtime.connect(tcp.locator(host, port));
 	const root = await conn.fetch("root");
 	await warm(conn, root, runUnitPipelined);
 	const t0 = performance.now();
@@ -129,7 +131,7 @@ async function runConnections(): Promise<void> {
 	const warmConns: Session[] = [];
 	const warmup = Math.min(N, 5);
 	for (let i = 0; i < warmup; i++) {
-		const c = await connect(tcpLocator(host, port));
+		const c = await runtime.connect(tcp.locator(host, port));
 		await c.fetch("root");
 		warmConns.push(c);
 	}
@@ -139,7 +141,7 @@ async function runConnections(): Promise<void> {
 	const handles: Session[] = [];
 	const t0 = performance.now();
 	for (let i = 0; i < N; i++) {
-		const c = await connect(tcpLocator(host, port));
+		const c = await runtime.connect(tcp.locator(host, port));
 		await c.fetch("root");
 		handles.push(c);
 	}
@@ -160,7 +162,7 @@ async function runConnections(): Promise<void> {
 }
 
 async function runCold(): Promise<void> {
-	const conn = await connect(tcpLocator(host, port));
+	const conn = await runtime.connect(tcp.locator(host, port));
 	const root = await conn.fetch("root");
 	await runUnit(conn, root);
 	conn.close();
@@ -206,10 +208,10 @@ async function measureHits(conn: Session, target: Ref): Promise<number[]> {
 // codec, feed, trampoline, and marshal both ways. The orchestrator's host/port
 // arguments are unused; the pair is self-contained.
 async function runLocal(): Promise<void> {
-	const server = listen("127.0.0.1", 0);
+	const server = await tcp.listen("127.0.0.1", 0);
 	const accepted = server[Symbol.asyncIterator]().next();
-	const loopPort = await server.ready();
-	const dial = await connect(tcpLocator("127.0.0.1", loopPort));
+	const loopPort = server.port;
+	const dial = await runtime.connect(tcp.locator("127.0.0.1", loopPort));
 	const acceptedConn = (await accepted).value as Session;
 	acceptedConn.publish("counter", counterBehavior());
 	acceptedConn.serve().catch(() => {});

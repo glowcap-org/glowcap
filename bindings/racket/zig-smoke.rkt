@@ -23,11 +23,19 @@
          ;; open/fetch verbs, the local vat half (`bind-export!` / `vat-resolve-target`),
          ;; and the shared cstruct vocabulary.
          "private/session.rkt"
-         "private/listen.rkt"
          "private/host.rkt"
+         (only-in "private/iroh.rkt" iroh-endpoint-record-failure!)
+         "private/locator.rkt"
          "private/async.rkt"
+         "private/byte-channel.rkt"
+         (only-in "private/finalizer-diagnostics.rkt"
+                  record-runtime-failure! run-native-finalizer!)
+         (only-in "private/ws-transport.rkt" ws-transport)
+         (only-in "relay.rkt" relay-pump exn:fail:relay?
+                  exn:fail:relay-primary exn:fail:relay-secondary)
          "private/pump.rkt"
          "private/action.rkt"
+         (only-in "private/dial.rkt" retain-host-cleanup-failure!)
          "private/promise.rkt"
          "private/gc.rkt"
          "private/vat.rkt"
@@ -37,9 +45,11 @@
          "private/constants.rkt"
          "private/codec.rkt"
          (only-in "private/loop.rkt"
-                  open-driver-loop driver-loop-abort!
+                  open-driver-loop driver-loop-start! driver-loop-abort!
+                  loop-background-failed!
                   driver-loop-has-transport?
-                  loop-listen! loop-listener-locator loop-listener-close!)
+                  loop-listen! loop-listener-ready! loop-listener-locator
+                  loop-listener-close!)
          "private/native-parent.rkt"
          (only-in "private/value.rkt" make-ref/internal)
          racket/tcp)
@@ -48,8 +58,386 @@
 ;; preceded it.
 (file-stream-buffer-mode (current-output-port) 'line)
 
+;; Each call models a distinct peer unless it explicitly supplies a Host.
+;; Accordingly each helper call opens one test-owned Runtime; sharing one here
+;; would silently reuse peer identity and reject a second session to the same
+;; partner as a duplicate pair. The suite retires every Runtime at teardown.
+(define tcp-provider-for-smoke (tcp-provider))
+(define extra-runtimes (box '()))
+(define (open-test-session loc #:provider [provider tcp-provider-for-smoke]
+                           #:connector [connector #f] #:adopt-host [adopted-host #f]
+                           #:codec [codec #f] #:captp-version [captp-version #f]
+                           #:features [features #f]
+                           #:handshake-timeout-ms
+                           [handshake-timeout-ms HANDSHAKE-TIMEOUT-MS])
+  (define runtime
+    (open-runtime
+     #:providers (and (not connector) (list provider))
+     #:connectors (and connector (list connector))
+     #:adopt-host adopted-host #:codec codec
+     #:captp-version captp-version #:features features
+     #:handshake-timeout-ms handshake-timeout-ms))
+  (set-box! extra-runtimes (cons runtime (unbox extra-runtimes)))
+  (runtime-connect runtime loc))
+
 (define (fail msg) (eprintf "racket zig-smoke FAILED: ~a\n" msg) (exit 1))
 (define (expect cond msg) (unless cond (fail msg)))
+
+;; The generated return-code inventory is the same reflected C ABI family the
+;; binding branches on. `check-with` must leave OK alone and translate every
+;; other member without collapsing its number, rereading its diagnostic, or
+;; adding retry policy at the translation seam.
+(for ([entry (in-list ABI-RETURN-CODES)])
+  (define name (car entry))
+  (define code (cdr entry))
+  (define reads (box 0))
+  (define diagnostic (format "exact diagnostic for ~a" name))
+  (define translated
+    (with-handlers ([exn:fail:pancake? values])
+      (check-with code
+                  (lambda ()
+                    (set-box! reads (add1 (unbox reads)))
+                    diagnostic))
+      'ok))
+  (cond
+    [(= code OK)
+     (expect (and (eq? translated 'ok) (zero? (unbox reads)))
+             "ABI translation read a diagnostic or raised for OK")]
+    [else
+     (expect (and (exn:fail:pancake? translated)
+                  (= code (exn:fail:pancake-code translated))
+                  (= 1 (unbox reads))
+                  (regexp-match? (regexp-quote diagnostic)
+                                 (exn-message translated)))
+             (format "ABI translation changed or retried ~a" name))]))
+
+(printf "racket zig-smoke OK: every reflected C ABI return code translates exactly once\n")
+
+(expect (with-handlers ([exn:fail? (lambda (_) #t)])
+          (make-byte-connector '() void)
+          #f)
+        "byte connectors reject an empty transport advertisement")
+(expect (with-handlers ([exn:fail? (lambda (_) #t)])
+          (make-byte-connector '("tcp" "tcp") void)
+          #f)
+        "byte connectors reject duplicate transport symbols")
+
+(define explicit-grace-host (make-fresh-host))
+(expect (with-handlers ([exn:fail? (lambda (_) #t)])
+          (host-close! explicit-grace-host #:pending 'finish)
+          #f)
+        "finish close requires an explicit finite or unbounded grace budget")
+(expect (not (unbox (host-released? explicit-grace-host)))
+        "an invalid finish close left its Host usable")
+(host-close! explicit-grace-host)
+
+;; A Host-owned background worker has no caller stack. Its exact first failure
+;; survives on the Host and is returned by explicit close rather than becoming
+;; an unobserved thread exception.
+(define background-failure-host (make-fresh-host))
+(define background-failure
+  (exn:fail "background exporter serve failed" (current-continuation-marks)))
+(void (record-host-runtime-failure! background-failure-host background-failure))
+(define background-consequence
+  (exn:fail "second exporter failure" (current-continuation-marks)))
+(void (record-host-runtime-failure! background-failure-host background-consequence))
+(define background-chain (unbox (host-runtime-failure background-failure-host)))
+(expect (and (eq? (terminal-failure-chain-primary background-chain)
+                  background-failure)
+             (eq? (terminal-failure-chain-secondary background-chain)
+                  background-consequence)
+             (= (terminal-failure-chain-secondary-count background-chain) 1))
+        "Host background failures retain the first consequence and total")
+(define observed-background-failure
+  (with-handlers ([exn:fail? values])
+    (host-close! background-failure-host)
+    #f))
+(expect (eq? observed-background-failure background-failure)
+        "Host close returns its exact background worker failure")
+(define repeated-background-failure
+  (with-handlers ([exn:fail? values])
+    (host-close! background-failure-host)
+    #f))
+(expect (eq? repeated-background-failure background-failure)
+        "repeated Host close returns the same background worker failure")
+
+;; Failed-dial cleanup has its own failure channel. An earlier cleanup failure
+;; cannot stop the remaining rollback/report work or be replaced by a later
+;; failure, and explicit Host close remains its deterministic observer.
+(define dial-cleanup-failure-host (make-fresh-host))
+(define first-dial-cleanup-failure
+  (exn:fail "dial session rollback failed" (current-continuation-marks)))
+(define later-dial-cleanup-failure
+  (exn:fail "dial refusal report failed" (current-continuation-marks)))
+(define dial-cleanup-continued? (box #f))
+(retain-host-cleanup-failure!
+ dial-cleanup-failure-host
+ (lambda () (raise first-dial-cleanup-failure)))
+(set-box! dial-cleanup-continued? #t)
+(retain-host-cleanup-failure!
+ dial-cleanup-failure-host
+ (lambda () (raise later-dial-cleanup-failure)))
+(expect (unbox dial-cleanup-continued?)
+        "a failed dial cleanup does not stop later rollback work")
+(define observed-dial-cleanup-failure
+  (with-handlers ([exn:fail? values])
+    (host-close! dial-cleanup-failure-host)
+    #f))
+(expect (eq? observed-dial-cleanup-failure first-dial-cleanup-failure)
+        "Host close returns the first exact failed-dial cleanup failure")
+
+;; The native driver loop owns both its resident park thread and its retirement
+;; worker. A failure on either background stack settles onto the adopted Host
+;; rather than ending as an unobserved Racket thread exception.
+(define loop-background-failure-host (make-fresh-host))
+(define loop-for-background-failure
+  (open-driver-loop #:host loop-background-failure-host))
+(define loop-background-failure
+  (exn:fail "driver loop background failed" (current-continuation-marks)))
+(loop-background-failed! loop-for-background-failure loop-background-failure)
+(define observed-loop-background-failure
+  (with-handlers ([exn:fail? values])
+    (host-close! loop-background-failure-host)
+    #f))
+(expect (eq? observed-loop-background-failure loop-background-failure)
+        "Host close returns its exact driver-loop background failure")
+
+;; The sidecar iroh readiness thread has the raw endpoint as its owner. Its
+;; exact first failure wakes parked work and is re-observed at endpoint close,
+;; including after native resources have already been released.
+(define iroh-background-failure-endpoint
+  (open-iroh-endpoint (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
+(define iroh-background-failure
+  (exn:fail "iroh readiness loop failed" (current-continuation-marks)))
+(void
+ (iroh-endpoint-record-failure! iroh-background-failure-endpoint
+                                iroh-background-failure))
+(define observed-iroh-background-failure
+  (with-handlers ([exn:fail? values])
+    (iroh-endpoint-close! iroh-background-failure-endpoint)
+    #f))
+(expect (eq? observed-iroh-background-failure iroh-background-failure)
+        "iroh endpoint close returns its exact readiness-loop failure")
+(define repeated-iroh-background-failure
+  (with-handlers ([exn:fail? values])
+    (iroh-endpoint-close! iroh-background-failure-endpoint)
+    #f))
+(expect (eq? repeated-iroh-background-failure iroh-background-failure)
+        "repeated iroh endpoint close retains its readiness-loop failure")
+
+;; A WebSocket read exception is not EOF. The transport preserves it exactly,
+;; joins its close worker, and keeps the earlier read failure ahead of a later
+;; close failure at every observing surface.
+(define websocket-read-failure
+  (exn:fail "WebSocket receive failed" (current-continuation-marks)))
+(define websocket-close-failure
+  (exn:fail "WebSocket close failed" (current-continuation-marks)))
+(define failed-websocket-transport
+  (ws-transport
+   "ws://failure.invalid/"
+   #:connect (lambda (_url) 'fake-websocket)
+   #:recv (lambda (_connection #:payload-type _payload-type)
+            (raise websocket-read-failure))
+   #:send (lambda (_connection _bytes #:payload-type _payload-type) (void))
+   #:close (lambda (_connection) (raise websocket-close-failure))))
+(define observed-websocket-read-failure
+  (with-handlers ([exn:fail? values])
+    ((async-transport-read-some! failed-websocket-transport) (make-semaphore 0))
+    #f))
+(expect (eq? observed-websocket-read-failure websocket-read-failure)
+        "WebSocket read preserves its exact receive exception")
+(define observed-websocket-close-failure
+  (with-handlers ([exn:fail? values])
+    ((async-transport-close! failed-websocket-transport))
+    #f))
+(expect (eq? observed-websocket-close-failure websocket-read-failure)
+        "WebSocket close retains the earlier receive exception")
+(define repeated-websocket-close-failure
+  (with-handlers ([exn:fail? values])
+    ((async-transport-close! failed-websocket-transport))
+    #f))
+(expect (eq? repeated-websocket-close-failure websocket-read-failure)
+        "repeated WebSocket close retains its first task failure")
+
+;; Callerless drain fires belong to their Host. One failed fire cannot stop a
+;; sibling, and explicit close returns the exact first scheduling failure.
+(define drain-fire-failure-host (make-fresh-host))
+(define drain-fire-failure
+  (exn:fail "deferred drain fire failed" (current-continuation-marks)))
+(define later-drain-fire-ran? (box #f))
+(run-drain-effects!
+ drain-fire-failure-host
+ (drain-effects '()
+                (list (lambda () (raise drain-fire-failure))
+                      (lambda () (set-box! later-drain-fire-ran? #t)))
+                #f
+                #t))
+(expect (unbox later-drain-fire-ran?)
+        "a failed drain fire does not strand sibling effects")
+(define observed-drain-fire-failure
+  (with-handlers ([exn:fail? values])
+    (host-close! drain-fire-failure-host)
+    #f))
+(expect (eq? observed-drain-fire-failure drain-fire-failure)
+        "Host close returns the exact deferred-fire failure")
+
+;; Establishment keeps its operation failure primary while retaining a failed
+;; transport rollback on the Host that owns the attempted session.
+(define establish-cleanup-host (make-fresh-host))
+(define establish-primary-failure
+  (exn:fail "session establishment failed" (current-continuation-marks)))
+(define establish-close-failure
+  (exn:fail "failed establishment transport close failed"
+            (current-continuation-marks)))
+(define failed-establish-transport
+  (async-transport void void (lambda (_wake) eof)
+                   (lambda () (raise establish-close-failure))))
+(define observed-establish-primary
+  (with-handlers ([exn:fail? values])
+    (establish-closing-transport
+     establish-cleanup-host
+     failed-establish-transport
+     (lambda () (raise establish-primary-failure)))
+    #f))
+(expect (eq? observed-establish-primary establish-primary-failure)
+        "establishment preserves its primary operation failure")
+(define observed-establish-close-failure
+  (with-handlers ([exn:fail? values])
+    (host-close! establish-cleanup-host)
+    #f))
+(expect (eq? observed-establish-close-failure establish-close-failure)
+        "Host close returns failed-establishment cleanup failure")
+
+;; A collected wrapper cannot own its own release failure, and the collector
+;; is not an application exception boundary. The process journal normalizes
+;; the failure into the same typed vocabulary without escaping the callback.
+(void (take-runtime-failures!))
+(define finalizer-release-failure
+  (exn:fail "native finalizer release failed" (current-continuation-marks)))
+(run-native-finalizer! "test.finalize" (lambda () (raise finalizer-release-failure)))
+(define recorded-finalizer-failures (take-runtime-failures!))
+(expect (and (= (length recorded-finalizer-failures) 1)
+             (equal? (failure-event-operation (car recorded-finalizer-failures))
+                     "test.finalize")
+             (equal? (failure-event-primary-message (car recorded-finalizer-failures))
+                     "native finalizer release failed"))
+        "native finalizer journal retains the normalized release failure")
+(for ([index (in-range 65)])
+  (run-native-finalizer!
+   "test.saturation"
+   (lambda () (raise (exn:fail (format "failure ~a" index)
+                               (current-continuation-marks))))))
+(define saturated-runtime-failures (take-runtime-failures!))
+(expect (and (= (length saturated-runtime-failures) 64)
+             (= (failure-event-dropped-before
+                 (car saturated-runtime-failures))
+                1)
+             (equal? (failure-event-primary-message
+                      (car saturated-runtime-failures))
+                     "failure 1"))
+        "runtime failure saturation reports loss on the first survivor")
+(run-native-finalizer!
+ (make-string 600 #\x)
+ (lambda () (raise (exn:fail "unretained" (current-continuation-marks)))))
+(define bounded-runtime-failure (car (take-runtime-failures!)))
+(expect (and (positive?
+              (bitwise-and (failure-event-truncated-fields bounded-runtime-failure) 1))
+             (<= (for/sum ([text (in-list
+                                  (list (failure-event-operation bounded-runtime-failure)
+                                        (failure-event-primary-name bounded-runtime-failure)
+                                        (failure-event-primary-message bounded-runtime-failure)
+                                        (failure-event-secondary-name bounded-runtime-failure)
+                                        (failure-event-secondary-message bounded-runtime-failure)))])
+                   (bytes-length (string->bytes/utf-8 text)))
+                 512))
+        "runtime failure payloads share the native bounded schema")
+(run-native-finalizer!
+ (make-string 600 #\☃)
+ (lambda () (raise (exn:fail "unretained" (current-continuation-marks)))))
+(define unicode-runtime-failure (car (take-runtime-failures!)))
+(expect (and (<= (bytes-length
+                  (string->bytes/utf-8
+                   (failure-event-operation unicode-runtime-failure)))
+                 512)
+             (not (regexp-match? #rx"�" (failure-event-operation unicode-runtime-failure))))
+        "runtime failure truncation ends at a UTF-8 boundary")
+
+(define original-callerless-failure
+  (exn:fail "observer failed" (current-continuation-marks)))
+(define diagnostic-recorder-failure
+  (exn:fail "Context recorder failed" (current-continuation-marks)))
+(record-callerless-with-fallback!
+ 'application-observer "trace.sink" original-callerless-failure
+ (lambda () (raise diagnostic-recorder-failure)))
+(define callerless-fallback (take-runtime-failures!))
+(expect (and (= (length callerless-fallback) 2)
+             (eq? (failure-event-layer (car callerless-fallback))
+                  'application-observer)
+             (equal? (failure-event-primary-message (car callerless-fallback))
+                     "observer failed")
+             (eq? (failure-event-layer (cadr callerless-fallback)) 'binding)
+             (equal? (failure-event-operation (cadr callerless-fallback))
+                     "trace.sink.diagnostic"))
+        "a refused Context recorder preserves the original and recorder failures")
+
+(define typed-runtime-failure
+  (exn:fail:pancake "typed primary" (current-continuation-marks)
+                    ERR-IO #f ERR-INTERNAL "PancakeError" 2))
+(record-runtime-failure! 'transport "listener.close" typed-runtime-failure)
+(define typed-runtime-event (car (take-runtime-failures!)))
+(expect (and (= (failure-event-primary-result typed-runtime-event) ERR-IO)
+             (= (failure-event-secondary-result typed-runtime-event) ERR-INTERNAL)
+             (= (failure-event-secondary-count typed-runtime-event) 2)
+             (equal? (failure-event-secondary-name typed-runtime-event)
+                     "PancakeError"))
+        "runtime diagnostics preserve stable typed primary and secondary causes")
+
+;; The reference relay owns two pump legs, a watchdog, and both transport
+;; closes. It joins every worker and exposes the exact occurrence-ordered
+;; failure objects instead of letting cleanup replace the failed leg.
+(define relay-leg-failure
+  (exn:fail "relay WebSocket read failed" (current-continuation-marks)))
+(define relay-channel-close-failure
+  (exn:fail "relay byte-channel close failed" (current-continuation-marks)))
+(define relay-websocket-close-failure
+  (exn:fail "relay WebSocket close failed" (current-continuation-marks)))
+(define blocked-relay-read (make-semaphore 0))
+(define failing-relay-channel
+  (byte-channel
+   (lambda () (semaphore-wait blocked-relay-read) eof)
+   (lambda (_bytes) (void))
+   (lambda () (raise relay-channel-close-failure))
+   #f))
+(define observed-relay-failure
+  (with-handlers ([exn:fail:relay? values])
+    (relay-pump
+     'fake-relay-websocket
+     failing-relay-channel
+     #:ws-recv (lambda (_connection #:payload-type _payload-type)
+                 (raise relay-leg-failure))
+     #:ws-send (lambda (_connection _bytes #:payload-type _payload-type) (void))
+     #:ws-close (lambda (_connection) (raise relay-websocket-close-failure)))
+    #f))
+(expect (eq? (exn:fail:relay-primary observed-relay-failure) relay-leg-failure)
+        "relay aggregate retains the exact first leg failure")
+(define relay-secondary (exn:fail:relay-secondary observed-relay-failure))
+(expect (and (= (length relay-secondary) 2)
+             (eq? (car relay-secondary) relay-channel-close-failure)
+             (eq? (cadr relay-secondary) relay-websocket-close-failure))
+        "relay aggregate retains both exact close failures in order")
+
+(define maximum-close-options
+  (close-options 'grace-boundary 'finish #xffffffff))
+(expect (= #xffffffff
+           (PancakeCloseOptions-grace-ms maximum-close-options))
+        "finite close grace preserves the C field maximum")
+(define excessive-grace
+  (with-handlers ([exn:fail:pancake? values])
+    (close-options 'grace-boundary 'finish #x100000000)
+    #f))
+(expect (and (exn:fail:pancake? excessive-grace)
+             (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code excessive-grace)))
+        "finite close grace rejects values outside its C field")
 
 ;; The linked library reports a real ABI version.
 (let-values ([(major minor patch) (abi-version)])
@@ -57,7 +445,8 @@
 
 (define parsed-sturdyref
   (parse-sturdyref
-   "ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU"))
+   "ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU"
+   #:captp-version 'v1_0))
 (expect (string=? "onion" (locator-transport (sturdyref-locator parsed-sturdyref)))
         "sturdyref locator transport survives parsing")
 (expect (bytes=? (sturdyref-swissnum parsed-sturdyref)
@@ -67,9 +456,11 @@
                         #xdf #xe3 #x32 #xe3 #x9f #x42 #x51 #xb5))
         "sturdyref swiss authority survives parsing")
 (define formatted-sturdyref
-  (format-sturdyref "ocapn://127.0.0.1%3A9045.tcp"
-                    #"durable:0123456789abcdef"))
-(expect (bytes=? (sturdyref-swissnum (parse-sturdyref formatted-sturdyref))
+  (format-sturdyref (tcp-locator "127.0.0.1" 9045)
+                    #"durable:0123456789abcdef"
+                    #:captp-version 'next))
+(expect (bytes=? (sturdyref-swissnum
+                  (parse-sturdyref formatted-sturdyref #:captp-version 'next))
                  #"durable:0123456789abcdef")
         "sturdyref formatting round-trips opaque authority")
 
@@ -89,26 +480,26 @@
         "Host must expose an immutable seed")
 (expect (= 7 (bytes-ref (host-seed owned-seed-host) 0))
         "Host must retain an owned seed copy")
-(host-release! owned-seed-host)
+(host-close! owned-seed-host)
 
 (define locator-host (make-fresh-host))
 (host-set-advertised-locator!
  locator-host
  (locator "tcp" "127.0.0.1:7441" (hash) 'map))
 (host-remove-advertised-locator! locator-host "tcp")
-(host-release! locator-host)
+(host-close! locator-host)
 
 (define profile-host (make-fresh-host))
 (define profile-conflict
   (with-handlers ([exn:fail:pancake? values])
-    (connect (tcp-locator "127.0.0.1" 1)
-             #:host profile-host
+    (open-test-session (tcp-locator "127.0.0.1" 1)
+             #:adopt-host profile-host
              #:captp-version 'next)
     #f))
 (expect (and (exn:fail:pancake? profile-conflict)
              (= ERR-INVALID-ARGUMENT (exn:fail:pancake-code profile-conflict)))
         "connect: shared Host refuses a conflicting CapTP profile")
-(host-release! profile-host)
+(host-close! profile-host)
 
 ;; A listener close races with a parked accept in real servers during
 ;; custodian shutdown. The close must wake the green thread and wait for its
@@ -312,7 +703,7 @@
        (semaphore-post fs-ready)
        (session-serve hsession)
        (channel-put fs-ch 'served)))))
-(define fs-session (connect (tcp-locator "127.0.0.1" (server-port fs-server))))
+(define fs-session (open-test-session (tcp-locator "127.0.0.1" (server-port fs-server))))
 (semaphore-wait fs-ready)
 (define fs-svc (session-fetch fs-session "counter"))
 (define fs-observed (box #f))
@@ -342,7 +733,9 @@
        (session-publish hsession "svc" (lambda (bcom) (methods [(greet who) "hi"])))
        (semaphore-post dc-ready)
        (session-serve hsession)))))
-(define dc-session (connect (tcp-locator "127.0.0.1" (server-port dc-server))))
+(define dc-session
+  (open-test-session (tcp-locator "127.0.0.1" (server-port dc-server))
+                     #:connector (tcp-connector)))
 (semaphore-wait dc-ready)
 (define dc-svc (session-fetch dc-session "svc"))
 (define dc-broken (box #f))
@@ -388,7 +781,7 @@
                          "registered"])))
        (semaphore-post xf-ready)
        (session-serve hsession)))))
-(define xf-session (connect (tcp-locator "127.0.0.1" (server-port xf-server))))
+(define xf-session (open-test-session (tcp-locator "127.0.0.1" (server-port xf-server))))
 (semaphore-wait xf-ready)
 (define xf-notes (box '()))
 (define xf-inbox
@@ -436,12 +829,12 @@
 
 ;; `accept` blocks until someone dials, so connect first, then wait for the
 ;; publish before fetching.
-(define hl-session (connect (tcp-locator "127.0.0.1" (server-port hl-server))))
+(define hl-session (open-test-session (tcp-locator "127.0.0.1" (server-port hl-server))))
 (semaphore-wait hl-ready)
 (expect (equal? (partner-identity-locator-record (session-partner-identity hl-session))
                 (encode-peer-locator
                  (locator TRANSPORT-TCP
-                          (socket-addr-designator "127.0.0.1" (server-port hl-server))
+                          (tcp-address-designator "127.0.0.1" (server-port hl-server))
                           (hash)
                           'boolean-false)))
         "listen/accept: the host advertised the listener's complete locator record")
@@ -463,10 +856,12 @@
 ;; session-closed. Endpoint labeling belongs to the consumer, so the records
 ;; carry only the session and direction.
 (define trace-events (box '()))
+(define trace-callback-failure
+  (exn:fail "trace observer failed" (current-continuation-marks)))
 (define trace-uninstall
   (enable-trace! (lambda (ev)
                    (set-box! trace-events (cons ev (unbox trace-events)))
-                   (error 'trace-sink "observer failure must not stop the host"))
+                   (raise trace-callback-failure))
                  #:self-label "smoke"))
 ;; The native host retains a C function pointer, so the binding must retain the
 ;; actual callback object, not only the Racket procedure it was made from.
@@ -482,11 +877,18 @@
                             (lambda (method . args) "hello trace"))
      (semaphore-post tr-ready)
      (session-serve hsession))))
-(define tr-session (connect (tcp-locator "127.0.0.1" (server-port tr-server))))
+(define tr-session (open-test-session (tcp-locator "127.0.0.1" (server-port tr-server))))
 (semaphore-wait tr-ready)
 (define tr-cap (session-fetch tr-session "tracer"))
 (expect (equal? "hello trace" (session-send tr-session tr-cap 'trace-me))
         "trace: the traced call still answers")
+(define trace-failures (host-take-failures! (session-host tr-session)))
+(expect (for/or ([failure (in-list trace-failures)])
+          (and (equal? (failure-event-operation failure) "trace.sink")
+               (positive? (failure-event-scope-id failure))
+               (equal? (failure-event-primary-message failure)
+                       "trace observer failed")))
+        "trace: callback failure enters the Host diagnostic seam")
 ;; The annotation channel: the application states which partner a
 ;; session carries, named for the same session row the tap names.
 (session-annotate! tr-session #:label "greeter-server")
@@ -580,7 +982,7 @@
                               (void)))
      (semaphore-post rv-ready)
      (session-serve hsession))))
-(define rv-session (connect (tcp-locator "127.0.0.1" (server-port rv-server))))
+(define rv-session (open-test-session (tcp-locator "127.0.0.1" (server-port rv-server))))
 (semaphore-wait rv-ready)
 (define rv-worker (session-fetch rv-session "worker"))
 
@@ -642,14 +1044,14 @@
        (channel-put en-ch 'served)))))
 
 (define en-locator (tcp-locator "127.0.0.1" (server-port en-server)))
-(define en-session (connect en-locator))
+(define en-session (open-test-session en-locator))
 (semaphore-wait en-ready)
 (expect (with-handlers ([exn:fail? (lambda (_) #t)])
           (session-enliven en-session "ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg")
           #f)
         "enliven: a sturdyref for another peer is refused")
 ;; The complete sturdyref must name this selected session's peer.
-(define en-sturdyref (string-append en-locator "/s/Z3JlZXRlcg"))
+(define en-sturdyref (string-append (format-locator-uri en-locator) "/s/Z3JlZXRlcg"))
 (define en-cap (session-enliven en-session en-sturdyref))
 (expect (ref? en-cap) "enliven: a sturdyref enlivened to a capability")
 (expect (equal? (sym "alive") (session-send en-session en-cap 'hello)) "enliven: the live capability answers hello")
@@ -673,9 +1075,11 @@
 ;; the executor opens the exporter session on its own serve thread, and the
 ;; host-scoped wait settles over it.
 (define dial-host (make-fresh-host))
-(define dial-cap (host-enliven dial-host (string-append en-locator "/s/cG9ydGVy")))
+(define dial-cap
+  (host-enliven dial-host (string-append (format-locator-uri en-locator) "/s/cG9ydGVy")
+                #:connector (tcp-connector)))
 (expect (ref? dial-cap) "host-enliven: a cold sturdyref staged a dial and settled")
-(host-release! dial-host)
+(host-close! dial-host)
 
 (session-close! en-session)
 (define en-host-result (channel-get en-ch))
@@ -707,7 +1111,7 @@
        (semaphore-post cx-ready)
        (session-serve hsession)
        (channel-put cx-ch 'served)))))
-(define cx-session (connect (tcp-locator "127.0.0.1" (server-port cx-server)) #:codec 'capnp))
+(define cx-session (open-test-session (tcp-locator "127.0.0.1" (server-port cx-server)) #:codec 'capnp))
 (semaphore-wait cx-ready)
 (define cx-svc (session-fetch cx-session "board"))
 (define cx-big (expt 2 80))
@@ -786,7 +1190,7 @@
                         (lambda (chunk)
                           (when (regexp-match? #rx#"op:gc-export" chunk) (set-box! gc-saw #t))
                           #f)))
-(define gc-session (session-with-gc! (connect (tcp-locator "127.0.0.1" gc-relay-port))))
+(define gc-session (session-with-gc! (open-test-session (tcp-locator "127.0.0.1" gc-relay-port))))
 (semaphore-wait gc-ready)
 ;; Fetch and drop inside a thunk so the capability falls out of scope (a
 ;; module-level binding would root it forever and never finalize).
@@ -818,18 +1222,25 @@
 ;; frames over the C transport endpoints.
 (define (open-dialed-over m transport-name designator tr)
   ;; Mint only — the smoke drives both hellos by hand before finish-establish!.
-  (define tb (string->bytes/utf-8 transport-name))
-  (define db (string->bytes/utf-8 designator))
-  (call-with-host m
-    (lambda ()
-      (host-ensure-advertised-locator! m transport-name)
-      (define-values (rc ptr)
-        (pancake_host_session_open_dialed_locator
-         (host-ptr m)
-         (pin-immobile tb) (bytes-length tb)
-         (pin-immobile db) (bytes-length db)))
-      (check/host rc)
-      (build-session m ptr tr #f))))
+  ;; The host retains its own dial default; the locator travels whole.
+  (call-with-locator-view (locator transport-name designator (hash) 'boolean-false)
+    (lambda (view)
+      (call-with-host m
+        (lambda ()
+          (define-values (rc ptr)
+            (pancake_host_session_open_dialed_locator (host-ptr m) view))
+          (check/host rc)
+          (build-session m ptr tr #f))))))
+
+;; A bare pending-session mint for the close-lifecycle scenarios below.
+(define (open-pending-dialed! m)
+  (call-with-locator-view (locator "tcp" "pending-session" (hash) 'boolean-false)
+    (lambda (view)
+      (call-with-host m
+        (lambda ()
+          (define-values (rc _session)
+            (pancake_host_session_open_dialed_locator (host-ptr m) view))
+          (check/host rc))))))
 
 (define (open-accepted-over m transport-name designator tr #:designator-scheme designator-scheme)
   (define tb (string->bytes/utf-8 transport-name))
@@ -843,34 +1254,50 @@
       (define tpin (pin-immobile tb))
       (define dbpin (pin-immobile db))
       (define hbpin (pin-immobile hb))
-      (define plan (make-PancakeAcceptPlan #f 0 #f 0))
-      (check/host (pancake_host_plan_accept
-                   designator-scheme
-                   dbpin (bytes-length db)
-                   hbpin (bytes-length hb)
-                   plan))
-      (define (plan-text ptr len)
-        (if (or (not ptr) (zero? len))
-            ""
-            (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)))
-      (host-set-advertised-locator!
-       m
-       (let ([direct-addresses
-              (plan-text (PancakeAcceptPlan-direct-addresses-hint plan)
-                         (PancakeAcceptPlan-direct-addresses-hint-len plan))])
-         (locator
-          transport-name
-          (plan-text (PancakeAcceptPlan-designator plan)
-                     (PancakeAcceptPlan-designator-len plan))
-          (if (string=? direct-addresses "")
-              (hash)
-              (hash HINT-DIRECT-ADDRESSES direct-addresses))
-          (if (string=? direct-addresses "") 'boolean-false 'map))))
       (define-values (rc ptr)
         (pancake_host_session_open_accepted (host-ptr m)
-                                             tpin (bytes-length tb)))
+                                             tpin (bytes-length tb)
+                                             designator-scheme
+                                             dbpin (bytes-length db)
+                                             hbpin (bytes-length hb)))
       (check/host rc)
       (build-session m ptr tr #f))))
+
+;; A transport read exception is not EOF. The byte pump retains the exact
+;; object, reports physical loss to the core, retires the native Session, and
+;; makes a later close re-observe that same cause.
+(define rf-host (make-fresh-host))
+(define rf-first-failure
+  (exn:fail "injected exact read failure" (current-continuation-marks)))
+(define rf-close-count (box 0))
+(define rf-session
+  (open-dialed-over
+   rf-host
+   "tcp"
+   (tcp-address-designator "127.0.0.1" 9)
+   (async-transport
+    (lambda (_frame) (void))
+    void
+    (lambda (_wake) (raise rf-first-failure))
+    (lambda () (set-box! rf-close-count (add1 (unbox rf-close-count)))))))
+(drain-host! rf-host)
+(define rf-read-failure
+  (with-handlers ([(lambda (_) #t) values])
+    (pump-read-once! rf-session)
+    'no-error))
+(define rf-close-failure
+  (with-handlers ([(lambda (_) #t) values])
+    (session-close! rf-session)
+    'no-error))
+(expect (eq? rf-first-failure rf-read-failure)
+        "read failure: the pump converted an exact transport exception to EOF")
+(expect (eq? rf-first-failure rf-close-failure)
+        "read failure: close lost the exact transport exception")
+(expect (and (session-released? rf-session) (= 1 (unbox rf-close-count)))
+        "read failure: the Session was not physically retired exactly once")
+(host-close! rf-host)
+
+(printf "racket zig-smoke OK: a transport read exception stays exact through retirement\n")
 
 ;; ── Bounded tail: an over-cap frame is a typed refusal, not "read more" ──────
 ;; The core's stream delimiter (`pancake_host_session_feed_bytes`) buffers a
@@ -881,17 +1308,24 @@
 ;; connection pump uses, into a byte-fed connection whose transport discards
 ;; the projected outbound abort.
 (define oc-host (make-fresh-host))
-(define oc-session (open-accepted-over oc-host "tcp" (socket-addr-designator "127.0.0.1" 9)
+(define oc-session (open-accepted-over oc-host "tcp" (tcp-address-designator "127.0.0.1" 9)
                                     (async-transport (lambda (_f) (void)) void
                                                      (lambda (_wake) eof) void)
                                     #:designator-scheme DESIGNATOR-SCHEME-ADDRESS))
 (drain-host! oc-host) ; the signed op:start-session leaves into the discard transport
-(define oc-code
-  (with-handlers ([exn:fail:pancake? (lambda (e) (exn:fail:pancake-code e))])
+(define oc-failure
+  (with-handlers ([exn:fail:pancake? values])
     (feed-bytes! oc-session #"2000000:")
     'no-error))
-(expect (equal? ERR-FRAME-TOO-LARGE oc-code) "over-cap frame: typed FRAME_TOO_LARGE refusal")
-(session-close! oc-session)
+(expect (and (exn:fail:pancake? oc-failure)
+             (= ERR-FRAME-TOO-LARGE (exn:fail:pancake-code oc-failure)))
+        "over-cap frame: typed FRAME_TOO_LARGE refusal")
+(define oc-close-failure
+  (with-handlers ([exn:fail:pancake? values])
+    (session-close! oc-session)
+    'no-error))
+(expect (eq? oc-failure oc-close-failure)
+        "over-cap frame: close retained the exact refusal")
 
 (printf "racket zig-smoke OK: an over-cap frame refuses typed instead of buffering\n")
 
@@ -902,7 +1336,7 @@
 ;; byte-fed connection through the core's stream delimiter, whose transport
 ;; discards the projected outbound abort.
 (define la-host (make-fresh-host))
-(define la-session (open-accepted-over la-host "tcp" (socket-addr-designator "127.0.0.1" 9)
+(define la-session (open-accepted-over la-host "tcp" (tcp-address-designator "127.0.0.1" 9)
                                     (async-transport (lambda (_f) (void)) void
                                                      (lambda (_wake) eof) void)
                                     #:designator-scheme DESIGNATOR-SCHEME-ADDRESS))
@@ -918,8 +1352,18 @@
 (expect (eq? 'codec (abort-info-domain la-info)) "last-abort: domain is codec")
 (expect (equal? "MalformedFrame" (abort-info-kind la-info)) "last-abort: kind is MalformedFrame")
 (expect (equal? "MalformedFrame" (abort-info-error-name la-info)) "last-abort: error-name is MalformedFrame")
+(expect (not (abort-info-abort-delivery-error-name la-info))
+        "last-abort: successful abort delivery has no consequence error")
+(expect (not (abort-info-secondary-error-name la-info))
+        "last-abort: successful cleanup has no secondary error")
+(expect (zero? (abort-info-secondary-error-count la-info))
+        "last-abort: successful cleanup has no secondary failures")
 (expect (abort-info? (session-last-abort la-session)) "last-abort: the reader reads the same recorded cause")
-(session-close! la-session)
+(define la-close-exn
+  (with-handlers ([exn:fail:pancake? values])
+    (session-close! la-session)
+    'no-error))
+(expect (eq? la-exn la-close-exn) "last-abort: close retained the exact refused-frame failure")
 
 (printf "racket zig-smoke OK: a refused frame carries its typed last-abort cause\n")
 
@@ -951,7 +1395,7 @@
        (session-serve hsession)
        (channel-put cp-ch 'served)))))
 
-(define cp-session (connect (tcp-locator "127.0.0.1" (server-port cp-server))))
+(define cp-session (open-test-session (tcp-locator "127.0.0.1" (server-port cp-server))))
 (semaphore-wait cp-ready)
 
 ;; Self-spawned send and tell: the client never runs a serve loop, so only an
@@ -961,6 +1405,18 @@
 (expect (= 15 (session-send cp-session cp-me 'add 5)) "self-spawn: session-send resolved in process")
 (session-tell cp-session cp-me 'add 100)
 (expect (= 115 (session-send cp-session cp-me 'get)) "self-spawn: session-tell ran the local turn")
+(define cp-failing
+  (session-spawn cp-session
+                 (lambda (_bcom)
+                   (lambda (_method . _args) (error 'notice "local tell failed")))))
+(session-tell cp-session cp-failing 'notify)
+(define cp-tell-failures (host-take-failures! (session-host cp-session)))
+(expect (and (= (length cp-tell-failures) 1)
+             (equal? (failure-event-operation (car cp-tell-failures)) "tell.behavior")
+             (positive? (failure-event-scope-id (car cp-tell-failures)))
+             (regexp-match? #rx"local tell failed"
+                            (failure-event-primary-message (car cp-tell-failures))))
+        "self-spawn: local tell failure enters the Host diagnostic seam")
 
 ;; A partner break is a typed pancake failure carrying PANCAKE_ERR_BROKEN.
 (define cp-svc (session-fetch cp-session "svc"))
@@ -1012,10 +1468,10 @@
        (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))))
 (void (fa-serve! fa-server-1 fa-ready-1))
 (void (fa-serve! fa-server-2 fa-ready-2))
-(define fa-session-1 (connect (tcp-locator "127.0.0.1" (server-port fa-server-1))))
+(define fa-session-1 (open-test-session (tcp-locator "127.0.0.1" (server-port fa-server-1))))
 (semaphore-wait fa-ready-1)
-(define fa-session-2 (connect (tcp-locator "127.0.0.1" (server-port fa-server-2))
-                           #:host (session-host fa-session-1)))
+(define fa-session-2 (open-test-session (tcp-locator "127.0.0.1" (server-port fa-server-2))
+                           #:adopt-host (session-host fa-session-1)))
 (semaphore-wait fa-ready-2)
 (define fa-cap-1 (session-fetch fa-session-1 "svc"))
 (define fa-cap-2 (session-fetch fa-session-2 "svc"))
@@ -1063,7 +1519,7 @@
        (session-serve hsession)
        (channel-put pl-ch 'served)))))
 
-(define pl-session (connect (tcp-locator "127.0.0.1" (server-port pl-server))))
+(define pl-session (open-test-session (tcp-locator "127.0.0.1" (server-port pl-server))))
 (semaphore-wait pl-ready)
 (define pl-root (session-fetch pl-session "root"))
 ;; The four verbs leave together: none waits for create's reply, and assign /
@@ -1081,6 +1537,86 @@
 (server-close! pl-server)
 
 (printf "racket zig-smoke OK: promise pipelining drives create->assign->complete->status as one batch\n")
+
+;; ── Promise-pipeline saturation stays typed and terminal ─────────────────────
+;; A queue cap of one admits the first call aimed at an unresolved answer and
+;; refuses the second. Both calls travel in the same feed batch, before the
+;; create behavior can settle its answer. The refusal must remain the Session's
+;; one terminal result through serve and every close observer.
+(define qs-host (make-fresh-host))
+(host-set-session-limits! qs-host 0 1)
+(define qs-server (listen "127.0.0.1" 0 #:host qs-host))
+(define qs-ready (make-semaphore 0))
+(define qs-parked (box #f))
+(define qs-result (make-channel))
+(define qs-server-thread
+  (thread
+   (lambda ()
+     (define hsession (accept qs-server))
+     (host-publish-giftable
+      (session-host hsession) "root"
+      (lambda (method . _args)
+        (unless (eq? method 'create) (error 'queue-saturation "unexpected method"))
+        (define pair (host-defer-turn (session-host hsession)))
+        (set-box! qs-parked pair)
+        (void)))
+     (semaphore-post qs-ready)
+     (define serve-failure
+       (with-handlers ([exn:fail:pancake? values])
+         (session-serve hsession)
+         'served))
+     (define close-failure
+       (with-handlers ([exn:fail:pancake? values])
+         (session-close! hsession)
+         'closed))
+     (define repeated-close-failure
+       (with-handlers ([exn:fail:pancake? values])
+         (session-close! hsession)
+         'closed))
+     (channel-put qs-result
+                  (list serve-failure close-failure repeated-close-failure
+                        (session-released? hsession))))))
+
+(define qs-session
+  (open-test-session (tcp-locator "127.0.0.1" (server-port qs-server))))
+(semaphore-wait qs-ready)
+(define qs-root (session-fetch qs-session "root"))
+(define qs-task (session-send-promise qs-session qs-root 'create))
+(let await-deferred-answer ()
+  (unless (unbox qs-parked) (sleep 0.001) (await-deferred-answer)))
+(void (session-send-promise qs-session qs-task 'assign "first"))
+(define qs-saturated
+  (session-send-promise qs-session qs-task 'assign "saturated"))
+(define qs-client-failure
+  (with-handlers ([exn:fail:pancake? values])
+    (session-await qs-session qs-saturated)
+    'settled))
+(define qs-observed (sync/timeout 10 qs-result))
+(expect qs-observed "queue saturation: exporter serve did not terminate")
+(define qs-serve-failure (list-ref qs-observed 0))
+(define qs-close-failure (list-ref qs-observed 1))
+(define qs-repeated-close-failure (list-ref qs-observed 2))
+(define qs-abort
+  (and (exn:fail:pancake? qs-serve-failure)
+       (exn:fail:pancake-abort qs-serve-failure)))
+(expect (and (exn:fail:pancake? qs-client-failure)
+             (= ERR-CLOSED (exn:fail:pancake-code qs-client-failure))
+             (exn:fail:pancake? qs-serve-failure)
+             (= ERR-SESSION (exn:fail:pancake-code qs-serve-failure))
+             (abort-info? qs-abort)
+             (equal? "QueueCapExceeded" (abort-info-kind qs-abort)))
+        (format "queue saturation: exact terminal results missing (client ~a, server ~a, abort ~a)"
+                qs-client-failure qs-serve-failure qs-abort))
+(expect (and (eq? qs-serve-failure qs-close-failure)
+             (eq? qs-serve-failure qs-repeated-close-failure)
+             (list-ref qs-observed 3))
+        "queue saturation: close lost the terminal exception or retired state")
+(session-close! qs-session)
+(server-close! qs-server)
+(host-close! qs-host)
+(thread-wait qs-server-thread)
+
+(printf "racket zig-smoke OK: queue saturation stays exact through serve and repeated close\n")
 
 ;; ── Pipelined projections (ADR-0050/ADR-0052) ─────────────────────────────────
 ;; `session-untag`/`session-index` project a tag/element out of a far
@@ -1110,7 +1646,7 @@
        (session-serve hsession)
        (channel-put pj-ch 'served)))))
 
-(define pj-session (connect (tcp-locator "127.0.0.1" (server-port pj-server))
+(define pj-session (open-test-session (tcp-locator "127.0.0.1" (server-port pj-server))
                             #:captp-version 'next))
 (semaphore-wait pj-ready)
 (define pj-root (session-fetch pj-session "root"))
@@ -1153,7 +1689,7 @@
                         [(ok) (sym "fine")])))
        (semaphore-post ub-ready)
        (session-serve hsession)))))
-(define ub-session (connect (tcp-locator "127.0.0.1" (server-port ub-server))))
+(define ub-session (open-test-session (tcp-locator "127.0.0.1" (server-port ub-server))))
 (semaphore-wait ub-ready)
 (define ub-cap (session-fetch ub-session "svc"))
 ;; Fire the failing verb and never await it; the break arrives while the next
@@ -1180,7 +1716,7 @@
 (define-values (dcs-relay dcs-relay-port)
   (start-sniffing-relay (server-port dcs-server)
                         (lambda (chunk) (if (regexp-match? #rx#"hang" chunk) 'close #f))))
-(define dcs-session (connect (tcp-locator "127.0.0.1" dcs-relay-port)))
+(define dcs-session (open-test-session (tcp-locator "127.0.0.1" dcs-relay-port)))
 (semaphore-wait dcs-ready)
 (define dcs-cap (session-fetch dcs-session "svc"))
 (define dcs-err
@@ -1220,7 +1756,7 @@
 (define-values (rp-in rp-out) (tcp-connect "127.0.0.1" (server-port rp-server)))
 (close-output-port rp-out)
 (close-input-port rp-in)
-(define rp-session (connect (tcp-locator "127.0.0.1" (server-port rp-server))))
+(define rp-session (open-test-session (tcp-locator "127.0.0.1" (server-port rp-server))))
 (semaphore-wait rp-ready)
 (define rp-cap (session-fetch rp-session "svc"))
 (expect (equal? (sym "alive") (session-send rp-session rp-cap 'ping))
@@ -1245,7 +1781,7 @@
         (accept hc-server)
         'accepted)))))
 (semaphore-wait hc-started)
-(host-release! (server-host hc-server))
+(host-close! (server-host hc-server))
 (define hc-terminal (sync/timeout 2 hc-result))
 (expect (exn? hc-terminal)
         "Host release: a parked listener accept did not fail promptly")
@@ -1269,7 +1805,7 @@
      (semaphore-post owned-loop-ready)
      (with-handlers ([(lambda (_) #t) void]) (session-serve c)))))
 (define owned-loop-client
-  (connect (tcp-locator "127.0.0.1" (server-port owned-loop-server))))
+  (open-test-session (tcp-locator "127.0.0.1" (server-port owned-loop-server))))
 (semaphore-wait owned-loop-ready)
 (server-close! owned-loop-server)
 (expect (not (unbox (host-released? owned-loop-host)))
@@ -1306,7 +1842,7 @@
      (semaphore-post supplied-tcp-ready)
      (with-handlers ([(lambda (_) #t) void]) (session-serve c)))))
 (define supplied-tcp-client
-  (connect (tcp-locator "127.0.0.1" (server-port supplied-tcp-server))))
+  (open-test-session (tcp-locator "127.0.0.1" (server-port supplied-tcp-server))))
 (semaphore-wait supplied-tcp-ready)
 (server-close! supplied-tcp-server)
 (define supplied-tcp-cap (session-fetch supplied-tcp-client "svc"))
@@ -1315,7 +1851,7 @@
         "TCP listener close destroyed a yielded supplied-Host session")
 (session-close! supplied-tcp-client)
 (thread-wait supplied-tcp-accept)
-(host-release! supplied-tcp-host)
+(host-close! supplied-tcp-host)
 (printf "racket zig-smoke OK: supplied TCP Host adoption preserves yielded sessions\n")
 
 ;; Listener ownership is per driver listener: closing the first transport must
@@ -1325,15 +1861,29 @@
 (define sibling-keyed (listen-keyed-tcp "127.0.0.1" 0 #:host sibling-host))
 (server-close! sibling-tcp)
 (define sibling-client
-  (connect (keyed-tcp-server-uri sibling-keyed)))
-(define sibling-accepted (keyed-tcp-server-accept sibling-keyed))
-(expect (eq? sibling-host (keyed-tcp-server-host sibling-keyed))
+  (open-test-session (server-locator sibling-keyed)))
+(define sibling-accepted (accept sibling-keyed))
+(expect (eq? sibling-host (server-host sibling-keyed))
         "closing one listener changed the sibling Host owner")
 (session-close! sibling-accepted)
 (session-close! sibling-client)
-(keyed-tcp-server-close! sibling-keyed)
-(host-release! sibling-host)
-(printf "racket zig-smoke OK: closing one listener preserves a sibling listener\n")
+(server-close! sibling-keyed)
+(define sibling-noise (listen-noise-tcp "127.0.0.1" 0 #:host sibling-host))
+(expect (equal? (locator-transport (server-locator sibling-noise))
+                TRANSPORT-NOISE-TCP)
+        "generic server locator lost the noise-tcp profile")
+(expect (equal? (parse-locator (server-uri sibling-noise))
+                (server-locator sibling-noise))
+        "generic server URI drifted from its canonical locator")
+(define sibling-noise-client (open-test-session (server-locator sibling-noise)))
+(define sibling-noise-accepted (accept sibling-noise))
+(expect (eq? sibling-host (server-host sibling-noise))
+        "noise listener should adopt the supplied Host")
+(session-close! sibling-noise-accepted)
+(session-close! sibling-noise-client)
+(server-close! sibling-noise)
+(host-close! sibling-host)
+(printf "racket zig-smoke OK: TCP profiles share one server and Host surface\n")
 
 ;; The iroh provider follows the same seam: the supplied Host is adopted before
 ;; the resident is installed, and the generic driver owns listener close.
@@ -1352,16 +1902,10 @@
                       (lambda (bcom) (methods [(ping) (sym "alive")])) )
      (semaphore-post supplied-iroh-ready)
      (with-handlers ([(lambda (_) #t) void]) (session-serve c)))))
-(define supplied-iroh-hints
-  (if (string=? "" (iroh-server-direct-addresses supplied-iroh-server))
-      (hash)
-      (hash HINT-DIRECT-ADDRESSES
-            (iroh-server-direct-addresses supplied-iroh-server))))
 (define supplied-iroh-client
-  (connect
-   (format-peer-uri "iroh" (iroh-server-node-id supplied-iroh-server)
-                   supplied-iroh-hints)
-   IROH-REACH-LOCAL-DISCOVERY))
+  (open-test-session (iroh-server-locator supplied-iroh-server)
+           #:provider (iroh-provider
+                       (make-iroh-config IROH-REACH-LOCAL-DISCOVERY))))
 (semaphore-wait supplied-iroh-ready)
 (iroh-server-close! supplied-iroh-server)
 (define supplied-iroh-cap (session-fetch supplied-iroh-client "svc"))
@@ -1370,7 +1914,7 @@
         "iroh listener close destroyed a yielded supplied-Host session")
 (session-close! supplied-iroh-client)
 (thread-wait supplied-iroh-accept)
-(host-release! supplied-iroh-host)
+(host-close! supplied-iroh-host)
 (printf "racket zig-smoke OK: supplied iroh Host adoption preserves yielded sessions\n")
 
 ;; A wildcard bind is deployment policy, not a dialable locator. Once an
@@ -1404,14 +1948,14 @@
     (channel-put
      ca-client-ch
      (with-handlers ([(lambda (_) #t) values])
-       (connect (tcp-locator "127.0.0.1" (server-port ca-server))))))))
+       (open-test-session (tcp-locator "127.0.0.1" (server-port ca-server))))))))
 (define ca-session (sync/timeout 2 ca-client-ch))
 (expect (and ca-session (not (exn? ca-session)))
         "native listener admission: a silent peer parked the next handshake")
 (expect (sync/timeout 2 (semaphore-peek-evt ca-ready))
         "native listener admission: the real peer was not published")
 (expect (equal? (partner-identity-designator (session-partner-identity ca-session))
-                (socket-addr-designator "127.0.0.1" (server-port ca-server)))
+                (tcp-address-designator "127.0.0.1" (server-port ca-server)))
         "native listener admission: the signed locator uses explicit reachability")
 (define ca-cap (session-fetch ca-session "svc"))
 (expect (equal? (sym "alive") (session-send ca-session ca-cap 'ping))
@@ -1459,7 +2003,7 @@
        (session-serve hsession)
        (channel-put mb-ch 'served)))))
 
-(define mb-session (connect (tcp-locator "127.0.0.1" (server-port mb-server))))
+(define mb-session (open-test-session (tcp-locator "127.0.0.1" (server-port mb-server))))
 (semaphore-wait mb-ready)
 (define mb-tool (session-spawn mb-session ^tool))
 (define mb-root (session-fetch mb-session "root"))
@@ -1518,7 +2062,7 @@
        (session-serve hsession)
        (channel-put lc-ch 'served)))))
 
-(define lc-session (connect (tcp-locator "127.0.0.1" (server-port lc-server))))
+(define lc-session (open-test-session (tcp-locator "127.0.0.1" (server-port lc-server))))
 (semaphore-wait lc-ready)
 
 ;; A caretaker over a local tool, called locally by its own host.
@@ -1574,7 +2118,7 @@
        (session-serve hsession)
        (channel-put rt-ch 'served)))))
 
-(define rt-session (connect (tcp-locator "127.0.0.1" (server-port rt-server))))
+(define rt-session (open-test-session (tcp-locator "127.0.0.1" (server-port rt-server))))
 (semaphore-wait rt-ready)
 (define rt-cap (session-fetch rt-session "svc"))
 (define rt-broken
@@ -1592,7 +2136,7 @@
 
 (printf "racket zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer\n")
 
-;; ── Mid-turn close parks the C release ────────────────────────────────────────
+;; ── Mid-turn close defers handle release ─────────────────────────────────────
 ;; A behavior that calls `session-close!` inside its own *wire* turn must not
 ;; free the native session while the trampoline frame is still on the stack. Local
 ;; vat turns do not set `inside-turn?` (they never enter the C latch); the park
@@ -1612,7 +2156,8 @@
                      (methods
                       [(die)
                        (session-close! hsession)
-                       ;; Still inside the trampoline: the release must be parked.
+                       ;; Native intent is already recorded; only handle release
+                       ;; remains parked until this trampoline frame returns.
                        (channel-put mc-during
                                     (host-pending-release-count (session-host hsession)))
                        (sym "closing")])))
@@ -1621,7 +2166,7 @@
        (session-serve hsession)
        (channel-put mc-ch 'served)))))
 
-(define mc-session (connect (tcp-locator "127.0.0.1" (server-port mc-server))))
+(define mc-session (open-test-session (tcp-locator "127.0.0.1" (server-port mc-server))))
 (semaphore-wait mc-ready)
 (define mc-svc (session-fetch mc-session "svc"))
 ;; Drive the deliver without awaiting a reply: closing the exporter mid-turn
@@ -1640,11 +2185,11 @@
 (when (exn? mc-host-result) (raise mc-host-result))
 (server-close! mc-server)
 
-(printf "racket zig-smoke OK: a behavior closing its own connection mid-turn parks the release\n")
+(printf "racket zig-smoke OK: callback close records native intent and defers handle release\n")
 
-;; Host teardown has the same callback latch. A request made by a behavior is
-;; pending—not optimistically "released"—until the feed unwinds; terminal
-;; teardown then clears the Host's strong callback/session tables.
+;; Host close records its native admission barrier under the callback latch.
+;; Racket defers only waiting and handle release until the feed unwinds, then
+;; clears the Host's strong callback/session tables.
 (define hr-server (listen "127.0.0.1" 0))
 (define hr-ready (make-semaphore 0))
 (define hr-during (make-channel))
@@ -1659,7 +2204,7 @@
                       (lambda (_bcom)
                         (methods
                          [(release-host)
-                          (host-release! m)
+                          (host-close! m)
                           (channel-put hr-during
                                        (list (unbox (host-released? m))
                                              (host-pending-release-count m)))
@@ -1670,8 +2215,8 @@
                   (list (unbox (host-released? m))
                         (hash-count (host-keep m))
                         (hash-count (host-sessions m)))))))
-(define hr-session (connect (tcp-locator "127.0.0.1" (server-port hr-server))))
-(define hr-sibling (connect (tcp-locator "127.0.0.1" (server-port hr-server))))
+(define hr-session (open-test-session (tcp-locator "127.0.0.1" (server-port hr-server))))
+(define hr-sibling (open-test-session (tcp-locator "127.0.0.1" (server-port hr-server))))
 (semaphore-wait hr-ready)
 (define hr-svc (session-fetch hr-session "svc"))
 (define hr-client
@@ -1680,7 +2225,7 @@
      (with-handlers ([exn:fail:pancake? void])
        (session-send hr-session hr-svc 'release-host)))))
 (expect (equal? '(#f 1) (sync/timeout 10 hr-during))
-        "mid-turn host release parks one ordered Host teardown transaction")
+        "mid-turn Host close records intent and parks one handle-release barrier")
 (thread-wait hr-client)
 (define hr-final (sync/timeout 10 hr-state))
 (expect (equal? '(#t 0 0) hr-final)
@@ -1689,7 +2234,7 @@
 (session-close! hr-sibling)
 (server-close! hr-server)
 
-(printf "racket zig-smoke OK: a mid-turn Host release parks then clears retained state\n")
+(printf "racket zig-smoke OK: callback Host close records intent then clears retained state\n")
 
 ;; Two explicit releases can both observe a live wrapper before either acquires
 ;; the host lock. Terminal state must therefore be checked after the wait, not
@@ -1704,7 +2249,7 @@
    (lambda ()
      (semaphore-post rr-started)
      (with-handlers ([(lambda (_e) #t) (lambda (e) (channel-put rr-results e))])
-       (host-release! rr-host)
+       (host-close! rr-host)
        (channel-put rr-results 'released)))))
 (semaphore-wait rr-started)
 (semaphore-wait rr-started)
@@ -1722,6 +2267,317 @@
 
 (printf "racket zig-smoke OK: concurrent Host release is serialized and idempotent\n")
 
+;; A repeated close is not merely an idempotent wrapper call: every request
+;; reaches the one native barrier. Hold FINISH open with a negotiating session,
+;; kill the first public waiter, then prove a concurrent CANCEL still escalates
+;; the retained worker and every surviving caller joins the terminal result.
+(define re-host (make-fresh-host))
+(open-pending-dialed! re-host)
+(define re-results (make-channel))
+(define re-finish-thread
+  (thread
+ (lambda ()
+   (with-handlers ([(lambda (_e) #t) (lambda (e) (channel-put re-results e))])
+     (host-close! re-host #:pending 'finish #:grace-ms #f)
+     (channel-put re-results 'finished)))))
+(let await-finishing ([remaining 1000])
+  (when (zero? remaining) (fail "unbounded Host finish did not enter FINISHING"))
+  (define state
+    (call-with-host
+     re-host
+     (lambda ()
+       (define-values (rc lifecycle)
+         (pancake_host_close_progress (host-ptr re-host) (monotonic-ms)))
+       (check/host rc)
+       lifecycle)))
+  (unless (= state LIFECYCLE-FINISHING)
+    (sleep 0.001)
+    (await-finishing (sub1 remaining))))
+(define re-join-entered (make-semaphore 0))
+(define re-join-thread
+  (thread
+   (lambda ()
+     (semaphore-post re-join-entered)
+     (with-handlers ([(lambda (_e) #t) (lambda (e) (channel-put re-results e))])
+       (host-close! re-host #:pending 'finish #:grace-ms #f)
+       (channel-put re-results 'joined)))))
+(semaphore-wait re-join-entered)
+;; Give the second caller a turn to enter the already-installed barrier, then
+;; terminate only the caller that originally requested FINISH.
+(sleep 0)
+(kill-thread re-finish-thread)
+(thread-wait re-finish-thread)
+(define re-cancel-thread
+  (thread
+ (lambda ()
+   (with-handlers ([(lambda (_e) #t) (lambda (e) (channel-put re-results e))])
+     (host-close! re-host #:pending 'cancel)
+     (channel-put re-results 'cancelled)))))
+(define re-first (sync/timeout 10 re-results))
+(define re-second (sync/timeout 10 re-results))
+(when (exn? re-first) (raise re-first))
+(when (exn? re-second) (raise re-second))
+(expect (and (memq re-first '(joined cancelled))
+             (memq re-second '(joined cancelled))
+             (not (eq? re-first re-second))
+             (unbox (host-released? re-host)))
+        "killing the first Host close waiter does not stop the shared close worker")
+
+(printf "racket zig-smoke OK: Host close worker outlives the first waiter\n")
+
+;; A finish close whose finite grace expires reports ERR-TIMEOUT and still
+;; crosses terminal release. The outcome is retained: a repeated close on the
+;; released Host re-observes the same timeout instead of silently succeeding,
+;; the contract the TypeScript, Rust, and Python Hosts hold.
+(define gt-host (make-fresh-host))
+(open-pending-dialed! gt-host)
+(define gt-first
+  (with-handlers ([exn:fail:pancake? values])
+    (host-close! gt-host #:pending 'finish #:grace-ms 50)
+    'completed))
+(expect (and (exn:fail:pancake? gt-first)
+             (= ERR-TIMEOUT (exn:fail:pancake-code gt-first))
+             (unbox (host-released? gt-host)))
+        "finish grace expiry surfaces ERR-TIMEOUT after terminal release")
+(define gt-second
+  (with-handlers ([exn:fail:pancake? values])
+    (host-close! gt-host)
+    'completed))
+(expect (and (exn:fail:pancake? gt-second)
+             (= ERR-TIMEOUT (exn:fail:pancake-code gt-second)))
+        "a repeated close re-observes the retained timeout outcome")
+
+(printf "racket zig-smoke OK: repeated Host close re-observes the finish timeout\n")
+
+;; runtime-close! is the shutdown barrier for the Host the Runtime created:
+;; after it returns, that Host is released, the session it yielded is retired,
+;; and a repeated close joins the same terminal outcome.
+(define rb-server (listen "127.0.0.1" 0))
+(define rb-acceptor
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) void])
+       (session-serve (accept rb-server))))))
+(define rb-runtime (open-runtime #:providers (list (tcp-provider))))
+(define rb-session
+  (runtime-connect rb-runtime
+                   (tcp-locator "127.0.0.1" (server-port rb-server))))
+(define rb-host (runtime-host rb-runtime))
+(runtime-close! rb-runtime)
+(expect (unbox (host-released? rb-host))
+        "runtime-close! returned before its Host crossed terminal release")
+(expect (session-released? rb-session)
+        "runtime-close! returned before its dialed session was retired")
+(runtime-close! rb-runtime)
+(thread-wait rb-acceptor)
+(server-close! rb-server)
+
+(printf "racket zig-smoke OK: runtime-close! is the Host shutdown barrier\n")
+
+;; The loop-tier counterpart of the byte-fed grace-timeout scenario above: a
+;; dial still negotiating against a silent TCP partner is admitted pending
+;; work, so a finish close whose finite grace expires reports ERR-TIMEOUT
+;; through the loop close barrier and still crosses terminal release. The
+;; expiry takes effect only inside a `pancake_driver_step`, so this also
+;; exercises the loop close driver's deadline-timer park.
+(define lg-listener (tcp-listen 0 4 #t "127.0.0.1"))
+(define lg-port
+  (let-values ([(_host port _peer-host _peer-port)
+                (tcp-addresses lg-listener #t)])
+    port))
+(define lg-runtime (open-runtime #:providers (list (tcp-provider))))
+(define lg-dial-result (make-channel))
+(define lg-dial-thread
+  (thread
+   (lambda ()
+     (channel-put lg-dial-result
+                  (with-handlers ([exn? values])
+                    (runtime-connect lg-runtime
+                                     (tcp-locator "127.0.0.1" lg-port))
+                    'connected)))))
+;; Accepting proves the dial reached TCP connect, so it is admitted pending
+;; work before the close begins; the accepted ports then stay silent, so the
+;; CapTP handshake can never finish inside the grace.
+(define-values (lg-in lg-out) (tcp-accept lg-listener))
+(define lg-first
+  (with-handlers ([exn:fail:pancake? values])
+    (host-close! (runtime-host lg-runtime) #:pending 'finish #:grace-ms 50)
+    'completed))
+(expect (and (exn:fail:pancake? lg-first)
+             (= ERR-TIMEOUT (exn:fail:pancake-code lg-first))
+             (unbox (host-released? (runtime-host lg-runtime))))
+        "loop finish grace expiry surfaces ERR-TIMEOUT after terminal release")
+(expect (exn? (sync/timeout 10 lg-dial-result))
+        "the expiring loop close failed the admitted dial")
+(thread-wait lg-dial-thread)
+(close-input-port lg-in)
+(close-output-port lg-out)
+(tcp-close lg-listener)
+
+(printf "racket zig-smoke OK: loop finish close reports its grace timeout\n")
+
+;; An ordinary dial has no close driver to supply a timer. Accept TCP and then
+;; stay silent: the binding's one progress clock must wake at HostRuntime's
+;; handshake deadline and project the native ERR-TIMEOUT event.
+(define hd-listener (tcp-listen 0 4 #t "127.0.0.1"))
+(define hd-port
+  (let-values ([(_host port _peer-host _peer-port)
+                (tcp-addresses hd-listener #t)])
+    port))
+(define hd-runtime
+  (open-runtime #:providers (list (tcp-provider))
+                #:handshake-timeout-ms 50))
+(define hd-result (make-channel))
+(define hd-thread
+  (thread
+   (lambda ()
+     (channel-put hd-result
+                  (with-handlers ([exn? values])
+                    (runtime-connect hd-runtime
+                                     (tcp-locator "127.0.0.1" hd-port)))))))
+(define-values (hd-in hd-out) (tcp-accept hd-listener))
+(define hd-outcome (sync/timeout 2 hd-result))
+(expect (and (exn:fail:pancake? hd-outcome)
+             (= ERR-TIMEOUT (exn:fail:pancake-code hd-outcome)))
+        "a silent loop dial did not reach its native handshake deadline")
+(thread-wait hd-thread)
+(runtime-close! hd-runtime)
+(close-input-port hd-in)
+(close-output-port hd-out)
+(tcp-close hd-listener)
+
+(printf "racket zig-smoke OK: a silent loop dial reaches pancake's native handshake deadline\n")
+
+;; Session close has the same ownership contract. A negotiating byte-fed
+;; session keeps unbounded FINISH pending; killing the first waiter must not
+;; strand the worker that a later CANCEL needs to reach physical release.
+(define sc-host (make-fresh-host))
+(define sc-session
+  (open-dialed-over
+   sc-host
+   "tcp"
+   "pending-session-close"
+   (async-transport (lambda (_frame) (void)) void (lambda (_wake) eof) void)))
+(define sc-results (make-channel))
+(define sc-first
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_e) #t) (lambda (e) (channel-put sc-results e))])
+       (session-close! sc-session #:pending 'finish #:grace-ms #f)
+       (channel-put sc-results 'first)))))
+(let await-session-worker ([remaining 1000])
+  (when (zero? remaining) (fail "unbounded Session finish did not install its worker"))
+  (unless (hash-ref session-close-active sc-session #f)
+    (sleep 0.001)
+    (await-session-worker (sub1 remaining))))
+(define sc-join-entered (make-semaphore 0))
+(define sc-join
+  (thread
+   (lambda ()
+     (semaphore-post sc-join-entered)
+     (with-handlers ([(lambda (_e) #t) (lambda (e) (channel-put sc-results e))])
+       (session-close! sc-session #:pending 'finish #:grace-ms #f)
+       (channel-put sc-results 'joined)))))
+(semaphore-wait sc-join-entered)
+(sleep 0)
+(kill-thread sc-first)
+(thread-wait sc-first)
+(define sc-cancel
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_e) #t) (lambda (e) (channel-put sc-results e))])
+       (session-close! sc-session #:pending 'cancel)
+       (channel-put sc-results 'cancelled)))))
+(define sc-one (sync/timeout 10 sc-results))
+(define sc-two (sync/timeout 10 sc-results))
+(when (exn? sc-one) (raise sc-one))
+(when (exn? sc-two) (raise sc-two))
+(expect (and (memq sc-one '(joined cancelled))
+             (memq sc-two '(joined cancelled))
+             (not (eq? sc-one sc-two))
+             (session-released? sc-session))
+        "killing the first Session close waiter does not stop the shared close worker")
+(host-close! sc-host)
+
+(printf "racket zig-smoke OK: Session close worker outlives the first waiter\n")
+
+;; A FLUSH runs after the Host lock has released and may have no immediate
+;; caller of its own. Inject one exact transport exception through a real CapTP
+;; pair: the tell that provokes it, the concurrent serve loop, and repeated
+;; close must all receive that same object, after the byte channel has retired
+;; exactly once. One broken Session must not escape through the Host drain.
+(define wf-server (listen "127.0.0.1" 0))
+(define wf-ready (make-semaphore 0))
+(define wf-server-result (make-channel))
+(define wf-server-thread
+  (thread
+   (lambda ()
+     (define c (accept wf-server))
+     (session-publish c "svc" (lambda (bcom) (methods [(ping) 'alive])))
+     (semaphore-post wf-ready)
+     (channel-put wf-server-result
+                  (with-handlers ([(lambda (_) #t) values])
+                    (session-serve c)
+                    'closed)))))
+(define-values (wf-in wf-out)
+  (tcp-connect "127.0.0.1" (server-port wf-server)))
+(define wf-base (port-transport wf-in wf-out))
+(define wf-fail-writes? (box #f))
+(define wf-close-count (box 0))
+(define wf-first-failure
+  (exn:fail "injected exact FLUSH failure" (current-continuation-marks)))
+(define wf-transport
+  (async-transport
+   (lambda (frame)
+     (if (unbox wf-fail-writes?)
+         (raise wf-first-failure)
+         ((async-transport-write-frame! wf-base) frame)))
+   (async-transport-flush! wf-base)
+   (async-transport-read-some! wf-base)
+   (lambda ()
+     (set-box! wf-close-count (add1 (unbox wf-close-count)))
+     ((async-transport-close! wf-base)))))
+(define wf-host (make-fresh-host))
+(define wf-session
+  (establish-dialed-locator-session wf-host (server-locator wf-server) wf-transport))
+(semaphore-wait wf-ready)
+(define wf-client-result (make-channel))
+(define wf-client-thread
+  (thread
+   (lambda ()
+     (channel-put wf-client-result
+                  (with-handlers ([(lambda (_) #t) values])
+                    (session-serve wf-session)
+                    'closed)))))
+(define wf-svc (session-fetch wf-session "svc"))
+(set-box! wf-fail-writes? #t)
+(define wf-tell-failure
+  (with-handlers ([(lambda (_) #t) values])
+    (session-tell wf-session wf-svc 'ping)
+    'no-error))
+(define wf-serve-failure (sync/timeout 10 wf-client-result))
+(define wf-close-failure
+  (with-handlers ([(lambda (_) #t) values])
+    (session-close! wf-session)
+    'no-error))
+(expect (eq? wf-first-failure wf-tell-failure)
+        "wire failure: tell lost the exact FLUSH exception")
+(expect (eq? wf-first-failure wf-serve-failure)
+        "wire failure: serve lost the exact FLUSH exception")
+(expect (eq? wf-first-failure wf-close-failure)
+        "wire failure: close lost the exact FLUSH exception")
+(expect (= 1 (unbox wf-close-count))
+        "wire failure: terminal observers ran before one physical retirement")
+(thread-wait wf-client-thread)
+(define wf-server-outcome (sync/timeout 10 wf-server-result))
+(expect (eq? 'closed wf-server-outcome)
+        "wire failure: the peer did not retire cleanly after the broken Session closed")
+(thread-wait wf-server-thread)
+(host-close! wf-host)
+(server-close! wf-server)
+
+(printf "racket zig-smoke OK: Session tell, serve, and close retain the exact first FLUSH failure\n")
+
 ;; ── Time-travel: restore retargets wire delivers ──────────────────────────────
 ;; The README's headline time-travel claim, pinned over the wire: snapshot a
 ;; served vat, mutate the actor through wire delivers, restore, and observe
@@ -1738,7 +2594,7 @@
      (session-publish hsession "counter" ^counter 10)
      (semaphore-post tt-ready)
      (with-handlers ([(lambda (_) #t) void]) (session-serve hsession)))))
-(define tt-session (connect (tcp-locator "127.0.0.1" (server-port tt-server))))
+(define tt-session (open-test-session (tcp-locator "127.0.0.1" (server-port tt-server))))
 (semaphore-wait tt-ready)
 (define tt-cap (session-fetch tt-session "counter"))
 (expect (= 15 (session-send tt-session tt-cap 'add 5)) "time-travel: first wire add lands")
@@ -1778,7 +2634,7 @@
                       [(notify) (channel-put lf-told 'told) 2])))
      (semaphore-post lf-ready)
      (with-handlers ([(lambda (_) #t) void]) (session-serve hsession)))))
-(define lf-session (connect (tcp-locator "127.0.0.1" (server-port lf-server))))
+(define lf-session (open-test-session (tcp-locator "127.0.0.1" (server-port lf-server))))
 (semaphore-wait lf-ready)
 (define lf-svc (session-fetch lf-session "svc"))
 (define lf-host (session-host lf-session))
@@ -1814,7 +2670,7 @@
      (with-handlers ([(lambda (_) #t) void])
        (define hsession (accept up-server))
        (session-serve hsession)))))
-(define up-session (connect (tcp-locator "127.0.0.1" (server-port up-server))))
+(define up-session (open-test-session (tcp-locator "127.0.0.1" (server-port up-server))))
 (define up-cap (session-fetch up-session "ephemeral"))
 (expect (equal? 11 (session-send up-session up-cap 'probe)) "unpublish: the alias fetches and answers before removal")
 (expect (eq? #t (host-unpublish-giftable (server-host up-server) "ephemeral"))
@@ -1900,12 +2756,12 @@
 (define rd-ping-server (listen "127.0.0.1" 0))
 ;; The gifter dials the exporter on its server's host, so the tool it fetches
 ;; and the introductions it serves share one identity and handoff router.
-(define rd-gc (connect (tcp-locator "127.0.0.1" (server-port rd-e-server))
-                       #:host (server-host rd-g-server)))
+(define rd-gc (open-test-session (tcp-locator "127.0.0.1" (server-port rd-e-server))
+                       #:adopt-host (server-host rd-g-server)))
 (session-set-exporter-locator!
  rd-gc
  (locator TRANSPORT-TCP
-          (socket-addr-designator "127.0.0.1" rd-relay-port)
+          (tcp-address-designator "127.0.0.1" rd-relay-port)
           (hash)
           'map))
 (define rd-tool (session-fetch rd-gc "gifted"))
@@ -1942,10 +2798,10 @@
                      (lambda (bcom) (methods [(ping) "pong"])))
        (semaphore-post rd-ping-ready)
        (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))))
-(define rd-r-main (connect (tcp-locator "127.0.0.1" (server-port rd-g-server))))
+(define rd-r-main (open-test-session (tcp-locator "127.0.0.1" (server-port rd-g-server))))
 (semaphore-wait rd-g-ready)
-(define rd-r-side (connect (tcp-locator "127.0.0.1" (server-port rd-ping-server))
-                           #:host (session-host rd-r-main)))
+(define rd-r-side (open-test-session (tcp-locator "127.0.0.1" (server-port rd-ping-server))
+                           #:adopt-host (session-host rd-r-main)))
 (semaphore-wait rd-ping-ready)
 (define rd-intro-main (session-fetch rd-r-main "intro"))
 (define rd-ping-side (session-fetch rd-r-side "ping"))
@@ -2029,11 +2885,14 @@
          ;; The first partner is the gifter depositing the gift; the second is
          ;; the recipient's redeem dial, the session an inbox belongs in.
          (unless (zero? n) (set-box! sr-direct hsession))
-         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))
+         (thread
+          (lambda ()
+            (with-handlers ([(lambda (_) #t) void])
+              (session-serve hsession))))
          (accept-loop (add1 n)))))))
 (define sr-g-server (listen "127.0.0.1" 0))
-(define sr-gc (connect (tcp-locator "127.0.0.1" (server-port sr-e-server))
-                       #:host (server-host sr-g-server)))
+(define sr-gc (open-test-session (tcp-locator "127.0.0.1" (server-port sr-e-server))
+                       #:adopt-host (server-host sr-g-server)))
 (define sr-tool (session-fetch sr-gc "gifted"))
 (define sr-g-ready (make-semaphore 0))
 (define sr-g-thread
@@ -2054,7 +2913,13 @@
                            [(get-own) own])))
        (semaphore-post sr-g-ready)
        (session-serve hsession)))))
-(define sr-r (connect (tcp-locator "127.0.0.1" (server-port sr-g-server))))
+;; Keep the recipient Host byte-fed so the handoff redeem must realize its
+;; exporter TCP channel on the same active Host, never transfer that Host into
+;; the native driver after its broker session exists.
+(define sr-r-loc (tcp-locator "127.0.0.1" (server-port sr-g-server)))
+(define sr-r-host (make-fresh-host))
+(define sr-r
+  (open-test-session sr-r-loc #:adopt-host sr-r-host #:connector (tcp-connector)))
 (semaphore-wait sr-g-ready)
 (define sr-intro (session-fetch sr-r "intro"))
 (define-values (sr-tool-cap sr-via) (session-send-redeeming sr-r sr-intro 'get-tool))
@@ -2171,10 +3036,10 @@
   (define chost (make-fresh-host))
   (define shost (make-fresh-host))
   ;; Both hellos leave before either side pumps, so neither establish blocks.
-  (define client-session (open-dialed-over chost "tcp" (socket-addr-designator "127.0.0.1" 1)
+  (define client-session (open-dialed-over chost "tcp" (tcp-address-designator "127.0.0.1" 1)
                                         (connection-transport client-read client-write!)))
   (drain-host! chost)  ; the dialer's signed op:start-session is in flight
-  (define server-session (open-accepted-over shost "tcp" (socket-addr-designator "127.0.0.1" 1)
+  (define server-session (open-accepted-over shost "tcp" (tcp-address-designator "127.0.0.1" 1)
                                           (connection-transport server-read server-write!)
                                           #:designator-scheme DESIGNATOR-SCHEME-ADDRESS))
   (drain-host! shost)  ; the acceptor's hello crosses it
@@ -2340,6 +3205,8 @@
      (expect (driver-loop-has-transport? lp "onion")
              "onion: the generic driver registered the provider package")
      (define listener (loop-listen! lp "onion" ""))
+     (driver-loop-start! lp)
+     (set! listener (loop-listener-ready! listener))
      (define loc (loop-listener-locator lp listener))
      (expect (string=? (locator-transport loc) "onion")
              "onion: the retained provider reports its transport")
@@ -2351,6 +3218,73 @@
    (lambda ()
      (driver-loop-abort! lp)
      (stop!))))
+
+;; The high-level onion listener is only a provider package plus the generic
+;; driver server. Its URI comes from the driver's canonical locator, while the
+;; opaque restoration bytes become a Tor service key only in the onion module.
+(let ()
+  (define-values (control _socks _seen stop!) (start-fake-tor))
+  (define server
+    (listen-onion #:socks absent-socks #:control control))
+  (expect (onion-server? server)
+          "onion server: high-level listener has the transport-owned type")
+  (expect (string=? (onion-server-service-id server) onion-service-id)
+          "onion server: service id comes from the driver locator")
+  (expect (string=? (onion-server-uri server)
+                    (format-peer-uri "onion" onion-service-id))
+          "onion server: URI is the driver's canonical locator")
+  (expect (bytes=? (onion-server-service-key server) onion-service-key)
+          "onion server: restoration state is interpreted as the Tor service key")
+  (define parked-result (make-channel))
+  (define parked-accept
+    (thread
+     (lambda ()
+       (channel-put parked-result
+                    (with-handlers ([exn? values])
+                      (onion-server-accept server)
+                      'accepted)))))
+  (sleep 0.02)
+  (onion-server-close! server)
+  (expect (exn? (sync/timeout 2 parked-result))
+          "onion server: close wakes a parked high-level accept")
+  (thread-wait parked-accept)
+  (stop!))
+
+(printf "racket zig-smoke OK: high-level onion listening uses the generic driver server\n")
+
+;; Closing a listener before its resident setup starts cancels the pending
+;; native operation and settles the Racket event; it must not leave a waiter
+;; parked forever or call the driver's close path a second time.
+(let ()
+  (define-values (control _socks _seen stop!) (start-fake-tor))
+  (define lp (open-driver-loop))
+  (dynamic-wind
+   void
+   (lambda ()
+     (onion-install-provider! lp #:socks absent-socks #:control control)
+     (define listener (loop-listen! lp "onion" ""))
+     (loop-listener-close! lp listener)
+     (expect (exn? (sync/timeout 1 listener))
+             "onion: closing pending listener settles its setup event"))
+   (lambda ()
+     (driver-loop-abort! lp)
+     (stop!))))
+
+(printf "racket zig-smoke OK: pending listener close cancels and settles exactly once\n")
+
+;; Supplying a Host keeps it caller-owned even though the listener adopts it
+;; into a newly created native loop.
+(let ()
+  (define-values (control _socks _seen stop!) (start-fake-tor))
+  (define host (make-fresh-host))
+  (define server (listen-onion #:socks absent-socks #:control control #:host host))
+  (expect (eq? host (onion-server-host server))
+          "onion server: supplied Host wrapper is preserved")
+  (onion-server-close! server)
+  (expect (not (unbox (host-released? host)))
+          "onion server: closing a supplied-Host listener does not release Host")
+  (host-close! host)
+  (stop!))
 
 ;; Drive one `listen` against the fake daemon and report the AUTHENTICATE line it
 ;; saw. Recording the credential is the point: every other assertion here uses an
@@ -2460,5 +3394,8 @@
             (onion-netlayer-connect nl "not-an-onion-address") #f)
           "onion: a malformed designator is refused before dialing")
   (onion-netlayer-release! nl))
+
+(for ([runtime (in-list (unbox extra-runtimes))])
+  (runtime-close! runtime))
 
 (printf "racket zig-smoke OK: the onion transport reached a fake Tor and reported its service\n")

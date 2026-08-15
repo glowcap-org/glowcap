@@ -37,7 +37,7 @@ pub const Ctx = struct {
     /// is always tcp; slots 1 and 2 join when `PANCAKE_RENDEZVOUS` configures
     /// the relay provider's clear and sealed rendezvous profiles.
     dial_resident: pancake.net.tcp.Resident = undefined,
-    rendezvous_provider: ?pancake.net.keyed_relay.Provider = null,
+    rendezvous_provider: ?pancake.net.relay.Provider = null,
     dial_netlayers: [3]pancake.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
     /// The non-argv fronts' background listener (`listen` on MCP or the

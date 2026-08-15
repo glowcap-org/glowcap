@@ -16,6 +16,7 @@ import ctypes
 from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
 from ._lib_resolve import _lib_path
+from ._pin import pin_struct
 
 # The signature table is generated from the archive's annotated symbol
 # inventory (``zig build gen-binding-python-ffi``). The TCP archive carries
@@ -24,10 +25,36 @@ from ._lib_resolve import _lib_path
 from ._sigs_gen import tcp_sigs
 
 
+class _TcpStreamOptions(ctypes.Structure):
+    _fields_ = [
+        ("keepalive_idle_sec", ctypes.c_uint32),
+        ("keepalive_interval_sec", ctypes.c_uint32),
+        ("keepalive_count", ctypes.c_uint32),
+    ]
+
+
+class _TcpConfig(ctypes.Structure):
+    _fields_ = [("stream", _TcpStreamOptions)]
+
+
+pin_struct(_TcpStreamOptions, "PANCAKE_TCP_STREAM_OPTIONS")
+pin_struct(_TcpConfig, "PANCAKE_TCP_CONFIG")
+
+
 def _load():
     tcp = ctypes.CDLL(str(_lib_path("pancake_net_transport_tcp")))
     facade = _Lib(tcp)
-    _bind(facade, tcp, tcp_sigs(_Frame, _ManagedFrame, _TransportProvider))
+    _bind(
+        facade,
+        tcp,
+        tcp_sigs(
+            _Frame,
+            _ManagedFrame,
+            _TcpConfig,
+            _TcpStreamOptions,
+            _TransportProvider,
+        ),
+    )
     return facade
 
 

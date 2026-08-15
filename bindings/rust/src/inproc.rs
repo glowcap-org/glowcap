@@ -16,10 +16,25 @@
 //! never the ocapn family's [`last_error`](crate::last_error).
 
 use core::marker::PhantomData;
+use std::sync::{Arc, Mutex};
 
 use crate::error_slot::error_slot;
 use crate::sys::inproc as ffi;
-use crate::{Codec, Context, Result};
+use crate::{Codec, Context, Error, HintWireForm, Locator, Result};
+
+fn lock_failure(slot: &Mutex<Option<Error>>) -> std::sync::MutexGuard<'_, Option<Error>> {
+	slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Build a hint-free locator for an in-process switchboard name.
+pub fn locator(designator: &str) -> Locator {
+	Locator {
+		transport: crate::TRANSPORT_INPROC.to_string(),
+		designator: designator.to_string(),
+		hints: std::collections::BTreeMap::new(),
+		hint_wire_form: HintWireForm::BooleanFalse,
+	}
+}
 
 error_slot!(
 	// Like the core `check`, but for `pancake_inproc_*` calls: snapshot the
@@ -36,6 +51,7 @@ error_slot!(
 /// [`Context`]; a netlayer on the library-owned allocator is `Netlayer<'static>`.
 pub struct Netlayer<'ctx> {
 	raw: *mut ffi::PancakeInprocNetlayer,
+	listener_close_failure: Arc<Mutex<Option<Error>>>,
 	_ctx: PhantomData<&'ctx Context>,
 }
 
@@ -45,6 +61,7 @@ impl<'ctx> Netlayer<'ctx> {
 		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new(&mut raw) })?;
 		Ok(Netlayer {
 			raw,
+			listener_close_failure: Arc::new(Mutex::new(None)),
 			_ctx: PhantomData,
 		})
 	}
@@ -57,6 +74,7 @@ impl<'ctx> Netlayer<'ctx> {
 		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new_in(context.raw(), &mut raw) })?;
 		Ok(Netlayer {
 			raw,
+			listener_close_failure: Arc::new(Mutex::new(None)),
 			_ctx: PhantomData,
 		})
 	}
@@ -65,11 +83,10 @@ impl<'ctx> Netlayer<'ctx> {
 	/// returned listener borrows this netlayer and cannot outlive it.
 	pub fn listen(&self, designator: &str) -> Result<Listener<'_>> {
 		let mut raw: *mut ffi::PancakeInprocListener = core::ptr::null_mut();
-		check_inproc(unsafe {
-			ffi::pancake_inproc_listen(self.raw, designator.as_ptr(), designator.len(), &mut raw)
-		})?;
+		check_inproc(unsafe { ffi::pancake_inproc_listen(self.raw, designator.as_ptr(), designator.len(), &mut raw) })?;
 		Ok(Listener {
 			raw,
+			close_failure: Arc::clone(&self.listener_close_failure),
 			_nl: PhantomData,
 		})
 	}
@@ -77,12 +94,7 @@ impl<'ctx> Netlayer<'ctx> {
 	/// Dial the listener bound at `designator`, framing on `codec` with an
 	/// inbound cap of `max_frame_bytes`. The returned connection borrows this
 	/// netlayer and cannot outlive it.
-	pub fn connect(
-		&self,
-		designator: &str,
-		codec: Codec,
-		max_frame_bytes: usize,
-	) -> Result<Connection<'_>> {
+	pub fn connect(&self, designator: &str, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeInprocConn = core::ptr::null_mut();
 		check_inproc(unsafe {
 			ffi::pancake_inproc_connect(
@@ -94,10 +106,22 @@ impl<'ctx> Netlayer<'ctx> {
 				&mut raw,
 			)
 		})?;
-		Ok(Connection {
-			raw,
-			_nl: PhantomData,
-		})
+		Ok(Connection { raw, _nl: PhantomData })
+	}
+
+	/// Return and clear the first listener failure retained by implicit drop.
+	pub fn take_listener_close_failure(&self) -> Option<Error> {
+		lock_failure(&self.listener_close_failure).take()
+	}
+
+	/// Release the netlayer and report any listener close failure retained by
+	/// implicit destruction. The borrow checker guarantees every listener has
+	/// already retired before this consuming barrier can run.
+	pub fn close(self) -> Result<()> {
+		if let Some(error) = self.take_listener_close_failure() {
+			return Err(error);
+		}
+		Ok(())
 	}
 }
 
@@ -111,6 +135,7 @@ impl Drop for Netlayer<'_> {
 /// came from, so the netlayer outlives every accepted connection.
 pub struct Listener<'a> {
 	raw: *mut ffi::PancakeInprocListener,
+	close_failure: Arc<Mutex<Option<Error>>>,
 	_nl: PhantomData<&'a ()>,
 }
 
@@ -127,13 +152,21 @@ impl Listener<'_> {
 	/// listener (and thus the netlayer) and cannot outlive it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeInprocConn = core::ptr::null_mut();
-		check_inproc(unsafe {
-			ffi::pancake_inproc_accept(self.raw, codec.to_c(), max_frame_bytes, &mut raw)
-		})?;
-		Ok(Connection {
-			raw,
-			_nl: PhantomData,
-		})
+		check_inproc(unsafe { ffi::pancake_inproc_accept(self.raw, codec.to_c(), max_frame_bytes, &mut raw) })?;
+		Ok(Connection { raw, _nl: PhantomData })
+	}
+
+	fn release(&mut self) -> Result<()> {
+		if self.raw.is_null() {
+			return Ok(());
+		}
+		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		check_inproc(unsafe { ffi::pancake_inproc_listener_release(raw) })
+	}
+
+	/// Close explicitly and return the native teardown failure, if any.
+	pub fn close(mut self) -> Result<()> {
+		self.release()
 	}
 }
 
@@ -151,7 +184,12 @@ unsafe impl Send for Listener<'_> {}
 
 impl Drop for Listener<'_> {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_inproc_listener_release(self.raw) };
+		if let Err(error) = self.release() {
+			let mut retained = lock_failure(&self.close_failure);
+			if retained.is_none() {
+				*retained = Some(error);
+			}
+		}
 	}
 }
 

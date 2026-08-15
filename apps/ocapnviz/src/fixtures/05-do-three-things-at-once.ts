@@ -57,8 +57,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       id: "session-opens",
       t: 0,
       kind: "session-opened",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       a: {
         peer: "127.0.0.1:9501",
         designator: "127.0.0.1:9501",
@@ -79,8 +78,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       t: 200,
       kind: "message-sent",
       messageId: "ss-out",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       from: "127.0.0.1:9501",
       to: "127.0.0.1:9502",
       arrivalT: 400,
@@ -98,8 +96,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       t: 500,
       kind: "message-sent",
       messageId: "ss-back",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       from: "127.0.0.1:9502",
       to: "127.0.0.1:9501",
       arrivalT: 700,
@@ -116,8 +113,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       id: "session-open",
       t: 700,
       kind: "session-state-changed",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       state: "open",
     },
     {
@@ -125,8 +121,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       t: 1100,
       kind: "message-sent",
       messageId: "anchor",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       from: "127.0.0.1:9501",
       to: "127.0.0.1:9502",
       arrivalT: 1500,
@@ -137,8 +132,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       t: 1150,
       kind: "message-sent",
       messageId: "chain",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       from: "127.0.0.1:9501",
       to: "127.0.0.1:9502",
       arrivalT: 1550,
@@ -161,8 +155,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       t: 1900,
       kind: "message-sent",
       messageId: "anchor-resolve",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       from: "127.0.0.1:9502",
       to: "127.0.0.1:9501",
       arrivalT: 2300,
@@ -179,8 +172,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       t: 2400,
       kind: "message-sent",
       messageId: "step-1",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       from: "127.0.0.1:9502",
       to: "127.0.0.1:9501",
       arrivalT: 2700,
@@ -197,8 +189,7 @@ export const doThreeThingsAtOnce = TimelineDocument.parse({
       t: 2900,
       kind: "message-sent",
       messageId: "step-2",
-      sessionId:
-        "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
+      sessionId: "8e3abae6a7d41db2323b0ed15305c09903ae6b9676c850b2f01ae28e72bf0d6b",
       from: "127.0.0.1:9502",
       to: "127.0.0.1:9501",
       arrivalT: 3200,

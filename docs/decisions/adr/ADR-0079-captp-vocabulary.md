@@ -56,7 +56,7 @@ byte-stream `Conn` in the same C ABI: the old host-conn form even carried
 both words in one symbol, a conn whose check verb read session-open. The driver
 family is now `PancakeHostSession` /
 `pancake_host_session_*` and `driver_core.HostSession`; `checkCaptpVocabulary` in
-`tools/check/meta_check.zig` keeps the collision from returning.
+`tools/check/source_check.zig` keeps the collision from returning.
 
 **`endpoint`:** reserve it for the transport-bound local identity (an iroh
 endpoint, a netlayer's bound address), not as a `Host` synonym. `endpoint` is a
@@ -75,7 +75,7 @@ owning/borrowing Session.
 
 ## Consequences
 
-- Living-state docs and `tools/check/meta_check.zig` ban resurrected lies.
+- Living-state docs and `tools/check/source_check.zig` ban resurrected lies.
 - ADR-0066 binding-Node guidance is historical; read product as `Host`.
 
 ### Once-there holds (assessed after Phase A gated green)

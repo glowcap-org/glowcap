@@ -1,0 +1,20 @@
+use pancake::{relay, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+
+// Noise_XK seals the CapTP stream end to end through the relay.
+let peer_key = "<64 lowercase hex characters from the server>";
+let relay_url = "wss://relay.example/rendezvous";
+let partner = relay::noise::locator(peer_key, relay_url);
+let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
+	relay::Config::dial_only(relay_url),
+)]))
+.await?;
+// From here, the CapTP workflow is transport-independent.
+let session = runtime.connect(&partner, ConnectOptions::default()).await?;
+let greeter = session.fetch("greeter").await?; // a capability this peer published
+match session.send(&greeter, "greet", &["world".into()]).await {
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+session.close(PendingWork::Cancel).await?;
+runtime.close(PendingWork::Cancel).await?;

@@ -33,6 +33,10 @@
          "private/iroh-companion.rkt"
          "private/byte-channel.rkt")
 
+(provide relay-pump (struct-out exn:fail:relay))
+
+(struct exn:fail:relay exn:fail (primary secondary) #:transparent)
+
 ;; The iroh binding loads on demand, only when a `?locator=` dial actually needs
 ;; it, so a TCP-only relay never loads iroh — matching the Deno, Python, and Rust
 ;; relays, which each defer their iroh import to the locator path. A relay serves
@@ -102,7 +106,10 @@
 
 ;; Relay one accepted WebSocket to the channel its query names, both directions,
 ;; until either leg ends. Teardown is pair-atomic.
-(define (relay-pump conn ch)
+(define (relay-pump conn ch
+                    #:ws-recv [recv ws-recv]
+                    #:ws-send [send ws-send!]
+                    #:ws-close [close-websocket ws-close!])
   ;; `up`/`down` are each written by exactly one pump thread, so the byte cap
   ;; needs no lock: a stale cross-thread read of the sibling counter only delays
   ;; the backstop by one chunk, and the cap sits a gigabyte above any real
@@ -112,46 +119,51 @@
   (define down 0)
   (define last-activity (current-inexact-monotonic-milliseconds))
   (define done (make-semaphore 0))
+  (define failures (box '()))
+  (define (record-failure! error)
+    (set-box! failures (append (unbox failures) (list error)))
+    (semaphore-post done))
+  (define (run-leg! body)
+    (with-handlers ([(lambda (error) (not (exn:break? error)))
+                     record-failure!])
+      (body)))
   (define (over-cap?) (> (+ up down) MAX-BYTES-PER-SESSION))
   (define (touch!) (set! last-activity (current-inexact-monotonic-milliseconds)))
 
   (define ws->channel
     (thread
      (lambda ()
-       (let loop ()
-         (define msg (ws-recv conn #:payload-type 'auto))
-         (cond
-           [(eof-object? msg) (semaphore-post done)]
-           [else
-            (define bytes* (if (string? msg) (string->bytes/utf-8 msg) msg))
-            (touch!)
-            (set! up (+ up (bytes-length bytes*)))
+       (run-leg!
+        (lambda ()
+          (let loop ()
+            (define msg (recv conn #:payload-type 'auto))
             (cond
-              [(over-cap?) (semaphore-post done)]
+              [(eof-object? msg) (semaphore-post done)]
               [else
-               (with-handlers ([(lambda (_) #t) (lambda (_) (semaphore-post done))])
-                 ((byte-channel-write ch) bytes*)
-                 (loop))])])))))
+               (define bytes* (if (string? msg) (string->bytes/utf-8 msg) msg))
+               (touch!)
+               (set! up (+ up (bytes-length bytes*)))
+               (if (over-cap?)
+                   (semaphore-post done)
+                   (begin ((byte-channel-write ch) bytes*) (loop)))])))))))
 
   (define channel->ws
     (thread
      (lambda ()
-       (let loop ()
-         (define chunk
-           (with-handlers ([(lambda (_) #t) (lambda (_) eof)]) ((byte-channel-read ch))))
-         (cond
-           [(eof-object? chunk) (semaphore-post done)]
-           [else
-            (touch!)
-            (set! down (+ down (bytes-length chunk)))
+       (run-leg!
+        (lambda ()
+          (let loop ()
+            (define chunk ((byte-channel-read ch)))
             (cond
-              [(over-cap?) (semaphore-post done)]
+              [(eof-object? chunk) (semaphore-post done)]
               [else
-               ;; `ws-send!` awaits its write draining, which is the browser-bound
-               ;; leg's backpressure the contract mandates.
-               (with-handlers ([(lambda (_) #t) (lambda (_) (semaphore-post done))])
-                 (ws-send! conn chunk #:payload-type 'binary)
-                 (loop))])])))))
+               (touch!)
+               (set! down (+ down (bytes-length chunk)))
+               (if (over-cap?)
+                   (semaphore-post done)
+                   (begin
+                     (send conn chunk #:payload-type 'binary)
+                     (loop)))])))))))
 
   ;; Reclaim a stalled pair: post `done` once neither leg has moved a chunk for
   ;; IDLE-TIMEOUT-MS. A `touch!` mid-sleep only shortens the next check, so the
@@ -166,11 +178,21 @@
            [else (sleep (/ (- IDLE-TIMEOUT-MS idle) 1000.0)) (loop)])))))
 
   (semaphore-wait done)
-  (with-handlers ([(lambda (_) #t) void]) ((byte-channel-close! ch)))
-  (with-handlers ([(lambda (_) #t) void]) (ws-close! conn))
-  (kill-thread ws->channel)
-  (kill-thread channel->ws)
-  (kill-thread watchdog))
+  (for ([worker (in-list (list ws->channel channel->ws watchdog))])
+    (kill-thread worker))
+  (for ([worker (in-list (list ws->channel channel->ws watchdog))])
+    (thread-wait worker))
+  (run-leg! (lambda () ((byte-channel-close! ch))))
+  (run-leg! (lambda () (close-websocket conn)))
+  (define ordered (unbox failures))
+  (when (pair? ordered)
+    (define primary (car ordered))
+    (raise
+     (exn:fail:relay
+      (format "relay failed: ~a" (if (exn? primary) (exn-message primary) primary))
+      (current-continuation-marks)
+      primary
+      (cdr ordered)))))
 
 ;; One accepted WebSocket: dial the channel its query names, then pump. A missing
 ;; or malformed target is a 1008 policy close; a dial that cannot land is a 1011

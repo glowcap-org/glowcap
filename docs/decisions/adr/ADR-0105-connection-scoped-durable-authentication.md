@@ -392,13 +392,13 @@ Each item below names what carries it, or says plainly that nothing does yet.
 
 Steps 1 through 3 and step 7 have landed, so the decision governs the tree: the
 transport table is gone, the pin carries two keys, the chokepoint derives the
-demand, and `meta-check` holds the pin's writers. This record is accepted on
+demand, and `source-check` holds the pin's writers. This record is accepted on
 that basis, which is what the decisions README asks for before code is built
 against a record.
 
 Steps 4 through 6 have not landed. Step 7 landing ahead of the evidence step is
 out of order, and this record says so rather than reading as if the plan were
-followed: the `meta-check` swap and the `docs/boundaries.md` rewrite are in,
+followed: the `source-check` swap and the `docs/boundaries.md` rewrite are in,
 while the live browser relay probe, the live substituted-node negative, the
 missing per-binding provenance assertions, and the WebRTC answer leg are not.
 Required evidence items 1 through 5 above say which half of each is covered.
@@ -444,7 +444,7 @@ Each step is green on its own gate before the next begins.
    remote node id and asserts it. `connectVia` stops deriving a basis from
    `nl.authentication()`. Delete `net.netlayer.AuthenticationMechanism`, its
    vtable field, and `vocab.authenticationMechanismForTransport`. Gate:
-   `zig build meta-check`, `zig build test`, `iroh-interop`, `iroh-loop`,
+   `zig build source-check`, `zig build test`, `iroh-interop`, `iroh-loop`,
    `webrtc-interop`, `tcp-loop`.
 3. **Derive the demand.** Replace the pin fields with `DurablePin`'s two keys,
    record the credential verdict on the partner half, implement the four-clause
@@ -472,7 +472,7 @@ Each step is green on its own gate before the next begins.
    where the signaling owner names one, so both legs report the fact they hold.
    Gate: `zig build webrtc-interop`, `webrtc-signaling-captp`,
    `rooms-web-dm-webrtc`.
-7. **Scaffolding and docs.** Replace `meta-check`'s
+7. **Scaffolding and docs.** Replace `source-check`'s
    `checkAuthenticationMechanismSync` with `checkDurablePinWriters`: the two
    evidence verbs are callable only from the layer that holds each fact, and the
    pin's own field name appears only in the file that declares it, so a direct
@@ -480,9 +480,9 @@ Each step is green on its own gate before the next begins.
    `checkHostErrorCodeMap`, so a new `HostError` member cannot reach a C
    embedder as `PANCAKE_ERR_INTERNAL` by falling through two `else` arms. Add
    the transport-symbol row to the Names table in
-   `tools/check/meta_check/namespaces.zig` recording that a transport string does
+   `tools/check/source_check/namespaces.zig` recording that a transport string does
    not name an authentication mechanism. Update `docs/boundaries.md`,
-   `docs/architecture.md`, and `docs/shipped.md`. Gate: `zig build meta-check`,
+   `docs/architecture.md`, and `docs/shipped.md`. Gate: `zig build source-check`,
    `zig build check`.
 
 ## Scope (what this does not decide)
@@ -589,7 +589,7 @@ member any caller could pick is replaced by a verb only a realizer would reach
 for. The reason the transport name cannot be renamed moved into the Context,
 where a newcomer meets it, rather than staying buried in Alternatives.
 
-**Scaffolding rigor** attacked the plan for deleting a `meta-check` member
+**Scaffolding rigor** attacked the plan for deleting a `source-check` member
 without replacing it, which would leave a real invariant with nothing holding
 it. Migration step 7 now replaces `checkAuthenticationMechanismSync` with a
 check that `bindVerifiedChannelKey` appears only in connection-realizing code,
@@ -606,14 +606,14 @@ the single ordered derivation the chokepoint and the report both read.
 
 - `driver_core.vocab` loses `AuthenticationMechanism` and
   `authenticationMechanismForTransport`; `net.netlayer` loses the mirror enum
-  and its vtable field; `meta-check` loses their sync check and gains a
+  and its vtable field; `source-check` loses their sync check and gains a
   call-site check.
 - `engine.Peer` loses `DurableKeyBasis`, `requirePartnerAttestation`, and
   `require_partner_attestation`, and gains `DurablePin`,
   `demandPartnerDurableKey`, `bindVerifiedChannelKey`,
   `recordAttestedDurableKey`, the two read accessors `demandedPartnerKey` and
   `verifiedChannelKey`, and `partnerDurableProvenance`. Three verbs write the
-  pin and nothing else names it; `meta-check` holds both halves.
+  pin and nothing else names it; `source-check` holds both halves.
 - `engine.partnerAttestationVerifies` answers with an optional
   `VerifiedAttestation` rather than a bool, so the key a credential proved and
   the fact that it was checked travel together and

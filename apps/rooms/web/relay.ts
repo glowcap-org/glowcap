@@ -4,7 +4,7 @@
 // a browser that holds an inbound socket here (`bridgeRendezvous`, ADR-0088). The
 // bytes are never parsed, so the keyed OCapN session rides through end to end.
 //
-// The relay never enumerates transports itself: `@pancake/stack`'s
+// The relay never enumerates transports itself: `@pancake/runtime`'s
 // `classifyRelayTarget` routes the target locator through the core
 // `pancake_host_plan_dial`, the same classifier the handoff redeem-dial uses, so
 // this relay sorts a locator exactly as every other runtime's relay does
@@ -19,7 +19,7 @@ import {
 	Rendezvous,
 	webSocketRelay,
 } from "@pancake/relay";
-import { type RelayTarget } from "@pancake/stack";
+import { type RelayTarget } from "./relay_target.ts";
 
 export { isRendezvousDesignator };
 

@@ -1,10 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import {
-  hasAnySelection,
-  selectionActionFor,
-  selectionReducer,
-  selectionRefs,
-} from "./selection-store.ts";
+import { hasAnySelection, selectionActionFor, selectionReducer, selectionRefs } from "./selection-store.ts";
 import {
   EMPTY_SELECTION,
   entityKey,

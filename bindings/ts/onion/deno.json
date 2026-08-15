@@ -1,0 +1,14 @@
+{
+	"name": "@pancake/onion",
+	"version": "0.1.0",
+	"exports": {
+		".": "./mod.ts"
+	},
+	"publish": {
+		"include": ["**/*.ts"],
+		"exclude": ["test/**"]
+	},
+	"tasks": {
+		"check": "deno check mod.ts"
+	}
+}

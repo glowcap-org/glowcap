@@ -123,7 +123,4 @@ export type StageVisibility = {
 // `selectModeFromModifiers`) lives in the interaction layer — every
 // surface speaks it — and is re-exported here for render-local
 // importers.
-export {
-  type SelectMode,
-  selectModeFromModifiers,
-} from "../interactions/types.ts";
+export { type SelectMode, selectModeFromModifiers } from "../interactions/types.ts";

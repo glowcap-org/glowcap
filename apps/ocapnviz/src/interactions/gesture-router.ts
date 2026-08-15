@@ -300,9 +300,7 @@ export function holdPointerForModal(
   source.dispatchEvent(new Event("blur"));
   const lease = router.lease(MODAL_SURFACE_TAG);
   const claimed = lease.claim(element, MODAL_POINTER);
-  const unregister = claimed
-    ? null
-    : router.register(element, MODAL_SURFACE_TAG);
+  const unregister = claimed ? null : router.register(element, MODAL_SURFACE_TAG);
   return () => {
     unregister?.();
     lease.release();
@@ -403,10 +401,8 @@ export function watchGestureEnd(
     onEnd(reason);
     lease.release();
   };
-  const pointerOf = (ev: Event) =>
-    (ev as unknown as { pointerId?: number }).pointerId;
-  const buttonsOf = (ev: Event) =>
-    (ev as unknown as { buttons?: number }).buttons ?? 0;
+  const pointerOf = (ev: Event) => (ev as unknown as { pointerId?: number }).pointerId;
+  const buttonsOf = (ev: Event) => (ev as unknown as { buttons?: number }).buttons ?? 0;
 
   // Only the pointer this surface actually holds ends its gesture;
   // another pointer's stream is not ours to read.

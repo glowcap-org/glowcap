@@ -18,9 +18,10 @@ use crate::{sys, Argument, Error, Ref, Result, SendArena};
 /// Shared fetch/enliven wait: the mint already registered the vow; kick the
 /// drain so the deliver leaves now, and await the drain-routed outcome.
 pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result<Argument> {
-	shared.host.vow_minted(vow, Some(shared));
+	shared.attend_inbound()?;
+	shared.host.vow_minted(vow);
 	let settled = shared.host.await_vow(vow);
-	shared.host.kick_actions().await;
+	shared.host.kick_actions().await?;
 	settled.await
 }
 
@@ -37,16 +38,14 @@ pub(crate) async fn fetch_like(
 	track_import: impl FnOnce(Ref) -> Ref,
 ) -> Result<Ref> {
 	shared.guard_open()?;
-	shared.drain_gc();
+	shared.drain_gc()?;
 	let mut vow: u64 = 0;
 	check_host(unsafe { mint(shared.ptr.get(), swiss.as_ptr(), swiss.len(), &mut vow) })?;
 	let value = await_minted(shared, vow).await?;
 	match value {
 		Argument::Reference(reference) if track => Ok(track_import(reference)),
 		Argument::Reference(reference) => Ok(reference),
-		_ => Err(Error::broken(format!(
-			"{label:?} did not resolve to a capability"
-		))),
+		_ => Err(Error::broken(format!("{label:?} did not resolve to a capability"))),
 	}
 }
 
@@ -57,13 +56,16 @@ pub(crate) async fn fetch_like(
 /// (CapTP `op:listen`) and hand back the settle handle. The vow is plain — a
 /// listen may settle to any value, not only a capability.
 pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> RemotePromise {
-	let failed = |error: Error, session: &Rc<SessionShared>| {
-		RemotePromise::failed(error, Rc::clone(session))
-	};
+	let failed = |error: Error, session: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(session));
 	if let Err(error) = shared.guard_open() {
 		return failed(error, shared);
 	}
-	shared.drain_gc();
+	if let Err(error) = shared.attend_inbound() {
+		return failed(error, shared);
+	}
+	if let Err(error) = shared.drain_gc() {
+		return failed(error, shared);
+	}
 	let wire = match target.to_sys() {
 		Ok(wire) => wire,
 		Err(error) => return failed(error, shared),
@@ -73,8 +75,10 @@ pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> Rem
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
 	}
-	shared.host.vow_minted(vow, Some(shared));
-	shared.host.schedule_kick();
+	shared.host.vow_minted(vow);
+	if let Err(error) = shared.host.schedule_kick() {
+		shared.host.settle_vow(vow, Err(error));
+	}
 	RemotePromise::far(vow, Rc::clone(shared))
 }
 
@@ -84,24 +88,22 @@ pub(crate) fn send_promise(
 	verb: &str,
 	args: &[Argument],
 ) -> RemotePromise {
-	let failed = |error: Error, session: &Rc<SessionShared>| {
-		RemotePromise::failed(error, Rc::clone(session))
-	};
+	let failed = |error: Error, session: &Rc<SessionShared>| RemotePromise::failed(error, Rc::clone(session));
 	if let Err(error) = shared.guard_open() {
 		return failed(error, shared);
 	}
-	shared.drain_gc();
+	if let Err(error) = shared.attend_inbound() {
+		return failed(error, shared);
+	}
+	if let Err(error) = shared.drain_gc() {
+		return failed(error, shared);
+	}
 	// A send to an object this side hosts runs its behavior in process — a
 	// proxy over a *far* target then defers onto the wire reply, the same
 	// forward semantics a partner's delivery gets (ADR-0064).
 	if let CmdTarget::Ref(reference) = &target {
 		if shared.hosted_cell(reference.id()).is_some() {
-			return RemotePromise::local(
-				reference.id(),
-				verb.to_string(),
-				args.to_vec(),
-				Rc::clone(shared),
-			);
+			return RemotePromise::local(reference.id(), verb.to_string(), args.to_vec(), Rc::clone(shared));
 		}
 	}
 	let mut arena = SendArena::default();
@@ -154,11 +156,13 @@ pub(crate) fn send_promise(
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
 	}
-	shared.host.vow_minted(vow, Some(shared));
+	shared.host.vow_minted(vow);
 	// The deliver is queued; the kick (scheduled, so a synchronous batch of
 	// pipelined sends travels together) flushes it whether or not the
 	// handle is ever awaited.
-	shared.host.schedule_kick();
+	if let Err(error) = shared.host.schedule_kick() {
+		shared.host.settle_vow(vow, Err(error));
+	}
 	RemotePromise::far(vow, Rc::clone(shared))
 }
 
@@ -251,12 +255,7 @@ impl RemotePromise {
 		}
 	}
 
-	pub(crate) fn local(
-		ref_id: u64,
-		verb: String,
-		args: Vec<Argument>,
-		session: Rc<SessionShared>,
-	) -> Self {
+	pub(crate) fn local(ref_id: u64, verb: String, args: Vec<Argument>, session: Rc<SessionShared>) -> Self {
 		Self {
 			state: PromiseState::Local { ref_id, verb, args },
 			session,
@@ -288,9 +287,7 @@ impl RemotePromise {
 			// Preserve the first refusal. Reclassifying it as a local promise
 			// hides the operation that actually failed and sends callers debugging
 			// the projection instead of the rejected send.
-			PromiseState::Failed(error) => {
-				return RemotePromise::failed(error.clone(), Rc::clone(&self.session))
-			}
+			PromiseState::Failed(error) => return RemotePromise::failed(error.clone(), Rc::clone(&self.session)),
 			PromiseState::Local { .. } => {
 				return RemotePromise::failed(
 					Error::with_detail(
@@ -307,27 +304,15 @@ impl RemotePromise {
 				ffi::pancake_host_vow_index(self.session.host.raw(), source, *i as u64, &mut vow)
 			},
 			ProjectOp::Untag(tag) => unsafe {
-				ffi::pancake_host_vow_untag(
-					self.session.host.raw(),
-					source,
-					tag.as_ptr(),
-					tag.len(),
-					&mut vow,
-				)
+				ffi::pancake_host_vow_untag(self.session.host.raw(), source, tag.as_ptr(), tag.len(), &mut vow)
 			},
 			ProjectOp::Get(field) => unsafe {
-				ffi::pancake_host_vow_get(
-					self.session.host.raw(),
-					source,
-					field.as_ptr(),
-					field.len(),
-					&mut vow,
-				)
+				ffi::pancake_host_vow_get(self.session.host.raw(), source, field.as_ptr(), field.len(), &mut vow)
 			},
 		};
 		match check_host(rc) {
 			Ok(()) => {
-				self.session.host.vow_minted(vow, Some(&self.session));
+				self.session.host.vow_minted(vow);
 				RemotePromise::far(vow, Rc::clone(&self.session))
 			}
 			Err(error) => RemotePromise::failed(error, Rc::clone(&self.session)),
@@ -370,12 +355,13 @@ impl IntoFuture for RemotePromise {
 			match self.state {
 				PromiseState::Failed(error) => Err(error),
 				PromiseState::Far(vow) => {
+					self.session.attend_inbound()?;
 					// Await the drain-routed completion. The waiter registers
 					// synchronously (the row already exists — the mint was the
 					// registration), then the kick puts the queued batch on the
 					// wire and routes any already-arrived outcome.
 					let settled = self.session.host.await_vow(vow);
-					self.session.host.kick_actions().await;
+					self.session.host.kick_actions().await?;
 					settled.await
 				}
 				PromiseState::Local { ref_id, verb, args } => {

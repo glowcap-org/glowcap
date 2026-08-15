@@ -1,188 +1,193 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
-  xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 64 64"
-  width="64"
-  height="64"
-  role="img"
-  aria-label="A smiling stack of three fluffy pancakes topped with butter and dripping syrup, on a ringed plate."
->
-  <defs>
-    <linearGradient id="pk" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ecb35e"></stop>
-      <stop offset="0.22" stop-color="#fdedc4"></stop>
-      <stop offset="0.56" stop-color="#f4d088"></stop>
-      <stop offset="0.85" stop-color="#e3ab57"></stop>
-      <stop offset="1" stop-color="#cf8f3e"></stop>
-    </linearGradient>
-    <linearGradient id="syrup" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#eaa83f"></stop>
-      <stop offset="0.5" stop-color="#d6841f"></stop>
-      <stop offset="1" stop-color="#bd6f17"></stop>
-    </linearGradient>
-    <linearGradient id="butter" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff5c6"></stop>
-      <stop offset="1" stop-color="#ffdf72"></stop>
-    </linearGradient>
-  </defs>
-
-  <ellipse cx="32" cy="55" rx="25" ry="2.4" fill="#6a4f33" opacity="0.12">
-  </ellipse>
-  <ellipse
-    cx="32"
-    cy="51.5"
-    rx="29.5"
-    ry="6.6"
-    fill="#fbf4e3"
-    stroke="#2c757c"
-    stroke-width="1.4"
-  >
-  </ellipse>
-  <ellipse
-    cx="32"
-    cy="51.5"
-    rx="25.6"
-    ry="5.3"
-    fill="none"
-    stroke="#4ba0a6"
-    stroke-width="1.5"
-  >
-  </ellipse>
-  <ellipse
-    cx="32"
-    cy="51.5"
-    rx="22"
-    ry="4.4"
-    fill="none"
-    stroke="#d2e8e6"
-    stroke-width="1"
-  >
-  </ellipse>
-  <ellipse cx="32" cy="51.1" rx="19.5" ry="3.5" fill="#fffdf6"></ellipse>
-
-  <g transform="translate(0 2.4)">
-    <g stroke="#bb8848" stroke-width="1.1" stroke-linejoin="round">
+   viewBox="0 0 64 64"
+   width="64"
+   height="64"
+   role="img"
+   aria-label="Pancake stack icon with light syrup, butter, smiling face, and striped plate"
+   version="1.1"
+   id="svg21"
+   sodipodi:docname="favicon.svg"
+   inkscape:version="1.4.2 (ebf0e940, 2025-05-08)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs21" />
+  <sodipodi:namedview
+     id="namedview21"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="5.319901"
+     inkscape:cx="20.395116"
+     inkscape:cy="34.117176"
+     inkscape:window-width="1328"
+     inkscape:window-height="860"
+     inkscape:window-x="0"
+     inkscape:window-y="30"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="g21" />
+  <g
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="g21">
+    <!-- plate -->
+    <path
+       d="M 2.8937121,46.937043 C 5.379868,42.880962 16.405022,42.011375 32,42.011375 c 15.594978,0 26.691785,1.22785 29.177941,5.283931 2.825177,4.352868 -8.836666,9.06075 -29.177941,9.06075 -20.341275,0 -31.93146501,-5.066145 -29.1062879,-9.419013 z"
+       fill="#fff4dd"
+       stroke="#6a3f2d"
+       stroke-width="1.11021"
+       id="path1"
+       sodipodi:nodetypes="cscsc" />
+    <path
+       d="m 5.8680504,48.019965 c -0.6641791,2.974308 14.9139186,5.323408 26.2805846,5.323408 11.480334,0 26.043712,-1.852048 26.478811,-5.181393"
+       fill="none"
+       stroke="#5cc3cd"
+       stroke-width="1.74488"
+       id="path2"
+       sodipodi:nodetypes="csc" />
+    <!-- bottom pancake -->
+    <path
+       d="M 9.4932532,38.223125 C 9.7241955,35.467161 19.63289,33.395433 31.757406,33.395433 c 12.124517,0 22.662043,1.938686 22.892987,4.69465 1.613418,2.594311 0.806708,4.132129 -0.220012,6.460357 -1.308971,2.968261 -10.548458,5.711487 -22.672975,5.711487 -12.124516,0 -20.551321,-3.130325 -22.6308393,-5.711487 -1.3934074,-1.729541 -1.1000584,-3.799525 0.3666865,-6.327315 z"
+       fill="#f8d990"
+       stroke="#6a3f2d"
+       stroke-width="1.30877"
+       id="path4"
+       sodipodi:nodetypes="cscsssc" />
+    <path
+       d="M 10.22745,38.469217 C 11.337391,34.450412 21.507814,33.649875 32,33.649875 c 10.379366,0 20.560471,0.1311 22.202466,4.79478 C 51.145668,42.561709 41.702451,43.722543 32,43.722543 c -9.589632,0 -19.391112,-1.734055 -21.77255,-5.253326 z"
+       fill="#e99a3a"
+       stroke="#6a3f2d"
+       stroke-width="1.19216"
+       id="path5"
+       sodipodi:nodetypes="cscsc" />
+    <!-- middle pancake -->
+    <path
+       d="M 9.2105213,28.06895 C 9.4361598,24.98163 19.138611,22.606768 32,22.606768 c 12.861389,0 22.56384,2.374862 22.789479,5.462182 1.07479,2.794454 0.716527,4.497999 0,7.005842 C 53.843463,38.385847 44.74857,41.130689 32,41.130689 c -12.74857,0 -20.521886,-3.464362 -22.7894787,-6.055897 -0.5015687,-0.573221 -2.0062748,-3.638166 0,-7.005842 z"
+       fill="#f9dda0"
+       stroke="#6a3f2d"
+       stroke-width="1.34262"
+       id="path7"
+       sodipodi:nodetypes="cscsssc" />
+    <path
+       d="M 9.334021,27.710687 C 10.587268,23.501486 20.605261,22.725511 32,22.725511 c 11.169101,0 21.228261,1.062586 22.809284,5.056828 -1.767051,2.086217 -11.40542,5.013806 -22.236063,5.013806 -10.830643,0 -19.967443,-2.354367 -23.2392,-5.085458 z"
+       fill="#eda043"
+       stroke="#6a3f2d"
+       stroke-width="1.19216"
+       id="path8"
+       sodipodi:nodetypes="cscsc" />
+    <!-- top pancake -->
+    <path
+       d="m 10.200623,18.877993 c 0.225901,-3.062251 9.600767,-5.358941 21.799388,-5.358941 12.198621,0 21.799388,2.29669 22.025288,5.358941 1.076037,2.243809 0.789094,3.595969 0,5.905772 -1.069311,3.130039 -9.826667,5.68704 -22.025288,5.68704 -12.198621,0 -20.084532,-2.810232 -21.799388,-5.68704 -1.2195094,-2.045826 -1.2912453,-4.123924 0,-5.905772 z"
+       fill="#fae1a6"
+       stroke="#6a3f2d"
+       stroke-width="1.28927"
+       id="path10"
+       sodipodi:nodetypes="cscsssc" />
+    <path
+       d="m 10.426524,18.768627 c 2.259004,-3.062251 10.617318,-5.140208 21.573487,-5.140208 10.956168,0 19.427434,2.077957 21.573487,5.140208 -3.275555,2.624787 -11.40797,4.26528 -21.573487,4.26528 -10.165517,0 -18.184981,-1.640493 -21.573487,-4.26528 z"
+       fill="#f0a347"
+       stroke="#6a3f2d"
+       stroke-width="1.14478"
+       id="path11" />
+    <!-- syrup moved up toward the top edge, under the butter, with less detail -->
+    <path
+       d="m 19.287135,15.352168 c 3.571833,-1.086062 8.419324,-1.650387 13.777077,-1.650387 5.293969,0 10.141461,0.585621 13.84086,1.68233 1.977267,0.585622 2.780929,1.256425 2.780929,1.937877 0,0.511087 -0.433722,0.936994 -1.199116,1.235128 -1.097064,0.425908 -1.8497,0.990234 -2.270666,1.618446 -0.280645,0.447202 -0.381752,0.979562 -0.382696,1.650388 l -0.02029,14.394002 c -0.0012,0.915733 -0.612315,1.533264 -1.556299,1.533264 -0.918472,0 -1.48105,-0.53235 -1.47976,-1.426788 l 0.02029,-14.074571 c 0.0012,-0.851846 -0.153079,-1.27772 -0.688854,-1.575854 -1.097065,0.127772 -2.33445,0.191656 -3.699401,0.191656 -1.658353,0 -2.133219,-1.265253 -3.459903,-1.456916 -0.204104,0.532385 -0.714366,0.9157 -1.530785,0.9157 h -1.428734 c -0.918473,0 -2.484653,0.818057 -2.714271,0.285673 -1.339438,0.18101 -3.165331,-0.560058 -4.747144,-0.560058 -1.530787,0 -2.549605,0.751725 -3.748721,0.581353 -0.510263,0.276841 -0.627806,0.681493 -0.637828,1.51197 l -0.266786,22.111791 c -0.01085,0.894359 -0.586801,1.511968 -1.505272,1.511968 -0.918473,0 -1.515941,-0.617607 -1.505274,-1.511968 l 0.266786,-22.367336 c 0.01169,-0.979536 -0.306157,-1.59715 -0.969498,-2.023056 -0.739881,-0.468497 -1.122576,-0.958289 -1.122576,-1.426787 0,-0.681452 0.790905,-1.352254 2.742658,-1.937877 z"
+       fill="#e57c18"
+       stroke="#704027"
+       stroke-width="1.11883"
+       id="path13"
+       sodipodi:nodetypes="cscsccssssscscsscscssssscscc" />
+    <!-- butter sitting over the syrup -->
+    <g
+       transform="matrix(1.128192,0,0,1.1874309,-4.1021444,0.50118036)"
+       id="g16">
       <path
-        d="M11 37 A 21 4.5 0 0 1 53 37 L 53 45 A 21 4.5 0 0 1 11 45 Z"
-        fill="url(#pk)"
-      >
-      </path>
+         d="m 27.895182,10.131727 6.2,-1.24 3.45,1.44 -6.3,1.3 z"
+         fill="#fff0a8"
+         stroke="#6e4729"
+         stroke-width="0.8"
+         id="path14" />
       <path
-        d="M10 27 A 21 4.5 0 0 1 52 27 L 52 35.5 A 21 4.5 0 0 1 10 35.5 Z"
-        fill="url(#pk)"
-      >
-      </path>
+         d="m 27.895182,10.131727 v 2.7 l 3.36,1.38 v -2.58 z"
+         fill="#f7d26a"
+         stroke="#6e4729"
+         stroke-width="0.8"
+         id="path15" />
       <path
-        d="M12 18 A 21 4.5 0 0 1 54 18 L 54 26 A 21 4.5 0 0 1 12 26 Z"
-        fill="url(#pk)"
-      >
-      </path>
+         d="m 31.255182,11.631727 6.3,-1.3 v 2.68 l -6.3,1.2 z"
+         fill="#e5b449"
+         stroke="#6e4729"
+         stroke-width="0.8"
+         id="path16" />
     </g>
-
-    <ellipse cx="33" cy="18" rx="21" ry="4.5" fill="#e2a850"></ellipse>
-    <ellipse cx="32" cy="17.2" rx="15" ry="2.7" fill="#edc06f" opacity="0.6">
-    </ellipse>
-
-    <g fill="#b3742e" opacity="0.13">
+    <!-- face -->
+    <g
+       transform="matrix(1.128192,0,0,1.1874309,-4.1021444,-6.8380987)"
+       id="g19">
+      <ellipse
+         cx="25.725281"
+         cy="37.89856"
+         rx="1.2668715"
+         ry="0.80000001"
+         fill="#ee8e78"
+         opacity="0.82"
+         id="ellipse18"
+         style="stroke-width:0.858227" />
+      <ellipse
+         cx="38.55357"
+         cy="37.759136"
+         rx="1.1971593"
+         ry="0.80000001"
+         fill="#ee8e78"
+         opacity="0.82"
+         id="ellipse19"
+         style="stroke-width:0.83428" />
+      <ellipse
+         cx="26.530729"
+         cy="35.828846"
+         rx="1.55"
+         ry="1.75"
+         fill="#432b23"
+         id="ellipse16" />
+      <ellipse
+         cx="37.336483"
+         cy="35.828846"
+         rx="1.55"
+         ry="1.75"
+         fill="#432b23"
+         id="ellipse17" />
+      <circle
+         cx="26.97073"
+         cy="35.308846"
+         fill="#ffffff"
+         id="circle17"
+         r="0.44" />
+      <circle
+         cx="37.776485"
+         cy="35.308846"
+         r="0.44"
+         fill="#ffffff"
+         id="circle18" />
       <path
-        d="M17 28 C26 31, 38 31, 47 28 C45 30.5, 39 31.2, 32 31.2 C25 31.2, 19 30.5, 17 28 Z"
-      >
-      </path>
-      <path
-        d="M14 39 C25 42, 39 42, 50 39 C48 41.6, 40 42.4, 32 42.4 C24 42.4, 16 41.6, 14 39 Z"
-      >
-      </path>
+         d="m 29.87929,37.440861 c 1.05,0.96 3.15,0.96 4.2,0"
+         fill="none"
+         stroke="#432b23"
+         stroke-width="1"
+         id="path19" />
     </g>
-
-    <g fill="#fdeeca" opacity="0.5">
-      <path d="M16 32 C24 34.4, 40 34.4, 48 32 C40 33.4, 24 33.4, 16 32 Z">
-      </path>
-      <path d="M14 42 C23 44.4, 41 44.4, 50 42 C41 43.4, 23 43.4, 14 42 Z">
-      </path>
-    </g>
-
-    <path
-      d="M16 18 C23 14.5, 43 14.5, 50 18 C52 19.5, 51.8 22, 50 23 C49.4 25, 49 27, 48.8 29 C48.6 35, 48.8 41, 48.2 46.8 C48 48.1, 46.6 48.1, 46.4 46.8 C46 41, 46 35, 45.8 29 C45.6 27, 45 25.4, 43.5 24.8 C38 25.7, 26 25.7, 22.5 24.8 C21.8 25.5, 21.4 27, 21.2 29 C21 35, 21 41, 20.6 46.8 C20.4 48.1, 19 48.1, 18.8 46.8 C18.4 41, 18.6 35, 18.4 29 C18.2 27, 17.8 25, 16.4 23.5 C14.2 22, 14 19.5, 16 18 Z"
-      fill="url(#syrup)"
-    >
-    </path>
-    <path
-      d="M19 17.5 C26 15, 40 15, 47 17 C40 16.8, 27 17, 20.5 18.6 C19 19, 18 17.9, 19 17.5 Z"
-      fill="#f9dd93"
-      opacity="0.85"
-    >
-    </path>
-    <path
-      d="M47.2 25 C47.4 31, 47 39, 47.3 45.5"
-      fill="none"
-      stroke="#f6c34f"
-      stroke-width="0.6"
-      stroke-linecap="round"
-      opacity="0.6"
-    >
-    </path>
-    <path
-      d="M19.8 25 C19.6 31, 20 39, 19.7 45.5"
-      fill="none"
-      stroke="#f6c34f"
-      stroke-width="0.6"
-      stroke-linecap="round"
-      opacity="0.6"
-    >
-    </path>
-    <ellipse cx="41" cy="20" rx="2" ry="1" fill="#fdeec0" opacity="0.55">
-    </ellipse>
-    <ellipse cx="25" cy="20.5" rx="1.8" ry="0.9" fill="#fdeec0" opacity="0.5">
-    </ellipse>
-
-    <path
-      d="M30.6 9.6 C30.6 8.7, 31.3 8.3, 32.3 8.2 L40 7.6 C41.2 7.5, 42 8.1, 42 9.2 L42 13.8 C42 14.9, 41.2 15.4, 40 15.5 L32.2 15.8 C31.1 15.85, 30.6 15.3, 30.6 14.3 Z"
-      fill="url(#butter)"
-      stroke="#e8be57"
-      stroke-width="0.8"
-      stroke-linejoin="round"
-    >
-    </path>
-    <path
-      d="M31.6 9.5 C32.3 8.8, 40.4 8.2, 41.2 8.9 C40.4 9.7, 32.6 10.1, 31.6 9.5 Z"
-      fill="#fff8d6"
-      opacity="0.9"
-    >
-    </path>
-
-    <ellipse cx="22" cy="36.8" rx="2.6" ry="1.4" fill="#f1a39b" opacity="0.7">
-    </ellipse>
-    <ellipse cx="40" cy="36.8" rx="2.6" ry="1.4" fill="#f1a39b" opacity="0.7">
-    </ellipse>
-    <ellipse cx="25.4" cy="35.1" rx="1.9" ry="2" fill="#5b4632"></ellipse>
-    <ellipse cx="36.6" cy="35.1" rx="1.9" ry="2" fill="#5b4632"></ellipse>
-    <circle cx="26.1" cy="34.1" r="0.7" fill="#fff" opacity="0.92"></circle>
-    <circle cx="37.3" cy="34.1" r="0.7" fill="#fff" opacity="0.92"></circle>
-    <path
-      d="M29 37.5 q2 1.5 4 0"
-      fill="none"
-      stroke="#5b4632"
-      stroke-width="1.5"
-      stroke-linecap="round"
-    >
-    </path>
-  </g>
-
-  <g fill="#74bcc2">
-    <path
-      d="M7.5 13 Q8 14.9 10 15.4 Q8 15.9 7.5 17.9 Q7 15.9 5 15.4 Q7 14.9 7.5 13 Z"
-    >
-    </path>
-    <path
-      d="M10.8 7 Q11.2 8.4 12.6 8.8 Q11.2 9.2 10.8 10.6 Q10.4 9.2 9 8.8 Q10.4 8.4 10.8 7 Z"
-    >
-    </path>
-    <path
-      d="M54 9 Q54.5 11 56.6 11.6 Q54.5 12.2 54 14.2 Q53.5 12.2 51.4 11.6 Q53.5 11 54 9 Z"
-    >
-    </path>
-    <path
-      d="M57.5 16.5 Q57.85 17.8 59.2 18.2 Q57.85 18.6 57.5 19.9 Q57.15 18.6 55.8 18.2 Q57.15 17.8 57.5 16.5 Z"
-    >
-    </path>
+    <!-- sparse line movement only, no detailed highlight line work -->
+    <g
+       fill="none"
+       stroke="#df9d4e"
+       stroke-width=".34"
+       opacity=".48"
+       id="g20" />
   </g>
 </svg>

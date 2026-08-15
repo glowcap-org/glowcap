@@ -23,8 +23,8 @@
          "pump.rkt"
          "host-action-gen.rkt")
 
-;; Dial owns run-dial!; session owns session-close! and the breaking
-;; parameter the FAIL arm consults. Promise owns settle-vow!. Lazy-require
+;; Dial owns run-dial!; session owns session-close!. Promise owns settle-vow!.
+;; Lazy-require
 ;; breaks the dial/session ↔ action and promise ↔ session cycles.
 (lazy-require
  ["promise.rkt"
@@ -32,10 +32,14 @@
  ["dial.rkt"
   (run-dial!)]
  ["session.rkt"
-  (session-close!
-   current-breaking)])
+  (finish-session-close!
+   record-session-outbound-failure!
+   retire-session-wire-failure!
+   run-drain-effects!)])
 
 (provide drain-host-actions!)
+
+(struct dial-worker (thread cancelled?))
 
 ;; ── Park ──────────────────────────────────────────────────────────────────────
 ;; Run `pancake_host_pump_drain` with park-only arms; return decoded actions
@@ -44,7 +48,8 @@
 (define (park-host-actions! m)
   (define parked '())
   (define (arm _ctx _host action out-progressed)
-    (set! parked (cons (host-decode-action! action arg<-c) parked))
+    (define decoded (host-decode-action! action arg<-c))
+    (set! parked (cons decoded parked))
     (when out-progressed
       (ptr-set! out-progressed _uint32 1))
     OK)
@@ -69,8 +74,15 @@
       (define c (host-session-for-ptr m (cadr act)))
       (cond
         [c
-         (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
-         (values (if (memq c touched) touched (cons c touched)) fires)]
+         (define failure
+           (with-handlers ([(lambda (_) #t) values])
+             (drain-outbound! c)
+             #f))
+         (when failure (record-session-outbound-failure! c failure))
+         (values (if (memq c touched) touched (cons c touched))
+                 (if failure
+                     (cons (lambda () (retire-session-wire-failure! c)) fires)
+                     fires))]
         [else (values touched fires)]))
     'close
     (lambda (act)
@@ -82,9 +94,13 @@
       (define c (host-session-for-ptr m (cadr act)))
       (cond
         [c
-         (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
+         (define failure
+           (with-handlers ([(lambda (_) #t) values])
+             (drain-outbound! c)
+             #f))
+         (when failure (record-session-outbound-failure! c failure))
          (values (if (memq c touched) touched (cons c touched))
-                 (cons (lambda () (session-close! c)) fires))]
+                 (cons (lambda () (finish-session-close! c (caddr act))) fires))]
         [else (values touched fires)]))
     'dial
     (lambda (act)
@@ -92,7 +108,44 @@
       ;; post-lock, like every write and fire, or one slow exporter
       ;; parks every thread sharing the host. Ticket-only: run-dial!
       ;; borrows the pending URI.
-      (values touched (cons (lambda () (run-dial! m (cadr act))) fires)))
+      (define ticket (cadr act))
+      (define cancelled? (box #f))
+      (define start (make-semaphore 0))
+      (define worker
+        (thread
+         (lambda ()
+           (without-deferred-drain-effects
+            (lambda ()
+              (sync start)
+              (dynamic-wind
+               void
+               (lambda () (run-dial! m ticket (lambda () (unbox cancelled?))))
+               (lambda ()
+                 (call-with-host/allow-released
+                  m
+                  (lambda () (hash-remove! (host-dial-workers m) ticket))))))))))
+      (hash-set! (host-dial-workers m) ticket (dial-worker worker cancelled?))
+      (values touched (cons (lambda () (semaphore-post start)) fires)))
+    'cancel-dial
+    (lambda (act)
+      (define ticket (cadr act))
+      (define worker (hash-ref (host-dial-workers m) ticket #f))
+      (values
+       touched
+       (cons
+        (lambda ()
+          (when worker
+            (set-box! (dial-worker-cancelled? worker) #t)
+            (kill-thread (dial-worker-thread worker))
+            (thread-wait (dial-worker-thread worker))
+            (call-with-host/allow-released
+             m
+             (lambda () (hash-remove! (host-dial-workers m) ticket))))
+          (call-with-host
+           m
+           (lambda ()
+             (check/host (pancake_host_dial_cancelled (host-ptr m) ticket)))))
+        fires)))
     'need-gift-id
     (lambda (act)
       (host-provide-gift-id! m (cadr act))
@@ -102,7 +155,7 @@
       (values touched (append (reverse (settle-vow! m (cadr act) (cons 'ok (caddr act)))) fires)))
     'fail
     (lambda (act)
-      (define outcome (cons (if (current-breaking) 'closed 'broken) (caddr act)))
+      (define outcome (vow-failure-outcome (caddr act) (cadddr act)))
       (values touched (append (reverse (settle-vow! m (cadr act) outcome)) fires)))
     'resume
     (lambda (_act)
@@ -133,8 +186,9 @@
       (drain-pump-actions! m)))
 
 (define (drain-pump-actions! m)
-  (let loop ([touched '()] [fires '()])
+  (let loop ([touched '()] [fires '()] [popped? #f])
     (define-values (parked yielded?) (park-host-actions! m))
+    (define any-popped? (or popped? (pair? parked)))
     (define-values (t f)
       (for/fold ([touched touched] [fires fires]) ([a (in-list parked)])
         (apply-parked-action! m a touched fires)))
@@ -149,7 +203,51 @@
           (call-with-host*
            m
            (lambda () no-drain-effects)
-           (lambda () (drain-host-actions! m)))))]
-      [(null? parked) (drain-effects (reverse t) (reverse f) #f)]
+           (lambda () (drain-host-actions! m))))
+        any-popped?)]
+      [(null? parked) (drain-effects (reverse t) (reverse f) #f any-popped?)]
       [else
-       (loop t f)])))
+       (loop t f any-popped?)])))
+
+;; Drive a byte-fed Host close without choosing any lifecycle transition here:
+;; the core emits every effect, this loop executes it, supplies monotonic time,
+;; and observes the terminal barrier. The wait is event-driven: snapshot the
+;; host progress event before the progress check (the pump-until idiom, so a
+;; verb landing between the check and the wait still wakes this loop), then
+;; park on that snapshot or on the nearest FINISH grace deadline from
+;; `pancake_host_close_wait_ms`. A wait of -1 means no finite deadline is
+;; pending: only host activity (a feed, a drain, a settle, an escalation)
+;; can advance terminal progress, so the loop parks on activity alone.
+(define (drive-host-close! m)
+  (let loop ()
+    (define gen (host-progress-evt m))
+    (define state #f)
+    (define close-code OK)
+    (define wait-ms -1)
+    (define fx
+      (call-with-host
+       m
+       (lambda ()
+         (define-values (rc lifecycle)
+           (pancake_host_close_progress (host-ptr m) (monotonic-ms)))
+         (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/host rc))
+         (set! close-code rc)
+         (set! state lifecycle)
+         ;; Drain what progress queued before parking; a productive drain
+         ;; bumps below, forcing one more progress check instead of parking
+         ;; over undrained work.
+         (define effects (drain-host-actions! m))
+         (unless (= lifecycle LIFECYCLE-CLOSED)
+           (define-values (wrc w)
+             (pancake_host_close_wait_ms (host-ptr m) (monotonic-ms)))
+           (check/host wrc)
+           (set! wait-ms w))
+         effects)))
+    (run-drain-effects! m fx)
+    (when (drain-effects-productive? fx) (host-bump-progress! m))
+    (cond
+      [(= state LIFECYCLE-CLOSED) close-code]
+      [(>= wait-ms 0) (sync/timeout (/ wait-ms 1000.0) gen) (loop)]
+      [else (sync gen) (loop)])))
+
+(set-box! host-close-barrier-hook drive-host-close!)

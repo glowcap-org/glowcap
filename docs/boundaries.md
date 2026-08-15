@@ -53,13 +53,12 @@ inventory, [stability](stability.md) says how each surface is tested, and the
   address. A live Goblins-over-iroh session does have one, `goblins-iroh`, over
   the iroh netlayer this repository wrote for Goblins; it runs on loopback with
   direct dial (no relay), so it adds no reachability evidence.
-- **A `webrtc` dial needs configured signaling authority.** On the TypeScript
-  stack, a host configured with `Host.setSignaling` dials a bare `webrtc`
-  locator: the dial executor runs the offer, answer, and candidate exchange
-  and holds the keyed session over the opened DataChannel. Without that
-  authority the dial refuses. Native Zig does the same: the completion backend
-  dials through a configured `SignalingAuthority` and adopts signaled peers
-  into the generic Host.
+- **A `webrtc` dial needs configured signaling authority.** On TypeScript, a
+  runtime composed with `webrtc.connector(signaling)` dials a bare `webrtc`
+  locator: the connector runs the offer, answer, and candidate exchange and
+  holds the keyed session over the opened DataChannel. Native Zig sets that
+  authority on the WebRTC backend rather than on Session. Without it the dial
+  refuses.
 
 The iroh and WebRTC transports rely on their existing sidecars; pancake does
 not ship a native Zig QUIC or WebRTC stack.
@@ -131,8 +130,8 @@ not ship a native Zig QUIC or WebRTC stack.
   handshake budget, so two loops on one thread can dial each other and a
   stalled connector cannot park the step. Stream providers begin connects
   through a nonblocking `start_connect` contract and publish readiness-driven
-  completion; native Zig netlayers without `start_dial` retain the blocking
-  fallback outside this provider seam.
+  completion. Outside this provider seam, a native Zig netlayer declares one
+  tagged dial execution form, blocking or staged.
 - **Pre-open memory is explicitly bounded.** `max_pending_opens` defaults to
   256 per driver Host and counts transport connects plus CapTP handshakes
   across dial, accept, external adoption, and redeem. Over-limit stream
@@ -240,8 +239,18 @@ assets are not published.
   subsequent sessions and gifts. This upstream lookup behavior is pinned
   interop evidence, not a pancake architecture boundary.
 - **Handoff is return-based.** A capability from another session can be
-  returned as an answer, but it cannot be pushed as an argument. An application
-  that needs to push one must pass a promise for the eventual answer instead.
+  returned as an answer, but it cannot be pushed as an argument: pancake
+  refuses that argument whole rather than mis-encoding it. The draft's CapTP
+  specification does describe the argument case, so this is a gap in pancake
+  rather than in the protocol. There, the gifter puts the signed
+  `desc:handoff-give` inline in any place that takes a Passable value,
+  `op:deliver` arguments among them. The receiver builds a local promise for
+  it, redeems against the exporter, and resolves that promise with what comes
+  back. Implementing it means both halves. The gifter must hold its deliver
+  until the embedder answers `need_gift_id`, and the receiver must accept a
+  give in an argument position, where `Host.liftValue` refuses one today. An
+  application that needs to push a capability passes a promise for the
+  eventual answer instead.
 - **Handoff signatures always use Syrup.** That signing domain does not change
   when the surrounding session uses Cap'n Proto.
 - **Remote equality holds per exporter session, not across parallel
@@ -294,8 +303,19 @@ and the native CLI honor locator-carried routes over a deliberately dead local
 fallback. `zig build zig-keyed-relay-register` proves the CLI registration
 half. The relay provider archive owns both `keyed-relay` and `noise-relay`,
 including native dial and registration through the generic driver. A real
-Chromium wasm peer reports `authenticated_transport` on a live `noise-relay`
-session under `zig build rooms-web-noise-relay-provenance`.
+browser does not currently compose that provider: browser peers use WebRTC for
+an authenticated channel, or explicit cleartext `keyed-relay` rendezvous.
+Native `rooms-peer` composes iroh and keyed-relay, not WebRTC, so it cannot
+cold-introduce to a default browser tab. It answers on the inbound reply
+capability. A tab that wants native-initiated DMs picks Via this server (relay)
+in Settings or opens with `?dm=relay`.
+
+A room stores posted files under its room and server ceilings. A direct-message
+file has no server in its path, so its sender hosts the blob on the direct
+session until the recipient has pulled it. The TypeScript sender retains at
+most 128 unfetched sources and 64 MiB, then expires the oldest. If the session
+ends or the ceiling expires a file first, the recipient keeps the message
+metadata but cannot fetch bytes it never received.
 
 The [roadmap](roadmap.md) owns those tasks and the remaining product work,
 including the A2A facade, OpenTelemetry export, the object layer, and control

@@ -9,18 +9,8 @@
  */
 
 import { SIZE } from "./tokens.ts";
-import {
-  type AppMode,
-  type BuilderTool,
-  toolsForMode,
-} from "../state/app-state.ts";
-import {
-  AddPeerGlyph,
-  HandGlyph,
-  OpenSessionGlyph,
-  SelectGlyph,
-  SendMessageGlyph,
-} from "./glyphs.tsx";
+import { type AppMode, type BuilderTool, toolsForMode } from "../state/app-state.ts";
+import { AddPeerGlyph, HandGlyph, OpenSessionGlyph, SelectGlyph, SendMessageGlyph } from "./glyphs.tsx";
 
 /** Per-tool display facts. Order here is display order.
  *

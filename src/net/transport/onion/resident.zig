@@ -49,6 +49,18 @@ const Stream = std.Io.net.Stream;
 const known_transport = model.transport.Known.onion;
 pub const transport_name = known_transport.metadata().symbol;
 
+/// Build an onion locator without parsing or allocating. The service id is
+/// borrowed by the returned locator and must remain alive until the dial path
+/// has copied or retained it. Onion locators use the Goblins-compatible empty
+/// false hint spelling; direct-address hints have no meaning here.
+pub fn locator(service_id: []const u8) model.PeerLocator {
+    return .{
+        .transport = transport_name,
+        .designator = service_id,
+        .hints = model.Hints.emptyFalse(),
+    };
+}
+
 /// The unframed byte-stream seam shared by native connections and the C
 /// provider. The caller owns the buffers; an empty buffer keeps the provider's
 /// host-side buffering as the only extra layer.
@@ -79,8 +91,8 @@ pub const RawStream = struct {
         self.reader.stream.close(self.io);
     }
 
-    pub fn shutdown(self: *RawStream) void {
-        self.reader.stream.shutdown(self.io, .both) catch {};
+    pub fn shutdown(self: *RawStream) std.Io.net.ShutdownError!void {
+        try frame_stream.shutdownStream(&self.reader.stream, self.io);
     }
 
     pub fn readinessFd(self: *const RawStream) std.Io.net.Socket.Handle {
@@ -133,7 +145,7 @@ const resident_ctx = netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{
     .profile = known_transport.metadata(),
-    .dial = residentDial,
+    .dial = .{ .blocking = residentDial },
     .listen = residentListen,
     .io = resident_ctx.io,
 };
@@ -164,7 +176,9 @@ fn residentDial(
     peer: *engine.Peer,
     loc: model.PeerLocator,
     bufs: Buffers,
+    options: netlayer.OperationOptions,
 ) netlayer.DialError!Connection {
+    try options.requireInherited();
     const self = resident_ctx.of(ctx);
     if (loc.hints.entries.len != 0 or loc.hints.wire_form != .boolean_false)
         return error.InvalidAddress;
@@ -276,15 +290,17 @@ fn residentListen(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,
-) netlayer.ListenError!NetLayerListener {
+) netlayer.ListenStartOutcome {
+    config.options.requireInherited() catch |err| return .{ .failed = .init(err) };
     const self = resident_ctx.of(ctx);
     // `ListenConfig.designator` is not read. For every other address-scheme
     // transport the caller names where to bind; here Tor mints the service id and
     // pancake learns it from the reply, so a caller-supplied designator would be
     // a value nothing could honour.
-    _ = config;
-    const listener = try Listener.create(allocator, self.io, self.config);
-    return listener.asNetlayer();
+    return switch (Listener.create(allocator, self.io, self.config)) {
+        .ready => |listener| .{ .admitted = .{ .ready = listener.asNetlayer() } },
+        .failed => |failure| .{ .failed = failure },
+    };
 }
 
 /// A bound onion service: the control session that keeps it alive, and the local
@@ -309,8 +325,14 @@ pub const Listener = struct {
     /// wakes this descriptor and deinit joins the serialized accept lease
     /// before releasing either fd or listener storage.
     wake: wake_channel.WakeChannel,
+    wake_failure: wake_channel.FailureLatch = .{},
     operation_gate: std.Io.Mutex = .init,
     stopping: std.atomic.Value(bool) = .init(false),
+
+    pub const CreateOutcome = union(enum) {
+        ready: *Listener,
+        failed: netlayer.ListenFailure,
+    };
 
     /// Create the service and bind its forward target.
     ///
@@ -322,55 +344,78 @@ pub const Listener = struct {
         allocator: std.mem.Allocator,
         io: std.Io,
         config: Config,
-    ) netlayer.ListenError!*Listener {
-        if (config.control_endpoint.len == 0) return error.InvalidAddress;
-        const control_ep = Endpoint.parse(config.control_endpoint) catch return error.InvalidAddress;
+    ) CreateOutcome {
+        if (config.control_endpoint.len == 0) return .{ .failed = .init(error.InvalidAddress) };
+        const control_ep = Endpoint.parse(config.control_endpoint) catch
+            return .{ .failed = .init(error.InvalidAddress) };
 
-        const self = try allocator.create(Listener);
-        errdefer allocator.destroy(self);
+        const self = allocator.create(Listener) catch |err| return .{ .failed = .init(err) };
         self.allocator = allocator;
         self.io = io;
         self.service_key_len = 0;
         self.unix_path = null;
         self.operation_gate = .init;
         self.stopping = .init(false);
-        self.wake = wake_channel.WakeChannel.open() catch return error.BindFailed;
-        errdefer self.wake.deinit();
+        self.wake_failure = .{};
+        self.wake = wake_channel.WakeChannel.open() catch {
+            allocator.destroy(self);
+            return .{ .failed = .init(error.BindFailed) };
+        };
 
         // Bind the local end first.
         const forward_ep: Endpoint = if (config.forward.len == 0)
             .{ .address = IpAddress.parse("127.0.0.1", 0) catch unreachable }
         else
-            Endpoint.parse(config.forward) catch return error.InvalidAddress;
+            Endpoint.parse(config.forward) catch {
+                return failCreate(self, error.InvalidAddress, false, false);
+            };
 
-        self.server = forward_ep.listen(io) catch return error.BindFailed;
-        errdefer {
-            self.server.deinit(io);
-            if (self.unix_path) |path| std.Io.Dir.deleteFileAbsolute(io, path) catch {};
-        }
+        self.server = forward_ep.listen(io) catch return failCreate(self, error.BindFailed, false, false);
 
         // Then name it to Tor. An empty configured forward means the OS chose the
         // port, so the text has to be read back off the bound socket rather than
         // from configuration.
-        const forward_text = try self.formatForward(config.forward, forward_ep);
+        const forward_text = self.formatForward(config.forward, forward_ep) catch |err|
+            return failCreate(self, err, true, false);
         if (forward_ep.isUnix()) self.unix_path = forward_text;
 
-        self.ctrl.open(io, control_ep, config.auth) catch return error.BindFailed;
-        errdefer self.ctrl.close();
+        self.ctrl.open(io, control_ep, config.auth) catch
+            return failCreate(self, error.BindFailed, true, false);
 
         const service = self.ctrl.addOnion(
             forward_ep,
             forward_text,
             config.service_key,
-        ) catch return error.BindFailed;
+        ) catch return failCreate(self, error.BindFailed, true, true);
 
         self.service_id = service.id;
         if (service.key.len > 0) {
-            if (service.key.len > self.service_key_store.len) return error.BindFailed;
+            if (service.key.len > self.service_key_store.len)
+                return failCreate(self, error.BindFailed, true, true);
             @memcpy(self.service_key_store[0..service.key.len], service.key);
             self.service_key_len = service.key.len;
         }
-        return self;
+        return .{ .ready = self };
+    }
+
+    fn failCreate(
+        self: *Listener,
+        cause: anyerror,
+        server_live: bool,
+        control_live: bool,
+    ) CreateOutcome {
+        var failure = netlayer.ListenFailure.init(cause);
+        if (control_live) self.ctrl.close();
+        if (server_live) {
+            self.server.deinit(self.io);
+            if (self.unix_path) |path| std.Io.Dir.deleteFileAbsolute(self.io, path) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => failure.note(err),
+            };
+        }
+        self.wake.deinit();
+        self.allocator.destroy(self);
+        return .{ .failed = failure };
     }
 
     fn formatForward(
@@ -469,6 +514,7 @@ pub const Listener = struct {
     /// complete wrapper construction so concurrent deinit cannot free listener
     /// state between the kernel accept and the last read of `self.io`.
     fn acceptStreamLocked(self: *Listener) netlayer.AcceptError!Stream {
+        try self.wake_failure.check();
         if (self.stopping.load(.acquire)) return error.ConnectionLost;
 
         var fds = [_]std.posix.pollfd{
@@ -476,10 +522,14 @@ pub const Listener = struct {
             .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
         };
         const ready = poll.wait(&fds, -1) catch return error.ConnectionLost;
+        try self.wake_failure.check();
         if (ready == 0 or self.stopping.load(.acquire) or
             fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
         {
-            self.wake.drain();
+            self.wake.drain() catch |err| {
+                self.wake_failure.record(err);
+                return err;
+            };
             return error.ConnectionLost;
         }
         return self.server.accept(self.io) catch error.ConnectionLost;
@@ -498,12 +548,14 @@ pub const Listener = struct {
     pub fn waitAcceptable(self: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
         self.operation_gate.lockUncancelable(self.io);
         defer self.operation_gate.unlock(self.io);
+        try self.wake_failure.check();
         if (self.stopping.load(.acquire)) return error.ConnectionLost;
         var fds = [_]std.posix.pollfd{
             .{ .fd = self.server.socket.handle, .events = std.posix.POLL.IN, .revents = 0 },
             .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
         };
         const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
+        try self.wake_failure.check();
         if (self.stopping.load(.acquire) or
             fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
             return error.ConnectionLost;
@@ -516,16 +568,20 @@ pub const Listener = struct {
     /// another OS thread; `deinit` follows after that call returns.
     pub fn shutdown(self: *Listener) void {
         self.stopping.store(true, .release);
-        self.wake.nudge();
+        _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
     }
 
     /// Drop the undetached service's control session and release the local end.
     /// Tor withdraws an undetached onion service when that session closes, so
     /// release performs no control I/O and cannot park an embedder's reactor.
-    pub fn deinit(self: *Listener) void {
+    pub fn deinit(self: *Listener) ?netlayer.ListenerCloseFailure {
         self.shutdown();
         self.operation_gate.lockUncancelable(self.io);
         self.operation_gate.unlock(self.io);
+        var failure: ?netlayer.ListenerCloseFailure = if (self.wake_failure.failure()) |err|
+            .init(err)
+        else
+            null;
         self.ctrl.close();
         self.server.deinit(self.io);
         self.wake.deinit();
@@ -534,8 +590,17 @@ pub const Listener = struct {
         // already in use.
         // `Endpoint.parse` only accepts an absolute path for a socket, which is
         // what lets this take the absolute form and name no directory.
-        if (self.unix_path) |path| std.Io.Dir.deleteFileAbsolute(self.io, path) catch {};
+        if (self.unix_path) |path| std.Io.Dir.deleteFileAbsolute(self.io, path) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => {
+                if (failure) |*first|
+                    first.note(err)
+                else
+                    failure = .init(err);
+            },
+        };
         self.allocator.destroy(self);
+        return failure;
     }
 };
 
@@ -547,8 +612,13 @@ const listener_vtable: NetLayerListener.VTable = .{
     .waitAcceptable = listenerWaitAcceptable,
     .localLocator = listenerLocalLocator,
     .canonicalizeLocator = listenerCanonicalizeLocator,
+    .restoration_state = listenerRestorationState,
     .close = listenerClose,
 };
+
+fn listenerRestorationState(ctx: *anyopaque, out: []u8) netlayer.RestorationStateError!usize {
+    return netlayer.writeListenerRestorationState(out, listenerOf(ctx).serviceKey());
+}
 
 fn listenerOf(ctx: *anyopaque) *Listener {
     return @ptrCast(@alignCast(ctx));
@@ -577,14 +647,14 @@ fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) netlayer.
 fn listenerCanonicalizeLocator(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
-    locator: model.PeerLocator,
+    candidate: model.PeerLocator,
 ) netlayer.ListenError!model.PeerLocator {
     const self = listenerOf(ctx);
-    if (locator.hints.entries.len != 0 or locator.hints.wire_form != .boolean_false)
+    if (candidate.hints.entries.len != 0 or candidate.hints.wire_form != .boolean_false)
         return error.InvalidAddress;
-    return netlayer.canonicalizeFixedLocator(allocator, locator, transport_name, &self.service_id);
+    return netlayer.canonicalizeFixedLocator(allocator, candidate, transport_name, &self.service_id);
 }
 
-fn listenerClose(ctx: *anyopaque) void {
-    listenerOf(ctx).deinit();
+fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
+    return listenerOf(ctx).deinit();
 }

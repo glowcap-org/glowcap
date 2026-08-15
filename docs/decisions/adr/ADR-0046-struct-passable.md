@@ -76,8 +76,8 @@ different key order and still be Equal.
 - **Undefined is not a new arm.** It is the existing `.void` arm, the `<void>`
   record Goblins uses for the unspecified value. This ADR only clarifies that
   mapping in the docs.
-- **Arbitrary-precision Integer (bignum) is separate.** It is a scalar precision
-  extension, tracked in the roadmap, not part of this change.
+- **Arbitrary-precision Integer (bignum) is separate.** Closed by
+  [ADR-0049](ADR-0049-arbitrary-precision-integer.md); not part of this change.
 - **Struct keys are Strings only.** The Syrup dict wire form permits any key
   type, but OCapN Struct requires String keys, so non-String keys are refused
   even though the encoding could carry them.

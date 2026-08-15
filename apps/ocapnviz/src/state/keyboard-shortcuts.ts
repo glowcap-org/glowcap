@@ -151,13 +151,11 @@ const SHORTCUTS: readonly ShortcutRow[] = [
     // Vertical arrows have no scrub meaning; they only claim the
     // key when a Build nudge actually consumes it.
     key: "arrowup",
-    run: (b, ev) =>
-      b.mode === "build" && b.onNudgeSelection(0, -1, { shift: ev.shift }),
+    run: (b, ev) => b.mode === "build" && b.onNudgeSelection(0, -1, { shift: ev.shift }),
   },
   {
     key: "arrowdown",
-    run: (b, ev) =>
-      b.mode === "build" && b.onNudgeSelection(0, 1, { shift: ev.shift }),
+    run: (b, ev) => b.mode === "build" && b.onNudgeSelection(0, 1, { shift: ev.shift }),
   },
   // ── Selection ────────────────────────────────────────────────
   {

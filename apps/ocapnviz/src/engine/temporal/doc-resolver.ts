@@ -45,12 +45,7 @@ import type {
   SessionEndpoint,
   SessionSide,
 } from "../../schema/topology.ts";
-import {
-  endpointAttachment,
-  endpointNodeId,
-  sessionEndpoint,
-  SessionState,
-} from "../../schema/topology.ts";
+import { endpointAttachment, endpointNodeId, sessionEndpoint, SessionState } from "../../schema/topology.ts";
 import type { SessionDefinition, TimelineDocument } from "../timeline.ts";
 import { effectiveOf } from "./effective.ts";
 import { intrinsicOf } from "./inheritance.ts";
@@ -279,9 +274,7 @@ export function sessionValueAt(
   t: number,
 ): string | undefined {
   const value = sessionPropertyValueAt(doc, sessionId, property, t);
-  return value === undefined
-    ? undefined
-    : SESSION_TRAJECTORY[property].stated(value);
+  return value === undefined ? undefined : SESSION_TRAJECTORY[property].stated(value);
 }
 
 /** Resolved session state at `t`, falling back to the schema default
@@ -541,9 +534,7 @@ export function clampReasonFor(
     if (a === undefined && b === undefined) return null;
     if (a === undefined) return `peer ${b!.peerId}`;
     if (b === undefined) return `peer ${a.peerId}`;
-    const tighter = side === "start"
-      ? (a.at >= b.at ? a.peerId : b.peerId)
-      : (a.at <= b.at ? a.peerId : b.peerId);
+    const tighter = side === "start" ? (a.at >= b.at ? a.peerId : b.peerId) : (a.at <= b.at ? a.peerId : b.peerId);
     return `peer ${tighter}`;
   }
 

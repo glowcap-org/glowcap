@@ -6,6 +6,7 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${dir}/lib.sh"
 pancake_devcontainer_init "${dir}"
+pancake_require_devcontainer "install-playwright"
 require_arch "playwright chromium"
 
 tmp="$(mktemp -d -t pancake-playwright-install-XXXXXX)"

@@ -25,6 +25,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 const test_host = @import("../support/core_host.zig");
 const support_actors = @import("../support/actors.zig");
+const netlayer_test = @import("../support/netlayer.zig");
 
 const model = pancake.ocapn.model;
 const driver = pancake.driver;
@@ -66,6 +67,7 @@ const FakeResident = struct {
     conns: std.AutoHashMapUnmanaged(usize, Conn) = .{},
     connecting: std.AutoHashMapUnmanaged(usize, i32) = .{},
     throttle: bool = false,
+    fail_remote_key: bool = false,
     write_calls: usize = 0,
     write_blocks: usize = 0,
 
@@ -172,10 +174,11 @@ const FakeResident = struct {
         return written;
     }
 
-    fn startConnect(
+    fn startConnectFallible(
         ctx: *anyopaque,
         request_id: usize,
         locator: model.PeerLocator,
+        _: net.netlayer.OperationOptions,
     ) net.netlayer.DialError!void {
         const self = of(ctx);
         const colon = std.mem.lastIndexOfScalar(u8, locator.designator, ':') orelse return error.InvalidAddress;
@@ -206,7 +209,7 @@ const FakeResident = struct {
         self.ctlEpoll(linux.EPOLL.CTL_ADD, fd, linux.EPOLL.OUT, connect_tag | @as(u64, request_id));
     }
 
-    fn finishConnect(ctx: *anyopaque, request_id: usize) net.netlayer.DialError!usize {
+    fn finishConnectFallible(ctx: *anyopaque, request_id: usize) net.netlayer.DialError!usize {
         const self = of(ctx);
         const row = self.connecting.fetchRemove(request_id) orelse return error.ConnectionLost;
         const fd = row.value;
@@ -227,11 +230,29 @@ const FakeResident = struct {
         return conn_id;
     }
 
-    fn cancelConnect(ctx: *anyopaque, request_id: usize) void {
+    fn startConnect(
+        ctx: *anyopaque,
+        request_id: usize,
+        locator: model.PeerLocator,
+        options: net.netlayer.OperationOptions,
+    ) net.MultiplexedDialRawStartOutcome {
+        startConnectFallible(ctx, request_id, locator, options) catch |err|
+            return .{ .failed = .init(err) };
+        return .admitted;
+    }
+
+    fn finishConnect(ctx: *anyopaque, request_id: usize) net.MultiplexedDialRawFinishOutcome {
+        const conn = finishConnectFallible(ctx, request_id) catch |err|
+            return .{ .failed = .init(err) };
+        return .{ .connected = conn };
+    }
+
+    fn cancelConnect(ctx: *anyopaque, request_id: usize) ?pancake.foundation.FailureChain {
         const self = of(ctx);
-        const row = self.connecting.fetchRemove(request_id) orelse return;
+        const row = self.connecting.fetchRemove(request_id) orelse return null;
         self.ctlEpoll(linux.EPOLL.CTL_DEL, row.value, 0, 0);
         _ = linux.close(row.value);
+        return null;
     }
 
     fn tryRead(ctx: *anyopaque, conn_id: usize, buf: []u8) isize {
@@ -269,15 +290,16 @@ const FakeResident = struct {
         }
     }
 
-    fn connClose(ctx: *anyopaque, conn_id: usize) void {
+    fn connClose(ctx: *anyopaque, conn_id: usize) ?pancake.foundation.FailureChain {
         const self = of(ctx);
-        const row = self.conns.fetchRemove(conn_id) orelse return;
+        const row = self.conns.fetchRemove(conn_id) orelse return null;
         self.ctlEpoll(linux.EPOLL.CTL_DEL, row.value.fd, 0, 0);
         _ = linux.close(row.value.fd);
+        return null;
     }
 
     fn connRemoteKey(ctx: *anyopaque, conn_id: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
-        _ = ctx;
+        if (of(ctx).fail_remote_key) return error.ProviderContract;
         _ = conn_id;
         return null;
     }
@@ -292,11 +314,19 @@ const AcceptOwnershipResident = struct {
     claimed: bool = false,
     close_calls: usize = 0,
     drain_calls: usize = 0,
-    start_listen_calls: usize = 0,
+    listen_calls: usize = 0,
     listeners: [2]Listener = undefined,
     listener_count: usize = 0,
     accept_route: ?usize = null,
     dialed: [2]bool = @splat(false),
+    hold_connect: bool = false,
+    pending_connect: ?usize = null,
+    pending_listener: ?usize = null,
+    fail_drain: bool = false,
+    fail_listener_finish: bool = false,
+    cancel_connect_calls: usize = 0,
+    cancel_listen_calls: usize = 0,
+    fail_cancel_connect: bool = false,
 
     const transport = "x-accept-ownership";
     const alternate_transport = "x-accept-ownership-alt";
@@ -334,7 +364,7 @@ const AcceptOwnershipResident = struct {
         }
         std.debug.assert(self.accept_route != null);
         self.accept_ready = true;
-        self.wake.nudge();
+        _ = self.wake.nudge() catch unreachable;
     }
 
     fn multiplexedResident(self: *AcceptOwnershipResident) net.MultiplexedResident {
@@ -350,9 +380,13 @@ const AcceptOwnershipResident = struct {
             .cancel_connect = cancelConnect,
         },
         .listen = .{
-            .start_listen = startListen,
-            .listener_locator = listenerLocator,
-            .listener_advertise = listenerAdvertise,
+            .listen = listen,
+            .completion = .{
+                .finish = finishListen,
+                .cancel = cancelListen,
+            },
+            .local_locator = localLocator,
+            .canonicalize_locator = canonicalizeLocator,
             .finish_accept = finishAccept,
             .stop_listen = stopListen,
         },
@@ -373,8 +407,14 @@ const AcceptOwnershipResident = struct {
     fn drainReady(ctx: *anyopaque, out: []net.multiplexed_resident.ReadyEvent) net.multiplexed_resident.ContractError!usize {
         const self = of(ctx);
         self.drain_calls += 1;
-        self.wake.drain();
-        if (!self.accept_ready or out.len == 0) return 0;
+        self.wake.drain() catch unreachable;
+        if (self.fail_drain) return error.ProviderContract;
+        if (out.len == 0) return 0;
+        if (self.pending_listener != null) {
+            out[0] = .{ .subject = self.pending_listener.?, .events = net.multiplexed_resident.ev_listen };
+            return 1;
+        }
+        if (!self.accept_ready) return 0;
         self.accept_ready = false;
         out[0] = .{
             .subject = self.accept_route orelse return 0,
@@ -397,26 +437,49 @@ const AcceptOwnershipResident = struct {
         };
     }
 
-    fn startConnect(ctx: *anyopaque, _: usize, locator: model.PeerLocator) net.netlayer.DialError!void {
-        const index = transportIndex(locator.transport) orelse return error.InvalidAddress;
-        of(ctx).dialed[index] = true;
-        return error.InvalidAddress;
+    fn startConnect(ctx: *anyopaque, request_id: usize, locator: model.PeerLocator, _: net.netlayer.OperationOptions) net.MultiplexedDialRawStartOutcome {
+        const index = transportIndex(locator.transport) orelse
+            return .{ .failed = .init(error.InvalidAddress) };
+        const self = of(ctx);
+        self.dialed[index] = true;
+        if (self.hold_connect) {
+            self.pending_connect = request_id;
+            return .admitted;
+        }
+        return .{ .failed = .init(error.InvalidAddress) };
     }
 
-    fn finishConnect(_: *anyopaque, _: usize) net.netlayer.DialError!usize {
-        return error.ConnectionLost;
+    fn finishConnect(_: *anyopaque, _: usize) net.MultiplexedDialRawFinishOutcome {
+        return .{ .failed = .init(error.ConnectionLost) };
     }
 
-    fn cancelConnect(_: *anyopaque, _: usize) void {}
+    fn cancelConnect(ctx: *anyopaque, request_id: usize) ?pancake.foundation.FailureChain {
+        const self = of(ctx);
+        self.cancel_connect_calls += 1;
+        if (self.pending_connect == request_id) self.pending_connect = null;
+        if (self.fail_cancel_connect) {
+            var failure = pancake.foundation.FailureChain.initNamed(error.ConnectionLost, "ResidentCancelFailed");
+            failure.noteNamed(error.OutOfMemory, "ResidentCancelCleanupFailed");
+            return failure;
+        }
+        return null;
+    }
 
-    fn startListen(
+    fn listen(
         ctx: *anyopaque,
         route_id: usize,
         selected: []const u8,
         _: []const u8,
-    ) net.netlayer.ListenError!*anyopaque {
+        _: net.netlayer.OperationOptions,
+    ) net.netlayer.ListenError!net.multiplexed_resident.RawListenResult {
         const self = of(ctx);
         const transport_name = canonicalTransport(selected) orelse return error.InvalidAddress;
+        self.listen_calls += 1;
+        if (self.fail_drain or self.fail_listener_finish) {
+            self.pending_listener = route_id;
+            _ = self.wake.nudge() catch unreachable;
+            return .pending;
+        }
         if (self.listener_count == self.listeners.len) return error.BindFailed;
         const listener = &self.listeners[self.listener_count];
         self.listener_count += 1;
@@ -425,11 +488,24 @@ const AcceptOwnershipResident = struct {
             .transport = transport_name,
             .route = route_id,
         };
-        self.start_listen_calls += 1;
-        return listener;
+        return .{ .ready = listener };
     }
 
-    fn listenerLocator(
+    fn finishListen(ctx: *anyopaque, route_id: usize) net.netlayer.ListenError!*anyopaque {
+        const self = of(ctx);
+        if (self.pending_listener == route_id) self.pending_listener = null;
+        return error.BindFailed;
+    }
+
+    fn cancelListen(ctx: *anyopaque, route_id: usize) ?pancake.foundation.FailureChain {
+        const self = of(ctx);
+        self.cancel_listen_calls += 1;
+        if (self.pending_listener != route_id) return null;
+        self.pending_listener = null;
+        return null;
+    }
+
+    fn localLocator(
         _: *anyopaque,
         listener_ctx: *anyopaque,
         selected: []const u8,
@@ -445,7 +521,7 @@ const AcceptOwnershipResident = struct {
         });
     }
 
-    fn listenerAdvertise(
+    fn canonicalizeLocator(
         _: *anyopaque,
         listener_ctx: *anyopaque,
         selected: []const u8,
@@ -469,10 +545,11 @@ const AcceptOwnershipResident = struct {
         return conn_id;
     }
 
-    fn stopListen(_: *anyopaque, listener_ctx: *anyopaque) void {
+    fn stopListen(_: *anyopaque, listener_ctx: *anyopaque) ?pancake.foundation.FailureChain {
         const listener: *Listener = @ptrCast(@alignCast(listener_ctx));
         listener.active = false;
         if (listener.resident.accept_route == listener.route) listener.resident.accept_route = null;
+        return null;
     }
 
     fn tryRead(_: *anyopaque, _: usize, _: []u8) isize {
@@ -483,10 +560,11 @@ const AcceptOwnershipResident = struct {
         return @intCast(bytes.len);
     }
 
-    fn connClose(ctx: *anyopaque, conn: usize) void {
+    fn connClose(ctx: *anyopaque, conn: usize) ?pancake.foundation.FailureChain {
         const self = of(ctx);
         std.debug.assert(conn == conn_id);
         self.close_calls += 1;
+        return null;
     }
 
     fn connRemoteKey(_: *anyopaque, _: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
@@ -495,8 +573,60 @@ const AcceptOwnershipResident = struct {
 };
 
 const IgnoreSessionOpen = struct {
-    fn opened(_: *anyopaque, _: u64, _: *driver_core.HostSession) void {}
-    fn failed(_: *anyopaque, _: u64, _: anyerror) void {}
+    fn opened(_: *anyopaque, _: u64, _: *driver_core.HostSession) !void {}
+    fn failed(_: *anyopaque, _: u64, _: driver.OperationFailure) void {}
+};
+
+const ListenerCapture = struct {
+    reservations: usize = 0,
+    abandonments: usize = 0,
+    listener: ?driver.HostRuntime.TransportListener = null,
+    failure: ?anyerror = null,
+    failure_detail: ?driver.OperationFailure = null,
+
+    fn of(ctx: *anyopaque) *ListenerCapture {
+        return @ptrCast(@alignCast(ctx));
+    }
+
+    fn reserve(ctx: *anyopaque, _: u64) anyerror!void {
+        of(ctx).reservations += 1;
+    }
+
+    fn release(ctx: *anyopaque, _: u64) void {
+        const self = of(ctx);
+        std.debug.assert(self.reservations != 0);
+        self.reservations -= 1;
+    }
+
+    fn ready(ctx: *anyopaque, tag: u64, listener: driver.HostRuntime.TransportListener) void {
+        const self = of(ctx);
+        release(ctx, tag);
+        self.listener = listener;
+    }
+
+    fn failed(ctx: *anyopaque, tag: u64, failure: driver.OperationFailure) void {
+        const self = of(ctx);
+        release(ctx, tag);
+        self.failure = failure.cause;
+        self.failure_detail = failure;
+    }
+
+    fn abandoned(ctx: *anyopaque, tag: u64) void {
+        const self = of(ctx);
+        release(ctx, tag);
+        self.abandonments += 1;
+    }
+
+    fn observer(self: *ListenerCapture) driver.HostRuntime.ListenerObserver {
+        return .{
+            .ctx = self,
+            .reserve = reserve,
+            .release = release,
+            .abandoned = abandoned,
+            .ready = ready,
+            .failed = failed,
+        };
+    }
 };
 
 const ImmediateClosedExternalResident = struct {
@@ -532,9 +662,9 @@ const ImmediateClosedExternalResident = struct {
         return 0;
     }
 
-    fn claimExternal(_: *anyopaque, subject: usize) net.netlayer.DialError!usize {
-        if (subject != conn_id) return error.InvalidAddress;
-        return conn_id;
+    fn claimExternal(_: *anyopaque, subject: usize) net.MultiplexedExternalClaimRawOutcome {
+        if (subject != conn_id) return .{ .failed = .init(error.InvalidAddress) };
+        return .{ .claimed = conn_id };
     }
 
     fn tryRead(_: *anyopaque, _: usize, _: []u8) isize {
@@ -545,9 +675,10 @@ const ImmediateClosedExternalResident = struct {
         return @intCast(bytes.len);
     }
 
-    fn connClose(ctx: *anyopaque, conn: usize) void {
+    fn connClose(ctx: *anyopaque, conn: usize) ?pancake.foundation.FailureChain {
         std.debug.assert(conn == conn_id);
         of(ctx).close_calls += 1;
+        return null;
     }
 
     fn connRemoteKey(_: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?pancake.foundation.crypto.PeerKey {
@@ -560,6 +691,7 @@ const ObservedOpen = struct {
     reservations: usize = 0,
     did_open: bool = false,
     failure: ?anyerror = null,
+    failure_detail: ?driver.OperationFailure = null,
     close_events: usize = 0,
 
     fn of(ctx: *anyopaque) *ObservedOpen {
@@ -576,22 +708,117 @@ const ObservedOpen = struct {
         self.reservations -= 1;
     }
 
-    fn opened(ctx: *anyopaque, _: u64, _: *driver_core.HostSession) void {
+    fn reserveClose(ctx: *anyopaque) anyerror!void {
+        of(ctx).reservations += 1;
+    }
+
+    fn releaseClose(ctx: *anyopaque) void {
+        const self = of(ctx);
+        std.debug.assert(self.reservations != 0);
+        self.reservations -= 1;
+    }
+
+    fn opened(ctx: *anyopaque, _: u64, _: *driver_core.HostSession) !void {
         const self = of(ctx);
         release(ctx, 0);
         self.did_open = true;
     }
 
-    fn failed(ctx: *anyopaque, _: u64, err: anyerror) void {
+    fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self = of(ctx);
         release(ctx, 0);
-        self.failure = err;
+        self.failure = failure.cause;
+        self.failure_detail = failure;
     }
 
-    fn closed(ctx: *anyopaque, _: *driver_core.HostSession) void {
-        of(ctx).close_events += 1;
+    fn closed(ctx: *anyopaque, _: *driver_core.HostSession, _: ?driver.OperationFailure) void {
+        const self = of(ctx);
+        releaseClose(ctx);
+        self.close_events += 1;
     }
 };
+
+test "runtime close cancels a resident open after core reaches closed" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.hold_connect = true;
+
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, &.{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    var observed = ObservedOpen{};
+    try runtime.startDial(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "remote.test:1",
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit, 91, .{
+        .ctx = &observed,
+        .reserve = ObservedOpen.reserve,
+        .release = ObservedOpen.release,
+        .opened = ObservedOpen.opened,
+        .failed = ObservedOpen.failed,
+    });
+    try std.testing.expectEqual(@as(usize, 1), runtime.pending_opens.items.len);
+    try std.testing.expect(resident.pending_connect != null);
+
+    runtime.beginClose(.cancel);
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.pending, runtime.closeOutcome());
+    _ = try runtime.stepAny(0);
+
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
+    try std.testing.expectEqual(@as(usize, 0), runtime.pending_opens.items.len);
+    try std.testing.expectEqual(@as(?usize, null), resident.pending_connect);
+    try std.testing.expectEqual(@as(usize, 1), resident.cancel_connect_calls);
+    try std.testing.expectEqual(@as(?anyerror, error.Canceled), observed.failure);
+    try std.testing.expectEqual(@as(usize, 0), observed.reservations);
+}
+
+test "resident dial cancellation attaches exact teardown consequences to its owner" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.hold_connect = true;
+    resident.fail_cancel_connect = true;
+
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), &.{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    var observed = ObservedOpen{};
+    try runtime.startDial(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "remote.test:1",
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit, 92, .{
+        .ctx = &observed,
+        .reserve = ObservedOpen.reserve,
+        .release = ObservedOpen.release,
+        .opened = ObservedOpen.opened,
+        .failed = ObservedOpen.failed,
+    });
+
+    runtime.beginClose(.cancel);
+    _ = try runtime.stepAny(0);
+
+    const failure = observed.failure_detail.?;
+    try std.testing.expectEqual(error.Canceled, failure.cause);
+    try std.testing.expectEqualStrings("ResidentCancelFailed", failure.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 2), failure.secondary_count);
+    try std.testing.expectEqual(@as(usize, 0), observed.reservations);
+}
 
 test "external adoption commits its pending-open owner before immediate EOF" {
     const allocator = std.testing.allocator;
@@ -611,7 +838,12 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     }, resident.multiplexedResident());
 
     var observed = ObservedOpen{};
-    runtime.setCloseObserver(.{ .ctx = &observed, .closed = ObservedOpen.closed });
+    try runtime.setCloseObserver(.{
+        .ctx = &observed,
+        .reserve = ObservedOpen.reserveClose,
+        .release = ObservedOpen.releaseClose,
+        .closed = ObservedOpen.closed,
+    });
     try runtime.startAdoptExternal(
         ImmediateClosedExternalResident.transport,
         ImmediateClosedExternalResident.conn_id,
@@ -626,7 +858,9 @@ test "external adoption commits its pending-open owner before immediate EOF" {
         },
     );
 
-    try std.testing.expectEqual(@as(usize, 1), observed.reservations);
+    // The operation outcome and the adopted wire's eventual close each own a
+    // publication seat before either transition can commit.
+    try std.testing.expectEqual(@as(usize, 2), observed.reservations);
     try std.testing.expectEqual(@as(usize, 0), observed.close_events);
     try std.testing.expect(!observed.did_open);
     try std.testing.expect(observed.failure == null);
@@ -636,6 +870,135 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     try std.testing.expectEqual(driver.Error.ConnectionClosed, observed.failure.?);
     try std.testing.expectEqual(@as(usize, 0), observed.close_events);
     try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+}
+
+test "bindListener cancels pending provider setup when readiness fails" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.fail_drain = true;
+
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    try std.testing.expectError(
+        error.ProviderContract,
+        runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit),
+    );
+    try std.testing.expectEqual(@as(usize, 0), runtime.pending_listeners.items.len);
+    try std.testing.expectEqual(@as(?usize, null), resident.pending_listener);
+    try std.testing.expectEqual(@as(usize, 1), resident.cancel_listen_calls);
+}
+
+test "one runtime profile admits only one pending or active listener" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.fail_drain = true;
+
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    var first = ListenerCapture{};
+    try runtime.startListener(AcceptOwnershipResident.transport, "", .inherit, 1, first.observer());
+    try std.testing.expectEqual(@as(usize, 1), first.reservations);
+
+    var duplicate = ListenerCapture{};
+    try std.testing.expectError(
+        error.ListenerProfileInUse,
+        runtime.startListener(AcceptOwnershipResident.transport, "", .inherit, 2, duplicate.observer()),
+    );
+    try std.testing.expectEqual(@as(usize, 0), duplicate.reservations);
+    const canceled = runtime.cancelListener(1);
+    try std.testing.expect(canceled.found);
+    try std.testing.expect(canceled.failure == null);
+    try std.testing.expectEqual(@as(usize, 0), first.reservations);
+    try std.testing.expectEqual(@as(usize, 1), first.abandonments);
+    try std.testing.expect(first.failure == null);
+
+    resident.fail_drain = false;
+    var active = try runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit);
+    try std.testing.expectError(
+        error.ListenerProfileInUse,
+        runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit),
+    );
+    try std.testing.expect(runtime.closeListener(&active) == null);
+
+    var reopened = try runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit);
+    try std.testing.expect(runtime.closeListener(&reopened) == null);
+}
+
+test "failed multiplexed finish consumes listener setup without cancellation" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.fail_listener_finish = true;
+
+    var runtime = try driver.HostRuntime.init(allocator, threaded.io(), &.{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    try std.testing.expectError(
+        error.BindFailed,
+        runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit),
+    );
+    try std.testing.expectEqual(@as(?usize, null), resident.pending_listener);
+    try std.testing.expectEqual(@as(usize, 0), resident.cancel_listen_calls);
+
+    resident.fail_listener_finish = false;
+    var listener = try runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit);
+    try std.testing.expect(runtime.closeListener(&listener) == null);
+}
+
+test "remote-key contract failure retires the claimed dial and pending row" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var listener = try netlayer_test.listenBlocking(
+        tcp_resident.netlayer(),
+        allocator,
+        .{ .designator = "127.0.0.1:0" },
+    );
+    defer netlayer_test.close(listener);
+    const locator = try listener.localLocator(allocator);
+    defer model.freePeerLocator(allocator, locator);
+
+    var resident = try FakeResident.init(allocator);
+    defer resident.deinit();
+    resident.fail_remote_key = true;
+    var runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, opts);
+    defer runtime.deinit();
+    _ = try runtime.addResident(
+        model.transport.Known.tcp.metadata(),
+        resident.multiplexedResident(),
+    );
+
+    try std.testing.expectError(error.ProviderContract, runtime.connectLocator(locator, .inherit));
+    try std.testing.expectEqual(@as(usize, 0), runtime.pending_opens.items.len);
+    try std.testing.expectEqual(@as(usize, 0), resident.conns.count());
 }
 
 fn prepareAcceptOwnershipRuntime(
@@ -649,8 +1012,9 @@ fn prepareAcceptOwnershipRuntime(
         .{ .symbol = AcceptOwnershipResident.transport, .designator_scheme = .address },
         resident.multiplexedResident(),
     );
-    var listener = try runtime.bindListener(AcceptOwnershipResident.transport, "");
-    errdefer runtime.closeListener(&listener);
+    var listener = try runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit);
+    errdefer if (runtime.closeListener(&listener)) |failure|
+        runtime.noteTerminalOperationFailure(failure);
     try runtime.core.setAdvertisedLocator(.{
         .transport = AcceptOwnershipResident.transport,
         .designator = "resident.test:1",
@@ -704,12 +1068,14 @@ fn gifterServe(
         .transport = model.transport.tcp,
         .designator = exporter_designator,
         .hints = model.Hints.emptyFalse(),
-    });
-    var treasure_view = try driver.Session.view(&runtime, treasure_session);
+    }, .inherit);
+    const treasure_view = try driver.Session.adopt(&runtime, treasure_session);
+    defer treasure_view.deinit();
     const treasure = try treasure_view.fetch("treasure");
 
     const hs = try runtime.acceptWire(listener, listener.transportName());
-    var view = try driver.Session.view(&runtime, hs);
+    const view = try driver.Session.adopt(&runtime, hs);
+    defer view.deinit();
     _ = try view.publish("introducer", Introducer, .{ .treasure = treasure });
     while (!done.load(.acquire)) {
         _ = view.stepReadable(20) catch |err| switch (err) {
@@ -730,18 +1096,18 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     var done = std.atomic.Value(bool).init(false);
 
     var exporter = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
-    defer exporter.close() catch {};
+    defer exporter.deinit();
     var exporter_addr_buf: [64]u8 = undefined;
     const exporter_designator = try allocator.dupe(u8, try exporter.localDesignator(&exporter_addr_buf));
     defer allocator.free(exporter_designator);
 
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
-    var gifter_listener = try tcp_resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
-    defer gifter_listener.close();
+    var gifter_listener = try netlayer_test.listenBlocking(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" });
+    defer netlayer_test.close(gifter_listener);
     const gifter_locator = try gifter_listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, gifter_locator);
 
-    var exporter_future = try io.concurrent(exporterServe, .{ &exporter, &done });
+    var exporter_future = try io.concurrent(exporterServe, .{ exporter, &done });
     var gifter_future = try io.concurrent(gifterServe, .{ allocator, io, &netlayers, exporter_designator, gifter_listener, &done });
     defer {
         done.store(true, .release);
@@ -761,8 +1127,9 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
         fake.multiplexedResident(),
     );
 
-    const gifter_session = try recipient.connectLocator(gifter_locator);
-    var view = try driver.Session.view(&recipient, gifter_session);
+    const gifter_session = try recipient.connectLocator(gifter_locator, .inherit);
+    const view = try driver.Session.adopt(&recipient, gifter_session);
+    defer view.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -794,7 +1161,7 @@ test "a frame larger than the write window survives would_block and resumes in o
     var done = std.atomic.Value(bool).init(false);
 
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const designator = try allocator.dupe(u8, try server.localDesignator(&addr_buf));
     defer allocator.free(designator);
@@ -813,7 +1180,7 @@ test "a frame larger than the write window survives would_block and resumes in o
             }
         }
     }.run;
-    var server_future = try io.concurrent(serveOne, .{ &server, &done });
+    var server_future = try io.concurrent(serveOne, .{ server, &done });
     defer {
         done.store(true, .release);
         server_future.await(io) catch {};
@@ -832,14 +1199,17 @@ test "a frame larger than the write window survives would_block and resumes in o
         .transport = model.transport.tcp,
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
-    });
+    }, .inherit);
     var foreign_runtime = try driver.HostRuntime.init(allocator, io, &.{}, .ephemeral, opts);
     defer foreign_runtime.deinit();
     try std.testing.expectError(
         driver.Error.SessionNotOwned,
-        driver.Session.view(&foreign_runtime, session),
+        driver.Session.adopt(&foreign_runtime, session),
     );
-    var view = try driver.Session.view(&runtime, session);
+    try std.testing.expectError(driver.Error.SessionNotOwned, foreign_runtime.releaseWire(session));
+    const view = try driver.Session.adopt(&runtime, session);
+    try std.testing.expectError(error.SessionAlreadyOwned, driver.Session.adopt(&runtime, session));
+    defer view.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -986,17 +1356,18 @@ test "two profiles share one multiplexed resident with independent listener life
             .transport = transport,
             .designator = "remote.test:1",
             .hints = model.Hints.emptyFalse(),
-        }));
+        }, .inherit));
     }
     try std.testing.expectEqual([2]bool{ true, true }, resident.dialed);
+    try std.testing.expectEqual(@as(usize, 0), resident.cancel_connect_calls);
 
-    var listener = try runtime.bindListener(AcceptOwnershipResident.alternate_transport, "");
+    var listener = try runtime.bindListener(AcceptOwnershipResident.alternate_transport, "", .inherit);
     var listener_open = true;
-    defer if (listener_open) runtime.closeListener(&listener);
-    var second_listener = try runtime.bindListener(AcceptOwnershipResident.transport, "");
+    defer if (listener_open) std.testing.expect(runtime.closeListener(&listener) == null) catch unreachable;
+    var second_listener = try runtime.bindListener(AcceptOwnershipResident.transport, "", .inherit);
     var second_listener_open = true;
-    defer if (second_listener_open) runtime.closeListener(&second_listener);
-    try std.testing.expectEqual(@as(usize, 2), resident.start_listen_calls);
+    defer if (second_listener_open) std.testing.expect(runtime.closeListener(&second_listener) == null) catch unreachable;
+    try std.testing.expectEqual(@as(usize, 2), resident.listen_calls);
 
     const locator = try runtime.listenerLocator(&listener);
     defer model.freePeerLocator(std.testing.allocator, locator);
@@ -1021,7 +1392,7 @@ test "two profiles share one multiplexed resident with independent listener life
         runtime.pending_opens.items[0].session.transport,
     );
 
-    runtime.closeListener(&listener);
+    try std.testing.expect(runtime.closeListener(&listener) == null);
     listener_open = false;
     try std.testing.expectEqual(@as(usize, 0), runtime.pending_opens.items.len);
     try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
@@ -1034,7 +1405,7 @@ test "two profiles share one multiplexed resident with independent listener life
         AcceptOwnershipResident.transport,
         runtime.pending_opens.items[0].session.transport,
     );
-    runtime.closeListener(&second_listener);
+    try std.testing.expect(runtime.closeListener(&second_listener) == null);
     second_listener_open = false;
     try std.testing.expectEqual(@as(usize, 0), runtime.pending_opens.items.len);
     try std.testing.expectEqual(@as(usize, 2), resident.close_calls);

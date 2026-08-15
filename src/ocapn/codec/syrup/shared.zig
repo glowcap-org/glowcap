@@ -51,6 +51,11 @@ pub const Error = error{
     UnsupportedArgument,
     UnsupportedMessage,
     UnsupportedReference,
+    /// The exact-size encoder's measure and fill passes disagreed. Both pass
+    /// through one generic walker, so caller data cannot induce this; keeping
+    /// it typed still contains an encoder defect to the operation instead of
+    /// terminating an embedding process.
+    EncoderInvariantViolation,
     /// The buffer ends inside a message — a leaf reader ran past the available
     /// bytes. This is an internal framing signal, not a public decode failure:
     /// the whole-frame `decodeBody` folds it into `MalformedFrame` (a frame

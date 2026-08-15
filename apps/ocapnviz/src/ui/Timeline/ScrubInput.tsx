@@ -12,13 +12,7 @@
  * drag doubles/halves the value, scale-invariant.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useGestureSurface } from "../../interactions/use-gesture-surface.ts";
 import { FONT, SIZE } from "../tokens.ts";
 
@@ -141,8 +135,7 @@ export function ScrubInput(
   const source = useRef(valueSource);
   source.current = valueSource;
   const readValue = useCallback(
-    () =>
-      typeof source.current === "function" ? source.current() : source.current,
+    () => typeof source.current === "function" ? source.current() : source.current,
     [],
   );
   // Gesture-local value. Inspector hosts often subscribe to `docVersion`,
@@ -318,9 +311,7 @@ export function ScrubInput(
         drag.axis = ay >= ax ? "y" : "x";
         drag.moved = true;
         onScrubStart?.();
-        globalThis.document.body.style.cursor = drag.axis === "y"
-          ? "ns-resize"
-          : "ew-resize";
+        globalThis.document.body.style.cursor = drag.axis === "y" ? "ns-resize" : "ew-resize";
       }
       const raw = drag.axis === "y" ? -dy : dx;
       const fineness = e.shiftKey ? 0.1 : e.altKey ? 10 : 1;
@@ -434,9 +425,7 @@ export function ScrubInput(
       const fineness = e.shiftKey ? 0.1 : e.altKey ? 10 : 1;
       const effectivePxPerDoubling = (pxPerDoubling * WHEEL_DAMPING) / fineness;
       const cur = liveRef.current ?? readValue();
-      const next = linear
-        ? cur + (delta / effectivePxPerDoubling)
-        : cur * Math.pow(2, delta / effectivePxPerDoubling);
+      const next = linear ? cur + (delta / effectivePxPerDoubling) : cur * Math.pow(2, delta / effectivePxPerDoubling);
       const clamped = clampRef.current(next);
       liveGenRef.current += 1;
       liveRef.current = clamped;
@@ -475,9 +464,7 @@ export function ScrubInput(
       e.preventDefault();
       const stride = e.shiftKey ? 10 : 1;
       const from = readValue();
-      const next = linear
-        ? from + direction * stride
-        : from * Math.pow(2, (direction * stride) / 10);
+      const next = linear ? from + direction * stride : from * Math.pow(2, (direction * stride) / 10);
       onChange(clamp(next));
     },
     [readValue, linear, clamp, onChange, enterEdit],

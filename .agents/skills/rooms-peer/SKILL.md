@@ -161,17 +161,24 @@ After `start`, other verbs need only `--dir`.
 
 ## Outbox (restart-safe)
 
-`reply` appends `DIR/outbox.jsonl`; the peer drains it. The drain cursor is
-`DIR/outbox.offset` (never invent EOF on start — that skipped undrained lines).
-`status` exposes `outbox_backlog` (bytes still ahead of the cursor). Non-zero
+`reply` appends `DIR/outbox.jsonl`; the peer drains it by compaction under the
+`.lock` sidecar: a sent line is rewritten out of the file, a held line stays in
+place, an incomplete trailing write is kept whole. `DIR/outbox.offset` is
+honored read-only as already-sent scrollback (never invent EOF on start — that
+skipped undrained lines); the drain never writes it.
+`status` exposes `outbox_backlog` (bytes still waiting past that mark). Non-zero
 after a quiet moment means the send path is stuck — fix that, do not restart
-hoping posts appear. A failed DM introduce **blocks** the outbox at that line
-(offset does not advance) until the cooldown expires, or sooner when the peer
-offers us an inbox (`introducible`) or an inbound `dm(text, reply)` arms the
-ADR-0088 back-channel. It does not silently drop.
+hoping posts appear. A failed DM introduce **holds that DM line** until the
+cooldown expires, or sooner when the peer offers us an inbox (`introducible`)
+or an inbound `dm(text, reply)` arms the ADR-0088 back-channel. Later room
+posts and sendable DMs still drain; the blocked line is not dropped.
 An inbox `kind:sent` (or “sent” in local logs) means **queued+armed on CapTP**,
 not proof the recipient rendered the line. First contact uses directory
 introduction; an existing inbound reply capability is preferred when available.
+Native rooms-peer composes iroh and keyed-relay, not WebRTC: a cold introduce
+to a default browser tab (`ocapn://….webrtc`) cannot redeem. After they DM you
+first, answer on the back-channel. Browsers that want native-initiated DMs
+join with `?dm=relay` (or Via this server (relay) in the page Settings).
 
 On `start`, `inbox.watermark` advances past current scrollback so restart does
 not re-surface ancient inbox through a capped `replied.json`.

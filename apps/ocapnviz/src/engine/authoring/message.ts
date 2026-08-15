@@ -4,10 +4,7 @@
  */
 
 import { patchMessageDefinition } from "../entities.ts";
-import {
-  messageEffective,
-  sessionEffective,
-} from "../temporal/doc-resolver.ts";
+import { messageEffective, sessionEffective } from "../temporal/doc-resolver.ts";
 import { cascadeDelete } from "../schema/cascade.ts";
 import { restoreSnapshotInto, takeSnapshot } from "../snapshot.ts";
 import { explicitBound, implicitBound } from "../temporal/bound.ts";
@@ -136,9 +133,7 @@ export function setMessageStart(
   }
   const sessionRange = sessionEffective(ctx.doc, def.sessionId);
   const sessionStart = sessionRange.start;
-  const sessionEnd = Number.isFinite(sessionRange.end)
-    ? sessionRange.end
-    : ctx.doc.duration;
+  const sessionEnd = Number.isFinite(sessionRange.end) ? sessionRange.end : ctx.doc.duration;
   if (t < sessionStart || t > sessionEnd) {
     ctx.emitError(validationError(
       `Message start (${t}) is outside its session window [${sessionStart}, ${sessionEnd}].`,
@@ -188,9 +183,7 @@ export function setMessageDuration(
   // start and its retained stored value is not the anchor.
   const arrivalT = messageEffective(ctx.doc, messageId).start + duration;
   const sessionRange = sessionEffective(ctx.doc, def.sessionId);
-  const sessionEnd = Number.isFinite(sessionRange.end)
-    ? sessionRange.end
-    : ctx.doc.duration;
+  const sessionEnd = Number.isFinite(sessionRange.end) ? sessionRange.end : ctx.doc.duration;
   if (arrivalT > sessionEnd) {
     ctx.emitError(validationError(
       `Message arrival (${arrivalT}) lands after the session ends at ${sessionEnd}.`,

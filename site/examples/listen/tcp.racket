@@ -1,9 +1,16 @@
-(require "pancake.rkt")
+(require "pancake.rkt"
+         "pancake-tcp.rkt")
 
 ;; Plain TCP binds the host and port you choose.
 (define server (listen "127.0.0.1" 9099))
-(define session (accept server))
-(session-publish session "greeter"
-                 (lambda (verb args)
-                   (format "hello, ~a" (car args))))
-(session-serve session)
+(printf "~a\n" (server-uri server)) ; hand this locator to partners
+(define host (server-host server))
+(define (accept-session) (accept server))
+;; From here, the CapTP workflow is transport-independent.
+(host-publish-giftable host "greeter"
+  (methods [(greet who)
+            (format "Hello, ~a" who)]))
+(let loop ()
+  (define session (accept-session))
+  (thread (lambda () (session-serve session)))
+  (loop))

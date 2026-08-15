@@ -9,7 +9,7 @@
 //!
 //! The core and transport mirrors are deliberately wider than what the
 //! wrappers call (each says so with its own file-wide `allow(dead_code)`): an
-//! extern declared here counts as a consumer for `zig build meta-check`'s
+//! extern declared here counts as a consumer for `zig build source-check`'s
 //! every-C-export-has-a-consumer gate, so the declaration set doubles as the
 //! crate's statement of which ABI symbols it stands behind. Prune an extern
 //! only together with the C export it mirrors. The [`host`] mirror carries

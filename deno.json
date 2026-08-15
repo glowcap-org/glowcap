@@ -1,11 +1,17 @@
 {
   "imports": {
-    "@pancake/stack": "./bindings/ts/stack/mod.ts",
-    "@pancake/stack/driver_loop": "./bindings/ts/stack/driver_loop.ts",
-    "@pancake/stack/ffi": "./bindings/ts/stack/ffi.ts",
+    "@pancake/runtime": "./bindings/ts/runtime/mod.ts",
+    "@pancake/runtime/ffi": "./bindings/ts/runtime/ffi.ts",
+    "@pancake/runtime/transport": "./bindings/ts/runtime/transport.ts",
+    "@pancake/inproc": "./bindings/ts/inproc/mod.ts",
+    "@pancake/onion": "./bindings/ts/onion/mod.ts",
+    "@pancake/tcp": "./bindings/ts/tcp/mod.ts",
+    "@pancake/tcp/transport": "./bindings/ts/tcp/transport.ts",
     "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
     "@pancake/iroh/internal": "./bindings/ts/iroh/internal.ts",
     "@pancake/relay": "./bindings/ts/relay/mod.ts",
+    "@pancake/web": "./bindings/ts/web/mod.ts",
+    "@pancake/webrtc": "./bindings/ts/webrtc/mod.ts",
     "playwright": "npm:playwright@1.62.1",
     "react": "npm:react@19.2.8",
     "react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
@@ -20,7 +26,7 @@
   // instead of declaring a second copy of them, and both are built on zod. This
   // is the one specifier the root scope has to resolve for a proof to run the
   // viewer's own code. It is therefore one version with two homes, and
-  // `zig build meta-check` (`checkSharedNpmPins`) is what keeps the two in step
+  // `zig build source-check` (`checkSharedNpmPins`) is what keeps the two in step
   // rather than a reader remembering to.
   // The rooms browser page is the one TypeScript here that is JSX, and Deno reads
   // compilerOptions only from the root config of a scope, so its transform is
@@ -38,7 +44,7 @@
   "fmt": {
     "useTabs": true,
     "indentWidth": 4,
-    "lineWidth": 100,
+    "lineWidth": 120,
     "semiColons": true,
     "singleQuote": false,
     "include": ["**/*.ts", "**/*.tsx"],

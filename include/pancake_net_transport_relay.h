@@ -40,7 +40,10 @@ int32_t pancake_relay_runtime_new_in(PancakeContext *context, const PancakeRelay
 int32_t pancake_relay_transport_provider(PancakeRelayRuntime *runtime, PancakeTransportProvider *out_provider);
 /* Release the caller's runtime reference. The provider lease keeps the runtime
    alive until its driver is released. */
-void pancake_relay_runtime_release(PancakeRelayRuntime *runtime);
+int32_t pancake_relay_runtime_release(PancakeRelayRuntime *runtime);
+/* The same release barrier, additionally copying the worker thread's exact
+   diagnostic into caller-owned storage before return. */
+int32_t pancake_relay_runtime_release_with_diagnostic(PancakeRelayRuntime *runtime, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy this archive's calling-thread diagnostic, NUL-terminating when cap is
    nonzero. NULL or zero capacity queries the full length. */
 size_t pancake_relay_last_error(uint8_t *out_buf, size_t cap);

@@ -1,12 +1,12 @@
 /// <reference lib="dom" />
 
-// One RTCDataChannel adapted to the stack's byte-`Channel` seam, the WebRTC
+// One RTCDataChannel adapted to the runtime's byte-`Channel` seam, the WebRTC
 // sibling of `@pancake/web`'s `webSocketChannel` (ADR-0089). A keyed OCapN
 // session runs over it byte-for-byte; framing is the host's stream delimiter's
 // job, not the channel's. The channel carries opaque session bytes and never
 // inspects them.
 
-import type { Channel } from "@pancake/stack";
+import type { Channel } from "@pancake/runtime";
 
 // An RTCDataChannel exposes `bufferedAmount` and a `bufferedamountlow` event, so
 // `write` gates outbound flow without timer polling: hold the next write until
@@ -75,9 +75,7 @@ export function rtcChannel(dc: RTCDataChannel): Channel {
 			await waitForDrain(dc);
 		},
 		close(): void {
-			try {
-				dc.close();
-			} catch { /* already closed */ }
+			dc.close();
 		},
 	};
 }

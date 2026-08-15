@@ -22,6 +22,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 const test_host = @import("../support/core_host.zig");
 const support_actors = @import("../support/actors.zig");
 
@@ -33,11 +34,94 @@ const tcp = net.tcp;
 
 const frame_cap = 8192;
 
+test "native operation failures classify at the I/O-owning driver" {
+    const Failure = driver.OperationFailure;
+    try std.testing.expectEqual(Failure.Kind.internal, Failure.classify(error.OutOfMemory));
+    try std.testing.expectEqual(Failure.Kind.invalid_argument, Failure.classify(error.ProviderContract));
+    try std.testing.expectEqual(Failure.Kind.invalid_argument, Failure.classify(error.InvalidAddress));
+    try std.testing.expectEqual(Failure.Kind.invalid_argument, Failure.classify(error.InvalidBufferConfiguration));
+    try std.testing.expectEqual(Failure.Kind.invalid_argument, Failure.classify(error.SessionNotOwned));
+    try std.testing.expectEqual(Failure.Kind.would_block, Failure.classify(error.PendingOpenLimitReached));
+    try std.testing.expectEqual(Failure.Kind.timeout, Failure.classify(error.HandshakeTimedOut));
+    try std.testing.expectEqual(Failure.Kind.closed, Failure.classify(error.Canceled));
+    try std.testing.expectEqual(Failure.Kind.io, Failure.classify(error.ConnectionLost));
+    try std.testing.expectEqual(Failure.Kind.malformed, Failure.classify(error.TruncatedFrame));
+    try std.testing.expectEqual(Failure.Kind.malformed, Failure.classify(error.MalformedFrame));
+    try std.testing.expectEqual(Failure.Kind.frame_too_large, Failure.classify(error.FrameTooLarge));
+    try std.testing.expectEqual(Failure.Kind.session, Failure.classify(error.ProtocolAbort));
+    try std.testing.expectEqual(Failure.Kind.io, Failure.classify(error.ConnectionRefused));
+}
+
+test "native operation failures can retain archive-crossing cause names" {
+    var failure = driver.OperationFailure.fromError(error.ProviderIo);
+    failure.namePrimary("TcpReadFailed");
+    failure.noteNamed(error.ProviderInternal, "SocketReleaseFailed");
+    try std.testing.expectEqualStrings("TcpReadFailed", failure.primaryName());
+    try std.testing.expectEqualStrings("SocketReleaseFailed", failure.secondaryName().?);
+
+    var outer = driver.OperationFailure.fromError(error.ConnectionLost);
+    outer.noteFailure(failure);
+    try std.testing.expectEqualStrings("TcpReadFailed", outer.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 2), outer.secondary_count);
+
+    var chain = pancake.foundation.FailureChain.initNamed(error.ProviderIo, "ProviderListenerCloseFailed");
+    chain.noteNamed(error.ProviderInternal, "ProviderLeaseReleaseFailed");
+    const projected = driver.OperationFailure.fromChain(chain);
+    try std.testing.expectEqualStrings("ProviderListenerCloseFailed", projected.primaryName());
+    try std.testing.expectEqualStrings("ProviderLeaseReleaseFailed", projected.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 1), projected.secondary_count);
+}
+
 const opts: driver.SessionOptions = .{
     .frame_cap = frame_cap,
     .handshake = .{ .ms = 10_000 },
     .settle = .{ .ms = 10_000 },
 };
+
+const FailureCapture = struct {
+    failure: ?driver.OperationFailure = null,
+
+    fn report(ctx: *anyopaque, failure: driver.OperationFailure) void {
+        const self: *FailureCapture = @ptrCast(@alignCast(ctx));
+        std.debug.assert(self.failure == null);
+        self.failure = failure;
+    }
+};
+
+test "server close returns final runtime failure and implicit deinit reports it" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var tcp_resident = tcp.Resident{ .io = io };
+
+    var explicit = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    explicit.runtime.noteTerminalFailure(error.ConnectionLost);
+    const first = explicit.close().?;
+    try std.testing.expectEqual(error.ConnectionLost, first.cause);
+    try std.testing.expectEqual(error.ConnectionLost, explicit.close().?.cause);
+    explicit.deinit();
+
+    var capture = FailureCapture{};
+    var implicit_opts = opts;
+    implicit_opts.unhandled_failure = .{ .ctx = &capture, .report = FailureCapture.report };
+    const implicit = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        implicit_opts,
+    );
+    implicit.runtime.noteTerminalFailure(error.ConnectionLost);
+    implicit.deinit();
+    try std.testing.expectEqual(error.ConnectionLost, capture.failure.?.cause);
+}
 
 const Treasure = support_actors.StaticReplyValueActor("greet", "hello from the step server");
 
@@ -52,7 +136,7 @@ fn stepServe(
     stop: *std.atomic.Value(bool),
 ) anyerror!void {
     var observer_ctx = CloseFlag{ .flag = closed_flag };
-    server.runtime.setCloseObserver(.{ .ctx = &observer_ctx, .closed = CloseFlag.notify });
+    try server.runtime.setCloseObserver(.{ .ctx = &observer_ctx, .closed = CloseFlag.notify });
     var session = try server.accept();
     defer session.deinit();
     _ = try session.publish("treasure", Treasure, .{});
@@ -76,12 +160,95 @@ fn stepServe(
 
 const CloseFlag = struct {
     flag: *std.atomic.Value(bool),
-    fn notify(ctx: *anyopaque, session: *driver_core.HostSession) void {
-        _ = session;
+    fn notify(ctx: *anyopaque, session: *driver_core.HostSession, _: ?driver.OperationFailure) void {
         const self: *CloseFlag = @ptrCast(@alignCast(ctx));
-        self.flag.store(true, .release);
+        // A transport observer sees the physical completion only after the
+        // core has retired session authority.
+        if (session.isTerminating()) self.flag.store(true, .release);
     }
 };
+
+const DropSessionOnClose = struct {
+    owned: *?*driver.Session,
+    runtime: *driver.HostRuntime,
+    dropped: bool = false,
+    blocking_reentry_refused: bool = false,
+
+    fn notify(ctx: *anyopaque, session: *driver_core.HostSession, _: ?driver.OperationFailure) void {
+        const self: *DropSessionOnClose = @ptrCast(@alignCast(ctx));
+        const owned = self.owned.* orelse return;
+        std.debug.assert(owned.hs == session);
+        self.blocking_reentry_refused = blk: {
+            _ = self.runtime.stepAny(0) catch |err| break :blk err == error.ReenteredHost;
+            break :blk false;
+        };
+        self.owned.* = null;
+        owned.deinit();
+        self.dropped = true;
+    }
+};
+
+fn connectAndHold(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    netlayer: net.netlayer.Netlayer,
+    address: std.Io.net.IpAddress,
+    stop: *const std.atomic.Value(bool),
+) !void {
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const session = try driver.connect(
+        allocator,
+        &.{netlayer},
+        tcp.locatorFromAddress(&designator_buf, address),
+        .ephemeral,
+        opts,
+    );
+    defer session.deinit();
+    while (!stop.load(.acquire))
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(1), .real) catch {};
+}
+
+test "server close stops admission while a yielded session retains the Host runtime" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
+
+    var stop = std.atomic.Value(bool).init(false);
+    var client = try io.concurrent(connectAndHold, .{
+        allocator,
+        io,
+        tcp_resident.netlayer(),
+        address,
+        &stop,
+    });
+    defer {
+        stop.store(true, .release);
+        client.await(io) catch {};
+    }
+
+    const accepted = try server.accept();
+    defer accepted.deinit();
+    try std.testing.expect(server.close() == null);
+
+    try std.testing.expect(server.close() == null);
+    try std.testing.expectError(error.ServerClosed, server.accept());
+
+    try std.testing.expectEqual(driver.core.Host.LifecyclePhase.active, accepted.runtime.lifecyclePhase());
+    _ = try accepted.publish("after-listener-close", Treasure, .{});
+}
 
 test "a server pumped only by the readiness descriptor and stepAny serves a budgeted call, and the close observer hears the hangup" {
     const allocator = std.testing.allocator;
@@ -97,7 +264,7 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
         .ephemeral,
         opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -105,7 +272,7 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
     var closed = std.atomic.Value(bool).init(false);
     var stop = std.atomic.Value(bool).init(false);
 
-    var serve_future = try io.concurrent(stepServe, .{ &server, ready_fd, &closed, &stop });
+    var serve_future = try io.concurrent(stepServe, .{ server, ready_fd, &closed, &stop });
     defer {
         stop.store(true, .release);
         serve_future.await(io) catch {};
@@ -117,7 +284,7 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
         var client = try driver.connect(
             allocator,
             &netlayers,
-            tcp.locator(&designator_buf, address),
+            tcp.locatorFromAddress(&designator_buf, address),
             .ephemeral,
             opts,
         );
@@ -137,6 +304,52 @@ test "a server pumped only by the readiness descriptor and stepAny serves a budg
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(10), .real) catch {};
     }
     try std.testing.expect(closed.load(.acquire));
+}
+
+test "a close observer may drop its owning Session without freeing the pump's borrowed wire" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
+
+    var stop = std.atomic.Value(bool).init(false);
+    var client = try io.concurrent(connectAndHold, .{ allocator, io, tcp_resident.netlayer(), address, &stop });
+    var client_done = false;
+    defer {
+        stop.store(true, .release);
+        if (!client_done) client.await(io) catch {};
+    }
+
+    var owned: ?*driver.Session = try server.accept();
+    errdefer if (owned) |session| session.deinit();
+    var observer = DropSessionOnClose{ .owned = &owned, .runtime = server.runtime };
+    try server.runtime.setCloseObserver(.{ .ctx = &observer, .closed = DropSessionOnClose.notify });
+
+    stop.store(true, .release);
+    try client.await(io);
+    client_done = true;
+    var rounds: usize = 0;
+    while (!observer.dropped and rounds < 1_000) : (rounds += 1)
+        _ = server.runtime.stepAny(10) catch |err| switch (err) {
+            error.ConnectionClosed => {},
+            else => |other| return other,
+        };
+
+    try std.testing.expect(observer.dropped);
+    try std.testing.expect(observer.blocking_reentry_refused);
+    try std.testing.expect(owned == null);
 }
 
 /// A sink that takes exactly the settled/failed completions and remembers
@@ -171,14 +384,14 @@ test "a vow nobody parked on reaches the completion sink instead of being freed 
         .ephemeral,
         opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
     var stop = std.atomic.Value(bool).init(false);
     var closed = std.atomic.Value(bool).init(false);
     const server_ready = try server.runtime.readinessDescriptor();
-    var serve_future = try io.concurrent(stepServe, .{ &server, server_ready, &closed, &stop });
+    var serve_future = try io.concurrent(stepServe, .{ server, server_ready, &closed, &stop });
     defer {
         stop.store(true, .release);
         serve_future.await(io) catch {};
@@ -189,7 +402,7 @@ test "a vow nobody parked on reaches the completion sink instead of being freed 
     var client = try driver.connect(
         allocator,
         &netlayers,
-        tcp.locator(&designator_buf, address),
+        tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         opts,
     );
@@ -214,21 +427,61 @@ const DialRecorder = struct {
     opened_session: ?*driver_core.HostSession = null,
     opened_tag: u64 = 0,
     opened_count: usize = 0,
+    refuse_open: bool = false,
     failed_tag: u64 = 0,
     failed_err: ?anyerror = null,
 
-    fn opened(ctx: *anyopaque, tag: u64, session: *driver_core.HostSession) void {
+    fn opened(ctx: *anyopaque, tag: u64, session: *driver_core.HostSession) !void {
         const self: *DialRecorder = @ptrCast(@alignCast(ctx));
+        if (self.refuse_open) return error.ObserverRefused;
         self.opened_session = session;
         self.opened_tag = tag;
         self.opened_count += 1;
     }
-    fn failed(ctx: *anyopaque, tag: u64, err: anyerror) void {
+    fn failed(ctx: *anyopaque, tag: u64, failure: driver.OperationFailure) void {
         const self: *DialRecorder = @ptrCast(@alignCast(ctx));
         self.failed_tag = tag;
-        self.failed_err = err;
+        self.failed_err = failure.cause;
     }
 };
+
+test "a refusing open observer settles failure and releases the unexposed session" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
+    var runtime = try driver.HostRuntime.init(allocator, io, &.{tcp_resident.netlayer()}, .ephemeral, opts);
+    defer runtime.deinit();
+    var recorder = DialRecorder{ .refuse_open = true };
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    try runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 17, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+    _ = try runtime.stepAny(0);
+    const accepted = try server.accept();
+    defer accepted.deinit();
+    var rounds: usize = 0;
+    while (recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(10);
+        while (try server.runtime.stepAny(0) != null) {}
+    }
+    try std.testing.expectEqual(@as(u64, 17), recorder.failed_tag);
+    try std.testing.expectEqual(@as(?anyerror, error.ObserverRefused), recorder.failed_err);
+    try std.testing.expect(recorder.opened_session == null);
+}
 
 test "blocking opens share the staged-open admission bound" {
     const allocator = std.testing.allocator;
@@ -244,7 +497,7 @@ test "blocking opens share the staged-open admission bound" {
         .ephemeral,
         opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var address_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
 
@@ -259,21 +512,21 @@ test "blocking opens share the staged-open admission bound" {
 
     var recorder = DialRecorder{};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const locator = tcp.locator(&designator_buf, address);
-    try runtime.startConnectLocator(locator, 1, .{
+    const locator = tcp.locatorFromAddress(&designator_buf, address);
+    try runtime.startDial(locator, .inherit, 1, .{
         .ctx = &recorder,
         .opened = DialRecorder.opened,
         .failed = DialRecorder.failed,
     });
 
-    try std.testing.expectError(driver.Error.PendingOpenLimitReached, runtime.connectLocator(locator));
+    try std.testing.expectError(driver.Error.PendingOpenLimitReached, runtime.connectLocator(locator, .inherit));
     try std.testing.expectError(
         driver.Error.PendingOpenLimitReached,
         runtime.acceptWire(server.listener, server.listener.transportName()),
     );
 }
 
-test "a staged dial completes with both ends driven by one thread, and the opened session serves a fetch" {
+test "a staged dial serves a fetch and retirement preserves its claimed session" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -287,7 +540,7 @@ test "a staged dial completes with both ends driven by one thread, and the opene
         .ephemeral,
         opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -300,7 +553,7 @@ test "a staged dial completes with both ends driven by one thread, and the opene
     // would park here inside its handshake pump, which no single-thread
     // topology can ever satisfy.
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    try client_runtime.startConnectLocator(tcp.locator(&designator_buf, address), 7, .{
+    try client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 7, .{
         .ctx = &recorder,
         .opened = DialRecorder.opened,
         .failed = DialRecorder.failed,
@@ -335,7 +588,23 @@ test "a staged dial completes with both ends driven by one thread, and the opene
         while (try server.runtime.stepAny(0) != null) {}
     }
     try std.testing.expectEqual(vow_id, sink.settled.load(.acquire));
-    client_runtime.releaseWire(hs);
+
+    try client_runtime.claimSessionHandle(hs);
+    client_runtime.beginRetirement();
+    try std.testing.expectEqual(driver.core.Host.LifecyclePhase.active, client_runtime.lifecyclePhase());
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.pending, client_runtime.closeOutcome());
+    try std.testing.expectError(
+        driver.Error.HostClosing,
+        client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 8, .{
+            .ctx = &recorder,
+            .opened = DialRecorder.opened,
+            .failed = DialRecorder.failed,
+        }),
+    );
+
+    try client_runtime.releaseWire(hs);
+    while (client_runtime.closeOutcome() == .pending) _ = try client_runtime.stepAny(0);
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, client_runtime.closeOutcome());
 }
 
 test "a staged dial against a silent partner fails HandshakeTimedOut on the step's own clock" {
@@ -354,7 +623,7 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
         .ephemeral,
         opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -368,7 +637,7 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
     var recorder = DialRecorder{};
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    try client_runtime.startConnectLocator(tcp.locator(&designator_buf, address), 9, .{
+    try client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 9, .{
         .ctx = &recorder,
         .opened = DialRecorder.opened,
         .failed = DialRecorder.failed,
@@ -387,6 +656,334 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
     try std.testing.expect(elapsed_ms < 3_000);
 }
 
+test "runtime cancel close interrupts an admitted transport open and seals admission" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
+
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    defer runtime.deinit();
+    var recorder = DialRecorder{};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const locator = tcp.locatorFromAddress(&designator_buf, address);
+    try runtime.startDial(locator, .inherit, 31, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+    try std.testing.expectEqual(@as(usize, 1), runtime.pending_opens.items.len);
+
+    runtime.beginClose(.cancel);
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.pending, runtime.closeOutcome());
+    _ = try runtime.stepAny(0);
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
+    try std.testing.expectEqual(@as(usize, 0), runtime.pending_opens.items.len);
+    try std.testing.expectEqual(@as(?anyerror, error.Canceled), recorder.failed_err);
+    try std.testing.expectError(error.HostClosing, runtime.startDial(locator, .inherit, 32, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    }));
+}
+
+test "runtime finish close publishes an admitted transport open before closing its session" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
+
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    defer runtime.deinit();
+    var recorder = DialRecorder{};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    try runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 37, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+
+    runtime.beginClose(.{ .finish = .{ .ms = 1_000 } });
+    _ = try runtime.stepAny(0);
+    var accepted = try server.accept();
+    defer accepted.deinit();
+
+    var rounds: usize = 0;
+    while (runtime.closeOutcome() == .pending and rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(10);
+        while (try server.runtime.stepAny(0) != null) {}
+    }
+
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
+    try std.testing.expectEqual(@as(usize, 1), recorder.opened_count);
+    try std.testing.expectEqual(@as(?anyerror, null), recorder.failed_err);
+    const opened = recorder.opened_session orelse return error.DialNeverOpened;
+    try runtime.releaseWire(opened);
+}
+
+test "runtime finish close realizes a core dial admitted before its barrier" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const designator = try server.localDesignator(&address_buf);
+
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    defer runtime.deinit();
+    try runtime.core.ensureAdvertisedLocator("tcp");
+    _ = try runtime.core.enlivenSelectOrDial(.{
+        .peer = .{
+            .transport = "tcp",
+            .designator = designator,
+            .hints = model.Hints.emptyFalse(),
+        },
+        .swissnum = "not-published",
+    });
+
+    runtime.beginClose(.{ .finish = .{ .ms = 1_000 } });
+    _ = try runtime.stepAny(0);
+
+    try std.testing.expect(try server.waitAcceptable(100));
+    var accepted = try server.accept();
+    defer accepted.deinit();
+
+    var rounds: usize = 0;
+    while (runtime.closeOutcome() == .pending and rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(10);
+        while (try server.runtime.stepAny(0) != null) {}
+    }
+
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
+}
+
+test "runtime close preserves an exposed session until explicit release" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
+
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    defer runtime.deinit();
+    var recorder = DialRecorder{};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    try runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 34, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+
+    _ = try runtime.stepAny(0);
+    var accepted = try server.accept();
+    defer accepted.deinit();
+    var rounds: usize = 0;
+    while (recorder.opened_session == null and recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(10);
+        while (try server.runtime.stepAny(0) != null) {}
+    }
+    const session = recorder.opened_session orelse return error.DialNeverOpened;
+
+    try runtime.close(.cancel);
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
+    try runtime.core.checkOwnedSession(session);
+    try runtime.releaseWire(session);
+}
+
+test "blocking session cancel returns after immediate transport teardown" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
+
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    defer runtime.deinit();
+    var recorder = DialRecorder{};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    try runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 36, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+
+    _ = try runtime.stepAny(0);
+    var accepted = try server.accept();
+    defer accepted.deinit();
+    var rounds: usize = 0;
+    while (recorder.opened_session == null and recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(10);
+        while (try server.runtime.stepAny(0) != null) {}
+    }
+    const session = recorder.opened_session orelse return error.DialNeverOpened;
+
+    try runtime.closeSession(session, .cancel);
+
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.sessionCloseOutcome(session));
+    try std.testing.expectEqual(driver.core.Host.LifecyclePhase.active, runtime.lifecyclePhase());
+    try runtime.releaseWire(session);
+}
+
+test "runtime finish close escalates on its own deadline and reports timeout after teardown" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
+
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    defer runtime.deinit();
+    var recorder = DialRecorder{};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    try runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 33, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+
+    const started_ms = net.clock.nowMs(io);
+    runtime.beginClose(.{ .finish = .{ .ms = 50 } });
+    while (runtime.closeOutcome() == .pending) _ = try runtime.stepAny(-1);
+    const elapsed_ms = net.clock.nowMs(io) - started_ms;
+
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.timed_out, runtime.closeOutcome());
+    try std.testing.expectEqual(@as(?anyerror, error.Canceled), recorder.failed_err);
+    try std.testing.expect(elapsed_ms < 3_000);
+
+    // A repeated finish observes the original timed-out barrier; it cannot
+    // create a second grace period or weaken the cancel escalation.
+    runtime.beginClose(.{ .finish = .unbounded });
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.timed_out, runtime.closeOutcome());
+}
+
+test "session finish timeout terminates only that session and leaves its Host active" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(
+        allocator,
+        tcp_resident.netlayer(),
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        opts,
+    );
+    defer server.deinit();
+    var address_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(try server.localDesignator(&address_buf));
+
+    const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var runtime = try driver.HostRuntime.init(allocator, io, &netlayers, .ephemeral, opts);
+    defer runtime.deinit();
+    var recorder = DialRecorder{};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    try runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 35, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+
+    _ = try runtime.stepAny(0);
+    var accepted = try server.accept();
+    defer accepted.deinit();
+    var rounds: usize = 0;
+    while (recorder.opened_session == null and recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
+        _ = try runtime.stepAny(10);
+        while (try server.runtime.stepAny(0) != null) {}
+    }
+    const session = recorder.opened_session orelse return error.DialNeverOpened;
+
+    // The fetch is admitted, but the server stops stepping before it can
+    // answer. Session finish must therefore reach its finite deadline.
+    _ = try runtime.core.fetch(session, "never-answered");
+    const started_ms = net.clock.nowMs(io);
+    try runtime.beginSessionClose(session, .{ .finish = .{ .ms = 25 } });
+    while (runtime.sessionCloseOutcome(session) == .pending) _ = try runtime.stepAny(-1);
+    const elapsed_ms = net.clock.nowMs(io) - started_ms;
+
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.timed_out, runtime.sessionCloseOutcome(session));
+    try std.testing.expect(session.isTerminating());
+    try std.testing.expectEqual(driver.core.Host.LifecyclePhase.active, runtime.lifecyclePhase());
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.pending, runtime.closeOutcome());
+    try std.testing.expect(elapsed_ms < 3_000);
+    try runtime.releaseWire(session);
+}
+
 test "a wire lost mid-handshake fails the staged dial through the dial observer, not the close observer" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -401,8 +998,7 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
         .ephemeral,
         opts,
     );
-    var server_open = true;
-    defer if (server_open) server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -412,10 +1008,10 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
     var recorder = DialRecorder{};
     var closed = std.atomic.Value(bool).init(false);
     var close_flag = CloseFlag{ .flag = &closed };
-    client_runtime.setCloseObserver(.{ .ctx = &close_flag, .closed = CloseFlag.notify });
+    try client_runtime.setCloseObserver(.{ .ctx = &close_flag, .closed = CloseFlag.notify });
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    try client_runtime.startConnectLocator(tcp.locator(&designator_buf, address), 11, .{
+    try client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 11, .{
         .ctx = &recorder,
         .opened = DialRecorder.opened,
         .failed = DialRecorder.failed,
@@ -426,14 +1022,13 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
     // connection; the pump sees the loss on the next step. The dial path
     // owns the report — a close event would name a session the embedder
     // never received.
-    server.close() catch {};
-    server_open = false;
+    try std.testing.expect(server.close() == null);
     var rounds: usize = 0;
     while (recorder.failed_err == null and rounds < 1_000) : (rounds += 1) {
         _ = try client_runtime.stepAny(10);
     }
     try std.testing.expectEqual(@as(u64, 11), recorder.failed_tag);
-    try std.testing.expectEqual(@as(?anyerror, error.ConnectionClosed), recorder.failed_err);
+    try std.testing.expectEqual(@as(?anyerror, error.ConnectionLost), recorder.failed_err);
     try std.testing.expect(!closed.load(.acquire));
 }
 
@@ -450,9 +1045,8 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     // are staged, never pumped.
     var server_runtime = try driver.HostRuntime.init(allocator, io, &server_netlayers, .ephemeral, opts);
     defer server_runtime.deinit();
-    var listener = try tcp_resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
-    defer listener.close();
-    try std.testing.expect(try listener.waitReady(5_000));
+    var listener = try netlayer_test.listenBlocking(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" });
+    defer netlayer_test.close(listener);
     const listener_locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, listener_locator);
     try server_runtime.core.setAdvertisedLocator(listener_locator);
@@ -474,7 +1068,7 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     client_runtime.setCompletionSink(.{ .ctx = &sink, .take = RecordingSink.take });
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    try client_runtime.startConnectLocator(tcp.locator(&designator_buf, address), 21, .{
+    try client_runtime.startDial(tcp.locatorFromAddress(&designator_buf, address), .inherit, 21, .{
         .ctx = &dials,
         .opened = DialRecorder.opened,
         .failed = DialRecorder.failed,
@@ -508,7 +1102,7 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     try std.testing.expect(elapsed_ms < 3_000);
     try std.testing.expectEqual(@as(usize, 1), accepts.opened_count);
     try std.testing.expectEqual(@as(?anyerror, null), accepts.failed_err);
-    client_runtime.releaseWire(dials.opened_session.?);
+    try client_runtime.releaseWire(dials.opened_session.?);
 }
 
 test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame bytes" {
@@ -525,7 +1119,7 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
         .ephemeral,
         opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -535,14 +1129,14 @@ test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame byt
             defer session.deinit();
             try session.serve();
         }
-    }.run, .{&server});
+    }.run, .{server});
 
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     var client = try driver.connect(
         allocator,
         &netlayers,
-        tcp.locator(&designator_buf, address),
+        tcp.locatorFromAddress(&designator_buf, address),
         .ephemeral,
         opts,
     );
@@ -588,7 +1182,7 @@ test "wakeReadiness raises the descriptor from another thread, and a sessionless
         .ephemeral,
         opts,
     );
-    defer server.close() catch {};
+    defer server.deinit();
 
     // No session exists: a step must park on its timeout and report a quiet
     // wait, not refuse with ConnectionClosed.
@@ -597,7 +1191,7 @@ test "wakeReadiness raises the descriptor from another thread, and a sessionless
     const ready_fd = try server.runtime.readinessDescriptor();
     const waker = try std.Thread.spawn(.{}, struct {
         fn run(runtime: *driver.HostRuntime) void {
-            runtime.wakeReadiness();
+            runtime.wakeReadiness() catch unreachable;
         }
     }.run, .{server.runtime});
     var fds = [_]std.posix.pollfd{

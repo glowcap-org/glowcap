@@ -7,8 +7,8 @@ the canonical agent guidance lives.
   per-rule files. Cursor uses per-rule `.mdc` symlinks because its loader needs
   that shape; Claude gets the whole rules directory.
 - `skills` is a symlink to [`.agents/skills`](../.agents/skills).
-- `settings.json` enables shared agent plugins and wires edit hooks to scripts
-  under [`.agents/hooks`](../.agents/hooks).
+- `settings.json` wires edit hooks to scripts under
+  [`.agents/hooks`](../.agents/hooks).
 
 Edit canonical guidance under `.agents/`; keep this overlay thin.
-`zig build meta-check` verifies the symlink shape and hook/MCP wiring.
+`zig build source-check` verifies the symlink shape and hook/MCP wiring.

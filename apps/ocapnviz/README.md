@@ -5,9 +5,10 @@ deterministic entity world advanced by a playback clock and drawn with PixiJS.
 Each peer carries an implementation profile (`goblins`, `pancake`, and so on),
 and each session carries its codec, CapTP version, and lifecycle state.
 
-ocapnviz is the protocol-timeline plane of pancake's observability surface, and
-[`docs/roadmap.md`](../../docs/roadmap.md) records what that surface ships and
-what it does not. It replays
+ocapnviz is the protocol-timeline plane of pancake's observability surface. The
+[active backlog](../../docs/planning/ocapnviz-backlog.md) records remaining viz
+work; [the roadmap](../../docs/roadmap.md) owns the object-layer and control
+capability items that sit above it. It replays
 timelines that `pancake griddle run` produces, converted by
 `scripts/griddle-import.ts`, and it reads the same schema live from a running
 pancake host. It runs on its own Deno toolchain under `apps/ocapnviz/`.

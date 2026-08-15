@@ -15,6 +15,7 @@
 ;; `zig build racket-goblins-interop`.
 
 (require "../../bindings/racket/pancake.rkt"
+         "../../bindings/racket/pancake-tcp.rkt"
          "../_common/racket/helpers.rkt")
 
 (define HOST "127.0.0.1")
@@ -36,13 +37,14 @@
   (printf "racket-goblins-interop: goblins published its echo sturdyref path on ~a:~a\n" HOST PORT)
 
   (define locator (tcp-locator HOST PORT))
-  (define session (connect locator))
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define session (runtime-connect runtime locator))
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 
   ;; A sturdyref names a peer, and the enliven checks that peer against the
   ;; session it rides (ADR-0098). Build it from the very locator this session
   ;; dialed, so the two cannot drift apart.
-  (define sturdyref (string-append locator "/s/" sturdyref-path))
+  (define sturdyref (string-append (format-locator-uri locator) "/s/" sturdyref-path))
   (define echo (session-enliven session sturdyref))
   (printf "racket-goblins-interop: enlivened goblins echo cap, calling it\n")
 
@@ -86,4 +88,5 @@
 
   (printf "racket-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins\n")
   (session-close! session)
+  (runtime-close! runtime)
   (subprocess-kill proc #t))

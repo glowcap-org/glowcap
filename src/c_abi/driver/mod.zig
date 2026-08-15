@@ -14,6 +14,7 @@ const std = @import("std");
 const shared = @import("c_abi_shared");
 const c_abi_host = @import("c_abi_host");
 const driver = @import("driver");
+const driver_error = @import("error.zig");
 
 const loop = @import("loop.zig");
 
@@ -29,23 +30,32 @@ pub const PancakeMultiplexedReadyEvent = shared.PancakeMultiplexedReadyEvent;
 pub const PancakeLocatorHintView = shared.PancakeLocatorHintView;
 pub const PancakeLocatorView = shared.PancakeLocatorView;
 pub const PancakeStreamTransport = shared.PancakeStreamTransport;
+pub const PancakeProviderFailure = shared.PancakeProviderFailure;
 pub const PancakeTransportProfile = shared.PancakeTransportProfile;
+pub const PancakeTransportOperationOptions = shared.PancakeTransportOperationOptions;
 pub const PancakeTransportProviderEntry = shared.PancakeTransportProviderEntry;
 pub const PancakeTransportProvider = shared.PancakeTransportProvider;
 pub const PancakeStreamStartConnectFn = shared.transport_provider.PancakeStreamStartConnectFn;
 pub const PancakeStreamFinishConnectFn = shared.transport_provider.PancakeStreamFinishConnectFn;
 pub const PancakeStreamCancelConnectFn = shared.transport_provider.PancakeStreamCancelConnectFn;
+pub const PancakeListenResult = shared.transport_provider.PancakeListenResult;
 pub const PancakeStreamListenFn = shared.transport_provider.PancakeStreamListenFn;
+pub const PancakeStreamFinishListenFn = shared.transport_provider.PancakeStreamFinishListenFn;
+pub const PancakeStreamCancelListenFn = shared.transport_provider.PancakeStreamCancelListenFn;
+pub const PANCAKE_LISTEN_READY = shared.transport_provider.PANCAKE_LISTEN_READY;
+pub const PANCAKE_LISTEN_PENDING = shared.transport_provider.PANCAKE_LISTEN_PENDING;
 pub const PancakeStreamListenerWaitFn = shared.transport_provider.PancakeStreamListenerWaitFn;
 pub const PancakeStreamListenerReadinessFdFn = shared.transport_provider.PancakeStreamListenerReadinessFdFn;
 pub const PancakeLocatorSinkFn = shared.PancakeLocatorSinkFn;
 pub const PancakeTransportListenerLocatorFn = shared.transport_provider.PancakeTransportListenerLocatorFn;
 pub const PancakeTransportListenerAdvertiseFn = shared.transport_provider.PancakeTransportListenerAdvertiseFn;
+pub const PancakeTransportListenerRestorationStateFn = shared.transport_provider.PancakeTransportListenerRestorationStateFn;
 pub const PancakeStreamAcceptFn = shared.transport_provider.PancakeStreamAcceptFn;
 pub const PancakeStreamListenerCloseFn = shared.transport_provider.PancakeStreamListenerCloseFn;
 pub const PancakeStreamReadFn = shared.transport_provider.PancakeStreamReadFn;
 pub const PancakeStreamWriteAllFn = shared.transport_provider.PancakeStreamWriteAllFn;
 pub const PancakeStreamConnCloseFn = shared.transport_provider.PancakeStreamConnCloseFn;
+pub const PancakeStreamConnTakeFailureFn = shared.transport_provider.PancakeStreamConnTakeFailureFn;
 pub const PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION = shared.transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION;
 pub const PANCAKE_TRANSPORT_PROFILE_ABI_VERSION = shared.transport_provider.PANCAKE_TRANSPORT_PROFILE_ABI_VERSION;
 pub const PANCAKE_STREAM_TRANSPORT_ABI_VERSION = shared.transport_provider.PANCAKE_STREAM_TRANSPORT_ABI_VERSION;
@@ -63,10 +73,12 @@ pub const PancakeMultiplexedDrainReadyFn = shared.multiplexed_transport.PancakeM
 pub const PancakeMultiplexedStartConnectFn = shared.multiplexed_transport.PancakeMultiplexedStartConnectFn;
 pub const PancakeMultiplexedFinishConnectFn = shared.multiplexed_transport.PancakeMultiplexedFinishConnectFn;
 pub const PancakeMultiplexedClaimExternalFn = shared.multiplexed_transport.PancakeMultiplexedClaimExternalFn;
-pub const PancakeMultiplexedStartListenFn = shared.multiplexed_transport.PancakeMultiplexedStartListenFn;
+pub const PancakeMultiplexedListenFn = shared.multiplexed_transport.PancakeMultiplexedListenFn;
+pub const PancakeMultiplexedFinishListenFn = shared.multiplexed_transport.PancakeMultiplexedFinishListenFn;
 pub const PancakeMultiplexedFinishAcceptFn = shared.multiplexed_transport.PancakeMultiplexedFinishAcceptFn;
 pub const PancakeMultiplexedStopListenFn = shared.multiplexed_transport.PancakeMultiplexedStopListenFn;
 pub const PancakeMultiplexedSubjectFn = shared.multiplexed_transport.PancakeMultiplexedSubjectFn;
+pub const PancakeMultiplexedConnTakeFailureFn = shared.multiplexed_transport.PancakeMultiplexedConnTakeFailureFn;
 pub const PancakeMultiplexedTryReadFn = shared.multiplexed_transport.PancakeMultiplexedTryReadFn;
 pub const PancakeMultiplexedTryWriteFn = shared.multiplexed_transport.PancakeMultiplexedTryWriteFn;
 pub const PancakeMultiplexedConnRemoteKeyFn = shared.multiplexed_transport.PancakeMultiplexedConnRemoteKeyFn;
@@ -84,6 +96,19 @@ pub const PANCAKE_SEALED_CHANNEL_NOISE_XK = shared.transport_provider.PANCAKE_SE
 pub const PancakeHost = c_abi_host.PancakeHost;
 pub const PancakeHostSession = c_abi_host.PancakeHostSession;
 pub const PancakeHostAction = c_abi_host.PancakeHostAction;
+pub const PancakeReference = shared.PancakeReference;
+pub const PancakeCloseOptions = shared.PancakeCloseOptions;
+pub const PANCAKE_CLOSE_OPTIONS_ABI_VERSION = shared.PANCAKE_CLOSE_OPTIONS_ABI_VERSION;
+pub const PANCAKE_CLOSE_MAX_GRACE_MS = shared.PANCAKE_CLOSE_MAX_GRACE_MS;
+pub const PANCAKE_CLOSE_GRACE_UNSPECIFIED = shared.PANCAKE_CLOSE_GRACE_UNSPECIFIED;
+pub const PANCAKE_CLOSE_GRACE_FINITE = shared.PANCAKE_CLOSE_GRACE_FINITE;
+pub const PANCAKE_CLOSE_GRACE_UNBOUNDED = shared.PANCAKE_CLOSE_GRACE_UNBOUNDED;
+pub const PANCAKE_PENDING_CANCEL = shared.PANCAKE_PENDING_CANCEL;
+pub const PANCAKE_PENDING_FINISH = shared.PANCAKE_PENDING_FINISH;
+pub const PANCAKE_LIFECYCLE_ACTIVE = c_abi_host.PANCAKE_LIFECYCLE_ACTIVE;
+pub const PANCAKE_LIFECYCLE_FINISHING = c_abi_host.PANCAKE_LIFECYCLE_FINISHING;
+pub const PANCAKE_LIFECYCLE_TERMINATING = c_abi_host.PANCAKE_LIFECYCLE_TERMINATING;
+pub const PANCAKE_LIFECYCLE_CLOSED = c_abi_host.PANCAKE_LIFECYCLE_CLOSED;
 
 // ── Handles ──────────────────────────────────────────────────────────────────
 
@@ -103,61 +128,122 @@ pub const PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES: usize = driver.default_wire_
 pub const PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS: usize = driver.default_max_pending_opens;
 /// Default CapTP handshake progress budget in milliseconds.
 pub const PANCAKE_DRIVER_DEFAULT_HANDSHAKE_MS: u32 = @intCast(c_abi_host.PANCAKE_HANDSHAKE_TIMEOUT_MS);
+/// Default listener-construction progress budget in milliseconds.
+pub const PANCAKE_DRIVER_DEFAULT_LISTENER_SETUP_MS: u32 = @intCast(driver.default_listener_setup_ms);
 /// Default application-answer progress budget in milliseconds.
 pub const PANCAKE_DRIVER_DEFAULT_SETTLE_MS: u32 = @intCast(c_abi_host.PANCAKE_HANDSHAKE_TIMEOUT_MS);
-
-/// Construction policy for the native driver face. The wait budgets bound
-/// handshake and application-answer progress; `wire_buffer_bytes` is retained
+/// Construction policy for the native driver face. A zero wait budget is the
+/// explicit unbounded form; nonzero values bound progress in milliseconds.
+/// `wire_buffer_bytes` is retained
 /// once for each stream direction, or once for multiplexed read staging, per live
 /// session. `max_pending_opens` bounds pre-open session and wire memory across
 /// every transport route. The layout fields must identify this record; every
-/// policy field must be positive.
+/// buffer and admission limits must be positive.
 pub const PancakeDriverOptions = extern struct {
     abi_version: u32,
     struct_size: usize,
     wire_buffer_bytes: usize,
     max_pending_opens: usize,
+    /// Handshake progress budget in milliseconds; zero waits unbounded.
     handshake_ms: u32,
+    /// Listener-construction budget in milliseconds; zero waits unbounded.
+    listener_setup_ms: u32,
+    /// Application-answer budget in milliseconds; zero waits unbounded.
     settle_ms: u32,
 };
 
 // ── Event queue vocabulary ───────────────────────────────────────────────────
 
-/// `PancakeDriverEvent.kind`: a ticketed dial or external adoption reached an
-/// open session; `ticket` identifies the operation and `session` the handle.
+/// `PancakeDriverEvent.kind`: a dial or external adoption reached an open
+/// session; `operation_id` identifies the operation and `session` the handle.
 pub const PANCAKE_DRIVER_EVENT_OPENED: u32 = 0;
-/// A ticketed dial or external adoption failed; `ticket` names it and
-/// `message` says why.
+/// A dial or external adoption failed; `operation_id` names it and the
+/// primary/secondary fields preserve its typed failure chain.
 pub const PANCAKE_DRIVER_EVENT_OPEN_FAILED: u32 = 1;
-/// A listener accepted a session; `ticket` is the listener id from
+/// A listener accepted a session; `listener_id` is the id from
 /// `pancake_driver_listen` and `session` the live handle.
 pub const PANCAKE_DRIVER_EVENT_ACCEPTED: u32 = 2;
-/// A session's wire closed inside the step (EOF, fault, or protocol
-/// refusal). The handle stays valid until `pancake_driver_session_release`;
-/// its vows are already broken.
+/// A session's wire closed inside the step. Clean EOF carries
+/// `PANCAKE_OK` and empty failure fields; a transport fault, truncated frame,
+/// or protocol refusal carries its stable primary and consequence facts. The
+/// handle stays valid until `pancake_driver_session_release`; its vows are
+/// already broken.
 pub const PANCAKE_DRIVER_EVENT_SESSION_CLOSED: u32 = 3;
 /// A vow settled with no in-process listener; `action` carries the byte-fed
 /// queue's own SETTLE/FAIL shape (`PancakeHostAction`), so a binding's
 /// existing completion decoding applies unchanged.
 pub const PANCAKE_DRIVER_EVENT_COMPLETION: u32 = 4;
+/// Listener construction completed and `listener_id` is active.
+pub const PANCAKE_DRIVER_EVENT_LISTENER_READY: u32 = 5;
+/// Listener construction or an active listener's accept infrastructure failed;
+/// `listener_id` is retired before publication and the failure fields retain
+/// the primary plus first consequence and total count. Sessions and ACCEPTED
+/// events already yielded by the listener remain valid.
+pub const PANCAKE_DRIVER_EVENT_LISTENER_FAILED: u32 = 6;
 pub const PANCAKE_DRIVER_ADOPT_DIALED: u32 = 0;
 pub const PANCAKE_DRIVER_ADOPT_ACCEPTED: u32 = 1;
 
 /// One drained loop event. Unused fields are zero/null per `kind`; borrowed
-/// views (`message`, the views inside `action`) stay valid until the next
+/// failure-name views and the views inside `action` stay valid until the next
 /// `pancake_driver_next_event` call on the same loop.
 pub const PancakeDriverEvent = extern struct {
     kind: u32,
-    ticket: u64,
+    /// Stable C result for the primary failure; zero for success events.
+    primary_result: i32,
+    /// Stable C result for the first consequence, when present.
+    secondary_result: i32,
+    /// Total consequences observed, including any beyond `secondary_name`.
+    secondary_count: u32,
+    operation_id: u64,
+    listener_id: u64,
     session: ?*PancakeHostSession,
     action: PancakeHostAction,
-    message: ?[*]const u8,
-    message_len: usize,
+    primary_name: ?[*]const u8,
+    primary_name_len: usize,
+    secondary_name: ?[*]const u8,
+    secondary_name_len: usize,
+};
+
+/// Allocation-free projection of the driver's typed failure chain into one C
+/// event. This is data for the event's deterministic recipient, not a journal.
+pub const FailureProjection = struct {
+    primary_result: i32,
+    primary_name: []const u8,
+    secondary_result: i32,
+    secondary_count: u32,
+    secondary_name: []const u8,
+
+    pub fn init(failure: driver.OperationFailure) FailureProjection {
+        return .{
+            .primary_result = driver_error.code(failure.kind),
+            .primary_name = failure.primaryName(),
+            .secondary_result = if (failure.secondary_cause) |cause|
+                if (failure.secondary_kind) |kind| driver_error.code(kind) else driver_error.fromError(cause)
+            else
+                shared.PANCAKE_OK,
+            .secondary_count = failure.secondary_count,
+            .secondary_name = failure.secondaryName() orelse "",
+        };
+    }
+
+    pub fn project(self: FailureProjection, out: *PancakeDriverEvent) void {
+        out.primary_result = self.primary_result;
+        out.secondary_result = self.secondary_result;
+        out.secondary_count = self.secondary_count;
+        out.primary_name = self.primary_name.ptr;
+        out.primary_name_len = self.primary_name.len;
+        out.secondary_name = self.secondary_name.ptr;
+        out.secondary_name_len = self.secondary_name.len;
+    }
 };
 
 // ── Loop family (implemented in loop.zig) ────────────────────────────────────
 
 pub const pancake_driver_take_host = loop.pancake_driver_take_host;
+pub const pancake_driver_close = loop.pancake_driver_close;
+pub const pancake_driver_retire = loop.pancake_driver_retire;
+pub const pancake_driver_lifecycle_state = loop.pancake_driver_lifecycle_state;
+pub const pancake_driver_step_wait_ms = loop.pancake_driver_step_wait_ms;
 pub const pancake_driver_release = loop.pancake_driver_release;
 pub const pancake_driver_add_provider = loop.pancake_driver_add_provider;
 pub const pancake_driver_has_transport = loop.pancake_driver_has_transport;
@@ -165,6 +251,7 @@ pub const pancake_driver_dial = loop.pancake_driver_dial;
 pub const pancake_driver_adopt_external = loop.pancake_driver_adopt_external;
 pub const pancake_driver_listen = loop.pancake_driver_listen;
 pub const pancake_driver_listener_locator = loop.pancake_driver_listener_locator;
+pub const pancake_driver_listener_restoration_state = loop.pancake_driver_listener_restoration_state;
 pub const pancake_driver_listener_advertise = loop.pancake_driver_listener_advertise;
 pub const pancake_driver_listener_select = loop.pancake_driver_listener_select;
 pub const pancake_driver_listener_close = loop.pancake_driver_listener_close;
@@ -173,6 +260,10 @@ pub const pancake_driver_step = loop.pancake_driver_step;
 pub const pancake_driver_detach_thread = loop.pancake_driver_detach_thread;
 pub const pancake_driver_wake = loop.pancake_driver_wake;
 pub const pancake_driver_next_event = loop.pancake_driver_next_event;
+pub const pancake_driver_claim_reference_exporter = loop.pancake_driver_claim_reference_exporter;
+pub const pancake_driver_session_close = loop.pancake_driver_session_close;
+pub const pancake_driver_session_lifecycle_state = loop.pancake_driver_session_lifecycle_state;
+pub const pancake_driver_session_serve = loop.pancake_driver_session_serve;
 pub const pancake_driver_session_release = loop.pancake_driver_session_release;
 pub const pancake_driver_last_error = loop.pancake_driver_last_error;
 pub const pancake_driver_clear_last_error = loop.pancake_driver_clear_last_error;

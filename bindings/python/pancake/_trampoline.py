@@ -58,7 +58,7 @@ class _BehaviorEntry:
 # Process-global callback lookup is weak: the owning Host strongly retains each
 # entry, so a behavior that closes over that Host forms a collectable Host-local
 # cycle rather than a process-global root. The C callback has free = NULL;
-# Host.release removes the weak row deterministically after native teardown.
+# Host.close removes the weak row deterministically after native teardown.
 _registry: "weakref.WeakValueDictionary[int, _BehaviorEntry]" = (
     weakref.WeakValueDictionary()
 )
@@ -158,20 +158,23 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
 
 async def _tell_local(session, ctx: int, verb: str, args: list) -> None:
     # The local arm of `tell`: discard the result; a surviving Forward
-    # continues as a far tell. Raises break nothing.
+    # continues as a far tell. Behavior failures have no answer to break and
+    # therefore enter the Host's central callerless-failure seam.
     try:
         entry = _entry_for(ctx)
         result = None
         if entry is not None:
             result = _run_hosted(entry, verb, args)
-        if isinstance(result, Forward):
-            await session.tell(result.target, result.verb, result.args)
-        elif inspect.isawaitable(result):
+        if inspect.isawaitable(result):
             # Await so an async behavior's raise lands here instead of
             # surfacing as a never-awaited coroutine warning.
             await result
-    except Exception:  # noqa: BLE001 — no answer to break
-        pass
+    except Exception as error:  # noqa: BLE001 — no answer exists to break
+        session.host._record_callerless_failure("tell.behavior", error)
+        return
+    if isinstance(result, Forward):
+        # The caller of tell remains the recipient for forwarding/I/O failure.
+        await session.tell(result.target, result.verb, result.args)
 
 
 # The turn context while a hosted object's trampoline runs: the opaque

@@ -2,12 +2,12 @@
 //! worker thread hands a resolver settle back to the thread that owns its
 //! Host. A worker calls `post` from any thread with that thread's `std.Io`;
 //! the entry is recorded into a fixed slot under an io-aware mutex and the
-//! owning thread is woken through the mailbox's socketpair, whose nudge follows
-//! the ADR-0089 invariant — a
-//! `WouldBlock` on the wake write means unread bytes already make the read
-//! half readable, so no wake is ever lost. The owning thread drains the wake
-//! and applies every recorded settle through the ordinary top-level resolver
-//! verbs, so nothing about the Host's one-thread contract changes: the
+//! owning thread is woken through the mailbox's socketpair. Under ADR-0089,
+//! `WouldBlock` is coalesced success because unread bytes already make the read
+//! half readable; every other wake fault is retained and terminalizes the
+//! owner without abandoning rows admitted earlier. The owning thread drains
+//! the wake and applies every recorded settle through the ordinary top-level
+//! resolver verbs, so nothing about the Host's one-thread contract changes: the
 //! mailbox carries the *call*, never the authority.
 //!
 //! `driver.HostRuntime` polls the mailbox's wake fd beside its wires; the
@@ -45,6 +45,11 @@ pub const PostError = error{
     /// crosses threads; an answer that carries it settles on the owning
     /// thread, or forwards to a send.
     NotPlainData,
+    /// The settle was not committed because the owner could not be woken.
+    /// The mailbox is unusable until its runtime is repaired or closed.
+    WakeNudgeFailed,
+    /// The owner already observed that its wake read half cannot be drained.
+    WakeDrainFailed,
 };
 
 /// Fixed per-entry payload storage. A settle is a completion notice, not a
@@ -70,10 +75,8 @@ pub const SettleMailbox = struct {
     /// entries. Posts append at `head + count`; apply consumes at `head`.
     head: usize = 0,
     count: usize = 0,
-    /// Settles that reached the owning thread and still failed to land. See
-    /// `apply`; a nonzero value is a defect, not backpressure.
-    lost: usize = 0,
     channel: net.wake_channel.WakeChannel,
+    wake_failure: net.wake_channel.FailureLatch = .{},
 
     /// Allocate the mailbox on the heap — workers hold the pointer across
     /// threads, so it needs one stable address — with `slot_count` fixed
@@ -111,63 +114,76 @@ pub const SettleMailbox = struct {
     /// Wake the owner without recording a settle — the stopper's share of
     /// the channel: a thread that flipped a done flag wakes the parked wait
     /// through the same sanctioned entry the settles use.
-    pub fn wake(self: *SettleMailbox) void {
-        self.channel.nudge();
+    pub fn wake(self: *SettleMailbox) net.wake_channel.Failure!void {
+        try self.wake_failure.check();
+        _ = self.channel.nudge() catch |err| {
+            self.wake_failure.record(err);
+            return err;
+        };
     }
 
     /// Record a settle from any thread and wake the owner. The resolution is
     /// borrowed for the call and cloned into the slot; refusals are loud
     /// (`PostError`) and consume nothing.
     pub fn post(self: *SettleMailbox, io: Io, resolver_id: u64, resolution: Resolution) PostError!void {
+        try self.wake_failure.check();
         if (resolution == .fulfilled and !model.argumentIsPlainData(&resolution.fulfilled)) {
             return PostError.NotPlainData;
         }
-        {
-            self.lock.lockUncancelable(io);
-            defer self.lock.unlock(io);
-            if (self.count == self.slots.len) return PostError.MailboxFull;
-            const slot = &self.slots[(self.head + self.count) % self.slots.len];
-            var fba = std.heap.FixedBufferAllocator.init(&slot.storage);
-            slot.resolver_id = resolver_id;
-            slot.resolution = switch (resolution) {
-                .fulfilled => |value| .{
-                    .fulfilled = model.cloneArgument(fba.allocator(), value) catch
-                        return PostError.ValueTooLarge,
-                },
-                .broken => |reason| .{
-                    .broken = fba.allocator().dupe(u8, reason) catch
-                        return PostError.ValueTooLarge,
-                },
-            };
-            self.count += 1;
-        }
-        self.channel.nudge();
+        self.lock.lockUncancelable(io);
+        defer self.lock.unlock(io);
+        if (self.count == self.slots.len) return PostError.MailboxFull;
+        const slot = &self.slots[(self.head + self.count) % self.slots.len];
+        var fba = std.heap.FixedBufferAllocator.init(&slot.storage);
+        slot.resolver_id = resolver_id;
+        slot.resolution = switch (resolution) {
+            .fulfilled => |value| .{
+                .fulfilled = model.cloneArgument(fba.allocator(), value) catch
+                    return PostError.ValueTooLarge,
+            },
+            .broken => |reason| .{
+                .broken = fba.allocator().dupe(u8, reason) catch
+                    return PostError.ValueTooLarge,
+            },
+        };
+        self.count += 1;
+        _ = self.channel.nudge() catch |err| {
+            // The owner cannot consume this row while the ring lock is held.
+            // Roll admission back so a failed post never settles later after
+            // its caller has already observed refusal.
+            self.count -= 1;
+            self.wake_failure.record(err);
+            return err;
+        };
     }
 
     /// Drain the wake channel, on the owning thread, before applying: a post
     /// racing the apply leaves its byte unread, so the next wait wakes again
     /// rather than losing the entry.
-    pub fn drainWake(self: *SettleMailbox) void {
-        self.channel.drain();
+    pub fn drainWake(self: *SettleMailbox) net.wake_channel.Failure!void {
+        try self.wake_failure.check();
+        self.channel.drain() catch |err| {
+            self.wake_failure.record(err);
+            return err;
+        };
     }
 
     /// Apply every recorded settle through `host`'s top-level resolver verbs,
     /// on the thread that owns `host`.
     ///
-    /// A refusal is dropped after the attempt, but the two kinds are not
-    /// alike. `AlreadySettled` means the resolver was already consumed and
-    /// nothing is owed. Anything else — allocator pressure inside the settle
-    /// — leaves a vow retired but unsettled, which no later observation can
-    /// repair, so it is counted rather than swallowed silently: a nonzero
-    /// `lost` is the only evidence that ever existed.
+    /// `AlreadySettled` means the resolver was already consumed and nothing
+    /// is owed. Every other refusal is returned after all admitted rows are
+    /// consumed, so the owner can terminalize without stranding later rows.
     /// The lock brackets only the ring bookkeeping; the resolver verb runs
     /// unlocked while the entry's slot stays reserved, so a concurrent post
     /// can fill every other slot but never the one being applied.
-    pub fn apply(self: *SettleMailbox, io: Io, host: *driver_core.Host) void {
+    pub fn apply(self: *SettleMailbox, io: Io, host: *driver_core.Host) !void {
+        var first_failure: ?anyerror = null;
         while (true) {
             self.lock.lockUncancelable(io);
             if (self.count == 0) {
                 self.lock.unlock(io);
+                if (first_failure) |err| return err;
                 return;
             }
             const slot = &self.slots[self.head % self.slots.len];
@@ -180,7 +196,9 @@ pub const SettleMailbox = struct {
             outcome catch |err| switch (err) {
                 // Already consumed: nothing was owed.
                 error.AlreadySettled => {},
-                else => self.lost += 1,
+                else => if (first_failure == null) {
+                    first_failure = err;
+                },
             };
 
             self.lock.lockUncancelable(io);

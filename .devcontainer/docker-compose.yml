@@ -3,28 +3,68 @@
 #                Committed and always on: it is how a bot in this dev container
 #                reaches the room's internal CapTP. Fixed name, so both compose
 #                projects converge on one shared network.
-#   egress-net — this container's single side network, named per host in the
-#                gitignored .devcontainer/.env. Here it is the LLM backend.
-#                Compose loads .env from this directory automatically.
-#
-#     cp .env.example .env   # then set EGRESS_NET=llm-backend-net
-#     docker network create llm-backend-net   # once, if missing
-#     # rooms-net is created for you by the devcontainer initializeCommand.
-#
-# Rebuild/reopen the devcontainer after changing .env.
+#   egress-net — a worktree-specific outbound bridge by default, or an
+#                operator-selected agent-backend network. Its name lives in
+#                the gitignored .devcontainer/.env, which Compose loads.
+# Setup steps live in networking.md; rebuild/reopen after changing .env.
 
 services:
   pancake-dev:
+    # `.env` gives each checkout one short identity. The service key stays
+    # stable because devcontainer.json addresses it; Docker's actual container
+    # name is the worktree-specific name people and tools use.
+    container_name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}
+    hostname: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}
+    # Name the built artifact too. Without this, Dev Containers derives an
+    # opaque `vsc-<directory>-<hash>` image that drops the project identity.
+    image: vsc-pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
     working_dir: /workspaces/pancake
+    environment:
+      PANCAKE_WORKTREE: ${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}
     volumes:
       # Workspace bind — required when using dockerComposeFile.
       - ..:/workspaces/pancake:cached
-    # Editor mounts (caches, ~/.claude, ~/.config/{gh,opencode,agents}) stay in
-    # devcontainer.json.
+      # A linked worktree's .git file points at the primary checkout's common
+      # Git directory. Mount it at the identical absolute path so that pointer
+      # remains valid inside the container as well as on the host.
+      - type: bind
+        source: ${PANCAKE_GIT_COMMON_DIR:?Set PANCAKE_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
+        target: ${PANCAKE_GIT_COMMON_DIR:?Set PANCAKE_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
+      # Tool credentials and user-level agent state belong to this checkout's
+      # identity. Named volumes persist across rebuilds without giving a branch
+      # ambient read access to the host's credential stores or another
+      # worktree's agent sessions.
+      - type: volume
+        source: claude-home
+        target: /home/vscode/.claude
+      - type: volume
+        source: gh-config
+        target: /home/vscode/.config/gh
+      - type: volume
+        source: opencode-data
+        target: /home/vscode/.local/share/opencode
+      - type: volume
+        source: opencode-config
+        target: /home/vscode/.config/opencode
+      - type: volume
+        source: codex-home
+        target: /home/vscode/.codex
+      - type: volume
+        source: agent-resources
+        target: /home/vscode/.config/agents
+    # Editor-owned build caches stay in devcontainer.json because they are safe
+    # to share across worktrees and contain no tool identity.
     command: sleep infinity
+    # `.env` gives each worktree its own host ports while services retain their
+    # canonical container ports. Bound to loopback so none reaches the LAN.
+    ports:
+      - "127.0.0.1:${PANCAKE_WEB_HOST_PORT:?Run bash .devcontainer/configure.sh}:8000"
+      - "127.0.0.1:${PANCAKE_CAPTP_HOST_PORT:?Run bash .devcontainer/configure.sh}:9099"
+      - "127.0.0.1:${PANCAKE_RELAY_HOST_PORT:?Run bash .devcontainer/configure.sh}:9200"
+      - "127.0.0.1:${PANCAKE_TRACE_HOST_PORT:?Run bash .devcontainer/configure.sh}:9300"
     cap_add:
       - SYS_PTRACE
     security_opt:
@@ -45,3 +85,17 @@ networks:
   egress-net:
     name: ${EGRESS_NET:?Set EGRESS_NET in .devcontainer/.env (see .env.example)}
     external: true
+
+volumes:
+  claude-home:
+    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-claude-home
+  gh-config:
+    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-gh-config
+  opencode-data:
+    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-opencode-data
+  opencode-config:
+    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-opencode-config
+  codex-home:
+    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-codex-home
+  agent-resources:
+    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-agent-resources

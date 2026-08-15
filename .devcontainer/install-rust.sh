@@ -4,14 +4,24 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${dir}/lib.sh"
-pancake_devcontainer_init "${dir}"
+pancake_devcontainer_init "${dir}" checksums
+pancake_require_devcontainer "install-rust"
 
 # Image build uses CARGO_HOME_IMAGE; container open remaps to CARGO_HOME_RUNTIME (volume).
 export CARGO_HOME="${CARGO_HOME_IMAGE}"
 export RUSTUP_HOME="${RUSTUP_HOME}"
 
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --no-modify-path --default-toolchain none --profile minimal
+# The pinned rustup-init bootstrap, not `curl | sh`: the toolchain below is
+# verified by rustup against its signed manifest, and this closes the same
+# loop on the installer itself.
+triple="$(pick_by_arch rust x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu)"
+url="https://static.rust-lang.org/rustup/archive/${RUSTUP_INIT_VERSION}/${triple}/rustup-init"
+tmp="$(mktemp -d -t pancake-rust-install-XXXXXX)"
+trap 'rm -rf "${tmp}"' EXIT
+
+fetch_verified "${url}" "${tmp}/rustup-init" "$(rustup_init_sha256)"
+chmod +x "${tmp}/rustup-init"
+"${tmp}/rustup-init" -y --no-modify-path --default-toolchain none --profile minimal
 
 rustup toolchain install "${RUST_VERSION}" --profile minimal
 rustup default "${RUST_VERSION}"

@@ -1,11 +1,5 @@
 import { assertEquals } from "@std/assert";
-import {
-  formatClockTime,
-  formatCoord,
-  formatHexDump,
-  formatTime,
-  formatTimeInput,
-} from "./format.ts";
+import { formatClockTime, formatCoord, formatHexDump, formatTime, formatTimeInput } from "./format.ts";
 
 Deno.test("a time fact shows every digit it carries, up to 10 µs", () => {
   // Facts read at full fidelity: live producers stamp nanoseconds,

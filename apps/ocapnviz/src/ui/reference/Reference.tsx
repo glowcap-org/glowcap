@@ -23,11 +23,7 @@
  */
 
 import { useRef } from "react";
-import {
-  ATTRIBUTION_STANDING,
-  captpVersionLabel,
-  UNATTRIBUTED_WORD,
-} from "../../schema/topology.ts";
+import { ATTRIBUTION_STANDING, captpVersionLabel, UNATTRIBUTED_WORD } from "../../schema/topology.ts";
 import {
   CAPTP_VERSION_ROWS,
   CODEC_ROWS,
@@ -49,11 +45,7 @@ import {
 } from "./endpoint-attribution.ts";
 import type { ReferenceEntry } from "./entry.ts";
 import { Dialog } from "../Dialog.tsx";
-import {
-  attributionChipStyle,
-  attributionStandingStyle,
-  stateChipBase,
-} from "../EntityChips.tsx";
+import { attributionChipStyle, attributionStandingStyle, stateChipBase } from "../EntityChips.tsx";
 import { HelpGlyph } from "../glyphs.tsx";
 import { c, FONT, PANEL, SIZE, SPACE } from "../tokens.ts";
 import { segmentCellClass } from "../tokens.ts";
@@ -78,16 +70,14 @@ type ReferenceSection = {
 
 /** What the whole panel is for, said once above the picker so a reader who
  *  arrived confused knows what the six sections are drawn from. */
-const SUBTITLE =
-  "What every word this app attaches to a peer or a session means.";
+const SUBTITLE = "What every word this app attaches to a peer or a session means.";
 
 /** The sections, in the order they are offered. */
 export const REFERENCE_SECTIONS: readonly ReferenceSection[] = [
   {
     id: "attribution",
     tab: "Attribution",
-    summary:
-      "Every session end carries a designator, which is the name it claims " +
+    summary: "Every session end carries a designator, which is the name it claims " +
       "on the wire. What backed that claim decides whether the end joins a " +
       "peer on the stage or stands there as a node of its own. Each word " +
       "below is backed by a signature somebody checked, by a party speaking " +
@@ -97,16 +87,14 @@ export const REFERENCE_SECTIONS: readonly ReferenceSection[] = [
   {
     id: "transports",
     tab: "Transports",
-    summary:
-      "The netlayer a session's bytes ride, and how far each one can be " +
+    summary: "The netlayer a session's bytes ride, and how far each one can be " +
       "trusted.",
     Body: TransportBody,
   },
   {
     id: "versions",
     tab: "Versions",
-    summary:
-      "The CapTP version the two ends agreed on when the session opened.",
+    summary: "The CapTP version the two ends agreed on when the session opened.",
     // Keyed by the tag the document stores, read out under the word the
     // handshake uses, which is the word every other surface shows too.
     Body: () => (
@@ -248,9 +236,7 @@ function AttributionBody() {
         <p style={paragraph}>{LOOSE_END_TEXT}</p>
       </div>
       <div style={notes}>
-        {ATTRIBUTION_NOTES.map((note) => (
-          <p key={note} style={noteText}>{note}</p>
-        ))}
+        {ATTRIBUTION_NOTES.map((note) => <p key={note} style={noteText}>{note}</p>)}
       </div>
     </>
   );
@@ -358,14 +344,10 @@ function Row(
   return (
     <>
       <span style={{ ...wordCell, ...rule }}>{word}</span>
-      {badge !== undefined && (
-        <span style={{ ...badgeCell, ...rule }}>{badge}</span>
-      )}
+      {badge !== undefined && <span style={{ ...badgeCell, ...rule }}>{badge}</span>}
       <span style={rule}>
         <span style={saysText}>{entry.says}</span>
-        {entry.aside !== undefined && (
-          <span style={asideText}>{entry.aside}</span>
-        )}
+        {entry.aside !== undefined && <span style={asideText}>{entry.aside}</span>}
       </span>
     </>
   );

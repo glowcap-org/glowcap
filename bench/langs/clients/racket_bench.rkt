@@ -8,6 +8,7 @@
 (file-stream-buffer-mode (current-output-port) 'line)
 
 (require (file "/workspaces/pancake/bindings/racket/pancake.rkt")
+         (file "/workspaces/pancake/bindings/racket/pancake-tcp.rkt")
          (file "/workspaces/pancake/bench/shared/metrics.rkt"))
 
 (define args (current-command-line-arguments))
@@ -51,7 +52,8 @@
   (collect-garbage) (collect-garbage) (collect-garbage))
 
 (define (run-latency)
-  (define c (connect (tcp-locator host port)))
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define c (runtime-connect runtime (tcp-locator host port)))
   (define root (session-fetch c "root"))
   (warm+settle c root)
   (define lats
@@ -60,6 +62,7 @@
       (assert-ok (run-unit c root))
       (- (now) s)))
   (session-close! c)
+  (runtime-close! runtime)
   (printf "{\"v\":1,\"metric\":\"latency\",\"client\":\"~a\",\"suite\":\"taskboard\",\"n\":~a,\"p50_ms\":~a,\"p99_ms\":~a,\"p999_ms\":~a,\"mean_ms\":~a,\"runtime\":\"~a\",\"warmup_n\":~a}\n"
           CLIENT N
           (real->decimal-string (percentile lats 0.50) 4)
@@ -69,13 +72,15 @@
           RUNTIME WARMUP))
 
 (define (run-throughput)
-  (define c (connect (tcp-locator host port)))
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define c (runtime-connect runtime (tcp-locator host port)))
   (define root (session-fetch c "root"))
   (warm+settle c root run-unit-pipelined)
   (define t0 (now))
   (for ([_ (in-range N)]) (assert-ok (run-unit-pipelined c root)))
   (define total (- (now) t0))
   (session-close! c)
+  (runtime-close! runtime)
   (printf "{\"v\":1,\"metric\":\"throughput\",\"client\":\"~a\",\"suite\":\"taskboard\",\"n\":~a,\"total_ms\":~a,\"rps\":~a,\"runtime\":\"~a\",\"warmup_n\":~a}\n"
           CLIENT N
           (real->decimal-string total 2)
@@ -85,9 +90,10 @@
 (define CONN-WARMUP (min N 5))
 
 (define (run-connections)
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
   (define warm
     (for/list ([_ (in-range CONN-WARMUP)])
-      (define c (connect (tcp-locator host port)))
+      (define c (runtime-connect runtime (tcp-locator host port)))
       (session-fetch c "root")
       c))
   (collect-garbage) (collect-garbage)
@@ -96,7 +102,7 @@
   (define t0 (now))
   (define handles
     (for/list ([_ (in-range N)])
-      (define c (connect (tcp-locator host port)))
+      (define c (runtime-connect runtime (tcp-locator host port)))
       (session-fetch c "root")
       c))
   (define total (- (now) t0))
@@ -107,13 +113,16 @@
           RUNTIME)
   (sleep 2.5)
   (for ([c (in-list handles)]) (session-close! c))
-  (for ([c (in-list warm)]) (session-close! c)))
+  (for ([c (in-list warm)]) (session-close! c))
+  (runtime-close! runtime))
 
 (define (run-cold)
-  (define c (connect (tcp-locator host port)))
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define c (runtime-connect runtime (tcp-locator host port)))
   (define root (session-fetch c "root"))
   (assert-ok (run-unit c root))
   (session-close! c)
+  (runtime-close! runtime)
   (printf "{\"v\":1,\"event\":\"cold-done\",\"client\":\"~a\"}\n" CLIENT))
 
 ;; The local-turn counter: `hit` increments and returns the count, any other
@@ -166,7 +175,9 @@
          (session-publish conn "counter" ^counter)
          conn))
      (with-handlers ([(lambda (_) #t) void]) (session-serve conn))))
-  (define c (connect (tcp-locator "127.0.0.1" (server-port srv))))
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define c (runtime-connect runtime
+                             (tcp-locator "127.0.0.1" (server-port srv))))
 
   ;; (a) in_lang: the binding's in-process actor dispatch.
   (define local-counter (session-spawn c ^counter))
@@ -177,6 +188,7 @@
   (define via-host (measure-hits c far-counter))
 
   (session-close! c)
+  (runtime-close! runtime)
   (server-close! srv)
 
   (define in-mean (mean in-lang))

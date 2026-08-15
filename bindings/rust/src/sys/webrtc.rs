@@ -53,17 +53,12 @@ const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<PancakeWebrtcConfig>() == PANCAKE_WEBRTC_CONFIG_SIZE);
 	assert!(offset_of!(PancakeWebrtcConfig, ice_servers) == PANCAKE_WEBRTC_CONFIG_ICE_SERVERS_OFF);
-	assert!(
-		offset_of!(PancakeWebrtcConfig, ice_servers_len)
-			== PANCAKE_WEBRTC_CONFIG_ICE_SERVERS_LEN_OFF
-	);
+	assert!(offset_of!(PancakeWebrtcConfig, ice_servers_len) == PANCAKE_WEBRTC_CONFIG_ICE_SERVERS_LEN_OFF);
 	assert!(
 		offset_of!(PancakeWebrtcConfig, include_loopback_candidates)
 			== PANCAKE_WEBRTC_CONFIG_INCLUDE_LOOPBACK_CANDIDATES_OFF
 	);
-	assert!(
-		offset_of!(PancakeWebrtcConfig, worker_threads) == PANCAKE_WEBRTC_CONFIG_WORKER_THREADS_OFF
-	);
+	assert!(offset_of!(PancakeWebrtcConfig, worker_threads) == PANCAKE_WEBRTC_CONFIG_WORKER_THREADS_OFF);
 	assert!(size_of::<PancakeWebrtcReadyEvent>() == PANCAKE_WEBRTC_READY_EVENT_SIZE);
 	assert!(offset_of!(PancakeWebrtcReadyEvent, subject) == PANCAKE_WEBRTC_READY_EVENT_SUBJECT_OFF);
 	assert!(offset_of!(PancakeWebrtcReadyEvent, events) == PANCAKE_WEBRTC_READY_EVENT_EVENTS_OFF);

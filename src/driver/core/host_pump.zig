@@ -3,12 +3,14 @@
 //! Free functions take `*Host` so `host.zig` stays the type home.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
+const host_close = @import("host_close.zig");
 const host_action = @import("host_action.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -22,15 +24,35 @@ const HostAction = host_action.HostAction;
 /// `Served.driveFed`). `HostAction.flush` is a different queue by design:
 /// the embedder signal that outbound frames are ready to write.
 pub fn markDirty(self: *Host, peer_id: engine.PeerId) void {
+    scheduleSessionWork(self, peer_id, true);
+}
+
+/// Stage teardown work without manufacturing an embedder flush wake. Session
+/// cancellation requested inside a callback is consumed by that verb's unwind;
+/// outside a callback, the embedding's next progress step drives `finishVerb`.
+pub fn scheduleDeferredSessionWork(self: *Host, peer_id: engine.PeerId) void {
+    scheduleSessionWork(self, peer_id, false);
+}
+
+/// A complete stream frame is retained behind local pressure. Reuse the
+/// session's already-reserved FLUSH wake: its outbound drain is the exact
+/// boundary that can make room, and `HostSession.takeStreamOutbound` resumes
+/// the tail once the existing bytes are gone.
+pub fn scheduleFeedResume(self: *Host, session: *HostSession) void {
+    session.feed_resume_pending = true;
+    queueUniqueSessionAction(self, .flush, session.peer_id);
+}
+
+fn scheduleSessionWork(self: *Host, peer_id: engine.PeerId, wake_embedder: bool) void {
     const session = self.sessions.get(peer_id) orelse return;
-    if (session.flush_pending) return;
+    if (session.control.flush_pending) return;
     // `Host.mint` reserves one FIFO slot per live session. Intrusive
     // membership keeps the queue at or below that count, so scheduling after
     // protocol authority moves is infallible.
     if (self.pending_flush.items.len == self.pending_flush.capacity) compactDirtyPrefix(self);
     std.debug.assert(self.pending_flush.items.len < self.pending_flush.capacity);
     self.pending_flush.appendAssumeCapacity(peer_id);
-    session.flush_pending = true;
+    session.control.flush_pending = true;
     // Dirty work is also a wake for a byte-fed embedder. This matters when a
     // finite host quantum expires immediately after a node action or handoff
     // marks a session: no outbound frame may exist yet, but another Host verb
@@ -38,7 +60,7 @@ pub fn markDirty(self: *Host, peer_id: engine.PeerId) void {
     // A terminal close is already the embedder wake and its executor flushes
     // any queued abort before closing. Do not leave a redundant flush behind
     // a condemned session's close action.
-    if (!session.condemned and !session.close_action_pending)
+    if (wake_embedder and !session.isTerminating() and !session.control.close_action_pending)
         queueUniqueSessionAction(self, .flush, peer_id);
 }
 
@@ -53,15 +75,10 @@ fn queueResumeAction(self: *Host) !void {
     self.resume_action_pending = true;
 }
 
-fn hasInternalWork(self: *const Host) bool {
+pub fn hasInternalWork(self: *const Host) bool {
     return self.pending_flush_head < self.pending_flush.items.len or
         self.node.hasAction() or
         self.node.nextHandoffChange() != null;
-}
-
-/// Test seam for staging already-owned deferred encode work.
-pub fn testingMarkDirty(self: *Host, peer_id: engine.PeerId) void {
-    markDirty(self, peer_id);
 }
 
 fn compactDirtyPrefix(self: *Host) void {
@@ -84,7 +101,7 @@ fn takeDirty(self: *Host) ?engine.PeerId {
     }
     const peer_id = self.pending_flush.items[self.pending_flush_head];
     self.pending_flush_head += 1;
-    if (self.sessions.get(peer_id)) |session| session.flush_pending = false;
+    if (self.sessions.get(peer_id)) |session| session.control.flush_pending = false;
 
     const remaining = self.pending_flush.items.len - self.pending_flush_head;
     if (remaining == 0) {
@@ -106,12 +123,12 @@ fn takeDirty(self: *Host) ?engine.PeerId {
 /// bit disappears. Release is uncommon; the linear removal keeps steady-state
 /// insertion O(1) without a second index and preserves `queue.len <= sessions`.
 pub fn removeDirtySession(self: *Host, session: *HostSession) void {
-    if (!session.flush_pending) return;
+    if (!session.control.flush_pending) return;
     var index = self.pending_flush_head;
     while (index < self.pending_flush.items.len) : (index += 1) {
         if (self.pending_flush.items[index] != session.peer_id) continue;
         _ = self.pending_flush.orderedRemove(index);
-        session.flush_pending = false;
+        session.control.flush_pending = false;
         return;
     }
     unreachable;
@@ -124,7 +141,23 @@ pub fn finishVerb(self: *Host) !void {
     if (self.in_callback) return;
     self.in_callback = true;
     defer self.in_callback = false;
+    if (self.lifecyclePhase() == .terminating) {
+        // Establish the terminal verdict before driving work, so queued
+        // application turns are cancelled with their ingress instead of being
+        // mistaken for finish work. Keep driving on later calls as well: a
+        // finite Host quantum may leave terminal work for another slice.
+        _ = host_close.advanceCloseLifecycle(self);
+        try drainWork(self);
+        _ = host_close.advanceCloseLifecycle(self);
+        return;
+    }
     try drainWork(self);
+    if (host_close.advanceCloseLifecycle(self)) {
+        // Terminal aborts were staged after the ordinary work drain. Encode
+        // them now so their FLUSH actions precede CLOSE for every session.
+        try drainWork(self);
+        _ = host_close.advanceCloseLifecycle(self);
+    }
 }
 
 /// Alternate the two work queues to quiescence: encode every dirty
@@ -152,15 +185,19 @@ fn drainWork(self: *Host) !void {
                 .session => if (takeDirty(self)) |peer_id| {
                     remaining -= 1;
                     const session = self.sessions.get(peer_id) orelse continue :work;
-                    if (session.condemned) {
+                    if (session.lifecyclePhase() == .cancel_pending) {
+                        try condemn(self, session, .normal_shutdown, "session closing");
+                        continue :work;
+                    }
+                    if (session.isTerminating()) {
                         // A condemned Port's ingress is never driven again; its queued
                         // turns died with the verdict. Encode the terminal abort and
                         // keep its close notification visible to the embedder.
-                        session.served.port.peer.stepToIdle() catch {};
+                        session.served.port.peer.stepToIdle() catch |err| session.served.port.peer.recordFailure(err);
                         if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
                         continue :work;
                     }
-                    std.debug.assert(!session.condemned);
+                    std.debug.assert(!session.isTerminating());
                     const progress = if (self.opts.host_work_quantum == null) blk: {
                         session.served.driveFed(&self.vat) catch |err| switch (err) {
                             error.EventServeOutOfMemory => {
@@ -209,6 +246,12 @@ fn drainWork(self: *Host) !void {
                         markDirty(self, peer_id);
                         queueUniqueSessionAction(self, .flush, peer_id);
                     }
+                    if (progress == .drained and session.lifecyclePhase() == .finishing and
+                        session.pendingOperations() == 0)
+                    {
+                        try condemn(self, session, .graceful_shutdown, "session closing");
+                        continue :work;
+                    }
                     if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, peer_id);
                     continue :work;
                 },
@@ -228,7 +271,7 @@ fn drainWork(self: *Host) !void {
                     var waiters = self.node.handoffWaiters(dependency);
                     while (waiters.next()) |receiver| {
                         const session = self.sessions.get(receiver) orelse continue;
-                        if (session.condemned) continue;
+                        if (session.isTerminating()) continue;
                         session.served.port.peer.noteHandoffChange(dependency);
                         markDirty(self, receiver);
                     }
@@ -287,7 +330,8 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
             const session = self.sessions.get(peer_id) orelse return;
             try retireRedeemOnlyExporter(self, session);
         },
-        .need_gift_id => |n| try queueHostAction(self, .{ .need_gift_id = .{ .ticket = n.ticket } }),
+        .need_gift_id => |n| if (self.node.hasPendingGift(n.ticket))
+            try queueHostAction(self, .{ .need_gift_id = .{ .ticket = n.ticket } }),
     }
 }
 
@@ -299,9 +343,9 @@ pub fn queueHostAction(self: *Host, action: HostAction) !void {
 }
 
 /// The one dispatch-failure arm under every feed verb: the peer has
-/// already projected a typed op:abort, so a flush is queued for the
-/// embedder (best-effort — the session is closing either way) and the
-/// dispatch error passes through.
+/// already projected a typed op:abort, so the session's admission-reserved
+/// flush notification is queued for the embedder and the dispatch error
+/// passes through.
 pub fn failDispatch(self: *Host, peer_id: engine.PeerId, err: anyerror) anyerror {
     queueUniqueSessionAction(self, .flush, peer_id);
     return err;
@@ -316,8 +360,8 @@ pub const UniqueSessionActionTag = enum { flush, close };
 fn queueUniqueSessionAction(self: *Host, comptime tag: UniqueSessionActionTag, peer_id: engine.PeerId) void {
     const session = self.sessions.get(peer_id) orelse return;
     const pending = switch (tag) {
-        .flush => &session.flush_action_pending,
-        .close => &session.close_action_pending,
+        .flush => &session.control.flush_action_pending,
+        .close => &session.control.close_action_pending,
     };
     if (pending.*) return;
     self.actions.pushReserved(switch (tag) {
@@ -327,16 +371,28 @@ fn queueUniqueSessionAction(self: *Host, comptime tag: UniqueSessionActionTag, p
     pending.* = true;
 }
 
-/// Test seam for the private FIFO dedupe (flush/close). Not a production API.
-pub fn testingQueueUniqueSessionAction(self: *Host, comptime tag: UniqueSessionActionTag, peer_id: engine.PeerId) !void {
-    queueUniqueSessionAction(self, tag, peer_id);
-}
+const markDirtyForTesting = markDirty;
+const queueUniqueSessionActionForTesting = queueUniqueSessionAction;
+
+/// White-box pump support. Empty outside test builds.
+pub const testing = if (builtin.is_test) struct {
+    pub fn markDirty(self: *Host, peer_id: engine.PeerId) void {
+        markDirtyForTesting(self, peer_id);
+    }
+
+    pub fn queueUniqueSessionAction(self: *Host, comptime tag: UniqueSessionActionTag, peer_id: engine.PeerId) !void {
+        queueUniqueSessionActionForTesting(self, tag, peer_id);
+    }
+} else struct {};
 
 /// Whole-frame inbound spine: latch, body, fail projection, finishDispatch.
 pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !void {
     try enterCallback(self, session);
     {
-        defer leaveCallback(self);
+        defer {
+            if (session.sessionOpen()) self.finishSessionOpen(session);
+            leaveCallback(self);
+        }
         body.call() catch |err| {
             if (!session.sessionOpen()) {
                 if (session.served.partnerAbort() != null) {
@@ -383,20 +439,43 @@ fn retireRedeemOnlyExporter(self: *Host, session: *HostSession) !void {
     return retireQuietly(self, session, "handoff redemption failed");
 }
 
+/// Retire a session after its adapter reports that the transport is gone.
+/// The adapter owns that physical fact; the core owns every authority and
+/// lifecycle consequence of it.
+pub fn retireTransportClosed(self: *Host, session: *HostSession, reason: []const u8) !void {
+    return retireQuietly(self, session, reason);
+}
+
 /// Retire a session whose sealed channel refused (ADR-0107): a handshake or
 /// record that did not verify. There may be no CapTP session at all yet, and
 /// after one opens no plaintext byte may follow the failure, so no `op:abort`
 /// is manufactured in either case — the embedder is told to close the
-/// transport and every later verb refuses `SessionCondemned`. Best-effort
-/// on ingress-cancel failure, because the caller is already unwinding the
-/// channel's own refusal.
+/// transport and every later verb refuses `SessionCondemned`. Any ingress
+/// cancellation or verb-tail failure is retained on the condemned peer while
+/// the channel's own refusal remains the caller-visible cause.
 pub fn retireSealedSession(self: *Host, session: *HostSession) void {
     const latched = self.in_callback;
+    var cleanup_failed = false;
     if (!latched) self.in_callback = true;
-    retireQuietly(self, session, "sealed channel refused") catch {};
+    retireQuietly(self, session, "sealed channel refused") catch |err|
+        recordRetirementFailure(session.served.port.peer, &cleanup_failed, err);
     if (!latched) {
         self.in_callback = false;
-        finishVerb(self) catch {};
+        finishVerb(self) catch |err|
+            recordRetirementFailure(session.served.port.peer, &cleanup_failed, err);
+    }
+}
+
+/// Start one fresh cleanup diagnostic chain for this retirement, then retain
+/// later consequences behind it. A peer may carry an older abort before the
+/// channel refuses; that unrelated record must not turn this retirement's
+/// first cleanup failure into a secondary.
+fn recordRetirementFailure(peer: *engine.Peer, failed: *bool, err: anyerror) void {
+    if (failed.*) {
+        peer.recordSecondaryFailure(err);
+    } else {
+        peer.recordFailure(err);
+        failed.* = true;
     }
 }
 
@@ -405,8 +484,8 @@ pub fn retireSealedSession(self: *Host, session: *HostSession) void {
 /// verdict owes except an `op:abort` echo. Runs under the callback latch;
 /// notification capacity was reserved when the shell was minted.
 fn retireQuietly(self: *Host, session: *HostSession, reason: []const u8) !void {
-    if (session.condemned) return;
-    session.condemned = true;
+    if (session.isTerminating()) return;
+    host_close.markSessionTerminating(self, session);
     self.unindexSession(session);
     session.served.port.breakFarVows(reason);
     var first_error: ?anyerror = null;
@@ -452,7 +531,7 @@ pub fn finishCommittedVow(self: *Host, session: *HostSession) void {
 pub fn finishCommittedWork(self: *Host, session: *HostSession) void {
     finishVerb(self) catch |err| switch (err) {
         error.OutOfMemory, error.OutboundBackpressure => {},
-        else => condemn(self, session, .other, @errorName(err)) catch {},
+        else => condemnAndClose(self, session, .other, @errorName(err)),
     };
 }
 
@@ -466,8 +545,11 @@ pub fn finishDispatch(self: *Host, session: *HostSession) !void {
 /// later verb refuses `SessionCondemned`. The abort rides the ordinary
 /// flush path; the embedder drains and writes it, then releases the session.
 pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) !void {
-    if (session.condemned) return;
-    session.condemned = true;
+    if (session.isTerminating()) return;
+    host_close.markSessionTerminating(self, session);
+    const was_in_callback = self.in_callback;
+    self.in_callback = true;
+    defer self.in_callback = was_in_callback;
     // Drop uniqueness-index rows immediately so a condemned session cannot
     // squat dial / partner-key slots while its abort drains (ADR-0012).
     self.unindexSession(session);
@@ -482,19 +564,23 @@ pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, messag
         session.served.port.peer.closeSession();
         first_error = err;
     };
-    // Queued turns/listeners cannot survive until an embedder observes CLOSE.
+    // Vows and queued turns cannot survive until an embedder observes CLOSE.
+    // Break first so every admitted operation settles before close reaches its
+    // barrier, including listeners installed while an earlier break fires.
+    session.served.port.breakFarVows(session.served.closeReason(message));
     self.cancelSessionIngress(session, message) catch |err| if (first_error == null) {
         first_error = err;
     };
     markDirty(self, session.peer_id);
+    if (session.served.hasOutbound()) queueUniqueSessionAction(self, .flush, session.peer_id);
     queueUniqueSessionAction(self, .close, session.peer_id);
     if (first_error) |err| return err;
 }
 
 /// Fail closed when cleanup itself cannot preserve protocol ownership. The
-/// session is condemned before either best-effort enqueue, so it cannot accept
-/// more authority even when allocation pressure also prevents the abort or
-/// close notification from being queued.
+/// session is condemned before its admission-reserved flush and close
+/// notifications are queued, so it cannot accept more authority even when
+/// encoding the partner diagnostic fails.
 pub fn condemnAndClose(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) void {
-    condemn(self, session, kind, message) catch {};
+    condemn(self, session, kind, message) catch |err| session.served.port.peer.recordFailure(err);
 }

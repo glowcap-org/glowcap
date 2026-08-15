@@ -74,13 +74,6 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 5173,
-    // Vite 8 host-blocks any request whose Host header isn't listed
-    // here. The Coder workspace forwards `5173--main--jimi-cuda--
-    // jimi.coder.prod.netflix.net` to the local 127.0.0.1:5173 port;
-    // without the allowlist entry the dev server responds with the
-    // "Blocked request" page. Wildcard the coder.prod.netflix.net
-    // domain so any workspace name / port-suffix combo passes.
-    allowedHosts: [".coder.prod.netflix.net", "127.0.0.1", "localhost"],
     warmup: {
       clientFiles: [
         "./src/main.tsx",

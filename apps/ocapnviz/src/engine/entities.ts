@@ -10,19 +10,8 @@
  * these as private fields are now one-line delegates.
  */
 
-import type {
-  MessageDefinition,
-  PeerDefinition,
-  SessionDefinition,
-  TimelineDocument,
-} from "./timeline.ts";
-import type {
-  CaptpVersion,
-  Codec,
-  PeerProfile,
-  SessionState,
-  Transport,
-} from "../schema/topology.ts";
+import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineDocument } from "./timeline.ts";
+import type { CaptpVersion, Codec, PeerProfile, SessionState, Transport } from "../schema/topology.ts";
 
 /** Write peer identity to `doc.entities.peers[peerId]`. Called when
  * a peer is created or its identity is edited, so the entities-map

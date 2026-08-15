@@ -132,7 +132,7 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
 
     var session_root: [32]u8 = undefined;
     try io.randomSecure(&session_root);
-    var host = Host.init(allocator, [_]u8{0x0e} ** 32, session_root, blk: {
+    var host = try Host.init(allocator, [_]u8{0x0e} ** 32, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -157,7 +157,7 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer loop.deinit();
     var buf: [tcp.designator_buf_len]u8 = undefined;
     const address = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const loc = tcp.locator(&buf, address);
+    const loc = tcp.locatorFromAddress(&buf, address);
     shared.exporter_port.store(loop.port().?, .release);
     try bridge.attach(model.transport.Known.tcp.metadata(), loc.designator, &.{});
     try bridge.dialOutbound(.{
@@ -173,7 +173,7 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
         shared.done.store(true, .release);
         pokeListener(io, loop.port().?);
         loop_future.await(io);
-        if (loop_err) |err| std.debug.print("02: exporter loop: {s}\n", .{@errorName(err)});
+        if (loop_err) |err| std.debug.print("many-sessions: exporter loop: {s}\n", .{@errorName(err)});
     }
 
     try waitFlag(io, &shared.done);
@@ -262,11 +262,11 @@ const ClientState = struct {
                     .reference => |r| r,
                     else => return,
                 };
-                std.debug.print("02: introduced to a capability on another peer, redeemed inside the settle\n", .{});
+                std.debug.print("many-sessions: introduced to a capability on another peer, redeemed inside the settle\n", .{});
                 const vow = self.host.send(session, widget, .{ .verb = "poke", .args = &.{} }) catch return;
                 self.host.vowOn(vow, .{ .ctx = self, .func = onPoked }) catch return;
             },
-            .broken => |reason| std.debug.print("02: introduce broke: {s}\n", .{reason}),
+            .broken => |reason| std.debug.print("many-sessions: introduce broke: {s}\n", .{reason}),
             else => {},
         }
     }
@@ -275,10 +275,10 @@ const ClientState = struct {
         const self: *ClientState = @ptrCast(@alignCast(ctx.?));
         switch (resolution) {
             .fulfilled => |value| {
-                if (value == .string) std.debug.print("02: {s}\n", .{value.string});
+                if (value == .string) std.debug.print("many-sessions: {s}\n", .{value.string});
                 self.poked.store(true, .release);
             },
-            .broken => |reason| std.debug.print("02: poke broke: {s}\n", .{reason}),
+            .broken => |reason| std.debug.print("many-sessions: poke broke: {s}\n", .{reason}),
             else => {},
         }
     }
@@ -303,7 +303,7 @@ pub fn main(init: std.process.Init) !void {
     var shared = Shared{};
     var gifter_session_root: [32]u8 = undefined;
     try io.randomSecure(&gifter_session_root);
-    var gifter_host = Host.init(allocator, [_]u8{0x06} ** 32, gifter_session_root, blk: {
+    var gifter_host = try Host.init(allocator, [_]u8{0x06} ** 32, gifter_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -334,7 +334,7 @@ pub fn main(init: std.process.Init) !void {
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port().?);
-    const gifter_designator = tcp.locator(&designator_buf, gifter_designator_addr).designator;
+    const gifter_designator = tcp.locatorFromAddress(&designator_buf, gifter_designator_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), gifter_designator, &.{});
 
     var loop_err: ?anyerror = null;
@@ -344,17 +344,17 @@ pub fn main(init: std.process.Init) !void {
         shared.done.store(true, .release);
         pokeListener(io, loop.port().?);
         loop_future.await(io);
-        if (loop_err) |err| std.debug.print("02: gifter loop: {s}\n", .{@errorName(err)});
+        if (loop_err) |err| std.debug.print("many-sessions: gifter loop: {s}\n", .{@errorName(err)});
     }
     var exporter_future = try io.concurrent(exporterTask, .{ allocator, &shared, @as([]const u8, gifter_designator) });
-    defer exporter_future.await(io) catch |err| std.debug.print("02: exporter: {s}\n", .{@errorName(err)});
+    defer exporter_future.await(io) catch |err| std.debug.print("many-sessions: exporter: {s}\n", .{@errorName(err)});
 
     try waitFlag(io, &shared.fetched);
 
     var poked = std.atomic.Value(bool).init(false);
     var recipient_session_root: [32]u8 = undefined;
     try io.randomSecure(&recipient_session_root);
-    var recipient_host = Host.init(allocator, [_]u8{0x0c} ** 32, recipient_session_root, blk: {
+    var recipient_host = try Host.init(allocator, [_]u8{0x0c} ** 32, recipient_session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -376,7 +376,7 @@ pub fn main(init: std.process.Init) !void {
     defer r_loop.deinit();
     var r_buf: [tcp.designator_buf_len]u8 = undefined;
     const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port().?);
-    const r_designator = tcp.locator(&r_buf, r_designator_addr).designator;
+    const r_designator = tcp.locatorFromAddress(&r_buf, r_designator_addr).designator;
     try r_bridge.attach(model.transport.Known.tcp.metadata(), r_designator, &.{});
     try r_bridge.dialOutbound(.{
         .transport = tcp.transport_name,
@@ -391,7 +391,7 @@ pub fn main(init: std.process.Init) !void {
         shared.done.store(true, .release);
         pokeListener(io, r_loop.port().?);
         r_future.await(io);
-        if (r_err) |err| std.debug.print("02: recipient loop: {s}\n", .{@errorName(err)});
+        if (r_err) |err| std.debug.print("many-sessions: recipient loop: {s}\n", .{@errorName(err)});
     }
 
     try waitFlag(io, &poked);
@@ -400,5 +400,5 @@ pub fn main(init: std.process.Init) !void {
     pokeListener(io, loop.port().?);
     pokeListener(io, r_loop.port().?);
     pokeListener(io, shared.exporter_port.load(.acquire));
-    std.debug.print("02: introduce and redeem OK\n", .{});
+    std.debug.print("many-sessions: introduce and redeem OK\n", .{});
 }

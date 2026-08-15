@@ -247,9 +247,7 @@ export async function runCrossLangDemo(
 
 	let failed = false;
 	try {
-		const port = server
-			? await readListeningPort(server, demo.listenPattern, demo.listenMiss)
-			: pinPort;
+		const port = server ? await readListeningPort(server, demo.listenPattern, demo.listenMiss) : pinPort;
 		console.log(
 			`${demo.label} demo: ${demo.serverNoun} on 127.0.0.1:${port}; running ${participants.length} ${demo.clientNoun}(s) (${
 				participants.map((p) => p.name).join(", ")
@@ -267,9 +265,7 @@ export async function runCrossLangDemo(
 		if (failed) {
 			console.error(demo.failLine);
 		} else {
-			const langs = participants.length === 1
-				? "1 language"
-				: `${participants.length} languages`;
+			const langs = participants.length === 1 ? "1 language" : `${participants.length} languages`;
 			console.log(demo.okLine(langs));
 			if (skipped.length > 0) console.log(`(skipped: ${skipped.join("; ")})`);
 		}

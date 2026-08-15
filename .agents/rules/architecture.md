@@ -15,6 +15,14 @@ issue or PR that owns it. Preserve conflicting proposals as explicit variants
 until consensus selects one; do not blend them into an unsourced wire format.
 Bindings remain dogfoods, never semantic oracles.
 
+**Read the draft before writing wire behavior, not only before deleting it.**
+The trigger is any change to what pancake puts on the wire, and `conformance/
+ocapn-spec/upstream/draft-specifications/` usually answers outright. Designing
+the choreography first and checking after is how an unsourced wire format gets
+written: it compiles, it passes the tests written alongside it, and it is
+wrong in a way only a partner can see. A behavior the draft already specifies
+is not a design question.
+
 ```text
 Frame -> Codec view -> Session state -> Outgoing Message -> Codec -> Frame
 ```
@@ -36,7 +44,17 @@ live object.
 The portable core takes no sockets, no hidden scheduler, no background tasks, no
 `std.Io` in protocol modules, and no adapter policy inside codecs, session, or
 engine. Adapters may use `std.Io`, transports, callbacks, and host scheduling,
-but **they never add CapTP semantics the core lacks.**
+but never invent semantics, lifecycle, ownership, or policy absent from shared
+Zig authority. Bindings adapt syntax and resource idioms and drive shared state
+machines; if one needs a second state machine, fix the core or C ABI first.
+The C ABI and bindings are plumbing: they marshal values, execute core-selected
+effects, and project exact outcomes into each runtime's native error and
+lifetime idioms. Protocol decisions, application/business rules, retry policy,
+and recovery policy do not belong there.
+
+A nonblocking I/O operation's cancel edge interrupts the effect and retires its
+worker before freeing operation state. Abandoning a result while blocked I/O
+continues is not cancellation.
 
 CapTP is transport-agnostic and never names a transport. A netlayer is a locator
 transport symbol (`tcp`, `keyed-tcp`, `noise-tcp`, `keyed-relay`, `inproc`,
@@ -52,8 +70,9 @@ completion-loop tier composes the same machine in the sealing backend adapter
 the dial connected and answers `verifiedChannelKey` — the same realizer seam
 iroh uses. `noise-relay` is that adapter over the keyed-relay pipe
 (`net.NoiseRelayLoop`) on the completion dial side. Registered accepts use the
-keyed-relay resident's sealed profile and the byte-fed Host; browser wasm peers
-use the same Host channel through their WebSocket bridge.
+keyed-relay resident's sealed profile and the byte-fed Host. Browser wasm can
+run that same Host channel, but the shipped rendezvous path is still cleartext
+`keyed-relay`; Rooms DMs use WebRTC.
 
 ## Not every shipped netlayer is deployable
 
@@ -67,7 +86,7 @@ The split is not obvious from the code. The human page is
 | `keyed-tcp` | none; key designator is a dial target only | cleartext | trusted network only |
 | `noise-tcp` | Noise_XK between the CapTP peers; completing it proves the exact durable key in both directions (ADR-0107) | end-to-end encrypted records | production through the native Host tiers, C driver loop, and native bindings; `BlockingSession` refuses it |
 | `keyed-relay` | none; key designator is a dial target only | cleartext `ws://` | trusted relay and network only |
-| `noise-relay` | Noise_XK between the CapTP peers, over the relay pipe; the relay forwards ciphertext (ADR-0107) | end-to-end encrypted records | production through the relay provider package, generic C driver, native bindings, and browser wasm rendezvous |
+| `noise-relay` | Noise_XK between the CapTP peers, over the relay pipe; the relay forwards ciphertext (ADR-0107) | end-to-end encrypted records | production through the relay provider package, generic C driver, and native bindings; browser wasm does not compose this provider |
 | `onion` | Tor's rendezvous handshake on the dialing side, nothing on the accepting side | encrypted, anonymized Tor circuit | proven live against Goblins in both directions and the complete portable upstream suite; blocking resident, provider package, native Zig completion loop, and every native binding ship |
 | `webrtc` | identity authorized by signaling | DTLS DataChannel | production |
 | `iroh` | QUIC remote node id, the one realizer proof in the tree | encrypted QUIC | production |
@@ -118,15 +137,15 @@ back tried to _police_ the collision instead**, and policing a name the protocol
 lets a peer choose refuses correct peers.
 
 So prefer a key that carries its own dimensions, a distinct type or a composite
-naming the owner. Where a key stays bare, `zig build meta-check` requires it to
-answer both questions in `tools/check/meta_check/namespaces.zig`, in both
+naming the owner. Where a key stays bare, `zig build source-check` requires it to
+answer both questions in `tools/check/source_check/namespaces.zig`, in both
 directions.
 
 ## Layer Ownership
 
 Where code goes. `build.zig`'s `layer_table` and `archive_table` are the
 authority for module edges and the archive set, `docs/architecture.md` is the
-readable tour, and `meta-check` holds this list against `src/` in both
+readable tour, and `source-check` holds this list against `src/` in both
 directions.
 
 - `foundation`: bytes, IDs, frame ownership, and the `Spill` where a stream's
@@ -147,6 +166,10 @@ directions.
   refcounted-HAMT `PersistentMap` (ADR-0061) so a persistent actor's functional
   `become` is O(log n). Pure, no-I/O, imports nothing, off the public `pancake`
   namespace, reached only by opt-in persistent actors.
+- `diagnostics`: the vendor-neutral typed record and bounded journal for a
+  failure whose last deterministic return recipient has gone (ADR-0115).
+  Mutable storage belongs to an explicit Context, Host, or driver; the module
+  owns no global journal, logging backend, protocol outcome, or fatal policy.
 - `net`: the one place `std.Io` enters. Folds the one parser over a stream and
   realizes netlayer residents over byte streams. Not part of the no-I/O core.
 - `driver/core` (`driver_core`): the sans-io serve core the driver stands on.
@@ -159,7 +182,7 @@ directions.
   across sibling files by responsibility, each presenting its verbs as `Host`'s
   own through decl aliases; `host.zig` keeps the state, the byte pump, the serve
   hooks, and the application verbs, and **its alias table is the index**.
-  `host_pump.zig` is private to the directory (`meta-check` holds this), and a
+  `host_pump.zig` is private to the directory (`source-check` holds this), and a
   helper made `pub` for a sibling says so where it is declared.
 - `driver`: the native application surface above `driver_core`, `actors`, and
   `net`, composing the sans-io core with I/O. `BlockingSession` is the
@@ -184,7 +207,7 @@ directions.
     another's exports.
   - `c_abi/ocapn` (`c_abi`): `libpancake_ocapn`, C-shaped only. Every handle
     frees through exactly one `pancake_*_release`; a `*_close` is a shutdown
-    lever and never frees, which `meta-check` holds in the generated headers.
+    lever and never frees, which `source-check` holds in the generated headers.
   - `c_abi/host` (`c_abi_host`): `libpancake_host`, the byte-fed host tier
     (ADR-0072). An embedder owning its own loop, sockets, and entropy drives a
     full multi-session CapTP Host with bytes, and the host's own effects surface
@@ -197,16 +220,18 @@ directions.
     readiness descriptor and one event queue, with the standalone provider ABI
     as the transport seam. A new loop starts with zero transports; one thread
     drives one loop; dial and accept handshakes advance across steps
-    (`HostRuntime.startConnectLocator`, `HostRuntime.startAcceptWire`), so loops
+    (`HostRuntime.startDial`, `HostRuntime.startAcceptWire`), so loops
     on one thread can dial each other and a stalled connector cannot park
     the step.
     `ProviderRegistry` alone validates and adapts stream/multiplexed tables and
     holds package leases. Listener locator projection and canonicalization use
     one callback ABI across both execution models; their incompatible I/O
-    ownership stays separate. `meta-check` holds this split.
+    ownership stays separate. `source-check` holds this split.
     Generic driver and binding loop modules name no concrete transport. Product
     composition loads provider archives; each archive owns every profile it
     advertises, its realization policy, and its lifecycle.
+    Bindings reject only unsafe or lossy ABI marshalling; the C ABI owns
+    semantic argument validity and bindings translate its diagnostic.
   - `c_abi/wasm` (`c_abi_wasm`): the browser binding's freestanding `wasm32`
     entry root (ADR-0070). Forces the `pancake_*` and `pancake_host_*` families
     into one loadable module and adds the two JS-to-wasm linear-memory

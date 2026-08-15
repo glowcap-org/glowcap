@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-container_name=${PANCAKE_DEV_CONTAINER:-pancake-dev}
 user=${PANCAKE_DEV_USER:-vscode}
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -9,29 +8,31 @@ if ! command -v docker >/dev/null 2>&1; then
 	exit 127
 fi
 
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-repo_name=$(basename "$repo_root")
-workdir=${PANCAKE_DEV_WORKDIR:-/workspaces/$repo_name}
+source_path=${BASH_SOURCE[0]}
+while [[ -L "${source_path}" ]]; do
+	source_dir=$(cd -P "$(dirname "${source_path}")" && pwd)
+	source_path=$(readlink "${source_path}")
+	[[ "${source_path}" = /* ]] || source_path="${source_dir}/${source_path}"
+done
+repo_root=$(cd -P "$(dirname "${source_path}")/../../../.." && pwd)
+workdir=${PANCAKE_DEV_WORKDIR:-/workspaces/pancake}
 
-container_id=$(
-	docker ps --filter "name=^/${container_name}$" --format '{{.ID}}' | head -n 1
-)
-
-# Compose names a service container `<project>-<service>-<n>`, so the plain name
-# above misses the devcontainer this repository actually starts. The Dev
-# Containers extension stamps the host workspace path on it, which names this
-# checkout's container exactly, even with several pancake clones open at once.
-if [[ -z "$container_id" ]]; then
+# shellcheck source=../../../../.devcontainer/lib.sh
+source "${repo_root}/.devcontainer/lib.sh"
+worktree=$(pancake_devcontainer_worktree_name "${repo_root}/.devcontainer")
+if [[ -n "${PANCAKE_DEV_CONTAINER:-}" ]]; then
+	container_name="${PANCAKE_DEV_CONTAINER}"
 	container_id=$(
-		docker ps --filter "label=devcontainer.local_folder=${repo_root}" \
-			--format '{{.ID}}' | head -n 1
+		docker ps --filter "name=^/${container_name}$" --format '{{.ID}}' | head -n 1
 	)
+else
+	container_name="pancake-${worktree}"
+	container_id="$(pancake_devcontainer_running_container "${repo_root}")" || container_id=""
 fi
 
 if [[ -z "$container_id" ]]; then
 	echo "pancake-dev: no running devcontainer for ${repo_root}" >&2
-	echo "pancake-dev: and no container named ${container_name}" >&2
-	echo "pancake-dev: start it with Dev Containers or override PANCAKE_DEV_CONTAINER" >&2
+	echo "pancake-dev: expected ${container_name}; start it with Dev Containers or set PANCAKE_DEV_CONTAINER explicitly" >&2
 	exit 1
 fi
 

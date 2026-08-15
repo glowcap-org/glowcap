@@ -41,6 +41,12 @@ test "prior cross-surface drift now classifies consistently" {
     try std.testing.expectEqual(abort.Domain.codec, view.domain);
     try std.testing.expectEqual(pancake.ocapn.model.AbortKind.malformed_frame, view.abort.?.kind);
 
+    // An outbound encoder invariant is contained to its operation and remains
+    // codec-owned, but cannot blame a partner with an abort.
+    const encoder = abort.classify(error.EncoderInvariantViolation);
+    try std.testing.expectEqual(abort.Domain.codec, encoder.domain);
+    try std.testing.expect(encoder.abort == null);
+
     // A handshake version mismatch is a session-domain terminal abort.
     const mismatch = abort.classify(error.CaptpVersionMismatch);
     try std.testing.expectEqual(abort.Domain.session, mismatch.domain);

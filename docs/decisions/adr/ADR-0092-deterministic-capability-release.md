@@ -112,7 +112,7 @@ covers the clones the type system cannot, and `Ref::released` reports it.
   previously got either a stranded row or, after position reuse, a message to
   the wrong object. That is a behaviour change only for code that was already
   wrong.
-- `meta-check` holds two things that bit during implementation: an ABI symbol
+- `source-check` holds two things that bit during implementation: an ABI symbol
   reflected into the generated FFI must be wired in every binding or declared
   deferred with a reason, and `pancake_host_gc_release` belongs to each
   binding's `gc` module rather than its session. Both are why this landed in

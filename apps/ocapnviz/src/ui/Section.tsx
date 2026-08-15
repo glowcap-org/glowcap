@@ -97,9 +97,7 @@ export function Section(
       {heading && (
         <div style={title}>
           <span>{heading}</span>
-          {action !== undefined && action !== null && (
-            <span style={titleAction}>{action}</span>
-          )}
+          {action !== undefined && action !== null && <span style={titleAction}>{action}</span>}
         </div>
       )}
       <div style={heading ? body : untitledBody}>{children}</div>

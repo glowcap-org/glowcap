@@ -48,19 +48,15 @@ export function ToolHint(
   }
   let message: React.ReactNode = null;
   if (tool === "open-session") {
-    message = armedNodeLabel === null
-      ? "Open session — click the first node"
-      : (
-        <>
-          Open session — click a second node{" "}
-          <span style={accent}>(from {armedNodeLabel})</span>
-        </>
-      );
+    message = armedNodeLabel === null ? "Open session — click the first node" : (
+      <>
+        Open session — click a second node <span style={accent}>(from {armedNodeLabel})</span>
+      </>
+    );
   } else if (tool === "send-message") {
     message = armedNodeLabel === null ? "Send message — click the sender" : (
       <>
-        Send message — click the receiver{" "}
-        <span style={accent}>(from {armedNodeLabel})</span>
+        Send message — click the receiver <span style={accent}>(from {armedNodeLabel})</span>
       </>
     );
   } else if (tool === "add-peer") {

@@ -409,7 +409,7 @@ proves the exact-gift mutation case on its public surface: the Deno stack in
 direct-message scene, Racket in the `zig-smoke.rkt` redeem-dial scene, and
 Rust in `bindings/rust/examples/iroh_handoff.rs` — each mutates the held
 object, replaces the alias with a decoy, and asserts the withdrawn object is
-the mutated original. The browser surface shares the same `@pancake/stack`
+the mutated original. The browser surface shares the same `@pancake/runtime`
 gift logic over the wasm adapter, whose equivalence `zig build web-peer-test`
 holds and whose live redemption `zig build rooms-web-dm` proves in a real
 Chromium. The live Goblins exporter fixture (`zig build goblins-exporter`)

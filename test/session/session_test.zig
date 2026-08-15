@@ -2773,3 +2773,62 @@ test "resolver purpose replacement evicts a colliding resolver in both direction
     try std.testing.expect(s.outbound_resolver_link.getByKey(second) == null);
     try std.testing.expect(s.outbound_resolver_link.getByValue(.{ .shortening_pending = source_five }) == null);
 }
+
+test "preference hints on the owned path refuse duplicates, wrong types, and unreadable tokens" {
+    // The borrowed-view refusals live in the codec tests; these pin the owned
+    // `model.Hints` arms of the same one parser, which apply and the
+    // advertised-profile checks walk.
+    const transport = model.transport;
+
+    const duplicate = [_]model.HintEntry{
+        .{ .name = transport.hint_codec, .value = .{ .string = "1" } },
+        .{ .name = transport.hint_codec, .value = .{ .string = "1" } },
+    };
+    try std.testing.expectError(
+        session.Error.MalformedMessage,
+        session.parsePreferenceHints(model.Hints{ .entries = &duplicate }),
+    );
+
+    const non_string = [_]model.HintEntry{
+        .{ .name = transport.hint_codec, .value = .{ .integer = 1 } },
+    };
+    try std.testing.expectError(
+        session.Error.MalformedMessage,
+        session.parsePreferenceHints(model.Hints{ .entries = &non_string }),
+    );
+
+    const bad_version = [_]model.HintEntry{
+        .{ .name = transport.hint_captp_version, .value = .{ .string = "ocapn-2" } },
+    };
+    try std.testing.expectError(
+        session.Error.MalformedMessage,
+        session.parsePreferenceHints(model.Hints{ .entries = &bad_version }),
+    );
+
+    const bad_codec_token = [_]model.HintEntry{
+        .{ .name = transport.hint_codec, .value = .{ .string = "bad" } },
+    };
+    try std.testing.expectError(
+        session.Error.MalformedMessage,
+        session.parsePreferenceHints(model.Hints{ .entries = &bad_codec_token }),
+    );
+
+    const bad_features = [_]model.HintEntry{
+        .{ .name = transport.hint_features, .value = .{ .string = "no-such-feature" } },
+    };
+    try std.testing.expectError(
+        session.Error.MalformedMessage,
+        session.parsePreferenceHints(model.Hints{ .entries = &bad_features }),
+    );
+}
+
+test "preference hints on the owned path parse a stated profile" {
+    const transport = model.transport;
+    const stated = [_]model.HintEntry{
+        .{ .name = transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.wireString() } },
+    };
+    const preference = try session.parsePreferenceHints(model.Hints{ .entries = &stated });
+    try std.testing.expectEqual(model.CaptpVersion.next, preference.captp_version);
+    try std.testing.expectEqual(model.Preference.baseline.codec, preference.codec);
+    try std.testing.expectEqual(model.Preference.baseline.features, preference.features);
+}

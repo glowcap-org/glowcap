@@ -6,7 +6,7 @@
 //! corpus while the stream-level ones started from two frames. The coverage
 //! each reached showed the difference plainly, so they share this now.
 //!
-//! `zig build meta-check` holds the list against `test/oracle/corpus/`, so a new
+//! `zig build source-check` holds the list against `test/oracle/corpus/`, so a new
 //! corpus file cannot land without becoming a seed. The other direction needs no
 //! check: a seed naming a file that is gone fails to compile, because the seeds
 //! are embedded at build time.
@@ -16,7 +16,7 @@ const std = @import("std");
 /// Every CapTP message in the checked-in Syrup corpus, wired as a seed.
 ///
 /// The whole message subset, not a hand-picked spread: a message entry that is
-/// not a seed is a shape the fuzzer never starts from. `zig build meta-check`
+/// not a seed is a shape the fuzzer never starts from. `zig build source-check`
 /// holds all seed lists against the directory, so a new corpus file cannot land
 /// without becoming a seed.
 pub const message_seeds = [_][]const u8{

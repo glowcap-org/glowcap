@@ -214,9 +214,7 @@ Deno.test("paste: time offset shifts pasted events to playhead", () => {
   // offset by 500-10=490).
   const r = cascadePaste(target, payload, 500);
   assert(r.ok);
-  const opened = primaryObservations(r.value.doc).find((e) =>
-    e.kind === "session-opened"
-  );
+  const opened = primaryObservations(r.value.doc).find((e) => e.kind === "session-opened");
   assertEquals(opened?.t, 500);
 });
 

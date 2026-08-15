@@ -28,9 +28,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pancake_rust_dogfood::{
-	connect, listen, socket_addr_designator, tcp_locator, Argument, Ref, Session,
-};
+use pancake_rust_dogfood::{tcp, Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
@@ -96,27 +94,20 @@ async fn main() -> Result<(), Fail> {
 	// Keep draining Bob's stdout for the rest of the run, same pipe-deadlock
 	// guard the stderr drain gives.
 	drain_in_background(reader);
-	println!(
-		"rust-goblins-gift: goblins-bob exporting greeter swiss={GREETER_SWISS} on {HOST}:{port}"
-	);
+	println!("rust-goblins-gift: goblins-bob exporting greeter swiss={GREETER_SWISS} on {HOST}:{port}");
 
 	// The `Session`/`Server` are `!Send`, so the gifter runs on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
-	let result =
-		match tokio::time::timeout(helpers::INTEROP_TIMEOUT, local.run_until(gift(port))).await {
-			Ok(result) => result,
-			Err(_) => Err("rust-goblins-gift timed out".into()),
-		};
+	let result = match tokio::time::timeout(helpers::INTEROP_TIMEOUT, local.run_until(gift(port))).await {
+		Ok(result) => result,
+		Err(_) => Err("rust-goblins-gift timed out".into()),
+	};
 
 	let _ = bob.kill().await;
 	if result.is_err() {
-		let err = String::from_utf8_lossy(
-			&bob_stderr
-				.lock()
-				.expect("bob stderr buffer is not poisoned"),
-		)
-		.trim()
-		.to_string();
+		let err = String::from_utf8_lossy(&bob_stderr.lock().expect("bob stderr buffer is not poisoned"))
+			.trim()
+			.to_string();
 		if !err.is_empty() {
 			eprintln!("rust-goblins-gift: exporter stderr:\n{err}");
 		}
@@ -128,8 +119,8 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// pancake (the gifter) listens for the recipient on an ephemeral port. One
 	// node identity serves both the recipient connection and the exporter
 	// connection, so the give's signature matches the deposit.
-	let server = listen((HOST, 0)).await?;
-	let gifter_port = server.local_addr()?.port();
+	let server = tcp::listen(HOST, 0, tcp::ListenOptions::default()).await?;
+	let gifter_port = server.port()?;
 	let host = server.host();
 
 	// Run the accept loop, retaining every accepted connection: dropping a
@@ -145,11 +136,14 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The
 	// reply ref's home is this gifter↔Bob connection, which is what lets pancake
 	// re-gift it without an enrollment verb.
-	let to_bob = connect(&tcp_locator(HOST, port), None, Some(host.clone())).await?;
+	let runtime =
+		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&host)).await?;
+	let to_bob = runtime
+		.connect(&tcp::locator(HOST, port), ConnectOptions::default())
+		.await?;
 	let vendor = to_bob.fetch(VENDOR_SWISS).await?;
 	let offered = to_bob.send(&vendor, "", &[]).await?;
-	let greeter = Ref::try_from(&offered)
-		.map_err(|_| format!("vendor did not return a capability: {offered:?}"))?;
+	let greeter = Ref::try_from(&offered).map_err(|_| format!("vendor did not return a capability: {offered:?}"))?;
 	println!("rust-goblins-gift: lifted goblins-bob's greeter from a reply");
 
 	// Publish the introducer Host-wide. Returning Bob's greeter (home = the Bob
@@ -167,7 +161,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 				Err(format!("introducer: no such verb {verb:?}"))
 			}
 		})
-	});
+	})?;
 	println!("rust-goblins-gift: pancake publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}");
 
 	// Spawn Carol (the Goblins recipient): she dials pancake's introducer, asks
@@ -175,7 +169,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	let mut carol = Command::new(RACKET)
 		.args([
 			RECIPIENT_SCRIPT,
-			&socket_addr_designator(HOST, gifter_port),
+			&tcp::address_designator(HOST, gifter_port),
 			INTRODUCER_SWISS,
 			&(port + 1).to_string(),
 		])
@@ -204,17 +198,14 @@ async fn gift(port: u16) -> Result<(), Fail> {
 		.into());
 	}
 	if !reply.starts_with("GIFT OK:") || !reply.contains("goblins-carol") {
-		return Err(format!(
-			"recipient did not confirm the greeter reply with its name: {reply:?}"
-		)
-		.into());
+		return Err(format!("recipient did not confirm the greeter reply with its name: {reply:?}").into());
 	}
 
 	println!(
-        "rust-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, \
+		"rust-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, \
          reaching the exporter directly"
-    );
-	to_bob.close();
+	);
+	to_bob.close(pancake_rust_dogfood::PendingWork::Cancel).await?;
 	Ok(())
 }
 
@@ -240,10 +231,6 @@ async fn carol_output(carol: &mut Child) -> Result<(Vec<u8>, Vec<u8>, bool), Fai
 	let mut stderr = carol.stderr.take().ok_or("no recipient stderr")?;
 	let mut out = Vec::new();
 	let mut err = Vec::new();
-	let (status, _, _) = tokio::join!(
-		carol.wait(),
-		stdout.read_to_end(&mut out),
-		stderr.read_to_end(&mut err)
-	);
+	let (status, _, _) = tokio::join!(carol.wait(), stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
 	Ok((out, err, status?.success()))
 }

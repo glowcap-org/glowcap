@@ -1,0 +1,19 @@
+{
+	"name": "@pancake/tcp",
+	"version": "0.1.0",
+	"exports": {
+		".": "./mod.ts",
+		"./transport": "./transport.ts"
+	},
+	"publish": {
+		"include": [
+			"**/*.ts"
+		],
+		"exclude": [
+			"test/**"
+		]
+	},
+	"tasks": {
+		"check": "deno check mod.ts address.ts listen.ts transport.ts"
+	}
+}

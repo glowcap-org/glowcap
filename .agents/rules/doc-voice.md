@@ -18,7 +18,7 @@ executor. Do not mix the two voices.
 CapTP vocabulary cheat-sheets (symbol maps, “sticky note” dumps) live in the
 [architecture rule](architecture.md), not in human living-state pages. Human
 pages name the product in sentences a newcomer can follow, then link an ADR when
-a decision needs a record. `zig build meta-check` bans the literal
+a decision needs a record. `zig build source-check` bans the literal
 `CapTP sticky note` label on human first-read paths.
 
 ADRs under `docs/decisions/adr/**` stay precise memos. Planning docs under
@@ -33,7 +33,7 @@ lines are fine.
 
 **Completion bar.** Every human surface above must meet this rule (or better).
 Unfinished voice on a touched surface is unfinished work, not taste.
-`zig build meta-check` (`checkHumanDocVoice`) bans high-signal regressions on
+`zig build source-check` (`checkHumanDocVoice`) bans high-signal regressions on
 those paths: the `CapTP sticky note` label, agent-scaffold needles (`Meta
 scaffolding`, `next audit`), self-praise (`deliberately boring` / `boring on
 purpose`), connective `→`/`⇒` outside fenced code, and `.agents/` links on
@@ -102,7 +102,7 @@ These are the tells that prose has drifted into a private notation:
 - The sentence that never ends. Four ideas joined by semicolons, with a stack of
   identifiers and a decision-record number wedged in, is not one sentence. The
   median sentence on these pages is under a hundred characters;
-  `zig build meta-check` (`checkProseSentenceLength`) refuses one past 250,
+  `zig build source-check` (`checkProseSentenceLength`) refuses one past 250,
   which is well past the point a reader has lost the thread.
 
 - Self-awarded praise. Prose that calls the project's own arithmetic "honest," a
@@ -131,7 +131,7 @@ These are the tells that prose has drifted into a private notation:
   else is overuse: "X — and then Y", "X — which is Y", a lone dash where ", " or
   ". " reads the same, and three facts strung behind dashes in one breath. The
   test is simple: if a comma, period, colon, or parentheses would carry the
-  sentence as well, the dash has not earned its place. `zig build meta-check`
+  sentence as well, the dash has not earned its place. `zig build source-check`
   (`banHabitualEmDash`) rejects the two patterns habit reaches for most,
   `— which` and `— and then`, across `src/`, `cli/`, `docs/`, `site/content`,
   and `README.md`. The rest of this bullet is still yours to hold.
@@ -144,7 +144,7 @@ These are the tells that prose has drifted into a private notation:
 - Square brackets wrapped around a code span with no link target after them.
   That is rustdoc's intra-doc link syntax; nothing in this repository resolves
   it, so it renders as literal brackets around dead text. Write the plain code
-  span, or a real Markdown link with a target. `zig build meta-check` rejects
+  span, or a real Markdown link with a target. `zig build source-check` rejects
   the form in owned Markdown and Zig comments (rustdoc resolves it, so
   `bindings/rust` keeps it).
 

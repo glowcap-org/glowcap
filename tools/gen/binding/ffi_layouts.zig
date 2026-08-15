@@ -35,6 +35,7 @@ const std = @import("std");
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const cdr = @import("c_abi_driver");
+const ct = @import("c_abi_net_transport_tcp");
 const ci = @import("c_abi_net_transport_iroh");
 const cw = @import("c_abi_net_transport_webrtc");
 
@@ -148,17 +149,22 @@ const layouts = [_]Layout{
     layoutOf("PANCAKE_MANAGED_FRAME", c.PancakeManagedFrame),
     layoutOf("PANCAKE_LAST_ABORT", c.PancakeLastAbort),
     layoutOf("PANCAKE_ALLOCATOR", c.PancakeAllocator),
+    layoutOf("PANCAKE_FAILURE_REPORT", c.PancakeFailureReport),
+    layoutOf("PANCAKE_FAILURE_EVENT", c.PancakeFailureEvent),
     layoutOf("PANCAKE_HOST_ACTION", cd.PancakeHostAction),
-    layoutOf("PANCAKE_DIAL_PLAN", cd.PancakeDialPlan),
-    layoutOf("PANCAKE_ACCEPT_PLAN", cd.PancakeAcceptPlan),
     layoutOf("PANCAKE_PARTNER_IDENTITY", cd.PancakePartnerIdentity),
     layoutOf("PANCAKE_TRACE_EVENT", cd.PancakeTraceEvent),
     layoutOf("PANCAKE_HOST_PUMP_HOOKS", cd.PancakeHostPumpHooks),
+    layoutOf("PANCAKE_CLOSE_OPTIONS", cd.PancakeCloseOptions),
     layoutOf("PANCAKE_DRIVER_OPTIONS", cdr.PancakeDriverOptions),
     layoutOf("PANCAKE_DRIVER_EVENT", cdr.PancakeDriverEvent),
     layoutOf("PANCAKE_LOCATOR_HINT_VIEW", cdr.PancakeLocatorHintView),
     layoutOf("PANCAKE_LOCATOR_VIEW", cdr.PancakeLocatorView),
     layoutOf("PANCAKE_TRANSPORT_PROVIDER", cdr.PancakeTransportProvider),
+    layoutOf("PANCAKE_TRANSPORT_OPERATION_OPTIONS", cdr.PancakeTransportOperationOptions),
+    layoutOf("PANCAKE_TCP_STREAM_OPTIONS", ct.PancakeTcpStreamOptions),
+    layoutOf("PANCAKE_TCP_CONFIG", ct.PancakeTcpConfig),
+    layoutOf("PANCAKE_TCP_OPERATION_OPTIONS", ct.PancakeTcpOperationOptions),
     layoutOf("PANCAKE_IROH_READY_EVENT", ci.PancakeIrohReadyEvent),
     layoutOf("PANCAKE_WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent),
     layoutOf("PANCAKE_WEBRTC_CONFIG", cw.PancakeWebrtcConfig),

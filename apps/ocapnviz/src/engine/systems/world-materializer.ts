@@ -14,11 +14,7 @@
  * — KeyframeLayoutSystem owns positions and runs after.
  */
 
-import {
-  endpointStageId,
-  SESSION_SIDES,
-  type SessionState,
-} from "../../schema/topology.ts";
+import { endpointStageId, SESSION_SIDES, type SessionState } from "../../schema/topology.ts";
 import { containsTime } from "../temporal/range.ts";
 import {
   messageEffective,
@@ -30,12 +26,7 @@ import {
   sessionStateAt,
 } from "../temporal/doc-resolver.ts";
 import type { TimelineDocument } from "../timeline.ts";
-import {
-  findEndpoint,
-  findPeer,
-  findSession,
-  type GameWorld,
-} from "../world.ts";
+import { findEndpoint, findPeer, findSession, type GameWorld } from "../world.ts";
 
 /**
  * Whether two component records carry the same values.
@@ -123,9 +114,7 @@ export function materializeWorldAt(
         // Clone position so KeyframeLayoutSystem's in-place mutation
         // of the world-entity position doesn't poison the
         // identity-side `def.position` record.
-        const startPos = def.position
-          ? { x: def.position.x, y: def.position.y }
-          : { x: 0, y: 0 };
+        const startPos = def.position ? { x: def.position.x, y: def.position.y } : { x: 0, y: 0 };
         heldPeers.set(peerId, world.add({ peer: next, position: startPos }));
         pairTopologyChanged = true;
       } else if (!sameFields(existing.peer, next)) {
@@ -174,9 +163,7 @@ export function materializeWorldAt(
         id: nodeId,
         sessionId,
         side,
-        ...(def[side].designator !== undefined
-          ? { designator: def[side].designator }
-          : {}),
+        ...(def[side].designator !== undefined ? { designator: def[side].designator } : {}),
       };
       if (!loose) {
         if (drawn !== undefined) {

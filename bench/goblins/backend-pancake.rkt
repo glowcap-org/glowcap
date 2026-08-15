@@ -5,7 +5,8 @@
 ;; eventual-send and pump the sans-io peer until the reply settles — so they are
 ;; the fair, idiomatic pancake analog of Goblins' vat loop. No application logic
 ;; lives here.
-(require (file "/workspaces/pancake/bindings/racket/pancake.rkt"))
+(require (file "/workspaces/pancake/bindings/racket/pancake.rkt")
+         (file "/workspaces/pancake/bindings/racket/pancake-tcp.rkt"))
 
 (provide server-run client-connect client-fetch client-call client-close)
 
@@ -27,9 +28,11 @@
        (session-serve hconn)))
     (accept-loop)))
 
-(struct pclient (conn))
+(struct pclient (runtime conn))
 
-(define (client-connect host port) (pclient (connect (tcp-locator host port))))
+(define (client-connect host port)
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (pclient runtime (runtime-connect runtime (tcp-locator host port))))
 
 (define (client-fetch handle name) (session-fetch (pclient-conn handle) name))
 
@@ -37,4 +40,6 @@
 (define (client-call handle ref method . args)
   (apply session-send (pclient-conn handle) ref method args))
 
-(define (client-close handle) (session-close! (pclient-conn handle)))
+(define (client-close handle)
+  (session-close! (pclient-conn handle))
+  (runtime-close! (pclient-runtime handle)))

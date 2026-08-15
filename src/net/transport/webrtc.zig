@@ -69,6 +69,16 @@ pub const designator_scheme: net.netlayer.DesignatorScheme = known_transport.met
 /// name their peers by.
 pub const designator_len = foundation.crypto.PeerKey.designator_len;
 
+/// Build the hint-free locator for a WebRTC peer's keyed identity. Signaling
+/// authority belongs to the dialing Host, not to the locator.
+pub fn locator(designator: []const u8) model.PeerLocator {
+    return .{
+        .transport = transport_name,
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    };
+}
+
 // ── Sidecar C ABI (transports/webrtc/src/lib.rs) ─────────────────────────────
 // The endpoint owns the shared runtime and readiness namespace. Each peer owns
 // exactly one data channel, so there is no separate connection handle.
@@ -91,7 +101,7 @@ extern fn pancake_webrtc_sidecar_endpoint_readiness_fd(endpoint: *const CEndpoin
 extern fn pancake_webrtc_sidecar_endpoint_drain_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
 extern fn pancake_webrtc_sidecar_endpoint_driver_readiness_fd(endpoint: *const CEndpoint) i32;
 extern fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(endpoint: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
-extern fn pancake_webrtc_sidecar_endpoint_free(endpoint: *CEndpoint) void;
+extern fn pancake_webrtc_sidecar_endpoint_free(endpoint: *CEndpoint) i32;
 extern fn pancake_webrtc_sidecar_peer_new(endpoint: *CEndpoint, is_offerer: i32) ?*CPeer;
 extern fn pancake_webrtc_sidecar_peer_create_offer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
 extern fn pancake_webrtc_sidecar_peer_create_answer(peer: *CPeer, out: [*]u8, cap: usize, out_len: *usize) i32;
@@ -384,8 +394,8 @@ pub const Resident = struct {
         };
     }
 
-    pub fn deinit(self: *Resident) void {
-        pancake_webrtc_sidecar_endpoint_free(self.endpoint);
+    pub fn deinit(self: *Resident) error{SidecarTeardownFailed}!void {
+        if (pancake_webrtc_sidecar_endpoint_free(self.endpoint) != 0) return error.SidecarTeardownFailed;
         self.* = undefined;
     }
 
@@ -504,11 +514,11 @@ const backend_connect_target = struct {
 /// ignored, exactly as the core planner ignores it.
 pub const DialResolver = struct {
     pub fn resolve(
-        locator: model.PeerLocator,
+        partner: model.PeerLocator,
     ) !backend_connect_target {
-        if (!std.mem.eql(u8, locator.transport, model.transport.webrtc)) return error.UnknownTransport;
-        if (crypto.PeerKey.fromDesignator(locator.designator) == null) return error.InvalidAddress;
-        return .{ .designator = locator.designator };
+        if (!std.mem.eql(u8, partner.transport, model.transport.webrtc)) return error.UnknownTransport;
+        if (crypto.PeerKey.fromDesignator(partner.designator) == null) return error.InvalidAddress;
+        return .{ .designator = partner.designator };
     }
 };
 
@@ -575,6 +585,10 @@ pub const Backend = struct {
     const ConnEntry = struct {
         peer: Peer,
         pending: Pending = .{},
+        /// A signaling or sidecar failure discovered while the channel was
+        /// open. The next pending operation reports the original cause; if an
+        /// operation is already parked, discovery completes it immediately.
+        terminal_failure: ?anyerror = null,
     };
 
     /// An offerer bring-up in flight: the connect completion's user data, the
@@ -589,6 +603,12 @@ pub const Backend = struct {
     /// An adopted answerer waiting for its channel to open.
     const AdoptRow = struct {
         peer: Peer,
+    };
+
+    const Accepted = struct { fd: Fd, peer: Peer };
+    const AcceptOutcome = union(enum) {
+        connected: Accepted,
+        failed: anyerror,
     };
 
     /// One queued thread-safe entry, applied on the loop thread.
@@ -607,8 +627,10 @@ pub const Backend = struct {
     readiness_fd: i32,
     /// Completions that need no further readiness, drained before blocking.
     ready: completion.ReadyQueue = .{},
-    /// Open adopted answerers waiting for a `submitAccept` to claim them.
-    accept_stash: std.ArrayList(struct { fd: Fd, peer: Peer }) = .empty,
+    /// Adopted-answer outcomes waiting for a `submitAccept` to claim them.
+    /// Failures belong here too: an inbound exchange must not disappear just
+    /// because it failed before the owner had an accept parked.
+    accept_stash: std.ArrayList(AcceptOutcome) = .empty,
     accept_ud: ?u64 = null,
     /// Synthetic fd to open connection. Fd 0 is the listen sentinel.
     conns: std.AutoHashMap(Fd, ConnEntry),
@@ -635,6 +657,7 @@ pub const Backend = struct {
     /// fd, so cross-thread answers, candidates, and adopted peers are events
     /// rather than a timeout-polled side channel.
     signal_wake: net.wake_channel.WakeChannel,
+    signal_wake_failure: net.wake_channel.FailureLatch = .{},
     /// Loop-thread work queue swapped with `signal_in` during a drain. Keeping
     /// a second pre-reserved list preserves the thread-safe inbox capacity
     /// without allocating or deallocating at each wake.
@@ -662,6 +685,9 @@ pub const Backend = struct {
         var signal_work = std.ArrayList(SignalIn).empty;
         errdefer signal_work.deinit(allocator);
         try signal_work.ensureTotalCapacity(allocator, max_signal_in);
+        var accept_stash = std.ArrayList(AcceptOutcome).empty;
+        errdefer accept_stash.deinit(allocator);
+        try accept_stash.ensureTotalCapacity(allocator, max_accept_stash);
         var signal_payloads = try SignalPayloadPool.init(allocator);
         errdefer signal_payloads.deinit(allocator);
         const fd = resident.readinessFd();
@@ -679,6 +705,7 @@ pub const Backend = struct {
             .signal_payloads = signal_payloads,
             .signal_wake = signal_wake,
             .signal_work = signal_work,
+            .accept_stash = accept_stash,
             .scratch_pool = scratch_pool,
         };
     }
@@ -704,7 +731,10 @@ pub const Backend = struct {
         }
         self.conns.deinit();
         self.by_id.deinit();
-        for (self.accept_stash.items) |*held| held.peer.deinit();
+        for (self.accept_stash.items) |*outcome| switch (outcome.*) {
+            .connected => |*held| held.peer.deinit(),
+            .failed => {},
+        };
         self.accept_stash.deinit(self.allocator);
         for (self.signal_in.items) |queued| self.freeQueued(queued);
         self.signal_in.deinit(self.allocator);
@@ -768,12 +798,22 @@ pub const Backend = struct {
         return slot;
     }
 
-    fn publishSignalPayload(self: *Backend, item: SignalIn) void {
+    fn publishSignalPayload(self: *Backend, item: SignalIn) error{WakeNudgeFailed}!void {
         self.signal_mutex.lock();
         defer self.signal_mutex.unlock();
         std.debug.assert(self.signal_reservations > 0);
         std.debug.assert(self.signal_in.items.len < max_signal_in);
         self.signal_reservations -= 1;
+        _ = self.signal_wake.nudge() catch |err| {
+            const slot = switch (item) {
+                .answer => |value| value.slot,
+                .candidate => |value| value.slot,
+                .adopt => unreachable,
+            };
+            self.signal_payloads.release(slot);
+            self.signal_wake_failure.record(err);
+            return err;
+        };
         self.signal_in.appendAssumeCapacity(item);
     }
 
@@ -813,6 +853,10 @@ pub const Backend = struct {
     /// peer to the signaling layer.
     pub fn adoptAnswerer(self: *Backend, peer: Peer) !Fd {
         var owned = peer;
+        self.signal_wake_failure.check() catch |err| {
+            owned.deinit();
+            return err;
+        };
         self.signal_mutex.lock();
         const fd = self.next_fd;
         if (fd == std.math.maxInt(Fd)) {
@@ -826,36 +870,49 @@ pub const Backend = struct {
             return error.WouldBlock;
         }
         self.next_fd += 1;
+        _ = self.signal_wake.nudge() catch |err| {
+            self.signal_wake_failure.record(err);
+            self.signal_mutex.unlock();
+            owned.deinit();
+            return err;
+        };
         self.signal_in.appendAssumeCapacity(.{ .adopt = .{ .fd = fd, .peer = owned } });
         self.signal_mutex.unlock();
-        self.signal_wake.nudge();
         return fd;
     }
 
     /// Deliver the far answerer's SDP for the exchange `fd` names. Thread-safe.
     pub fn provideAnswer(self: *Backend, fd: Fd, sdp: []const u8) !void {
+        try self.signal_wake_failure.check();
         if (sdp.len > signal_frame_cap) return error.SignalTooLarge;
         const slot = try self.reserveSignalPayload();
         @memcpy(self.signal_payloads.bytes(slot, sdp.len), sdp);
-        self.publishSignalPayload(.{ .answer = .{ .fd = fd, .slot = slot, .len = @intCast(sdp.len) } });
-        self.signal_wake.nudge();
+        try self.publishSignalPayload(.{ .answer = .{ .fd = fd, .slot = slot, .len = @intCast(sdp.len) } });
     }
 
     /// Deliver one far ICE candidate for the exchange `fd` names. Thread-safe.
     pub fn provideRemoteCandidate(self: *Backend, fd: Fd, ice: []const u8) !void {
+        try self.signal_wake_failure.check();
         if (ice.len > signal_frame_cap) return error.SignalTooLarge;
         const slot = try self.reserveSignalPayload();
         @memcpy(self.signal_payloads.bytes(slot, ice.len), ice);
-        self.publishSignalPayload(.{ .candidate = .{ .fd = fd, .slot = slot, .len = @intCast(ice.len) } });
-        self.signal_wake.nudge();
+        try self.publishSignalPayload(.{ .candidate = .{ .fd = fd, .slot = slot, .len = @intCast(ice.len) } });
     }
 
     /// Wake a parked `poll` so an owner-thread stop flag can be observed without
     /// timeout polling. Carries no authority and records no work; the next
     /// harvest drains the nudge and then finds the normal state the caller
     /// already changed.
-    pub fn wake(self: *Backend) void {
-        self.signal_wake.nudge();
+    pub fn wake(self: *Backend) net.wake_channel.Failure!void {
+        try self.signal_wake_failure.check();
+        _ = self.signal_wake.nudge() catch |err| {
+            self.signal_wake_failure.record(err);
+            return err;
+        };
+    }
+
+    pub fn applyKeepalive(_: *Backend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
     }
 
     pub fn closeFd(self: *Backend, fd: Fd) void {
@@ -912,16 +969,25 @@ pub const Backend = struct {
     fn takeAccept(self: *Backend) void {
         const ud = self.accept_ud orelse return;
         if (self.accept_stash.items.len == 0) return;
-        const held = self.accept_stash.orderedRemove(0);
-        self.conns.put(held.fd, .{ .peer = held.peer, .pending = .{ .writable_hint = true } }) catch {
-            var peer = held.peer;
-            std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
-            peer.deinit();
-            self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-            self.accept_ud = null;
-            return;
-        };
-        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = held.fd });
+        const outcome = self.accept_stash.orderedRemove(0);
+        switch (outcome) {
+            .connected => |held| {
+                self.conns.put(held.fd, .{ .peer = held.peer, .pending = .{ .writable_hint = true } }) catch |err| {
+                    var peer = held.peer;
+                    std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
+                    peer.deinit();
+                    self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1, .failure = err });
+                    self.accept_ud = null;
+                    return;
+                };
+                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = held.fd });
+            },
+            .failed => |err| self.ready.appendAssumeCapacity(.{
+                .user_data = ud,
+                .result = -1,
+                .failure = err,
+            }),
+        }
         self.accept_ud = null;
     }
 
@@ -934,6 +1000,12 @@ pub const Backend = struct {
     fn completeRecv(self: *Backend, entry: *ConnEntry) void {
         const ud = entry.pending.read_ud orelse return;
         var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
+        if (entry.terminal_failure) |err| {
+            comp.failure = err;
+            entry.pending.read_ud = null;
+            self.ready.appendAssumeCapacity(comp);
+            return;
+        }
         if (self.scratch_pool.acquire()) |idx| {
             const buf = self.scratch_pool.buffer(idx);
             if (entry.peer.tryRead(buf)) |n| {
@@ -959,6 +1031,7 @@ pub const Backend = struct {
                 error.Failed => {
                     self.scratch_pool.release(idx);
                     entry.pending.readable_hint = false;
+                    comp.failure = error.WebRtcReadFailed;
                 },
             }
         } else {
@@ -974,7 +1047,14 @@ pub const Backend = struct {
     fn completeSend(self: *Backend, entry: *ConnEntry) void {
         const ud = entry.pending.write_ud orelse return;
         const bytes = entry.pending.write_bytes orelse return;
+        if (entry.terminal_failure) |err| {
+            entry.pending.write_ud = null;
+            entry.pending.write_bytes = null;
+            self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1, .failure = err });
+            return;
+        }
         var result: i32 = -1;
+        var failure: ?anyerror = null;
         if (entry.peer.tryWrite(bytes)) |n| {
             result = @intCast(n);
             entry.pending.writable_hint = true;
@@ -985,11 +1065,12 @@ pub const Backend = struct {
             },
             error.Closed, error.Failed => {
                 entry.pending.writable_hint = false;
+                failure = error.WebRtcWriteFailed;
             },
         }
         entry.pending.write_ud = null;
         entry.pending.write_bytes = null;
-        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = result });
+        self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = result, .failure = failure });
     }
 
     pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
@@ -997,7 +1078,7 @@ pub const Backend = struct {
         if (entry.pending.read_ud != null) return error.AlreadyReading;
         try self.ready.ensureUnusedCapacity(self.allocator, 1);
         entry.pending.read_ud = user_data;
-        if (entry.pending.readable_hint) self.completeRecv(entry);
+        if (entry.pending.readable_hint or entry.terminal_failure != null) self.completeRecv(entry);
     }
 
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
@@ -1043,10 +1124,13 @@ pub const Backend = struct {
                 self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
                 self.accept_ud = null;
             }
-            for (self.accept_stash.items) |*held| {
-                std.debug.assert(self.by_id.remove(@intFromEnum(held.peer.id())));
-                held.peer.deinit();
-            }
+            for (self.accept_stash.items) |*outcome| switch (outcome.*) {
+                .connected => |*held| {
+                    std.debug.assert(self.by_id.remove(@intFromEnum(held.peer.id())));
+                    held.peer.deinit();
+                },
+                .failed => {},
+            };
             self.accept_stash.clearRetainingCapacity();
             self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
             return;
@@ -1080,49 +1164,74 @@ pub const Backend = struct {
     }
 
     /// Ferry this peer's locally gathered candidates out through the authority.
-    /// Best-effort: a candidate the authority cannot carry is dropped, and the
-    /// exchange either completes on the candidates that did cross or fails
-    /// loud at its own deadline — never a backend fault.
-    fn pumpLocalCandidates(self: *Backend, fd: Fd, peer: *Peer) void {
+    /// Failure is terminal for the exchange: silently omitting a candidate can
+    /// turn a local signaling fault into an unrelated remote timeout.
+    fn pumpLocalCandidates(self: *Backend, fd: Fd, peer: *Peer) !void {
         var cand_buf: [4 * 1024]u8 = undefined;
         var cand_len: usize = 0;
         while (true) {
-            const cand = peer.nextLocalCandidate(&cand_buf, &cand_len) catch return;
+            const cand = try peer.nextLocalCandidate(&cand_buf, &cand_len);
             const ice = cand orelse return;
-            self.signaling.sendCandidate(self.signaling.ctx, fd, ice) catch return;
+            try self.signaling.sendCandidate(self.signaling.ctx, fd, ice);
         }
     }
 
     /// Requires one unused ready-queue seat. The row is removed before the
     /// completion is published, so callers reserve that seat first.
-    fn failDial(self: *Backend, fd: Fd) void {
+    fn failDial(self: *Backend, fd: Fd, cause: anyerror) void {
         const kv = self.pending_dials.fetchRemove(fd) orelse return;
         var row = kv.value;
         std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
         row.peer.deinit();
         self.allocator.free(row.designator);
-        self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1 });
+        self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1, .failure = cause });
+    }
+
+    /// Publish an inbound exchange failure now or retain it for the next
+    /// accept. The stash is pre-reserved: saturation is an explicit backend
+    /// overload, never permission to discard an exchange.
+    fn queueAcceptFailure(self: *Backend, cause: anyerror) !void {
+        if (self.accept_ud) |ud| {
+            self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1, .failure = cause });
+            self.accept_ud = null;
+            return;
+        }
+        if (self.accept_stash.items.len >= max_accept_stash) return error.AcceptBacklogFull;
+        self.accept_stash.appendAssumeCapacity(.{ .failed = cause });
+    }
+
+    /// Remove and close an answerer whose bring-up failed, then preserve that
+    /// exact cause for the accept owner.
+    fn failAdopt(self: *Backend, fd: Fd, cause: anyerror) !void {
+        const kv = self.adopting.fetchRemove(fd) orelse return;
+        var peer = kv.value.peer;
+        std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
+        peer.deinit();
+        try self.queueAcceptFailure(cause);
+    }
+
+    /// Mark an open channel terminal and wake every operation already parked
+    /// on it. Future submissions observe the same originating cause.
+    fn failOpenConnection(self: *Backend, entry: *ConnEntry, cause: anyerror) void {
+        if (entry.terminal_failure == null) {
+            entry.terminal_failure = cause;
+            entry.peer.close();
+        }
+        if (entry.pending.read_ud != null) self.completeRecv(entry);
+        if (entry.pending.write_ud != null) self.completeSend(entry);
     }
 
     /// Move an adopted answerer whose channel opened into the accept stash and
     /// let a parked accept claim it.
-    fn openAdopted(self: *Backend, fd: Fd) void {
+    fn openAdopted(self: *Backend, fd: Fd) !void {
         const kv = self.adopting.fetchRemove(fd) orelse return;
         if (self.accept_stash.items.len >= max_accept_stash) {
             var peer = kv.value.peer;
             std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
-            // Overload policy: the accept stash is the ownership boundary for
-            // open adopted peers. Once full, shed this already-open channel and
-            // keep the backend live; a full backlog is not a loop-fatal error.
             peer.deinit();
-            return;
+            return error.AcceptBacklogFull;
         }
-        self.accept_stash.append(self.allocator, .{ .fd = fd, .peer = kv.value.peer }) catch {
-            var peer = kv.value.peer;
-            std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
-            peer.deinit();
-            return;
-        };
+        self.accept_stash.appendAssumeCapacity(.{ .connected = .{ .fd = fd, .peer = kv.value.peer } });
         self.takeAccept();
     }
 
@@ -1139,7 +1248,7 @@ pub const Backend = struct {
         // A queued answer or adoption can complete one Loop operation. Reserve
         // publication before consuming or freeing any queue row; on OOM the
         // work list remains intact for a caller that retries the backend.
-        try self.ready.ensureUnusedCapacity(self.allocator, self.signal_work.items.len);
+        try self.ready.ensureUnusedCapacity(self.allocator, self.signal_work.items.len * 2);
         var consumed: usize = 0;
         defer {
             while (consumed < self.signal_work.items.len) : (consumed += 1) {
@@ -1155,32 +1264,33 @@ pub const Backend = struct {
                     var peer = a.peer;
                     self.by_id.put(@intFromEnum(peer.id()), a.fd) catch {
                         peer.deinit();
+                        try self.queueAcceptFailure(error.OutOfMemory);
                         continue;
                     };
                     self.adopting.put(a.fd, .{ .peer = peer }) catch {
                         std.debug.assert(self.by_id.remove(@intFromEnum(peer.id())));
                         peer.deinit();
+                        try self.queueAcceptFailure(error.OutOfMemory);
                         continue;
                     };
-                    self.pumpLocalCandidates(a.fd, &self.adopting.getPtr(a.fd).?.peer);
-                    if (peer.checkOpen()) |_| {
-                        self.openAdopted(a.fd);
+                    const row = self.adopting.getPtr(a.fd).?;
+                    self.pumpLocalCandidates(a.fd, &row.peer) catch |err| {
+                        try self.failAdopt(a.fd, err);
+                        continue;
+                    };
+                    if (row.peer.checkOpen()) |_| {
+                        try self.openAdopted(a.fd);
                     } else |err| switch (err) {
                         error.WouldBlock => {},
-                        error.Closed => {
-                            const kv = self.adopting.fetchRemove(a.fd).?;
-                            var dead = kv.value.peer;
-                            std.debug.assert(self.by_id.remove(@intFromEnum(dead.id())));
-                            dead.deinit();
-                        },
+                        error.Closed => try self.failAdopt(a.fd, error.WebRtcChannelClosed),
                     }
                 },
                 .answer => |a| {
                     defer self.releaseSignalPayload(a.slot);
                     const sdp = self.signal_payloads.bytes(a.slot, a.len);
                     const row = self.pending_dials.getPtr(a.fd) orelse continue;
-                    row.peer.setRemoteAnswer(sdp) catch {
-                        self.failDial(a.fd);
+                    row.peer.setRemoteAnswer(sdp) catch |err| {
+                        self.failDial(a.fd, err);
                         continue;
                     };
                     // The open edge may already have fired while the answer sat
@@ -1189,29 +1299,25 @@ pub const Backend = struct {
                         self.finishDial(a.fd);
                     } else |err| switch (err) {
                         error.WouldBlock => {},
-                        error.Closed => self.failDial(a.fd),
+                        error.Closed => self.failDial(a.fd, error.WebRtcChannelClosed),
                     }
                 },
                 .candidate => |c| {
                     defer self.releaseSignalPayload(c.slot);
                     const ice = self.signal_payloads.bytes(c.slot, c.len);
                     if (self.pending_dials.getPtr(c.fd)) |row| {
-                        row.peer.addRemoteCandidate(ice) catch {
+                        row.peer.addRemoteCandidate(ice) catch |err| {
                             // A candidate refusal while the exchange is still
                             // negotiating is terminal: no later readiness edge
                             // can complete this dial honestly.
-                            self.failDial(c.fd);
+                            self.failDial(c.fd, err);
                         };
                     } else if (self.adopting.getPtr(c.fd)) |row| {
-                        row.peer.addRemoteCandidate(ice) catch {
-                            const kv = self.adopting.fetchRemove(c.fd).?;
-                            var dead = kv.value.peer;
-                            std.debug.assert(self.by_id.remove(@intFromEnum(dead.id())));
-                            dead.deinit();
+                        row.peer.addRemoteCandidate(ice) catch |err| {
+                            try self.failAdopt(c.fd, err);
                         };
                     } else if (self.conns.getPtr(c.fd)) |entry| {
-                        // A late candidate for an open channel is harmless.
-                        entry.peer.addRemoteCandidate(ice) catch {};
+                        entry.peer.addRemoteCandidate(ice) catch |err| self.failOpenConnection(entry, err);
                     }
                 },
             }
@@ -1228,34 +1334,33 @@ pub const Backend = struct {
         self.conns.put(fd, .{ .peer = row.peer, .pending = .{ .writable_hint = true } }) catch {
             std.debug.assert(self.by_id.remove(@intFromEnum(row.peer.id())));
             row.peer.deinit();
-            self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1 });
+            self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = -1, .failure = error.OutOfMemory });
             return;
         };
         self.ready.appendAssumeCapacity(.{ .user_data = row.user_data, .result = 0 });
     }
 
-    fn dispatchReady(self: *Backend, ev: ReadyEvent) void {
+    fn dispatchReady(self: *Backend, ev: ReadyEvent) !void {
         const fd = self.by_id.get(ev.subject) orelse return;
         if (self.pending_dials.getPtr(fd)) |row| {
-            if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &row.peer);
-            if (ev.events & ev_closed != 0) return self.failDial(fd);
+            if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &row.peer) catch |err| return self.failDial(fd, err);
+            if (ev.events & ev_closed != 0) return self.failDial(fd, error.WebRtcChannelClosed);
             if (ev.events & ev_open != 0) return self.finishDial(fd);
             return;
         }
         if (self.adopting.getPtr(fd)) |row| {
-            if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &row.peer);
+            if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &row.peer) catch |err| return self.failAdopt(fd, err);
             if (ev.events & ev_closed != 0) {
-                const kv = self.adopting.fetchRemove(fd).?;
-                var dead = kv.value.peer;
-                std.debug.assert(self.by_id.remove(@intFromEnum(dead.id())));
-                dead.deinit();
-                return;
+                return self.failAdopt(fd, error.WebRtcChannelClosed);
             }
             if (ev.events & ev_open != 0) return self.openAdopted(fd);
             return;
         }
         const entry = self.conns.getPtr(fd) orelse return;
-        if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &entry.peer);
+        if (ev.events & ev_candidate != 0) self.pumpLocalCandidates(fd, &entry.peer) catch |err| {
+            self.failOpenConnection(entry, err);
+            return;
+        };
         if (ev.events & (ev_readable | ev_closed) != 0) {
             entry.pending.readable_hint = true;
             if (entry.pending.read_ud != null) self.completeRecv(entry);
@@ -1270,6 +1375,7 @@ pub const Backend = struct {
     /// queue first (so a row registered this round can claim the events drained
     /// this round), then drain resident readiness records.
     fn harvestReadiness(self: *Backend) !bool {
+        try self.signal_wake_failure.check();
         var pfds = [_]std.posix.pollfd{
             .{ .fd = self.signal_wake.read, .events = std.posix.POLL.IN, .revents = 0 },
             .{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 },
@@ -1277,7 +1383,10 @@ pub const Backend = struct {
         _ = net.poll.wait(&pfds, 0) catch |err| return err;
         var woke = false;
         if (pfds[0].revents & (std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP) != 0) {
-            self.signal_wake.drain();
+            self.signal_wake.drain() catch |err| {
+                self.signal_wake_failure.record(err);
+                return err;
+            };
             woke = true;
         }
         try self.drainSignalIn();
@@ -1290,7 +1399,7 @@ pub const Backend = struct {
             while (true) {
                 const n = try self.resident.drainReady(&events_buf);
                 if (n == 0) break;
-                for (events_buf[0..n]) |ev| self.dispatchReady(ev);
+                for (events_buf[0..n]) |ev| try self.dispatchReady(ev);
                 if (n < events_buf.len) break;
                 try self.ready.ensureUnusedCapacity(self.allocator, events_buf.len * 2);
             }

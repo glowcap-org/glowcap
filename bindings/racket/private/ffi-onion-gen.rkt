@@ -13,8 +13,7 @@
 ;; hand back and the blocking rows are only entered when they will return.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"
-         "lib-resolve.rkt")
+         "ffi-shared.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_onion_netlayer_new*
                      pancake_onion_connect*
@@ -30,13 +29,13 @@
 
 (define-pancake-onion pancake_onion_last_error (_fun _pointer _size -> _size))
 (define-pancake-onion pancake_onion_transport_provider
-  (_fun _pointer _PancakeTransportProvider-pointer -> _int32))
+  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))
 (define-pancake-onion pancake_onion_netlayer_new*
-  (_fun _PancakeOnionConfig-pointer _pointer -> _int32)
+  (_fun (_or-null _PancakeOnionConfig-pointer) _pointer -> _int32)
   #:c-id pancake_onion_netlayer_new)
 (define pancake_onion_netlayer_new (wrap-out1 pancake_onion_netlayer_new* _pointer #f))
 (define-pancake-onion pancake_onion_netlayer_shutdown (_fun _pointer -> _void))
-(define-pancake-onion pancake_onion_netlayer_release (_fun #:blocking? #t _pointer -> _void))
+(define-pancake-onion pancake_onion_netlayer_release (_fun #:blocking? #t _pointer -> _int32))
 (define-pancake-onion pancake_onion_connect*
   (_fun #:blocking? #t _pointer _pointer _size _uint32 _size _pointer -> _int32)
   #:c-id pancake_onion_connect)
@@ -55,8 +54,7 @@
 (define-pancake-onion pancake_onion_listener_readiness_fd*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_onion_listener_readiness_fd)
-(define pancake_onion_listener_readiness_fd
-  (wrap-out1 pancake_onion_listener_readiness_fd* _int32 0))
+(define pancake_onion_listener_readiness_fd (wrap-out1 pancake_onion_listener_readiness_fd* _int32 0))
 (define-pancake-onion pancake_onion_conn_readiness_fd*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_onion_conn_readiness_fd)
@@ -66,10 +64,10 @@
   #:c-id pancake_onion_accept)
 (define pancake_onion_accept (wrap-out1 pancake_onion_accept* _pointer #f))
 (define-pancake-onion pancake_onion_conn_read_frame
-  (_fun #:blocking? #t _pointer _PancakeManagedFrame-pointer -> _int32))
+  (_fun #:blocking? #t _pointer (_or-null _PancakeManagedFrame-pointer) -> _int32))
 (define-pancake-onion pancake_onion_conn_write_frame
-  (_fun #:blocking? #t _pointer _PancakeFrame-pointer -> _int32))
-(define-pancake-onion pancake_onion_conn_shutdown (_fun _pointer -> _void))
-(define-pancake-onion pancake_onion_conn_release (_fun #:blocking? #t _pointer -> _void))
+  (_fun #:blocking? #t _pointer (_or-null _PancakeFrame-pointer) -> _int32))
+(define-pancake-onion pancake_onion_conn_shutdown (_fun _pointer -> _int32))
+(define-pancake-onion pancake_onion_conn_release (_fun #:blocking? #t _pointer -> _int32))
 (define-pancake-onion pancake_onion_listener_shutdown (_fun _pointer -> _void))
-(define-pancake-onion pancake_onion_listener_release (_fun #:blocking? #t _pointer -> _void))
+(define-pancake-onion pancake_onion_listener_release (_fun #:blocking? #t _pointer -> _int32))

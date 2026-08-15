@@ -1,8 +1,8 @@
 # Capabilities, CapTP, and OCapN
 
 Start here if object-capability security is new to you and you want a short
-glossary. For the guided story with pictures, open the website
-(`zig build docs-serve`) and read Why OCapN. If the terms already feel
+glossary. For the guided explanation with diagrams, read [Why
+OCapN](https://jimisaacs.github.io/pancake/why/). If the terms already feel
 familiar, go to the [quick start](../README.md#quick-start).
 
 ## A capability is a reference with authority

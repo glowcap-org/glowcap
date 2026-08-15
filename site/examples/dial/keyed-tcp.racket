@@ -1,9 +1,13 @@
-(require "pancake.rkt")
+(require "pancake.rkt" "pancake-tcp.rkt")
 
 ;; Key designator, cleartext CapTP. Partners dial the key, not the socket alone.
-(define partner (keyed-tcp-locator "<64 hex chars>" "127.0.0.1" 9099))
+(define peer-key "<64 lowercase hex characters from the server>")
+(define partner (keyed-tcp-locator peer-key "127.0.0.1" 9099))
 
-(define session (connect partner))
-(define greeter (session-fetch session "greeter")) ; a capability, by name
+(define runtime (open-runtime #:providers (list (tcp-provider))))
+;; From here, the CapTP workflow is transport-independent.
+(define session (runtime-connect runtime partner))
+(define greeter (session-fetch session "greeter")) ; a capability this peer published
 (printf "~a\n" (session-send session greeter 'greet "world"))
 (session-close! session)
+(runtime-close! runtime)

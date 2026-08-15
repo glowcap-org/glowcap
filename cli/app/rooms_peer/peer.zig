@@ -43,9 +43,10 @@ const recordInbox = harness.recordInbox;
 const writeState = harness.writeState;
 const scanInbox = harness.scanInbox;
 const markReplied = harness.markReplied;
-const parseOutboxLine = harness.parseOutboxLine;
+const compactOutboxRemainder = harness.compactOutboxRemainder;
+const lockLeaf = harness.lockLeaf;
 const OutboxLine = harness.OutboxLine;
-const saveOutboxOffset = harness.saveOutboxOffset;
+const OutboxLineFate = harness.OutboxLineFate;
 const loadOutboxOffset = harness.loadOutboxOffset;
 const clampOutboxOffset = harness.clampOutboxOffset;
 const advanceInboxWatermark = harness.advanceInboxWatermark;
@@ -98,23 +99,21 @@ const PeerState = struct {
     /// Nicks with an introduce in flight, and how many wakes are left before
     /// the wait is abandoned (owned keys). A directory that accepts
     /// `introduce` and never settles the vow would otherwise hold its entry
-    /// for the session's life, and the outbox drain stops at that peer's DM
-    /// lines without advancing, so every later line stops behind it — the same
-    /// stall the refusal cooldown below was added to end, one state over.
-    /// Expiry demotes to that cooldown rather than retrying at once, so an
-    /// unresponsive directory is not hammered.
+    /// for the session's life. The outbox holds that peer's DM lines and still
+    /// drains later room posts and sendable DMs. Expiry demotes to the refusal
+    /// cooldown rather than retrying at once, so an unresponsive directory is
+    /// not hammered.
     pending_introduces: std.StringHashMapUnmanaged(u32) = .{},
     /// Nicks whose introduce broke, and how many wakes to wait before trying
-    /// again (owned keys). The outbox drain stops at their DM lines without
-    /// advancing the offset, so nothing is dropped while the cooldown runs.
+    /// again (owned keys). The outbox holds their DM lines so nothing is
+    /// dropped while the cooldown runs; later room posts still send.
     ///
     /// A countdown rather than a verdict: a refusal names something that was
     /// never there, so no object's death can clear it. One event clears it early:
     /// `notify("introducible", peer)` says that peer has now offered us an inbox.
     /// Everything else waits out the clock, because a peer who was
     /// briefly offline must not stay unreachable for the life of a healthy
-    /// session: the drain stops at their DM line without advancing, so every
-    /// later line behind it stops too, including room posts.
+    /// session.
     failed_introduces: std.StringHashMapUnmanaged(u32) = .{},
     /// The published name of the inbox offered for each peer, by nick. Key and
     /// value are both borrowed from the `DmInboxRow` the host owns, so this map
@@ -577,10 +576,10 @@ fn registerWithDirectory(state: *PeerState) void {
 /// Loop `on_close`: bridge refuse handling, then clear room wire state only when
 /// the room session itself drops (accepted DM redeem sessions must not tear
 /// presence down).
-fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: net.completion.CloseReason) void {
+fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: net.completion.CloseReport) void {
     const bridge: *RoomsBridge = @ptrCast(@alignCast(ctx.?));
     const pending_app_dial = conn_ctx == null and bridge.pendingAppDial(slot);
-    RoomsBridge.onClose(ctx, slot, conn_ctx, opened, reason);
+    RoomsBridge.onClose(ctx, slot, conn_ctx, report);
     const state: *PeerState = @ptrCast(@alignCast(bridge.on_open_ctx.?));
     if (conn_ctx) |raw| {
         const shell: *RoomsBridge.Slot = @ptrCast(@alignCast(raw));
@@ -598,7 +597,7 @@ fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, r
     }
     // Refused connect (no shell was ever built): resume redial pacing with the
     // countdown carried, `.dialing{cd}` becoming `.down{cd}`.
-    if (!opened or pending_app_dial) phase_mod.connectRefused(&state.phase);
+    if (!report.opened or pending_app_dial) phase_mod.connectRefused(&state.phase);
 }
 
 // --- outbox -----------------------------------------------------------------
@@ -751,120 +750,99 @@ fn evictDmBack(state: *PeerState, peer: []const u8) void {
     }
 }
 
-/// Drain outbox lines past `g_offset`. Room posts go immediately; DM lines wait
-/// on introduce (offset stops at the first blocked DM so a later wake retries).
-/// Fail closed: advance/persist the offset only after tell + drainActions both
-/// succeed. A failed post must not record "sent" or skip the line on restart.
+/// Drain outbox lines past `g_offset`. A blocked DM is held in the remainder
+/// so it is not dropped; later room posts and sendable DMs still send. Fail
+/// closed: a line leaves the remainder only after tell + drainActions both
+/// succeed. A failed post keeps that line and everything after it.
 fn drainOutbox(state: *PeerState) void {
     if (state.phase != .joined) return;
     const room = state.phase.joined.room;
     const session = state.phase.joined.session;
+    const lock = lockLeaf(state.io, state.dir, "outbox.jsonl") catch return;
+    defer lock.unlock();
     const contents = readFile(state.io, state.gpa, state.dir, "outbox.jsonl") catch return;
     defer state.gpa.free(contents);
     g_offset = clampOutboxOffset(g_offset, contents.len);
     if (contents.len <= g_offset) return;
 
-    var pos: usize = g_offset;
-    while (pos < contents.len) {
-        const nl = std.mem.indexOfScalar(u8, contents[pos..], '\n') orelse {
-            // Incomplete trailing write (no newline yet). Wait — treating it
-            // as a finished line would advance the cursor into the middle of
-            // the eventual record.
-            break;
-        };
-        const line_end = pos + nl;
-        const raw = contents[pos..line_end];
-        const next = line_end + 1;
-        const line = std.mem.trim(u8, raw, " \t\r");
-        if (line.len == 0) {
-            pos = next;
-            commitOutboxOffset(state, pos);
-            continue;
-        }
+    const remainder = contents[g_offset..];
+    const Drain = struct {
+        state: *PeerState,
+        session: *HostSession,
+        room: model.Reference,
 
-        if (parseOutboxLine(state.gpa, line)) |parsed| {
-            defer parsed.deinit(state.gpa);
-            if (parsed.is_dm) {
-                if (parsed.peer.len == 0) {
-                    log.err(state.io, "dm outbox line missing peer", .{});
-                    pos = next;
-                    commitOutboxOffset(state, pos);
-                    continue;
-                }
-                // Prefer ADR-0088 back-channel, then introduce result, over the
-                // introduce-failure cooldown: a live route must not sit blocked
-                // behind a stale refuse.
-                if (state.dm_back.get(parsed.peer)) |back| {
-                    const target = state.host.lowerCapability(session, back) catch |err| {
-                        log.err(state.io, "dm back-channel lower failed: {s}", .{@errorName(err)});
-                        evictDmBack(state, parsed.peer);
-                        break;
-                    };
-                    state.host.tell(session, target, .{
-                        .verb = "dm",
-                        .args = &.{.{ .string = parsed.text }},
-                    }) catch |err| {
-                        log.err(state.io, "dm back-channel tell failed: {s}", .{@errorName(err)});
-                        evictDmBack(state, parsed.peer);
-                        break;
-                    };
-                    if (!flushBridge(state, .dm)) break;
-                    recordInbox(state.io, state.gpa, state.dir, "sent", "dm", state.nick, parsed.text, parsed.peer) catch {};
-                    pos = next;
-                    commitOutboxOffset(state, pos);
-                    continue;
-                }
-                if (state.dm_caps.get(parsed.peer)) |dm| {
-                    state.host.tell(session, dm, .{
-                        .verb = "dm",
-                        .args = &.{.{ .string = parsed.text }},
-                    }) catch |err| {
-                        log.err(state.io, "dm tell failed: {s}", .{@errorName(err)});
-                        evictDmCap(state, parsed.peer);
-                        break;
-                    };
-                    if (!flushBridge(state, .dm)) break;
-                    recordInbox(state.io, state.gpa, state.dir, "sent", "dm", state.nick, parsed.text, parsed.peer) catch {};
-                    pos = next;
-                    commitOutboxOffset(state, pos);
-                    continue;
-                }
-                if (state.failed_introduces.contains(parsed.peer)) {
-                    // Do not advance: dropping the line would make the DM
-                    // vanish. The refusal ages out on its own, so this stops
-                    // for a cooldown rather than until the room session drops.
-                    log.err(state.io, "dm outbox blocked: introduce failed for {s} (retry after cooldown)", .{parsed.peer});
-                    break;
-                }
-                startIntroduce(state, parsed.peer);
-                break;
-            }
-            state.host.tell(session, room, .{ .verb = "post", .args = &.{.{ .string = parsed.text }} }) catch |err| {
-                log.err(state.io, "post failed: {s}", .{@errorName(err)});
-                break;
-            };
-            if (!flushBridge(state, .post)) break;
-            recordInbox(state.io, state.gpa, state.dir, "sent", "room", state.nick, parsed.text, "") catch {};
-            pos = next;
-            commitOutboxOffset(state, pos);
-            continue;
+        fn decide(self: @This(), parsed: OutboxLine) OutboxLineFate {
+            if (parsed.is_dm) return dmOutboxFate(self.state, self.session, parsed);
+            return roomOutboxFate(self.state, self.session, self.room, parsed);
         }
+    };
+    const kept = compactOutboxRemainder(
+        state.gpa,
+        remainder,
+        Drain{ .state = state, .session = session, .room = room },
+        Drain.decide,
+    ) catch return;
+    defer state.gpa.free(kept);
+    if (std.mem.eql(u8, kept, remainder)) return;
 
-        log.err(state.io, "skipping non-JSON outbox line", .{});
-        pos = next;
-        commitOutboxOffset(state, pos);
-    }
+    var list: std.ArrayList(u8) = .empty;
+    defer list.deinit(state.gpa);
+    list.appendSlice(state.gpa, contents[0..g_offset]) catch return;
+    list.appendSlice(state.gpa, kept) catch return;
+    overwriteFile(state.io, state.dir, "outbox.jsonl", list.items) catch {
+        log.err(state.io, "outbox compact write failed; holding remainder", .{});
+    };
 }
 
-fn commitOutboxOffset(state: *PeerState, pos: usize) void {
-    // Disk first. A cursor that did not persist must not advance in memory
-    // either, or a restart resends every line since it — silently, and long
-    // after the write that failed. One duplicate now beats a replay later.
-    saveOutboxOffset(state.io, state.dir, pos) catch {
-        log.err(state.io, "outbox cursor not persisted at {d}; holding at {d}", .{ pos, g_offset });
-        return;
+fn dmOutboxFate(state: *PeerState, session: *HostSession, parsed: OutboxLine) OutboxLineFate {
+    if (parsed.peer.len == 0) {
+        log.err(state.io, "dm outbox line missing peer", .{});
+        return .drop;
+    }
+    const msg: actors.Message = .{
+        .verb = "dm",
+        .args = &.{.{ .string = parsed.text }},
     };
-    g_offset = pos;
+    // Prefer ADR-0088 back-channel, then introduce result, over the
+    // introduce-failure cooldown: a live route must not sit blocked
+    // behind a stale refuse. The reply cap lives on the partner's
+    // direct session — tellCapability routes there. Lowering it onto
+    // the room session is UnknownCapability.
+    if (state.dm_back.get(parsed.peer)) |back| {
+        if (state.host.tellCapability(session, back, msg)) |_| {
+            if (!flushBridge(state, .dm)) return .stop;
+            recordInbox(state.io, state.gpa, state.dir, "sent", "dm", state.nick, parsed.text, parsed.peer) catch {};
+            return .drop;
+        } else |err| {
+            log.err(state.io, "dm back-channel tell failed: {s}", .{@errorName(err)});
+            evictDmBack(state, parsed.peer);
+        }
+    }
+    if (state.dm_caps.get(parsed.peer)) |dm| {
+        if (state.host.tell(session, dm, msg)) |_| {
+            if (!flushBridge(state, .dm)) return .stop;
+            recordInbox(state.io, state.gpa, state.dir, "sent", "dm", state.nick, parsed.text, parsed.peer) catch {};
+            return .drop;
+        } else |err| {
+            log.err(state.io, "dm tell failed: {s}", .{@errorName(err)});
+            evictDmCap(state, parsed.peer);
+        }
+    }
+    if (state.failed_introduces.contains(parsed.peer) or state.pending_introduces.contains(parsed.peer)) {
+        return .hold;
+    }
+    startIntroduce(state, parsed.peer);
+    return .hold;
+}
+
+fn roomOutboxFate(state: *PeerState, session: *HostSession, room: model.Reference, parsed: OutboxLine) OutboxLineFate {
+    state.host.tell(session, room, .{ .verb = "post", .args = &.{.{ .string = parsed.text }} }) catch |err| {
+        log.err(state.io, "post failed: {s}", .{@errorName(err)});
+        return .stop;
+    };
+    if (!flushBridge(state, .post)) return .stop;
+    recordInbox(state.io, state.gpa, state.dir, "sent", "room", state.nick, parsed.text, "") catch {};
+    return .drop;
 }
 
 /// Why `flushBridge` was called — outbox paths fail closed on `ReenteredHost`.
@@ -1024,8 +1002,9 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
     // lines from before we joined.
     seedRepliedBacklog(io, gpa, flags.dir, flags.nick);
 
-    // Resume the outbox drain cursor from disk. Never seed to EOF: that skipped
-    // undrained lines written while the peer was down or wedged before tell.
+    // Honor the persisted already-sent mark; the drain compacts only past it.
+    // Never seed to EOF: that skipped undrained lines written while the peer
+    // was down or wedged before tell.
     const outbox_bytes = readFile(io, gpa, flags.dir, "outbox.jsonl") catch try gpa.dupe(u8, "");
     defer gpa.free(outbox_bytes);
     g_offset = clampOutboxOffset(loadOutboxOffset(io, gpa, flags.dir), outbox_bytes.len);
@@ -1064,7 +1043,7 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
         }
         const hint = net.netlayer.directAddrHint(loc.hints) orelse "";
         const reachability: iroh.Reachability = if (hint.len > 0) .direct else .discovery;
-        const rendezvous_url = common.resolveRendezvousUrl(gpa, init.environ_map.get("PANCAKE_RENDEZVOUS"), flags.locator) catch |err| {
+        const rendezvous_url = common.resolveRendezvousUrl(io, gpa, init.environ_map.get("PANCAKE_RENDEZVOUS"), flags.locator) catch |err| {
             log.err(io, "rendezvous URL refused: {s}", .{@errorName(err)});
             return err;
         };
@@ -1131,7 +1110,7 @@ fn runStack(
         .reachability = reachability,
         .connect_timeout_ms = dial_timeout_ms,
     });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| log.err(io, "iroh teardown failed: {s}", .{@errorName(err)});
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const node_id = resident.nodeId(&id_buf);
@@ -1168,7 +1147,7 @@ fn runStack(
     // other pancake peers, and the directory it dials offers the same pair.
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = Host.init(gpa, seed, session_root, .{
+    var host = try Host.init(gpa, seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
         .codec = rooms_profile.codec,

@@ -46,7 +46,7 @@ _self_label: Optional[str] = None
 # unknown to it. Each of the four bindings states the word itself, because it is
 # a claim about the binding tier rather than a fact the core or the C ABI
 # carries, so there is no declaration to generate it from. ``zig build
-# meta-check`` (``checkTraceViewerVocabulary``) holds all four against each
+# source-check`` (``checkTraceViewerVocabulary``) holds all four against each
 # other, against the viewer that reads them, and against the Goblins publisher,
 # which states a different word and must keep stating it.
 _SELF_PROFILE = "pancake"
@@ -87,12 +87,18 @@ def _designator_of(cookie: int) -> str:
         for key in dead:
             _hosts.pop(key, None)
     return ""
+
+
+def _owner_of(cookie: int):
+    with _hosts_lock:
+        for row in _hosts.values():
+            if row.cookie == cookie:
+                return row.owner()
+    return None
 # Payload bytes forwarded per message (whole frame under the cap, head +
 # true length above it). The TypeScript veneer exposes this as an
 # ``enableTrace`` option; make it configurable here when a consumer asks.
 _PAYLOAD_CAP = 4096
-
-
 def _now_ns() -> int:
     return round((time.monotonic() - _t0) * 1_000_000_000)
 
@@ -113,7 +119,7 @@ def _captp_version_from_abi(version: int) -> str:
     return "unknown"
 
 
-def _emit(sink: TraceSink, record: dict) -> None:
+def _emit(sink: TraceSink, record: dict, owner) -> None:
     """Keep observer failure outside protocol control flow.
 
     This is especially load-bearing for the ctypes callback: no Python
@@ -122,8 +128,10 @@ def _emit(sink: TraceSink, record: dict) -> None:
     """
     try:
         sink(record)
-    except BaseException:
-        pass
+    except BaseException as error:
+        # The Host owns projection and the bounded surviving fallback. No
+        # Python exception crosses the C callback frame or alters CapTP.
+        owner._record_callerless_failure("trace.sink", error)
 
 
 def _on_native_event(ctx: int, event_ptr) -> None:
@@ -132,6 +140,9 @@ def _on_native_event(ctx: int, event_ptr) -> None:
         return
     ev = event_ptr.contents
     cookie = ctx or 0
+    owner = _owner_of(cookie)
+    if owner is None:
+        return
     session = f"live-h{cookie}-s{ev.session}"
     if ev.kind == _abi.TRACE_SESSION_OPEN:
         designator = (
@@ -163,7 +174,7 @@ def _on_native_event(ctx: int, event_ptr) -> None:
             record["session_id"] = ctypes.string_at(
                 ev.session_id, ev.session_id_len,
             ).decode("utf-8", "replace")
-        _emit(sink, record)
+        _emit(sink, record, owner)
         return
     if ev.kind == _abi.TRACE_MESSAGE:
         record = {
@@ -201,7 +212,7 @@ def _on_native_event(ctx: int, event_ptr) -> None:
                 }
         elif total_len:
             record["len"] = total_len
-        _emit(sink, record)
+        _emit(sink, record, owner)
         return
     if ev.kind == _abi.TRACE_SESSION_CLOSE:
         _emit(sink, {
@@ -209,7 +220,7 @@ def _on_native_event(ctx: int, event_ptr) -> None:
             "sim_t_ns": _now_ns(),
             "kind": "ocapn.session-closed",
             "session": session,
-        })
+        }, owner)
 
 
 def _callback():
@@ -282,7 +293,7 @@ def annotate_session(session, *, label: str) -> None:
         "kind": "ocapn.session-meta",
         "session": f"live-h{cookie}-s{out.value}",
         "meta": {"label": label},
-    })
+    }, owner)
 
 
 def _live_hosts_locked() -> list:

@@ -21,6 +21,7 @@ HOST_ACTION_SETTLE = 3
 HOST_ACTION_FAIL = 4
 HOST_ACTION_CLOSE = 5
 HOST_ACTION_RESUME = 6
+HOST_ACTION_CANCEL_DIAL = 7
 
 
 @dataclass(frozen=True)
@@ -47,12 +48,14 @@ class Settle:
 @dataclass(frozen=True)
 class Fail:
     ticket: int
+    result: int
     message: str
 
 
 @dataclass(frozen=True)
 class Close:
     session_ptr: int
+    result: int
 
 
 @dataclass(frozen=True)
@@ -60,7 +63,12 @@ class Resume:
     pass
 
 
-HostAction = Union[Dial, Flush, NeedGiftId, Settle, Fail, Close, Resume]
+@dataclass(frozen=True)
+class CancelDial:
+    ticket: int
+
+
+HostAction = Union[Dial, Flush, NeedGiftId, Settle, Fail, Close, Resume, CancelDial]
 
 
 def _view(ptr, length) -> str:
@@ -86,11 +94,13 @@ def decode(a) -> HostAction:
     if kind == HOST_ACTION_SETTLE:
         return Settle(ticket=a.ticket, value=_arg_from_c(a.value))
     if kind == HOST_ACTION_FAIL:
-        return Fail(ticket=a.ticket, message=_view(a.message, a.message_len))
+        return Fail(ticket=a.ticket, result=a.result, message=_view(a.message, a.message_len))
     if kind == HOST_ACTION_CLOSE:
-        return Close(session_ptr=a.session or 0)
+        return Close(session_ptr=a.session or 0, result=a.result)
     if kind == HOST_ACTION_RESUME:
         return Resume()
+    if kind == HOST_ACTION_CANCEL_DIAL:
+        return CancelDial(ticket=a.ticket)
     raise RuntimeError(f"unknown host action kind: {kind}")
 
 
@@ -115,5 +125,7 @@ async def dispatch(action: HostAction, handlers) -> None:
             await handlers.close(action)
         case Resume():
             await handlers.resume(action)
+        case CancelDial():
+            await handlers.cancel_dial(action)
         case _:
             raise RuntimeError(f"unknown host action: {action!r}")

@@ -34,7 +34,7 @@ export const GOBLINS_PROFILE = "goblins";
  * The word itself is stated a sixth time here, once per pancake binding and
  * once by this reader, and no generated tier can own it: the claim is about the
  * binding tier rather than about the core, so no Zig or C declaration carries
- * it. `zig build meta-check` (`checkTraceViewerVocabulary`) is what keeps the
+ * it. `zig build source-check` (`checkTraceViewerVocabulary`) is what keeps the
  * six in step, and it pins `GOBLINS_PROFILE` beside them so the two producers
  * cannot be collapsed into one. */
 export const PANCAKE_PROFILE = "pancake";
@@ -156,19 +156,17 @@ export type CaptpVersion = z.infer<typeof CaptpVersion>;
 
 const BUILTIN_CAPTP_VERSIONS = ["next", "v1_0"] as const;
 export type BuiltinCaptpVersion = typeof BUILTIN_CAPTP_VERSIONS[number];
-export const CAPTP_VERSION_OPTIONS: readonly BuiltinCaptpVersion[] =
-  BUILTIN_CAPTP_VERSIONS;
+export const CAPTP_VERSION_OPTIONS: readonly BuiltinCaptpVersion[] = BUILTIN_CAPTP_VERSIONS;
 
 export const UNKNOWN_CAPTP_VERSION = "unknown";
 export type CaptpVersionReferenceOption =
   | BuiltinCaptpVersion
   | typeof UNKNOWN_CAPTP_VERSION;
 
-export const CAPTP_VERSION_REFERENCE_OPTIONS:
-  readonly CaptpVersionReferenceOption[] = [
-    ...CAPTP_VERSION_OPTIONS,
-    UNKNOWN_CAPTP_VERSION,
-  ];
+export const CAPTP_VERSION_REFERENCE_OPTIONS: readonly CaptpVersionReferenceOption[] = [
+  ...CAPTP_VERSION_OPTIONS,
+  UNKNOWN_CAPTP_VERSION,
+];
 
 /**
  * How the handshake spells each version, which is the word a pancake trace
@@ -183,12 +181,12 @@ export const CAPTP_VERSION_REFERENCE_OPTIONS:
  * word for the same thing.
  *
  * The producers keep their own (`CAPTP_VERSION_WIRE` in
- * `bindings/ts/stack/trace.ts`, and the same words inline in the Python,
+ * `bindings/ts/runtime/trace.ts`, and the same words inline in the Python,
  * Racket, and Rust trace modules). This one stays separate on three grounds:
  * the viewer consumes a schema no single implementation owns, it is its own
  * Deno scope that links no pancake package, and this table is display text as
  * well as a wire reading, which the producers' is not. What separate must not
- * mean is free to drift, so `zig build meta-check` requires this table to carry
+ * mean is free to drift, so `zig build source-check` requires this table to carry
  * every word `model.CaptpVersion.wireString` emits
  * (`checkTraceViewerVocabulary`), the same authority it holds the producers to.
  */
@@ -198,9 +196,7 @@ export const CAPTP_VERSION_WIRE: Record<BuiltinCaptpVersion, string> = {
 };
 
 export function captpVersionLabel(version: CaptpVersion): string {
-  return version === UNKNOWN_CAPTP_VERSION
-    ? UNKNOWN_CAPTP_VERSION
-    : CAPTP_VERSION_WIRE[version];
+  return version === UNKNOWN_CAPTP_VERSION ? UNKNOWN_CAPTP_VERSION : CAPTP_VERSION_WIRE[version];
 }
 
 /**
@@ -336,7 +332,7 @@ export const UNATTRIBUTED_WORD = "nothing proved this";
  * ABI and the TypeScript binding.
  *
  * One list rather than the words written wherever each is tested, so the mirror
- * is a single declaration to hold the Zig enum against. `zig build meta-check`
+ * is a single declaration to hold the Zig enum against. `zig build source-check`
  * (`checkViewerProvenanceMirror`) does hold it, tag by tag, and it reads this
  * declaration rather than the file: every word here is also read by
  * `attributionForProvenance` below, so a search of the whole module finds the

@@ -30,6 +30,11 @@ pub const step_name = "gen-header-host";
 const emitted_fn_names = [_][]const u8{
     "pancake_host_new",
     "pancake_host_new_in",
+    "pancake_host_diagnostic_id",
+    "pancake_host_close",
+    "pancake_host_close_progress",
+    "pancake_host_close_wait_ms",
+    "pancake_host_lifecycle_state",
     "pancake_host_release",
     "pancake_host_designator_from_seed",
     "pancake_host_set_advertised_locator",
@@ -41,7 +46,9 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_plan_dial",
     "pancake_host_pending_dial",
     "pancake_host_reference_exporter",
-    "pancake_host_plan_accept",
+    "pancake_host_session_close",
+    "pancake_host_session_close_progress",
+    "pancake_host_session_lifecycle_state",
     "pancake_host_session_release",
     "pancake_host_session_is_open",
     "pancake_host_session_trace_id",
@@ -52,6 +59,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_pump_drain",
     "pancake_host_dialed",
     "pancake_host_dial_failed",
+    "pancake_host_dial_cancelled",
     "pancake_host_provide_gift_id",
     "pancake_host_gift_id_failed",
     "pancake_host_session_publish",
@@ -75,6 +83,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_vow_index",
     "pancake_host_vow_untag",
     "pancake_host_vow_get",
+    "pancake_host_turn_session",
     "pancake_host_turn_forward",
     "pancake_host_turn_defer",
     "pancake_host_turn_send",
@@ -84,6 +93,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_ref_release",
     "pancake_host_session_published_ref",
     "pancake_host_session_break_far_vows",
+    "pancake_host_session_transport_closed",
     "pancake_host_session_set_exporter_location",
     "pancake_host_session_last_abort",
     "pancake_host_session_partner_abort",
@@ -104,9 +114,21 @@ const Spec = struct {
         .{ .name = "PANCAKE_HOST_ACTION_FLUSH", .doc = "PancakeHostAction.kind: drain pancake_host_session_take_outbound on session until WOULD_BLOCK and write the frames." },
         .{ .name = "PANCAKE_HOST_ACTION_NEED_GIFT_ID", .doc = "PancakeHostAction.kind: draw 32 random bytes and feed them to pancake_host_provide_gift_id with the ticket, or report failure through pancake_host_gift_id_failed." },
         .{ .name = "PANCAKE_HOST_ACTION_SETTLE", .doc = "PancakeHostAction.kind: the vow named by ticket settled fulfilled with value; route the outcome to whatever awaits it." },
-        .{ .name = "PANCAKE_HOST_ACTION_FAIL", .doc = "PancakeHostAction.kind: the vow named by ticket settled broken with message; route the outcome to whatever awaits it." },
+        .{ .name = "PANCAKE_HOST_ACTION_FAIL", .doc = "PancakeHostAction.kind: the vow named by ticket failed with result and message; route the outcome to whatever awaits it." },
         .{ .name = "PANCAKE_HOST_ACTION_CLOSE", .doc = "PancakeHostAction.kind: the host retired this session; write any queued terminal frame, close its transport, and release the session." },
         .{ .name = "PANCAKE_HOST_ACTION_RESUME", .doc = "PancakeHostAction.kind: the finite host scheduler yielded with internal work remaining; continue draining actions, with no session or I/O payload." },
+        .{ .name = "PANCAKE_HOST_ACTION_CANCEL_DIAL", .doc = "PancakeHostAction.kind: interrupt and join the external dial named by ticket, then report pancake_host_dial_cancelled." },
+        .{ .name = "PANCAKE_PENDING_CANCEL", .doc = "pancake_host_close pending policy: seal admission, cancel admitted work, and begin terminal session shutdown." },
+        .{ .name = "PANCAKE_PENDING_FINISH", .doc = "pancake_host_close pending policy: seal admission and keep driving admitted work before terminal session shutdown." },
+        .{ .name = "PANCAKE_CLOSE_OPTIONS_ABI_VERSION", .doc = "PancakeCloseOptions.abi_version." },
+        .{ .name = "PANCAKE_CLOSE_MAX_GRACE_MS", .doc = "Largest finite PancakeCloseOptions.grace_ms value." },
+        .{ .name = "PANCAKE_CLOSE_GRACE_UNSPECIFIED", .doc = "PancakeCloseOptions.grace_mode: no grace argument was supplied." },
+        .{ .name = "PANCAKE_CLOSE_GRACE_FINITE", .doc = "PancakeCloseOptions.grace_mode: grace_ms is a finite budget." },
+        .{ .name = "PANCAKE_CLOSE_GRACE_UNBOUNDED", .doc = "PancakeCloseOptions.grace_mode: finish has no deadline." },
+        .{ .name = "PANCAKE_LIFECYCLE_ACTIVE", .doc = "The owner still admits application work." },
+        .{ .name = "PANCAKE_LIFECYCLE_FINISHING", .doc = "Admission is sealed while admitted work runs." },
+        .{ .name = "PANCAKE_LIFECYCLE_TERMINATING", .doc = "Terminal resource shutdown is in progress." },
+        .{ .name = "PANCAKE_LIFECYCLE_CLOSED", .doc = "The owner's execution state has reached its close barrier." },
         .{ .name = "PANCAKE_DEFAULT_FRAME_CAP", .doc = "Default maximum admissible frame for pancake_host_new / pancake_host_new_in (bytes): mirrors session.SessionLimits.max_frame_bytes (1 MiB)." },
         .{ .name = "PANCAKE_MAX_LOCAL_FORWARD_HOPS", .doc = "Bound on one turn's synchronous local Forward chase (caretaker over attenuator). Hop N+1 breaks the answer instead of spinning." },
         .{ .name = "PANCAKE_DISCOVERY_DIAL_RETRY_MS", .doc = "Discovery-posture dial retry interval in milliseconds (ADR-0082). Keep lockstep with driver.discovery_retry_ms." },
@@ -121,9 +143,11 @@ const Spec = struct {
         .{ .name = "PANCAKE_DIAL_POSTURE_REDEEM", .doc = "pancake_host_plan_dial posture_policy: a redeem (a DIAL action) — direct when a hint is present, else the node's configured posture." },
         .{ .name = "PANCAKE_DIAL_POSTURE_EXPLICIT", .doc = "pancake_host_plan_dial posture_policy: a connect carrying a posture in posture_value." },
         .{ .name = "PANCAKE_DIAL_POSTURE_EXPLICIT_NONE", .doc = "pancake_host_plan_dial posture_policy: a connect that named no posture; a peer-id dial refuses PANCAKE_ERR_INVALID_ARGUMENT." },
-        .{ .name = "PANCAKE_DESIGNATOR_SCHEME_ADDRESS", .doc = "pancake_host_plan_accept designator_scheme: the listener designator names a dialable address." },
-        .{ .name = "PANCAKE_DESIGNATOR_SCHEME_KEY", .doc = "pancake_host_plan_accept designator_scheme: the listener designator names a peer key." },
+        .{ .name = "PANCAKE_DESIGNATOR_SCHEME_ADDRESS", .doc = "pancake_host_session_open_accepted designator_scheme: the listener designator names a dialable address." },
+        .{ .name = "PANCAKE_DESIGNATOR_SCHEME_KEY", .doc = "pancake_host_session_open_accepted designator_scheme: the listener designator names a peer key." },
         .{ .name = "PANCAKE_HOST_OUTBOUND_PREFIX_CAP", .doc = "Minimum out_prefix capacity for pancake_host_session_take_outbound." },
+        .{ .name = "PANCAKE_HOST_DURABLE_ENTROPY_LEN", .doc = "Exact caller-supplied entropy length for pancake_host_publish_durable." },
+        .{ .name = "PANCAKE_HOST_DURABLE_SWISS_LEN", .doc = "Required output capacity and written length for pancake_host_publish_durable." },
         .{ .name = "PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", .doc = "PancakePartnerIdentity.provenance: a lower layer proved the partner holds the durable key it claims, and that key names the far end of the byte channel this session runs over, so the partner and the endpoint this session is encrypted to are one node." },
         .{ .name = "PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED", .doc = "PancakePartnerIdentity.provenance: nothing proved the name. A partner that claimed no durable identity at all lands here too, having no identity to have authenticated." },
     };
@@ -154,6 +178,13 @@ comptime {
     std.debug.assert(Spec.c.PANCAKE_HOST_ACTION_FAIL == 4);
     std.debug.assert(Spec.c.PANCAKE_HOST_ACTION_CLOSE == 5);
     std.debug.assert(Spec.c.PANCAKE_HOST_ACTION_RESUME == 6);
+    std.debug.assert(Spec.c.PANCAKE_HOST_ACTION_CANCEL_DIAL == 7);
+    std.debug.assert(Spec.c.PANCAKE_PENDING_CANCEL == 0);
+    std.debug.assert(Spec.c.PANCAKE_PENDING_FINISH == 1);
+    std.debug.assert(Spec.c.PANCAKE_LIFECYCLE_ACTIVE == 0);
+    std.debug.assert(Spec.c.PANCAKE_LIFECYCLE_FINISHING == 1);
+    std.debug.assert(Spec.c.PANCAKE_LIFECYCLE_TERMINATING == 2);
+    std.debug.assert(Spec.c.PANCAKE_LIFECYCLE_CLOSED == 3);
     std.debug.assert(Spec.c.PANCAKE_MAX_LOCAL_FORWARD_HOPS == 256);
     // Hold the dial/accept planning #defines emitted below against the source.
     std.debug.assert(Spec.c.PANCAKE_DIAL_SHAPE_HOST_PORT == 0);
@@ -169,6 +200,8 @@ comptime {
     std.debug.assert(Spec.c.PANCAKE_DESIGNATOR_SCHEME_ADDRESS == 0);
     std.debug.assert(Spec.c.PANCAKE_DESIGNATOR_SCHEME_KEY == 1);
     std.debug.assert(Spec.c.PANCAKE_HOST_OUTBOUND_PREFIX_CAP == 32);
+    std.debug.assert(Spec.c.PANCAKE_HOST_DURABLE_ENTROPY_LEN == 16);
+    std.debug.assert(Spec.c.PANCAKE_HOST_DURABLE_SWISS_LEN == 50);
 }
 
 /// Build the full header text. Caller owns the returned bytes.
@@ -224,8 +257,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\THE ONE LOOP RULE. After any top-level pancake_host_* call returns OK,
         \\drain pancake_host_next_action until PANCAKE_ERR_WOULD_BLOCK, honoring each
         \\action: DIAL — borrow the pending view with
-        \\pancake_host_pending_dial(ticket), open your own session from its
-        \\transport/designator (pancake_host_session_open_dialed_locator), drive
+        \\pancake_host_pending_dial(ticket), open your own channel from it,
+        \\mint the session from the same view
+        \\(pancake_host_session_open_dialed_locator), drive
         \\its session open, then report pancake_host_dialed (or
         \\pancake_host_dial_failed); FLUSH — drain
         \\take_outbound on that session until WOULD_BLOCK and write the frames;
@@ -245,7 +279,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\readers — and their effects encode and pump when the enclosing call
         \\unwinds. The host-driving verbs (feed, feed_bytes, take_outbound,
         \\next_action, dialed/dial_failed/provide_gift_id, open_*, publish/spawn,
-        \\fetch/enliven, break_far_vows, release) are refused there with
+        \\fetch/enliven, break_far_vows, transport_closed, release) are refused there with
         \\PANCAKE_ERR_INVALID_ARGUMENT.
     );
 
@@ -337,6 +371,18 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitConst(&b, gpa, "PANCAKE_HOST_ACTION_FAIL");
     try emitConst(&b, gpa, "PANCAKE_HOST_ACTION_CLOSE");
     try emitConst(&b, gpa, "PANCAKE_HOST_ACTION_RESUME");
+    try emitConst(&b, gpa, "PANCAKE_HOST_ACTION_CANCEL_DIAL");
+    try emitConst(&b, gpa, "PANCAKE_PENDING_CANCEL");
+    try emitConst(&b, gpa, "PANCAKE_PENDING_FINISH");
+    try emitConst(&b, gpa, "PANCAKE_CLOSE_OPTIONS_ABI_VERSION");
+    try emitConst(&b, gpa, "PANCAKE_CLOSE_MAX_GRACE_MS");
+    try emitConst(&b, gpa, "PANCAKE_CLOSE_GRACE_UNSPECIFIED");
+    try emitConst(&b, gpa, "PANCAKE_CLOSE_GRACE_FINITE");
+    try emitConst(&b, gpa, "PANCAKE_CLOSE_GRACE_UNBOUNDED");
+    try emitConst(&b, gpa, "PANCAKE_LIFECYCLE_ACTIVE");
+    try emitConst(&b, gpa, "PANCAKE_LIFECYCLE_FINISHING");
+    try emitConst(&b, gpa, "PANCAKE_LIFECYCLE_TERMINATING");
+    try emitConst(&b, gpa, "PANCAKE_LIFECYCLE_CLOSED");
     try emitConst(&b, gpa, "PANCAKE_DEFAULT_FRAME_CAP");
     try emitConst(&b, gpa, "PANCAKE_MAX_LOCAL_FORWARD_HOPS");
     try emitConst(&b, gpa, "PANCAKE_DISCOVERY_DIAL_RETRY_MS");
@@ -344,13 +390,22 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitConst(&b, gpa, "PANCAKE_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT");
     try emitConst(&b, gpa, "PANCAKE_DURABLE_PROVENANCE_UNAUTHENTICATED");
     try b.appendSlice(gpa, "\n");
+    try E.emitStruct(&b, gpa, Spec.c.PancakeCloseOptions, "PancakeCloseOptions", &.{
+        "PANCAKE_CLOSE_OPTIONS_ABI_VERSION.",
+        "sizeof(PancakeCloseOptions).",
+        "PANCAKE_PENDING_CANCEL or PANCAKE_PENDING_FINISH.",
+        "PANCAKE_CLOSE_GRACE_*; CANCEL requires UNSPECIFIED.",
+        "Finite finish grace in milliseconds; CANCEL requires zero.",
+    });
+    try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
         \\One embedder effect popped from pancake_host_next_action. kind selects the
         \\live fields: DIAL carries only ticket (borrow the pending view with
         \\pancake_host_pending_dial). FLUSH and CLOSE carry session;
         \\NEED_GIFT_ID carries ticket. SETTLE carries the settled vow id in ticket
         \\and the fulfilled value in value; FAIL carries the vow id in ticket and
-        \\the break reason in message/message_len. RESUME carries no payload and
+        \\the typed failure code in result and the reason in message/message_len.
+        \\RESUME carries no payload and
         \\means the finite host scheduler yielded with internal work remaining.
         \\Every popped byte view and
         \\value's sub-structure are host-owned and valid until the NEXT
@@ -363,6 +418,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "SETTLE: the fulfilled value; zeroed otherwise.",
         "FAIL: the break reason; NULL otherwise.",
         "",
+        "CLOSE: PANCAKE_OK or PANCAKE_ERR_TIMEOUT. FAIL: PANCAKE_ERR_BROKEN or PANCAKE_ERR_CLOSED; zero otherwise.",
     });
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
@@ -396,14 +452,19 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
 
     try emitFn(&b, gpa, "pancake_host_new", &.{ "seed", "seed_len", "frame_cap", "verify_partner", "codec", "captp_version", "features", "local_turn_budget", "out_host" }, "Create a byte-fed host bound to a caller-drawn 64-byte seed buffer (the host\nnever draws entropy), allocating through the library allocator.\n\nseed_len must be 64. The first 32 bytes are the durable identity and must\nstay stable across restarts, because a keyed locator's designator derives\nfrom them. The next 32 are the session-key root, and they must be FRESH PER\nPROCESS: they are what makes each CapTP session sign with its own key, so an\nold handoff certificate cannot resolve against a session opened after a\nrestart. A durable-only 32-byte seed is refused — CapTP session keys must not\nsilently reuse the identity seed (ADR-0097).\n\nframe_cap sizes every session's maximum admissible frame; a\nnonzero verify_partner keeps partner-signature verification on (the secure\ndefault); codec is PANCAKE_CODEC_SYRUP or PANCAKE_CODEC_CAPNP.\nPANCAKE_CODEC_UNKNOWN is an output sentinel and is refused here.\ncaptp_version is the PANCAKE_CAPTP_* profile this host prefers, and features is\nthe PANCAKE_FEATURE_* bitmask this host offers. The signed hello carries those\npreferences as locator hints; each session settles version and codec with its\npartner, falling back to v1.0/Syrup when needed, and runs only the intersection\nof the two offered feature sets. An absent feature hint means PANCAKE_FEATURE_FULL.\nPANCAKE_CAPTP_V1_0 with PANCAKE_CODEC_SYRUP and PANCAKE_FEATURE_FULL is the\ninterop floor a Goblins vat speaks; a pancake-to-pancake fleet normally names\nPANCAKE_CAPTP_NEXT with PANCAKE_CODEC_CAPNP and PANCAKE_FEATURE_FULL.\nlocal_turn_budget is 0 = unbounded (same default as Zig Host + Bridge);\nnonzero caps local-turn amplification per drive (ADR-0076).\n*out_host receives the handle; release with pancake_host_release.");
     try emitFn(&b, gpa, "pancake_host_new_in", &.{ "context", "seed", "seed_len", "frame_cap", "verify_partner", "codec", "captp_version", "features", "local_turn_budget", "out_host" }, "pancake_host_new allocating every byte the host owns through context's host\nallocator (pancake_context_new_with_allocator).");
-    try emitFn(&b, gpa, "pancake_host_release", &.{"host"}, "Release the host and everything it owns: every still-open session (each\nstill-parked vow breaks inside this call, its undrained completion freed\nwith the rest of the action queue), the vow map, parked actions, the node,\nand the giftable rows (each giftable's free runs exactly once here). NULL is\na no-op. Session (PancakeHostSession) handles this host minted are freed with it —\nnever touch one after its host is gone. Because release is terminal, an embedder\nmay transfer exclusive ownership to a finalizer thread after every Host call has\nreturned; no live Host verb gains cross-thread permission. Refused (last error\nset, nothing freed) from inside a callback.");
+    try emitFn(&b, gpa, "pancake_host_diagnostic_id", &.{ "host", "out_id" }, "Return the Host's stable identity in its owning Context's diagnostic namespace. The context-less compatibility constructor reports zero.");
+    try emitFn(&b, gpa, "pancake_host_close", &.{ "host", "options", "now_ms" }, "Seal application admission and begin or escalate terminal Host close. now_ms is\na reading from the embedder's monotonic millisecond clock. FINISH keeps\nalready-admitted work running under its finite or explicitly unbounded grace.\nRepeated calls share the first deadline: CANCEL may escalate FINISH and FINISH\nnever weakens or restarts an existing barrier. This closes without releasing\nthe Host handle.");
+    try emitFn(&b, gpa, "pancake_host_close_progress", &.{ "host", "now_ms", "out_state" }, "Apply the current monotonic clock reading to a started close and write its\nPANCAKE_LIFECYCLE_* state. Expired FINISH escalates through the shared CANCEL\npath. After teardown reaches CLOSED, a finite grace expiry returns\nPANCAKE_ERR_TIMEOUT together with CLOSED.");
+    try emitFn(&b, gpa, "pancake_host_close_wait_ms", &.{ "host", "now_ms", "out_wait_ms" }, "The longest a close driver may wait for new input before calling\npancake_host_close_progress again: milliseconds until the nearest FINISH grace\ndeadline (the Host's own or any session's), clamped at zero. Writes -1 when no\nfinite deadline is pending; only feed, action-drain, settle, or escalation\nactivity can then advance terminal progress, so the embedder may park on\nactivity alone. The value drops straight into a wait primitive's timeout\nargument.");
+    try emitFn(&b, gpa, "pancake_host_lifecycle_state", &.{ "host", "out_state" }, "Observe the current PANCAKE_LIFECYCLE_* state without advancing time. The\nordinary byte-feed and action-drain cycle advances terminal work; call\npancake_host_close_progress when the embedder clock advances. CLOSED means every\nsession and queued Host effect has retired. A prior finite grace expiry returns\nPANCAKE_ERR_TIMEOUT together with CLOSED.");
+    try emitFn(&b, gpa, "pancake_host_release", &.{"host"}, "Release the host and everything it owns: every still-open session (each\nstill-parked vow breaks inside this call, its undrained completion freed\nwith the rest of the action queue), the vow map, parked actions, the node,\nand the giftable rows (each giftable's free runs exactly once here). NULL is\na no-op. Session (PancakeHostSession) handles this host minted are freed with it —\nnever touch one after its host is gone. Because release is terminal, an embedder\nmay transfer exclusive ownership to a finalizer thread after every Host call has\nreturned; no live Host verb gains cross-thread permission. Refusal from inside a\ncallback sets last error and leaves the handle live. A teardown failure also sets\nlast error but consumes the handle after completing the ownership sweep.");
     try emitFn(&b, gpa, "pancake_host_designator_from_seed", &.{ "seed", "seed_len", "out", "out_len" }, "Derive the canonical key designator (exactly 64 lowercase hex digits) from a\n32-byte Ed25519 durable identity seed — the public half of the first half of\nthe 64-byte buffer pancake_host_new takes. CapTP session signing keys come\nfrom the second half (ADR-0097), not from this designator seed. Writes 64\nbytes into out (out_len must be at least 64). Used by a keyed-tcp listener\nwhose locator designator is this durable identity (ADR-0075).");
     try emitFn(&b, gpa, "pancake_host_set_advertised_locator", &.{ "host", "locator" }, "Retain and select this host's complete acceptable location. The Host validates and deep-copies the borrowed locator view. Later dialed and accepted sessions sign this selection regardless of the transport carrying them.");
     try emitFn(&b, gpa, "pancake_host_ensure_advertised_locator", &.{ "host", "transport", "transport_len" }, "Retain a dial fallback for transport unless one already exists. It becomes the\nacceptable location only when the Host has no selection; it never displaces a\nroute selected for another transport. Key-designator transports use this Host's\npublic key; address transports use the unreachable-client placeholder. A\nreachable adapter must publish its complete locator explicitly.");
     try emitFn(&b, gpa, "pancake_host_remove_advertised_locator", &.{ "host", "transport", "transport_len" }, "Remove the retained locator for transport. Removing the selected route leaves\nno acceptable location until one is set or ensured; another retained route is\nnever chosen implicitly. Existing sessions retain the signed hello snapshot\nthey already sent.");
     try emitFn(&b, gpa, "pancake_host_set_session_limits", &.{ "host", "max_frame_bytes", "queue_cap", "outbound_high_water_bytes" }, "Selective session-limit knobs (ADR-0082): override max_frame_bytes, queue_cap,\nand/or outbound_high_water_bytes on a host before minting sessions. Pass 0 for\na field to leave it unchanged. Already-open peers keep the limits they were\nminted with.");
-    try emitFn(&b, gpa, "pancake_host_session_open_dialed_locator", &.{ "host", "transport", "transport_len", "designator", "designator_len", "out_session" }, "Mint the dialing half after an embedder has opened the byte channel for a\ncomplete parsed locator. A DIAL action carries only ticket: project its typed\nlocator with pancake_host_pending_dial, use that complete value to open the\nchannel, then pass its transport/designator here. A sealed session derives its\nNoise ephemeral from the Host's unique per-session seed under a separate KDF\ndomain, so callers do not branch on transport policy or supply per-open entropy.\nThe keyed op:start-session is signed under the host identity and encoded before\nthis returns, so drain take_outbound (a FLUSH action is queued) and drive the\nhandshake byte-fed. Host-wide aliases remain lazily discoverable through the new\nsession. A URI-holding caller parses first (pancake_uri_parse_peer); there is no\nparallel URI-string mint entry. Locator hints route channel establishment and do\nnot alter the dialed hello. *out_session is host-owned; release with\npancake_host_session_release.");
-    try emitFn(&b, gpa, "pancake_host_session_open_accepted", &.{ "host", "transport", "transport_len", "out_session" }, "Mint the accepting half of a connection your listener produced. The Host must\nalready have a selected acceptable location; this session signs that exact\nsnapshot even when it names another transport. Sealed-channel entropy follows\nthe dialed half's Host-owned derivation. Host-wide aliases remain lazily\ndiscoverable, with the same flush and release contract as the dialed half.");
+    try emitFn(&b, gpa, "pancake_host_session_open_dialed_locator", &.{ "host", "locator", "out_session" }, "Mint the dialing half after an embedder has opened the byte channel for\nlocator. The one locator vocabulary is taken whole: the designator keys\nduplicate-dial refusal and, on a key transport, demands the partner's durable\nkey; route hints carry no semantics here because the caller's dial executor\nspent them realizing the channel. A DIAL action carries only ticket: project\nits typed locator with pancake_host_pending_dial, open the channel it names,\nand pass the view back here. The host retains its own dial default for the\nlocator's transport first, never displacing an advertised locator the embedder\nexplicitly selected, so a bare client host dials without publishing anything.\nA sealed session derives its Noise ephemeral from the Host's unique\nper-session seed under a separate KDF domain, so callers do not branch on\ntransport policy or supply per-open entropy. The keyed op:start-session is\nsigned under the host identity and encoded before this returns, so drain\ntake_outbound (a FLUSH action is queued) and drive the handshake byte-fed.\nHost-wide aliases remain lazily discoverable through the new session.\n*out_session is host-owned; release with pancake_host_session_release.");
+    try emitFn(&b, gpa, "pancake_host_session_open_accepted", &.{ "host", "transport", "transport_len", "designator_scheme", "server_designator", "server_designator_len", "accepted_local_addr", "accepted_local_addr_len", "out_session" }, "Mint the accepting half of a connection your listener produced.\ndesignator_scheme is the provider's PANCAKE_DESIGNATOR_SCHEME_* declaration;\nserver_designator is the listener's own signing designator (its key for a key\ntransport, unused for an address transport); accepted_local_addr is the route\nthe accept reported (NULL/0 when unavailable). The host retains the locator\nthis accept would sign without displacing an acceptable location the embedder\nalready selected: an explicit pancake_host_set_advertised_locator is deployment\npolicy and wins, and the accept-derived locator becomes the selection only when\nthere is none. The session signs the selected snapshot even when it names\nanother transport. Sealed-channel entropy follows the dialed half's Host-owned\nderivation. Host-wide aliases remain lazily discoverable, with the same flush\nand release contract as the dialed half.");
     try b.appendSlice(gpa, "\n");
     try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_HOST_PORT");
     try emitConst(&b, gpa, "PANCAKE_DIAL_SHAPE_PEER_ID");
@@ -418,6 +479,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitConst(&b, gpa, "PANCAKE_DESIGNATOR_SCHEME_ADDRESS");
     try emitConst(&b, gpa, "PANCAKE_DESIGNATOR_SCHEME_KEY");
     try emitConst(&b, gpa, "PANCAKE_HOST_OUTBOUND_PREFIX_CAP");
+    try emitConst(&b, gpa, "PANCAKE_HOST_DURABLE_ENTROPY_LEN");
+    try emitConst(&b, gpa, "PANCAKE_HOST_DURABLE_SWISS_LEN");
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
         \\A resolved dial from pancake_host_plan_dial: what byte channel to open and
@@ -437,24 +500,13 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "PEER_ID: the caller posture when reach_kind is PANCAKE_DIAL_REACH_EXPLICIT.",
     });
     try b.appendSlice(gpa, "\n");
-    try emitDoc(&b, gpa,
-        \\A resolved accept from pancake_host_plan_accept: what an accepted
-        \\session signs as its own locator. Views borrow the caller's input,
-        \\except the address-transport empty-address fallback, which is the static
-        \\unreachable-client placeholder.
-    );
-    try E.emitStruct(&b, gpa, Spec.c.PancakeAcceptPlan, "PancakeAcceptPlan", &.{
-        "The designator a partner names this listener by.",
-        "",
-        "The direct-addresses hint a partner dials it at (empty for tcp/iroh).",
-        "",
-    });
-    try b.appendSlice(gpa, "\n");
     try emitFn(&b, gpa, "pancake_host_pending_dial", &.{ "host", "ticket", "hint_storage", "hint_capacity", "out_locator", "out_hint_count" }, "Project the complete in-flight locator for ticket into out_locator, using the\ncaller-owned hint_storage array. On PANCAKE_OK, *out_hint_count is the number\nof initialized hints and the locator plus all nested byte views remain\nHost-owned until pancake_host_dialed / pancake_host_dial_failed consumes the\nticket (or Host teardown); hint_storage remains caller-owned. When\nhint_capacity is too small, returns PANCAKE_ERR_BUFFER_TOO_SMALL, writes the\nrequired capacity to *out_hint_count, and leaves *out_locator untouched. The\nlocator was parsed and retained once when the give was accepted; no URI is\nreparsed and no hint is discarded. Unknown tickets return\nPANCAKE_ERR_INVALID_ARGUMENT.");
     try emitFn(&b, gpa, "pancake_host_reference_exporter", &.{ "host", "reference", "out_session" }, "Write the live session homing remote reference into *out_session, or NULL for\na local, stale, foreign-Host, or closed-session capability. Bindings compare\nthis result with the sending session after a call: the same session is an\nordinary reply, while another session is the exporter reached through handoff.\nThe answer comes from the reference's own Host row, with no dial-completion\ncapture window. The returned handle is Host-owned and lives with that session;\ndo not release it here.");
-    try emitFn(&b, gpa, "pancake_host_plan_dial", &.{ "transport", "transport_len", "designator", "designator_len", "direct_addresses_hint", "direct_addresses_hint_len", "posture_policy", "posture_value", "out_plan" }, "Resolve a dial without opening a socket: the transport dispatch, designator\nvalidation, host:port resolution, and peer-id reachability decision every binding\nused to re-express, done once here. transport/designator are the locator's\npieces (from pancake_host_pending_dial or pancake_uri_parse_peer);\ndirect_addresses_hint is the locator's direct-addresses hint (NULL/0 = none);\nposture_policy is a PANCAKE_DIAL_POSTURE_* choosing the peer-id reachability rule,\nwith posture_value the caller's posture under PANCAKE_DIAL_POSTURE_EXPLICIT.\nOn PANCAKE_OK *out_plan is filled with views borrowing the caller's buffers; a\nbad locator returns PANCAKE_ERR_INVALID_ARGUMENT (pancake_host_last_error\ncarries which). Open the channel the plan names, then feed it to\npancake_host_session_open_dialed_locator.");
-    try emitFn(&b, gpa, "pancake_host_plan_accept", &.{ "designator_scheme", "server_designator", "server_designator_len", "accepted_local_addr", "accepted_local_addr_len", "out_plan" }, "Resolve the listener facts used to publish a complete advertised locator.\ndesignator_scheme is the provider's PANCAKE_DESIGNATOR_SCHEME_* declaration;\nserver_designator is the listener's own designator (its key for a key transport);\naccepted_local_addr is the route the listener reported (NULL/0 when unavailable).\nOn PANCAKE_OK *out_plan is filled with views borrowing the caller's input, except\nthe address-transport fallback. Project that plan as a locator and pass its view\nto pancake_host_set_advertised_locator before opening accepted sessions.");
+    try emitFn(&b, gpa, "pancake_host_plan_dial", &.{ "transport", "transport_len", "designator", "designator_len", "direct_addresses_hint", "direct_addresses_hint_len", "posture_policy", "posture_value", "out_plan" }, "Resolve a dial without opening a socket: the transport dispatch, designator\nvalidation, host:port resolution, and peer-id reachability decision every binding\nused to re-express, done once here. transport/designator are the locator's\npieces (from pancake_host_pending_dial or pancake_uri_parse_peer);\ndirect_addresses_hint is the locator's direct-addresses hint (NULL/0 = none);\nposture_policy is a PANCAKE_DIAL_POSTURE_* choosing the peer-id reachability rule,\nwith posture_value the caller's posture under PANCAKE_DIAL_POSTURE_EXPLICIT.\nOn PANCAKE_OK *out_plan is filled with views borrowing the caller's buffers; a\nbad locator returns PANCAKE_ERR_INVALID_ARGUMENT (pancake_host_last_error\ncarries which). Open the channel the plan names, then pass the same\nlocator view to pancake_host_session_open_dialed_locator.");
     try b.appendSlice(gpa, "\n");
+    try emitFn(&b, gpa, "pancake_host_session_close", &.{ "session", "options", "now_ms" }, "Seal one byte-fed session's application admission and begin or escalate its\nterminal close. now_ms is the embedder's monotonic millisecond reading. The\nshared controller retains the first FINISH deadline while the embedder keeps\nfeeding bytes and draining actions. This closes without releasing the handle.");
+    try emitFn(&b, gpa, "pancake_host_session_close_progress", &.{ "session", "now_ms", "out_state" }, "Apply the current monotonic clock reading to one started session close and write\nits PANCAKE_LIFECYCLE_* phase. Expired FINISH escalates through CANCEL. CLOSED\nmeans the terminal transport action crossed its retryable delivery boundary; a\ntimed-out close returns PANCAKE_ERR_TIMEOUT together with CLOSED.");
+    try emitFn(&b, gpa, "pancake_host_session_lifecycle_state", &.{ "session", "out_state" }, "Observe one session's PANCAKE_LIFECYCLE_* phase without advancing time. CLOSED\nmeans the terminal transport action crossed its retryable delivery boundary while\nthe retained shell remains valid for explicit release. A prior finite grace expiry\nreturns PANCAKE_ERR_TIMEOUT together with CLOSED.");
     try emitFn(&b, gpa, "pancake_host_session_release", &.{"session"}, "Release one session: its still-parked far vows break (their FAIL\ncompletions queue inside this call), the node retires it — stranded\nwithdraws fail closed, so SIBLING sessions' vows may break here too — and\nthe shell is freed. NULL is a no-op; refused (last error set, the session\nkept) from inside a callback.");
     try emitFn(&b, gpa, "pancake_host_session_is_open", &.{"session"}, "Nonzero once the keyed handshake has completed and the session is open.");
     try emitFn(&b, gpa, "pancake_host_session_trace_id", &.{ "session", "out_id" }, "The id the live trace names this session's rows by (PancakeTraceEvent's session), so an embedder can annotate the same session a trace consumer is watching. Stable for the session's life and never reused by this host.");
@@ -466,6 +518,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_pump_drain", &.{ "host", "hooks", "out_acted", "out_yielded" }, "Opt-in convenience drain over pancake_host_next_action (ADR-0072 fifth\namendment). Still pops through the pull-queue internally; does not replace\nit. hooks may be NULL (every action is discarded). *out_acted is 1 when any\narm reported progress (optional, may be NULL). *out_yielded is 1 when the\nfinite Host scheduler requested another embedder turn (optional, may be NULL);\nreturn to the reactor before draining again. See PancakeHostPumpHooks.");
     try emitFn(&b, gpa, "pancake_host_dialed", &.{ "host", "ticket", "session" }, "Report a DIAL action's success: session is an open_dialed_locator against the\npending dial for ticket (pancake_host_pending_dial), driven to an\nopen session. The host withdraws every give waiting on the ticket; the\nwithdraws, their settles, and their flushes pump inside this call. A stale\nticket is a no-op success.");
     try emitFn(&b, gpa, "pancake_host_dial_failed", &.{ "host", "ticket", "reason", "reason_len" }, "Report a DIAL action's failure: every redeem waiting on the ticket breaks\nwith reason, its FAIL completion queued inside this call. A stale ticket is a\nno-op success.");
+    try emitFn(&b, gpa, "pancake_host_dial_cancelled", &.{ "host", "ticket" }, "Acknowledge that a CANCEL_DIAL action's physical operation has stopped and its\nexecutor state can be released. Host close remains pending until this report.");
     try emitFn(&b, gpa, "pancake_host_provide_gift_id", &.{ "host", "ticket", "gift_id", "gift_id_len" }, "Answer a NEED_GIFT_ID action with 32 caller-drawn random bytes: the host\noriginates the claimed handoff and this call flushes its legs, exporter\nfirst. A stale ticket is a no-op success.");
     try emitFn(&b, gpa, "pancake_host_gift_id_failed", &.{ "host", "ticket" }, "Report that a NEED_GIFT_ID action could not obtain or provide entropy. The\nclaimed handoff settles broken instead of retaining a ticket the embedder has\nalready consumed. A stale ticket is a no-op success.");
 
@@ -473,7 +526,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_session_spawn", &.{ "session", "behavior", "ctx", "free", "out_ref" }, "Spawn a hosted object in the Host Vat and create its first projection on this\nsession, without a fetchable name. It becomes reachable once a reply or\nargument carries the opaque Host-scoped capability written to *out_ref. Same\nfree contract as pancake_host_session_publish.");
     try emitFn(&b, gpa, "pancake_host_publish", &.{ "host", "name", "name_len", "behavior", "ctx", "free" }, "Publish one hosted object in the Vat owned by this Host and bind name as its\nhost-wide alias. Fetch lazily projects the actor onto the requesting Port; a\ndeposited gift retains the exact actor and never consults the alias at\nwithdrawal. The giftable row owns ctx: free, if non-NULL, runs exactly once, at\npancake_host_release on success or before this returns on any non-OK outcome\n(the null-pointer and reentry refusals touch nothing and leave ctx yours).\nAll-or-nothing over this call's own work: registration failure discards the\nfresh actor and frees ctx, so a retry starts with no partial alias or projection.");
     try emitFn(&b, gpa, "pancake_host_unpublish", &.{ "host", "name", "name_len" }, "Remove the host-wide alias name. Discovery-only, alias-only: a later fetch of\nthe name misses on every session, while capabilities already issued, live Port\nprojections, and deposited gifts keep naming the exact actor, which stays in\nthe Host's Vat until pancake_host_release. An absent alias returns\nPANCAKE_ERR_NOT_FOUND, so a typo is loud instead of an idempotent no-op. A name\nin the reserved durable namespace is refused INVALID_ARGUMENT: minted durable\npublications leave through pancake_host_remove_durable.");
-    try emitFn(&b, gpa, "pancake_host_publish_durable", &.{ "host", "entropy", "entropy_len", "behavior", "ctx", "free", "out_swiss", "swiss_cap" }, "Publish one hosted object under a freshly minted durable swiss name: a\nreserved-prefix namespace mutable aliases structurally cannot enter,\nunpredictable, never reassigned, and removable only through\npancake_host_remove_durable. entropy supplies exactly 16 caller-drawn random\nbytes (the embedder owns the entropy boundary, as for gift ids). The minted\nswiss is written into out_swiss (swiss_cap of at least 50 bytes, or\nBUFFER_TOO_SMALL and nothing published) and the written length is returned.\nctx/free follow pancake_host_publish's ownership exactly. Durability across\nprocess restart requires durable registry storage, which does not exist yet:\na restart makes the old sturdyref miss, fail-closed.");
+    try emitFn(&b, gpa, "pancake_host_publish_durable", &.{ "host", "entropy", "entropy_len", "behavior", "ctx", "free", "out_swiss", "swiss_cap" }, "Publish one hosted object under a freshly minted durable swiss name: a\nreserved-prefix namespace mutable aliases structurally cannot enter,\nunpredictable, never reassigned, and removable only through\npancake_host_remove_durable. entropy supplies exactly 16 caller-drawn random\nbytes (the embedder owns the entropy boundary, as for gift ids). The minted\nswiss is written into out_swiss (swiss_cap of at least 50 bytes, or\nBUFFER_TOO_SMALL and nothing published) and the written length is returned.\nctx/free follow pancake_host_publish's ownership exactly. The core stores no\nregistry across processes: preserve the entropy and republish the actor with\nthe same bytes at startup to reproduce the sturdyref; losing either makes the\nold name miss, fail-closed.");
     try emitFn(&b, gpa, "pancake_host_remove_durable", &.{ "host", "swiss", "swiss_len" }, "Remove a minted durable publication: the old sturdyref misses from now on,\nwhile capabilities already issued and deposited gifts keep the exact actor. A\nswiss outside the durable namespace returns INVALID_ARGUMENT (mutable aliases\nleave through pancake_host_unpublish); an unknown durable name returns\nPANCAKE_ERR_NOT_FOUND.");
 
     try emitFn(&b, gpa, "pancake_host_session_fetch", &.{ "session", "name", "name_len", "out_vow" }, "Fetch the partner capability published as name, minting a host vow whose id\nlands in *out_vow; the outcome arrives as that vow's SETTLE or FAIL action.\nA fulfilled far capability settles ALREADY enrolled under a node-unique\ntoken — recorded before the completion is queued, so a reply that\nimmediately re-gifts it routes to the right exporter. Refused inside a\ncallback.");
@@ -494,6 +547,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_next_trace", &.{ "host", "out_event" }, "Pop the oldest captured trace record into out_event. Its string views point\ninto the queue and stay valid until the next pancake_host_next_trace call,\nthe same borrow pancake_host_next_action carries. Returns\nPANCAKE_ERR_WOULD_BLOCK when nothing is captured, so an embedder drains in a\nloop until it sees that code.");
     try emitFn(&b, gpa, "pancake_host_resolver_fulfill", &.{ "host", "resolver_id", "value" }, "Settle a resolver vow fulfilled with one capability-free value (a value\nnaming a capability refuses whole; an answer that carries authority uses\nthe turn's forward instead). Top-level: refused inside a callback; the\nsettle runs the deferred answers and pumps the sessions they dirtied. A\nsuccessful settle consumes the resolver; preparation failure is retryable,\nwhile a second successful settle or an unknown id refuses.");
     try emitFn(&b, gpa, "pancake_host_resolver_break", &.{ "host", "resolver_id", "message", "message_len" }, "Settle a resolver vow broken with a diagnostic borrowed for the call. The\nsame top-level, consume-on-success contract as\npancake_host_resolver_fulfill.");
+    try emitFn(&b, gpa, "pancake_host_turn_session", &.{ "turn", "out_session" }, "Borrow the session whose Port delivered this callback turn. The handle is\nHost-owned and lives with that session; do not release it. This is how an\nembedder whose driver serves several sessions identifies the arriving\nconnection without reconstructing delivery state outside the core.");
     try emitFn(&b, gpa, "pancake_host_turn_forward", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_reply" }, "From inside a behavior callback, forward this turn's call to an opaque\nHost-scoped target and let this object's own answer settle on the forwarded\nresult — the caretaker/attenuator primitive. The Host resolves the target and\nevery nested capability; a stale or foreign-Host identity is refused. In a\nwire-served turn the real answer rides the forwarded vow and *out_reply gets a\nvoid placeholder; pass your behavior's own out_reply and return PANCAKE_OK.\nThe written reply is BORROWED — valid until the next turn verb or drive on\nthis host. The empty-verb contract is pancake_host_session_send's.");
     try emitFn(&b, gpa, "pancake_host_turn_defer", &.{ "turn", "out_resolver_id" }, "Atomically defer this turn's answer onto a fresh resolver vow (ADR-0102).\n*out_resolver_id receives the one-shot settle authority used by\npancake_host_resolver_fulfill / _break. All rows and the forward listener are\nreserved before publication, so refusal leaves no live resolver and no\nforwarded effect. The behavior returns normally after success; its return\nvalue resolves nothing once the turn is deferred.");
     try emitFn(&b, gpa, "pancake_host_turn_send", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_vow" }, "From inside a behavior callback, eventual-send to target and mint a host vow\nfor the answer — the same routing, refusals, and empty-verb contract as\npancake_host_session_send, on the turn's own session. The send encodes when the\nenclosing top-level call unwinds.");
@@ -501,9 +555,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_turn_spawn", &.{ "turn", "behavior", "ctx", "free", "out_ref" }, "From inside a behavior callback, spawn a hosted object in the Host Vat and\ncreate its first projection on the Port that delivered this turn. This is how a\nserved factory mints a capability it replies with (a task board's create, a\ncaretaker wrapping a target), the turn-time form of\npancake_host_session_spawn. Same free contract; *out_ref receives the opaque\nHost-scoped capability, ready to ride this turn's own reply.");
     try emitFn(&b, gpa, "pancake_host_turn_break", &.{ "turn", "message", "message_len" }, "From inside a behavior callback, break this turn's own answer with message —\nhow a behavior refuses with a diagnostic, since a non-OK return settles the\nanswer broken with only a generic reason. The answer resolves broken inside\nthis call (a no-answer tell breaks nothing); leave out_reply untouched and\nreturn PANCAKE_OK from the behavior, whose return value then resolves\nnothing. message is borrowed and copied.");
 
-    try emitFn(&b, gpa, "pancake_host_ref_release", &.{ "host", "ref", "delta" }, "Release delta application retains on one opaque Host capability. The Host\nresolves the owning session and emits any required op:gc-exports itself; the\ncaller never pairs a capability with a session-local wire position. A stale or\nforeign-Host identity is refused. Single-thread affinity applies: never call\nthis from a finalizer thread.");
+    try emitFn(&b, gpa, "pancake_host_ref_release", &.{ "host", "ref", "delta" }, "Release delta application retains on one opaque Host capability. The Host\nresolves the owning session and emits any required op:gc-exports itself; the\ncaller never pairs a capability with a session-local wire position. A stale or\nforeign-Host identity is refused. A non-OK return commits no release, so the\nsame (ref, delta) may be retried. OK consumes the release; any later pump\ncleanup failure becomes typed session close and must not invite a duplicate\nrelease. Single-thread affinity applies: never call this from a finalizer\nthread.");
     try emitFn(&b, gpa, "pancake_host_session_published_ref", &.{ "session", "name", "name_len", "out_ref" }, "Write to *out_ref the opaque Host-scoped capability currently published under\nname, or return PANCAKE_ERR_NOT_FOUND when the Host has no such alias. The actor\nin the Host-owned Vat is lazily projected onto session when needed; the\nreturned identity itself carries no export position and retains no name.");
-    try emitFn(&b, gpa, "pancake_host_session_break_far_vows", &.{ "session", "message", "message_len" }, "Break every far vow still parked on session, queueing each vow's FAIL\ncompletion inside this call — with the partner's retained abort diagnostic\nwhen one arrived, else message. Call it when your transport reports the\nconnection gone.");
+    try emitFn(&b, gpa, "pancake_host_session_break_far_vows", &.{ "session", "message", "message_len" }, "Break every far vow currently parked on session, queueing each vow's FAIL\ncompletion inside this call with the partner's retained abort diagnostic when\none arrived and message otherwise. The session remains open to later work; use\npancake_host_session_transport_closed when the byte channel is gone.");
+    try emitFn(&b, gpa, "pancake_host_session_transport_closed", &.{ "session", "message", "message_len" }, "Report that this session's transport is gone. The Host seals session\nadmission, retires its routing authority, and queues each pending far vow's\nFAIL completion inside this call, using the partner's retained abort\ndiagnostic when one arrived and message otherwise. Memory remains owned until\npancake_host_session_release.");
     try emitFn(&b, gpa, "pancake_host_session_set_exporter_location", &.{ "session", "locator" }, "Record the exporter locator to embed in gives whose exporter is session, overriding the session record. Null clears the override; otherwise the Host validates and clones the borrowed locator view.");
     try emitFn(&b, gpa, "pancake_host_session_last_abort", &.{ "session", "out" }, "Read the typed cause of this session's most recent LOCAL dispatch failure\ninto *out (the shared PancakeLastAbort layout; byte views process-static,\nnever freed). Returns PANCAKE_OK when a failure has been recorded, or\nPANCAKE_ERR_WOULD_BLOCK when none has. The flat per-feed return code names\nthe failure family; this names the member.");
     try emitFn(&b, gpa, "pancake_host_session_partner_abort", &.{ "session", "out_kind_name", "out_kind_name_len", "out_msg", "cap", "out_len" }, "Read the PARTNER'S retained op:abort: the abort kind's wire name (a\nprocess-static view, e.g. \"ProtocolError\") into\n*out_kind_name / *out_kind_name_len, and up to cap bytes of its bounded\ndiagnostic into out_msg, with the retained length in *out_len. Returns\nPANCAKE_ERR_WOULD_BLOCK when no partner abort has arrived. Any out-pointer\nmay be NULL to skip that piece.");

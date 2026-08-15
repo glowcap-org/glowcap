@@ -8,7 +8,7 @@
 // later user send rather than inline, so this helper models the inline-reply
 // demos, not what the app ships.
 
-import { type Argument, type Behavior, currentSession, Ref } from "@pancake/stack";
+import { type Argument, type Behavior, currentSession, Ref } from "@pancake/runtime";
 import { DM } from "./protocol.ts";
 
 /** Build a `dm` giftable that pushes each received text to `inbox` and answers

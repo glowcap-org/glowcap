@@ -27,8 +27,7 @@ const AGENT = "ocapnviz:fixtures/07-speak-goblins";
  *  read twice over: once as the session's own id, and again through
  *  `endpointStageId` for the far end nothing has attributed. A second copy of
  *  it silently detaches those messages from their session. */
-const SESSION_ID =
-  "28b3b6d21bd71a8329bf2d8dc419f3e4afecca921cc10c3beff7780d9ce2e94a";
+const SESSION_ID = "28b3b6d21bd71a8329bf2d8dc419f3e4afecca921cc10c3beff7780d9ce2e94a";
 
 export const speakGoblins = TimelineDocument.parse({
   id: "07-speak-goblins",

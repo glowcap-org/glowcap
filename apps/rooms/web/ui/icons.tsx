@@ -32,6 +32,61 @@ const paths = {
 			<path d="M3.4 3.4l17.2 17.2" />
 		</>
 	),
+	// A paperclip, drawn as the one open curve it is, so it reads at the same
+	// weight as the emoji control beside it.
+	clip: (
+		<path d="M17.5 9.3l-7.1 7.1a3 3 0 0 1-4.2-4.2l8-8a4.6 4.6 0 0 1 6.5 6.5l-8.1 8.1a6.2 6.2 0 0 1-8.8-8.8l6.9-6.9" />
+	),
+	// A sheet with its corner turned, and a framed picture. These stand where
+	// a file's name is shown, for the same reason every other control here is
+	// a stroke rather than an emoji: an emoji is a picture the platform owns,
+	// arriving full-colour against this palette or as an empty box.
+	file: (
+		<>
+			<path d="M13.4 3.2H7a2 2 0 0 0-2 2v13.6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.8z" />
+			<path d="M13.4 3.2v5.6H19" />
+		</>
+	),
+	image: (
+		<>
+			<rect x="3.6" y="5" width="16.8" height="14" rx="2.2" />
+			<circle cx="9" cy="10.2" r="1.5" />
+			<path d="M4.4 16.6l4.3-4a1.8 1.8 0 0 1 2.4 0l4.8 4.4M14.2 14l1.8-1.6a1.8 1.8 0 0 1 2.4 0l1.2 1.1" />
+		</>
+	),
+	// Downward into a tray: the one control that saves a file.
+	download: (
+		<>
+			<path d="M12 3.6v10.8" />
+			<path d="M7.8 10.6L12 14.8l4.2-4.2" />
+			<path d="M4.6 17.2v1.6a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6v-1.6" />
+		</>
+	),
+	copy: (
+		<>
+			<rect x="8.2" y="8.2" width="11.2" height="11.2" rx="2" />
+			<path d="M15.8 8.2V6.6a2 2 0 0 0-2-2H6.6a2 2 0 0 0-2 2v7.2a2 2 0 0 0 2 2h1.6" />
+		</>
+	),
+	// What `copy` becomes for a moment once the clipboard has taken it. A tick at
+	// the same stroke weight, on the same grid, so the control reads as the one
+	// button answering rather than as a second button appearing.
+	check: <path d="M5 12.6l4.6 4.6L19 7.4" />,
+	play: <path d="M8.2 5.2l10 6.8-10 6.8z" />,
+	retry: (
+		<>
+			<path d="M19.2 8.2V3.8l-3 3" />
+			<path d="M18.4 7.1A8 8 0 1 0 20 14.2" />
+		</>
+	),
+	plus: <path d="M12 5v14M5 12h14" />,
+	mention: (
+		<>
+			<circle cx="11.2" cy="12" r="3.4" />
+			<path d="M14.6 12v1.4a2.5 2.5 0 0 0 5 0V12a8.2 8.2 0 1 0-2.8 6.2" />
+		</>
+	),
+
 	smile: (
 		<>
 			<circle cx="12" cy="12" r="8.6" />
@@ -46,7 +101,28 @@ const paths = {
 		</>
 	),
 	arrowDown: <path d="M12 4.6v14.8M6 13.4l6 6 6-6" />,
+	send: (
+		<>
+			<path d="M12 19.4V5" />
+			<path d="M6.4 10.6L12 5l5.6 5.6" />
+		</>
+	),
 	close: <path d="M5.9 5.9l12.2 12.2M18.1 5.9L5.9 18.1" />,
+	// A nib over a line: changing what was written, rather than a page or a note,
+	// which would read as composing something new.
+	pencil: (
+		<>
+			<path d="M4 20h4.5L19.3 9.2a2.1 2.1 0 0 0-3-3L5.5 17z" />
+			<path d="M14.8 4.7l4.5 4.5" />
+		</>
+	),
+	// Four corners pulling outward: take this to full size.
+	expand: (
+		<>
+			<path d="M9.4 3.8H3.8v5.6M14.6 3.8h5.6v5.6" />
+			<path d="M9.4 20.2H3.8v-5.6M14.6 20.2h5.6v-5.6" />
+		</>
+	),
 	// The room's members: one figure in front, one behind. Two are enough to read
 	// as a group at this size, and a third only muddies the silhouette.
 	group: (
@@ -66,13 +142,45 @@ const paths = {
 			<path d="M8 12h8" />
 		</>
 	),
+	// Settings: three sliders. A cog at this size reads as a blob; this stays
+	// a control glyph next to the sun and the bell.
+	// A directory, drawn as the two stacked bars of a rack. At the size the rail
+	// uses it — under a room's sigil, a third of the height of the name beside it
+	// — anything with an interior detail closes up, so this has none: two bars and
+	// the space between them is the whole glyph, and it survives being small.
+	directory: (
+		<>
+			<rect x="3.5" y="4.5" width="17" height="6" rx="2" />
+			<rect x="3.5" y="13.5" width="17" height="6" rx="2" />
+		</>
+	),
+	gear: (
+		<>
+			<path d="M4 7h16M4 12h16M4 17h16" />
+			<circle cx="8.2" cy="7" r="1.9" />
+			<circle cx="15.8" cy="12" r="1.9" />
+			<circle cx="10.4" cy="17" r="1.9" />
+		</>
+	),
 } as const;
 
-export type IconName = keyof typeof paths;
+export type IconName = keyof typeof paths | "mark";
 
 /** One icon. Decorative by default: the control around it carries the accessible
  * name, so the icon itself is hidden from assistive software. */
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
+	// The pancake silhouette is shared with the boot screen and the project site
+	// through one mask token. Rendering that token here keeps the mark's geometry
+	// authoritative without teaching IconButton about one exceptional glyph.
+	if (name === "mark") {
+		return (
+			<span
+				className="icon-svg icon-mark"
+				style={{ width: size, height: size }}
+				aria-hidden="true"
+			/>
+		);
+	}
 	return (
 		<svg
 			className="icon-svg"

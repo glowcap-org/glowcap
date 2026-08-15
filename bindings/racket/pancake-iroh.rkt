@@ -11,7 +11,7 @@
 ;; (`private/seam.rkt`); the core calls come from there. Everything above the
 ;; pump — vat, session-* verbs, events — is the core's; only the transport differs.
 ;;
-;; `connect` in the core dials an iroh locator by loading this transport lazily,
+;; `iroh-provider` and `iroh-connector` compose iroh into a Runtime explicitly,
 ;; so a TCP-only program never needs the iroh library. Hosting (`listen-iroh` and
 ;; the `iroh-server-*` surface) is reached through this module directly.
 ;;
@@ -25,10 +25,10 @@
 ;; `private/iroh.rkt` owns the native resident and raw endpoint implementation.
 (require "private/iroh.rkt")
 
-(provide listen-iroh
+(provide iroh-locator iroh-provider iroh-connector listen-iroh
          make-iroh-config (struct-out iroh-config)
          IROH-REACH-DIRECT IROH-REACH-DISCOVERY IROH-REACH-DISCOVERY-NO-RELAY IROH-REACH-LOCAL-DISCOVERY
-         iroh-server-node-id iroh-server-direct-addresses
+         iroh-server-locator iroh-server-uri iroh-server-node-id iroh-server-direct-addresses
          iroh-server-host iroh-server-accept iroh-server-close!
          dial-locator-for-relay
          ;; The raw byte-channel surface: an iroh connection with no CapTP over
@@ -38,4 +38,5 @@
          open-iroh-endpoint
          iroh-endpoint-node-id iroh-endpoint-direct-addresses
          iroh-endpoint-accept iroh-endpoint-dial iroh-endpoint-close!
+         (struct-out failure-event) take-runtime-failures!
          (struct-out byte-channel))

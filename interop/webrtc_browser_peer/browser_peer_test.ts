@@ -31,8 +31,7 @@ const ROOT = new URL("../../", import.meta.url).pathname;
 const ANSWERER = `${ROOT}zig-out/bin/pancake-webrtc-answerer`;
 const WASM = new URL("../../zig-out/wasm/pancake_host.wasm", import.meta.url);
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
-const BUNDLE_CONFIG =
-	new URL("../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
+const BUNDLE_CONFIG = new URL("../../bindings/ts/web/browser-bundle.json", import.meta.url).pathname;
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);

@@ -6,10 +6,10 @@
 // values from the libpancake_ocapn, libpancake_host, and
 // libpancake_net_transport_iroh Zig declarations.
 // These are the same on every target, so they own one home here, the
-// @pancake/abi package, and both the native stack binding and the wasm32
+// @pancake/abi package, and both the native runtime binding and the wasm32
 // browser surface import them from it. The target-specific struct sizes and
 // field offsets stay with the consumer that reads them by target (the 64-bit
-// mirror in @pancake/stack, the wasm32 self-description the module reports).
+// mirror in @pancake/runtime, the wasm32 self-description the module reports).
 
 // ── Constants (values mirror src/c_abi declarations) ─────────────────────
 
@@ -24,6 +24,18 @@ export const NOT_FOUND = -13;
 export const UNSUPPORTED_VALUE = -11;
 export const BROKEN = -12;
 export const TIMEOUT = -15;
+export const FAILURE_LAYER_CORE = 0;
+export const FAILURE_LAYER_DRIVER = 1;
+export const FAILURE_LAYER_TRANSPORT = 2;
+export const FAILURE_LAYER_BINDING = 3;
+export const FAILURE_LAYER_APPLICATION_OBSERVER = 4;
+export const FAILURE_SCOPE_PROCESS = 0;
+export const FAILURE_SCOPE_CONTEXT = 1;
+export const FAILURE_SCOPE_HOST = 2;
+export const FAILURE_SCOPE_SESSION = 3;
+export const FAILURE_SCOPE_LISTENER = 4;
+export const FAILURE_SCOPE_TRANSPORT = 5;
+export const FAILURE_SCOPE_OPERATION = 6;
 export const FRAME_SHAPE_BYTE = 0;
 export const FRAME_SHAPE_WORD = 1;
 export const HOST_ACTION_DIAL = 0;
@@ -33,6 +45,18 @@ export const HOST_ACTION_SETTLE = 3;
 export const HOST_ACTION_FAIL = 4;
 export const HOST_ACTION_CLOSE = 5;
 export const HOST_ACTION_RESUME = 6;
+export const HOST_ACTION_CANCEL_DIAL = 7;
+export const PENDING_CANCEL = 0;
+export const PENDING_FINISH = 1;
+export const LIFECYCLE_ACTIVE = 0;
+export const LIFECYCLE_FINISHING = 1;
+export const LIFECYCLE_TERMINATING = 2;
+export const LIFECYCLE_CLOSED = 3;
+export const CLOSE_OPTIONS_ABI_VERSION = 1;
+export const CLOSE_MAX_GRACE_MS = 4294967295;
+export const CLOSE_GRACE_UNSPECIFIED = 0;
+export const CLOSE_GRACE_FINITE = 1;
+export const CLOSE_GRACE_UNBOUNDED = 2;
 export const DEFAULT_FRAME_CAP = 1048576;
 export const MAX_LOCAL_FORWARD_HOPS = 256;
 export const HANDSHAKE_TIMEOUT_MS = 10000;
@@ -51,19 +75,11 @@ export const TRACE_SESSION_OPEN = 0;
 export const TRACE_MESSAGE = 1;
 export const TRACE_SESSION_CLOSE = 2;
 export const TRACE_DIGEST_BYTES = 16;
-export const DIAL_SHAPE_HOST_PORT = 0;
-export const DIAL_SHAPE_PEER_ID = 1;
-export const DIAL_SHAPE_SIGNALING = 2;
-export const DIAL_SHAPE_RENDEZVOUS = 3;
-export const DIAL_REACH_DIRECT = 0;
-export const DIAL_REACH_CONFIGURED = 1;
-export const DIAL_REACH_EXPLICIT = 2;
-export const DIAL_POSTURE_REDEEM = 0;
-export const DIAL_POSTURE_EXPLICIT = 1;
-export const DIAL_POSTURE_EXPLICIT_NONE = 2;
 export const DESIGNATOR_SCHEME_ADDRESS = 0;
 export const DESIGNATOR_SCHEME_KEY = 1;
 export const HOST_OUTBOUND_PREFIX_CAP = 32;
+export const HOST_DURABLE_ENTROPY_LEN = 16;
+export const HOST_DURABLE_SWISS_LEN = 50;
 export const DRIVER_EVENT_OPENED = 0;
 export const DRIVER_EVENT_OPEN_FAILED = 1;
 export const DRIVER_EVENT_ACCEPTED = 2;
@@ -145,16 +161,18 @@ export const WASM_LAYOUT_STRUCTS = [
 	{ prefix: "REF", fields: ["ID"] },
 	{ prefix: "ARG", fields: ["KIND", "BOOLEAN", "INTEGER", "FLOAT64", "BYTES", "BYTES_LEN", "REFERENCE", "ITEMS", "ITEMS_LEN"] },
 	{ prefix: "FRAME", fields: ["BYTES", "LEN", "SHAPE"] },
-	{ prefix: "LAST_ABORT", fields: ["DOMAIN", "HAS_KIND", "KIND_NAME", "KIND_NAME_LEN", "MESSAGE", "MESSAGE_LEN", "ERROR_NAME", "ERROR_NAME_LEN"] },
+	{ prefix: "LAST_ABORT", fields: ["DOMAIN", "HAS_KIND", "KIND_NAME", "KIND_NAME_LEN", "MESSAGE", "MESSAGE_LEN", "ERROR_NAME", "ERROR_NAME_LEN", "ABORT_DELIVERY_ERROR_NAME", "ABORT_DELIVERY_ERROR_NAME_LEN", "SECONDARY_ERROR_NAME", "SECONDARY_ERROR_NAME_LEN", "SECONDARY_ERROR_COUNT"] },
 	{ prefix: "ALLOCATOR", fields: ["ALLOC", "FREE", "USER_DATA"] },
-	{ prefix: "HOST_ACTION", fields: ["KIND", "TICKET", "SESSION", "VALUE", "MESSAGE", "MESSAGE_LEN"] },
+	{ prefix: "HOST_ACTION", fields: ["KIND", "TICKET", "SESSION", "VALUE", "MESSAGE", "MESSAGE_LEN", "RESULT"] },
 	{ prefix: "HOST_PUMP_HOOKS", fields: ["CTX", "FLUSH", "CLOSE", "NEED_GIFT_ID", "COMPLETE", "DIAL"] },
 	{ prefix: "DIAL_PLAN", fields: ["SHAPE", "HOST", "HOST_LEN", "PORT", "ADDRESSES", "ADDRESSES_LEN", "REACH_KIND", "REACH_VALUE"] },
-	{ prefix: "ACCEPT_PLAN", fields: ["DESIGNATOR", "DESIGNATOR_LEN", "DIRECT_ADDRESSES_HINT", "DIRECT_ADDRESSES_HINT_LEN"] },
 	{ prefix: "PARTNER_IDENTITY", fields: ["SESSION_KEY", "SESSION_KEY_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "LOCATOR_RECORD", "LOCATOR_RECORD_LEN", "PROVENANCE"] },
 	{ prefix: "TRACE_EVENT", fields: ["KIND", "SESSION", "OUTBOUND", "PROVENANCE", "CODEC", "CAPTP_VERSION", "DESIGNATOR", "DESIGNATOR_LEN", "TRANSPORT", "TRANSPORT_LEN", "SESSION_ID", "SESSION_ID_LEN", "VERB", "VERB_LEN", "FRAME", "FRAME_LEN", "FRAME_TOTAL_LEN", "DROPPED", "DIGEST"] },
 	{ prefix: "LOCATOR_HINT_VIEW", fields: ["NAME", "NAME_LEN", "KIND", "BYTES", "BYTES_LEN", "BOOLEAN_VALUE", "INTEGER_VALUE"] },
 	{ prefix: "LOCATOR_VIEW", fields: ["ABI_VERSION", "STRUCT_SIZE", "TRANSPORT", "TRANSPORT_LEN", "DESIGNATOR", "DESIGNATOR_LEN", "HINTS", "HINT_COUNT", "HINT_WIRE_FORM"] },
+	{ prefix: "CLOSE_OPTIONS", fields: ["ABI_VERSION", "STRUCT_SIZE", "PENDING", "GRACE_MODE", "GRACE_MS"] },
+	{ prefix: "FAILURE_REPORT", fields: ["ABI_VERSION", "STRUCT_SIZE", "LAYER", "SCOPE_KIND", "SCOPE_ID", "OPERATION_ID", "PRIMARY_RESULT", "SECONDARY_RESULT", "SECONDARY_COUNT", "OPERATION", "OPERATION_LEN", "PRIMARY_NAME", "PRIMARY_NAME_LEN", "PRIMARY_MESSAGE", "PRIMARY_MESSAGE_LEN", "SECONDARY_NAME", "SECONDARY_NAME_LEN", "SECONDARY_MESSAGE", "SECONDARY_MESSAGE_LEN"] },
+	{ prefix: "FAILURE_EVENT", fields: ["ABI_VERSION", "STRUCT_SIZE", "SEQUENCE", "DROPPED_BEFORE", "LAYER", "SCOPE_KIND", "SCOPE_ID", "OPERATION_ID", "PRIMARY_RESULT", "SECONDARY_RESULT", "SECONDARY_COUNT", "FLAGS", "OPERATION", "OPERATION_LEN", "PRIMARY_NAME", "PRIMARY_NAME_LEN", "PRIMARY_MESSAGE", "PRIMARY_MESSAGE_LEN", "SECONDARY_NAME", "SECONDARY_NAME_LEN", "SECONDARY_MESSAGE", "SECONDARY_MESSAGE_LEN"] },
 ] as const;
 
 // Layout prefixes that exist only in native archives the wasm32 module
@@ -163,8 +181,12 @@ export const WASM_LAYOUT_STRUCTS = [
 // other 64-bit prefix to have a manifest row above, and refuses a
 // prefix listed here that gains one.
 export const NATIVE_ONLY_LAYOUT_PREFIXES = [
+	"DRIVER_OPTIONS",
 	"DRIVER_EVENT",
+	"TRANSPORT_OPERATION_OPTIONS",
 	"TRANSPORT_PROVIDER",
+	"TCP_STREAM_OPTIONS",
+	"TCP_CONFIG",
 	"IROH_READY_EVENT",
 	"WEBRTC_READY_EVENT",
 	"IROH_CONFIG",

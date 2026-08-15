@@ -1,13 +1,16 @@
+import { keyed } from "@pancake/tcp";
 import { init } from "@pancake/web";
 
-const stack = await init({
+const web = await init({
 	wasm: fetch("/pancake_host.wasm"),
-	// a page cannot open raw TCP, so a relay carries the bytes
+	// A page cannot open raw TCP, so a relay carries the bytes.
 	wsUrl: (host, port) => `ws://127.0.0.1:9000/?to=${host}:${port}`,
 });
-
-// keyed-tcp locator (cleartext CapTP through the relay). Prefer noise-tcp
-// when the page needs a sealed path — same paste, different transport symbol.
-const session = await stack.connect("ocapn://…your service's keyed-tcp locator…");
-const greeter = await session.fetch("greeter");
-console.log(await session.send(greeter, "greet", ["world"]));
+await using runtime = web.runtime;
+// keyed-tcp is cleartext through the relay. Use WebRTC for a sealed browser path.
+const partner = keyed.locator("<64 lowercase hex characters>", "127.0.0.1", 9099);
+// From here, the CapTP workflow is transport-independent.
+await using session = await runtime.connect(partner);
+const greeter = await session.fetch("greeter"); // a capability this peer published
+const reply = await session.send(greeter, "greet", ["world"]);
+console.log(reply);

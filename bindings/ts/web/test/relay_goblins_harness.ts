@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // The live Goblins leg of the relay proof. A wasm browser peer holds a keyed
 // OCapN session with a real Spritely Goblins vat when its WebSocket routes
 // through the byte-transparent Deno reference relay to the vat's TCP port.
@@ -70,7 +71,7 @@ try {
 
 	// 3. Load the wasm browser peer; every dial's WebSocket routes through the
 	// relay, which is told the target via `?to=host:port`.
-	const stack = await init({
+	const runtime = await init({
 		wasm: await Deno.readFile(WASM),
 		wsUrl: (host, port) => `ws://127.0.0.1:${relayPort}/relay?to=${host}:${port}`,
 	});
@@ -79,14 +80,14 @@ try {
 	// `keyed-tcp`), and `connect` completes the keyed `op:start-session`:
 	// reaching the next line means Goblins accepted our signed hello through
 	// the relay and we accepted its.
-	const locator = stack.tcpLocator("127.0.0.1", goblinsPort);
-	const session = await stack.connect(locator);
+	const locator = tcp.locator("127.0.0.1", goblinsPort);
+	const session = await runtime.connect(locator);
 	session.serve().catch(() => {}); // the partner hanging up ends the serve loop
 
 	// 5. Enliven the echo cap and prove the round-trip content survives. The
 	// echo actor is `(lambda args args)`, so assert the bytes, not mere
 	// settlement. Goblins invokes a cap positionally, hence verb "".
-	const sturdyref = `${locator}/s/${sturdyrefPath}`;
+	const sturdyref = `${runtime.formatLocatorUri(locator)}/s/${sturdyrefPath}`;
 	const echo = await session.enliven(sturdyref);
 	const reply = await session.send(echo, "", [new TextEncoder().encode("relay-ping")]);
 	if (!Array.isArray(reply) || reply.length !== 1 || !(reply[0] instanceof Uint8Array)) {

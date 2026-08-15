@@ -27,7 +27,7 @@ and the same five shapes appear in every language's relay.
 4. **A dial dispatcher** (the embedder's): open the matching channel for the target. This reference
    relay dispatches on which query parameter the browser set — `?to=host:port` opens a socket,
    `?locator=<uri>` an iroh channel — and deliberately stays dependency-light, reading no locator
-   grammar and loading iroh only on the `?locator=` path (a `meta-check` gate holds that lazy load).
+   grammar and loading iroh only on the `?locator=` path (a `source-check` gate holds that lazy load).
    Routing classification through the shared core `pancake_host_plan_dial` would link the capability
    core for one bit the parameter already carries, so only the production rooms relay
    (`apps/rooms/web/relay.ts`) does that, to keep its SSRF allow-list in lockstep with the dial it

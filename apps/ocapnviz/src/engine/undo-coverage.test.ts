@@ -206,8 +206,7 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
     intent: () => ({ kind: "set-peer-duration", peerId: "a", duration: 3000 }),
   },
   "clear-peer-end": {
-    setUp: (e) =>
-      void e.dispatch({ kind: "set-peer-end", peerId: "a", t: 4000 }),
+    setUp: (e) => void e.dispatch({ kind: "set-peer-end", peerId: "a", t: 4000 }),
     intent: () => ({ kind: "clear-peer-end", peerId: "a" }),
   },
   "set-peer-start": {
@@ -227,16 +226,14 @@ const CASES: Record<BuilderIntent["kind"], Case> = {
     }),
   },
   "clear-session-end": {
-    setUp: (e) =>
-      void e.dispatch({ kind: "set-session-end", sessionId: "s1", t: 6000 }),
+    setUp: (e) => void e.dispatch({ kind: "set-session-end", sessionId: "s1", t: 6000 }),
     intent: () => ({ kind: "clear-session-end", sessionId: "s1" }),
   },
   "set-session-start": {
     intent: () => ({ kind: "set-session-start", sessionId: "s1", t: 400 }),
   },
   "clear-session-start": {
-    setUp: (e) =>
-      void e.dispatch({ kind: "set-session-start", sessionId: "s1", t: 400 }),
+    setUp: (e) => void e.dispatch({ kind: "set-session-start", sessionId: "s1", t: 400 }),
     intent: () => ({ kind: "clear-session-start", sessionId: "s1" }),
   },
   "set-session-keyframe": {

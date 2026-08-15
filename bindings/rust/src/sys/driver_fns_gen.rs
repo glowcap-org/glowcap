@@ -15,10 +15,12 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::driver::{
-	PancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportProvider,
+	PancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportOperationOptions,
+	PancakeTransportProvider,
 };
-use super::host::{PancakeHost, PancakeHostSession};
+use super::host::{PancakeCloseOptions, PancakeHost, PancakeHostSession};
 use super::ocapn::PancakeLocatorView;
+use crate::sys::PancakeReference;
 
 extern "C" {
 	pub fn pancake_driver_take_host(
@@ -26,6 +28,10 @@ extern "C" {
 		options: *const PancakeDriverOptions,
 		out_loop: *mut *mut PancakeDriverLoop,
 	) -> c_int;
+	pub fn pancake_driver_close(loop_: *mut PancakeDriverLoop, options: *const PancakeCloseOptions) -> c_int;
+	pub fn pancake_driver_retire(loop_: *mut PancakeDriverLoop) -> c_int;
+	pub fn pancake_driver_lifecycle_state(loop_: *mut PancakeDriverLoop, out_state: *mut u32) -> c_int;
+	pub fn pancake_driver_step_wait_ms(loop_: *mut PancakeDriverLoop, out_wait_ms: *mut i32) -> c_int;
 	pub fn pancake_driver_release(loop_: *mut PancakeDriverLoop) -> c_int;
 	pub fn pancake_driver_add_provider(
 		loop_: *mut PancakeDriverLoop,
@@ -40,7 +46,8 @@ extern "C" {
 	pub fn pancake_driver_dial(
 		loop_: *mut PancakeDriverLoop,
 		locator: *const PancakeLocatorView,
-		out_ticket: *mut u64,
+		options: *const PancakeTransportOperationOptions,
+		out_operation_id: *mut u64,
 	) -> c_int;
 	pub fn pancake_driver_adopt_external(
 		loop_: *mut PancakeDriverLoop,
@@ -48,7 +55,7 @@ extern "C" {
 		transport_len: usize,
 		subject: u64,
 		role: c_uint,
-		out_ticket: *mut u64,
+		out_operation_id: *mut u64,
 	) -> c_int;
 	pub fn pancake_driver_listen(
 		loop_: *mut PancakeDriverLoop,
@@ -56,12 +63,20 @@ extern "C" {
 		transport_len: usize,
 		designator: *const c_uchar,
 		designator_len: usize,
+		options: *const PancakeTransportOperationOptions,
 		out_listener: *mut u64,
 	) -> c_int;
 	pub fn pancake_driver_listener_locator(
 		loop_: *mut PancakeDriverLoop,
 		listener: u64,
 		out_locator: *mut PancakeLocatorView,
+	) -> c_int;
+	pub fn pancake_driver_listener_restoration_state(
+		loop_: *mut PancakeDriverLoop,
+		listener: u64,
+		out: *mut c_uchar,
+		cap: usize,
+		out_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_driver_listener_advertise(
 		loop_: *mut PancakeDriverLoop,
@@ -74,14 +89,24 @@ extern "C" {
 	pub fn pancake_driver_step(loop_: *mut PancakeDriverLoop, timeout_ms: c_int) -> c_int;
 	pub fn pancake_driver_detach_thread(loop_: *mut PancakeDriverLoop) -> c_int;
 	pub fn pancake_driver_wake(loop_: *mut PancakeDriverLoop) -> c_int;
-	pub fn pancake_driver_next_event(
+	pub fn pancake_driver_next_event(loop_: *mut PancakeDriverLoop, out: *mut PancakeDriverEvent) -> c_int;
+	pub fn pancake_driver_claim_reference_exporter(
 		loop_: *mut PancakeDriverLoop,
-		out: *mut PancakeDriverEvent,
+		reference: *const PancakeReference,
+		out_session: *mut *mut PancakeHostSession,
 	) -> c_int;
-	pub fn pancake_driver_session_release(
+	pub fn pancake_driver_session_close(
 		loop_: *mut PancakeDriverLoop,
 		session: *mut PancakeHostSession,
+		options: *const PancakeCloseOptions,
 	) -> c_int;
+	pub fn pancake_driver_session_lifecycle_state(
+		loop_: *mut PancakeDriverLoop,
+		session: *mut PancakeHostSession,
+		out_state: *mut u32,
+	) -> c_int;
+	pub fn pancake_driver_session_serve(loop_: *mut PancakeDriverLoop, session: *mut PancakeHostSession) -> c_int;
+	pub fn pancake_driver_session_release(loop_: *mut PancakeDriverLoop, session: *mut PancakeHostSession) -> c_int;
 	pub fn pancake_driver_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_driver_clear_last_error();
 }

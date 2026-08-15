@@ -25,8 +25,7 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path()
 
-from pancake import Session, connect, tcp_locator  # noqa: E402
-
+from pancake import Runtime, Session, tcp  # noqa: E402
 BOARD = "board"
 ADD, DONE, LIST, WATCH, UPDATE = "add", "done", "list", "watch", "update"
 
@@ -62,10 +61,12 @@ class TaskBoard:
 
     @classmethod
     async def join(cls, host: str, port: int) -> "TaskBoard":
-        session = await connect(tcp_locator(host, port))
+        runtime = await Runtime.open(provider=tcp.provider())
+        session = await runtime.connect(tcp.locator(host, port))
         session.serve()
         board = await session.fetch(BOARD)
         self = cls(session, board)
+        self._runtime = runtime
         watcher = session.spawn(self._watcher)
         asyncio.ensure_future(self._until_closed())
         await session.send(board, WATCH, [watcher])
@@ -84,6 +85,7 @@ class TaskBoard:
     async def leave(self) -> None:
         self._leaving = True
         await self._session.close()
+        await self._runtime.close()
 
     def __aiter__(self):
         return self._updates()

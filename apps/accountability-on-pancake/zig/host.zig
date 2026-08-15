@@ -85,7 +85,7 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var vat = try driver.acceptTcp(allocator, &peer, &listener, read_buf, write_buf, .{
+    var vat = try driver.acceptVia(allocator, listener.asNetlayer(), &peer, .ephemeral, read_buf, write_buf, .{
         .handshake = handshake_budget,
         .settle = .{ .ms = 10_000 },
     });

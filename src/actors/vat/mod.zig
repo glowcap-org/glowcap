@@ -133,6 +133,24 @@ const Cell = boxed.Cell;
 const PendingBecome = boxed.PendingBecome;
 const StateBox = boxed.StateBox;
 const releaseBox = boxed.releaseBox;
+
+/// Reserve the retired-box slots already-committed lifetime operations will
+/// consume without allocation: one for every live actor, plus any actor rows
+/// and staged becomes the caller is about to add. `releaseActor`, Port teardown,
+/// and frame unwind are deliberately infallible; their capacity is escrowed at
+/// the earlier fallible spawn/become seam instead of losing reclamation to OOM.
+pub fn reserveRetirementCapacity(
+    self: *Vat,
+    additional_actors: usize,
+    possible_becomes: usize,
+) Error!void {
+    var owed = std.math.add(usize, self.actors.count(), additional_actors) catch
+        return error.OutOfMemory;
+    owed = std.math.add(usize, owed, possible_becomes) catch
+        return error.OutOfMemory;
+    try self.retired_boxes.ensureUnusedCapacity(self.allocator, owed);
+}
+
 /// A captured local actor heap (see `boxed.Snapshot`).
 pub const Snapshot = boxed.Snapshot;
 
@@ -773,6 +791,9 @@ pub const Vat = struct {
     /// reply, but not one an *earlier* frame of the same actor already handed
     /// back to a caller still running; that frame has closed. Freeing the box
     /// here instead of at the install makes both replies outlive it.
+    /// Capacity also escrows one unused slot per live actor. That makes
+    /// last-root release and destructor/frame unwind allocation-free: the row
+    /// leaves `actors` before its box consumes the corresponding slot.
     retired_boxes: std.ArrayList(*boxed.StateBox) = .empty,
 
     pub const Options = struct {
@@ -824,7 +845,7 @@ pub const Vat = struct {
         self.resolver_vows.deinit(self.allocator);
         turn_mod.drainMovedReplies(self);
         self.moved_replies.deinit(self.allocator);
-        turn_mod.drainRetiredBoxes(self);
+        turn_mod.releaseRetiredBoxes(self);
         self.retired_boxes.deinit(self.allocator);
         self.turn_arena.deinit();
         self.settle_arena.deinit();
@@ -932,6 +953,10 @@ pub const Vat = struct {
     fn registerBox(self: *Vat, box: *StateBox) Error!Ref {
         errdefer releaseBox(self.allocator, box);
         const id = self.next_actor;
+        // Actor registration is the fallible seam that escrows its eventual
+        // retirement. Preserve room for every become an open frame may already
+        // have staged as well; registration must not spend their reservations.
+        try reserveRetirementCapacity(self, 1, self.turn_depth);
         try self.actors.put(self.allocator, id, .{ .box = box });
         self.next_actor += 1;
         return .{ .local = id };

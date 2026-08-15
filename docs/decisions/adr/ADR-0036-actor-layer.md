@@ -59,11 +59,12 @@ binding), never the reverse.
 
 ## Scope (what this does not decide)
 
-This decision originates the **local** actor model. The remaining open frontier
-is far promise pipelining at the actor level, meaning an eventual-send to an
-unresolved far vow; the engine owns wire pipelining, and wiring it through the
-actor seam is the next slice. Binding actors to the wire, the OCapN/actor seam,
-and the per-turn reply lifetime are decided in the section below.
+This decision originates the **local** actor model. Far promise pipelining at
+the actor level — an eventual-send to an unresolved far vow — was left open
+here and closed by
+[ADR-0065](ADR-0065-questioner-side-promise-pipelining.md). Binding actors to
+the wire, the OCapN/actor seam, and the per-turn reply lifetime are decided in
+the section below.
 
 ## Alternatives Considered
 

@@ -23,17 +23,8 @@ import {
   sessionTrajectoryRows,
   type SessionValue,
 } from "../../engine/trajectory.ts";
-import {
-  peerLabelAt,
-  sessionPropertyValueAt,
-} from "../../engine/temporal/doc-resolver.ts";
-import {
-  type EditorBindings,
-  Field,
-  OptionalTimeRow,
-  TrajectoryInsert,
-  TrajectoryValue,
-} from "./shared.tsx";
+import { peerLabelAt, sessionPropertyValueAt } from "../../engine/temporal/doc-resolver.ts";
+import { type EditorBindings, Field, OptionalTimeRow, TrajectoryInsert, TrajectoryValue } from "./shared.tsx";
 
 /** What the "state a property here" control offers at `t`, and the value each
  *  offer would insert.
@@ -62,11 +53,7 @@ export function trajectoryInsertOffers(
   for (const property of properties) {
     const carried = sessionPropertyValueAt(engine.doc, sessionId, property, t);
     const value = carried ??
-      (property === "state"
-        ? def?.initialState ?? "open"
-        : firstPeer === undefined
-        ? undefined
-        : { peer: firstPeer });
+      (property === "state" ? def?.initialState ?? "open" : firstPeer === undefined ? undefined : { peer: firstPeer });
     if (value !== undefined) out.push({ property, value });
   }
   return out;
@@ -141,8 +128,7 @@ export function SessionMoments(
                   // every other name this panel shows, so a peer renamed
                   // partway through the recording is offered under the
                   // name it answers to at the moment being edited.
-                  nameOfPeer={(peerId) =>
-                    peerLabelAt(engine.doc, peerId, engine.clock.t)}
+                  nameOfPeer={(peerId) => peerLabelAt(engine.doc, peerId, engine.clock.t)}
                   onChange={(v) =>
                     editor.onSetSessionKeyframe(
                       sessionId,

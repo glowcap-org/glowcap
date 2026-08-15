@@ -1,11 +1,10 @@
-// pancake-dev, paths in containerEnv must match .devcontainer/pins.sh
+// The Compose container is pancake-${PANCAKE_WORKTREE}; paths in containerEnv
+// must match .devcontainer/pins.sh.
 //
-// Networks: docker-compose.yml joins rooms-net (shared with the rooms app,
-// created by initializeCommand) and egress-net (host-named via EGRESS_NET in
-// .devcontainer/.env). Copy .env.example → .env, set EGRESS_NET, create that
-// network on the host, then rebuild/reopen.
+// Networks: docker-compose.yml declares them; networking.md owns the setup
+// steps (EGRESS_NET in the gitignored .devcontainer/.env).
 {
-  "name": "pancake-dev",
+  "name": "pancake worktree",
   "dockerComposeFile": "docker-compose.yml",
   "service": "pancake-dev",
   "workspaceFolder": "/workspaces/pancake",
@@ -19,20 +18,9 @@
     }
   },
   "remoteUser": "vscode",
-  // Ports the rooms workflow needs reachable from the host, because the viewer
-  // usually runs there while the server runs in here. Declared rather than left
-  // to auto-detection: a forward the editor guessed at disappears when it stops
-  // noticing the listener, and `apps/rooms/developing.md` tells a reader to point
-  // ocapnviz at `ws://127.0.0.1:9300/`, which is an instruction that has to keep
-  // working. `onAutoForward: "silent"` because a browser opening itself on a
-  // WebSocket endpoint is noise.
-  "forwardPorts": [8000, 9099, 9200, 9300],
-  "portsAttributes": {
-    "8000": { "label": "rooms web page", "onAutoForward": "notify" },
-    "9099": { "label": "rooms CapTP (clients dial this)", "onAutoForward": "silent" },
-    "9200": { "label": "rooms relay TCP peer", "onAutoForward": "silent" },
-    "9300": { "label": "rooms live trace (ocapnviz Live feed)", "onAutoForward": "silent" }
-  },
+  // Compose publishes the rooms ports from each worktree's ignored .env.
+  // Do not also ask the editor to forward them: that creates a second host-port
+  // allocator and makes two otherwise independent worktrees collide again.
   "containerEnv": {
     "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/bun/install",
     "CARGO_HOME": "/home/vscode/.cargo",
@@ -51,32 +39,7 @@
     "source=pancake-dev-deno-cache,target=/home/vscode/.cache/deno,type=volume",
     "source=pancake-dev-npm-cache,target=/home/vscode/.cache/npm,type=volume",
     "source=pancake-dev-pip-cache,target=/home/vscode/.cache/pip,type=volume",
-    "source=pancake-dev-zig-cache,target=/home/vscode/.cache/zig,type=volume",
-    // Host tool configs the editor does NOT already share, bind-mounted so their
-    // login/state comes from the host and survives a rebuild: Claude (skills,
-    // memory, login) and the GitHub CLI login. Each resolves per-user through
-    // ${localEnv:HOME}, and "initializeCommand" pre-creates the host path so the
-    // bind never materializes a root-owned empty on the host side. The
-    // container side is the Dockerfile's job: it creates every mount target's
-    // parent as vscode, because Docker creates a missing parent as root.
-    // git and SSH are intentionally
-    // absent: VS Code / Cursor already copy ~/.gitconfig and forward the host SSH
-    // agent. See .devcontainer/host-configuration.md for the full rationale
-    // and the git/SSH/GPG/gh-keyring notes.
-    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
-    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind",
-    // opencode keeps its login (auth.json) under its data dir and its config
-    // (providers, default model) under its config dir. Bind both dirs (not the
-    // files) so a rebuild keeps both and shares them with a host opencode:
-    // opencode rewrites auth.json atomically, which a single-file bind would not
-    // follow. Scoped to opencode's own subdirs on purpose — mounting all of
-    // ~/.config would nest under the .config/gh mount above and drag in every
-    // unrelated host config.
-    "source=${localEnv:HOME}/.local/share/opencode,target=/home/vscode/.local/share/opencode,type=bind",
-    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind",
-    // User resources for `.agents/` (personas, etc.). Scoped subdir only —
-    // same nesting reason as the opencode binds above.
-    "source=${localEnv:HOME}/.config/agents,target=/home/vscode/.config/agents,type=bind"
+    "source=pancake-dev-zig-cache,target=/home/vscode/.cache/zig,type=volume"
   ],
   "initializeCommand": "bash .devcontainer/initialize.sh",
   "postCreateCommand": "bash .devcontainer/post-create.sh",

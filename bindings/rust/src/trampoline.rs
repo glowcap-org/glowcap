@@ -87,11 +87,7 @@ pub(crate) fn caretaker_proxy(shared: &Rc<SessionShared>, target: &Ref) -> Resul
 
 /// ADR-0064 attenuator: spawn a proxy that forwards only allow-listed verbs
 /// and breaks every other call `Attenuated`.
-pub(crate) fn attenuate_proxy(
-	shared: &Rc<SessionShared>,
-	target: &Ref,
-	verbs: &[&str],
-) -> Result<Ref> {
+pub(crate) fn attenuate_proxy(shared: &Rc<SessionShared>, target: &Ref, verbs: &[&str]) -> Result<Ref> {
 	let allowed: HashSet<String> = verbs.iter().map(|verb| verb.to_string()).collect();
 	let target = target.clone();
 	let behavior: InternalBehavior = Box::new(move |verb, args| {
@@ -114,6 +110,8 @@ pub(crate) fn attenuate_proxy(
 /// [`ctx_free`] when the Host tears the object down.
 pub(crate) struct ActorCell {
 	pub(crate) behavior: RefCell<InternalBehavior>,
+	pub(crate) context: Rc<crate::ContextInner>,
+	pub(crate) diagnostic_id: u64,
 }
 
 // What a hosted callback reads as the arriving deliver context. The byte-fed
@@ -141,16 +139,14 @@ pub(crate) struct DeliverGuard {
 
 impl DeliverGuard {
 	pub(crate) fn enter(session: &Rc<SessionShared>) -> DeliverGuard {
-		let prev = ACTIVE_DELIVER
-			.with(|active| active.replace(Some(DeliverCtx::Session(Rc::downgrade(session)))));
+		let prev = ACTIVE_DELIVER.with(|active| active.replace(Some(DeliverCtx::Session(Rc::downgrade(session)))));
 		DeliverGuard { prev }
 	}
 
 	/// The loop-step bracket: behaviors fired inside `pancake_driver_step`
 	/// latch their turns to the loop's adopted Host through this.
 	pub(crate) fn enter_host(host: &Rc<crate::host::HostShared>) -> DeliverGuard {
-		let prev = ACTIVE_DELIVER
-			.with(|active| active.replace(Some(DeliverCtx::Host(Rc::downgrade(host)))));
+		let prev = ACTIVE_DELIVER.with(|active| active.replace(Some(DeliverCtx::Host(Rc::downgrade(host)))));
 		DeliverGuard { prev }
 	}
 }
@@ -175,14 +171,8 @@ fn active_deliver() -> Option<Rc<SessionShared>> {
 // loop step. Zero outside any deliver.
 fn active_deliver_host_key() -> usize {
 	ACTIVE_DELIVER.with(|active| match active.borrow().as_ref() {
-		Some(DeliverCtx::Session(session)) => session
-			.upgrade()
-			.map(|session| session.host_key())
-			.unwrap_or(0),
-		Some(DeliverCtx::Host(host)) => host
-			.upgrade()
-			.map(|host| Rc::as_ptr(&host) as usize)
-			.unwrap_or(0),
+		Some(DeliverCtx::Session(session)) => session.upgrade().map(|session| session.host_key()).unwrap_or(0),
+		Some(DeliverCtx::Host(host)) => host.upgrade().map(|host| Rc::as_ptr(&host) as usize).unwrap_or(0),
 		None => 0,
 	})
 }
@@ -284,10 +274,7 @@ thread_local! {
 /// each caller defers its own way: the trampoline through the host's
 /// turn-forward, `send` onto the forwarded send's wire reply, `tell` as a
 /// far tell. Shared by the wire trampoline and `Session`'s local send arm.
-pub(crate) fn chase_local_forwards(
-	session: &SessionShared,
-	mut outcome: TurnOutcome,
-) -> TurnOutcome {
+pub(crate) fn chase_local_forwards(session: &SessionShared, mut outcome: TurnOutcome) -> TurnOutcome {
 	// The wire path defers each hop onto a fresh turn, so a forward cycle
 	// there loops asynchronously; the local chase runs hops synchronously
 	// and must bound them, or a caretaker forwarding to itself spins this
@@ -317,12 +304,7 @@ pub(crate) fn chase_local_forwards(
 /// Run the hosted behavior at `ref_id` and chase its Forward prefix, or
 /// `None` when this side does not host it — the one lookup/run/chase prefix
 /// under the local send and tell arms.
-pub(crate) fn run_hosted(
-	shared: &SessionShared,
-	ref_id: u64,
-	verb: &str,
-	args: &[Argument],
-) -> Option<TurnOutcome> {
+pub(crate) fn run_hosted(shared: &SessionShared, ref_id: u64, verb: &str, args: &[Argument]) -> Option<TurnOutcome> {
 	let cell = shared.hosted_cell(ref_id)?;
 	let outcome = {
 		// The local-turn marker: a behavior that closes (or drops) its own
@@ -342,7 +324,9 @@ pub(crate) fn run_hosted(
 	// Forward-to-far send comes after this returns): run the parked
 	// releases and kick the drain, mirroring the feed path.
 	drain_pending_releases();
-	shared.host.schedule_kick();
+	if let Err(error) = shared.host.schedule_kick() {
+		shared.host.fail_pending_vows(error.code(), &error.to_string());
+	}
 	Some(outcome)
 }
 
@@ -411,15 +395,7 @@ fn settle_reply(
 				Err(_) => return turn_break(turn, "forward arguments failed to marshal"),
 			};
 			let rc = unsafe {
-				ffi::pancake_host_turn_forward(
-					turn,
-					&wire,
-					verb.as_ptr(),
-					verb.len(),
-					args_ptr,
-					args_len,
-					out_reply,
-				)
+				ffi::pancake_host_turn_forward(turn, &wire, verb.as_ptr(), verb.len(), args_ptr, args_len, out_reply)
 			};
 			if rc != sys::OK {
 				let reason = host_last_error().unwrap_or_else(|| "forward refused".to_string());
@@ -474,18 +450,6 @@ unsafe fn trampoline_body(
 	settle_reply(session.as_deref(), turn, outcome, out_reply)
 }
 
-// Render a caught panic payload as the diagnostic the break carries, so a
-// behavior's `panic!("Revoked")` reaches the caller with its own words.
-fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
-	if let Some(text) = payload.downcast_ref::<&str>() {
-		(*text).to_string()
-	} else if let Some(text) = payload.downcast_ref::<String>() {
-		text.clone()
-	} else {
-		"behavior panicked".to_string()
-	}
-}
-
 /// The one shared `PancakeHostBehavior` in the process. A panic in the
 /// behavior (or anywhere in the body) is caught here — never unwound across
 /// the C frame — and settles the answer broken with the panic's own message.
@@ -503,10 +467,11 @@ pub(crate) unsafe extern "C" fn trampoline(
 	})) {
 		Ok(code) => code,
 		Err(payload) => {
-			// Best-effort break carrying the panic's words; a second panic while
-			// breaking is swallowed (the non-OK-return generic break stands in).
-			let message = panic_text(payload.as_ref());
-			catch_unwind(AssertUnwindSafe(|| turn_break(turn, &message))).unwrap_or(sys::OK)
+			// A panic may not cross the C frame. If even projecting its break
+			// panics, return an explicit internal refusal; reporting OK would tell
+			// the host a reply was committed when none was.
+			let message = crate::panic_message(payload.as_ref());
+			catch_unwind(AssertUnwindSafe(|| turn_break(turn, &message))).unwrap_or(sys::ERR_INTERNAL)
 		}
 	}
 }
@@ -519,18 +484,34 @@ pub(crate) unsafe extern "C" fn ctx_free(ctx: *mut core::ffi::c_void) {
 	if ctx.is_null() {
 		return;
 	}
-	let _ = catch_unwind(AssertUnwindSafe(|| {
-		drop(Box::from_raw(ctx as *mut ActorCell));
-	}));
+	let cell = Box::from_raw(ctx as *mut ActorCell);
+	let context = Rc::clone(&cell.context);
+	let diagnostic_id = cell.diagnostic_id;
+	if let Err(error) = drop_actor_cell(cell) {
+		context.report_failure(
+			crate::FailureLayer::Binding,
+			crate::FailureScope::Host,
+			diagnostic_id,
+			0,
+			"actor-cell.drop",
+			&error,
+		);
+	}
+}
+
+fn drop_actor_cell(cell: Box<ActorCell>) -> Result<()> {
+	catch_unwind(AssertUnwindSafe(|| drop(cell)))
+		.map_err(|payload| Error::with_detail(sys::ERR_INTERNAL, crate::panic_message(payload.as_ref())))
 }
 
 /// Reclaim a registration's cell when the minting call refused it without
 /// taking ownership (a null-pointer or reentry refusal, per the header's
 /// publish/spawn contract); any later failure already ran [`ctx_free`].
-pub(crate) unsafe fn reclaim_refused_cell(code: i32, cell: *mut ActorCell) {
+pub(crate) unsafe fn reclaim_refused_cell(code: i32, cell: *mut ActorCell) -> Result<()> {
 	if code == sys::ERR_NULL_POINTER || code == sys::ERR_INVALID_ARGUMENT {
-		drop(Box::from_raw(cell));
+		return drop_actor_cell(Box::from_raw(cell));
 	}
+	Ok(())
 }
 
 /// Spawn a hosted object from INSIDE a turn — the turn-time form the host
@@ -549,8 +530,9 @@ pub(crate) fn turn_spawn(turn: *mut ffi::PancakeHostTurn, cell: *mut ActorCell) 
 		)
 	};
 	if rc != sys::OK {
-		unsafe { reclaim_refused_cell(rc, cell) };
-		return Err(check_host(rc).unwrap_err());
+		let primary = check_host(rc).unwrap_err();
+		let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
+		return Err(crate::retain_cleanup_failure(primary, cleanup));
 	}
 	Ok(reference.id)
 }

@@ -7,22 +7,22 @@
 .draft = false,
 ---
 
-Both halves of this reference are generated from the same Zig declarations the
-library compiles, and a build check fails when either goes stale, so what you
-read here matches the code. For *which* surface to reach for and how to start,
-see [Surfaces]($link.page('surfaces')); this page is the lookup.
+The Zig reference and C headers are generated from declarations compiled by
+the library. A build check rejects stale output. To choose an API, start with
+[Choose an API]($link.page('surfaces')); to build a first client, use [Start
+building]($link.page('start')).
 
 ## The Zig API
 
-The [Zig API reference]($link.page('reference/api')) is generated from the public
-`pancake` module on every site build. It is the exact surface a Zig consumer imports,
-with the ownership and lifetime notes attached to the declarations that carry them.
+The [Zig API reference]($link.page('reference/api')) documents the public
+`pancake` module imported by applications. Ownership and lifetime notes live
+with the declarations they govern. [The modules]($link.page('modules'))
+explains how those declarations are divided by responsibility.
 
 ## The C ABI
 
-The C surface is a set of composable archives, and this table is the site's one
-inventory of them. Each header is generated from the Zig declarations its
-archive compiles.
+The C ABI is split into composable archives. Each generated header describes
+one archive and includes only the shared definitions it needs.
 
 | Archive | Header | What it carries |
 | --- | --- | --- |

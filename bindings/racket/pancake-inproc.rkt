@@ -26,14 +26,20 @@
          ffi/unsafe/port
          "private/constants.rkt"
          "private/ffi-inproc.rkt"
+         "private/locator.rkt"
          "private/native-parent.rkt"
-         "private/seam.rkt")
+         "private/seam.rkt"
+         "private/transport.rkt")
 
-(provide make-inproc-netlayer inproc-netlayer-release!
+(provide inproc-locator inproc-connector
+         make-inproc-netlayer inproc-netlayer-release!
          inproc-netlayer-listen inproc-netlayer-connect
          inproc-listener-readiness-fd inproc-listener-accept inproc-listener-release!
          inproc-connection-read-frame inproc-connection-write-frame! inproc-connection-release!
          inproc-last-error)
+
+(define (inproc-locator designator)
+  (locator TRANSPORT-INPROC designator (hash) 'boolean-false))
 
 ;; (inproc-last-error) -> the calling thread's last error message from the
 ;; in-process transport archive (`libpancake_net_transport_inproc`), or #f. The
@@ -63,6 +69,27 @@
   (define nl (inproc-netlayer (make-native-parent h pancake_inproc_netlayer_release)))
   (register-finalizer nl (lambda (q) (inproc-netlayer-release! q)))
   nl)
+
+(define (inproc-connector)
+  (make-byte-connector
+   (list TRANSPORT-INPROC)
+   (lambda (m loc handshake-timeout-ms)
+     (define nl (make-inproc-netlayer))
+     (define cn #f)
+     (define (close!)
+       (when cn (inproc-connection-release! cn) (set! cn #f))
+       (inproc-netlayer-release! nl))
+     (with-handlers ([(lambda (_) #t) (lambda (e) (close!) (raise e))])
+       (set! cn (inproc-netlayer-connect nl (locator-designator loc)))
+       (define transport
+         (async-transport
+          (lambda (frame) (inproc-connection-write-frame! cn frame))
+          void
+          (lambda (_wake-evt) (inproc-connection-read-frame cn))
+          close!))
+       (establish-dialed-locator-session
+        m loc transport
+        #:handshake-timeout-ms handshake-timeout-ms)))))
 
 (define (inproc-netlayer-release! nl)
   (native-parent-release!
@@ -144,10 +171,11 @@
      (lambda ()
        (when (inproc-listener-handle lst)
          (unsafe-file-descriptor->semaphore (inproc-listener-readiness-fd lst) 'remove)
-         (pancake_inproc_listener_release (inproc-listener-handle lst))
+         (define release-code (pancake_inproc_listener_release (inproc-listener-handle lst)))
          (set-inproc-listener-handle! lst #f)
          (set-inproc-listener-fd! lst #f)
-         (inproc-netlayer-forget! (inproc-listener-netlayer lst) lst))))))
+         (inproc-netlayer-forget! (inproc-listener-netlayer lst) lst)
+         (check/inproc release-code))))))
 
 ;; Block for one whole frame's bytes, or `eof` on a graceful end of stream.
 (define (inproc-connection-read-frame cn)

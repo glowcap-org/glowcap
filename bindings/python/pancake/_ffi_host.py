@@ -33,6 +33,7 @@ from ._ffi_ocapn import (
     _Reference,
 )
 from ._pin import pin_struct
+
 # The trace record's digest is a fixed-width array, so its width is the
 # reflected constant rather than a number retyped here.
 from ._constants_gen import TRACE_DIGEST_BYTES
@@ -42,6 +43,19 @@ from ._lib_resolve import _lib_path
 # inventory (``zig build gen-binding-python-ffi``); this module hands it the
 # ``Structure`` and callback types declared here and in ``_ffi_ocapn``.
 from ._sigs_gen import driver_sigs
+
+
+class _CloseOptions(ctypes.Structure):
+    _fields_ = [
+        ("abi_version", ctypes.c_uint32),
+        ("struct_size", ctypes.c_size_t),
+        ("pending", ctypes.c_uint32),
+        ("grace_mode", ctypes.c_uint32),
+        ("grace_ms", ctypes.c_uint32),
+    ]
+
+
+pin_struct(_CloseOptions, "PANCAKE_CLOSE_OPTIONS")
 
 
 class _HostAction(ctypes.Structure):
@@ -58,32 +72,7 @@ class _HostAction(ctypes.Structure):
         ("value", _Argument),
         ("message", ctypes.c_void_p),
         ("message_len", ctypes.c_size_t),
-    ]
-
-
-class _DialPlan(ctypes.Structure):
-    # PancakeDialPlan (pancake_host.h) — the resolved dial pancake_host_plan_dial
-    # hands back: `shape` selects the live fields (HOST_PORT fills host/port,
-    # PEER_ID fills addresses/reach). host/addresses borrow the caller's input buffers.
-    _fields_ = [
-        ("shape", ctypes.c_uint32),
-        ("host", ctypes.c_void_p),
-        ("host_len", ctypes.c_size_t),
-        ("port", ctypes.c_uint16),
-        ("addresses", ctypes.c_void_p),
-        ("addresses_len", ctypes.c_size_t),
-        ("reach_kind", ctypes.c_uint32),
-        ("reach_value", ctypes.c_uint32),
-    ]
-
-
-class _AcceptPlan(ctypes.Structure):
-    # PancakeAcceptPlan (pancake_host.h) — resolved accept signing parts.
-    _fields_ = [
-        ("designator", ctypes.c_void_p),
-        ("designator_len", ctypes.c_size_t),
-        ("direct_addresses_hint", ctypes.c_void_p),
-        ("direct_addresses_hint_len", ctypes.c_size_t),
+        ("result", ctypes.c_int32),
     ]
 
 
@@ -111,8 +100,6 @@ class _PartnerIdentity(ctypes.Structure):
 # first) and are pinned at their own declarations, so no mirror here sits
 # outside the gate.
 pin_struct(_HostAction, "PANCAKE_HOST_ACTION")
-pin_struct(_DialPlan, "PANCAKE_DIAL_PLAN")
-pin_struct(_AcceptPlan, "PANCAKE_ACCEPT_PLAN")
 pin_struct(_PartnerIdentity, "PANCAKE_PARTNER_IDENTITY")
 
 
@@ -197,14 +184,13 @@ def _load():
         _Reference,
         _ManagedFrame,
         _LastAbort,
-        _DialPlan,
-        _AcceptPlan,
         _HostPumpHooks,
         _LocatorHintView,
         _LocatorView,
         _HostBehavior,
         _PartnerIdentity,
         _TraceCallback,
+        _CloseOptions,
     )
     lib = ctypes.CDLL(str(_lib_path("pancake_host")))
     facade = _Lib(lib)

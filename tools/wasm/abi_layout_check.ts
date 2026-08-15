@@ -23,12 +23,9 @@
 // the three layout sources (descriptor, manifest, host mirror) cannot
 // disagree on shape even though offsets legitimately differ by target width.
 
-import * as abi from "../../bindings/ts/stack/internal/abi.ts";
-import {
-	NATIVE_ONLY_LAYOUT_PREFIXES,
-	WASM_LAYOUT_STRUCTS,
-} from "../../bindings/ts/abi/constants.ts";
-import { fnv1a32 } from "../../bindings/ts/stack/internal/layout.ts";
+import * as abi from "../../bindings/ts/runtime/internal/abi.ts";
+import { NATIVE_ONLY_LAYOUT_PREFIXES, WASM_LAYOUT_STRUCTS } from "../../bindings/ts/abi/constants.ts";
+import { fnv1a32 } from "../../bindings/ts/runtime/internal/layout.ts";
 
 // The manifest rows, in the descriptor's canonical order (`layout_specs` in
 // `src/c_abi/wasm/mod.zig` mirrors this order; a drift fails below).

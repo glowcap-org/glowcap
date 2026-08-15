@@ -7,25 +7,26 @@
 .draft = false,
 ---
 
-You do not have to keep the layering in your head; the build keeps it for you.
-Each layer is its own module with a one-way import table, so a reach across
-layers is a compile error. The diagram above is the map, and
+Most applications use `driver.Session` and a transport. The modules below
+matter when you need to host many sessions, supply an event loop, add a codec,
+or drive the protocol without I/O. Import rules keep those responsibilities
+separate at compile time. The diagram above is the map, and
 [architecture](https://github.com/jimisaacs/pancake/blob/main/docs/architecture.md)
 is the full account.
 
-## Four names that confuse newcomers
+## Choose the right level
 
 | Name | Job |
 | --- | --- |
 | **Peer** | The caller-owned engine handle. You feed inbound frames, call `step`, drain outbound frames, and read events. It opens no sockets. |
 | **Session** | The one-partner application object: `connect` / `listen`, `fetch`, blocking `call`. It owns one live conversation. |
 | **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
-| **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_host`. |
+| **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Native bindings use the driver archive for that loop; the browser package drives the Host itself. |
 
-Ordinary apps stay on `Session`. An introduction settles as a live capability
-inside the call, because every `Session` is backed by a Host. The `Bridge` and
-completion-loop pairing is the path when one thread must serve many
-connections. [Concepts]($link.page('concepts')) covers three-party
+Use `Session` unless you need one of the lower-level responsibilities in the
+table. An introduction settles as a live capability because every `Session`
+is backed by a Host. Use `Bridge` with a completion loop when one thread must
+serve many connections. [Concepts]($link.page('concepts')) covers three-party
 introductions.
 
 ## The protocol core
@@ -68,15 +69,17 @@ you can test it without a host runtime.
 > turn and returns a promise. That is also the only way to call across a
 > session.
 
-## Surfaces out of the core
+## Public entry points
 
-The [Surfaces]($link.page('surfaces')) page is the consumer's view.
+[Choose an API]($link.page('surfaces')) compares the entry points available to
+applications.
 
 - **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
-  release. `libpancake_host` is the multi-session host the bindings wrap.
+  release. `libpancake_host` is the CapTP host the bindings wrap. Native
+  bindings also load `libpancake_driver` to run the loop.
 - **driver** is native Zig above `driver/core`: `Session` and `HostRuntime` for
   ordinary native use, plus `Bridge` when one readiness loop must carry many
   connections.
 
-[Bindings]($link.page('bindings')) are that application surface again in Rust,
+[Bindings]($link.page('bindings')) provide the application API in Rust,
 TypeScript, Python, and Racket, each over the C ABI.

@@ -22,7 +22,7 @@
          ;; The trace record's digest is a fixed-width array, so its width is
          ;; the reflected constant rather than a number retyped here.
          (only-in "constants-gen.rkt" TRACE-DIGEST-BYTES))
-(provide (except-out (all-defined-out) pin-layout! normalize-layout)
+(provide (except-out (all-defined-out) normalize-layout)
          ;; Archive loaders (e.g. ffi-iroh) pin their own cstructs with this.
          pin-layout!)
 
@@ -128,14 +128,46 @@
 ;; `pancake_host_next_action`, so the binding copies them out immediately.
 (define-cstruct _PancakeHostAction
   ([kind _uint32] [ticket _uint64] [session _pointer]
-   [value _PancakeArgument] [message _pointer] [message-len _size]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, then three
-;; (pointer, length) views of process-static strings the library owns.
+   [value _PancakeArgument] [message _pointer] [message-len _size]
+   [result _int32]) #:malloc-mode 'atomic-interior)
+;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, five
+;; (pointer, length) views of process-static strings the library owns, then a
+;; bounded secondary-failure count.
 (define-cstruct _PancakeLastAbort
   ([domain _uint32] [has-kind _uint32]
    [kind-name _pointer] [kind-name-len _size]
    [message _pointer] [message-len _size]
-   [error-name _pointer] [error-name-len _size]) #:malloc-mode 'atomic-interior)
+   [error-name _pointer] [error-name-len _size]
+   [abort-delivery-error-name _pointer] [abort-delivery-error-name-len _size]
+   [secondary-error-name _pointer] [secondary-error-name-len _size]
+   [secondary-error-count _uint32]) #:malloc-mode 'atomic-interior)
+
+(define-cstruct _PancakeFailureReport
+  ([abi-version _uint32] [struct-size _size]
+   [layer _uint32] [scope-kind _uint32]
+   [scope-id _uint64] [operation-id _uint64]
+   [primary-result _int32] [secondary-result _int32]
+   [secondary-count _uint32]
+   [operation _pointer] [operation-len _size]
+   [primary-name _pointer] [primary-name-len _size]
+   [primary-message _pointer] [primary-message-len _size]
+   [secondary-name _pointer] [secondary-name-len _size]
+   [secondary-message _pointer] [secondary-message-len _size])
+  #:malloc-mode 'atomic-interior)
+
+(define-cstruct _PancakeFailureEvent
+  ([abi-version _uint32] [struct-size _size]
+   [sequence _uint64] [dropped-before _uint64]
+   [layer _uint32] [scope-kind _uint32]
+   [scope-id _uint64] [operation-id _uint64]
+   [primary-result _int32] [secondary-result _int32]
+   [secondary-count _uint32] [flags _uint32]
+   [operation _pointer] [operation-len _size]
+   [primary-name _pointer] [primary-name-len _size]
+   [primary-message _pointer] [primary-message-len _size]
+   [secondary-name _pointer] [secondary-name-len _size]
+   [secondary-message _pointer] [secondary-message-len _size])
+  #:malloc-mode 'atomic-interior)
 
 ;; The layout gate, the Rust mirror's `const` assert block made Racket
 ;; (bindings/rust/src/sys/driver.rs): every hand-mirrored cstruct above is
@@ -174,6 +206,10 @@
              PANCAKE-HOST-ACTION-LAYOUT)
 (pin-layout! '_PancakeLastAbort _PancakeLastAbort PANCAKE-LAST-ABORT-SIZE
              PANCAKE-LAST-ABORT-LAYOUT)
+(pin-layout! '_PancakeFailureReport _PancakeFailureReport PANCAKE-FAILURE-REPORT-SIZE
+             PANCAKE-FAILURE-REPORT-LAYOUT)
+(pin-layout! '_PancakeFailureEvent _PancakeFailureEvent PANCAKE-FAILURE-EVENT-SIZE
+             PANCAKE-FAILURE-EVENT-LAYOUT)
 
 ;; ── Driver-archive types (pancake_host.h) ──────────────────────────────────
 
@@ -228,25 +264,6 @@
 (pin-layout! '_PancakeHostPumpHooks _PancakeHostPumpHooks PANCAKE-HOST-PUMP-HOOKS-SIZE
              PANCAKE-HOST-PUMP-HOOKS-LAYOUT)
 
-;; PancakeDialPlan: the resolved dial pancake_host_plan_dial hands back.
-;; `shape` selects the live fields (HOST-PORT fills host/port, PEER-ID fills
-;; addresses/reach); host/addresses borrow the caller's input buffers.
-(define-cstruct _PancakeDialPlan
-  ([shape _uint32] [host _pointer] [host-len _size] [port _uint16]
-   [addresses _pointer] [addresses-len _size]
-   [reach-kind _uint32] [reach-value _uint32]) #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeDialPlan _PancakeDialPlan PANCAKE-DIAL-PLAN-SIZE
-             PANCAKE-DIAL-PLAN-LAYOUT)
-
-;; PancakeAcceptPlan: signing designator + hint from pancake_host_plan_accept.
-(define-cstruct _PancakeAcceptPlan
-  ([designator _pointer]
-   [designator-len _size]
-   [direct-addresses-hint _pointer]
-   [direct-addresses-hint-len _size]) #:malloc-mode 'atomic-interior)
-(pin-layout! '_PancakeAcceptPlan _PancakeAcceptPlan PANCAKE-ACCEPT-PLAN-SIZE
-             PANCAKE-ACCEPT-PLAN-LAYOUT)
-
 ;; PancakePartnerIdentity: the verified partner identity
 ;; `pancake_host_session_partner_identity` borrows into, as three (pointer,
 ;; length) views the session owns. The designator and the locator record may
@@ -270,19 +287,31 @@
 (define-cstruct _PancakeDriverOptions
   ([abi-version _uint32] [struct-size _size]
    [wire-buffer-bytes _size] [max-pending-opens _size]
-   [handshake-ms _uint32] [settle-ms _uint32])
+   [handshake-ms _uint32] [listener-setup-ms _uint32] [settle-ms _uint32])
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakeDriverOptions _PancakeDriverOptions PANCAKE-DRIVER-OPTIONS-SIZE
              PANCAKE-DRIVER-OPTIONS-LAYOUT)
 
-;; PancakeDriverEvent: one drained loop event. `kind` (a DRIVER-EVENT-*
-;; constant) selects the live fields; a COMPLETION carries the byte-fed
-;; queue's own SETTLE/FAIL shape in `action`, and every borrowed view
-;; (`message`, the action's value and message) dies at the next
-;; `pancake_driver_next_event`, so the drain copies out immediately.
+(define-cstruct _PancakeCloseOptions
+  ([abi-version _uint32] [struct-size _size]
+   [pending _uint32] [grace-mode _uint32] [grace-ms _uint32])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeCloseOptions _PancakeCloseOptions
+             PANCAKE-CLOSE-OPTIONS-SIZE PANCAKE-CLOSE-OPTIONS-LAYOUT)
+
+;; PancakeDriverEvent: one drained loop event. `kind` selects the live fields;
+;; OPENED/OPEN_FAILED use `operation-id`, while ACCEPTED and listener setup use
+;; `listener-id`. A COMPLETION carries the byte-fed queue's own SETTLE/FAIL
+;; shape in `action`. Every borrowed failure name and action view dies at the
+;; next `pancake_driver_next_event`, so the loop copies it
+;; out immediately.
 (define-cstruct _PancakeDriverEvent
-  ([kind _uint32] [ticket _uint64] [session _pointer]
-   [action _PancakeHostAction] [message _pointer] [message-len _size])
+  ([kind _uint32] [primary-result _int32]
+   [secondary-result _int32] [secondary-count _uint32]
+   [operation-id _uint64] [listener-id _uint64] [session _pointer]
+   [action _PancakeHostAction]
+   [primary-name _pointer] [primary-name-len _size]
+   [secondary-name _pointer] [secondary-name-len _size])
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakeDriverEvent _PancakeDriverEvent PANCAKE-DRIVER-EVENT-SIZE
              PANCAKE-DRIVER-EVENT-LAYOUT)
@@ -305,10 +334,18 @@
 
 ;; The only transport shape a binding mirrors. Execution-model tables stay
 ;; private to transport archives and the driver.
+(define-cstruct _PancakeTransportOperationOptions
+  ([data _pointer] [size _size])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeTransportOperationOptions _PancakeTransportOperationOptions
+             PANCAKE-TRANSPORT-OPERATION-OPTIONS-SIZE
+             PANCAKE-TRANSPORT-OPERATION-OPTIONS-LAYOUT)
+
 (define-cstruct _PancakeTransportProvider
   ([abi-version _uint32] [struct-size _size]
    [entries _pointer] [entry-count _size]
-   [lease-ctx _pointer] [retain _pointer] [release _pointer])
+   [lease-ctx _pointer] [same-configuration _pointer]
+   [retain _pointer] [release _pointer])
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_PancakeTransportProvider _PancakeTransportProvider
              PANCAKE-TRANSPORT-PROVIDER-SIZE PANCAKE-TRANSPORT-PROVIDER-LAYOUT)

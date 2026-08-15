@@ -104,9 +104,9 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
   dial-from-hello: see
   [Known limitations § Transports and peer identity](../../boundaries.md#transports-and-peer-identity)
   and [community-review.md](../../community-review.md).
-- Binding-level `keyed-tcp` dial/host surfaces and per-binding restart gates
-  are shipped (`listen_keyed_tcp` / `keyed_tcp_locator` / `connect` on a
-  `keyed-tcp` URI; `zig build bindings-keyed-tcp-restart`). The C ABI
+- Binding-level `keyed-tcp` dial/host surfaces and per-binding restart checks
+  are shipped. Each TCP package constructs a typed keyed locator, and the one
+  `connect(locator)` front door dials it (`zig build bindings-keyed-tcp-restart`). The C ABI
   peer-level partner-key pin is `pancake_peer_expect_partner_key`.
 - `designatorSchemeForTransport` maps both `keyed-tcp` and `iroh` to `.key`.
   Binding-hosted iroh servers mint one seed for the endpoint and the `Node`,

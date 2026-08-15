@@ -3,7 +3,7 @@
 //! Plain `tcp`, identity-addressed `keyed-tcp`, and sealed `noise-tcp` share
 //! one socket realization and differ only in locator posture and channel
 //! profile. Their composition belongs here, beside that implementation. A
-//! driver holds one `Provider` at a stable address and consumes `netlayers()`;
+//! driver holds one `Provider` at a stable address and stores `netlayers()`;
 //! it does not construct or enumerate the members itself.
 //!
 //! This provider is native-only because it owns `std.Io` socket residents.
@@ -34,7 +34,7 @@ pub const Error = addressing.Error;
 pub const connectAddress = plain.connectAddress;
 pub const designator_buf_len = plain.designator_buf_len;
 pub const locator = plain.locator;
-pub const at = plain.at;
+pub const locatorFromAddress = plain.locatorFromAddress;
 pub const connect = plain.connect;
 pub const connectFrameStream = plain.connectFrameStream;
 pub const Listener = plain.Listener;
@@ -52,27 +52,49 @@ pub const resolveProfile = addressing.resolveProfile;
 /// one surface.
 pub const profiles = [_]model.transport.Known{ .tcp, .keyed_tcp, .noise_tcp };
 
-/// One heap-stable native realization of every TCP channel profile.
-/// Initialize only after the containing owner reaches its final address: each
-/// netlayer context points at the corresponding inline resident.
+/// Defaults inherited by every stream this provider dials or accepts. A direct
+/// TCP primitive still takes `StreamOptions` for a one-operation override; the
+/// provider keeps the common case once, beside the socket runtime that applies
+/// it. The library default leaves keepalive disabled.
+pub const Config = struct {
+    stream: StreamOptions = .{},
+};
+
+/// One dial or listener override. Passing this view selects these stream
+/// settings for that operation; omitting it inherits `Provider` configuration.
+/// An explicit `.stream = .{}` disables keepalive even when the provider
+/// default enables it.
+pub const OperationOptions = plain.OperationOptions;
+
+/// One heap-pinned native realization of every TCP channel profile. The
+/// netlayer vtables borrow its resident fields, so `create` makes moving the
+/// owner impossible and `destroy` names the one setup allocation explicitly.
 pub const Provider = struct {
     plain_resident: plain.Resident,
     keyed_resident: keyed.Resident,
     noise_resident: noise.Resident,
-    layers: [3]netlayer.Netlayer,
 
-    pub fn init(self: *Provider, io: std.Io) void {
-        self.plain_resident = .{ .io = io };
-        self.keyed_resident = .{ .io = io };
-        self.noise_resident = .{ .io = io };
-        self.layers = .{
+    pub fn create(allocator: std.mem.Allocator, io: std.Io, config: Config) !*Provider {
+        const self = try allocator.create(Provider);
+        self.* = .{
+            .plain_resident = .{ .io = io, .stream_options = config.stream },
+            .keyed_resident = .{ .io = io, .stream_options = config.stream },
+            .noise_resident = .{ .io = io, .stream_options = config.stream },
+        };
+        return self;
+    }
+
+    pub fn destroy(self: *Provider, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
+
+    /// Return the complete borrowed profile set. The caller stores this array
+    /// for at least as long as the runtime that consumes its slice.
+    pub fn netlayers(self: *Provider) [profiles.len]netlayer.Netlayer {
+        return .{
             self.plain_resident.netlayer(),
             self.keyed_resident.netlayer(),
             self.noise_resident.netlayer(),
         };
-    }
-
-    pub fn netlayers(self: *Provider) []const netlayer.Netlayer {
-        return &self.layers;
     }
 };

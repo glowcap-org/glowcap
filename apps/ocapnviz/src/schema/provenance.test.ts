@@ -1,10 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import {
-  DescriptiveMetadata,
-  Iso8601Instant,
-  NAMESPACES,
-  Provenance,
-} from "./provenance.ts";
+import { DescriptiveMetadata, Iso8601Instant, NAMESPACES, Provenance } from "./provenance.ts";
 
 Deno.test("Iso8601Instant accepts canonical UTC", () => {
   assertEquals(Iso8601Instant.safeParse("2026-05-14T10:00:00Z").success, true);

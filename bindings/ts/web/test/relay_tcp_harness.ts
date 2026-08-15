@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // The TCP relay proof, parameterized over the relay program. A wasm browser peer
 // holds a keyed OCapN session when its WebSocket routes through a byte-transparent
 // relay to a native TCP host. One harness proves this for every runtime's relay
@@ -9,14 +10,7 @@
 // the keyed handshake and the greet round-trip succeed end to end.
 
 import { init } from "@pancake/web";
-import {
-	fail,
-	kill,
-	parseHarnessArgs,
-	readToken,
-	spawnRelay,
-	WASM,
-} from "./relay_harness_common.ts";
+import { fail, kill, parseHarnessArgs, readToken, spawnRelay, WASM } from "./relay_harness_common.ts";
 
 const inv = parseHarnessArgs(Deno.args);
 const deadline = setTimeout(() => fail(`${inv.label} relay scenario timed out after 60s`), 60_000);
@@ -48,15 +42,15 @@ const relayPort = await readToken(relayProcess, new RegExp(`${inv.marker} (\\d+)
 try {
 	// 3. Load the wasm browser peer; every dial's WebSocket routes through the
 	// relay, which is told the target via `?to=host:port`.
-	const stack = await init({
+	const runtime = await init({
 		wasm: await Deno.readFile(WASM),
 		wsUrl: (host, port) => `ws://127.0.0.1:${relayPort}/relay?to=${host}:${port}`,
 	});
 
 	// 4. Dial the host's keyed locator through the relay, then prove the session
 	// end to end.
-	const session = await stack.connect(
-		stack.keyedTcpLocator(hostReady.designator, "127.0.0.1", hostReady.port),
+	const session = await runtime.connect(
+		tcp.keyed.locator(hostReady.designator, "127.0.0.1", hostReady.port),
 	);
 	const greeter = await session.fetch("greeter");
 	const reply = await session.send(greeter, "greet", [`${inv.label} Relay`]);

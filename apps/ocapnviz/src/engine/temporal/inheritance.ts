@@ -31,8 +31,6 @@ export function intrinsicOf(
   parentIntrinsic: EffectiveRange,
 ): EffectiveRange {
   const start = span.start.explicit ? span.start.value : parentIntrinsic.start;
-  const end = span.duration.explicit
-    ? start + span.duration.value
-    : parentIntrinsic.end;
+  const end = span.duration.explicit ? start + span.duration.value : parentIntrinsic.end;
   return { start, end };
 }

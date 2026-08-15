@@ -34,7 +34,7 @@ not visible as peer families.
 3. **Dev-tool verbs:**
    - `test/`: correctness scenarios (already top-level; not nested under
      `tools/`).
-   - `tools/check/`: gates and hygiene (`arch_check`, `meta_check`).
+   - `tools/check/`: gates and hygiene (`arch_check`, `source_check`).
    - `tools/gen/`: codegen that must stay in lockstep with `src/`, headers,
      and bindings, plus a shared verify/emit harness.
    - `tools/c-abi/`: operator scripts and JSON oracles for the publishable
@@ -45,7 +45,7 @@ not visible as peer families.
 ## Scope (what this does not decide)
 
 - Whether ocapnviz ships, its event schema, or its packaging.
-- Splitting `tools/check/meta_check.zig` into smaller modules.
+- Splitting `tools/check/source_check.zig` into smaller modules.
 - Renaming the capability showcase at `apps/tools/`.
 
 ## Alternatives Considered

@@ -35,8 +35,8 @@ const Peer = engine.Peer;
 /// application's own outstanding listens, the same bound an unanswered call
 /// has. The rows are dropped when the answer is released (`op:gc-answers`) and
 /// otherwise at session teardown; a failed send rolls all three back. The send
-/// itself adds no per-message heap: `sendCopying` clones an `op:listen`'s two
-/// references, and both are position-only.
+/// itself adds no per-message heap: the listen's two references are
+/// position-only and move through `send`.
 pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
     const far = switch (target) {
         .far => |far| far,
@@ -61,7 +61,7 @@ pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
     errdefer if (is_next_promise)
         peer.session_state.abandonPromiseSettlingListener(settling_target);
 
-    try peer.sendCopying(.{
+    try peer.send(.{
         .listen = .{
             .target = .{ .far = if (is_next_promise)
                 model.FarRef.promise(settling_target.int())

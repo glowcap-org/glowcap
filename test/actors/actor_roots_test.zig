@@ -62,6 +62,85 @@ test "releasing the spawn root reclaims an idle actor at the outermost-turn boun
     try std.testing.expect(freed);
 }
 
+test "last-root release consumes registration escrow with allocation refused" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+
+    var freed = false;
+    var keeper_freed = false;
+    const probe = try vat.spawn(Probe, .{ .freed = &freed });
+    const keeper = try vat.spawn(Probe, .{ .freed = &keeper_freed });
+
+    // Refuse the next allocation across both the last-root release and the
+    // boundary that reclaims its box. Registration already escrowed the slot,
+    // so neither lifetime operation asks the allocator or loses the actor.
+    const allocations_before = failing.alloc_index;
+    failing.fail_index = allocations_before;
+    vat.releaseActor(probe.local);
+    try std.testing.expect(!vat.hasActor(probe.local));
+    try std.testing.expect(!freed);
+    _ = try vat.near(keeper, .{ .verb = "ping" });
+    try std.testing.expect(freed);
+    try std.testing.expectEqual(allocations_before, failing.alloc_index);
+    try std.testing.expect(!failing.has_induced_failure);
+
+    failing.fail_index = std.math.maxInt(usize);
+}
+
+test "actor registration reports retirement-escrow refusal before commit" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+
+    var freed = false;
+    // `makeBox` takes the first allocation. Refuse the retirement escrow that
+    // follows it: spawn must report the exact OOM, reclaim the adopted state,
+    // and leave no actor row visible.
+    failing.fail_index = failing.alloc_index + 1;
+    try std.testing.expectError(error.OutOfMemory, vat.spawn(Probe, .{ .freed = &freed }));
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expect(freed);
+    try std.testing.expectEqual(@as(usize, 0), vat.actors.count());
+    try std.testing.expectEqual(@as(usize, 0), vat.retired_boxes.capacity);
+
+    failing.fail_index = std.math.maxInt(usize);
+}
+
+test "retired-box burst trim refuses transactionally and retries exactly" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+
+    var keeper_freed = false;
+    const keeper = try vat.spawn(Probe, .{ .freed = &keeper_freed });
+    var retired_freed = false;
+    const burst = actors.steady_list_bytes / @sizeOf(*anyopaque) + 32;
+    for (0..burst) |_| {
+        const actor = try vat.spawn(Probe, .{ .freed = &retired_freed });
+        vat.releaseActor(actor.local);
+    }
+    try std.testing.expectEqual(burst, vat.retired_boxes.items.len);
+    try std.testing.expect(vat.retired_boxes.capacity * @sizeOf(*anyopaque) > actors.steady_list_bytes);
+    try std.testing.expect(!retired_freed);
+
+    // The next outer turn first prepares a right-sized retirement reservation.
+    // Its refusal must preserve the entire old boundary: no box is released,
+    // no frame opens, and an unchanged retry remains possible.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(error.OutOfMemory, vat.near(keeper, .{ .verb = "ping" }));
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(@as(u32, 0), vat.turn_depth);
+    try std.testing.expectEqual(burst, vat.retired_boxes.items.len);
+    try std.testing.expect(!retired_freed);
+
+    failing.fail_index = std.math.maxInt(usize);
+    _ = try vat.near(keeper, .{ .verb = "ping" });
+    try std.testing.expect(retired_freed);
+    try std.testing.expectEqual(@as(usize, 0), vat.retired_boxes.items.len);
+    try std.testing.expect(vat.retired_boxes.capacity * @sizeOf(*anyopaque) <= actors.steady_list_bytes);
+}
+
 test "retain and release on an absent row are tolerated no-ops" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);

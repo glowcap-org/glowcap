@@ -1,17 +1,22 @@
-use pancake::{connect, Argument, Reachability};
+use pancake::iroh::{self, Reachability};
+use pancake::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // Discovery resolves a bare iroh node ID without an address hint.
 // Cargo.toml: pancake = { …, features = ["iroh"] }
-let partner = "ocapn://3b6a…da29.iroh";
+let node_id = "<64 lowercase hex characters from the server>";
+let partner = iroh::locator(node_id, None);
 
-let session = connect(&partner, Some(Reachability::Discovery), None).await?;
-let greeter = session.fetch("greeter").await?; // a capability, by name
-match session
-    .send(&greeter, "greet", &[Argument::String("world".into())])
-    .await
-{
+let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
+    Reachability::Discovery,
+))]))
+.await?;
+// From here, the CapTP workflow is transport-independent.
+let session = runtime.connect(&partner, ConnectOptions::default()).await?;
+let greeter = session.fetch("greeter").await?; // a capability this peer published
+match session.send(&greeter, "greet", &["world".into()]).await {
     Ok(Argument::String(reply)) => println!("{reply}"),
     Ok(other) => println!("unexpected reply: {other:?}"),
     Err(reason) => eprintln!("the greeter refused: {reason:?}"),
 }
-session.close();
+session.close(PendingWork::Cancel).await?;
+runtime.close(PendingWork::Cancel).await?;

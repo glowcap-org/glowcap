@@ -1,21 +1,22 @@
 ---
 .title = "Bindings",
-.description = "Four languages, one application surface over one C ABI: Rust, TypeScript, Python, and Racket, each mirroring the same archive set.",
+.description = "Use pancake from Rust, TypeScript, Python, or Racket through one shared C ABI and composable transport archives.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-The bindings give four languages the same application surface over one C ABI,
-one of the [ways to consume pancake]($link.page('surfaces')). Each binding
-mirrors the archive set: a core over `libpancake_ocapn` / `libpancake_host`,
-plus per-transport modules loaded à la carte. The capability ideas behind the
-surface live in [Concepts]($link.page('concepts')).
+Each binding exposes the same application operations over the C ABI. Native
+bindings load the Host and the native loop, then add transport archives as
+needed. The browser package uses WebAssembly and drives the Host itself.
+[Choose an API]($link.page('surfaces')) compares
+these bindings with the Zig package, C ABI, CLI, and browser package.
+[Concepts]($link.page('concepts')) explains the capability model behind them.
 
-[All four bindings wrap the same C ABI. The shared surface is what lets an app read the same way in every language.]($image.siteAsset('diagram-bindings.svg'))
+[All four bindings wrap the same C ABI, so the session operations and transport choices stay aligned across languages.]($image.siteAsset('diagram-bindings.svg'))
 
-## One surface, four idioms
+## One contract, four idioms
 
 A `Session` gives you the verbs in the
 [bindings contract](https://github.com/jimisaacs/pancake/blob/main/bindings/README.md).
@@ -25,15 +26,17 @@ an argument and authority moves.
 
 | Binding | Entry point | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
-| [Rust]($link.page('bindings/rust')) | `connect`, `Session`, typed enums | tokio (opt-in `async`) | `spawn` over closures |
-| [TypeScript]($link.page('bindings/ts')) | `connect`, `Session` class | native promises | `spawn` over callbacks |
-| [Python]($link.page('bindings/python')) | `connect`, `Session`, native values | `asyncio` | `spawn` over callables |
-| [Racket]($link.page('bindings/racket')) | `connect`, `session`, event structs | green threads + ports | Goblins-faithful |
+| [Rust]($link.page('bindings/rust')) | `Runtime`, `Session`, typed enums | tokio (opt-in `async`) | `spawn` over closures |
+| [TypeScript]($link.page('bindings/ts')) | `Runtime`, `Session` class | native promises | `spawn` over callbacks |
+| [Python]($link.page('bindings/python')) | `Runtime`, `Session`, native values | `asyncio` | `spawn` over callables |
+| [Racket]($link.page('bindings/racket')) | `Runtime`, `session`, event structs | green threads + ports | Goblins-faithful |
 
-`connect(locator)` returns an established session (handshake complete).
+`Runtime.open(...)` installs transport authority once. `runtime.connect(locator)`
+returns an established session (handshake complete); per-operation options stay
+on that call.
 
 The TypeScript binding also runs in the browser, where `@pancake/web` compiles
-the same `Session` surface to WebAssembly. The browser side always dials
+the same `Session` API to WebAssembly. The browser side always dials
 rather than listens, and [In the browser]($link.page('bindings/browser')) is
 the browser setup guide.
 

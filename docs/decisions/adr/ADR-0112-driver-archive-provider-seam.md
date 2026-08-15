@@ -6,7 +6,7 @@ tags: [c-abi, bindings, netlayer, driver, iroh, webrtc, archives]
 decision: "One driver archive, libpancake_driver, projects driver.HostRuntime to C beside the byte-fed libpancake_host archive: it exports only pancake_driver_* and adopts a Host through pancake_driver_take_host. A new loop starts with zero transports and accepts provider packages through the standalone pancake_transport_provider.h ABI. The TCP transport archive owns tcp, keyed-tcp, noise-tcp, and its low-level framed connection API. Provider retain/release is the native transport lifetime authority. The byte-fed seam remains the primitive."
 supersedes: []
 superseded_by: []
-amends: [ADR-0057, ADR-0059, ADR-0072, ADR-0090]
+amends: [ADR-0057, ADR-0059, ADR-0072, ADR-0078, ADR-0090]
 amended_by: [ADR-0113]
 ---
 
@@ -79,7 +79,7 @@ quiescent `PancakeHost` created through `libpancake_host`; failure leaves the
 Host with its caller, while success transfers Host teardown to the loop. The
 loop family has the exact C spelling landed in its generated header: Host
 adoption and release, provider registration, a non-blocking locator dial that
-answers with a ticket, listen, one readiness descriptor for the whole loop,
+answers with an operation id, listen, one readiness descriptor for the whole loop,
 step with a timeout, wake, and one event queue. Construction installs no
 transport. The caller creates a transport package and registers it once through
 `pancake_transport_provider.h`; the TCP archive's package carries all three TCP
@@ -114,6 +114,15 @@ caller arrays, writes are consumed by bounded copy, and multiplexed connection i
 are stable integers, never addresses. The provider release callback is invoked
 only after all copied callbacks and transport handles retire.
 
+Configuration equivalence follows the same ownership rule. A package supplies
+`same_configuration`, and the driver invokes it only for the exact same profile
+set and the exact same callback implementation. An equivalent registration is
+idempotent; a different callback, profile set, or effective configuration is a
+conflict. Bindings therefore construct and submit a candidate package every
+time and retain no configuration registry of their own. A generic hash was
+rejected: the driver cannot define transport equivalence, and hashing Tor
+passwords or service keys would create a credential-guessing artifact.
+
 Inside the driver archive, `ProviderRegistry` is the sole owner of package
 validation, copied execution adapters, and leases; the loop owns only loop and
 event lifecycle. Stream and multiplexed listeners share one locator projection and
@@ -131,13 +140,27 @@ One multiplexed runtime may realize several provider profiles. Entries in one
 package identify that shared runtime by pointing at the same multiplexed
 implementation table; the driver then holds one copied runtime table, one
 readiness descriptor and connection namespace, and one package lease. Each
-listener remains independent:
-`start_listen` receives the selected profile and a driver-minted route id, and
-returns a provider-owned listener handle used by locator, accept, and stop.
-Connect request ids and listener route ids are scoped to the multiplexed runtime
-whose readiness stream echoes them. The generic driver therefore knows neither
-the concrete transport set nor provider policy, while a shared runtime never
-collapses distinct profile listeners into runtime-global state.
+listener remains independent. `listen` receives the selected profile and a
+driver-minted route id, then returns a tagged result: an immediate
+provider-owned listener handle, or pending setup completed by a listen
+readiness record and claimed through `finish_listen`. The base listener
+capability and pending-completion capability are separate complete-or-absent
+groups. An immediate provider supplies no `finish_listen`/`cancel_listen` pair
+and must return ready; only a provider supplying both may return pending.
+`finish_listen` consumes the operation on every return, while `cancel_listen`
+owns every route abandoned before finish. Connect request ids and listener route ids are scoped
+to the multiplexed runtime whose readiness stream echoes them. The generic
+driver therefore knows neither the concrete transport set nor provider policy,
+while a shared runtime never collapses distinct profile listeners into
+runtime-global state.
+
+Cancellation ends the transport operation, not only its publication. A stream
+provider interrupts the `std.Io` task that owns a blocked connect or listener
+setup and retires the attempt after that task has joined. The provider keeps
+one reserved cancellation worker; each pending attempt embeds its own task
+group, so cancellation adds no heap allocation and never parks the driver
+thread. Multiplexed providers apply the same contract to the operation behind
+their stable request id.
 
 ## Scope (what this does not decide)
 
@@ -153,9 +176,9 @@ collapses distinct profile listeners into runtime-global state.
   caller-owned Host transfers transactionally into it; the browser and
   explicit embedder-owned channels remain byte-fed.
 - Stream providers begin connects through a nonblocking `start_connect`
-  contract and publish readiness-driven completion. Native Zig netlayers
-  without `start_dial` retain their blocking fallback outside this provider
-  seam.
+  contract and publish readiness-driven completion. Outside this provider
+  seam, each native Zig netlayer advertises exactly one tagged dial execution
+  form: blocking or staged, never parallel callbacks for both.
 - One `max_pending_opens` bound covers every pre-open session and wire across
   dial, accept, external adoption, and redeem. A deadline bounds duration; this
   admission bound independently prevents silent connectors from multiplying
@@ -203,6 +226,11 @@ registered provider profile; a package may narrow that set when its runtime
 cannot distinguish profiles (the relay runtime permits one listener total).
 The binding spine gate requires every ACCEPTED decoder to carry the listener id
 into its corresponding server queue.
+Successful Host adoption is a durable promotion to loop mode. A later provider
+or listener setup failure preserves a caller-supplied Host and its valid loop so
+the caller can retry; only a Host minted by the failed operation is torn down.
+The transactional claim is the `pancake_driver_take_host` call itself: if that
+call refuses, the original Host remains byte-fed and untouched.
 Retained outbound frames on partial multiplexed-provider writes and the settle mailbox
 minted at init so its descriptor is in the set from the start are each
 owned by a named test. The self-wake nudge when step returns with work
@@ -216,7 +244,7 @@ available from this tier's public surface.
 ## Evidence and gate
 
 `zig build test` carries the fake multiplexed-provider HostRuntime suite and
-claimed-resource failure injection. `zig build meta-check` holds the archive
+claimed-resource failure injection. `zig build source-check` holds the archive
 and binding spines; the generated-header checks hold the C contract.
 `zig build iroh-driver-provider` proves the common provider ABI over real QUIC,
 and `zig build webrtc-driver-provider` proves external adoption of both WebRTC

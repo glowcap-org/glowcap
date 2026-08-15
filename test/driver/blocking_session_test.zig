@@ -1,7 +1,7 @@
 //! Driver loopback test: the application surface, both halves.
 //!
-//! `driver.connectTcp` dials and `driver.acceptTcp` hosts. This test runs
-//! the two against each other over a real 127.0.0.1 socket with the keyed,
+//! `driver.connectVia` dials and `driver.acceptVia` hosts. This test runs the
+//! two against each other over a real 127.0.0.1 socket with the keyed,
 //! verified `op:start-session` handshake on both ends (fresh random session
 //! keys, signature verification on, the same exchange a live Goblins peer
 //! requires): the host accepts into a connected vat, publishes an actor by
@@ -39,6 +39,40 @@ const dial_opts: driver.SessionOptions = .{
     .handshake = .{ .ms = 10_000 },
     .settle = .{ .ms = 10_000 },
 };
+
+fn connectPlain(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    peer: *engine.Peer,
+    address: ip.IpAddress,
+    read_buf: []u8,
+    write_buf: []u8,
+    options: driver.BlockingSession.Options,
+) !driver.BlockingSession {
+    var resident = tcp.Resident{ .io = io };
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    return driver.connectVia(
+        allocator,
+        &.{resident.netlayer()},
+        peer,
+        tcp.locatorFromAddress(&designator_buf, address),
+        .ephemeral,
+        read_buf,
+        write_buf,
+        options,
+    );
+}
+
+fn acceptPlain(
+    allocator: std.mem.Allocator,
+    peer: *engine.Peer,
+    listener: *tcp.Listener,
+    read_buf: []u8,
+    write_buf: []u8,
+    options: driver.BlockingSession.Options,
+) !driver.BlockingSession {
+    return driver.acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf, options);
+}
 
 /// The published actor: answers `greet(name)` with a static greeting.
 const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting vat");
@@ -94,7 +128,7 @@ fn serveBoardOnce(server: *driver.Server) anyerror!void {
 fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -102,11 +136,11 @@ fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
 
     const root = try session.fetch("root");
     const created = try session.send(root, "create", &.{.{ .bytes = "benchmark" }});
-    _ = try session.sendToAnswer(created, "assign", &.{.{ .bytes = "alice" }});
-    _ = try session.sendToAnswer(created, "complete", &.{});
-    const status = try session.sendToAnswer(created, "status", &.{});
+    _ = try created.send("assign", &.{.{ .bytes = "alice" }});
+    _ = try created.send("complete", &.{});
+    const status = try created.send("status", &.{});
 
-    const settled = try session.settleVow(status, arena_state.allocator());
+    const settled = try status.settle(arena_state.allocator());
     switch (settled) {
         .fulfilled => |arg| {
             try std.testing.expect(arg == .bytes);
@@ -125,18 +159,18 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    var host_future = try io.concurrent(serveBoardOnce, .{&server});
+    var host_future = try io.concurrent(serveBoardOnce, .{server});
     const client_result = pipelineUnitOnce(io, address, allocator);
     const host_result = host_future.await(io);
     try client_result;
     try host_result;
 }
 
-/// Accept one partner via `driver.acceptTcp` (responder keyed handshake inside),
+/// Accept one partner via `driver.acceptVia` (responder keyed handshake inside),
 /// publish the greeter, and `serve` until the client leaves, whether it closes
 /// cleanly or just drops the socket once it has its reply.
 fn hostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void {
@@ -149,7 +183,7 @@ fn hostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
+    var cv = try acceptPlain(allocator, &peer, listener, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -180,7 +214,7 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     };
 }
 
-/// Dial via `driver.connectTcp`, fetch the published greeter, call it, and
+/// Dial via `driver.connectVia`, fetch the published greeter, call it, and
 /// assert the reply round-trips. Closing on return lets the host observe EOF.
 /// The client reads through a 64-byte buffer — far smaller than any handshake
 /// frame — so every inbound frame on this side assembles in the connection's
@@ -195,7 +229,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
+    var cv = try connectPlain(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -222,7 +256,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
 fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -258,18 +292,18 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    var host_future = try io.concurrent(serveOnce, .{&server});
+    var host_future = try io.concurrent(serveOnce, .{server});
     const client_result = connectOnce(io, address, allocator);
     const host_result = host_future.await(io);
     try client_result;
     try host_result;
 }
 
-test "driver loopback: acceptTcp publishes and serves the keyed session connectTcp dials, fetch + call round-trip" {
+test "driver loopback: acceptVia publishes and serves the keyed session connectVia dials, fetch + call round-trip" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -296,7 +330,7 @@ test "driver loopback: acceptTcp publishes and serves the keyed session connectT
 /// branch in the caller, the slice decides.
 fn dialUriOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const loc = tcp.locator(&designator_buf, address);
+    const loc = tcp.locatorFromAddress(&designator_buf, address);
     const uri = try model.uri.writePeer(allocator, loc);
     defer allocator.free(uri);
 
@@ -357,7 +391,7 @@ fn fetchMissingOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
+    var cv = try connectPlain(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
     defer cv.deinit();
 
     try std.testing.expectError(driver.Error.FetchBroken, cv.fetch("nobody-published-this"));
@@ -407,7 +441,7 @@ const LocalPing = struct {
 fn callLocalOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -433,11 +467,11 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    var host_future = try io.concurrent(serveOnce, .{&server});
+    var host_future = try io.concurrent(serveOnce, .{server});
     const client_result = callLocalOnce(io, address, allocator);
     const host_result = host_future.await(io);
     try client_result;
@@ -460,7 +494,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
+    var cv = try acceptPlain(allocator, &peer, listener, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
     defer cv.deinit();
 
     const cap = try cv.publish("greeter", Greeter, .{});
@@ -499,7 +533,7 @@ fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocat
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
+    var cv = try connectPlain(allocator, io, &peer, address, read_buf, write_buf, .{ .handshake = handshake_budget, .settle = dial_opts.settle });
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -709,7 +743,7 @@ fn serveGrantOnMarshalOnce(server: *driver.Server) anyerror!void {
 fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -755,11 +789,11 @@ test "driver loopback: a spawned capability is unreachable until first marshaled
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    var host_future = try io.concurrent(serveGrantOnMarshalOnce, .{&server});
+    var host_future = try io.concurrent(serveGrantOnMarshalOnce, .{server});
     const client_result = probeReservedOnce(io, address, allocator);
     const host_result = host_future.await(io);
     try client_result;
@@ -918,9 +952,9 @@ test "faultToClosed: a non-transport fault during a blocking call breaks far vow
     try std.testing.expect(capture.reasonHas("connection failed"));
 }
 
-/// Manual dial rather than `connectTcp`: dial the socket, bind the vat over it,
+/// Manual dial rather than `connectVia`: dial the socket, bind the vat over it,
 /// arm the deadline, then drive the keyed handshake here, so the timeout has an
-/// entry point this test can name and assert on. `connectTcp` takes the same
+/// entry point this test can name and assert on. `connectVia` takes the same
 /// budget and would break the same way, but it breaks inside the constructor,
 /// which leaves nothing to inspect afterwards. A partner that completes connect
 /// and then never speaks must break the handshake, not park the fiber
@@ -938,9 +972,9 @@ fn silentPartnerHandshakeTimesOut(io: std.Io, address: ip.IpAddress, allocator: 
     var resident = tcp.Resident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const locator = tcp.locator(&designator_buf, address);
+    const locator = tcp.locatorFromAddress(&designator_buf, address);
     const nl = net.netlayer.resolve(&netlayers, locator.transport).?;
-    const conn = try nl.dial(&peer, locator, .{ .read = read_buf, .write = write_buf });
+    const conn = try nl.dial(&peer, locator, .{ .read = read_buf, .write = write_buf }, .inherit);
 
     var vat = driver.BlockingSession.over(allocator, &peer, conn, .{ .handshake = budget, .settle = .unbounded });
     defer vat.deinit();
@@ -1007,7 +1041,7 @@ test "owning connect: a silent partner's handshake breaks with HandshakeTimedOut
     try std.testing.expectError(driver.Error.HandshakeTimedOut, driver.connect(
         allocator,
         &.{tcp_resident.netlayer()},
-        tcp.locator(&buf, listener.localAddress()),
+        tcp.locatorFromAddress(&buf, listener.localAddress()),
         .ephemeral,
         .{ .frame_cap = frame_cap, .handshake = .{ .ms = 200 }, .settle = .{ .ms = 200 } },
     ));
@@ -1016,7 +1050,7 @@ test "owning connect: a silent partner's handshake breaks with HandshakeTimedOut
     try std.testing.expectError(driver.Error.HandshakeTimedOut, driver.connect(
         allocator,
         &.{tcp_resident.netlayer()},
-        tcp.locator(&buf, listener.localAddress()),
+        tcp.locatorFromAddress(&buf, listener.localAddress()),
         .ephemeral,
         .{ .frame_cap = frame_cap, .handshake = .{ .ms = 0 }, .settle = .{ .ms = 200 } },
     ));
@@ -1046,7 +1080,7 @@ test "owning accept: a connect-then-silent dialer times out and the unwind stays
         .handshake = .{ .ms = 200 },
         .settle = .{ .ms = 200 },
     });
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
@@ -1070,7 +1104,7 @@ fn hostAcceptPublishThenStall(server: *driver.Server, io: std.Io) anyerror!void 
 fn silentPartnerSettleTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, .{
         .frame_cap = frame_cap,
         .handshake = .{ .ms = 10_000 },
         .settle = .{ .ms = 200 },
@@ -1088,11 +1122,11 @@ test "driver loopback: a partner that opens then stalls breaks settle with WaitT
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
 
-    const host_thread = try std.Thread.spawn(.{}, hostAcceptPublishThenStall, .{ &server, io });
+    const host_thread = try std.Thread.spawn(.{}, hostAcceptPublishThenStall, .{ server, io });
     defer host_thread.join();
 
     try silentPartnerSettleTimesOut(io, address, allocator);

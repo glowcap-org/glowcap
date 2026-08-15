@@ -153,12 +153,12 @@ pub fn main(init: std.process.Init) !void {
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind }, .ephemeral, opts);
-    defer server.close() catch {};
+    defer server.deinit();
 
     var primed = std.atomic.Value(bool).init(false);
     var replaced = std.atomic.Value(bool).init(false);
     var done = std.atomic.Value(bool).init(false);
-    var serving = try io.concurrent(serveExporter, .{ &server, &done, &primed, &replaced });
+    var serving = try io.concurrent(serveExporter, .{ server, &done, &primed, &replaced });
     defer {
         done.store(true, .release);
         serving.await(io) catch {};

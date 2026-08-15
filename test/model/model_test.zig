@@ -3,6 +3,22 @@ const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
 
+test "hint addition preserves locator invariants" {
+    const entries = [_]model.HintEntry{.{ .name = "route", .value = .{ .string = "direct" } }};
+    const locator = model.PeerLocator{
+        .transport = "tcp",
+        .designator = "127.0.0.1:1",
+        .hints = .{ .entries = &entries },
+    };
+    try model.validateLocatorHintAddition(locator, "token");
+    try std.testing.expectError(error.EmptyHintName, model.validateLocatorHintAddition(locator, ""));
+    try std.testing.expectError(error.DuplicateHintName, model.validateLocatorHintAddition(locator, "route"));
+
+    var no_hints = locator;
+    no_hints.hints = model.Hints.emptyFalse();
+    try std.testing.expectError(error.InvalidFalseHints, model.validateLocatorHintAddition(no_hints, "route"));
+}
+
 test "value-tree types stay within their documented size budget" {
     // The owned `Argument`/`Resolution`/`Reference` ceilings are comptime
     // asserts beside the types in `src/ocapn/model/mod.zig`; un-boxing the

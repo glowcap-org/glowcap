@@ -147,7 +147,10 @@ fn adoptSturdyRef(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) !*St
 /// `pancake_last_error`; only allocation faults are internal.
 fn parseErrToCode(err: model.uri.Error) i32 {
     return switch (err) {
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.OutOfMemory => blk: {
+            setLastError("uri parse: OutOfMemory", .{});
+            break :blk PANCAKE_ERR_INTERNAL;
+        },
         else => blk: {
             setLastError("uri parse: {s}", .{@errorName(err)});
             break :blk PANCAKE_ERR_INVALID_ARGUMENT;
@@ -164,7 +167,10 @@ fn uriParsePeerIn(allocator: std.mem.Allocator, uri: ?[*]const u8, uri_len: usiz
     const uri_ptr = uri orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
     const peer = model.uri.parsePeer(allocator, uri_ptr[0..uri_len]) catch |err| return parseErrToCode(err);
-    const payload = adoptPeer(allocator, peer) catch return PANCAKE_ERR_INTERNAL;
+    const payload = adoptPeer(allocator, peer) catch {
+        setLastError("uri parse: OutOfMemory", .{});
+        return PANCAKE_ERR_INTERNAL;
+    };
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
 }
@@ -185,28 +191,52 @@ pub export fn pancake_uri_parse_peer_in(
 
 /// Parse an `ocapn://…/s/<swiss>` sturdyref URI into an owned locator handle
 /// carrying its swissnum. Same borrow, error, and release contract as
-/// pancake_uri_parse_peer.
-fn uriParseSturdyrefIn(allocator: std.mem.Allocator, uri: ?[*]const u8, uri_len: usize, out_sturdyref: ?*?*PancakeSturdyRef) i32 {
+/// pancake_uri_parse_peer. `captp_version` selects the profile-specific
+/// swissnum path spelling; an unknown value is refused rather than guessed.
+fn uriParseSturdyrefIn(
+    allocator: std.mem.Allocator,
+    captp_version: u32,
+    uri: ?[*]const u8,
+    uri_len: usize,
+    out_sturdyref: ?*?*PancakeSturdyRef,
+) i32 {
     const uri_ptr = uri orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_sturdyref orelse return PANCAKE_ERR_NULL_POINTER;
-    const sturdyref = model.uri.parseSturdyref(allocator, uri_ptr[0..uri_len]) catch |err| return parseErrToCode(err);
-    const payload = adoptSturdyRef(allocator, sturdyref) catch return PANCAKE_ERR_INTERNAL;
+    const profile = shared.captpVersionFromC(captp_version) orelse {
+        shared.setLastError("uri: captp_version must be a PANCAKE_CAPTP_* value", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    const sturdyref = model.uri.parseSturdyrefForProfile(
+        allocator,
+        profile,
+        uri_ptr[0..uri_len],
+    ) catch |err| return parseErrToCode(err);
+    const payload = adoptSturdyRef(allocator, sturdyref) catch {
+        setLastError("sturdyref parse: OutOfMemory", .{});
+        return PANCAKE_ERR_INTERNAL;
+    };
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
 }
 
-pub export fn pancake_uri_parse_sturdyref(uri: ?[*]const u8, uri_len: usize, out_sturdyref: ?*?*PancakeSturdyRef) i32 {
-    return uriParseSturdyrefIn(ctx.library_allocator, uri, uri_len, out_sturdyref);
+pub export fn pancake_uri_parse_sturdyref(
+    captp_version: u32,
+    uri: ?[*]const u8,
+    uri_len: usize,
+    out_sturdyref: ?*?*PancakeSturdyRef,
+) i32 {
+    return uriParseSturdyrefIn(ctx.library_allocator, captp_version, uri, uri_len, out_sturdyref);
 }
 
 pub export fn pancake_uri_parse_sturdyref_in(
     context: ?*PancakeContext,
+    captp_version: u32,
     uri: ?[*]const u8,
     uri_len: usize,
     out_sturdyref: ?*?*PancakeSturdyRef,
 ) i32 {
     const context_payload = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
-    return uriParseSturdyrefIn(context_payload.allocator(), uri, uri_len, out_sturdyref);
+    return uriParseSturdyrefIn(context_payload.allocator(), captp_version, uri, uri_len, out_sturdyref);
 }
 
 /// Release a locator handle and the parse allocations it owns. NULL is a no-op.
@@ -234,8 +264,14 @@ fn optionalSlice(ptr: ?[*]const u8, len: usize) ![]const u8 {
 fn locatorErrToCode(err: anyerror) i32 {
     return switch (err) {
         error.NullPointer => PANCAKE_ERR_NULL_POINTER,
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
-        else => PANCAKE_ERR_INVALID_ARGUMENT,
+        error.OutOfMemory => blk: {
+            setLastError("locator: OutOfMemory", .{});
+            break :blk PANCAKE_ERR_INTERNAL;
+        },
+        else => blk: {
+            setLastError("locator: {s}", .{@errorName(err)});
+            break :blk PANCAKE_ERR_INVALID_ARGUMENT;
+        },
     };
 }
 
@@ -256,28 +292,28 @@ fn locatorNewIn(
     const wire_form: model.Hints.WireForm = switch (hint_wire_form) {
         locator_abi.PANCAKE_HINTS_MAP => .map,
         locator_abi.PANCAKE_HINTS_BOOLEAN_FALSE => .boolean_false,
-        else => return PANCAKE_ERR_INVALID_ARGUMENT,
+        else => return locatorErrToCode(error.InvalidHintWireForm),
     };
     model.validatePeerLocator(.{
         .transport = t,
         .designator = d,
         .hints = .{ .entries = &.{}, .wire_form = wire_form },
-    }) catch return PANCAKE_ERR_INVALID_ARGUMENT;
-    const owned_transport = allocator.dupe(u8, t) catch return PANCAKE_ERR_INTERNAL;
+    }) catch |err| return locatorErrToCode(err);
+    const owned_transport = allocator.dupe(u8, t) catch return locatorErrToCode(error.OutOfMemory);
     const owned_designator = allocator.dupe(u8, d) catch {
         allocator.free(owned_transport);
-        return PANCAKE_ERR_INTERNAL;
+        return locatorErrToCode(error.OutOfMemory);
     };
     const entries = allocator.alloc(model.HintEntry, 0) catch {
         allocator.free(owned_designator);
         allocator.free(owned_transport);
-        return PANCAKE_ERR_INTERNAL;
+        return locatorErrToCode(error.OutOfMemory);
     };
     const payload = adoptPeer(allocator, .{
         .transport = owned_transport,
         .designator = owned_designator,
         .hints = .{ .entries = entries, .wire_form = wire_form },
-    }) catch return PANCAKE_ERR_INTERNAL;
+    }) catch return locatorErrToCode(error.OutOfMemory);
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
 }
@@ -315,7 +351,7 @@ fn locatorCloneIn(
     const source = view orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
     const peer = locator_adapter.cloneView(allocator, source) catch |err| return locatorErrToCode(err);
-    const payload = adoptPeer(allocator, peer) catch return PANCAKE_ERR_INTERNAL;
+    const payload = adoptPeer(allocator, peer) catch return locatorErrToCode(error.OutOfMemory);
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
 }
@@ -361,10 +397,7 @@ pub export fn pancake_sturdyref_borrow_locator(
 }
 
 fn appendHint(payload: *LocatorPayload, name: []const u8, value: model.HintValue) !void {
-    if (name.len == 0 or payload.wire_form == .boolean_false) return error.InvalidArgument;
-    for (payload.hints.items) |entry| {
-        if (std.mem.eql(u8, entry.name, name)) return error.InvalidArgument;
-    }
+    try model.validateLocatorHintAddition(payload.peer(), name);
     try payload.hints.ensureUnusedCapacity(payload.allocator, 1);
     try payload.hint_views.ensureUnusedCapacity(payload.allocator, 1);
     const owned_name = try payload.allocator.dupe(u8, name);
@@ -372,7 +405,16 @@ fn appendHint(payload: *LocatorPayload, name: []const u8, value: model.HintValue
     const owned_value = try model.cloneHintValue(payload.allocator, value);
     errdefer model.freeHintValue(payload.allocator, owned_value);
     payload.hints.appendAssumeCapacity(.{ .name = owned_name, .value = owned_value });
-    payload.refreshView() catch unreachable;
+    payload.refreshView() catch |err| {
+        // Projection is the commit point for a C-visible mutation. Keep the
+        // previously borrowed view authoritative if validation ever grows a
+        // new refusal: the just-appended ownership is still ours to undo, and
+        // no library-side invariant is allowed to terminate the process.
+        const appended = payload.hints.pop().?;
+        model.freeHintEntry(payload.allocator, appended);
+        payload.hint_views.shrinkRetainingCapacity(payload.hints.items.len);
+        return err;
+    };
 }
 
 fn addBytesHint(
@@ -422,7 +464,7 @@ pub export fn pancake_locator_add_boolean(
 ) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
     const n = requiredSlice(name, name_len) catch |err| return locatorErrToCode(err);
-    if (value > 1) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (value > 1) return locatorErrToCode(error.InvalidBoolean);
     appendHint(payload, n, .{ .boolean = value == 1 }) catch |err| return locatorErrToCode(err);
     return PANCAKE_OK;
 }
@@ -566,7 +608,7 @@ pub export fn pancake_locator_hint_at(
 ) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_hint orelse return PANCAKE_ERR_NULL_POINTER;
-    if (idx >= payload.hint_views.items.len) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (idx >= payload.hint_views.items.len) return locatorErrToCode(error.HintIndexOutOfBounds);
     slot.* = payload.hint_views.items[idx];
     return PANCAKE_OK;
 }
@@ -626,14 +668,20 @@ fn buildHints(
 
 fn buildErrToCode(err: BuildError) i32 {
     return switch (err) {
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.OutOfMemory => blk: {
+            setLastError("uri hints: OutOfMemory", .{});
+            break :blk PANCAKE_ERR_INTERNAL;
+        },
         error.NullPointer => PANCAKE_ERR_NULL_POINTER,
     };
 }
 
 fn writeErrToCode(err: model.uri.Error) i32 {
     return switch (err) {
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        error.OutOfMemory => blk: {
+            setLastError("uri format: OutOfMemory", .{});
+            break :blk PANCAKE_ERR_INTERNAL;
+        },
         else => blk: {
             setLastError("uri format: {s}", .{@errorName(err)});
             break :blk PANCAKE_ERR_INVALID_ARGUMENT;
@@ -647,7 +695,10 @@ fn writeErrToCode(err: model.uri.Error) i32 {
 fn copyOut(rendered: []const u8, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
     const l = out_len orelse return PANCAKE_ERR_NULL_POINTER;
     l.* = rendered.len;
-    const dest = out orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    const dest = out orelse {
+        setLastError("uri format: out is null; provide the reported length as buffer capacity", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
     if (cap < rendered.len) return PANCAKE_ERR_BUFFER_TOO_SMALL;
     @memcpy(dest[0..rendered.len], rendered);
     return PANCAKE_OK;
@@ -691,8 +742,10 @@ pub export fn pancake_uri_format_peer(
 
 /// Format a sturdyref locator (peer + swissnum) as an `ocapn://…/s/<swiss>` URI.
 /// Same hint-array and buffer contract as pancake_uri_format_peer; `swissnum` is
-/// borrowed.
+/// borrowed. `captp_version` selects the profile-specific swissnum spelling;
+/// an unknown value is refused rather than guessed.
 pub export fn pancake_uri_format_sturdyref(
+    captp_version: u32,
     transport: ?[*]const u8,
     transport_len: usize,
     designator: ?[*]const u8,
@@ -708,6 +761,10 @@ pub export fn pancake_uri_format_sturdyref(
     cap: usize,
     out_len: ?*usize,
 ) i32 {
+    const profile = shared.captpVersionFromC(captp_version) orelse {
+        shared.setLastError("uri: captp_version must be a PANCAKE_CAPTP_* value", .{});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
     const t = transport orelse return PANCAKE_ERR_NULL_POINTER;
     const d = designator orelse return PANCAKE_ERR_NULL_POINTER;
     const sw = swissnum orelse return PANCAKE_ERR_NULL_POINTER;
@@ -724,7 +781,7 @@ pub export fn pancake_uri_format_sturdyref(
         },
         .swissnum = sw[0..swissnum_len],
     };
-    const rendered = model.uri.writeSturdyref(alloc, sturdyref) catch |err| return writeErrToCode(err);
+    const rendered = model.uri.writeSturdyrefForProfile(alloc, profile, sturdyref) catch |err| return writeErrToCode(err);
     defer alloc.free(rendered);
     return copyOut(rendered, out, cap, out_len);
 }
@@ -742,13 +799,16 @@ pub export fn pancake_locator_record_encode(
     const view = locator orelse return PANCAKE_ERR_NULL_POINTER;
     var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = shared.locator_adapter.BorrowedLocator.init(ctx.library_allocator, view, &hint_stack) catch |err| {
-        return if (err == error.OutOfMemory) PANCAKE_ERR_INTERNAL else PANCAKE_ERR_INVALID_ARGUMENT;
+        return locatorErrToCode(err);
     };
     defer borrowed.deinit(ctx.library_allocator);
 
     const bytes = engine.encodePeerLocatorRecord(ctx.library_allocator, borrowed.value) catch |err| switch (err) {
-        error.OutOfMemory => return PANCAKE_ERR_INTERNAL,
-        else => return c.PANCAKE_ERR_CODEC,
+        error.OutOfMemory => return locatorErrToCode(err),
+        else => {
+            setLastError("locator record encode: {s}", .{@errorName(err)});
+            return c.PANCAKE_ERR_CODEC;
+        },
     };
     out_slot.* = bytes.ptr;
     out_len_slot.* = bytes.len;

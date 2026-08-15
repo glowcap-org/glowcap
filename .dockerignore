@@ -1,18 +1,11 @@
-.git
-.zig-cache
-zig-cache
-zig-out
-.serena/cache
-.serena/logs
-.serena/memories
-rust-dogfood/target
-rust-dogfood/Cargo.lock
-node_modules
-.venv
-venv
-__pycache__
-.env
-.env.*
-test/**/zig-cache
-test/**/.zig-cache
-**/.DS_Store
+# Build context for .devcontainer/Dockerfile, the one build whose context is
+# the repository root (docker-compose.yml, context '..'). The image consumes
+# only .devcontainer/, so the context is allowlisted to exactly that: the
+# upload stays small no matter what generated state (zig-out, Rust targets,
+# node_modules) accumulates in the tree, and a new cache directory never needs
+# a row here.
+*
+!.devcontainer/
+!.devcontainer/**
+# The per-host env file is compose input on the host, never image input.
+.devcontainer/.env

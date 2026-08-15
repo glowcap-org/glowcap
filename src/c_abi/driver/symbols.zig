@@ -23,6 +23,10 @@ pub const symbols = [_]Symbol{
         .pointer_params = &.{1},
         .section = "Lifecycle.",
     },
+    .{ .name = "pancake_driver_close" },
+    .{ .name = "pancake_driver_retire" },
+    .{ .name = "pancake_driver_lifecycle_state", .out_params = &.{1} },
+    .{ .name = "pancake_driver_step_wait_ms", .out_params = &.{1} },
     // Not `blocking`, like `pancake_host_release`: trace callbacks fire for
     // every session the teardown closes, and a deactivated-thread mark would
     // make each a non-async re-entry.
@@ -35,7 +39,7 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_driver_has_transport", .out_params = &.{3} },
     .{
         .name = "pancake_driver_dial",
-        .out_params = &.{2},
+        .out_params = &.{3},
         .pointer_params = &.{1},
         .section = "Dial, listen, readiness.",
     },
@@ -44,8 +48,9 @@ pub const symbols = [_]Symbol{
         .out_params = &.{5},
         .section = "Dial, listen, readiness.",
     },
-    .{ .name = "pancake_driver_listen", .out_params = &.{5}, .blocking = true },
+    .{ .name = "pancake_driver_listen", .out_params = &.{6}, .blocking = true },
     .{ .name = "pancake_driver_listener_locator", .out_params = &.{2} },
+    .{ .name = "pancake_driver_listener_restoration_state", .out_params = &.{ 2, 4 } },
     .{ .name = "pancake_driver_listener_advertise", .pointer_params = &.{2} },
     .{ .name = "pancake_driver_listener_select" },
     .{ .name = "pancake_driver_listener_close" },
@@ -62,8 +67,12 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_driver_detach_thread" },
     .{ .name = "pancake_driver_wake", .nonblocking = true },
     .{ .name = "pancake_driver_next_event", .out_params = &.{1} },
+    .{ .name = "pancake_driver_claim_reference_exporter", .out_params = &.{2} },
     // Not `blocking`, like `pancake_host_session_release`: the close emits
     // trace callbacks on the calling thread.
+    .{ .name = "pancake_driver_session_close" },
+    .{ .name = "pancake_driver_session_lifecycle_state", .out_params = &.{2} },
+    .{ .name = "pancake_driver_session_serve" },
     .{ .name = "pancake_driver_session_release" },
     .{
         .name = "pancake_driver_last_error",

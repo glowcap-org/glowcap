@@ -1,20 +1,7 @@
 import { useEffect, useRef } from "react";
-import {
-  Container,
-  Culler,
-  type FederatedPointerEvent,
-  Graphics,
-  Point,
-  Rectangle,
-} from "pixi.js";
+import { Container, Culler, type FederatedPointerEvent, Graphics, Point, Rectangle } from "pixi.js";
 import { Viewport } from "pixi-viewport";
-import {
-  cursorFor,
-  type ToolWillPick,
-  verbArmsForTool,
-  verbIsPan,
-  verbSelectsEntity,
-} from "../interactions/cursor.ts";
+import { cursorFor, type ToolWillPick, verbArmsForTool, verbIsPan, verbSelectsEntity } from "../interactions/cursor.ts";
 import { nodeKindOf } from "../schema/topology.ts";
 import { resolveGesture } from "../interactions/gesture-resolver.ts";
 import { layerInteractivity } from "../interactions/layer-interactivity.ts";
@@ -32,20 +19,11 @@ import {
   type SurfaceGestureCtx,
 } from "../interactions/types.ts";
 import { useSurfacePointer } from "../interactions/use-surface-pointer.ts";
-import {
-  useSurfaceWheel,
-  type WheelEffect,
-} from "../interactions/use-surface-wheel.ts";
+import { useSurfaceWheel, type WheelEffect } from "../interactions/use-surface-wheel.ts";
 import type { Engine } from "../engine/engine.ts";
 import { findNode, type Vec2 } from "../engine/world.ts";
 import { EMPTY_FRAME_GEOMETRY } from "../engine/session-geometry.ts";
-import {
-  drawArmedRing,
-  drawLooseEndBody,
-  drawMarchingLine,
-  LOOSE_END_ALONE,
-  NODE_RADIUS,
-} from "./draw-helpers.ts";
+import { drawArmedRing, drawLooseEndBody, drawMarchingLine, LOOSE_END_ALONE, NODE_RADIUS } from "./draw-helpers.ts";
 import { PROFILE_FALLBACK_COLOR, themedColors } from "./palette.ts";
 import { twoClickAccepts } from "../builder/helpers.ts";
 import { type Theme } from "../ui/tokens.ts";
@@ -374,8 +352,7 @@ export function Stage(
   // render gate asks affordances of the SAME resolver the click pipeline asks.
   // The mapping itself is `stageHitFor`, next to the `hitEntityRef` that reads
   // it back the other way; all this adds is that no hover is no hit.
-  const stageHoverToHit = (h: StageHover): Hit | null =>
-    h === null ? null : stageHitFor(h);
+  const stageHoverToHit = (h: StageHover): Hit | null => h === null ? null : stageHitFor(h);
 
   // The PixiJS canvas (shared with Timeline / Overview / Scrubber via
   // the unified-canvas architecture) is the real event target — the
@@ -739,11 +716,7 @@ export function Stage(
   const commitRubberBand = () => {
     const out = entitiesInBand();
     const m = rubberBandModRef.current;
-    const mode: "replace" | "add" | "remove" = m.shift && m.alt
-      ? "remove"
-      : m.shift
-      ? "add"
-      : "replace";
+    const mode: "replace" | "add" | "remove" = m.shift && m.alt ? "remove" : m.shift ? "add" : "replace";
     onRubberBandCommitRef.current?.(out, mode);
   };
 
@@ -760,8 +733,7 @@ export function Stage(
   // mid-rubber-band (Figma-style). All three paths converge on the
   // same `viewport.position.x/y -=` mutation.
   const lastDragPosRef = useRef<{ x: number; y: number } | null>(null);
-  const isPanVerb = (verb: ResolvedGesture): boolean =>
-    verb.tier === "space-pan" || verb.tier === "hand-tool";
+  const isPanVerb = (verb: ResolvedGesture): boolean => verb.tier === "space-pan" || verb.tier === "hand-tool";
 
   const handlePointerEffect = (effect: Effect) => {
     // Dev introspection — last few FSM effects for `__ocv.lastEffects`.
@@ -771,13 +743,9 @@ export function Stage(
     if (!g.__ocv) g.__ocv = {};
     const log = g.__ocv.lastEffects ?? [];
     const verbStr = "verb" in effect
-      ? effect.verb.tier === "tool-refuses"
-        ? effect.verb.tier
-        : `${effect.verb.tier}/${effect.verb.verb.kind}`
+      ? effect.verb.tier === "tool-refuses" ? effect.verb.tier : `${effect.verb.tier}/${effect.verb.verb.kind}`
       : "";
-    const mods = "at" in effect
-      ? ` shift=${effect.at.modifiers.shift ? "1" : "0"}`
-      : "";
+    const mods = "at" in effect ? ` shift=${effect.at.modifiers.shift ? "1" : "0"}` : "";
     log.push(`${effect.kind} ${verbStr}${mods}`.trim());
     while (log.length > 40) log.shift();
     g.__ocv.lastEffects = log;
@@ -1171,8 +1139,7 @@ export function Stage(
       // Test introspection: exposes the live viewport so probes
       // can convert peer world coords to screen coords without
       // re-implementing pixi-viewport's transform math.
-      (globalThis as unknown as { __ocvViewport?: Viewport }).__ocvViewport =
-        viewport;
+      (globalThis as unknown as { __ocvViewport?: Viewport }).__ocvViewport = viewport;
       cleanups.push(() => {
         if (viewportRef.current === viewport) viewportRef.current = null;
       });
@@ -1342,8 +1309,7 @@ export function Stage(
           // Both node kinds ride along, because both hold a position the
           // group translate can write. A selection mixing peers and ends
           // moves as one thing, which is what the user picked.
-          const led: { kind: "peer" | "endpoint"; id: string; pos: Vec2 }[] =
-            [];
+          const led: { kind: "peer" | "endpoint"; id: string; pos: Vec2 }[] = [];
           for (const e of engine.queries.peers) {
             led.push({ kind: "peer", id: e.peer.id, pos: e.position });
           }
@@ -1570,10 +1536,9 @@ export function Stage(
         //    the threshold-cross arm above asks: a missing translate
         //    handler used to stand in for this, and it is also
         //    missing in Play and Live.
-        const upPeerId =
-          isTwoClickTool(resolvedGestureCtxRef.current.activeTool)
-            ? peerIdAtLocal(upLocalX, upLocalY)
-            : null;
+        const upPeerId = isTwoClickTool(resolvedGestureCtxRef.current.activeTool)
+          ? peerIdAtLocal(upLocalX, upLocalY)
+          : null;
         // A tap selects; a drag does not. `wasDrag` rather than
         // `!armedDuringDrag`, which agreed with it in every case
         // that could reach here and stopped agreeing once a drag in
@@ -1598,13 +1563,11 @@ export function Stage(
       };
       viewport.on(
         "pointerup",
-        (ev: FederatedPointerEvent) =>
-          finishDrag(ev.pointerId, true, ev.global.x, ev.global.y),
+        (ev: FederatedPointerEvent) => finishDrag(ev.pointerId, true, ev.global.x, ev.global.y),
       );
       viewport.on(
         "pointerupoutside",
-        (ev: FederatedPointerEvent) =>
-          finishDrag(ev.pointerId, false, ev.global.x, ev.global.y),
+        (ev: FederatedPointerEvent) => finishDrag(ev.pointerId, false, ev.global.x, ev.global.y),
       );
       // Window fallback for off-canvas / off-document releases —
       // without this, `activeDrag` leaks and corrupts the next
@@ -2123,9 +2086,7 @@ export function Stage(
         const armedEntity = armed ? findNode(engine.world, armed.nodeId) : null;
         if (armed && armedEntity?.position) {
           const themed = themedColors(themeRef.current);
-          const color = armed.tool === "send-message"
-            ? themed.messageInFlight
-            : themed.accent;
+          const color = armed.tool === "send-message" ? themed.messageInFlight : themed.accent;
           // Armed ring is tool STATE ("I picked Alice; waiting for
           // the second pick"). Persists across temporary
           // overrides — the user may be panning briefly to see
@@ -2137,9 +2098,7 @@ export function Stage(
             armedRingGfx,
             armedEntity.position.x,
             armedEntity.position.y,
-            "endpoint" in armedEntity
-              ? endpointBodyRadius(armedEntity.endpoint.id, claimsToward)
-              : NODE_RADIUS,
+            "endpoint" in armedEntity ? endpointBodyRadius(armedEntity.endpoint.id, claimsToward) : NODE_RADIUS,
             marchOffsetPx,
             color,
             viewport.scale.x,

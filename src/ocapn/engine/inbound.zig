@@ -50,19 +50,22 @@ pub fn dispatchOwnedFrame(self: *Peer, frame_in: foundation.Frame) !void {
     };
 }
 
-/// Best-effort emit of the outbound `op:abort` an inbound failure projects to
+/// Emit the outbound `op:abort` an inbound failure projects to
 /// (`abort_projection.abortForError`). Shares `Peer.commitAbortOutbound` with
 /// app-queued aborts so a successful queue push closes CapTP. Bypasses
 /// `recordSend`, which would reject against post-failure
-/// session state. Swallows encode/push failures so the original dispatch
-/// error is never masked, but still closes if the abort frame cannot be queued.
+/// session state. An encode/push failure is recorded beside the originating
+/// failure, which remains the returned authority, and closes the session.
 pub fn emitAbortForError(self: *Peer, err: anyerror) void {
     self.recordFailure(err);
     const projected = abort_projection.abortForError(err) orelse return;
     self.commitAbortOutbound(.{
         .kind = projected.kind,
         .message = projected.message,
-    }) catch self.closeSession();
+    }) catch |delivery_err| {
+        self.recordAbortDeliveryFailure(delivery_err);
+        self.closeSession();
+    };
 }
 
 pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
@@ -351,6 +354,16 @@ pub fn applyDecodedOwnedFrame(
         return;
     }
 
+    // Acquire the event's GC annotation before authority applies. The event can
+    // fall back to walking its frame, but allocator refusal is still a real
+    // admission failure: accepting the frame while quietly dropping derived
+    // state makes memory pressure alter the observable bookkeeping path.
+    var prepared_far_imports: ?[]model.ImportPosition = if (introduced.mentions.items.len == 0)
+        null
+    else
+        try self.allocator.dupe(model.ImportPosition, introduced.mentions.items);
+    defer if (prepared_far_imports) |positions| self.allocator.free(positions);
+
     try self.events.push(self.allocator, .{
         .frame = frame,
         .tag = tag,
@@ -395,18 +408,12 @@ pub fn applyDecodedOwnedFrame(
         settling_rearm = null;
     }
 
-    // Patch the far mentions onto the just-pushed event when the deliver
-    // introduced at least one (the common case introduces none, so no
-    // allocation then). Apply has already committed by this point, so a
-    // copy failure is swallowed rather than propagated — failing loud here
-    // would misreport a successful receive as a failed one. The event is
-    // still correct either way; `gc` just falls back to its own walk for
-    // this one deliver when the field stays null. Nothing between the push
-    // above and here can grow `self.events`, so the back pointer is stable.
-    if (introduced.mentions.items.len != 0) {
-        if (self.allocator.dupe(model.ImportPosition, introduced.mentions.items)) |dup| {
-            self.events.backPtr().?.introduced_far_imports = dup;
-        } else |_| {}
+    // Publish the pre-commit GC annotation onto the just-pushed event. Nothing
+    // between the push and here can grow `self.events`, so the back pointer is
+    // stable and this transfer is infallible.
+    if (prepared_far_imports) |positions| {
+        self.events.backPtr().?.introduced_far_imports = positions;
+        prepared_far_imports = null;
     }
 
     // op:get / op:index / op:untag responder (ADR-0050): apply above
@@ -429,14 +436,14 @@ pub fn applyDecodedOwnedFrame(
         switch (action) {
             .fetch => |req| {
                 const scope = if (self.node_services) |services| services.peer_id else null;
-                try self.sendCopying(try bootstrap.resolveForSwissnum(&self.session_state, self.localObjectProjection(), scope, req));
+                try self.send(try bootstrap.resolveForSwissnum(&self.session_state, self.localObjectProjection(), scope, req));
             },
             .deposit_gift => |req| {
                 const scope = if (self.node_services) |services| services.peer_id else null;
                 const response = try bootstrap.resolveForDeposit(&self.session_state, self.giftRegistry(), self.localObjectProjection(), scope, req);
                 if (self.node_services) |services| services.giftDeposited(req.gift_id);
                 if (response) |msg| {
-                    try self.sendCopying(msg);
+                    try self.send(msg);
                 }
             },
             .withdraw_gift => |req| {

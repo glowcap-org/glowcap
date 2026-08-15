@@ -14,12 +14,7 @@
  */
 
 import type { TimelineDocument } from "../../engine/timeline.ts";
-import {
-  type LaneKind,
-  plotStartXOf,
-  plotWidthOf,
-  type TimelineView,
-} from "./state.ts";
+import { type LaneKind, plotStartXOf, plotWidthOf, type TimelineView } from "./state.ts";
 
 /** Per-row paint height. Compact rows on a single vertical grid;
  *  the panel grows to fit via intrinsic-height callback. */

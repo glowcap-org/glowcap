@@ -70,6 +70,73 @@ test "connection release waits for admitted foreign operations" {
     try std.testing.expect(deinitialized.load(.acquire));
 }
 
+test "connection shutdown propagates its exact cause once" {
+    const FakeStream = struct {
+        io: std.Io,
+        shutdown_calls: *usize,
+
+        pub fn shutdown(self: *@This()) error{InterruptRefused}!void {
+            self.shutdown_calls.* += 1;
+            return error.InterruptRefused;
+        }
+
+        pub fn deinit(_: *@This()) void {}
+    };
+    const Payload = struct {
+        stream: FakeStream,
+        operations: c.ForeignCallBarrier,
+        directions: c.ConnDirectionGates,
+        read_buf: []u8,
+        write_buf: []u8,
+        allocator: std.mem.Allocator,
+    };
+    const lifecycle = c.ConnLifecycle(Payload);
+
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var shutdown_calls: usize = 0;
+    const payload = lifecycle.begin(std.testing.allocator, 1).?;
+    payload.stream = .{ .io = threaded.io(), .shutdown_calls = &shutdown_calls };
+
+    try std.testing.expectError(error.InterruptRefused, lifecycle.shutdown(payload));
+    try lifecycle.shutdown(payload);
+    try std.testing.expectEqual(@as(usize, 1), shutdown_calls);
+    try lifecycle.destroy(payload);
+}
+
+test "connection release returns its shutdown cause after cleanup" {
+    const FakeStream = struct {
+        io: std.Io,
+        deinitialized: *bool,
+
+        pub fn shutdown(_: *@This()) error{InterruptRefused}!void {
+            return error.InterruptRefused;
+        }
+
+        pub fn deinit(self: *@This()) void {
+            self.deinitialized.* = true;
+        }
+    };
+    const Payload = struct {
+        stream: FakeStream,
+        operations: c.ForeignCallBarrier,
+        directions: c.ConnDirectionGates,
+        read_buf: []u8,
+        write_buf: []u8,
+        allocator: std.mem.Allocator,
+    };
+    const lifecycle = c.ConnLifecycle(Payload);
+
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var deinitialized = false;
+    const payload = lifecycle.begin(std.testing.allocator, 1).?;
+    payload.stream = .{ .io = threaded.io(), .deinitialized = &deinitialized };
+
+    try std.testing.expectError(error.InterruptRefused, lifecycle.destroy(payload));
+    try std.testing.expect(deinitialized);
+}
+
 test "connection direction gates serialize peers and preserve full duplex" {
     const GateTask = struct {
         io: std.Io,

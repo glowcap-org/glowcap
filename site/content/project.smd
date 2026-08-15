@@ -1,43 +1,36 @@
 ---
 .title = "Project & status",
-.description = "Where pancake stands: what runs today, where the edges are, and where it is going. Nothing is frozen, and nothing has been reviewed for security.",
+.description = "Current support, known limitations, verification, and the route to pancake 1.0.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-The code is the truth about the present; the documents linked below argue the
-direction without pretending unfinished work is done. pancake is not audited,
-not hardened, and not ready to carry anything you would mind losing.
+pancake is unreleased. Its public APIs can change, it has not received a
+security audit, and it should not carry data you cannot afford to lose.
 [SECURITY.md](https://github.com/jimisaacs/pancake/blob/main/SECURITY.md)
-says that in full, and says how to report a vulnerability privately.
-[What you can depend on]($link.page('stability')) says what evidence runs for
-each surface and what it leaves open.
+defines the current security posture and the private reporting process.
 
-```=html
-<nav class="cards" aria-label="Project status">
-	<a class="card" href="https://github.com/jimisaacs/pancake/blob/main/docs/shipped.md">
-		<h2>What ships today</h2>
-		<p>The short inventory of application APIs, protocol features, codecs, transports, bindings, tools, and examples that exist now.</p>
-	</a>
-	<a class="card" href="https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md">
-		<h2>Known limitations</h2>
-		<p>The security, reachability, scale, platform, API, and protocol limits that can change a deployment choice.</p>
-	</a>
-	<a class="card" href="https://github.com/jimisaacs/pancake/blob/main/docs/vision.md">
-		<h2>Where it is going</h2>
-		<p>The goal is a fully canonical OCapN implementation, proven by interop, with performance held to a measured contract rather than asserted.</p>
-	</a>
-	<a class="card" href="https://github.com/jimisaacs/pancake/blob/main/docs/decisions/README.md">
-		<h2>Why the boundaries sit here</h2>
-		<p>The accepted decision records: the netlayer contract, the one-parser framing, the C ABI allocation context, the iroh sidecar, and the rest. When a boundary moves, a superseding record explains the move.</p>
-	</a>
-</nav>
-```
+## Explore the current build
 
-The [1.0 ladder](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md)
-orders the steps toward release; the
-[roadmap](https://github.com/jimisaacs/pancake/blob/main/docs/roadmap.md) lists
-the remaining work. Status claims live in those linked pages rather than here.
-To try the current surface, [start building]($link.page('start')).
+- **[Start building]($link.page('start'))** installs the Zig package and makes
+  a complete call, with routes to the C ABI and every binding.
+- **[Choose a transport]($link.page('transports/choosing'))** compares
+  identity, encryption, reachability, browser support, and interoperability.
+- **[What you can depend on]($link.page('stability'))** separates recurring
+  checks, on-demand evidence, and behavior that remains unverified.
+- **[Performance]($link.page('performance'))** publishes throughput,
+  allocation, footprint, transport, and binding measurements with their
+  methods.
+
+## Project records
+
+The repository keeps the detailed project record: [what ships
+today](https://github.com/jimisaacs/pancake/blob/main/docs/shipped.md), [known
+limitations](https://github.com/jimisaacs/pancake/blob/main/docs/boundaries.md),
+the [1.0 ladder](https://github.com/jimisaacs/pancake/blob/main/docs/ladder.md),
+and the [remaining work](https://github.com/jimisaacs/pancake/blob/main/docs/roadmap.md).
+The [vision](https://github.com/jimisaacs/pancake/blob/main/docs/vision.md)
+defines the destination; accepted and superseded choices are recorded in the
+[decision index](https://github.com/jimisaacs/pancake/blob/main/docs/decisions/README.md).

@@ -121,7 +121,7 @@ int32_t pancake_webrtc_netlayer_readiness_fd(PancakeWebrtcNetlayer *netlayer);
    wakes, then drive CANDIDATE/OPEN/READABLE/WRITABLE/CLOSED for each subject. */
 int32_t pancake_webrtc_netlayer_drain_ready(PancakeWebrtcNetlayer *netlayer, PancakeWebrtcReadyEvent *out_events, size_t out_cap, size_t *out_count);
 /* Release the endpoint after every peer created from it is released. NULL is a no-op. */
-void pancake_webrtc_netlayer_release(PancakeWebrtcNetlayer *netlayer);
+int32_t pancake_webrtc_netlayer_release(PancakeWebrtcNetlayer *netlayer);
 /* Create a peer from netlayer in one of the two signaling roles into out_peer.
    is_offerer nonzero creates the offerer; zero creates the answerer. Release with
    pancake_webrtc_peer_release before releasing netlayer. */
@@ -170,9 +170,9 @@ int32_t pancake_webrtc_peer_try_write(PancakeWebrtcPeer *peer, const uint8_t *bu
 /* Close the channel without releasing the handle and report CLOSED readiness.
    Idempotent; pancake_webrtc_peer_release is still required afterward. */
 void pancake_webrtc_peer_close(PancakeWebrtcPeer *peer);
-/* Release the peer and close its channel. Release before its netlayer. NULL is a
-   no-op. */
-void pancake_webrtc_peer_release(PancakeWebrtcPeer *peer);
+/* Release the peer and close its channel. If this consumes the endpoint's final
+   lease, its teardown outcome is returned here. NULL is a no-op. */
+int32_t pancake_webrtc_peer_release(PancakeWebrtcPeer *peer);
 /* Fill the generic multiplexed provider package. Signaling establishes peers; the driver claims authorized open peers by stable subject. */
 int32_t pancake_webrtc_transport_provider(PancakeWebrtcNetlayer *netlayer, PancakeTransportProvider *out_provider);
 /* Copy the calling thread's last webrtc-transport error into out_buf, the webrtc

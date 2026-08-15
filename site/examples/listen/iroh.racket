@@ -3,9 +3,14 @@
 
 ;; Bind a key, not a place. Partners can dial this node id from anywhere.
 (define server (listen-iroh (make-iroh-config IROH-REACH-DISCOVERY)))
-(printf "ocapn://~a.iroh\n" (iroh-server-node-id server)) ; hand this locator to partners
-(define session (iroh-server-accept server))
-(session-publish session "greeter"
-                 (lambda (verb args)
-                   (format "hello, ~a" (car args))))
-(session-serve session)
+(printf "~a\n" (iroh-server-uri server)) ; hand this locator to partners
+(define host (iroh-server-host server))
+(define (accept-session) (iroh-server-accept server))
+;; From here, the CapTP workflow is transport-independent.
+(host-publish-giftable host "greeter"
+  (methods [(greet who)
+            (format "Hello, ~a" who)]))
+(let loop ()
+  (define session (accept-session))
+  (thread (lambda () (session-serve session)))
+  (loop))

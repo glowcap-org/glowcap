@@ -158,7 +158,7 @@ Synthesize into remediations tagged `invite-blocking` | `packet-honesty` |
 
 ## On this codebase
 
-- **Gate:** `zig build check`. Focused: `zig build test`, `arch-check`, `meta-check`,
+- **Gate:** `zig build check`. Focused: `zig build test`, `arch-check`, `source-check`,
   `oracle-check`; live `ocapn-conformance`, `goblins-interop`, `goblins-handoff`.
 - **Layer bans:** `build.zig` `layer_table` + `arch-check` (`core = true` bans `std.Io`).
 - **Prerelease posture:** [`.agents/rules/prerelease.md`](../../rules/prerelease.md).

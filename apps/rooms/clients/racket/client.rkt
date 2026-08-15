@@ -45,26 +45,11 @@
   (dir-watch d (lambda (kind name count)
                  (printf "[~a] directory: ~a ~a (~a)\n" nick kind name count)
                  (flush-output)))
-  (room-subscribe (directory-session d)
+  (room-subscribe d
                   (enter-or-open (lambda (n) (dir-enter d n))
                                  (lambda (n) (dir-open d n))
                                  room-name)
                   nick))
-
-(define (room-next/timeout room timeout-seconds)
-  (define ch (make-channel))
-  (define worker
-    (thread
-     (lambda ()
-       (with-handlers ([exn? (lambda (e) (channel-put ch e))])
-         (channel-put ch (room-next room))))))
-  (define result (sync/timeout timeout-seconds ch))
-  (cond
-    [(not result)
-     (kill-thread worker)
-     #f]
-    [(exn? result) (raise result)]
-    [else result]))
 
 (define (run-client locator room-name nick line roster [timeout-seconds 15])
   (define room (join-room locator room-name nick))

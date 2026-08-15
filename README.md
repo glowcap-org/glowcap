@@ -1,6 +1,6 @@
 # pancake
 
-<img src="assets/pancake-icon-256.png" alt="" align="left" width="140" />
+<img src="site/assets/pancake-icon-256.png" alt="" align="left" width="140" />
 
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
@@ -63,11 +63,12 @@ const pancake = @import("pancake");
 
 // Plain TCP uses a cleartext `host:port` locator.
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-const partner = pancake.net.tcp.at(designator);
+const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
+const partner = pancake.net.tcp.locator(designator);
 
 const session = try pancake.driver.connect(
     allocator,
-    &.{tcp_resident.netlayer()},
+    &netlayers,
     partner,
     .ephemeral,
     // Never leave a network wait unbounded.
@@ -75,7 +76,7 @@ const session = try pancake.driver.connect(
 );
 defer session.deinit();
 
-const greeter = try session.fetch("greeter"); // an opaque capability, by name
+const greeter = try session.fetch("greeter"); // a capability this peer published
 var arena = std.heap.ArenaAllocator.init(allocator);
 defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
@@ -85,6 +86,9 @@ switch (settled) {
 }
 ```
 
+`fetch` asks the peer's bootstrap object for a name that side published. A peer
+that never published `"greeter"` cannot be fetched that way.
+
 For a live peer to dial, `zig build` puts the `pancake` CLI in `zig-out/bin`,
 and `pancake ocapn listen --publish greeter` serves the same greeter this
 client fetches and prints its locator. [`docs/cli.md`](docs/cli.md) covers the
@@ -93,9 +97,9 @@ CLI, including the REPL, `--json` scripting, and MCP.
 Both halves of the conversation are in
 [`examples/zig/01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig),
 and [`examples/README.md`](examples/README.md) lists the rest of the chapters
-and demos. The longer walkthrough, covering iroh, C, and the language
-bindings, is [`site/content/start.smd`](site/content/start.smd); read it
-rendered with `zig build docs-serve`. C consumers start at
+and demos. [Start building](https://jimisaacs.github.io/pancake/start/) is the
+longer walkthrough, covering iroh, C, and the language bindings. C consumers
+start at
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md), and the Rust,
 TypeScript, Python, and Racket bindings live in
 [`bindings/`](bindings/README.md).
@@ -122,7 +126,7 @@ check and what each one does and does not prove.
 including its use of generative-AI tools.
 
 <p align="center">
-  <img src="assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
+  <img src="site/assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
 </p>
 
 ## Build
@@ -143,13 +147,13 @@ workflow.
 
 ## Documentation
 
-The website is the front door. Run `zig build docs-serve` and open
-`http://127.0.0.1:1990/pancake/` for Why OCapN, Start building, transports,
-bindings, and the rest of the guided path.
+The [website](https://jimisaacs.github.io/pancake/) is the primary guide. For
+a local preview, run `zig build docs-serve` and open
+`http://127.0.0.1:1990/pancake/`.
 
 Docs kept in step with today's code own the inventory:
 
-- [What ships](docs/shipped.md) lists the usable surfaces.
+- [What ships](docs/shipped.md) lists the usable APIs and transports.
 - [Known limitations](docs/boundaries.md) lists deployment and API constraints.
 - [Stability](docs/stability.md) says what recurring evidence supports them.
 - [Architecture](docs/architecture.md) explains the layers.

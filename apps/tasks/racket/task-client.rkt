@@ -12,20 +12,22 @@
 ;;   (for ([t (board-list b)]) (printf "~a\n" (task-text t)))
 ;;   (board-leave b)
 
-(require "../../_demo/bindings.rkt")
+(require "../../_demo/bindings.rkt"
+         "../../../bindings/racket/pancake-tcp.rkt")
 (provide board-join board-add board-done board-list board-leave (struct-out task))
 
 ;; One task on the board.
 (struct task (id text completed?) #:transparent)
 
-(struct board (session far) #:mutable)
+(struct board (runtime session far) #:mutable)
 
 ;; Join the board: connect, fetch the board by name, publish a watcher the board
 ;; can call back (we ignore its updates in this one-shot client).
 (define (board-join host port)
-  (define c (connect (tcp-locator host port)))
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define c (runtime-connect runtime (tcp-locator host port)))
   (define the-board (session-fetch c "board"))
-  (define a-board (board c the-board))
+  (define a-board (board runtime c the-board))
   (define watcher (session-spawn c (lambda (bcom) (methods [(update tasks) (void)]))))
   (board-call a-board 'watch watcher)
   a-board)
@@ -51,4 +53,5 @@
 
 ;; Leave the board and close the connection.
 (define (board-leave a-board)
-  (session-close! (board-session a-board)))
+  (session-close! (board-session a-board))
+  (runtime-close! (board-runtime a-board)))

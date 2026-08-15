@@ -51,6 +51,15 @@ ROOMS_VIZ_PORT=9300 zig build rooms-web-iroh
 ROOMS_VIZ_PORT=9300 zig build rooms-web-tcp
 ```
 
+The supervisor keeps one room identity across child crashes. A child that had been serving and
+then died comes straight back; one that exits the moment it starts, which is what a taken port or
+an unreachable state directory looks like, is restarted more slowly each time up to half a minute,
+so the line it printed about why stays readable instead of scrolling past under copies of itself.
+
+Its development default is a private temporary `ROOMS_STATE` directory that lives as long as
+`serve.ts`; set `ROOMS_STATE` yourself when the identity and issued room links must also survive
+restarting the web supervisor. The container deployment does this with its `rooms-state` volume.
+
 Cargo must be on `PATH` for the iroh transport sidecar; Deno is required for the UI either way. The
 TCP form drops the Cargo requirement and the encryption with it. Either command prints a
 `ROOMS-VIZ-LISTENING` line once the room server is up. Open [ocapnviz](../ocapnviz/)
@@ -64,7 +73,8 @@ started. Kill stray servers first when the `ROOMS-VIZ-LISTENING` line doesn't ap
 `ROOMS_VIZ_PORT=0` takes whatever port is free, and the announce line names the one it bound. A
 browser tab cannot find an endpoint chosen that way, because the port is picked inside the room
 server and the page is served by another process. Pick a fixed port when you want members' direct
-messages on the timeline, or open the page with `?viz=ws://127.0.0.1:<port>/`.
+messages on the timeline, or open the page with `?viz=ws://127.0.0.1:<port>/`
+(or set that URL in Settings).
 
 ## Bringing a Spritely Goblins vat into the room
 
@@ -248,7 +258,8 @@ relays.
 A page opened with `?dm=webrtc` advertises a `webrtc` identity instead: direct messages then cross a
 WebRTC DataChannel between the two tabs, and the room directory carries only the offer, answer, and
 candidate exchange as ordinary capability messages (`offerSignaling` and the `signal*` verbs in
-`lib/protocol.ts`).
+`lib/protocol.ts`). The same choice is in Settings; a URL that names `dm` or `viz` still wins over
+whatever this browser last saved.
 
 ## Application contract
 
@@ -262,6 +273,24 @@ The directory owns room discovery and introductions:
 A room grants a nickname when `subscribe(nick, inbox)` succeeds. Later `post(text)` calls need no
 sender field: the room already knows which membership capability received the call. Leaving or
 disconnecting releases the nickname.
+
+`subscribe` answers with a reference carrying `setTopic(text)`, and holding it is the authority to say
+what the room is about. Every member is answered with one, because the room has no ranks to hand
+out, and because it is a reference rather than a rank a member can pass it to somebody who is not
+even here. The room states its topic to each arrival and broadcasts every change with the `topic`
+tag, so a client that has never heard of topics still shows the line saying it moved.
+
+`away(reason)` says this membership has stepped away and `away("")` says it is back. Nothing is
+handed over for it: a member's own standing is theirs to state, and the room writes it against the
+membership that called rather than against a name anybody could type. The room tells each arrival who
+is already away, on the same line every later change arrives on.
+
+`post` answers with a reference to the line it made, and holding that reference is the authority to
+`edit(text)` or `withdraw()` that one line. The room asks nobody whether the line is theirs, because
+a member who does not hold the reference cannot form the request. That also makes the authority
+passable: a member can hand it to somebody else, and a room could keep a copy of its own to give
+whoever it wants moderating, without either side learning what a moderator is. A room that answers a
+post with nothing is an older room, and a client meeting one simply has no line to change.
 
 Direct inboxes follow the same rule. `dm(text)` carries no claimed sender because each inbox was
 minted for one introduced peer. A direct conversation is keyed by that introduction, not by the room
@@ -280,8 +309,104 @@ closing the control or switching conversations, and comes back carrying an earli
 
 `net.ts` owns the CapTP session outside the React tree and reads and writes only the store. The
 opening screen in `page.html` stays until `boot.ts` has the peer's first answer.
-`zig build meta-check` (`tools/check/meta_check/rooms_ui.zig`) holds the ids and classes the browser
+`zig build source-check` (`tools/check/source_check/rooms_ui.zig`) holds the ids and classes the browser
 proofs select on, and keeps `net.ts` and `store.ts` off the document.
+
+## Where the interface is heading
+
+Present boundaries with a decided direction, so a session picking one up
+starts from the decision rather than re-opening it.
+
+- **Media in messages.** Built, and the shape is worth knowing before you
+  change it. The composer holds selected files locally. Send asks the room for
+  one upload capability per file, publishes their records as one message, then
+  fills those capabilities concurrently in bounded chunks. Every member can
+  start reading the room-hosted blob immediately; a read at the moving edge
+  parks on that file and wakes when its next bytes arrive. Holding an upload
+  capability is the whole authority to fill that file, so `write` never names
+  who is uploading.
+
+  The room hosts the bytes rather than relaying a reference to the sender's
+  own blob, and that was the decision. Sender-hosted media reads as the
+  purer capability story until you follow it: the recipient must dial the
+  sender, which a browser tab cannot answer without per-viewer WebRTC
+  signaling, and the picture dies when the tab closes. Room-hosted media
+  works for every client and outlives the poster, which is what a chat
+  application means by posting a picture. The cost is that the server has
+  ceilings to keep, and they are the interesting part of the design.
+
+  `MAX_SERVER_ATTACHMENT_BYTES` bounds held media across every room, evicting
+  the oldest file anywhere; the per-room `MAX_ROOM_ATTACHMENT_BYTES` and
+  `MAX_ROOM_ATTACHMENTS` sit under it so no single room takes the lot. A
+  dropped file's reference stays valid and breaks `blob-expired`, because
+  answering an empty file is indistinguishable from a real one. Bytes still in
+  flight are the opposite case: their message may already be visible and their
+  parked readers must receive an answer, so they are refused rather than
+  evicted, against the size an upload declares at `attach` and under the
+  server-wide `MAX_SERVER_PENDING_BYTES`.
+  That reservation is what `UPLOAD_IDLE_MS` exists for. Without it, declaring
+  the largest file a room takes and then writing nothing would hold a share of
+  the server's budget for as long as the connection lasted.
+
+  How a file is met is decided in one place, `web/ui/media.ts`, and there are
+  four answers. A picture draws in the line and opens full-screen. A video
+  plays where it was posted and opens full-screen too. Sound gets a player and
+  no viewer, because a player is the whole of what a listener wants.
+  Everything else is a row whose one control fetches the bytes and hands them
+  to the browser to save, in a single press: asking twice, once to fetch and
+  once to save, is a seam from the implementation showing through.
+
+  Two things make the log settle rather than jump. A sender measures a
+  picture before posting it and the record carries that shape, so a reader
+  reserves the right box before the bytes arrive. And that box shimmers while
+  they are on the way, so a rectangle about to become a picture says so with
+  the space it is already holding.
+
+  The viewer is an overlay over the whole interface, beside Settings in
+  `App.tsx` rather than inside a message, dismissed by its backdrop and by the
+  one Escape chain that dismisses every overlay. It carries none of Settings'
+  chrome: that is a panel because it is a form with fields and a title, while
+  a picture is the content and a frame around it would only take space from
+  it.
+
+  Relaying a capability the *sender* hosts is still not something pancake can
+  express: the draft says a reference imported from another session rides as a
+  `desc:handoff-give` inline in the argument, and the receiver builds a local
+  promise for it and redeems. pancake refuses such an argument today
+  (`ForeignArgument`), and the reply path's transparent gifter is the only
+  handoff arm it implements. That gap is `docs/boundaries.md`'s to record, not
+  this feature's to work around.
+- **Emoji breadth.** `web/ui/emoji.ts` is a curated table and the one
+  authority the tray, `:code:` substitution, and completion derive from. The
+  widening path is a generator that fills the same entry shape from a pinned
+  CLDR-backed dataset at generation time, keeping the runtime dependency-free.
+- **Filterable lists, and where `cmdk` fits.** The split is who owns focus.
+  Inline completion happens inside the composer's textarea, which keeps focus
+  and the caret while the list shows, and the query is a substring of the
+  draft rather than an input's value. `web/ui/complete.ts` is written for
+  exactly that, and the two parts that make it work — which sigil the caret is
+  in, and how accepting splices back into the draft — are ours whatever draws
+  the list.
+
+  Every other filterable list in this interface would own its own input: a
+  command palette, the sidebar's room and direct-line filter, a searchable
+  emoji picker over the same table the tray reads, settings search. Those are
+  where [`cmdk`](https://github.com/pacocoursey/cmdk) fits, and it is the one
+  pre-approved dependency candidate for them. It is a combobox primitive
+  rather than a palette widget: it renders inline, works without its own
+  input, takes a custom ranking function or none at all, and brings keyboard
+  navigation, groups, and tested ARIA. The price is that it brings four Radix
+  packages with it, one of which is their dialog, into a page whose whole
+  runtime dependency today is React. Worth paying once those surfaces exist
+  together; not worth it for one listbox.
+- **IRC is a front, not a netlayer.** An IRC server endpoint beside the web
+  page — rooms as channels, nick claims as nicks — would let any IRC client
+  join, the way the terminal clients already do. Carrying CapTP itself over
+  IRC is refused: a 512-byte line protocol with a server that may inject
+  cannot keep an OCapN session insertable only by its participants, which is
+  the netlayer contract. The complete design (room links, directory peering,
+  a channel bridge, and this front) is
+  [the room links and IRC plan](../../docs/planning/rooms-locators-and-irc.md).
 
 ## Source map
 

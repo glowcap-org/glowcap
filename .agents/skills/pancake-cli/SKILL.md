@@ -30,6 +30,9 @@ Zig file, binding stub, or throwaway harness first.
 
 ## Install (once per shell)
 
+In the devcontainer `pancake` is already on PATH (the image links the
+repo-root shim, which lazy-builds). Elsewhere:
+
 ```sh
 zig build
 export PATH="$PWD/zig-out/bin:$PATH"

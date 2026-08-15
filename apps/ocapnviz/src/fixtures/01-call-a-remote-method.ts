@@ -59,8 +59,7 @@ export const callARemoteMethod = TimelineDocument.parse({
       id: "session-opens",
       t: 0,
       kind: "session-opened",
-      sessionId:
-        "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
+      sessionId: "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
       a: {
         peer: "127.0.0.1:9101",
         designator: "127.0.0.1:9101",
@@ -81,8 +80,7 @@ export const callARemoteMethod = TimelineDocument.parse({
       t: 200,
       kind: "message-sent",
       messageId: "ss-out",
-      sessionId:
-        "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
+      sessionId: "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
       from: "127.0.0.1:9101",
       to: "127.0.0.1:9102",
       arrivalT: 400,
@@ -100,8 +98,7 @@ export const callARemoteMethod = TimelineDocument.parse({
       t: 500,
       kind: "message-sent",
       messageId: "ss-back",
-      sessionId:
-        "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
+      sessionId: "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
       from: "127.0.0.1:9102",
       to: "127.0.0.1:9101",
       arrivalT: 700,
@@ -118,8 +115,7 @@ export const callARemoteMethod = TimelineDocument.parse({
       id: "session-open",
       t: 700,
       kind: "session-state-changed",
-      sessionId:
-        "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
+      sessionId: "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
       state: "open",
     },
     {
@@ -127,8 +123,7 @@ export const callARemoteMethod = TimelineDocument.parse({
       t: 1100,
       kind: "message-sent",
       messageId: "queue-call",
-      sessionId:
-        "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
+      sessionId: "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
       from: "127.0.0.1:9101",
       to: "127.0.0.1:9102",
       arrivalT: 1500,
@@ -145,8 +140,7 @@ export const callARemoteMethod = TimelineDocument.parse({
       t: 1800,
       kind: "message-sent",
       messageId: "queue-resolve",
-      sessionId:
-        "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
+      sessionId: "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
       from: "127.0.0.1:9102",
       to: "127.0.0.1:9101",
       arrivalT: 2200,
@@ -163,8 +157,7 @@ export const callARemoteMethod = TimelineDocument.parse({
       t: 2600,
       kind: "message-sent",
       messageId: "gc",
-      sessionId:
-        "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
+      sessionId: "29317f81838957330cc843e1d9e4e7aae8052269296cff70b818e95d6ca9ba54",
       from: "127.0.0.1:9101",
       to: "127.0.0.1:9102",
       arrivalT: 2900,

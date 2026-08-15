@@ -5,7 +5,7 @@
 // the one hardened copy of each: the TCP dial bounds its connect and closes
 // every partial resource, and the iroh dial loads @pancake/iroh once and lazily.
 
-import { type RelayChannel } from "./relay.ts";
+import type { RelayChannel } from "./relay.ts";
 
 const defaultTcpDialTimeoutMs = 5_000;
 
@@ -89,8 +89,6 @@ export type IrohReach = "direct" | "discovery";
 export async function denoIrohChannel(locator: string, reach: IrohReach): Promise<RelayChannel> {
 	irohModulePromise ??= import("@pancake/iroh") as Promise<IrohRelayModule>;
 	const iroh = await irohModulePromise;
-	const reachability = reach === "discovery"
-		? iroh.Reachability.Discovery
-		: iroh.Reachability.Direct;
+	const reachability = reach === "discovery" ? iroh.Reachability.Discovery : iroh.Reachability.Direct;
 	return await iroh.dialLocatorForRelay(locator, reachability);
 }

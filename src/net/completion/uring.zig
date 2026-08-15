@@ -28,6 +28,7 @@ const IoUring = linux.IoUring;
 const completion = @import("loop.zig");
 const poll_wait = @import("../poll.zig");
 const socket_tcp = @import("socket_tcp.zig");
+const tcp_keepalive = @import("tcp_keepalive.zig");
 
 comptime {
     if (builtin.os.tag != .linux) @compileError("the io_uring completion backend is Linux-only");
@@ -216,6 +217,10 @@ pub const Backend = struct {
         return null;
     }
 
+    pub fn applyKeepalive(_: *Backend, fd: Fd, keepalive: completion.Keepalive) tcp_keepalive.ApplyError!void {
+        return tcp_keepalive.apply(@intCast(fd), keepalive);
+    }
+
     pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
         const buffer_id: u16 = @intCast(comp.recv_token);
         IoUring.buf_ring_add(
@@ -289,6 +294,10 @@ pub const Backend = struct {
             if (listener_accept)
                 self.listener_accept_ud = null;
             var comp: completion.Completion = .{ .user_data = cqe.user_data, .result = cqe.res };
+            if (cqe.res < 0 and cqe.res != enobufs_res)
+                comp.failure = completion.failureFromErrno(std.posix.errno(
+                    @as(usize, @bitCast(@as(isize, cqe.res))),
+                ));
             if (cqe.flags & linux.IORING_CQE_F_BUFFER != 0) {
                 // A recv that selected a pool buffer (possibly zero bytes on
                 // EOF): borrow it to the loop, which recycles it after

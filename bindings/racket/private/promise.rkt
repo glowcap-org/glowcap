@@ -71,16 +71,6 @@
        (lambda () (l (cdr outcome) (not (eq? (car outcome) 'ok)))))]
     [else '()]))
 
-;; Host release owns the terminal transition for vows that no session teardown
-;; settled first. Return listener thunks so `host-release!` fires application
-;; code only after dropping the host lock.
-(set-box!
- fail-host-vows-hook
- (lambda (m message)
-   (apply append
-          (for/list ([v (in-list (hash-values (host-vows m)))])
-            (settle-vow! m (session-vow-id v) (cons 'closed message))))))
-
 ;; Register `(listener value broken?)` on a far vow: fire now from the recorded
 ;; state when it already settled, else park it for the drain's settle arm. The
 ;; vat's `on` reaches far vows through this (via the installed far half).
@@ -146,6 +136,7 @@
   (define r (session-vow-state v))
   (case (car r)
     [(ok) (cdr r)]
+    [(failed) (raise (cdr r))]
     [(closed) (raise-pancake who ERR-CLOSED "connection closed before ~a settled" label)]
     [else (raise-pancake who ERR-BROKEN "~a broke: ~a" label (cdr r))]))
 
@@ -179,6 +170,7 @@
        (raise-pancake who ERR-UNSUPPORTED-VALUE
                       "~a \"~a\" did not resolve to a capability: ~a" what label val))
      val]
+    [(failed) (raise (cdr r))]
     [(closed)
      (raise-pancake who ERR-CLOSED "connection closed before \"~a\" settled" label)]
     [else

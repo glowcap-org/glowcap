@@ -203,7 +203,7 @@ fn clientOnce(
     server_designator: []const u8,
 ) anyerror!void {
     var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var peer = try resident.newPeer(true);
     defer peer.deinit();
 
@@ -292,11 +292,11 @@ pub fn main(init: std.process.Init) !void {
     const server_designator = server_designator_buf[0..];
 
     var server_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer server_resident.deinit();
+    defer server_resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
 
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = driver.core.Host.init(allocator, server_seed, session_root, .{
+    var host = try driver.core.Host.init(allocator, server_seed, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });

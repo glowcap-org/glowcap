@@ -5,7 +5,7 @@ dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${dir}/lib.sh"
 pancake_devcontainer_init "${dir}" checksums
-require_arch "racket"
+pancake_require_devcontainer "install-racket-goblins"
 
 racket_dir="/opt/racket-${RACKET_VERSION}"
 tmp="$(mktemp -d -t pancake-racket-install-XXXXXX)"
@@ -16,9 +16,7 @@ tarball="${racket_asset[0]}"
 sha256="${racket_asset[1]}"
 url="https://download.racket-lang.org/releases/${RACKET_VERSION}/installers/${tarball}"
 
-echo "downloading ${url}" >&2
-curl --fail --location --silent --show-error --output "${tmp}/${tarball}" "${url}"
-verify_download_sha256 "${tmp}/${tarball}" "${sha256}"
+fetch_verified "${url}" "${tmp}/${tarball}" "${sha256}"
 
 mkdir -p "${racket_dir}"
 tar -xzf "${tmp}/${tarball}" --strip-components=1 -C "${racket_dir}"
@@ -67,10 +65,10 @@ if [[ ! -f "${crypto_ffi}" ]]; then
 fi
 
 echo "patching crypto-lib atomic primitive names" >&2
-verify_download_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_SOURCE_SHA256}"
+verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_SOURCE_SHA256}"
 patch --directory "${user_pkgs_dir}" --strip=1 \
     < "${dir}/patches/crypto-lib-racket-9.2.patch"
-verify_download_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_PATCHED_SHA256}"
+verify_sha256 "${crypto_ffi}" "${CRYPTO_LIB_FFI_PATCHED_SHA256}"
 
 raco setup --no-docs --pkgs unix-socket-lib goblins crypto-lib crypto
 racket --eval '(require racket/unix-socket)'

@@ -21,9 +21,11 @@
 ;; room itself is the capability the directory returns.
 
 (require "../../../_demo/bindings.rkt"
+         "../../../../bindings/racket/pancake-tcp.rkt"
          "../../../../bindings/racket/pancake-iroh.rkt" ; IROH-REACH-* postures
          racket/string)
 (provide room-connect directory-session dir-open dir-enter dir-list dir-watch
+         room-next/timeout
          room-subscribe room-say room-leave in-room room-next
          (struct-out message) (struct-out presence))
 
@@ -49,10 +51,17 @@
                             (locator-transport loc) locator)))
      (define hints (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
      (define reach (if (> (string-length hints) 0) IROH-REACH-DIRECT IROH-REACH-DISCOVERY))
-     (connect locator reach #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION)]
+     (define runtime
+       (open-runtime
+        #:providers (list (iroh-provider (make-iroh-config reach)))
+        #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION))
+     (values runtime (runtime-connect runtime loc))]
     [else
      (define-values (host port) (designator-host-port locator))
-     (connect (tcp-locator host port) #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION)]))
+     (define runtime
+       (open-runtime #:providers (list (tcp-provider))
+                     #:codec ROOMS-CODEC #:captp-version ROOMS-CAPTP-VERSION))
+     (values runtime (runtime-connect runtime (tcp-locator host port)))]))
 
 ;; One line in the room. `system?` is #t for the room's own announcements (a
 ;; member joining, your welcome); otherwise `sender` is who said it. `presence` is
@@ -95,8 +104,13 @@
     (unless (box-cas! cell old (cons v old)) (loop)))
   (semaphore-post (mailbox-sema mb)))
 
-;; Reader-side only: the next value in arrival order, parked until one lands.
-(define (mailbox-get mb)
+;; Reader-side only: the next value in arrival order. `timeout-seconds` of #f
+;; parks until one lands; a number returns #f when none arrives in time. The
+;; timed wait syncs on the mailbox's own semaphore, so a caller with a
+;; deadline never has to park a worker thread and kill it: a thread killed
+;; mid-port-read can leave the port's lock held, and the process then hangs
+;; in exit's own flush of that port.
+(define (mailbox-get/timeout mb timeout-seconds)
   (define pending (mailbox-pending mb))
   (let loop ()
     (cond
@@ -104,8 +118,7 @@
        (define items (unbox pending))
        (set-box! pending (cdr items))
        (car items)]
-      [else
-       (semaphore-wait (mailbox-sema mb))
+      [(sync/timeout timeout-seconds (mailbox-sema mb))
        ;; Take everything pushed so far; a batch taken on one post leaves the
        ;; later posts to land on an already-empty cell, hence the loop.
        (define cell (mailbox-cell mb))
@@ -114,22 +127,25 @@
            (define old (unbox cell))
            (if (box-cas! cell old '()) old (take))))
        (set-box! pending (reverse taken))
-       (loop)])))
+       (loop)]
+      [else #f])))
+
+(define (mailbox-get mb) (mailbox-get/timeout mb #f))
 
 ;; `queue` is the mailbox the inbox actor (run inside the connection's serve
 ;; thread's feed) feeds and `room-next` reads; `serve` is that background
 ;; thread, so `room-leave` can be sure the pump winds down with the connection.
-(struct room (session far queue [serve #:mutable]))
+(struct room (runtime session far queue [serve #:mutable]))
 
 ;; The directory of rooms: the connection plus the directory's far reference.
 ;; `room-connect` dials and fetches it; `dir-open` / `dir-enter` send it the
 ;; strict verbs. `session-send` is synchronous: it returns the room reference or
 ;; raises a broken-vow exception whose message carries the reason.
-(struct directory (session far))
+(struct directory (runtime session far))
 
 (define (room-connect locator)
-  (define c (dial locator))
-  (directory c (session-fetch c "directory")))
+  (define-values (runtime c) (dial locator))
+  (directory runtime c (session-fetch c "directory")))
 
 ;; Create a new room and return its reference. Raises if the name is taken.
 (define (dir-open d name)
@@ -164,9 +180,10 @@
 ;; background `session-serve` thread that keeps the connection pumped — the room's
 ;; notifies run the inbox actor inside that serve, which enqueues each line
 ;; onto the room's channel for `room-next` to read.
-(define (room-subscribe c the-room nick)
+(define (room-subscribe d the-room nick)
+  (define c (directory-session d))
   (define queue (make-mailbox))
-  (define a-room (room c the-room queue #f))
+  (define a-room (room (directory-runtime d) c the-room queue #f))
   ;; The room calls this inbox back with every line; enqueue each one. `notify` is
   ;; variadic — a system line appends structured presence args after its text — so
   ;; this dispatches by hand rather than through the fixed-arity `methods` sugar.
@@ -202,12 +219,18 @@
 (define (room-leave a-room)
   (session-close! (room-session a-room))
   (define t (room-serve a-room))
-  (when t (sync/timeout 1 (thread-dead-evt t))))
+  (when t (sync/timeout 1 (thread-dead-evt t)))
+  (runtime-close! (room-runtime a-room)))
 
 ;; The next line the room sent, parked until one arrives. Returns `eof` when
 ;; the room hangs up.
 (define (room-next a-room)
   (mailbox-get (room-queue a-room)))
+
+;; `room-next` under a deadline: the next line, or #f when none arrives
+;; within `timeout-seconds`.
+(define (room-next/timeout a-room timeout-seconds)
+  (mailbox-get/timeout (room-queue a-room) timeout-seconds))
 
 ;; The lines the room sends, as a sequence: `(for ([msg (in-room room)]) …)`.
 (define (in-room a-room)

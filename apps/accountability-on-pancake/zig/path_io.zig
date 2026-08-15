@@ -1,7 +1,7 @@
 //! Directory creation at product I/O boundaries.
 //!
 //! A byte-for-byte copy of `cli/operability/path_io.zig` below the header, held
-//! identical by `zig build meta-check`. It is copied rather than imported
+//! identical by `zig build source-check`. It is copied rather than imported
 //! because this application's whole claim is that it is an *ordinary consumer*
 //! of pancake: it wraps the caller-owned `Peer` and `Vat` and reaches for
 //! nothing else in the repository. Importing a module rooted in `cli/` would

@@ -43,10 +43,10 @@
 // — that the inbox host and its rendezvous registration are untouched by a room
 // respawn, because a cold-dial line has nothing to do with the room server — is
 // two-peer work and lives with `rooms-web-dm-tabs`. So is the line that is in
-// flight when the session dies, which should come back tap-to-retry.
+// flight when the session dies, which should come back with a retry action.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives,
-// and a Playwright Chromium.
+// Needs deno, cargo for the iroh sidecar, the wasm module (`zig build
+// wasm-driver`), the native archives, and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web_reconnect_test.ts`.
 
 import { chromium } from "playwright";
@@ -88,12 +88,14 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
 		WEB,
 		String(httpPort),
 		String(roomPort),
+		"--transport=iroh",
 	],
 	cwd: ROOT,
 	stdout: "piped",
@@ -102,12 +104,12 @@ const web = new Deno.Command("deno", {
 
 /** Kill the room server, and only it.
  *
- * It is a child of `serve.ts`, not of this test, so it is reached by the port it
- * was told to listen on — which this test chose and nothing else is using. The
- * page's own server is left alone: the point is a lost room, not a lost page. */
+ * It is a child of `serve.ts`, not of this test, so it is selected beneath that
+ * exact parent and by its server entrypoint. The page's own server is left
+ * alone: the point is a lost room, not a lost page. */
 async function killRoomServer(): Promise<void> {
 	const killed = await new Deno.Command("pkill", {
-		args: ["-f", `server/main.ts ${roomPort}`],
+		args: ["-P", String(web.pid), "-f", "server/main.ts"],
 	}).output();
 	if (!killed.success) fail("could not find the room server to kill");
 }
@@ -125,9 +127,16 @@ const deadline = setTimeout(() => {
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
 	await waitForHttp(httpPort);
+	const locatorBefore = (await fetch(`http://127.0.0.1:${httpPort}/locator`).then((res) => res.text())).trim();
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 	const tab = await browser.newPage();
 	tab.on("pageerror", (e) => console.error("  [page error]", e.message));
+	tab.on("console", (message) => {
+		const line = message.text();
+		if (line.includes("rooms:") || message.type() === "error") {
+			console.error("  [page]", line.slice(0, 400));
+		}
+	});
 
 	await tab.goto(`http://127.0.0.1:${httpPort}/`);
 	await tab.fill("#nick", "ada");
@@ -139,8 +148,7 @@ try {
 	await tab.fill("#line", before);
 	await tab.press("#line", "Enter");
 	await tab.waitForFunction(
-		(text) =>
-			[...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
+		(text) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
 		before,
 		{ timeout: 30_000 },
 	).catch(() => fail("the room never echoed the first line, so there was nothing to survive"));
@@ -168,6 +176,14 @@ try {
 	// reconnects on its own backoff and re-enters the room it was in.
 	await tab.waitForSelector("#line:not([disabled])", { timeout: 90_000 })
 		.catch(() => fail("the page never reconnected and re-entered its room"));
+	const locatorAfter = (await fetch(`http://127.0.0.1:${httpPort}/locator`).then((res) => res.text())).trim();
+	const authority = (locator: string) => {
+		const uri = new URL(locator);
+		return `${uri.protocol}//${uri.host}`;
+	};
+	if (authority(locatorAfter) !== authority(locatorBefore)) {
+		fail(`the supervised room changed authority across its restart: ${locatorBefore} became ${locatorAfter}`);
+	}
 
 	const status = (await tab.textContent("#status")) ?? "";
 	if (!status.includes("workshop")) {
@@ -176,8 +192,7 @@ try {
 
 	// ── What belonged to the page is still the page's ────────────────────
 	const kept = await tab.evaluate(
-		(text) =>
-			[...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
+		(text) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
 		before,
 	);
 	if (!kept) {
@@ -192,13 +207,10 @@ try {
 	await tab.fill("#line", after);
 	await tab.press("#line", "Enter");
 	await tab.waitForFunction(
-		(text) =>
-			[...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
+		(text) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
 		after,
 		{ timeout: 30_000 },
-	).catch(() =>
-		fail("the room did not echo a line sent after the reconnect, so nothing usable came back")
-	);
+	).catch(() => fail("the room did not echo a line sent after the reconnect, so nothing usable came back"));
 
 	// The directory answers the new session too: the page cleared what the old
 	// one told it, so a room in this list is one the new session reported.
@@ -206,15 +218,10 @@ try {
 	// messages. Neither orders the other, so observe the promised state rather
 	// than sampling it immediately after the echo happens to arrive.
 	await tab.waitForFunction(
-		() =>
-			[...document.querySelectorAll("#roomList .rname")].some((r) =>
-				r.textContent?.includes("workshop")
-			),
+		() => [...document.querySelectorAll("#roomList .rname")].some((r) => r.textContent?.includes("workshop")),
 		undefined,
 		{ timeout: 30_000 },
-	).catch(() =>
-		fail("the room list stayed empty after reconnecting, so the directory never replayed")
-	);
+	).catch(() => fail("the room list stayed empty after reconnecting, so the directory never replayed"));
 
 	console.log(
 		"PASS: the rooms page survived losing its room server — it noticed and closed the " +

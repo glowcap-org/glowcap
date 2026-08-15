@@ -245,7 +245,7 @@ pub const Served = struct {
             false;
         if (!skip_serve) _ = try self.port.serve(vat, event);
 
-        if (self.serve_options.gc_stateless) gc.emitStatelessAfter(self.port.peer, event);
+        if (self.serve_options.gc_stateless) try gc.emitStatelessAfter(self.port.peer, event);
     }
 
     /// The loop drivers' post-batch policy in one spelling: drive one inbound
@@ -293,7 +293,10 @@ pub const Served = struct {
     /// A message longer than the buffer is truncated; a malformed abort view is
     /// ignored, leaving any earlier retention in place.
     fn retainAbort(self: *Served, event: *const engine.Event) void {
-        const body = event.view() catch return;
+        const body = event.view() catch |err| {
+            self.port.peer.recordFailure(err);
+            return;
+        };
         const abort = switch (body) {
             .abort => |abort| abort,
             else => return,
@@ -343,6 +346,30 @@ pub const Served = struct {
         // The export binding roots the actor; the spawn root transfers to it
         // (ADR-0101), so a session-published object lives exactly as long as
         // some relationship — this binding, a lift, a gift — holds it.
+        vat.releaseActor(switch (ref) {
+            .local => |id| id,
+            .far => unreachable,
+        });
+        return .{ .position = position, .ref = ref };
+    }
+
+    /// Foreign-callback twin of `publish`. The HostedActor transfers into this
+    /// operation on every outcome, including a name-registration failure before
+    /// the Vat sees it.
+    pub fn publishHosted(self: *Served, vat: *actors.Vat, name: []const u8, hosted: actors.HostedActor) !Exported {
+        var hosted_pending = true;
+        defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+
+        const prior = self.port.peer.session_state.bootstrapLookup(name);
+        const position = try self.port.peer.registerBootstrapCap(name);
+        errdefer {
+            self.port.peer.session_state.restoreBootstrapMapping(name, prior);
+            self.port.peer.session_state.releaseUnsharedExport(.from(position));
+        }
+        hosted_pending = false;
+        const ref = try vat.spawnHosted(hosted);
+        errdefer vat.discardFreshActor(ref);
+        try self.port.bindExport(vat, ref, position);
         vat.releaseActor(switch (ref) {
             .local => |id| id,
             .far => unreachable,
@@ -448,9 +475,14 @@ pub const Served = struct {
         mode: Mode = .send,
         stage: Stage = .fetching,
         terminal: actors.Listener,
+        completion: ?Completion = null,
 
         pub const Mode = enum { send, tell };
         pub const Stage = enum { fetching, delivering };
+        pub const Completion = struct {
+            ctx: ?*anyopaque,
+            func: *const fn (?*anyopaque) void,
+        };
 
         pub fn deinit(self: *PendingSend) void {
             self.msg_arena.deinit();
@@ -471,7 +503,7 @@ pub const Served = struct {
                 // caller attributes it. A bootstrap fetch never fulfills with
                 // an introduction, so `.give` rides the same forward rather
                 // than earning an arm it cannot reach.
-                .broken, .give => return self.terminal.func(self.terminal.ctx, resolution),
+                .broken, .give => return self.fire(resolution),
             };
             self.stage = .delivering;
             const msg: actors.Message = .{ .verb = self.verb, .args = self.args };
@@ -483,17 +515,31 @@ pub const Served = struct {
                     // `breakFarVows` re-checks for registrations made during
                     // the break, so the chained vow can never strand.
                     const vow = self.served.send(self.vat, target, msg) catch |err| return self.fireBroken(@errorName(err));
-                    self.served.on(self.vat, vow, self.terminal) catch |err| return self.fireBroken(@errorName(err));
+                    self.served.on(self.vat, vow, .{ .ctx = self, .func = onTerminal }) catch |err| return self.fireBroken(@errorName(err));
                 },
                 .tell => {
                     self.served.tell(self.vat, target, msg) catch |err| return self.fireBroken(@errorName(err));
-                    self.terminal.func(self.terminal.ctx, .{ .fulfilled = .{ .void = {} } });
+                    self.fire(.{ .fulfilled = .{ .void = {} } });
                 },
             }
         }
 
+        fn onTerminal(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+            const self: *PendingSend = @ptrCast(@alignCast(ctx.?));
+            self.fire(resolution);
+        }
+
         fn fireBroken(self: *PendingSend, reason: []const u8) void {
-            self.terminal.func(self.terminal.ctx, .{ .broken = reason });
+            self.fire(.{ .broken = reason });
+        }
+
+        fn fire(self: *PendingSend, resolution: actors.Resolution) void {
+            const terminal = self.terminal;
+            if (self.completion) |completion| {
+                self.completion = null;
+                completion.func(completion.ctx);
+            }
+            terminal.func(terminal.ctx, resolution);
         }
     };
 
@@ -508,23 +554,61 @@ pub const Served = struct {
     /// the blocking `call`, so the chaining lives here once instead of as a
     /// shadow state machine in every embedder.
     pub fn beginSendNamed(self: *Served, vat: *actors.Vat, pending: *PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
-        return self.beginDeliverNamed(vat, pending, name, msg, .send, terminal);
+        return self.beginDeliverNamed(vat, pending, name, msg, .send, terminal, null);
     }
 
     /// `beginSendNamed`'s fire-and-forget arm: fetch `name`, then `tell` it
     /// `msg`. The terminal fires `.fulfilled = .void` once the tell is queued
     /// (there is no answer to await), or the fetch's break.
     pub fn beginTellNamed(self: *Served, vat: *actors.Vat, pending: *PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
-        return self.beginDeliverNamed(vat, pending, name, msg, .tell, terminal);
+        return self.beginDeliverNamed(vat, pending, name, msg, .tell, terminal, null);
     }
 
-    fn beginDeliverNamed(self: *Served, vat: *actors.Vat, pending: *PendingSend, name: []const u8, msg: actors.Message, mode: PendingSend.Mode, terminal: actors.Listener) !void {
+    /// Host-core variant whose completion hook retires the enclosing owner's
+    /// pending-work row before the application terminal can release state.
+    /// Public only for the sibling `Host` implementation.
+    pub fn beginSendNamedCompleting(
+        self: *Served,
+        vat: *actors.Vat,
+        pending: *PendingSend,
+        name: []const u8,
+        msg: actors.Message,
+        terminal: actors.Listener,
+        completion: PendingSend.Completion,
+    ) !void {
+        return self.beginDeliverNamed(vat, pending, name, msg, .send, terminal, completion);
+    }
+
+    /// `beginSendNamedCompleting`'s fire-and-forget delivery arm.
+    pub fn beginTellNamedCompleting(
+        self: *Served,
+        vat: *actors.Vat,
+        pending: *PendingSend,
+        name: []const u8,
+        msg: actors.Message,
+        terminal: actors.Listener,
+        completion: PendingSend.Completion,
+    ) !void {
+        return self.beginDeliverNamed(vat, pending, name, msg, .tell, terminal, completion);
+    }
+
+    fn beginDeliverNamed(
+        self: *Served,
+        vat: *actors.Vat,
+        pending: *PendingSend,
+        name: []const u8,
+        msg: actors.Message,
+        mode: PendingSend.Mode,
+        terminal: actors.Listener,
+        completion: ?PendingSend.Completion,
+    ) !void {
         pending.* = .{
             .served = self,
             .vat = vat,
             .msg_arena = std.heap.ArenaAllocator.init(vat.allocator),
             .mode = mode,
             .terminal = terminal,
+            .completion = completion,
         };
         errdefer pending.msg_arena.deinit();
         const arena = pending.msg_arena.allocator();

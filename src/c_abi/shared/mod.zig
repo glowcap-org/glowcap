@@ -26,6 +26,31 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 
+/// The one cross-archive schema and bounded mechanics for failures with no
+/// remaining return recipient (ADR-0115). This leaf owns no mutable global;
+/// storage belongs to an explicit Context, Host, or driver owner.
+pub const failure_diagnostics = @import("failure_diagnostics.zig");
+pub const PancakeFailureEvent = failure_diagnostics.PancakeFailureEvent;
+pub const PancakeFailureReport = failure_diagnostics.PancakeFailureReport;
+pub const PANCAKE_FAILURE_EVENT_ABI_VERSION = failure_diagnostics.abi_version;
+pub const PANCAKE_FAILURE_LAYER_CORE: u32 = @intFromEnum(failure_diagnostics.Layer.core);
+pub const PANCAKE_FAILURE_LAYER_DRIVER: u32 = @intFromEnum(failure_diagnostics.Layer.driver);
+pub const PANCAKE_FAILURE_LAYER_TRANSPORT: u32 = @intFromEnum(failure_diagnostics.Layer.transport);
+pub const PANCAKE_FAILURE_LAYER_BINDING: u32 = @intFromEnum(failure_diagnostics.Layer.binding);
+pub const PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER: u32 = @intFromEnum(failure_diagnostics.Layer.application_observer);
+pub const PANCAKE_FAILURE_SCOPE_PROCESS: u32 = @intFromEnum(failure_diagnostics.ScopeKind.process);
+pub const PANCAKE_FAILURE_SCOPE_CONTEXT: u32 = @intFromEnum(failure_diagnostics.ScopeKind.context);
+pub const PANCAKE_FAILURE_SCOPE_HOST: u32 = @intFromEnum(failure_diagnostics.ScopeKind.host);
+pub const PANCAKE_FAILURE_SCOPE_SESSION: u32 = @intFromEnum(failure_diagnostics.ScopeKind.session);
+pub const PANCAKE_FAILURE_SCOPE_LISTENER: u32 = @intFromEnum(failure_diagnostics.ScopeKind.listener);
+pub const PANCAKE_FAILURE_SCOPE_TRANSPORT: u32 = @intFromEnum(failure_diagnostics.ScopeKind.transport);
+pub const PANCAKE_FAILURE_SCOPE_OPERATION: u32 = @intFromEnum(failure_diagnostics.ScopeKind.operation);
+pub const PANCAKE_FAILURE_TRUNCATED_OPERATION = failure_diagnostics.truncated_operation;
+pub const PANCAKE_FAILURE_TRUNCATED_PRIMARY_NAME = failure_diagnostics.truncated_primary_name;
+pub const PANCAKE_FAILURE_TRUNCATED_PRIMARY_MESSAGE = failure_diagnostics.truncated_primary_message;
+pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_NAME = failure_diagnostics.truncated_secondary_name;
+pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE = failure_diagnostics.truncated_secondary_message;
+
 // ── Return codes ─────────────────────────────────────────────────────────────
 
 /// The annotated-symbol vocabulary the per-archive inventories share
@@ -37,24 +62,34 @@ pub const symbols = @import("symbols.zig");
 /// archive plugs its multiplexed transport into the driver archive.
 /// Layout only, no exports, like everything in this leaf.
 pub const multiplexed_transport = @import("multiplexed_transport.zig");
+pub const close = @import("close.zig");
 pub const locator = @import("locator.zig");
 pub const locator_adapter = @import("locator_adapter.zig");
 pub const transport_provider = @import("transport_provider.zig");
 pub const PancakeMultiplexedTransport = multiplexed_transport.PancakeMultiplexedTransport;
 pub const PancakeMultiplexedReadyEvent = multiplexed_transport.PancakeMultiplexedReadyEvent;
+pub const PancakeCloseOptions = close.PancakeCloseOptions;
+pub const PancakeListenResult = transport_provider.PancakeListenResult;
 pub const PancakeStreamTransport = transport_provider.PancakeStreamTransport;
 pub const PancakeLocatorHintView = locator.PancakeLocatorHintView;
 pub const PancakeLocatorView = locator.PancakeLocatorView;
 pub const PancakeTransportProfile = transport_provider.PancakeTransportProfile;
+pub const PancakeTransportOperationOptions = transport_provider.PancakeTransportOperationOptions;
+pub const PancakeProviderFailure = transport_provider.PancakeProviderFailure;
 pub const PancakeTransportProviderEntry = transport_provider.PancakeTransportProviderEntry;
 pub const PancakeTransportProvider = transport_provider.PancakeTransportProvider;
 pub const PancakeStreamStartConnectFn = transport_provider.PancakeStreamStartConnectFn;
 pub const PancakeStreamFinishConnectFn = transport_provider.PancakeStreamFinishConnectFn;
 pub const PancakeStreamCancelConnectFn = transport_provider.PancakeStreamCancelConnectFn;
 pub const PancakeStreamListenFn = transport_provider.PancakeStreamListenFn;
+pub const PancakeStreamFinishListenFn = transport_provider.PancakeStreamFinishListenFn;
+pub const PancakeStreamCancelListenFn = transport_provider.PancakeStreamCancelListenFn;
+pub const PANCAKE_LISTEN_READY = transport_provider.PANCAKE_LISTEN_READY;
+pub const PANCAKE_LISTEN_PENDING = transport_provider.PANCAKE_LISTEN_PENDING;
 pub const PancakeStreamListenerWaitFn = transport_provider.PancakeStreamListenerWaitFn;
 pub const PancakeStreamListenerReadinessFdFn = transport_provider.PancakeStreamListenerReadinessFdFn;
 pub const PancakeLocatorSinkFn = locator.PancakeLocatorSinkFn;
+pub const PancakeTransportListenerRestorationStateFn = transport_provider.PancakeTransportListenerRestorationStateFn;
 pub const PancakeTransportListenerLocatorFn = transport_provider.PancakeTransportListenerLocatorFn;
 pub const PancakeTransportListenerAdvertiseFn = transport_provider.PancakeTransportListenerAdvertiseFn;
 pub const PancakeStreamAcceptFn = transport_provider.PancakeStreamAcceptFn;
@@ -62,6 +97,8 @@ pub const PancakeStreamListenerCloseFn = transport_provider.PancakeStreamListene
 pub const PancakeStreamReadFn = transport_provider.PancakeStreamReadFn;
 pub const PancakeStreamWriteAllFn = transport_provider.PancakeStreamWriteAllFn;
 pub const PancakeStreamConnCloseFn = transport_provider.PancakeStreamConnCloseFn;
+pub const PancakeStreamConnTakeFailureFn = transport_provider.PancakeStreamConnTakeFailureFn;
+pub const PancakeTransportProviderSameConfigurationFn = transport_provider.PancakeTransportProviderSameConfigurationFn;
 pub const PancakeTransportRetainFn = transport_provider.PancakeTransportRetainFn;
 pub const PancakeTransportReleaseFn = transport_provider.PancakeTransportReleaseFn;
 pub const PancakeMultiplexedReadinessFdFn = multiplexed_transport.PancakeMultiplexedReadinessFdFn;
@@ -69,10 +106,12 @@ pub const PancakeMultiplexedDrainReadyFn = multiplexed_transport.PancakeMultiple
 pub const PancakeMultiplexedStartConnectFn = multiplexed_transport.PancakeMultiplexedStartConnectFn;
 pub const PancakeMultiplexedFinishConnectFn = multiplexed_transport.PancakeMultiplexedFinishConnectFn;
 pub const PancakeMultiplexedClaimExternalFn = multiplexed_transport.PancakeMultiplexedClaimExternalFn;
-pub const PancakeMultiplexedStartListenFn = multiplexed_transport.PancakeMultiplexedStartListenFn;
+pub const PancakeMultiplexedListenFn = multiplexed_transport.PancakeMultiplexedListenFn;
+pub const PancakeMultiplexedFinishListenFn = multiplexed_transport.PancakeMultiplexedFinishListenFn;
 pub const PancakeMultiplexedFinishAcceptFn = multiplexed_transport.PancakeMultiplexedFinishAcceptFn;
 pub const PancakeMultiplexedStopListenFn = multiplexed_transport.PancakeMultiplexedStopListenFn;
 pub const PancakeMultiplexedSubjectFn = multiplexed_transport.PancakeMultiplexedSubjectFn;
+pub const PancakeMultiplexedConnTakeFailureFn = multiplexed_transport.PancakeMultiplexedConnTakeFailureFn;
 pub const PancakeMultiplexedTryReadFn = multiplexed_transport.PancakeMultiplexedTryReadFn;
 pub const PancakeMultiplexedTryWriteFn = multiplexed_transport.PancakeMultiplexedTryWriteFn;
 pub const PancakeMultiplexedConnRemoteKeyFn = multiplexed_transport.PancakeMultiplexedConnRemoteKeyFn;
@@ -88,11 +127,19 @@ pub const PANCAKE_MULTIPLEXED_EV_WRITABLE = multiplexed_transport.PANCAKE_MULTIP
 pub const PANCAKE_MULTIPLEXED_EV_CLOSED = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_CLOSED;
 pub const PANCAKE_MULTIPLEXED_EV_ACCEPT = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_ACCEPT;
 pub const PANCAKE_MULTIPLEXED_EV_CONNECT = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_CONNECT;
+pub const PANCAKE_MULTIPLEXED_EV_LISTEN = multiplexed_transport.PANCAKE_MULTIPLEXED_EV_LISTEN;
 pub const PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION = multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION;
 pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = transport_provider.PANCAKE_DESIGNATOR_SCHEME_ADDRESS;
 pub const PANCAKE_DESIGNATOR_SCHEME_KEY = transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
 pub const PANCAKE_SEALED_CHANNEL_NONE = transport_provider.PANCAKE_SEALED_CHANNEL_NONE;
 pub const PANCAKE_SEALED_CHANNEL_NOISE_XK = transport_provider.PANCAKE_SEALED_CHANNEL_NOISE_XK;
+pub const PANCAKE_PENDING_CANCEL = close.PANCAKE_PENDING_CANCEL;
+pub const PANCAKE_PENDING_FINISH = close.PANCAKE_PENDING_FINISH;
+pub const PANCAKE_CLOSE_OPTIONS_ABI_VERSION = close.PANCAKE_CLOSE_OPTIONS_ABI_VERSION;
+pub const PANCAKE_CLOSE_MAX_GRACE_MS = close.PANCAKE_CLOSE_MAX_GRACE_MS;
+pub const PANCAKE_CLOSE_GRACE_UNSPECIFIED = close.PANCAKE_CLOSE_GRACE_UNSPECIFIED;
+pub const PANCAKE_CLOSE_GRACE_FINITE = close.PANCAKE_CLOSE_GRACE_FINITE;
+pub const PANCAKE_CLOSE_GRACE_UNBOUNDED = close.PANCAKE_CLOSE_GRACE_UNBOUNDED;
 pub const PANCAKE_HINT_STRING = locator.PANCAKE_HINT_STRING;
 pub const PANCAKE_HINT_BYTES = locator.PANCAKE_HINT_BYTES;
 pub const PANCAKE_HINT_BOOLEAN = locator.PANCAKE_HINT_BOOLEAN;
@@ -190,6 +237,27 @@ comptime {
 /// two must match, the endpoint splits the stream with the same grammar the
 /// session encodes in. Zero is deliberately not a valid input selector:
 /// zeroed trace memory or a future codec id reads as unknown, never Syrup.
+/// Whether `value` is absent (`0`) or one of the stable public result codes.
+/// The contiguity assertion above makes the range itself the one authority.
+pub fn isStableFailureResult(value: i32) bool {
+    return value == PANCAKE_OK or
+        (value <= PANCAKE_ERR_NULL_POINTER and value >= PANCAKE_ERR_TIMEOUT);
+}
+
+/// Validate the typed-cause portion of a structured failure report. A report
+/// with consequences names the first one; a report without consequences must
+/// not carry secondary fields that contradict its count.
+pub fn hasValidFailureCauses(report: PancakeFailureReport) bool {
+    if (!isStableFailureResult(report.primary_result) or
+        (report.primary_result == PANCAKE_OK and report.primary_name_len == 0)) return false;
+    if (report.secondary_count == 0) {
+        return report.secondary_result == PANCAKE_OK and
+            report.secondary_name_len == 0 and
+            report.secondary_message_len == 0;
+    }
+    return isStableFailureResult(report.secondary_result) and report.secondary_name_len != 0;
+}
+
 pub const PANCAKE_CODEC_UNKNOWN: u32 = 0;
 pub const PANCAKE_CODEC_SYRUP: u32 = 1;
 pub const PANCAKE_CODEC_CAPNP: u32 = 2;
@@ -302,6 +370,22 @@ pub fn codecFromC(codec: u32) ?model.CodecId {
         PANCAKE_CODEC_CAPNP => .capnp,
         else => null,
     };
+}
+
+/// Validate the framing pair shared by the compatibility transport fronts.
+/// The stable result remains INVALID_ARGUMENT; this helper makes the archive's
+/// last-error detail identical instead of letting each transport forget or
+/// paraphrase one half of the same C contract.
+pub fn framingOptionsFromC(codec: u32, max_frame_bytes: usize, operation: []const u8) error{ InvalidCodec, InvalidFrameCap }!model.CodecId {
+    const codec_id = codecFromC(codec) orelse {
+        setLastError("{s}: codec must be a PANCAKE_CODEC_* value", .{operation});
+        return error.InvalidCodec;
+    };
+    if (max_frame_bytes == 0) {
+        setLastError("{s}: max_frame_bytes must not be zero", .{operation});
+        return error.InvalidFrameCap;
+    }
+    return codec_id;
 }
 
 pub fn featureSetToC(features: model.FeatureSet) u32 {
@@ -542,18 +626,53 @@ pub const ContextAllocator = struct {
     }
 };
 
-pub const Context = union(enum) {
+pub const default_failure_capacity: usize = 64;
+pub const default_failure_payload_cap: usize = 512;
+
+pub const LifecycleIds = struct {
+    value: if (builtin.single_threaded) u64 else std.atomic.Value(u64),
+
+    pub fn init() LifecycleIds {
+        return .{ .value = if (builtin.single_threaded) 1 else .init(1) };
+    }
+
+    pub fn allocate(self: *LifecycleIds) error{IdentifierExhausted}!u64 {
+        if (comptime builtin.single_threaded) {
+            if (self.value == std.math.maxInt(u64)) return error.IdentifierExhausted;
+            const current = self.value;
+            self.value += 1;
+            return current;
+        }
+        var current = self.value.load(.monotonic);
+        while (current != std.math.maxInt(u64)) {
+            if (self.value.cmpxchgWeak(current, current + 1, .monotonic, .monotonic)) |observed| {
+                current = observed;
+            } else {
+                return current;
+            }
+        }
+        return error.IdentifierExhausted;
+    }
+};
+
+const AllocatorPolicy = union(enum) {
     /// The library-owned allocation policy; carries no state.
     library,
     /// Host-supplied allocation policy: the heap-pinned state the returned
     /// allocator vtable points into.
     embedder: ContextAllocator,
+};
+
+pub const Context = struct {
+    allocator_policy: AllocatorPolicy,
+    failures: failure_diagnostics.Journal,
+    lifecycle_ids: LifecycleIds,
 
     /// The allocator this context's handle family allocates and frees through.
-    /// The `.embedder` arm's vtable borrows `&self.embedder`, valid because a
-    /// `Context` is always heap-pinned by its constructor.
+    /// The `.embedder` arm's vtable borrows the pinned policy inside this
+    /// Context, valid for the Context's whole lifetime.
     pub fn allocator(self: *Context) std.mem.Allocator {
-        return switch (self.*) {
+        return switch (self.allocator_policy) {
             .library => library_allocator,
             .embedder => |*e| e.allocator(),
         };
@@ -577,6 +696,8 @@ pub fn ctxFromOpaque(context: ?*PancakeContext) ?*Context {
 threadlocal var last_error_buf: [256]u8 = undefined;
 threadlocal var last_error_len: usize = 0;
 
+const truncated_error_suffix = "... [truncated]";
+
 pub fn setLastError(comptime fmt: []const u8, args: anytype) void {
     // A fixed writer reports exactly how many bytes it wrote, including on
     // overflow. `bufPrint`'s `NoSpaceLeft` leaves an unspecified prefix, so
@@ -584,8 +705,30 @@ pub fn setLastError(comptime fmt: []const u8, args: anytype) void {
     // this threadlocal to the C caller — and these messages format
     // partner-supplied designators.
     var w = std.Io.Writer.fixed(&last_error_buf);
-    w.print(fmt, args) catch {};
+    w.print(fmt, args) catch {
+        // Overflow is itself diagnostic information. Keep the bounded prefix,
+        // but make the loss explicit instead of exposing a plausible-looking
+        // partial cause to the binding runtime.
+        comptime std.debug.assert(truncated_error_suffix.len <= last_error_buf.len);
+        const suffix_start = last_error_buf.len - truncated_error_suffix.len;
+        @memcpy(last_error_buf[suffix_start..], truncated_error_suffix);
+        last_error_len = last_error_buf.len;
+        return;
+    };
     last_error_len = w.end;
+}
+
+/// Record the concrete cause before projecting it into the deliberately small
+/// C error vocabulary. Generic codes are useful for portable branching; the
+/// per-thread detail is what makes the failure diagnosable.
+pub fn failInternal(comptime operation: []const u8, cause: anyerror) i32 {
+    setLastError(operation ++ ": {s}", .{@errorName(cause)});
+    return PANCAKE_ERR_INTERNAL;
+}
+
+pub fn failIo(comptime operation: []const u8, cause: anyerror) i32 {
+    setLastError(operation ++ ": {s}", .{@errorName(cause)});
+    return PANCAKE_ERR_IO;
 }
 
 /// Copy the calling thread's last error message into `out_buf`. Every archive's
@@ -719,6 +862,7 @@ pub fn feedErrorToCode(err: anyerror) i32 {
 }
 
 pub fn marshalErrorToCode(err: MarshalError) i32 {
+    setLastError("C argument: {s}", .{@errorName(err)});
     return switch (err) {
         error.UnsupportedValue => PANCAKE_ERR_UNSUPPORTED_VALUE,
         error.InvalidArgument => PANCAKE_ERR_INVALID_ARGUMENT,
@@ -751,11 +895,21 @@ pub const PancakeLastAbort = extern struct {
     message_len: usize,
     error_name: ?[*]const u8,
     error_name_len: usize,
+    abort_delivery_error_name: ?[*]const u8,
+    abort_delivery_error_name_len: usize,
+    /// Process-static name of the first cleanup or consequence failure.
+    secondary_error_name: ?[*]const u8,
+    /// Length of `secondary_error_name`.
+    secondary_error_name_len: usize,
+    /// Secondary failures observed; 255 means 255 or more.
+    secondary_error_count: u32,
 };
 
 /// Project an `engine.AbortInfo` into the C `PancakeLastAbort`. Every view
 /// written is process-static.
 pub fn lastAbortToC(info: engine.AbortInfo) PancakeLastAbort {
+    const abort_delivery_error_name = if (info.abort_delivery_error) |err| @errorName(err) else null;
+    const secondary_error_name = if (info.secondary_error) |err| @errorName(err) else null;
     return .{
         .domain = switch (info.domain) {
             .codec => PANCAKE_ABORT_DOMAIN_CODEC,
@@ -769,6 +923,11 @@ pub fn lastAbortToC(info: engine.AbortInfo) PancakeLastAbort {
         .message_len = info.message.len,
         .error_name = info.error_name.ptr,
         .error_name_len = info.error_name.len,
+        .abort_delivery_error_name = if (abort_delivery_error_name) |name| name.ptr else null,
+        .abort_delivery_error_name_len = if (abort_delivery_error_name) |name| name.len else 0,
+        .secondary_error_name = if (secondary_error_name) |name| name.ptr else null,
+        .secondary_error_name_len = if (secondary_error_name) |name| name.len else 0,
+        .secondary_error_count = @intCast(info.secondary_error_count),
     };
 }
 
@@ -797,13 +956,18 @@ pub fn argumentFromCWith(
     depth: usize,
     comptime own_bytes: bool,
 ) (MarshalError || RefError)!model.Argument {
-    return argumentFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg, depth, own_bytes);
+    return valueFromCImpl(model.Argument, .reference, RefError, ref_ctx, ref_from_c, arena, c_arg, depth, own_bytes);
 }
 
-/// The one conversion recursion behind both marshal lifetimes; `own_bytes` is
-/// comptime, so each variant compiles to its own straight-line specialization
-/// with no runtime mode.
-fn argumentFromCImpl(
+const ReferenceField = enum { reference, capability };
+
+/// The one conversion recursion behind both marshal lifetimes and both
+/// application value spellings. `Output` is either `model.Argument` or an
+/// owning tier's isomorphic opaque-capability value. `own_bytes` and the
+/// reference field are comptime, so every projection remains straight-line.
+fn valueFromCImpl(
+    comptime Output: type,
+    comptime reference_field: ReferenceField,
     comptime RefError: type,
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
@@ -811,7 +975,7 @@ fn argumentFromCImpl(
     c_arg: PancakeArgument,
     depth: usize,
     comptime own_bytes: bool,
-) (MarshalError || RefError)!model.Argument {
+) (MarshalError || RefError)!Output {
     if (depth > max_marshal_depth) return error.UnsupportedValue;
     const next = depth + 1;
     return switch (c_arg.kind) {
@@ -822,12 +986,15 @@ fn argumentFromCImpl(
         PANCAKE_ARG_STRING => .{ .string = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_SYMBOL => .{ .symbol = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_VOID => .{ .void = {} },
-        PANCAKE_ARG_REFERENCE => .{ .reference = try ref_from_c(ref_ctx, c_arg.reference) },
-        PANCAKE_ARG_LIST => .{ .list = try argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
-        PANCAKE_ARG_SET => .{ .set = try argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        PANCAKE_ARG_REFERENCE => switch (reference_field) {
+            .reference => .{ .reference = try ref_from_c(ref_ctx, c_arg.reference) },
+            .capability => .{ .capability = try ref_from_c(ref_ctx, c_arg.reference) },
+        },
+        PANCAKE_ARG_LIST => .{ .list = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        PANCAKE_ARG_SET => .{ .set = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
         PANCAKE_ARG_TAGGED => .{ .tagged = .{
             .tag = try leafFromC(arena, c_arg, own_bytes),
-            .value = try argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes),
+            .value = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes),
         } },
         PANCAKE_ARG_KEYWORD => .{ .keyword = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_BIG_INTEGER => blk: {
@@ -861,10 +1028,14 @@ pub fn argsFromCWith(
     depth: usize,
     comptime own_bytes: bool,
 ) (MarshalError || RefError)![]const model.Argument {
-    return argsFromCImpl(RefError, ref_ctx, ref_from_c, arena, items, len, depth, own_bytes);
+    return valuesFromCImpl(model.Argument, .reference, RefError, ref_ctx, ref_from_c, arena, items, len, depth, own_bytes);
 }
 
-fn argsFromCImpl(
+/// Decode the same C value algebra into an owning tier's opaque-capability
+/// value without first manufacturing wire references. `Value` must carry the
+/// data arms accepted above plus a `capability` arm of the callback's payload.
+pub fn valuesFromCWith(
+    comptime Value: type,
     comptime RefError: type,
     ref_ctx: anytype,
     comptime ref_from_c: anytype,
@@ -873,11 +1044,26 @@ fn argsFromCImpl(
     len: usize,
     depth: usize,
     comptime own_bytes: bool,
-) (MarshalError || RefError)![]const model.Argument {
+) (MarshalError || RefError)![]const Value {
+    return valuesFromCImpl(Value, .capability, RefError, ref_ctx, ref_from_c, arena, items, len, depth, own_bytes);
+}
+
+fn valuesFromCImpl(
+    comptime Output: type,
+    comptime reference_field: ReferenceField,
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_from_c: anytype,
+    arena: std.mem.Allocator,
+    items: ?[*]const PancakeArgument,
+    len: usize,
+    depth: usize,
+    comptime own_bytes: bool,
+) (MarshalError || RefError)![]const Output {
     if (len == 0) return &.{};
     const p = items orelse return error.NullPointer;
-    const out = try arena.alloc(model.Argument, len);
-    for (0..len) |i| out[i] = try argumentFromCImpl(RefError, ref_ctx, ref_from_c, arena, p[i], depth, own_bytes);
+    const out = try arena.alloc(Output, len);
+    for (0..len) |i| out[i] = try valueFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, p[i], depth, own_bytes);
     return out;
 }
 
@@ -1062,6 +1248,9 @@ pub const connection_write_buf_bytes: usize = 64 * 1024;
 /// stays symbol-free.
 pub fn ConnLifecycle(comptime Payload: type) type {
     return struct {
+        const Stream = @TypeOf(@as(Payload, undefined).stream);
+        const ShutdownResult = @typeInfo(@TypeOf(Stream.shutdown)).@"fn".return_type.?;
+
         /// Allocate a connection payload and its buffers, leaving `.stream` for
         /// the caller to install once the connection is established. On any
         /// failure before install, release it with `abort`.
@@ -1094,22 +1283,28 @@ pub fn ConnLifecycle(comptime Payload: type) type {
 
         /// Seal new operations and interrupt those already blocked in transport
         /// I/O without releasing storage.
-        pub fn shutdown(payload: *Payload) void {
+        pub fn shutdown(payload: *Payload) ShutdownResult {
             if (payload.operations.beginShutdown(payload.stream.io)) {
-                payload.stream.shutdown();
+                return payload.stream.shutdown();
             }
+            return;
         }
 
         /// Release an established payload: interrupt I/O, join every admitted C
         /// call, then close the stream and free its buffers.
-        pub fn destroy(payload: *Payload) void {
+        pub fn destroy(payload: *Payload) ShutdownResult {
             const alloc = payload.allocator;
-            shutdown(payload);
-            payload.operations.wait(payload.stream.io);
-            payload.stream.deinit();
-            alloc.free(payload.read_buf);
-            alloc.free(payload.write_buf);
-            alloc.destroy(payload);
+            // The release is a barrier even when shutdown refuses: admitted
+            // calls still join and every owned byte is reclaimed before the
+            // exact shutdown result reaches the caller.
+            defer {
+                payload.operations.wait(payload.stream.io);
+                payload.stream.deinit();
+                alloc.free(payload.read_buf);
+                alloc.free(payload.write_buf);
+                alloc.destroy(payload);
+            }
+            return shutdown(payload);
         }
     };
 }

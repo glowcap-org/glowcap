@@ -38,22 +38,27 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  && apt-get install -y -qq --no-install-recommends \
       build-essential ca-certificates curl gdb gh git hyperfine jq libssl-dev \
       linux-perf lldb netcat-openbsd pkg-config python-is-python3 python3 \
-      python3-pip python3-venv strace tar tor unzip valgrind xz-utils util-linux
+      python3-pip python3-venv shellcheck strace tar tor unzip valgrind \
+      xz-utils util-linux
 
 # ==============================================================================
 # The vscode user space, created before any bind mount lands in it.
 #
-# Every directory a devcontainer.json bind targets must exist here first. Docker
-# creates a missing mount path itself, as root, and it creates the missing
-# *parents* the same way — so binding `.local/share/opencode` into an image with
-# no `.local` leaves `.local` and `.local/share` owned by root, and the first
-# tool that wants `.local/state` fails with EACCES before any gate runs.
+# Every directory a devcontainer.json mount targets exists here first with the
+# runtime user's ownership. Empty named volumes inherit that shape on first use;
+# a missing mount point would otherwise be created as root.
 # ==============================================================================
 RUN groupadd --gid 1000 vscode \
 && useradd --uid 1000 --gid 1000 -m -s /bin/bash vscode \
 && mkdir -p /home/vscode/.cache \
+     /home/vscode/.claude \
+     /home/vscode/.codex \
      /home/vscode/.config \
+     /home/vscode/.config/agents \
+     /home/vscode/.config/gh \
+     /home/vscode/.config/opencode \
      /home/vscode/.local/share \
+     /home/vscode/.local/share/opencode \
      /home/vscode/.local/state \
 && chown -R vscode:vscode /home/vscode
 # ==============================================================================
@@ -69,6 +74,7 @@ COPY .devcontainer/pins.sh \
      .devcontainer/install-js-toolchains.sh \
      .devcontainer/install-claude-code.sh \
      .devcontainer/install-opencode.sh \
+     .devcontainer/install-codex.sh \
      .devcontainer/install-uv.sh \
      .devcontainer/install-python.sh \
      .devcontainer/install-serena.sh \
@@ -85,6 +91,7 @@ RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-js-toolchains.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-claude-code.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-opencode.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/install-codex.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-python.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-serena.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-racket-goblins.sh"
@@ -95,5 +102,10 @@ RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     bash "${PANCAKE_DEVCONTAINER_DIR}/install-playwright.sh"
+
+# The repo-root pancake shim (ADR-0084) on PATH from any directory. The
+# workspace bind lands at /workspaces/pancake only at container open, so the
+# link dangles during the image build and resolves there.
+RUN ln -s /workspaces/pancake/pancake /usr/local/bin/pancake
 
 RUN bash "${PANCAKE_DEVCONTAINER_DIR}/verify-toolchains.sh"

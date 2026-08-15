@@ -28,7 +28,7 @@ extern "C" {
 		out_netlayer: *mut *mut PancakeOnionNetlayer,
 	) -> c_int;
 	pub fn pancake_onion_netlayer_shutdown(netlayer: *mut PancakeOnionNetlayer);
-	pub fn pancake_onion_netlayer_release(netlayer: *mut PancakeOnionNetlayer);
+	pub fn pancake_onion_netlayer_release(netlayer: *mut PancakeOnionNetlayer) -> c_int;
 	pub fn pancake_onion_connect(
 		netlayer: *mut PancakeOnionNetlayer,
 		service_id: *const c_uchar,
@@ -52,10 +52,7 @@ extern "C" {
 		timeout_ms: c_int,
 		out_ready: *mut u32,
 	) -> c_int;
-	pub fn pancake_onion_listener_readiness_fd(
-		listener: *mut PancakeOnionListener,
-		out_fd: *mut i32,
-	) -> c_int;
+	pub fn pancake_onion_listener_readiness_fd(listener: *mut PancakeOnionListener, out_fd: *mut i32) -> c_int;
 	pub fn pancake_onion_conn_readiness_fd(conn: *mut PancakeOnionConn, out_fd: *mut i32) -> c_int;
 	pub fn pancake_onion_accept(
 		listener: *mut PancakeOnionListener,
@@ -63,18 +60,12 @@ extern "C" {
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeOnionConn,
 	) -> c_int;
-	pub fn pancake_onion_conn_read_frame(
-		conn: *mut PancakeOnionConn,
-		out_frame: *mut PancakeManagedFrame,
-	) -> c_int;
-	pub fn pancake_onion_conn_write_frame(
-		conn: *mut PancakeOnionConn,
-		frame: *const PancakeFrame,
-	) -> c_int;
-	pub fn pancake_onion_conn_shutdown(conn: *mut PancakeOnionConn);
-	pub fn pancake_onion_conn_release(conn: *mut PancakeOnionConn);
+	pub fn pancake_onion_conn_read_frame(conn: *mut PancakeOnionConn, out_frame: *mut PancakeManagedFrame) -> c_int;
+	pub fn pancake_onion_conn_write_frame(conn: *mut PancakeOnionConn, frame: *const PancakeFrame) -> c_int;
+	pub fn pancake_onion_conn_shutdown(conn: *mut PancakeOnionConn) -> c_int;
+	pub fn pancake_onion_conn_release(conn: *mut PancakeOnionConn) -> c_int;
 	pub fn pancake_onion_listener_shutdown(listener: *mut PancakeOnionListener);
-	pub fn pancake_onion_listener_release(listener: *mut PancakeOnionListener);
+	pub fn pancake_onion_listener_release(listener: *mut PancakeOnionListener) -> c_int;
 	pub fn pancake_onion_clear_last_error();
 	pub fn pancake_onion_netlayer_new_in(
 		context: *mut PancakeContext,

@@ -300,11 +300,17 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
     );
 
     const entries = [_]net.netlayer.Netlayer{endpoint.netlayer()};
-    var listener = try net.netlayer.resolve(&entries, iroh.transport_name).?.listen(allocator, .{
+    var listen_result = switch (net.netlayer.resolve(&entries, iroh.transport_name).?.listen(allocator, .{
         .designator = "",
-        .hints = model.Hints.emptyFalse(),
-    });
-    defer listener.close();
+    })) {
+        .admitted => |result| result,
+        .failed => |failure| return failure.cause,
+    };
+    var listener = switch (listen_result.requireReady()) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
+    defer std.debug.assert(listener.close() == null);
 
     var serving = try io.concurrent(serveGreeter, .{ listener, allocator, secret });
 

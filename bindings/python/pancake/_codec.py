@@ -179,7 +179,10 @@ def _arg_from_c(a: _Argument) -> Argument:
     if a.kind == _ARG_SET:
         return Set(_arg_from_c(a.items[i]) for i in range(a.items_len))
     if a.kind == _ARG_TAGGED:
-        return Tagged(_bytes_from_c(a).decode(errors="replace"), [_arg_from_c(a.items[i]) for i in range(a.items_len)])
+        return Tagged(
+            _bytes_from_c(a).decode(errors="replace"),
+            [_arg_from_c(a.items[i]) for i in range(a.items_len)],
+        )
     if a.kind == _ARG_KEYWORD:
         return Keyword(_bytes_from_c(a).decode(errors="replace"))
     if a.kind == _ARG_VOID:

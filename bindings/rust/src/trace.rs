@@ -21,8 +21,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use crate::abi_constants_gen::{
-	CAPTP_NEXT, CAPTP_V1_0, CODEC_CAPNP, CODEC_SYRUP, TRACE_MESSAGE, TRACE_SESSION_CLOSE,
-	TRACE_SESSION_OPEN,
+	CAPTP_NEXT, CAPTP_V1_0, CODEC_CAPNP, CODEC_SYRUP, TRACE_MESSAGE, TRACE_SESSION_CLOSE, TRACE_SESSION_OPEN,
 };
 use crate::session::DurableProvenance;
 use crate::sys::host as ffi;
@@ -118,7 +117,7 @@ const PAYLOAD_CAP: usize = 4096;
 ///
 /// Each of the four bindings states this word itself, because it is a claim
 /// about the binding tier rather than a fact the core or the C ABI carries, so
-/// there is no declaration to generate it from. `zig build meta-check`
+/// there is no declaration to generate it from. `zig build source-check`
 /// (`checkTraceViewerVocabulary`) holds all four against each other, against
 /// the viewer that reads them, and against the Goblins conformance publisher,
 /// which states a different word and must keep stating it.
@@ -141,11 +140,20 @@ pub struct SessionMeta {
 
 pub type TraceSink = Box<dyn Fn(&TraceEvent)>;
 
-fn emit_record(sink: Rc<dyn Fn(&TraceEvent)>, record: TraceEvent) {
+fn emit_record(context: &crate::ContextInner, diagnostic_id: u64, sink: Rc<dyn Fn(&TraceEvent)>, record: TraceEvent) {
 	// Trace observation must not become protocol control flow. In particular,
 	// Host-driving re-entry is refused by the C ABI, and a panic must never
 	// cross the C callback.
-	let _ = catch_unwind(AssertUnwindSafe(|| sink(&record)));
+	if let Err(payload) = catch_unwind(AssertUnwindSafe(|| sink(&record))) {
+		context.report_failure(
+			crate::FailureLayer::ApplicationObserver,
+			crate::FailureScope::Host,
+			diagnostic_id,
+			0,
+			"trace.sink",
+			&crate::Error::with_detail(crate::sys::ERR_INTERNAL, crate::panic_message(payload.as_ref())),
+		);
+	}
 }
 
 /// Annotate a session with application metadata — the SET half of the
@@ -161,11 +169,17 @@ pub fn annotate_session(session: &crate::Session, label: &str) {
 	if session_raw.is_null() {
 		return;
 	}
-	let Some((sink, cookie, sim_t_ns)) = STATE.with(|state| {
+	let Some((context, diagnostic_id, sink, cookie, sim_t_ns)) = STATE.with(|state| {
 		let state = state.borrow();
 		let sink = state.sink.clone()?;
 		let host = state.hosts.iter().find(|h| h.raw == host_raw)?;
-		Some((sink, host.cookie, state.t0.elapsed().as_nanos() as u64))
+		Some((
+			Rc::clone(&host.context),
+			host.diagnostic_id,
+			sink,
+			host.cookie,
+			state.t0.elapsed().as_nanos() as u64,
+		))
 	}) else {
 		return;
 	};
@@ -175,6 +189,8 @@ pub fn annotate_session(session: &crate::Session, label: &str) {
 		return;
 	}
 	emit_record(
+		&context,
+		diagnostic_id,
 		sink,
 		TraceEvent {
 			sim_t_ns,
@@ -210,6 +226,8 @@ struct TracedHost {
 	cookie: usize,
 	/// The host's own key designator, which is what a partner names it by.
 	designator: String,
+	context: Rc<crate::ContextInner>,
+	diagnostic_id: u64,
 }
 
 struct TraceState {
@@ -279,11 +297,7 @@ fn base64(bytes: &[u8]) -> String {
 	const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
 	for chunk in bytes.chunks(3) {
-		let b = [
-			chunk[0],
-			*chunk.get(1).unwrap_or(&0),
-			*chunk.get(2).unwrap_or(&0),
-		];
+		let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
 		let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
 		out.push(ALPHABET[(n >> 18) as usize & 63] as char);
 		out.push(ALPHABET[(n >> 12) as usize & 63] as char);
@@ -303,7 +317,7 @@ fn base64(bytes: &[u8]) -> String {
 
 unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::PancakeTraceEvent) {
 	let ev = unsafe { &*event };
-	let Some((sink, record)) = STATE.with(|state| {
+	let Some((context, diagnostic_id, sink, record)) = STATE.with(|state| {
 		let state = state.borrow();
 		let sink = state.sink.clone()?;
 		let sim_t_ns = state.t0.elapsed().as_nanos() as u64;
@@ -321,9 +335,7 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 					.map(|h| h.designator.clone()),
 				a_label: state.self_label.clone(),
 				a_profile: Some(SELF_PROFILE),
-				b: Some(
-					view(ev.designator, ev.designator_len).unwrap_or_else(|| String::from("peer")),
-				),
+				b: Some(view(ev.designator, ev.designator_len).unwrap_or_else(|| String::from("peer"))),
 				transport: view(ev.transport, ev.transport_len),
 				session_id: view(ev.session_id, ev.session_id_len),
 				codec: Some(codec_from_abi(ev.codec)),
@@ -410,11 +422,12 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 			},
 			_ => return None,
 		};
-		Some((sink, record))
+		let host = state.hosts.iter().find(|host| host.cookie == cookie)?;
+		Some((Rc::clone(&host.context), host.diagnostic_id, sink, record))
 	}) else {
 		return;
 	};
-	emit_record(sink, record);
+	emit_record(&context, diagnostic_id, sink, record);
 }
 
 /// Install the sink (replacing any prior one), start the clock, and register
@@ -434,11 +447,7 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 		state.sink = Some(Rc::from(sink));
 		state.self_label = self_label.map(str::to_string);
 		state.t0 = Instant::now();
-		let hosts = state
-			.hosts
-			.iter()
-			.map(|h| (h.raw, h.cookie))
-			.collect::<Vec<_>>();
+		let hosts = state.hosts.iter().map(|h| (h.raw, h.cookie)).collect::<Vec<_>>();
 		(state.generation, hosts)
 	});
 	for (raw, cookie) in hosts {
@@ -465,7 +474,12 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 /// Binding-internal: a Host reports its raw pointer and its own key
 /// designator at construction so an installed trace covers it, and a trace
 /// installed later finds it.
-pub(crate) fn attach_host(raw: *mut ffi::PancakeHost, designator: String) {
+pub(crate) fn attach_host(
+	raw: *mut ffi::PancakeHost,
+	designator: String,
+	context: Rc<crate::ContextInner>,
+	diagnostic_id: u64,
+) {
 	let install = STATE.with(|state| {
 		let mut state = state.borrow_mut();
 		let cookie = state.next_cookie;
@@ -474,6 +488,8 @@ pub(crate) fn attach_host(raw: *mut ffi::PancakeHost, designator: String) {
 			raw,
 			cookie,
 			designator,
+			context,
+			diagnostic_id,
 		});
 		state.sink.is_some().then_some(cookie)
 	});

@@ -157,9 +157,7 @@ function assertWorld(
   const wantedLabels = [...expectedLabels].sort();
   if (JSON.stringify(labels) !== JSON.stringify(wantedLabels)) {
     fail(
-      `expected peer labels ${JSON.stringify(wantedLabels)}, got ${
-        JSON.stringify(labels)
-      }`,
+      `expected peer labels ${JSON.stringify(wantedLabels)}, got ${JSON.stringify(labels)}`,
     );
   }
   if (actual.sessions.length !== expectedSessionSuffixes.length) {
@@ -171,9 +169,7 @@ function assertWorld(
   for (const suffix of expectedSessionSuffixes) {
     if (!actual.sessions.some((session) => session.endsWith(`/${suffix}`))) {
       fail(
-        `missing session observation ${suffix}: ${
-          JSON.stringify(actual.sessions)
-        }`,
+        `missing session observation ${suffix}: ${JSON.stringify(actual.sessions)}`,
       );
     }
   }
@@ -183,8 +179,7 @@ async function openPublisher(port: number): Promise<WebSocket> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/publish`);
   await new Promise<void>((resolve, reject) => {
     socket.onopen = () => resolve();
-    socket.onerror = () =>
-      reject(new Error("trace producer WebSocket did not open"));
+    socket.onerror = () => reject(new Error("trace producer WebSocket did not open"));
   });
   return socket;
 }
@@ -322,9 +317,7 @@ try {
   });
   page.on("requestfailed", (request) => {
     browserFailures.push(
-      `request failed: ${request.url()} (${
-        request.failure()?.errorText ?? "unknown"
-      })`,
+      `request failed: ${request.url()} (${request.failure()?.errorText ?? "unknown"})`,
     );
   });
   page.on("response", (response) => {
@@ -333,9 +326,7 @@ try {
     }
   });
 
-  const pageUrl = `http://127.0.0.1:${httpPort}/?live=${
-    encodeURIComponent(sturdyref)
-  }`;
+  const pageUrl = `http://127.0.0.1:${httpPort}/?live=${encodeURIComponent(sturdyref)}`;
   await page.goto(pageUrl, { waitUntil: "networkidle" });
   const canvas = page.locator("canvas#ocv-pixi");
   await canvas.waitFor({ state: "visible" });
@@ -380,11 +371,11 @@ try {
 
   const wasmInitialized = await page.evaluate(() =>
     (globalThis as Record<symbol, unknown>)[
-      Symbol.for("pancake.stack.adapter")
+      Symbol.for("pancake.runtime.adapter")
     ] !== undefined
   );
   if (!wasmInitialized) {
-    fail("the production tab never installed the wasm stack adapter");
+    fail("the production tab never installed the wasm runtime adapter");
   }
   if ((served.get("/pancake_host.wasm") ?? 0) < 1) {
     fail("the production tab never requested pancake_host.wasm");

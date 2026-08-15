@@ -71,9 +71,7 @@ export function intentLabel(intent: BuilderIntent): string {
     case "move-entity-span":
       return intent.move.kind === "translate" ? "Move span" : "Resize span";
     case "move-event":
-      return intent.move.kind === "resize-end"
-        ? "Adjust flight time"
-        : "Move event";
+      return intent.move.kind === "resize-end" ? "Adjust flight time" : "Move event";
     case "set-peer-end":
       return "Set peer end";
     case "set-peer-duration":
@@ -105,9 +103,7 @@ export function intentLabel(intent: BuilderIntent): string {
     case "set-session-keyframe":
       return `Change session ${SESSION_TRAJECTORY[intent.property].noun}`;
     case "remove-session-keyframe":
-      return `Remove session ${
-        SESSION_TRAJECTORY[intent.property].noun
-      } change`;
+      return `Remove session ${SESSION_TRAJECTORY[intent.property].noun} change`;
     case "set-session-initial-state":
       return "Change initial session state";
     case "update-session-endpoint": {

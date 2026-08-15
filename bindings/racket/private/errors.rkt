@@ -44,7 +44,8 @@
 ;; failure family, plus — when the failure was a refused inbound frame — an
 ;; `abort-info` naming the member (built by `abort-info<-c` below); `abort` is
 ;; #f everywhere else.
-(struct exn:fail:pancake exn:fail (code abort))
+(struct exn:fail:pancake exn:fail
+  (code abort secondary-code secondary-name secondary-count))
 
 ;; Raise a typed pancake failure for a non-OK `code`, reading the human-readable
 ;; cause through `read-error` (a thunk that returns the message string or #f).
@@ -60,7 +61,7 @@
             (if msg
                 (format "pancake error ~a: ~a" code msg)
                 (format "pancake error ~a" code))
-            (current-continuation-marks) code #f))))
+            (current-continuation-marks) code #f #f #f 0))))
 
 (define (check code) (check-with code last-error))
 
@@ -73,6 +74,37 @@
 ;; `check` for the pancake_host_* family: same typed exn, read from the host
 ;; archive's own last-error slot.
 (define (check/host code) (check-with code host-last-error))
+
+;; Preserve the first pancake failure while attaching the first later cleanup
+;; failure and its total count. Racket exceptions are immutable values, so the
+;; projection returns the equivalent enriched value rather than mutating it.
+(define (retain-cleanup-failure primary cleanup)
+  (cond
+    [(and (exn:fail:pancake? primary) (exn:fail:pancake? cleanup))
+     (struct-copy exn:fail:pancake primary
+                  [secondary-code
+                   (if (zero? (exn:fail:pancake-secondary-count primary))
+                       (exn:fail:pancake-code cleanup)
+                       (exn:fail:pancake-secondary-code primary))]
+                  [secondary-name
+                   (if (zero? (exn:fail:pancake-secondary-count primary))
+                       "PancakeError"
+                       (exn:fail:pancake-secondary-name primary))]
+                  [secondary-count
+                   (min #xffffffff
+                        (add1 (exn:fail:pancake-secondary-count primary)))])]
+    [else primary]))
+
+;; Project the core-issued FAIL result into the promise outcome vocabulary.
+;; No wrapper state participates: an unknown result is an ABI contract break,
+;; not evidence that the vow was merely broken.
+(define (vow-failure-outcome code reason)
+  (cond
+    [(= code ERR-BROKEN) (cons 'broken reason)]
+    [(= code ERR-CLOSED) (cons 'closed reason)]
+    [else
+     (raise-pancake 'host-action ERR-INTERNAL
+                    "core emitted invalid FAIL result ~a" code)]))
 
 ;; Project a filled `_PancakeLastAbort` cstruct into an `abort-info`, copying
 ;; each process-static C view into a Racket string so the result outlives any
@@ -90,10 +122,32 @@
    (and (not (zero? (PancakeLastAbort-has-kind out)))
         (str (PancakeLastAbort-kind-name out) (PancakeLastAbort-kind-name-len out)))
    (or (str (PancakeLastAbort-message out) (PancakeLastAbort-message-len out)) "")
-   (or (str (PancakeLastAbort-error-name out) (PancakeLastAbort-error-name-len out)) "")))
+   (or (str (PancakeLastAbort-error-name out) (PancakeLastAbort-error-name-len out)) "")
+   (str (PancakeLastAbort-abort-delivery-error-name out)
+        (PancakeLastAbort-abort-delivery-error-name-len out))
+   (str (PancakeLastAbort-secondary-error-name out)
+        (PancakeLastAbort-secondary-error-name-len out))
+   (PancakeLastAbort-secondary-error-count out)))
 
 ;; A typed application-level failure (a partner break, a fetch that did not
 ;; yield a capability): same exn family, no abort detail.
 (define (raise-pancake who code fmt . args)
   (raise (exn:fail:pancake (format "~a: ~a" who (apply format fmt args))
-                           (current-continuation-marks) code #f)))
+                           (current-continuation-marks) code #f #f #f 0)))
+
+(module+ test
+  (require rackunit)
+  (define primary
+    (exn:fail:pancake "primary" (current-continuation-marks)
+                      ERR-INVALID-ARGUMENT #f #f #f 0))
+  (define cleanup
+    (exn:fail:pancake "cleanup" (current-continuation-marks)
+                      ERR-IO #f #f #f 0))
+  (define retained (retain-cleanup-failure primary cleanup))
+  (check-equal? (exn-message retained) "primary")
+  (check-equal? (exn:fail:pancake-code retained) ERR-INVALID-ARGUMENT)
+  (check-equal? (exn:fail:pancake-secondary-code retained) ERR-IO)
+  (check-equal? (exn:fail:pancake-secondary-count retained) 1)
+  (define twice (retain-cleanup-failure retained primary))
+  (check-equal? (exn:fail:pancake-secondary-code twice) ERR-IO)
+  (check-equal? (exn:fail:pancake-secondary-count twice) 2))

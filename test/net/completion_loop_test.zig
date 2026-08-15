@@ -163,7 +163,7 @@ test "completion backend: a wake-channel nudge completes an armed recv" {
 
     const wake_user_data = 0xa11ce;
     try backend.submitRecv(wake_user_data, wake.read);
-    wake.nudge();
+    _ = try wake.nudge();
 
     var completions: [1]completion.Completion = undefined;
     const count = try backend.poll(&completions, 1_000);
@@ -212,7 +212,7 @@ test "completion backend: cancel retires an exact recv without closing its fd" {
     // still usable for a fresh recv.
     const rearm_ud = 0xc003;
     try backend.submitRecv(rearm_ud, wake.read);
-    wake.nudge();
+    _ = try wake.nudge();
     const count = try backend.poll(&completions, 1_000);
     try std.testing.expectEqual(@as(usize, 1), count);
     try std.testing.expectEqual(@as(u64, rearm_ud), completions[0].user_data);
@@ -251,7 +251,7 @@ fn fetchOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void 
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
@@ -383,7 +383,7 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
@@ -565,7 +565,7 @@ fn slamOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
@@ -633,6 +633,10 @@ const FakeEvent = enum { send_submitted, send_released, recv_armed };
 const FakeBackend = struct {
     pub const Fd = i32;
 
+    pub fn applyKeepalive(_: *FakeBackend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
+
     /// The inbound wire script, set by the test before `Loop.init`.
     var chunks: []const []const u8 = &.{};
     /// Test-only pressure injection for listener cancellation. Connection
@@ -641,6 +645,10 @@ const FakeBackend = struct {
     /// Report the canceled accept on the poll after the listener close. This
     /// pins that the Loop drains both operations independent of CQE ordering.
     var defer_listener_accept_cancel: bool = false;
+    /// Inject one typed listener failure before the ordinary scripted accept.
+    var first_accept_failure: ?anyerror = null;
+    /// Inject one typed send-submission refusal before the slow-reader script.
+    var first_send_submission_failure: ?anyerror = null;
 
     chunk_idx: usize = 0,
     pool_free: usize = 0,
@@ -712,6 +720,11 @@ const FakeBackend = struct {
 
     pub fn submitAccept(self: *FakeBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
+        if (first_accept_failure) |err| {
+            first_accept_failure = null;
+            self.push(.{ .user_data = user_data, .result = -1, .failure = err });
+            return;
+        }
         // One scripted connection; the loop's re-armed accept pends forever.
         if (self.accepted) {
             std.debug.assert(self.pending_accept_ud == null);
@@ -754,6 +767,10 @@ const FakeBackend = struct {
 
     pub fn submitSend(self: *FakeBackend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         _ = fd;
+        if (first_send_submission_failure) |err| {
+            first_send_submission_failure = null;
+            return err;
+        }
         self.record(.send_submitted);
         self.held_send = .{ .user_data = user_data, .len = bytes.len };
     }
@@ -810,6 +827,90 @@ const FakeBackend = struct {
     }
 };
 
+test "completion loop: accept completion preserves its typed failure" {
+    FakeBackend.chunks = &.{};
+    FakeBackend.first_accept_failure = error.TestAcceptFailure;
+    defer FakeBackend.first_accept_failure = null;
+
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(
+        std.testing.allocator,
+        makeServerPeer,
+        null,
+        .{ .max_conns = 1, .listen = 0 },
+    );
+    defer loop.deinit();
+
+    try std.testing.expectError(error.TestAcceptFailure, loop.run(.{ .after_closed = 1 }));
+    // The accept was re-armed before the failure reached the owner, so a caller
+    // that deliberately resumes the loop does not lose listener readiness.
+    try std.testing.expect(loop.accept_armed);
+}
+
+fn failMakePeer(_: ?*anyopaque, _: std.mem.Allocator) !engine.Peer {
+    return error.TestPeerCreateFailure;
+}
+
+test "completion loop surfaces accepted-peer construction failure" {
+    FakeBackend.chunks = &.{};
+
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(
+        std.testing.allocator,
+        failMakePeer,
+        null,
+        .{ .max_conns = 1, .listen = 0 },
+    );
+    defer loop.deinit();
+
+    try std.testing.expectError(error.TestPeerCreateFailure, loop.run(.{ .after_closed = 1 }));
+}
+
+const KeepaliveFailureWatch = struct {
+    var report: ?completion.CloseReport = null;
+
+    fn onClose(_: ?*anyopaque, _: usize, _: ?*anyopaque, close_report: completion.CloseReport) void {
+        report = close_report;
+    }
+};
+
+test "completion loop reports backend keepalive refusal before serving connection" {
+    FakeBackend.chunks = &.{};
+    KeepaliveFailureWatch.report = null;
+
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(std.testing.allocator, makeServerPeer, null, .{
+        .max_conns = 1,
+        .listen = 0,
+        .keepalive = .{ .idle_sec = 30, .interval_sec = 10, .count = 3 },
+        .on_close = KeepaliveFailureWatch.onClose,
+    });
+    defer loop.deinit();
+
+    try loop.run(.{ .after_closed = 1 });
+
+    const report = KeepaliveFailureWatch.report orelse return error.MissingCloseReport;
+    try std.testing.expect(report.opened);
+    try std.testing.expectEqual(completion.CloseReason.ordinary, report.reason);
+    try std.testing.expectEqualStrings("OperationUnsupported", report.failure.?.error_name);
+}
+
+test "completion loop reports a send submission failure through close" {
+    FakeBackend.chunks = &.{};
+    FakeBackend.first_send_submission_failure = error.TestSendSubmissionFailure;
+    defer FakeBackend.first_send_submission_failure = null;
+    KeepaliveFailureWatch.report = null;
+
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(std.testing.allocator, makeServerPeer, null, .{
+        .max_conns = 1,
+        .listen = 0,
+        .on_close = KeepaliveFailureWatch.onClose,
+    });
+    defer loop.deinit();
+
+    try loop.run(.{ .after_closed = 1 });
+
+    const report = KeepaliveFailureWatch.report orelse return error.MissingCloseReport;
+    try std.testing.expectEqualStrings("TestSendSubmissionFailure", report.failure.?.error_name);
+}
+
 test "completion loop: listener close retries instead of abandoning an armed accept" {
     const allocator = std.testing.allocator;
     FakeBackend.chunks = &.{};
@@ -823,10 +924,12 @@ test "completion loop: listener close retries instead of abandoning an armed acc
     defer loop.deinit();
 
     // `runUntil` arms the accept even when the stop flag is already set. The
-    // first close submit then fails under injected backend pressure; the drain
-    // must retain the listener and retry rather than calling `closeFd` directly.
+    // first close submit then fails under injected backend pressure. The drain
+    // reports that exact refusal while retaining the listener, and a retry
+    // completes without falling back to an unsafe descriptor-only close.
     var done = std.atomic.Value(bool).init(true);
     try loop.runUntil(&done, 0);
+    try std.testing.expectError(error.OutOfMemory, loop.closeAndDrain());
     try loop.closeAndDrain();
 
     try std.testing.expectEqual(@as(usize, 2), loop.backend.listener_close_attempts);
@@ -884,6 +987,10 @@ fn drainOutboundStreamBytes(peer: *engine.Peer, allocator: std.mem.Allocator, si
 /// must close the failing connection and keep serving the healthy one.
 const OneBadPartnerBackend = struct {
     pub const Fd = i32;
+
+    pub fn applyKeepalive(_: *OneBadPartnerBackend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
 
     const refused_fd: Fd = 100;
     const ok_fd: Fd = 200;
@@ -1196,6 +1303,10 @@ test "completion scratch pool refuses zero-sized buffers at its ownership bounda
 const ScriptBackend = struct {
     pub const Fd = i32;
 
+    pub fn applyKeepalive(_: *ScriptBackend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
+
     /// The per-connection inbound script (the same bytes for every
     /// connection), set by the test before `Loop.init`.
     var chunks: []const []const u8 = &.{};
@@ -1453,6 +1564,10 @@ test "completion loop: a frame split across two recv completions applies exactly
 /// could realloc the queue and free the storage this held slice points into.
 const HeldSendBackend = struct {
     pub const Fd = i32;
+
+    pub fn applyKeepalive(_: *HeldSendBackend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
 
     /// The inbound wire script, set by the test before `Loop.init`.
     var chunks: []const []const u8 = &.{};
@@ -1774,6 +1889,10 @@ test "completion loop: an incomplete prefix over one read buffer but under the p
 /// One connection accepts, its opening send lands, then the next recv errors.
 const DeadPeerBackend = struct {
     pub const Fd = i32;
+
+    pub fn applyKeepalive(_: *DeadPeerBackend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
     const ok_fd: Fd = 200;
     // -ECONNRESET on Linux: the shape a vanished-then-surfaced peer produces.
     const read_error: i64 = -104;
@@ -1836,7 +1955,11 @@ const DeadPeerBackend = struct {
     pub fn submitRecv(self: *DeadPeerBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         // The vanish surfaces: a read error, not a clean EOF (result 0).
-        self.push(.{ .user_data = user_data, .result = read_error });
+        self.push(.{
+            .user_data = user_data,
+            .result = read_error,
+            .failure = error.ConnectionResetByPeer,
+        });
     }
     pub fn submitCancel(self: *DeadPeerBackend, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
         _ = .{ target_user_data, fd };
@@ -1872,14 +1995,15 @@ const DeadPeerBackend = struct {
 const CloseWatch = struct {
     var fired: usize = 0;
     var opened: bool = false;
+    var failure_name: ?[]const u8 = null;
 };
-fn watchClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: completion.CloseReason) void {
+fn watchClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: completion.CloseReport) void {
     _ = ctx;
     _ = slot;
     _ = conn_ctx;
-    _ = reason;
     CloseWatch.fired += 1;
-    CloseWatch.opened = opened;
+    CloseWatch.opened = report.opened;
+    CloseWatch.failure_name = if (report.failure) |failure| failure.error_name else null;
 }
 
 test "completion loop: a dead peer's read error reclaims the slot and fires on_close under run (ADR-0081)" {
@@ -1887,6 +2011,7 @@ test "completion loop: a dead peer's read error reclaims the slot and fires on_c
 
     CloseWatch.fired = 0;
     CloseWatch.opened = false;
+    CloseWatch.failure_name = null;
 
     var loop = try completion.Loop(DeadPeerBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .max_conns = 4,
@@ -1905,6 +2030,7 @@ test "completion loop: a dead peer's read error reclaims the slot and fires on_c
     // The connection had accepted (transport-opened) before the read error, so
     // the close reports opened == true — a surfaced vanish, not a refused dial.
     try std.testing.expect(CloseWatch.opened);
+    try std.testing.expectEqualStrings("ConnectionResetByPeer", CloseWatch.failure_name.?);
 }
 
 /// Park-kill (ADR-0082): a connection that stays `.parked` past `park_kill_ms`
@@ -1914,13 +2040,12 @@ const ParkKillWatch = struct {
     var reason: completion.CloseReason = .ordinary;
 };
 
-fn watchParkKill(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: completion.CloseReason) void {
+fn watchParkKill(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: completion.CloseReport) void {
     _ = ctx;
     _ = slot;
     _ = conn_ctx;
-    _ = opened;
     ParkKillWatch.fired += 1;
-    ParkKillWatch.reason = reason;
+    ParkKillWatch.reason = report.reason;
 }
 
 test "completion loop: park past park_kill_ms reclaims with CloseReason.park_kill" {
@@ -1965,6 +2090,10 @@ test "completion loop: park past park_kill_ms reclaims with CloseReason.park_kil
 /// the source's read re-arms.
 const FanInBackend = struct {
     pub const Fd = i32;
+
+    pub fn applyKeepalive(_: *FanInBackend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
 
     const sink_fd: Fd = 10;
     const source_fd: Fd = 20;

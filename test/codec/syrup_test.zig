@@ -6,6 +6,33 @@ const syrup = pancake.ocapn.codec.syrup;
 const protocol_oracle = @import("../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../support/handoff_fixtures.zig");
 
+test "exact renderer contains measure-fill divergence" {
+    const DivergentWriter = struct {
+        fn overfill(sink: anytype, pass: *usize) !void {
+            pass.* += 1;
+            for (0..pass.*) |_| try sink.append('x');
+        }
+
+        fn underfill(sink: anytype, pass: *usize) !void {
+            pass.* += 1;
+            const count: usize = if (pass.* == 1) 2 else 1;
+            for (0..count) |_| try sink.append('x');
+        }
+    };
+
+    var overfill_pass: usize = 0;
+    try std.testing.expectError(
+        error.EncoderInvariantViolation,
+        syrup.encode.renderRecordExact(std.testing.allocator, DivergentWriter.overfill, .{&overfill_pass}),
+    );
+
+    var underfill_pass: usize = 0;
+    try std.testing.expectError(
+        error.EncoderInvariantViolation,
+        syrup.encode.renderRecordExact(std.testing.allocator, DivergentWriter.underfill, .{&underfill_pass}),
+    );
+}
+
 fn expectFixtureBytes(name: []const u8, frame: pancake.foundation.Frame) !void {
     const fixture = protocol_oracle.fixtureByName(name).?;
     try std.testing.expectEqualSlices(u8, fixture.bytes(), frame.bytes());

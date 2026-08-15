@@ -7,7 +7,6 @@
 
 const std = @import("std");
 
-const netlayer = @import("../netlayer.zig");
 const poll = @import("../poll.zig");
 const socket = @import("../socket.zig");
 const wake_channel = @import("../wake_channel.zig");
@@ -18,24 +17,28 @@ const Stream = std.Io.net.Stream;
 const Server = std.Io.net.Server;
 
 pub const Keepalive = socket.Keepalive;
+pub const ConfigurationError = socket.ConfigurationError;
+pub const WaitError = error{ ConnectionLost, WakeNudgeFailed, WakeDrainFailed };
+pub const AcceptError = WaitError || ConfigurationError;
 
 pub const StreamOptions = struct {
     keepalive: ?Keepalive = null,
 };
 
-fn configureStream(stream: Stream, options: StreamOptions) void {
-    std.posix.setsockopt(
+fn configureStream(stream: Stream, options: StreamOptions) ConfigurationError!void {
+    try std.posix.setsockopt(
         stream.socket.handle,
         std.posix.IPPROTO.TCP,
         std.posix.TCP.NODELAY,
         &std.mem.toBytes(@as(c_int, 1)),
-    ) catch {};
-    if (options.keepalive) |keepalive| socket.applyKeepalive(stream.socket.handle, keepalive);
+    );
+    if (options.keepalive) |keepalive| try socket.applyKeepalive(stream.socket.handle, keepalive);
 }
 
-pub fn connectStream(io: std.Io, address: IpAddress, options: StreamOptions) IpAddress.ConnectError!Stream {
+pub fn connectStream(io: std.Io, address: IpAddress, options: StreamOptions) (IpAddress.ConnectError || ConfigurationError)!Stream {
     const stream = try IpAddress.connect(&address, io, .{ .mode = .stream });
-    configureStream(stream, options);
+    errdefer stream.close(io);
+    try configureStream(stream, options);
     return stream;
 }
 
@@ -52,8 +55,8 @@ pub const Connection = struct {
         read_buf: []u8,
         write_buf: []u8,
         options: StreamOptions,
-    ) Connection {
-        configureStream(stream, options);
+    ) ConfigurationError!Connection {
+        try configureStream(stream, options);
         return .{
             .reader = stream.reader(io, read_buf),
             .writer = stream.writer(io, write_buf),
@@ -67,7 +70,7 @@ pub const Connection = struct {
         read_buf: []u8,
         write_buf: []u8,
         options: StreamOptions,
-    ) IpAddress.ConnectError!Connection {
+    ) (IpAddress.ConnectError || ConfigurationError)!Connection {
         const stream = try connectStream(io, address, options);
         return .{
             .reader = stream.reader(io, read_buf),
@@ -102,6 +105,7 @@ pub const Listener = struct {
     server: Server,
     io: std.Io,
     wake: wake_channel.WakeChannel,
+    wake_failure: wake_channel.FailureLatch = .{},
     operation_gate: std.Io.Mutex = .init,
     stopping: std.atomic.Value(bool) = .init(false),
 
@@ -123,19 +127,24 @@ pub const Listener = struct {
         return self.server.socket.handle;
     }
 
-    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) error{ConnectionLost}!bool {
+    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) WaitError!bool {
         self.operation_gate.lockUncancelable(self.io);
         defer self.operation_gate.unlock(self.io);
+        try self.wake_failure.check();
         if (self.stopping.load(.acquire)) return error.ConnectionLost;
         var fds = [_]std.posix.pollfd{
             .{ .fd = self.server.socket.handle, .events = std.posix.POLL.IN, .revents = 0 },
             .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
         };
         const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
+        try self.wake_failure.check();
         if (self.stopping.load(.acquire) or
             fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
         {
-            self.wake.drain();
+            self.wake.drain() catch |err| {
+                self.wake_failure.record(err);
+                return err;
+            };
             return error.ConnectionLost;
         }
         return ready != 0 and
@@ -147,32 +156,43 @@ pub const Listener = struct {
         read_buf: []u8,
         write_buf: []u8,
         options: StreamOptions,
-    ) netlayer.AcceptError!Connection {
+    ) AcceptError!Connection {
         self.operation_gate.lockUncancelable(self.io);
         defer self.operation_gate.unlock(self.io);
         const stream = try self.acceptStreamLocked();
-        return Connection.over(self.io, stream, read_buf, write_buf, options);
+        return Connection.over(self.io, stream, read_buf, write_buf, options) catch |err| {
+            stream.close(self.io);
+            return err;
+        };
     }
 
-    pub fn acceptStream(self: *Listener, options: StreamOptions) netlayer.AcceptError!Stream {
+    pub fn acceptStream(self: *Listener, options: StreamOptions) AcceptError!Stream {
         self.operation_gate.lockUncancelable(self.io);
         defer self.operation_gate.unlock(self.io);
         const stream = try self.acceptStreamLocked();
-        configureStream(stream, options);
+        configureStream(stream, options) catch |err| {
+            stream.close(self.io);
+            return err;
+        };
         return stream;
     }
 
-    fn acceptStreamLocked(self: *Listener) netlayer.AcceptError!Stream {
+    fn acceptStreamLocked(self: *Listener) WaitError!Stream {
+        try self.wake_failure.check();
         if (self.stopping.load(.acquire)) return error.ConnectionLost;
         var fds = [_]std.posix.pollfd{
             .{ .fd = self.server.socket.handle, .events = std.posix.POLL.IN, .revents = 0 },
             .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
         };
         const ready = poll.wait(&fds, -1) catch return error.ConnectionLost;
+        try self.wake_failure.check();
         if (ready == 0 or self.stopping.load(.acquire) or
             fds[1].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0)
         {
-            self.wake.drain();
+            self.wake.drain() catch |err| {
+                self.wake_failure.record(err);
+                return err;
+            };
             return error.ConnectionLost;
         }
         return self.server.accept(self.io) catch error.ConnectionLost;
@@ -180,7 +200,7 @@ pub const Listener = struct {
 
     pub fn shutdown(self: *Listener) void {
         self.stopping.store(true, .release);
-        self.wake.nudge();
+        _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
     }
 
     pub fn deinit(self: *Listener) void {

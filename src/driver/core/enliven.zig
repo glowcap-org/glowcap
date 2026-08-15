@@ -20,6 +20,7 @@ const engine = @import("engine");
 const actors = @import("actors");
 
 const host_mod = @import("host.zig");
+const host_action = @import("host_action.zig");
 const host_pump = @import("host_pump.zig");
 const vocab = @import("vocab.zig");
 const vows_mod = @import("vows.zig");
@@ -177,6 +178,18 @@ pub fn enliven(self: *Host, session: *HostSession, sturdyref: model.SturdyRef) !
     return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
 }
 
+/// Parse and enliven a session-scoped sturdyref URI under the negotiated
+/// profile owned by that session. Adapters pass bytes and never select the
+/// parser profile themselves.
+pub fn enlivenSessionUri(self: *Host, session: *HostSession, uri: []const u8) !u64 {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
+    const sturdyref = try model.uri.parseSturdyrefForProfile(self.allocator, session.captpVersion(), uri);
+    defer model.uri.freeSturdyref(self.allocator, sturdyref);
+    return self.enliven(session, sturdyref);
+}
+
 /// Select-or-dial enlivenment for a byte-fed embedder (ADR-0098 step 4):
 /// enliven `sturdyref` over a live dialed session to its peer, or stage a
 /// dial through the ordinary `dial` action and finish when the embedder
@@ -192,6 +205,7 @@ pub fn enliven(self: *Host, session: *HostSession, sturdyref: model.SturdyRef) !
 /// `enlivenWithPolicy`, native-only by construction.
 pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
     if (self.dialedSessionFor(sturdyref.peer.transport, sturdyref.peer.designator)) |session| {
         return (try enlivenWithPolicy(self, session, sturdyref, .checked)).vow_id;
     }
@@ -234,16 +248,39 @@ pub fn enlivenSelectOrDial(self: *Host, sturdyref: model.SturdyRef) !u64 {
     }
 }
 
+/// Parse and select-or-dial a sturdyref URI under this Host's preferred
+/// profile. The Host owns both the parser choice and enliven admission;
+/// adapters provide only the borrowed URI bytes.
+pub fn enlivenUri(self: *Host, uri: []const u8) !u64 {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    const sturdyref = try model.uri.parseSturdyrefForProfile(self.allocator, self.opts.captp_version, uri);
+    defer model.uri.freeSturdyref(self.allocator, sturdyref);
+    return self.enlivenSelectOrDial(sturdyref);
+}
+
 pub fn freeParkedEnliven(self: *Host, parked: PendingEnliven) void {
     model.uri.freeSturdyref(self.allocator, parked.sturdyref);
 }
 
-/// Settle a parked enliven's vow broken. The message must be host-owned
-/// by the action contract; a failed retain degrades to the empty reason
-/// rather than losing the settle (the slot was reserved at park).
-pub fn failParkedEnliven(self: *Host, parked: PendingEnliven, session_peer: ?engine.PeerId, reason: []const u8) void {
-    const owned = self.allocator.dupe(u8, reason) catch "";
-    self.actions.pushReserved(.{ .failed = .{ .peer_id = session_peer, .vow_id = parked.vow_id, .message = owned } });
+/// Settle a parked enliven's vow broken. The message must be host-owned by the
+/// action contract; a failed retain uses the action layer's static allocation
+/// diagnostic rather than losing either the settle or its reason category.
+pub fn failParkedEnliven(
+    self: *Host,
+    parked: PendingEnliven,
+    session_peer: ?engine.PeerId,
+    failure: host_action.VowFailure,
+    reason: []const u8,
+) void {
+    const retained = host_action.retainFailureMessage(self.allocator, reason);
+    self.actions.pushReserved(.{ .failed = .{
+        .peer_id = session_peer,
+        .vow_id = parked.vow_id,
+        .failure = failure,
+        .message = retained.bytes,
+        .message_owned = retained.owned,
+    } });
 }
 
 /// Run one parked enliven against the session its dial opened, settling
@@ -280,7 +317,7 @@ pub fn continueParkedEnliven(self: *Host, session: *HostSession, parked: Pending
             },
         }
     };
-    failParkedEnliven(self, parked, session.peer_id, @errorName(err));
+    failParkedEnliven(self, parked, session.peer_id, .broken, @errorName(err));
 }
 
 /// Continue every enliven parked on `ticket`: run each against the opened
@@ -299,8 +336,18 @@ pub fn settleParkedEnlivens(self: *Host, ticket: engine.Node.PendingId, opened: 
         if (opened) |session| {
             continueParkedEnliven(self, session, parked);
         } else {
-            failParkedEnliven(self, parked, null, fail_reason);
+            failParkedEnliven(self, parked, null, .broken, fail_reason);
         }
+        freeParkedEnliven(self, parked);
+    }
+}
+
+/// Cancel every select-or-dial operation that has not reached a session. Each
+/// pre-minted vow already reserved one completion seat, so cancellation cannot
+/// strand an outcome under allocator pressure.
+pub fn cancelParkedEnlivens(self: *Host, reason: []const u8) void {
+    while (self.pending_enlivens.pop()) |parked| {
+        failParkedEnliven(self, parked, null, .closed, reason);
         freeParkedEnliven(self, parked);
     }
 }
@@ -316,6 +363,8 @@ pub fn enlivenWithPolicy(
     policy: EnlivenPeerPolicy,
 ) !EnlivenStart {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
     const provenance = try matchSturdyrefPeer(self, session, sturdyref, policy);
     const swissnum = sturdyref.swissnum;
     const peer = session.served.port.peer;

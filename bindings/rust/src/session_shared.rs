@@ -14,8 +14,8 @@ use tokio::sync::Notify;
 use crate::host::{check_host, park_session_release, try_spawn_local, HostShared};
 use crate::sys::host as ffi;
 use crate::trampoline::{
-	ctx_free, current_turn_for, inside_turn, reclaim_refused_cell, trampoline, turn_spawn,
-	ActorCell, InternalBehavior, TurnOutcome,
+	ctx_free, current_turn_for, inside_turn, reclaim_refused_cell, trampoline, turn_spawn, ActorCell, InternalBehavior,
+	TurnOutcome,
 };
 use crate::{sys, Argument, Error, Ref, Result, SendArena};
 
@@ -97,6 +97,19 @@ pub(crate) struct SessionShared {
 	// close from a real fault.
 	pub(crate) closing: Cell<bool>,
 	pub(crate) released: Cell<bool>,
+	pub(crate) release_pending: Cell<bool>,
+	// Terminal result projected by the core-issued CLOSE action or native
+	// SESSION_CLOSED event before the session handle is released.
+	pub(crate) close_result: Cell<Option<i32>>,
+	// Exact non-clean wire termination projected by SESSION_CLOSED. This stays
+	// distinct from close_result: transport truth and close-driver status are
+	// different failure channels.
+	pub(crate) wire_failure: RefCell<Option<crate::Error>>,
+	// The one detached driver behind explicit close. The runtime owns a spawned
+	// task after its JoinHandle is dropped, but retaining the handle here makes
+	// the shared operation and its one-driver invariant explicit.
+	pub(crate) close_task: RefCell<Option<tokio::task::JoinHandle<()>>>,
+	pub(crate) owner_handles: Cell<usize>,
 	// Set when an outbound write was dropped part-way through a frame, which a
 	// caller does by cancelling: `tokio::time::timeout` around a send is
 	// enough. `write_all` is not cancellation-safe, so some prefix of the frame
@@ -110,15 +123,12 @@ pub(crate) struct SessionShared {
 	// Distributed GC (ADR-0063), opt-in and off by default.
 	pub(crate) gc: Cell<bool>,
 	// The auto-started serve task's handle; `Session::serve` takes it.
-	serving: Cell<Option<tokio::task::JoinHandle<()>>>,
+	serving: Cell<Option<tokio::task::JoinHandle<Result<()>>>>,
 }
 
 impl SessionShared {
-	pub(crate) fn new<S>(
-		ptr: *mut ffi::PancakeHostSession,
-		host: Rc<HostShared>,
-		stream: S,
-	) -> Rc<SessionShared>
+	#[cfg(any(test, feature = "iroh"))]
+	pub(crate) fn new<S>(ptr: *mut ffi::PancakeHostSession, host: Rc<HostShared>, stream: S) -> Rc<SessionShared>
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
@@ -132,6 +142,11 @@ impl SessionShared {
 			loop_wire: None,
 			closing: Cell::new(false),
 			released: Cell::new(false),
+			release_pending: Cell::new(false),
+			close_result: Cell::new(None),
+			wire_failure: RefCell::new(None),
+			close_task: RefCell::new(None),
+			owner_handles: Cell::new(0),
 			torn: Cell::new(false),
 			closed: Notify::new(),
 			gc: Cell::new(false),
@@ -162,6 +177,11 @@ impl SessionShared {
 			loop_wire: Some(loop_wire),
 			closing: Cell::new(false),
 			released: Cell::new(false),
+			release_pending: Cell::new(false),
+			close_result: Cell::new(None),
+			wire_failure: RefCell::new(None),
+			close_task: RefCell::new(None),
+			owner_handles: Cell::new(0),
 			torn: Cell::new(false),
 			closed: Notify::new(),
 			gc: Cell::new(false),
@@ -190,17 +210,26 @@ impl SessionShared {
 	}
 
 	pub(crate) fn guard_open(&self) -> Result<()> {
-		self.host.guard_open()?;
+		self.host.guard_handle()?;
 		if self.released.get() {
-			Err(Error::with_detail(
-				sys::ERR_CLOSED,
-				"connection closed".to_string(),
-			))
+			Err(Error::with_detail(sys::ERR_CLOSED, "connection closed".to_string()))
 		} else {
 			Ok(())
 		}
 	}
 
+	/// Resume loop-owned inbound once application setup is complete. A dialed
+	/// session reaches this from its first wire verb; an accepted session may
+	/// instead call `Session::serve` after publishing. Byte-fed sessions already
+	/// own their reader task, so this is a no-op for them.
+	pub(crate) fn attend_inbound(self: &Rc<Self>) -> Result<()> {
+		if let Some(loop_) = self.loop_wire.as_ref() {
+			loop_.serve_session(self.raw_session())?;
+		}
+		Ok(())
+	}
+
+	#[cfg(any(test, feature = "iroh"))]
 	pub(crate) fn session_open(&self) -> bool {
 		!self.host.closing()
 			&& !self.released.get()
@@ -225,14 +254,13 @@ impl SessionShared {
 				// the await cannot strand this task.
 				notified.as_mut().enable();
 				if shared.released.get() {
-					return;
+					return shared.terminal_result();
 				}
 				notified.await;
+				shared.terminal_result()
 			})
 		} else {
-			tokio::task::spawn_local(async move {
-				crate::pump::serve_loop(shared).await;
-			})
+			tokio::task::spawn_local(async move { crate::pump::serve_loop(shared).await })
 		};
 		self.serving.set(Some(handle));
 	}
@@ -256,26 +284,67 @@ impl SessionShared {
 		if self.released.get() {
 			return;
 		}
-		self.released.set(true);
-		self.host.unregister_session(self.key);
-		let ptr = self.ptr.replace(core::ptr::null_mut());
-		if !ptr.is_null() {
-			if inside_turn() {
-				park_session_release(ptr, Rc::clone(&self.host));
-			} else {
-				// The host routes to the owning release verb: the loop's own
-				// `pancake_driver_session_release` for a loop-minted session,
-				// `pancake_host_session_release` for a byte-fed one.
-				self.host.release_native_session(ptr);
+		if inside_turn() {
+			if !self.release_pending.replace(true) {
+				park_session_release(Rc::clone(self));
 			}
+			return;
+		}
+		if self.finish_native_release().is_err() && !self.release_pending.replace(true) {
+			park_session_release(Rc::clone(self));
+			self.host.schedule_kick_or_record();
 		}
 		// The release queued FAIL completions (and sibling withdraws may have
 		// failed closed): route them now.
-		self.host.schedule_kick();
+		self.host.schedule_kick_or_record();
+	}
+
+	pub(crate) fn finish_native_release(self: &Rc<SessionShared>) -> Result<()> {
+		if self.released.get() {
+			self.release_pending.set(false);
+			return Ok(());
+		}
+		let ptr = self.ptr.get();
+		if !ptr.is_null() {
+			self.host.release_native_session(ptr)?;
+		}
+		self.commit_native_release();
+		Ok(())
+	}
+
+	/// Commit wrapper retirement after its native owner has released either this
+	/// handle or the whole loop. No native call may follow this transition.
+	pub(crate) fn commit_native_release(&self) {
+		if self.released.replace(true) {
+			self.release_pending.set(false);
+			return;
+		}
+		self.release_pending.set(false);
+		self.host.unregister_session(self.key);
+		self.ptr.set(core::ptr::null_mut());
+		self.closed.notify_waiters();
+	}
+
+	pub(crate) fn record_close_result(&self, result: i32) {
+		self.close_result.set(Some(result));
+	}
+
+	pub(crate) fn record_wire_failure(&self, failure: crate::Error) {
+		let mut retained = self.wire_failure.borrow_mut();
+		if retained.is_none() {
+			*retained = Some(failure);
+		}
+	}
+
+	pub(crate) fn terminal_result(&self) -> crate::Result<()> {
+		if let Some(failure) = self.wire_failure.borrow().clone() {
+			return Err(failure);
+		}
+		crate::session::session_close_result(self.close_result.get().unwrap_or(sys::OK))
 	}
 
 	/// Take the serve task's handle (the `Session::serve` future awaits it).
-	pub(crate) fn take_serving(&self) -> Option<tokio::task::JoinHandle<()>> {
+	pub(crate) fn take_serving(&self) -> Option<tokio::task::JoinHandle<Result<()>>> {
 		self.serving.take()
 	}
 
@@ -288,10 +357,12 @@ impl SessionShared {
 		let turn = current_turn_for(self.host_key());
 		if turn.is_none() {
 			self.guard_open()?;
-			self.drain_gc();
+			self.drain_gc()?;
 		}
 		let cell = Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(behavior),
+			context: self.host.retained_context().expect("every Host owns a Context"),
+			diagnostic_id: self.host.diagnostic_id(),
 		}));
 		let id = match turn {
 			Some(turn) => turn_spawn(turn, cell)?,
@@ -307,16 +378,14 @@ impl SessionShared {
 					)
 				};
 				if rc != sys::OK {
-					unsafe { reclaim_refused_cell(rc, cell) };
-					return Err(check_host(rc).unwrap_err());
+					let primary = check_host(rc).unwrap_err();
+					let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
+					return Err(crate::retain_cleanup_failure(primary, cleanup));
 				}
 				reference.id
 			}
 		};
-		self.host
-			.hosted
-			.borrow_mut()
-			.insert(id, cell as *const ActorCell);
+		self.host.hosted.borrow_mut().insert(id, cell as *const ActorCell);
 		Ok(Ref::bare_id(id))
 	}
 
@@ -333,15 +402,13 @@ impl SessionShared {
 		}
 	}
 
-	pub(crate) fn publish_actor(
-		self: &Rc<SessionShared>,
-		name: &str,
-		behavior: InternalBehavior,
-	) -> Result<Ref> {
+	pub(crate) fn publish_actor(self: &Rc<SessionShared>, name: &str, behavior: InternalBehavior) -> Result<Ref> {
 		self.guard_open()?;
-		self.drain_gc();
+		self.drain_gc()?;
 		let cell = Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(behavior),
+			context: self.host.retained_context().expect("every Host owns a Context"),
+			diagnostic_id: self.host.diagnostic_id(),
 		}));
 		let mut reference = sys::PancakeReference { id: 0 };
 		let rc = unsafe {
@@ -356,8 +423,9 @@ impl SessionShared {
 			)
 		};
 		if rc != sys::OK {
-			unsafe { reclaim_refused_cell(rc, cell) };
-			return Err(check_host(rc).unwrap_err());
+			let primary = check_host(rc).unwrap_err();
+			let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
+			return Err(crate::retain_cleanup_failure(primary, cleanup));
 		}
 		self.host
 			.hosted
@@ -369,65 +437,46 @@ impl SessionShared {
 	// ── The verbs' shared plumbing ─────────────────────────────────────────────
 
 	// The local arm of `tell`: deferred to its own task so a behavior telling a
-	// self-hosted object never re-enters the running cell's borrow; the result
-	// is discarded (no answer), a far forward continues as a far tell, and a
-	// behavior error breaks nothing — there is no answer to break.
-	// Called with no `LocalSet` running (practically unreachable: every path to
-	// a live `Session` already required one), `try_spawn_local` swallows the
-	// spawn and the tell is lost, a tolerated loss for a fire-and-forget verb
-	// with no answer to strand.
-	pub(crate) fn tell_local(
-		self: &Rc<SessionShared>,
-		ref_id: u64,
-		verb: String,
-		args: Vec<Argument>,
-	) {
+	// self-hosted object never re-enters the running cell's borrow. Admission is
+	// synchronous and fallible; after admission, behavior/forward failures have
+	// no answer channel by the definition of tell.
+	pub(crate) fn tell_local(self: &Rc<SessionShared>, ref_id: u64, verb: String, args: Vec<Argument>) -> Result<()> {
 		let shared = Rc::clone(self);
-		let _ = try_spawn_local(async move {
+		if !try_spawn_local(async move {
 			if let Some(TurnOutcome::Forward { target, verb, args }) =
 				crate::trampoline::run_hosted(&shared, ref_id, &verb, &args)
 			{
-				let _ = shared.tell_wire(&target, &verb, &args);
+				if let Err(error) = shared.tell_wire(&target, &verb, &args) {
+					shared.host.record_background_failure(error);
+				}
 			}
-		});
+		}) {
+			return Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				"local tell requires a running LocalSet".to_string(),
+			));
+		}
+		Ok(())
 	}
 
-	pub(crate) fn tell_wire(
-		self: &Rc<SessionShared>,
-		target: &Ref,
-		verb: &str,
-		args: &[Argument],
-	) -> Result<()> {
+	pub(crate) fn tell_wire(self: &Rc<SessionShared>, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
+		self.attend_inbound()?;
 		let wire = target.to_sys()?;
 		let mut arena = SendArena::default();
 		let (args_ptr, args_len) = arena.build(args)?;
 		check_host(unsafe {
-			ffi::pancake_host_session_tell(
-				self.ptr.get(),
-				&wire,
-				verb.as_ptr(),
-				verb.len(),
-				args_ptr,
-				args_len,
-			)
+			ffi::pancake_host_session_tell(self.ptr.get(), &wire, verb.as_ptr(), verb.len(), args_ptr, args_len)
 		})?;
-		self.host.schedule_kick();
-		Ok(())
+		self.host.schedule_kick()
 	}
 
 	/// A self-hosted capability runs `tell_local`; everything else lowers through
 	/// the Host. Session keeps the CapTP verb.
-	pub(crate) fn tell(
-		self: &Rc<SessionShared>,
-		target: &Ref,
-		verb: &str,
-		args: &[Argument],
-	) -> Result<()> {
+	pub(crate) fn tell(self: &Rc<SessionShared>, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
 		self.guard_open()?;
-		self.drain_gc();
+		self.drain_gc()?;
 		if self.hosted_cell(target.id()).is_some() {
-			self.tell_local(target.id(), verb.to_string(), args.to_vec());
-			return Ok(());
+			return self.tell_local(target.id(), verb.to_string(), args.to_vec());
 		}
 		self.tell_wire(target, verb, args)
 	}
@@ -435,7 +484,7 @@ impl SessionShared {
 	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 
 	// Drain the parked GC releases — see [`crate::gc::drain`].
-	pub(crate) fn drain_gc(&self) {
-		crate::gc::drain(&self.host);
+	pub(crate) fn drain_gc(&self) -> Result<()> {
+		crate::gc::drain(&self.host)
 	}
 }

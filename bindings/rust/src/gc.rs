@@ -28,8 +28,8 @@ impl Drop for ImportGuard {
 	fn drop(&mut self) {
 		if self.armed.get() {
 			if let Some(host) = self.host.upgrade() {
-				host.gc_pending.borrow_mut().push(self.token);
-				host.schedule_kick();
+				host.gc_pending.borrow_mut().push_back(self.token);
+				host.schedule_kick_or_record();
 			}
 		}
 	}
@@ -37,20 +37,23 @@ impl Drop for ImportGuard {
 
 /// Drain the parked GC releases: one release delta per reclaimed token. The
 /// op:gc-exports flush rides the kick `ImportGuard::drop` scheduled when it
-/// parked the id, so the drain itself never kicks. Best-effort — a refused
-/// release strands a partner export reclaimed at teardown, never a fault.
-/// Called at the head of Host progress and whenever a finalizer schedules it.
-pub(crate) fn drain(host: &HostShared) {
+/// parked the id, so the drain itself never kicks. A token leaves the queue
+/// only after its native release commits. Called at the head of Host progress
+/// and whenever a finalizer schedules it.
+pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
+	if let Some(failure) = host.take_background_failure() {
+		return Err(failure);
+	}
 	if host.raw().is_null() {
-		return;
+		return Ok(());
 	}
-	let pending: Vec<u64> = std::mem::take(&mut *host.gc_pending.borrow_mut());
-	if pending.is_empty() {
-		return;
-	}
-	for token in pending {
+	loop {
+		let Some(token) = host.gc_pending.borrow().front().copied() else {
+			return Ok(());
+		};
 		let raw = crate::sys::PancakeReference { id: token };
-		let _ = unsafe { ffi::pancake_host_ref_release(host.raw(), &raw, 1) };
+		crate::host::check_host(unsafe { ffi::pancake_host_ref_release(host.raw(), &raw, 1) })?;
+		host.gc_pending.borrow_mut().pop_front();
 	}
 }
 
@@ -86,11 +89,31 @@ pub(crate) fn track_import(shared: &Rc<SessionShared>, reference: Ref) -> Ref {
 /// done with the capability rather than because a handle dropped.
 ///
 /// Lives here beside the finalizer path because both end in the same Host verb.
-pub(crate) fn release_ref(
-	host_raw: *mut crate::sys::host::PancakeHost,
-	id: u64,
-) -> crate::Result<()> {
+pub(crate) fn release_ref(host_raw: *mut crate::sys::host::PancakeHost, id: u64) -> crate::Result<()> {
 	let raw = crate::sys::PancakeReference { id };
 	let rc = unsafe { crate::sys::host::pancake_host_ref_release(host_raw, &raw, 1) };
 	crate::host::check_host(rc)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn refused_release_stays_queued_and_background_cause_surfaces_once() {
+		let owner = crate::Host::new_host();
+		let host = owner.shared();
+		host.gc_pending.borrow_mut().push_back(u64::MAX);
+
+		let refusal = drain(&host).expect_err("an unknown Host capability must be refused");
+		assert_eq!(host.gc_pending.borrow().front(), Some(&u64::MAX));
+
+		host.record_background_failure(refusal.clone());
+		assert_eq!(drain(&host).unwrap_err(), refusal);
+		assert_eq!(host.gc_pending.borrow().front(), Some(&u64::MAX));
+
+		let retry = drain(&host).expect_err("the retained token must be retried");
+		assert_eq!(retry, refusal);
+		assert_eq!(host.gc_pending.borrow().front(), Some(&u64::MAX));
+	}
 }

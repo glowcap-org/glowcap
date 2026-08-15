@@ -9,14 +9,18 @@ mod demo_run;
 #[path = "../../_demo/rust/tools_check.rs"]
 mod tools_check;
 
-use pancake::{connect, tcp_locator, Argument, Ref};
+use pancake::{tcp, Argument, ConnectOptions, Locator, Ref, Runtime, RuntimeConfig};
 
 fn cap(arg: &Argument) -> Result<Ref, String> {
 	Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())
 }
 
-async fn run(locator: &str, nick: &str) -> Result<(), String> {
-	let session = connect(locator, None, None)
+async fn run(locator: &Locator, nick: &str) -> Result<(), String> {
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| format!("runtime: {e:?}"))?;
+	let session = runtime
+		.connect(locator, ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
 	let tools = session
@@ -90,7 +94,7 @@ async fn main() {
 		eprintln!("usage: tools-agent <host> <port> <nick> (port must be a number)");
 		std::process::exit(2);
 	};
-	let locator = tcp_locator(&args[1], port);
+	let locator = tcp::locator(&args[1], port);
 	let nick = args[3].clone();
 
 	let result = demo_run::run_with_timeout(&nick, 15, run(&locator, &nick)).await;

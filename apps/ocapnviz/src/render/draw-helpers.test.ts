@@ -578,10 +578,8 @@ Deno.test("the two readings are chosen in one place", () => {
 const COLORS = themedColors("light");
 
 class ActivityRecorder implements ActivityCanvas {
-  readonly discs: { cx: number; cy: number; radius: number; color: number }[] =
-    [];
-  readonly halves: { cx: number; cy: number; radius: number; color: number }[] =
-    [];
+  readonly discs: { cx: number; cy: number; radius: number; color: number }[] = [];
+  readonly halves: { cx: number; cy: number; radius: number; color: number }[] = [];
   #circle: { cx: number; cy: number; radius: number } | null = null;
   #arc: { cx: number; cy: number; radius: number } | null = null;
   circle(cx: number, cy: number, radius: number) {
@@ -778,9 +776,7 @@ Deno.test("a pair of chips clears at every corridor angle", () => {
     const chips = laneChips(a, b, 2);
     assert(
       !chipsCollide(chips[0]!, chips[1]!),
-      `at ${deg}° the two chips landed at ${JSON.stringify(chips[0])} and ${
-        JSON.stringify(chips[1])
-      }`,
+      `at ${deg}° the two chips landed at ${JSON.stringify(chips[0])} and ${JSON.stringify(chips[1])}`,
     );
   }
 });
@@ -803,9 +799,9 @@ Deno.test("a bundle's chips separate whichever end its session listed first", ()
     for (let j = i + 1; j < chips.length; j++) {
       assert(
         !chipsCollide(chips[i]!, chips[j]!),
-        `lanes ${i} and ${j} collided once their sessions listed ends differently: ${
-          JSON.stringify(chips[i])
-        } and ${JSON.stringify(chips[j])}`,
+        `lanes ${i} and ${j} collided once their sessions listed ends differently: ${JSON.stringify(chips[i])} and ${
+          JSON.stringify(chips[j])
+        }`,
       );
     }
   }
@@ -869,15 +865,11 @@ Deno.test("the anchor and hover rings hold their screen inset too", () => {
     const outer = at(anchor, 0, "outer");
     const inner = at(anchor, 1, "inner");
     anchorInsets.add(
-      `${((outer.radius - inner.radius) * scale).toFixed(4)}|${
-        (inner.width * scale).toFixed(4)
-      }`,
+      `${((outer.radius - inner.radius) * scale).toFixed(4)}|${(inner.width * scale).toFixed(4)}`,
     );
     const hover = at(halo(radius, "none", true, scale).rings, 0, "hover");
     hoverInsets.add(
-      `${((outer.radius - hover.radius) * scale).toFixed(4)}|${
-        (hover.width * scale).toFixed(4)
-      }`,
+      `${((outer.radius - hover.radius) * scale).toFixed(4)}|${(hover.width * scale).toFixed(4)}`,
     );
   }
   assertEquals(

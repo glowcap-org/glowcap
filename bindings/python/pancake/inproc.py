@@ -35,13 +35,19 @@ import weakref
 from typing import Optional
 
 from ._codec import _codec_id
-from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK
+from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK, TRANSPORT_INPROC
 from ._errors import PancakeError
 from ._ffi_ocapn import _copy_managed_frame, _Frame, _ManagedFrame, _read_last_error, _str_buf
 from ._ffi_inproc import _inproc_lib
-from ._native import NativeHandle
+from ._native import NativeHandle, _NativeHandleOwner
+from ._locator import Locator
 
-__all__ = ["InprocNetlayer", "InprocListener", "InprocConnection"]
+__all__ = ["InprocNetlayer", "InprocListener", "InprocConnection", "locator"]
+
+
+def locator(designator: str) -> Locator:
+    """Build a hint-free locator for an in-process switchboard name."""
+    return Locator(TRANSPORT_INPROC, designator, {}, "boolean-false")
 
 
 def _inproc_last_error() -> Optional[str]:
@@ -65,14 +71,14 @@ def _release_conn(raw) -> None:
 
 
 def _release_listener(raw) -> None:
-    _inproc_lib.pancake_inproc_listener_release(raw)
+    _check_inproc(_inproc_lib.pancake_inproc_listener_release(raw))
 
 
 def _release_netlayer(raw) -> None:
     _inproc_lib.pancake_inproc_netlayer_release(raw)
 
 
-class InprocConnection:
+class InprocConnection(_NativeHandleOwner):
     """One in-process connection carrying one OCapN session, framed on the
     netlayer's codec, the socket-free sibling of :class:`pancake.tcp.TcpConnection`.
     Closed on release / context exit."""
@@ -120,7 +126,7 @@ class InprocConnection:
             )
 
 
-class InprocListener:
+class InprocListener(_NativeHandleOwner):
     """A bound in-process listener on a string designator. Closed on release /
     context exit."""
 
@@ -174,7 +180,7 @@ class InprocListener:
         return out.value
 
 
-class InprocNetlayer:
+class InprocNetlayer(_NativeHandleOwner):
     """Owns the in-process switchboard and its one I/O backend; outlives the
     connections and listeners made from it. Released on :meth:`release` / context
     exit."""

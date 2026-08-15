@@ -8,7 +8,7 @@
 //! dialer/listener here.
 //!
 //! The frame unit is identical to TCP's — one codec-self-delimited CapTP
-//! message. Byte-fed iroh channels use [`IrohStream`], whose private
+//! message. Byte-fed iroh channels use [`Stream`], whose private
 //! `IrohLoop` owns the sidecar readiness choreography for dial and explicit
 //! Host-sharing paths. The default listener registers the same endpoint as a
 //! resident with `driver_loop`; its generic listener lifecycle owns accept,
@@ -30,12 +30,46 @@ use tokio::task::JoinHandle;
 
 use crate::abi_constants::{DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS};
 use crate::sys::iroh as ffi;
-use crate::{sys, Error, Host, Reachability, Result, Session};
+use crate::{sys, Error, HintValue, HintWireForm, Host, Locator, Result, Session};
+
+pub use crate::ListenerIdentity;
+
+/// How an iroh endpoint becomes reachable. There is no default: enabling
+/// relays or discovery is a transport-package decision the caller makes in
+/// [`Config`].
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Reachability {
+	Direct = crate::abi_constants::IROH_REACH_DIRECT,
+	Discovery = crate::abi_constants::IROH_REACH_DISCOVERY,
+	DiscoveryNoRelay = crate::abi_constants::IROH_REACH_DISCOVERY_NO_RELAY,
+	LocalDiscovery = crate::abi_constants::IROH_REACH_LOCAL_DISCOVERY,
+}
+
+/// Build an iroh locator, optionally carrying direct socket addresses.
+pub fn locator(node_id: &str, direct_addresses: Option<&str>) -> Locator {
+	let mut hints = std::collections::BTreeMap::new();
+	if let Some(addresses) = direct_addresses {
+		hints.insert(
+			crate::HINT_DIRECT_ADDRESSES.to_string(),
+			HintValue::String(addresses.to_string()),
+		);
+	}
+	Locator {
+		transport: crate::TRANSPORT_IROH.to_string(),
+		designator: node_id.to_string(),
+		hints,
+		hint_wire_form: if direct_addresses.is_some() {
+			HintWireForm::Map
+		} else {
+			HintWireForm::BooleanFalse
+		},
+	}
+}
 
 use ffi::{
-	PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent, PANCAKE_IROH_EV_ACCEPT,
-	PANCAKE_IROH_EV_CLOSED, PANCAKE_IROH_EV_CONNECT, PANCAKE_IROH_EV_READABLE,
-	PANCAKE_IROH_EV_WRITABLE,
+	PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent, PANCAKE_IROH_EV_ACCEPT, PANCAKE_IROH_EV_CLOSED,
+	PANCAKE_IROH_EV_CONNECT, PANCAKE_IROH_EV_READABLE, PANCAKE_IROH_EV_WRITABLE,
 };
 
 // How many readiness records one `drain_ready` call pulls. When the fd signals,
@@ -58,7 +92,36 @@ const RELEASE_RESERVED: u8 = 1;
 const RELEASE_RUNNING: u8 = 2;
 const RELEASE_DONE: u8 = 3;
 
-type ReleaseFn = unsafe fn(usize);
+type ReleaseFn = unsafe fn(usize) -> i32;
+
+/// No iroh mutex protects an application invariant: critical sections only
+/// move owned task handles, readiness flags, wakers, and channel endpoints.
+/// If a panic poisons one, the contained values remain valid. Recover the
+/// guard, clear the sticky poison bit, and publish the containment event rather
+/// than turning every later library call into another process panic.
+fn lock_iroh<'a, T>(mutex: &'a Mutex<T>, source: &'static str) -> std::sync::MutexGuard<'a, T> {
+	recover_iroh_lock(mutex, mutex.lock(), source)
+}
+
+fn recover_iroh_lock<'a, T>(
+	mutex: &'a Mutex<T>,
+	result: std::sync::LockResult<std::sync::MutexGuard<'a, T>>,
+	source: &'static str,
+) -> std::sync::MutexGuard<'a, T> {
+	match result {
+		Ok(guard) => guard,
+		Err(poisoned) => {
+			let guard = poisoned.into_inner();
+			mutex.clear_poison();
+			crate::record_runtime_failure(
+				crate::FailureLayer::Transport,
+				source,
+				Error::with_detail(sys::ERR_INTERNAL, "iroh synchronization state was poisoned".to_string()),
+			);
+			guard
+		}
+	}
+}
 
 // A release task is retained until its blocking call has completed. The
 // reserved/running split lets a last-resort Drop fallback claim a queued task
@@ -69,6 +132,7 @@ struct NetlayerRelease {
 	task: Mutex<Option<JoinHandle<()>>>,
 	notify: Notify,
 	close_lock: tokio::sync::Mutex<()>,
+	failure: Mutex<Option<Error>>,
 }
 
 impl NetlayerRelease {
@@ -78,21 +142,17 @@ impl NetlayerRelease {
 			task: Mutex::new(None),
 			notify: Notify::new(),
 			close_lock: tokio::sync::Mutex::new(()),
+			failure: Mutex::new(None),
 		}
 	}
 
 	fn start(self: &Arc<NetlayerRelease>, raw: usize, release: ReleaseFn) {
 		// Store the JoinHandle before a waiter can take it, even if the blocking
 		// task runs to completion immediately.
-		let mut task_slot = self.task.lock().unwrap();
+		let mut task_slot = lock_iroh(&self.task, "iroh-release-task-lock-poison");
 		if self
 			.phase
-			.compare_exchange(
-				RELEASE_OPEN,
-				RELEASE_RESERVED,
-				Ordering::AcqRel,
-				Ordering::Acquire,
-			)
+			.compare_exchange(RELEASE_OPEN, RELEASE_RESERVED, Ordering::AcqRel, Ordering::Acquire)
 			.is_err()
 		{
 			return;
@@ -101,15 +161,12 @@ impl NetlayerRelease {
 		let task = tokio::task::spawn_blocking(move || {
 			if state
 				.phase
-				.compare_exchange(
-					RELEASE_RESERVED,
-					RELEASE_RUNNING,
-					Ordering::AcqRel,
-					Ordering::Acquire,
-				)
+				.compare_exchange(RELEASE_RESERVED, RELEASE_RUNNING, Ordering::AcqRel, Ordering::Acquire)
 				.is_ok()
 			{
-				unsafe { release(raw) };
+				if let Err(error) = check_iroh(unsafe { release(raw) }) {
+					*lock_iroh(&state.failure, "iroh-release-failure-lock-poison") = Some(error);
+				}
 				state.phase.store(RELEASE_DONE, Ordering::Release);
 				state.notify.notify_waiters();
 			}
@@ -121,14 +178,16 @@ impl NetlayerRelease {
 		// Join first when this owner retained the task. A panic or runtime
 		// cancellation must surface as an error instead of leaving every waiter
 		// asleep forever waiting for a DONE store the task never performed.
-		let task = self.task.lock().unwrap().take();
+		let task = lock_iroh(&self.task, "iroh-release-task-lock-poison").take();
 		if let Some(task) = task {
-			task.await
-				.map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
+			task.await.map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
 		}
 		loop {
 			if self.phase.load(Ordering::Acquire) == RELEASE_DONE {
-				return Ok(());
+				return match lock_iroh(&self.failure, "iroh-release-failure-lock-poison").clone() {
+					Some(error) => Err(error),
+					None => Ok(()),
+				};
 			}
 			let notified = self.notify.notified();
 			if self.phase.load(Ordering::Acquire) == RELEASE_DONE {
@@ -149,7 +208,10 @@ impl NetlayerRelease {
 				.compare_exchange(phase, RELEASE_RUNNING, Ordering::AcqRel, Ordering::Acquire)
 				.is_ok()
 			{
-				unsafe { release(raw) };
+				if let Err(error) = check_iroh(unsafe { release(raw) }) {
+					*lock_iroh(&self.failure, "iroh-release-failure-lock-poison") = Some(error.clone());
+					crate::record_runtime_failure(crate::FailureLayer::Transport, "iroh-netlayer-finalize", error);
+				}
 				self.phase.store(RELEASE_DONE, Ordering::Release);
 				self.notify.notify_waiters();
 				return;
@@ -158,12 +220,12 @@ impl NetlayerRelease {
 	}
 }
 
-unsafe fn release_native(raw: usize) {
-	ffi::pancake_iroh_netlayer_release(raw as *mut PancakeIrohNetlayer);
+unsafe fn release_native(raw: usize) -> i32 {
+	ffi::pancake_iroh_netlayer_release(raw as *mut PancakeIrohNetlayer)
 }
 
 // The raw netlayer handle is shared (behind an `Arc`) between the public
-// `IrohNetlayer`/`IrohServer` and the readiness loop's dispatcher task. Explicit
+// `Netlayer`/`Server` and the readiness loop's dispatcher task. Explicit
 // owners join that task before consuming the handle and awaiting release. Drop
 // is only a last-resort fallback for cancellation/runtime shutdown; it releases
 // synchronously after claiming the same state, never racing a queued release.
@@ -206,18 +268,25 @@ impl Drop for NetlayerRaw {
 /// live session as presence, because it is what ends a connection whose peer
 /// was killed rather than closed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct IrohConfig {
+pub struct Config {
 	pub reachability: Reachability,
 	pub connect_timeout_ms: Option<u64>,
 	pub idle_timeout_ms: Option<u64>,
 	pub worker_threads: Option<u32>,
 }
 
-impl IrohConfig {
+/// Listener construction options. See [`ListenerIdentity`] for the difference
+/// between restoring an identity and sharing an existing Host.
+#[derive(Clone, Default)]
+pub struct ListenOptions {
+	pub identity: ListenerIdentity,
+}
+
+impl Config {
 	/// A configuration with only the mandatory posture set, every timeout left
 	/// to the transport.
-	pub fn new(reachability: Reachability) -> IrohConfig {
-		IrohConfig {
+	pub fn new(reachability: Reachability) -> Config {
+		Config {
 			reachability,
 			connect_timeout_ms: None,
 			idle_timeout_ms: None,
@@ -228,19 +297,19 @@ impl IrohConfig {
 	/// How long a connection may go with nothing arriving on it before it is
 	/// declared dead. See the type's own documentation for why this is the knob
 	/// a presence-shaped application sets.
-	pub fn with_idle_timeout_ms(mut self, ms: u64) -> IrohConfig {
+	pub fn with_idle_timeout_ms(mut self, ms: u64) -> Config {
 		self.idle_timeout_ms = Some(ms);
 		self
 	}
 
 	/// How long establishing a connection may take before it is abandoned.
-	pub fn with_connect_timeout_ms(mut self, ms: u64) -> IrohConfig {
+	pub fn with_connect_timeout_ms(mut self, ms: u64) -> Config {
 		self.connect_timeout_ms = Some(ms);
 		self
 	}
 
 	/// Worker threads for this endpoint's runtime.
-	pub fn with_worker_threads(mut self, threads: u32) -> IrohConfig {
+	pub fn with_worker_threads(mut self, threads: u32) -> Config {
 		self.worker_threads = Some(threads);
 		self
 	}
@@ -248,31 +317,13 @@ impl IrohConfig {
 
 /// A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
 /// sibling of the TCP `Netlayer`. Dial with
-/// [`IrohNetlayer::connect_owned`] or host with [`IrohServer`]. Call
-/// [`IrohNetlayer::release`] after every connection minted from it is released;
+/// [`Netlayer::connect_owned`] or host with [`Server`]. Call
+/// [`Netlayer::release`] after every connection minted from it is released;
 /// Drop is only the last-resort fallback.
 #[derive(Clone)]
-pub struct IrohNetlayer {
+pub struct Netlayer {
 	raw: Arc<NetlayerRaw>,
 	reachability: Reachability,
-}
-
-// The driver owns the native callback context through its provider lease. The
-// binding keeps only immutable facts needed to reject conflicting reuse and to
-// publish the endpoint designator; it does not retain an endpoint owner here.
-pub(crate) struct IrohLoopState {
-	config: IrohConfig,
-	node_id: String,
-}
-
-impl IrohLoopState {
-	pub(crate) fn config(&self) -> IrohConfig {
-		self.config
-	}
-
-	pub(crate) fn node_id(&self) -> &str {
-		&self.node_id
-	}
 }
 
 // Shuts a freshly-started loop down if the `connect_owned` future is dropped
@@ -280,7 +331,7 @@ impl IrohLoopState {
 // `IrohLoop` has no `Drop`, so a cancelled dial would otherwise leak the endpoint
 // (a live QUIC socket), the duped readiness fd, and the parked dispatcher task
 // through the task's retained `Arc<IrohLoop>`. Disarmed the instant the dial
-// succeeds and the loop moves into the returned `IrohStream` (whose `Drop` then
+// succeeds and the loop moves into the returned `Stream` (whose `Drop` then
 // owns the shutdown). Holds its own `Arc` clone so the loop can still move into
 // the stream while the guard lives out the enclosing scope.
 struct LoopGuard {
@@ -312,15 +363,17 @@ impl Drop for LoopGuard {
 	}
 }
 
-impl IrohNetlayer {
+impl Netlayer {
 	/// Bind an iroh endpoint with a fresh random Ed25519 key and the caller's
 	/// chosen [`Reachability`], the mandatory posture deciding whether the
 	/// endpoint uses relays or a discovery service. There is no default. Binds
 	/// the endpoint and arms its readiness loop.
-	pub async fn new(config: IrohConfig) -> Result<IrohNetlayer> {
+	pub async fn new(config: Config) -> Result<Netlayer> {
 		let mut seed = [0u8; 32];
-		getrandom::fill(&mut seed).expect("the OS RNG provides an iroh endpoint seed");
-		IrohNetlayer::from_seed(config, seed).await
+		getrandom::fill(&mut seed).map_err(|error| {
+			Error::with_detail(sys::ERR_IO, format!("drawing the iroh endpoint seed failed: {error}"))
+		})?;
+		Netlayer::from_seed(config, seed).await
 	}
 
 	/// Bind an iroh endpoint whose Ed25519 identity is reconstructed from
@@ -328,13 +381,13 @@ impl IrohNetlayer {
 	/// designator and endpoint id stay one value (ADR-0075). CapTP session
 	/// signing keys still come from the Host's fresh session-key root
 	/// (ADR-0097).
-	pub async fn from_seed(config: IrohConfig, seed: [u8; 32]) -> Result<IrohNetlayer> {
-		tokio::task::spawn_blocking(move || IrohNetlayer::from_seed_blocking(config, &seed))
+	pub async fn from_seed(config: Config, seed: [u8; 32]) -> Result<Netlayer> {
+		tokio::task::spawn_blocking(move || Netlayer::from_seed_blocking(config, &seed))
 			.await
 			.map_err(|_| Error::from_code(sys::ERR_INTERNAL))?
 	}
 
-	fn from_seed_blocking(config: IrohConfig, seed: &[u8; 32]) -> Result<IrohNetlayer> {
+	fn from_seed_blocking(config: Config, seed: &[u8; 32]) -> Result<Netlayer> {
 		let mut raw: *mut PancakeIrohNetlayer = core::ptr::null_mut();
 		// `..Default::default()` zero-fills the rest, and 0 is the built-in
 		// default for every timeout — the header's zero-init contract.
@@ -344,10 +397,8 @@ impl IrohNetlayer {
 			idle_timeout_ms: config.idle_timeout_ms.unwrap_or(0),
 			worker_threads: config.worker_threads.unwrap_or(0),
 		};
-		check_iroh(unsafe {
-			ffi::pancake_iroh_netlayer_new(seed.as_ptr(), seed.len(), &raw_config, &mut raw)
-		})?;
-		Ok(IrohNetlayer {
+		check_iroh(unsafe { ffi::pancake_iroh_netlayer_new(seed.as_ptr(), seed.len(), &raw_config, &mut raw) })?;
+		Ok(Netlayer {
 			raw: Arc::new(NetlayerRaw {
 				raw,
 				release: Arc::new(NetlayerRelease::new()),
@@ -361,18 +412,15 @@ impl IrohNetlayer {
 	pub fn node_id(&self) -> Result<String> {
 		let mut buf = [0u8; 64];
 		let mut len: usize = 0;
-		check_iroh(unsafe {
-			ffi::pancake_iroh_netlayer_node_id(self.raw.raw, buf.as_mut_ptr(), buf.len(), &mut len)
-		})?;
+		check_iroh(unsafe { ffi::pancake_iroh_netlayer_node_id(self.raw.raw, buf.as_mut_ptr(), buf.len(), &mut len) })?;
 		Ok(String::from_utf8_lossy(&buf[..len]).into_owned())
 	}
 
 	/// Return this endpoint's archive-owned provider package.
-	pub fn transport_provider(&self) -> Result<crate::driver_loop::TransportProvider<'_>> {
-		let mut package: crate::sys::driver::PancakeTransportProvider =
-			unsafe { core::mem::zeroed() };
+	pub fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
+		let mut package: crate::sys::driver::PancakeTransportProvider = unsafe { core::mem::zeroed() };
 		check_iroh(unsafe { ffi::pancake_iroh_transport_provider(self.raw.raw, &mut package) })?;
-		Ok(crate::driver_loop::TransportProvider {
+		Ok(crate::driver_loop::ProviderPackage {
 			package,
 			_owner: core::marker::PhantomData,
 		})
@@ -410,11 +458,12 @@ impl IrohNetlayer {
 			return self.raw.release.wait().await;
 		}
 		let close_result = self.close().await;
-		self.raw
-			.release
-			.start(self.raw.raw as usize, release_native);
+		self.raw.release.start(self.raw.raw as usize, release_native);
 		let release_result = self.raw.release.wait().await;
-		close_result.and(release_result)
+		match close_result {
+			Ok(()) => release_result,
+			Err(primary) => Err(crate::retain_cleanup_failure(primary, release_result)),
+		}
 	}
 
 	/// Dial a partner by endpoint id and direct-address hints over the
@@ -422,7 +471,7 @@ impl IrohNetlayer {
 	/// carries the OCapN session. Dial establishment and frame I/O are both
 	/// driven by the stream's readiness loop. The returned stream owns this netlayer's
 	/// lifetime (an ephemeral dialing endpoint released with the connection).
-	pub async fn connect_owned(self, node_id: &str, direct_addresses: &str) -> Result<IrohStream> {
+	pub async fn connect_owned(self, node_id: &str, direct_addresses: &str) -> Result<Stream> {
 		let iloop = IrohLoop::start(Arc::clone(&self.raw))?;
 		// If this future is dropped (cancelled) while the dial is awaiting, the
 		// guard's `Drop` shuts the loop down so the dispatcher task releases its
@@ -453,12 +502,7 @@ impl IrohNetlayer {
 		// whose `Drop` now owns the shutdown, so disarm the cancel guard.
 		guard.armed = false;
 		iloop.register(conn);
-		Ok(IrohStream::new(
-			conn as *mut PancakeIrohConn,
-			iloop,
-			Some(self),
-			true,
-		))
+		Ok(Stream::new(conn as *mut PancakeIrohConn, iloop, Some(self), true))
 	}
 }
 
@@ -469,9 +513,7 @@ fn direct_addresses(raw: *mut PancakeIrohNetlayer) -> Result<String> {
 	loop {
 		let mut buf = vec![0u8; cap];
 		let mut len: usize = 0;
-		let code = unsafe {
-			ffi::pancake_iroh_netlayer_direct_addrs(raw, buf.as_mut_ptr(), buf.len(), &mut len)
-		};
+		let code = unsafe { ffi::pancake_iroh_netlayer_direct_addrs(raw, buf.as_mut_ptr(), buf.len(), &mut len) };
 		if code == sys::ERR_BUFFER_TOO_SMALL && cap < 64 * 1024 {
 			cap *= 4;
 			continue;
@@ -487,86 +529,81 @@ fn direct_addresses(raw: *mut PancakeIrohNetlayer) -> Result<String> {
 pub(crate) async fn ensure_loop_provider(
 	host: &Rc<crate::host::HostShared>,
 	lp: &Rc<crate::driver_loop::LoopShared>,
-	config: IrohConfig,
+	config: Config,
 ) -> Result<String> {
-	host.guard_open()?;
-	if let Some(bound) = host.iroh_state_config() {
-		if bound != config {
-			return Err(Error::with_detail(
-				sys::ERR_INVALID_ARGUMENT,
-				"the Host already has an iroh endpoint with incompatible configuration".to_string(),
-			));
-		}
-		return host
-			.iroh_state_node_id()
-			.ok_or_else(|| Error::from_code(sys::ERR_INTERNAL));
-	}
-
-	let netlayer = IrohNetlayer::from_seed(config, host.durable_seed()).await?;
+	host.guard_handle()?;
+	let netlayer = Netlayer::from_seed(config, host.durable_seed()).await?;
 	let node_id = netlayer.node_id()?;
 	lp.add_provider(netlayer.transport_provider()?)?;
-	host.install_iroh_state(IrohLoopState {
-		config,
-		node_id: node_id.clone(),
-	});
 	Ok(node_id)
 }
 
-pub(crate) fn reachability_from_plan(reach_kind: u32, reach_value: u32) -> Reachability {
-	if reach_kind == sys::DIAL_REACH_DIRECT {
-		return Reachability::Direct;
-	}
-	match reach_value {
-		v if v == Reachability::Direct as u32 => Reachability::Direct,
-		v if v == Reachability::Discovery as u32 => Reachability::Discovery,
-		v if v == Reachability::DiscoveryNoRelay as u32 => Reachability::DiscoveryNoRelay,
-		v if v == Reachability::LocalDiscovery as u32 => Reachability::LocalDiscovery,
-		_ => unreachable!("EXPLICIT reach_value is a Reachability discriminant"),
-	}
+/// Configure an iroh endpoint package for a generic [`crate::Runtime::connect`]
+/// operation. Reachability belongs to this provider configuration, not to the
+/// transport-neutral connection options.
+pub fn provider(config: Config) -> crate::driver_loop::Provider {
+	crate::driver_loop::Provider::new(move |lp| async move {
+		let host = lp.wrapper_host()?;
+		ensure_loop_provider(&host, &lp, config).await?;
+		Ok(())
+	})
+}
+
+/// Configure an explicit byte-fed iroh connector. Native applications should
+/// normally prefer [`provider`]; this form is for an embedder that deliberately
+/// owns channel pumping. A hinted handoff redeem uses direct reachability,
+/// while an ordinary connect uses the configured posture.
+pub fn connector(config: Config) -> crate::Result<crate::Connector> {
+	crate::Connector::new(
+		&[crate::abi_constants::TRANSPORT_IROH],
+		move |host, locator, redeem, _transport_options, timeout| {
+			Box::pin(async move {
+				let addresses = locator
+					.string_hint(crate::abi_constants::HINT_DIRECT_ADDRESSES)?
+					.unwrap_or("");
+				let reachability = if redeem && !addresses.is_empty() {
+					Reachability::Direct
+				} else {
+					config.reachability
+				};
+				Session::connect_iroh_with_host(&locator.designator, &addresses, reachability, host, timeout).await
+			})
+		},
+	)
 }
 
 // Discovery-posture dial retry (ADR-0082): lockstep with `PANCAKE_DISCOVERY_DIAL_*`.
 // Only transient dial faults (projected as `ERR_IO`) are retried; permanent
 // faults (`InvalidArgument`, `Internal`, …) surface immediately.
-async fn dial_resolving(
-	iloop: &Arc<IrohLoop>,
-	node_id: &str,
-	hints: &str,
-	retry: bool,
-) -> Result<usize> {
+async fn dial_resolving(iloop: &Arc<IrohLoop>, node_id: &str, hints: &str, retry: bool) -> Result<usize> {
 	let mut attempt: u32 = 1;
 	loop {
 		match iloop.dial(node_id, hints).await {
 			Ok(conn) => return Ok(conn),
 			Err(e) => {
-				if e.kind() != crate::ErrorKind::Io
-					|| !retry || attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS as u32
-				{
+				if e.kind() != crate::ErrorKind::Io || !retry || attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS as u32 {
 					return Err(e);
 				}
 			}
 		}
 		attempt += 1;
-		tokio::time::sleep(std::time::Duration::from_millis(
-			DISCOVERY_DIAL_RETRY_MS as u64,
-		))
-		.await;
+		tokio::time::sleep(std::time::Duration::from_millis(DISCOVERY_DIAL_RETRY_MS as u64)).await;
 	}
 }
 
 // One iroh connection pointer, released exactly once — when the owning
-// `IrohStream` drops. No sidecar call ever parks on the connection (the loop's
+// `Stream` drops. No sidecar call ever parks on the connection (the loop's
 // only blocking call touches the endpoint), so releasing it never races a parked
 // read — the teardown hazard the thread-per-connection path had.
 struct ConnPtr(*mut PancakeIrohConn);
 
-// SAFETY: `Send` is required — an `IrohStream` moves between threads (the relay
+// SAFETY: `Send` is required — an `Stream` moves between threads (the relay
 // pumps one inside `tokio::spawn` tasks on a multithreaded runtime), so
 // `pancake_iroh_conn_try_read`/`try_write` run on whichever thread polls it and
 // `Drop`'s `pancake_iroh_conn_release` on whichever thread drops it, not the
 // thread that dialed. That FFI use is defined because the sidecar connection is
 // internally synchronized (mutex-guarded stream state over iroh's `Send + Sync`
-// connection), and the pointer is single-owner (one `IrohStream` field), so the
+// connection), and the pointer is single-owner (one `Stream` field), so the
 // release runs exactly once. Not `Sync`: no `&ConnPtr` is ever shared across
 // threads — the loop addresses the connection by its `key: usize`, never
 // through this pointer.
@@ -653,22 +690,20 @@ impl IrohLoop {
 				Err(_) => runner.wake_all_closed(),
 			}
 		});
-		*iloop.task.lock().unwrap() = Some(handle);
+		*lock_iroh(&iloop.task, "iroh-loop-task-lock-poison") = Some(handle);
 		Ok(iloop)
 	}
 
 	fn register(&self, conn: usize) {
 		let key = unsafe { ffi::pancake_iroh_conn_id(conn as *mut PancakeIrohConn) };
-		self.state
-			.lock()
-			.unwrap()
+		lock_iroh(&self.state, "iroh-loop-state-lock-poison")
 			.conns
 			.insert(key, ConnSlot::default());
 	}
 
 	fn unregister(&self, key: usize) {
 		let wakers = {
-			let mut st = self.state.lock().unwrap();
+			let mut st = lock_iroh(&self.state, "iroh-loop-state-lock-poison");
 			remove_conn_wakers(&mut st, key)
 		};
 		for w in wakers {
@@ -679,12 +714,12 @@ impl IrohLoop {
 	async fn dial(&self, node_id: &str, hints: &str) -> Result<usize> {
 		let request_id = self
 			.next_request
-			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
-				next.checked_add(1)
-			})
+			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
 			.map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
 		let (sender, receiver) = oneshot::channel();
-		self.state.lock().unwrap().dials.insert(request_id, sender);
+		lock_iroh(&self.state, "iroh-loop-state-lock-poison")
+			.dials
+			.insert(request_id, sender);
 		let rc = unsafe {
 			ffi::pancake_iroh_netlayer_start_connect(
 				self.netlayer.raw,
@@ -696,7 +731,9 @@ impl IrohLoop {
 			)
 		};
 		if rc != sys::OK {
-			self.state.lock().unwrap().dials.remove(&request_id);
+			lock_iroh(&self.state, "iroh-loop-state-lock-poison")
+				.dials
+				.remove(&request_id);
 			return Err(Error::with_transport_detail(rc, iroh_last_error()));
 		}
 		let mut guard = DialGuard {
@@ -746,20 +783,11 @@ impl IrohLoop {
 	// to its waiter (collected, woken after the lock is released).
 	fn drain(&self) {
 		let nl = self.netlayer.raw;
-		let mut buf = [PancakeIrohReadyEvent {
-			subject: 0,
-			events: 0,
-		}; DRAIN_READY_CAP];
+		let mut buf = [PancakeIrohReadyEvent { subject: 0, events: 0 }; DRAIN_READY_CAP];
 		loop {
 			let mut count: usize = 0;
-			let rc = unsafe {
-				ffi::pancake_iroh_netlayer_drain_ready(
-					nl,
-					buf.as_mut_ptr(),
-					DRAIN_READY_CAP,
-					&mut count,
-				)
-			};
+			let rc =
+				unsafe { ffi::pancake_iroh_netlayer_drain_ready(nl, buf.as_mut_ptr(), DRAIN_READY_CAP, &mut count) };
 			if rc != sys::OK || count == 0 {
 				break;
 			}
@@ -767,31 +795,28 @@ impl IrohLoop {
 			for ev in buf.iter().take(count) {
 				if ev.events & PANCAKE_IROH_EV_CONNECT != 0 {
 					let mut conn: *mut PancakeIrohConn = core::ptr::null_mut();
-					let rc = unsafe {
-						ffi::pancake_iroh_netlayer_finish_connect(nl, ev.subject, &mut conn)
-					};
+					let rc = unsafe { ffi::pancake_iroh_netlayer_finish_connect(nl, ev.subject, &mut conn) };
 					let result = if rc == sys::OK {
 						Ok(conn as usize)
 					} else {
 						Err(Error::with_transport_detail(rc, iroh_last_error()))
 					};
-					if let Some(sender) = self.state.lock().unwrap().dials.remove(&ev.subject) {
+					if let Some(sender) = lock_iroh(&self.state, "iroh-loop-state-lock-poison")
+						.dials
+						.remove(&ev.subject)
+					{
 						// A dropped dial future leaves the sender in the map until
 						// this sole terminal event retires it. If delivery finds
 						// the receiver gone, reclaim a successful connection here.
 						if let Err(Ok(abandoned_conn)) = sender.send(result) {
-							unsafe {
-								ffi::pancake_iroh_conn_release(
-									abandoned_conn as *mut PancakeIrohConn,
-								)
-							};
+							unsafe { ffi::pancake_iroh_conn_release(abandoned_conn as *mut PancakeIrohConn) };
 						}
 					} else if rc == sys::OK {
 						unsafe { ffi::pancake_iroh_conn_release(conn) };
 					}
 					continue;
 				}
-				let mut st = self.state.lock().unwrap();
+				let mut st = lock_iroh(&self.state, "iroh-loop-state-lock-poison");
 				dispatch(&mut st, ev.subject, ev.events, &mut wakers);
 			}
 			for w in wakers {
@@ -807,7 +832,7 @@ impl IrohLoop {
 		let mut wakers: Vec<Waker> = Vec::new();
 		let mut dials = Vec::new();
 		{
-			let mut st = self.state.lock().unwrap();
+			let mut st = lock_iroh(&self.state, "iroh-loop-state-lock-poison");
 			st.closed = true;
 			if let Some(w) = st.accept_waker.take() {
 				wakers.push(w);
@@ -820,7 +845,10 @@ impl IrohLoop {
 			dials.extend(st.dials.drain().map(|(_, sender)| sender));
 		}
 		for sender in dials {
-			let _ = sender.send(Err(Error::from_code(sys::ERR_CLOSED)));
+			// A failed send means the dial future was cancelled. Its native
+			// request was cancelled above or reached its sole terminal event, and
+			// this map no longer owns a connection handle.
+			drop(sender.send(Err(Error::from_code(sys::ERR_CLOSED))));
 		}
 		for w in wakers {
 			w.wake();
@@ -834,7 +862,11 @@ impl IrohLoop {
 	/// so a freed endpoint is never drained.
 	fn request_shutdown(&self) {
 		self.stop.store(true, Ordering::Release);
-		let requests: Vec<usize> = self.state.lock().unwrap().dials.keys().copied().collect();
+		let requests: Vec<usize> = lock_iroh(&self.state, "iroh-loop-state-lock-poison")
+			.dials
+			.keys()
+			.copied()
+			.collect();
 		for request_id in requests {
 			unsafe {
 				ffi::pancake_iroh_netlayer_cancel_connect(self.netlayer.raw, request_id);
@@ -852,7 +884,7 @@ impl IrohLoop {
 		// Take the handle in its own statement so the mutex guard drops
 		// before the await: a guard held across it makes the future !Send,
 		// and the close registration runs this on a multi-thread runtime.
-		let handle = self.task.lock().unwrap().take();
+		let handle = lock_iroh(&self.task, "iroh-loop-task-lock-poison").take();
 		if let Some(h) = handle {
 			h.await.map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
 		}
@@ -863,7 +895,7 @@ impl IrohLoop {
 	/// available. This is only for cancellation/destructor paths.
 	fn shutdown(&self) {
 		self.request_shutdown();
-		if let Some(h) = self.task.lock().unwrap().take() {
+		if let Some(h) = lock_iroh(&self.task, "iroh-loop-task-lock-poison").take() {
 			h.abort();
 		}
 	}
@@ -925,12 +957,36 @@ mod tests {
 
 	static RELEASE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-	unsafe fn count_release(_raw: usize) {
+	unsafe fn count_release(_raw: usize) -> i32 {
 		RELEASE_COUNT.fetch_add(1, Ordering::SeqCst);
+		sys::OK
 	}
 
-	unsafe fn panic_release(_raw: usize) {
+	unsafe fn panic_release(_raw: usize) -> i32 {
 		panic!("release failed");
+	}
+
+	unsafe fn fail_release(_raw: usize) -> i32 {
+		sys::ERR_IO
+	}
+
+	#[test]
+	fn poisoned_internal_mutex_is_recovered_and_diagnosed() {
+		let _serial = crate::RUNTIME_FAILURE_TEST_LOCK
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		crate::take_runtime_failures();
+		let value = Mutex::new(7usize);
+		let guard = value.lock().unwrap();
+		let recovered = recover_iroh_lock(&value, Err(std::sync::PoisonError::new(guard)), "iroh-test-lock-poison");
+		assert_eq!(*recovered, 7);
+		drop(recovered);
+		assert!(!value.is_poisoned());
+		let diagnostics = crate::take_runtime_failures();
+		assert!(diagnostics.iter().any(|failure| {
+			failure.operation == "iroh-test-lock-poison"
+				&& failure.primary_message == "iroh synchronization state was poisoned"
+		}));
 	}
 
 	#[tokio::test]
@@ -952,6 +1008,11 @@ mod tests {
 		let panicked = Arc::new(NetlayerRelease::new());
 		panicked.start(0, panic_release);
 		assert!(panicked.wait().await.is_err());
+
+		let failed = Arc::new(NetlayerRelease::new());
+		failed.start(0, fail_release);
+		assert!(failed.wait().await.is_err());
+		assert!(failed.wait().await.is_err(), "the release barrier retains its failure");
 	}
 
 	#[test]
@@ -985,7 +1046,7 @@ mod tests {
 /// barrier: a dialer (`owns_loop`) joins its loop and releases its ephemeral
 /// endpoint; an accepted stream leaves the server's loop and releases its
 /// connection. Dropping is only the last-resort fallback.
-pub struct IrohStream {
+pub struct Stream {
 	conn: Option<ConnPtr>,
 	key: usize,
 	registered: bool,
@@ -993,10 +1054,10 @@ pub struct IrohStream {
 	owns_loop: bool,
 	// A dialer's ephemeral endpoint, released after this stream's loop and
 	// connection are torn down.
-	owned_netlayer: Option<IrohNetlayer>,
+	owned_netlayer: Option<Netlayer>,
 }
 
-impl IrohStream {
+impl Stream {
 	/// The far end's node id, as QUIC proved it: this connection completed only
 	/// because the peer held the secret for this key. `None` when the
 	/// connection is gone or the handshake proved nothing.
@@ -1025,11 +1086,11 @@ impl IrohStream {
 	fn new(
 		conn: *mut PancakeIrohConn,
 		iloop: Arc<IrohLoop>,
-		owned_netlayer: Option<IrohNetlayer>,
+		owned_netlayer: Option<Netlayer>,
 		owns_loop: bool,
-	) -> IrohStream {
+	) -> Stream {
 		let key = unsafe { ffi::pancake_iroh_conn_id(conn) };
-		IrohStream {
+		Stream {
 			conn: Some(ConnPtr(conn)),
 			key,
 			registered: true,
@@ -1043,12 +1104,8 @@ impl IrohStream {
 	/// byte stream the [`Session`] driver carries the
 	/// session over. The local endpoint is ephemeral, created with the caller's
 	/// chosen [`Reachability`] (no default), and released with the stream.
-	pub async fn connect(
-		node_id: &str,
-		direct_addresses: &str,
-		reachability: Reachability,
-	) -> Result<IrohStream> {
-		let netlayer = IrohNetlayer::new(IrohConfig::new(reachability)).await?;
+	pub async fn connect(node_id: &str, direct_addresses: &str, reachability: Reachability) -> Result<Stream> {
+		let netlayer = Netlayer::new(Config::new(reachability)).await?;
 		netlayer.connect_owned(node_id, direct_addresses).await
 	}
 
@@ -1078,11 +1135,14 @@ impl IrohStream {
 			Some(netlayer) => netlayer.release().await,
 			None => Ok(()),
 		};
-		loop_result.and(release_result)
+		match loop_result {
+			Ok(()) => release_result,
+			Err(primary) => Err(crate::retain_cleanup_failure(primary, release_result)),
+		}
 	}
 }
 
-impl Drop for IrohStream {
+impl Drop for Stream {
 	fn drop(&mut self) {
 		if self.owns_loop {
 			// The dialer owns the loop and netlayer: stop the dispatcher so it
@@ -1103,12 +1163,8 @@ impl Drop for IrohStream {
 	}
 }
 
-impl AsyncRead for IrohStream {
-	fn poll_read(
-		self: Pin<&mut Self>,
-		cx: &mut Context<'_>,
-		buf: &mut ReadBuf<'_>,
-	) -> Poll<io::Result<()>> {
+impl AsyncRead for Stream {
+	fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
 		let me = self.get_mut();
 		loop {
 			let dst = buf.initialize_unfilled();
@@ -1128,7 +1184,7 @@ impl AsyncRead for IrohStream {
 				// Nothing buffered yet: park on this connection's readiness. A
 				// missing/closed slot means the connection was torn down, a clean
 				// EOF (zero bytes filled).
-				let mut st = me.iloop.state.lock().unwrap();
+				let mut st = lock_iroh(&me.iloop.state, "iroh-loop-state-lock-poison");
 				match st.conns.get_mut(&me.key) {
 					None => return Poll::Ready(Ok(())),
 					Some(slot) if slot.closed => return Poll::Ready(Ok(())),
@@ -1146,9 +1202,7 @@ impl AsyncRead for IrohStream {
 				return Poll::Ready(Ok(())); // clean end of stream
 			}
 			if rc != sys::OK {
-				return Poll::Ready(Err(io::Error::other(format!(
-					"iroh try_read failed (code {rc})"
-				))));
+				return Poll::Ready(Err(io::Error::other(format!("iroh try_read failed (code {rc})"))));
 			}
 			buf.advance(count);
 			return Poll::Ready(Ok(()));
@@ -1156,12 +1210,8 @@ impl AsyncRead for IrohStream {
 	}
 }
 
-impl AsyncWrite for IrohStream {
-	fn poll_write(
-		self: Pin<&mut Self>,
-		cx: &mut Context<'_>,
-		src: &[u8],
-	) -> Poll<io::Result<usize>> {
+impl AsyncWrite for Stream {
+	fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, src: &[u8]) -> Poll<io::Result<usize>> {
 		let me = self.get_mut();
 		if src.is_empty() {
 			return Poll::Ready(Ok(0));
@@ -1179,19 +1229,11 @@ impl AsyncWrite for IrohStream {
 			if rc == sys::WOULD_BLOCK {
 				// No byte fit: park on writability and retry this slice after the
 				// next writable record.
-				let mut st = me.iloop.state.lock().unwrap();
+				let mut st = lock_iroh(&me.iloop.state, "iroh-loop-state-lock-poison");
 				match st.conns.get_mut(&me.key) {
-					None => {
-						return Poll::Ready(Err(io::Error::new(
-							io::ErrorKind::BrokenPipe,
-							"iroh session closed",
-						)))
-					}
+					None => return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "iroh session closed"))),
 					Some(slot) if slot.closed => {
-						return Poll::Ready(Err(io::Error::new(
-							io::ErrorKind::BrokenPipe,
-							"iroh session closed",
-						)))
+						return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "iroh session closed")))
 					}
 					Some(slot) if slot.writable => {
 						slot.writable = false;
@@ -1204,9 +1246,7 @@ impl AsyncWrite for IrohStream {
 				}
 			}
 			if rc != sys::OK {
-				return Poll::Ready(Err(io::Error::other(format!(
-					"iroh try_write failed (code {rc})"
-				))));
+				return Poll::Ready(Err(io::Error::other(format!("iroh try_write failed (code {rc})"))));
 			}
 			return Poll::Ready(Ok(count));
 		}
@@ -1223,73 +1263,81 @@ impl AsyncWrite for IrohStream {
 	}
 }
 
-/// A listening iroh endpoint — the iroh sibling of [`Server`](crate::Server).
+/// A listening iroh endpoint — the iroh sibling of [`crate::tcp::Server`].
 /// The native driver loop owns the multiplexed resident, listener, accept
 /// handshake, and every accepted session. This type is only the public
 /// listener view over that generic lifecycle.
-pub struct IrohServer {
-	listener: crate::listen::LoopListener,
+pub struct Server {
+	listener: crate::server::LoopListener,
 	node_id: String,
 }
 
-impl IrohServer {
-	pub async fn bind(config: IrohConfig) -> Result<IrohServer> {
-		let loop_shared = crate::driver_loop::LoopShared::open_with_durable_seed(
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-			None,
-		)?;
-		let host = Host::from_shared(loop_shared.wrapper_host()?);
-		IrohServer::bind_on_loop(loop_shared, host, config, true).await
-	}
-
-	pub async fn bind_with_seed(config: IrohConfig, seed: [u8; 32]) -> Result<IrohServer> {
-		let loop_shared = crate::driver_loop::LoopShared::open_with_durable_seed(
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-			Some(seed),
-		)?;
-		let host = Host::from_shared(loop_shared.wrapper_host()?);
-		IrohServer::bind_on_loop(loop_shared, host, config, true).await
-	}
-
-	pub async fn bind_with_host(config: IrohConfig, host: Host) -> Result<IrohServer> {
-		let shared = host.shared();
-		let loop_shared = shared.ensure_driver_loop(
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
-		)?;
-		IrohServer::bind_on_loop(loop_shared, host, config, false).await
+impl Server {
+	async fn bind(config: Config, options: ListenOptions) -> Result<Server> {
+		let (loop_shared, host, owns_loop) = match options.identity {
+			ListenerIdentity::Fresh => {
+				let lp = crate::driver_loop::LoopShared::open_with_durable_seed(
+					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+					None,
+				)?;
+				let host = Host::from_shared(lp.wrapper_host()?);
+				(lp, host, true)
+			}
+			ListenerIdentity::Seed(seed) => {
+				let lp = crate::driver_loop::LoopShared::open_with_durable_seed(
+					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+					Some(seed),
+				)?;
+				let host = Host::from_shared(lp.wrapper_host()?);
+				(lp, host, true)
+			}
+			ListenerIdentity::Host(host) => {
+				let shared = host.shared();
+				let lp = shared.ensure_driver_loop(
+					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+					crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+				)?;
+				(lp, host, false)
+			}
+		};
+		Server::bind_on_loop(loop_shared, host, config, owns_loop).await
 	}
 
 	async fn bind_on_loop(
 		loop_shared: Rc<crate::driver_loop::LoopShared>,
 		host: Host,
-		config: IrohConfig,
+		config: Config,
 		owns_loop: bool,
-	) -> Result<IrohServer> {
+	) -> Result<Server> {
 		let host_shared = host.shared();
 		let mut listener = None;
 		let result = async {
 			let node_id = ensure_loop_provider(&host_shared, &loop_shared, config).await?;
-			let id = loop_shared.listen(crate::abi_constants::TRANSPORT_IROH, &node_id)?;
+			let id = loop_shared
+				.listen(crate::abi_constants::TRANSPORT_IROH, &node_id)
+				.await?;
 			listener = Some(id);
-			loop_shared.start()?;
-			Ok(IrohServer {
-				listener: crate::listen::LoopListener::new(Rc::clone(&loop_shared), id, host),
+			loop_shared.select_listener(id)?;
+			Ok(Server {
+				listener: crate::server::LoopListener::new(Rc::clone(&loop_shared), id, host),
 				node_id,
 			})
 		}
 		.await;
-		if result.is_err() {
-			if let Some(id) = listener {
-				let _ = loop_shared.close_listener(id);
-			}
-			if owns_loop {
-				loop_shared.close();
+		match result {
+			Ok(server) => Ok(server),
+			Err(mut error) => {
+				if let Some(id) = listener {
+					error = crate::retain_cleanup_failure(error, loop_shared.close_listener(id));
+				}
+				if owns_loop {
+					loop_shared.close();
+				}
+				Err(error)
 			}
 		}
-		result
 	}
 
 	pub fn host(&self) -> Host {
@@ -1302,18 +1350,19 @@ impl IrohServer {
 
 	pub fn direct_addresses(&self) -> Result<String> {
 		Ok(self
-			.listener_locator()?
+			.locator()?
 			.string_hint(crate::abi_constants::HINT_DIRECT_ADDRESSES)?
 			.map(str::to_owned)
 			.unwrap_or_default())
 	}
 
-	fn listener_locator(&self) -> Result<crate::uri::Locator> {
+	/// Return the canonical locator partners use to dial this listener.
+	pub fn locator(&self) -> Result<crate::Locator> {
 		self.listener.locator()
 	}
 
 	pub fn uri(&self) -> Result<String> {
-		crate::uri::format_locator_uri(&self.listener.locator()?)
+		crate::uri::format_locator_uri(&self.locator()?)
 	}
 
 	pub async fn accept(&self) -> Result<Session> {
@@ -1321,7 +1370,7 @@ impl IrohServer {
 	}
 
 	/// Stop iroh admission through this listener. Sessions already returned by
-	/// [`IrohServer::accept`] remain live on the shared Host; [`Host::close_async`]
+	/// [`Server::accept`] remain live on the shared Host; [`Host::close`]
 	/// is the terminal endpoint and session release barrier.
 	pub fn close(&self) -> Result<()> {
 		self.listener.close()
@@ -1330,12 +1379,12 @@ impl IrohServer {
 
 // ── the iroh application surface ──────────────────────────────────────────────
 // The same [`Session`] surface over iroh's encrypted QUIC: the one
-// [`connect`](crate::connect) dialer routes an `ocapn://<nodeid>.iroh?…` locator
-// to the binding-internal iroh dial here, and [`listen_iroh`]/[`IrohServer`] host.
+// [`Runtime::connect`](crate::Runtime::connect) routes an `ocapn://<nodeid>.iroh?…` locator
+// to the binding-internal iroh dial here, and [`listen`]/[`Server`] host.
 // The byte-fed pump remains for a redeem on a Host that already owns
 // externally supplied channels —
 // `Session::establish_dialed_locator` carries the session over the iroh
-// byte-stream bridge ([`IrohStream`]) exactly as over a `TcpStream`; only the
+// byte-stream bridge ([`Stream`]) exactly as over a `TcpStream`; only the
 // dialed locator differs (`iroh` + endpoint id, never `tcp` + host:port). The
 // default listener uses the generic driver resident and accepted-session
 // lifecycle. The iroh-touching code lives here behind the `iroh`
@@ -1344,9 +1393,9 @@ impl IrohServer {
 // mirror.
 
 impl Session {
-	/// Binding-internal Host-keyed iroh dial behind [`connect`](crate::connect)
+	/// Binding-internal Host-keyed iroh dial behind [`Runtime::connect`](crate::Runtime::connect)
 	/// and handoff redeem. Application code uses
-	/// `connect(locator, Some(reachability), Some(host))`.
+	/// `connect(locator, options)`.
 	///
 	/// This is the byte-fed iroh channel adapter used when a redeem is emitted
 	/// by a Host that already owns byte-fed sessions. Ordinary bounded dials,
@@ -1364,14 +1413,13 @@ impl Session {
 		host: Host,
 		handshake_timeout: Option<std::time::Duration>,
 	) -> Result<Session> {
-		let stream = IrohStream::connect(node_id, direct_addresses, reachability).await?;
+		let stream = Stream::connect(node_id, direct_addresses, reachability).await?;
 		// As the accept side: this module opened the connection, so it is the
 		// one place that can say what QUIC proved about the far end.
 		let proved = stream.remote_node_id();
 		Session::establish_dialed_locator(
 			host.shared(),
-			crate::abi_constants::TRANSPORT_IROH,
-			node_id,
+			&crate::Locator::bare(crate::abi_constants::TRANSPORT_IROH, node_id),
 			stream,
 			handshake_timeout,
 			proved.as_deref(),
@@ -1380,21 +1428,10 @@ impl Session {
 	}
 }
 
-/// Bind an iroh endpoint and return an [`IrohServer`] to accept partners on, the
-/// iroh sibling of [`listen`](crate::listen). `reachability` is the mandatory
+/// Bind an iroh endpoint and return an [`Server`] to accept partners on.
+/// `reachability` is the mandatory
 /// posture (no default). One seed drives both the endpoint and the shared
 /// [`Host`] (ADR-0075). Needs the iroh ABI library (`zig build iroh-abi`).
-pub async fn listen_iroh(config: IrohConfig) -> Result<IrohServer> {
-	IrohServer::bind(config).await
-}
-
-/// [`listen_iroh`] with an explicit identity seed — pass the same seed after a
-/// restart to keep the node id stable, and use it for any [`Host`] that must
-/// share that identity.
-pub async fn listen_iroh_with_seed(config: IrohConfig, seed: [u8; 32]) -> Result<IrohServer> {
-	IrohServer::bind_with_seed(config, seed).await
-}
-
-pub async fn listen_iroh_with_host(config: IrohConfig, host: Host) -> Result<IrohServer> {
-	IrohServer::bind_with_host(config, host).await
+pub async fn listen(config: Config, options: ListenOptions) -> Result<Server> {
+	Server::bind(config, options).await
 }

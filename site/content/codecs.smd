@@ -54,7 +54,7 @@ signing format, and the smaller wire representation.
 
 Consider Cap'n Proto only when both peers are pancake and your payloads are
 large or field-heavy enough for fixed-offset access to matter. Measure your
-actual message shape: the
+actual messages: the
 [performance page]($link.page('performance')) shows one small mixed-argument
 call, not a universal result.
 

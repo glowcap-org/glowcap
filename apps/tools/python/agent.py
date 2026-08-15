@@ -17,8 +17,7 @@ from tools_check import make_check  # noqa: E402
 
 add_bindings_path()
 
-from pancake import VowBroken, connect, tcp_locator  # noqa: E402
-
+from pancake import Runtime, VowBroken, tcp  # noqa: E402
 TOOLS = "tools"
 GRANT, GRANT_REVOCABLE, REVOKE_LAST = "grant", "grant-revocable", "revoke-last"
 NOW, READ, WRITE = "now", "read", "write"
@@ -39,30 +38,31 @@ async def main() -> None:
         except VowBroken:
             return True
 
-    session = await connect(tcp_locator(host, port))
-    session.serve()
-    tools = await session.fetch(TOOLS)
+    async with Runtime.open(provider=tcp.provider()) as runtime:
+        session = await runtime.connect(tcp.locator(host, port))
+        session.serve()
+        tools = await session.fetch(TOOLS)
 
     # 1. Delegation: get a clock capability and call it.
-    clock = await session.send(tools, GRANT, ["clock"])
-    now = await session.send(clock, NOW)
-    check("delegation: was handed a clock and called it", isinstance(now, int))
+        clock = await session.send(tools, GRANT, ["clock"])
+        now = await session.send(clock, NOW)
+        check("delegation: was handed a clock and called it", isinstance(now, int))
 
     # 2. Attenuation: a read-only file capability reads but refuses writes.
-    files = await session.send(tools, GRANT, ["files-readonly"])
-    contents = await session.send(files, READ, ["report.txt"])
-    check("attenuation: read through the read-only view", isinstance(contents, str))
-    check("attenuation: write is refused", await broke(session.send(files, WRITE, ["report.txt", "tampered"])))
+        files = await session.send(tools, GRANT, ["files-readonly"])
+        contents = await session.send(files, READ, ["report.txt"])
+        check("attenuation: read through the read-only view", isinstance(contents, str))
+        check("attenuation: write is refused", await broke(session.send(files, WRITE, ["report.txt", "tampered"])))
 
     # 3. Revocation: a revocable handle works, then breaks after revoke.
-    revocable_clock = await session.send(tools, GRANT_REVOCABLE, ["clock"])
-    before = await session.send(revocable_clock, NOW)
-    check("revocation: the handle works before revoke", isinstance(before, int))
-    await session.send(tools, REVOKE_LAST)
-    check("revocation: the handle breaks after revoke", await broke(session.send(revocable_clock, NOW)))
+        revocable_clock = await session.send(tools, GRANT_REVOCABLE, ["clock"])
+        before = await session.send(revocable_clock, NOW)
+        check("revocation: the handle works before revoke", isinstance(before, int))
+        await session.send(tools, REVOKE_LAST)
+        check("revocation: the handle breaks after revoke", await broke(session.send(revocable_clock, NOW)))
 
-    print(f"{nick}: all capability properties held")
-    await session.close()
+        print(f"{nick}: all capability properties held")
+        await session.close()
 
 
 if __name__ == "__main__":

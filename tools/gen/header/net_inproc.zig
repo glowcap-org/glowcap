@@ -47,6 +47,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_inproc_conn_release",
     "pancake_inproc_listener_shutdown",
     "pancake_inproc_listener_release",
+    "pancake_inproc_listener_release_with_diagnostic",
     "pancake_inproc_last_error",
     "pancake_inproc_clear_last_error",
 };
@@ -154,6 +155,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_inproc_conn_release", &.{"conn"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the handle. Release must not race call initiation.");
     try emitFn(&b, gpa, "pancake_inproc_listener_shutdown", &.{"listener"}, "Seal native accept admission and wake a blocked accept without freeing the\nlistener. May race operations; join the embedding's leases before release. Idempotent.");
     try emitFn(&b, gpa, "pancake_inproc_listener_release", &.{"listener"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the listener. Release must not race call initiation.");
+    try emitFn(&b, gpa, "pancake_inproc_listener_release_with_diagnostic", &.{ "listener", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
 
     try emitFn(&b, gpa, "pancake_inproc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last in-process-transport error into out_buf, the\ninproc sibling of pancake_last_error, reading this archive's own per-thread\nslot. A pancake_inproc_* call that returns a cause-bearing code records it\nhere. Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or\ncap 0 queries the length. Returns the full message length, or 0 when none is\nset.");
     try emitFn(&b, gpa, "pancake_inproc_clear_last_error", &.{}, "Clear the calling thread's in-process-transport last-error slot.");

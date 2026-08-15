@@ -4,7 +4,8 @@
 // Needs `deno` + `racket` + the `goblins` collection on PATH; runs as
 // `zig build deno-goblins-listen`.
 
-import { listen, type Session } from "@pancake/stack";
+import { type Session } from "@pancake/runtime";
+import * as tcp from "@pancake/tcp";
 import { fail } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -14,14 +15,12 @@ const DIALER_SCRIPT = "conformance/goblins-peer/racket/pancake-actor-call.rkt";
 const ACTOR_SWISS = "pancakeActorSwissnumABCDEFGH1234";
 
 function greeter(_verb: string, args: unknown[]): string {
-	const name = args[0] instanceof Uint8Array
-		? new TextDecoder().decode(args[0])
-		: String(args[0] ?? "stranger");
+	const name = args[0] instanceof Uint8Array ? new TextDecoder().decode(args[0]) : String(args[0] ?? "stranger");
 	return `Hello ${name}, from a Deno binding host!`;
 }
 
-const server = listen(HOST, 0);
-const port = await server.ready();
+const server = await tcp.listen(HOST, 0);
+const port = server.port;
 console.log(`deno-goblins-listen: pancake listening on ${HOST}:${port}`);
 
 const served: Session[] = [];
@@ -64,8 +63,8 @@ try {
 	await child.status;
 }
 
-server.close();
-for (const session of served) session.close();
+for (const session of served) await session.close();
+await server.close();
 await hosted;
 
 if (!ok) {

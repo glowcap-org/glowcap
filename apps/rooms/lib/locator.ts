@@ -1,3 +1,4 @@
+import { addressDesignator, listen, locator as tcpLocator, type Server } from "@pancake/tcp";
 // DENO-SPECIFIC: dialing a rooms locator.
 //
 // The rooms server, its clients, the web bridge, and the orchestrator all carry
@@ -7,21 +8,7 @@
 // serve.ts's `/relay` byte pipe from a browser (which has no socket API).
 
 import { CAPTP_VERSION, CODEC } from "./protocol.ts";
-import {
-	connect,
-	designatorHostPort,
-	HINT_DIRECT_ADDRESSES,
-	Host,
-	listen,
-	parseLocator,
-	Reachability,
-	type Server,
-	type Session as SessionType,
-	socketAddrDesignator,
-	stringHint,
-	tcpLocator,
-	TRANSPORT_IROH,
-} from "@pancake/stack";
+import { designatorHostPort, Host, type Locator, parseLocator, type Session, TRANSPORT_IROH } from "@pancake/runtime";
 
 /** Whether `locator` is an `ocapn://` URI (iroh) rather than a `hostname:port`. */
 export function isUriLocator(locator: string): boolean {
@@ -33,7 +20,7 @@ export const ANNOUNCE_RE = /ROOMS-SERVER-LISTENING (\S+)/;
 
 /** A loopback TCP designator for an ephemeral/bound port. */
 export function loopbackTcpDesignator(port: number): string {
-	return socketAddrDesignator("127.0.0.1", port);
+	return addressDesignator("127.0.0.1", port);
 }
 
 /** Turn the server's announce token into a dial locator: a bare port becomes a
@@ -69,20 +56,19 @@ export async function readAnnouncedLocator(
 	throw new Error("rooms server never announced its locator");
 }
 
-// Dial an iroh URI with the posture the core requires for a peer-id open: a URI
-// carrying direct-addresses dials those (Direct); a node-id-only URI resolves
-// through discovery, honoring the host's configured redeem posture when one is
-// passed. A terminal dials the endpoint directly through the sidecar; a browser
-// rides the same `connect` to the relay (`init({ relayUrl })`), so both need the
-// posture and neither may pass `undefined`. `Reachability` is the stack's own
-// enum, so it carries real values in the browser (the `@pancake/iroh` re-export
-// is stubbed there).
-function dialIroh(locator: string, host?: Host): Promise<SessionType> {
-	const loc = parseLocator(locator);
-	const hints = stringHint(loc, HINT_DIRECT_ADDRESSES) ?? "";
-	const fallback = host ? host.redeemReachability : Reachability.Discovery;
-	const reach = hints.length > 0 ? Reachability.Direct : fallback;
-	return connect(locator, reach, host ?? roomsHost());
+export interface RoomsRuntime {
+	connect(partner: Locator): Promise<Session>;
+}
+
+export type RoomsDial = (locator: string) => Promise<Session>;
+
+/** Parse the two locator spellings Rooms accepts into the shared OCapN value:
+ * a complete URI, or the TCP `host:port` shorthand retained for interop and
+ * local development. */
+export function roomsLocator(locator: string): Locator {
+	if (isUriLocator(locator)) return parseLocator(locator);
+	const { hostname, port } = designatorHostPort(locator);
+	return tcpLocator(hostname, port);
 }
 
 /** Mint a Host for a rooms peer.
@@ -109,14 +95,14 @@ export function roomsHost(seed?: Uint8Array): Host {
  * Syrup floor, so a room server that takes it accepts sessions no rooms peer
  * can hold — and the refusal reads as a malformed frame, which sends the next
  * reader looking at the codec rather than at who minted the host. This is the
- * accepting half of `roomsHost`, and `zig build meta-check` keeps the rooms
+ * accepting half of `roomsHost`, and `zig build source-check` keeps the rooms
  * tree calling it rather than the raw `listen`. */
 export function roomsListen(
 	bindHost: string,
 	port: number,
 	host: Host = roomsHost(),
-): Server {
-	return listen(bindHost, port, host);
+): Promise<Server> {
+	return listen(bindHost, port, { host });
 }
 
 /** Dial a rooms peer from a locator: an `ocapn://…iroh?…` URI over iroh,
@@ -132,17 +118,15 @@ export function roomsListen(
  * Either way the session speaks the rooms profile: a dial with no host of its
  * own mints one through `roomsHost`, so the codec and the CapTP version travel
  * together rather than one of them being passed loose. */
-export function dial(locator: string, host?: Host): Promise<SessionType> {
+export function dial(locator: string, runtime: RoomsRuntime): Promise<Session> {
 	if (isUriLocator(locator)) {
-		const loc = parseLocator(locator);
+		const loc = roomsLocator(locator);
 		if (loc.transport !== TRANSPORT_IROH) {
 			throw new Error(
 				`rooms expected an iroh ocapn:// URI, got "${loc.transport}": ${locator}`,
 			);
 		}
-		return dialIroh(locator, host);
+		return runtime.connect(loc);
 	}
-	const { hostname, port } = designatorHostPort(locator);
-	const tcp = tcpLocator(hostname, port);
-	return connect(tcp, undefined, host ?? roomsHost());
+	return runtime.connect(roomsLocator(locator));
 }

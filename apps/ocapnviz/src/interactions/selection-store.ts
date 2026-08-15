@@ -45,9 +45,7 @@ export function selectionActionFor(
   emptySurface: "stage" | "timeline",
 ): SelectionAction | null {
   if (entities.size === 0) {
-    return mode === "replace"
-      ? { kind: "clear-on-empty-click", surface: emptySurface }
-      : null;
+    return mode === "replace" ? { kind: "clear-on-empty-click", surface: emptySurface } : null;
   }
   switch (mode) {
     case "add":
@@ -117,9 +115,7 @@ export function selectionReducer(
       // Anchor invariant: anchor must be IN the selection (or null
       // when selection is empty).
       const anchorKey = state.anchor ? entityKey(state.anchor) : null;
-      const anchor = anchorKey && next.has(anchorKey)
-        ? state.anchor
-        : firstOrNull(next);
+      const anchor = anchorKey && next.has(anchorKey) ? state.anchor : firstOrNull(next);
       return { ...state, selection: next, anchor };
     }
     case "toggle-in-selection": {
@@ -174,10 +170,8 @@ export function selectionReducer(
       // slot it was in, anchor only moves if it was the renamed
       // entity. Going through `set-selection` here would stomp the
       // anchor (it always sets `anchor = lastOrNull(entities)`).
-      const oldKey: EntityRefKey =
-        `${action.entityKind}:${action.oldId}` as EntityRefKey;
-      const newKey: EntityRefKey =
-        `${action.entityKind}:${action.newId}` as EntityRefKey;
+      const oldKey: EntityRefKey = `${action.entityKind}:${action.oldId}` as EntityRefKey;
+      const newKey: EntityRefKey = `${action.entityKind}:${action.newId}` as EntityRefKey;
       const inSelection = state.selection.has(oldKey);
       const isAnchor = state.anchor?.kind === action.entityKind &&
         state.anchor.id === action.oldId;
@@ -189,9 +183,7 @@ export function selectionReducer(
         next.add(newKey);
         nextSelection = next;
       }
-      const nextAnchor: EntityRef | null = isAnchor
-        ? { kind: action.entityKind, id: action.newId }
-        : state.anchor;
+      const nextAnchor: EntityRef | null = isAnchor ? { kind: action.entityKind, id: action.newId } : state.anchor;
       return { ...state, selection: nextSelection, anchor: nextAnchor };
     }
     case "set-selection-from-time-range":

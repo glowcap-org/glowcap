@@ -6,29 +6,27 @@
 
 import { usePeer } from "./peer.ts";
 import { memo } from "react";
-import type { RoomConv } from "./types.ts";
-import { Icon } from "./icons.tsx";
+import { membersHere, type RoomConv, type Standing } from "./types.ts";
+import { IconButton } from "./IconButton.tsx";
 
 export interface Roster {
 	/** Members, online first and then alphabetical. */
-	rows: [string, boolean][];
+	rows: [string, Standing][];
 	online: number;
 }
 
 export function rosterOf(conv: RoomConv | null): Roster {
 	if (!conv) return { rows: [], online: 0 };
 	const rows = [...conv.members].sort((a, b) =>
-		Number(b[1]) - Number(a[1]) || a[0].localeCompare(b[0])
+		Number(b[1].online) - Number(a[1].online) || a[0].localeCompare(b[0])
 	);
-	let online = 0;
-	for (const [, isOnline] of rows) if (isOnline) online++;
-	return { rows, online };
+	return { rows, online: membersHere(conv.members) };
 }
 
 function MemberRow(
-	{ name, online, you, reachable }: {
+	{ name, standing, you, reachable }: {
 		name: string;
-		online: boolean;
+		standing: Standing;
 		you: boolean;
 		reachable: boolean;
 	},
@@ -40,24 +38,36 @@ function MemberRow(
 	// is the one a direct conversation already wears in its title, two endpoints
 	// with nothing in between.
 	const peer = usePeer();
-	const said = online ? "online" : "offline";
+	// Away is a third thing to be, and it is about somebody who is here rather
+	// than a way of being absent: the pip says away, and the reason goes beside
+	// the name where it answers the question the pip raises.
+	const online = standing.online;
+	const away = online && standing.away !== "";
+	const said = away ? "away" : online ? "online" : "offline";
 	return (
 		<li className={said}>
-			<span className="pip" role="img" aria-label={said} title={said} />
-			<span className="name">{you ? name + " (you)" : name}</span>
+			<span className="pip" role="img" aria-label={said} title={away ? `away: ${standing.away}` : said} />
+			{
+				/* The name truncates, so it carries itself. This row is not a control,
+			    so unlike the rail's rows there is no label underneath holding the
+			    whole of it — a long name would simply have been unreadable. */
+			}
+			<span className="name-line">
+				<span className="name" title={name}>{you ? name + " (you)" : name}</span>
+				{away && <span className="away-said" title={standing.away}>{standing.away}</span>}
+			</span>
 			{!you && reachable && (
-				<button
-					type="button"
+				<IconButton
 					className="dm-btn"
-					title={"Message " + name + " directly"}
-					aria-label={"Message " + name + " directly"}
+					icon="direct"
+					label={"Message " + name + " directly"}
+					size="small"
+					tone="teal"
 					onClick={(e) => {
 						e.stopPropagation();
 						peer.startDm(name);
 					}}
-				>
-					<Icon name="direct" size={15} />
-				</button>
+				/>
 			)}
 		</li>
 	);
@@ -86,11 +96,11 @@ function MembersPane(
 			<p id="presenceSummary">{summary}</p>
 			<ul id="members">
 				{conv &&
-					roster.rows.map(([name, online]) => (
+					roster.rows.map(([name, standing]) => (
 						<MemberRow
 							key={name}
 							name={name}
-							online={online}
+							standing={standing}
 							you={name === nick}
 							reachable={dmablePeers.has(name.toLowerCase())}
 						/>

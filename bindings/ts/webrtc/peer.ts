@@ -8,7 +8,7 @@
 // module; the `RtcPeer` only produces and consumes the SDP and candidate
 // strings, mirroring the native sidecar's signaling surface.
 
-import type { Channel } from "@pancake/stack";
+import type { Channel } from "@pancake/runtime";
 import { rtcChannel } from "./channel.ts";
 
 const CHANNEL_LABEL = "ocapn";
@@ -138,10 +138,8 @@ export class RtcPeer {
 		this.#dc = dc;
 		if (dc.readyState === "open") this.#markOpen();
 		else dc.onopen = () => this.#markOpen();
-		dc.onclose = () =>
-			this.#markOpenFailed(new Error("webrtc: data channel closed before opening"));
-		dc.onerror = () =>
-			this.#markOpenFailed(new Error("webrtc: data channel failed before opening"));
+		dc.onclose = () => this.#markOpenFailed(new Error("webrtc: data channel closed before opening"));
+		dc.onerror = () => this.#markOpenFailed(new Error("webrtc: data channel failed before opening"));
 	}
 
 	/** Produce the SDP offer and set it as the local description. Offerer only. */
@@ -239,9 +237,7 @@ export class RtcPeer {
 	}
 
 	#enqueueRemoteCandidate(candidate: IceCandidateSnapshot): Promise<void> {
-		const applied = this.#remoteCandidateTail.then(() =>
-			this.#pc.addIceCandidate(candidate.candidate)
-		);
+		const applied = this.#remoteCandidateTail.then(() => this.#pc.addIceCandidate(candidate.candidate));
 		const completed = applied.finally(() => this.#releaseRemoteCandidate(candidate));
 		// A rejected candidate is reported to its own caller but does not strand
 		// later candidates that are independently valid.

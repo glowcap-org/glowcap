@@ -1,22 +1,16 @@
-// The accepting half of the web-peer proof: a keyed OCapN host (dlopen stack,
+// The accepting half of the web-peer proof: a keyed OCapN host (dlopen runtime,
 // native archives) that accepts connections, either WebSocket (default, ADR-0070
 // Milestone 1) or TCP (for relay tests). Each accepted socket is one byte
-// channel; the stack's `Session.establishAccepted` drives the keyed handshake
+// channel; the runtime's `Session.establishAccepted` drives the keyed handshake
 // over it, so the transport is a bearer, not a protocol translator.
 //
 // Flags:
 //   --tcp-only: Listen on TCP instead of WebSocket (for relay tests)
 //   address: TCP bind address (host:port, e.g. 127.0.0.1:0); ignored for WebSocket
 
-import {
-	type Channel,
-	Host,
-	Ref,
-	Session,
-	socketAddrDesignator,
-	TRANSPORT_KEYED_TCP,
-} from "@pancake/stack";
-import { webSocketChannel } from "@pancake/stack";
+import { type Channel, Host, Ref, Session, TRANSPORT_KEYED_TCP } from "@pancake/runtime";
+import * as tcp from "@pancake/tcp";
+import { webSocketChannel } from "@pancake/runtime";
 import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 
 const tcpOnly = Deno.args.includes("--tcp-only");
@@ -67,7 +61,7 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 							designatorScheme: DESIGNATOR_SCHEME_KEY,
 							serverDesignator: hostDesignator,
 							channel: webSocketChannel(socket),
-							localAddress: socketAddrDesignator("127.0.0.1", server.addr.port),
+							localAddress: tcp.addressDesignator("127.0.0.1", server.addr.port),
 						},
 					);
 					// The browser peer fetches this by name, and its `greet`
@@ -114,7 +108,7 @@ async function serveTcpHost(
 							designatorScheme: DESIGNATOR_SCHEME_KEY,
 							serverDesignator: hostDesignator,
 							channel: wrapTcpConn(conn),
-							localAddress: socketAddrDesignator(
+							localAddress: tcp.addressDesignator(
 								host,
 								(listener.addr as Deno.NetAddr).port,
 							),

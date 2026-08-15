@@ -17,6 +17,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
 const model = pancake.ocapn.model;
@@ -42,7 +43,7 @@ const LoopbackResident = struct {
 
     const vtable: net.netlayer.Netlayer.VTable = .{
         .profile = .{ .symbol = transport, .designator_scheme = .address },
-        .dial = dial,
+        .dial = .{ .blocking = dial },
         .listen = listen,
     };
 
@@ -51,6 +52,7 @@ const LoopbackResident = struct {
         peer: *engine.Peer,
         locator: model.PeerLocator,
         bufs: net.netlayer.Buffers,
+        _: net.netlayer.OperationOptions,
     ) net.netlayer.DialError!net.Connection {
         const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
         // x-loopback reuses tcp hostport I/O; it is not `tcp`/`keyed-tcp`, so
@@ -67,7 +69,16 @@ const LoopbackResident = struct {
         ctx: *anyopaque,
         allocator: std.mem.Allocator,
         config: net.netlayer.ListenConfig,
-    ) net.netlayer.ListenError!net.netlayer.Listener {
+    ) net.netlayer.ListenStartOutcome {
+        return .{ .admitted = listenFallible(ctx, allocator, config) catch |err|
+            return .{ .failed = .init(err) } };
+    }
+
+    fn listenFallible(
+        ctx: *anyopaque,
+        allocator: std.mem.Allocator,
+        config: net.netlayer.ListenConfig,
+    ) net.netlayer.ListenError!net.netlayer.ListenResult {
         const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
         const address = tcp.parseDesignator(config.designator) catch return error.InvalidAddress;
         const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
@@ -76,7 +87,7 @@ const LoopbackResident = struct {
             .listener = tcp.Listener.bind(self.io, address) catch return error.BindFailed,
             .allocator = allocator,
         };
-        return .{ .ctx = box, .vtable = &listener_vtable };
+        return .{ .ready = .{ .ctx = box, .vtable = &listener_vtable } };
     }
 
     const ListenerBox = struct {
@@ -109,7 +120,7 @@ const LoopbackResident = struct {
     fn localLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netlayer.ListenError!model.PeerLocator {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
         var designator_buf: [tcp.plain.designator_buf_len]u8 = undefined;
-        const tcp_locator = tcp.locator(&designator_buf, box.listener.localAddress());
+        const tcp_locator = tcp.locatorFromAddress(&designator_buf, box.listener.localAddress());
         return model.clonePeerLocator(allocator, .{
             .transport = transport,
             .designator = tcp_locator.designator,
@@ -128,10 +139,11 @@ const LoopbackResident = struct {
         return model.clonePeerLocator(allocator, locator);
     }
 
-    fn close(ctx: *anyopaque) void {
+    fn close(ctx: *anyopaque) ?net.netlayer.ListenerCloseFailure {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
         box.listener.deinit();
         box.allocator.destroy(box);
+        return null;
     }
 };
 
@@ -200,11 +212,10 @@ test "netlayer pluggability: an out-of-core transport dials and hosts through th
     var resident = LoopbackResident{ .io = io };
     const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
 
-    var listener = try net.netlayer.resolve(&netlayers, "x-loopback").?.listen(allocator, .{
+    var listener = try netlayer_test.listenBlocking(net.netlayer.resolve(&netlayers, "x-loopback").?, allocator, .{
         .designator = "127.0.0.1:0",
-        .hints = model.Hints.emptyFalse(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
 
     const locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, locator);

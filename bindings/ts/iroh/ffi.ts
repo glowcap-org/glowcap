@@ -9,10 +9,10 @@
 // optional — absent unless built with cargo — so it loads lazily on first use
 // through `irohS()`, which names how to produce it rather than surfacing a raw
 // dlopen failure. This loader opens *only* the iroh archive, through the core's
-// shared FFI runtime (`@pancake/stack/ffi`). Nothing here is public; `mod.ts` is
+// shared FFI runtime (`@pancake/runtime/ffi`). Nothing here is public; `mod.ts` is
 // the ergonomic surface over it.
 
-import { ffi, libFile, libPath, type Symbols } from "@pancake/stack/ffi";
+import { ffi, libFile, libPath, type Symbols } from "@pancake/runtime/ffi";
 
 const P = "pointer",
 	B = "buffer",
@@ -22,12 +22,7 @@ const P = "pointer",
 
 const irohSymbolDefs = {
 	pancake_iroh_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_iroh_netlayer_new: {
-		parameters: [B, U, B, B],
-		result: I,
-		outBuffers: [3],
-		nonblocking: true,
-	},
+	pancake_iroh_netlayer_new: { parameters: [B, U, B, B], result: I, outBuffers: [3], nonblocking: true },
 	pancake_iroh_netlayer_new_with_diagnostic: {
 		parameters: [B, U, B, B, B, U, B],
 		result: I,
@@ -35,7 +30,7 @@ const irohSymbolDefs = {
 		nonblocking: true,
 	},
 	pancake_iroh_netlayer_close: { parameters: [P], result: V, nonblocking: true },
-	pancake_iroh_netlayer_release: { parameters: [P], result: V, nonblocking: true },
+	pancake_iroh_netlayer_release: { parameters: [P], result: I, nonblocking: true },
 	pancake_iroh_netlayer_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_netlayer_direct_addrs: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_release: { parameters: [P], result: V },
@@ -48,11 +43,7 @@ const irohSymbolDefs = {
 	pancake_iroh_netlayer_readiness_fd: { parameters: [P], result: I },
 	pancake_iroh_netlayer_drain_ready: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_netlayer_try_accept: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_iroh_netlayer_start_connect: {
-		parameters: [P, U, B, U, B, U],
-		result: I,
-		outBuffers: [],
-	},
+	pancake_iroh_netlayer_start_connect: { parameters: [P, U, B, U, B, U], result: I, outBuffers: [] },
 	pancake_iroh_netlayer_finish_connect: { parameters: [P, U, B], result: I, outBuffers: [2] },
 	pancake_iroh_netlayer_cancel_connect: { parameters: [P, U], result: I },
 	pancake_iroh_conn_try_read: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },

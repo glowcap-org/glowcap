@@ -1,12 +1,5 @@
 import { assertEquals } from "@std/assert";
-import {
-  clampInto,
-  containsTime,
-  durationOf,
-  intersect,
-  isEmpty,
-  rangeOf,
-} from "./range.ts";
+import { clampInto, containsTime, durationOf, intersect, isEmpty, rangeOf } from "./range.ts";
 
 Deno.test("rangeOf builds the obvious shape", () => {
   assertEquals(rangeOf(2, 5), { start: 2, end: 5 });

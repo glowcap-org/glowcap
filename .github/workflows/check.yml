@@ -22,17 +22,14 @@ jobs:
         with:
           submodules: recursive
 
-      # The devcontainer's compose file declares both networks `external: true`,
-      # and names the side network through `EGRESS_NET` with a `:?` default that
-      # hard-errors when unset. A developer supplies both from the gitignored
-      # .devcontainer/.env; a fresh runner has neither, so compose refuses to
-      # start and every gate below it silently never runs. Create the networks
-      # and write the env compose auto-loads from this directory.
+      # The CI action resolves Compose before it runs initializeCommand, so use
+      # the same checkout configurator as a contributor and prepare the two
+      # managed external networks it names.
       - name: Prepare the devcontainer's external networks
         run: |
+          bash .devcontainer/configure.sh
           docker network create rooms-net 2>/dev/null || true
-          docker network create pancake-ci-egress 2>/dev/null || true
-          echo "EGRESS_NET=pancake-ci-egress" > .devcontainer/.env
+          docker network create pancake-main-egress 2>/dev/null || true
 
       - name: Run the gates in the devcontainer
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3

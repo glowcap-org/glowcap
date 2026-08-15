@@ -57,8 +57,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       id: "session-opens",
       t: 0,
       kind: "session-opened",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       a: {
         peer: "127.0.0.1:9601",
         designator: "127.0.0.1:9601",
@@ -79,8 +78,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       t: 200,
       kind: "message-sent",
       messageId: "ss-out",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       from: "127.0.0.1:9601",
       to: "127.0.0.1:9602",
       arrivalT: 400,
@@ -98,8 +96,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       t: 500,
       kind: "message-sent",
       messageId: "ss-back",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       from: "127.0.0.1:9602",
       to: "127.0.0.1:9601",
       arrivalT: 700,
@@ -116,8 +113,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       id: "session-open",
       t: 700,
       kind: "session-state-changed",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       state: "open",
     },
     {
@@ -125,8 +121,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       t: 1100,
       kind: "message-sent",
       messageId: "transcode",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       from: "127.0.0.1:9601",
       to: "127.0.0.1:9602",
       arrivalT: 1500,
@@ -143,8 +138,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       t: 1700,
       kind: "message-sent",
       messageId: "listen",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       from: "127.0.0.1:9601",
       to: "127.0.0.1:9602",
       arrivalT: 2000,
@@ -163,8 +157,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       t: 4000,
       kind: "message-sent",
       messageId: "transcode-resolve",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       from: "127.0.0.1:9602",
       to: "127.0.0.1:9601",
       arrivalT: 4400,
@@ -181,8 +174,7 @@ export const pokeMeWhenReady = TimelineDocument.parse({
       t: 4500,
       kind: "message-sent",
       messageId: "listener-fire",
-      sessionId:
-        "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
+      sessionId: "3ee12f66aa2537fbbffdfacfa3c244b29652261abcbe52d53593bed44884b727",
       from: "127.0.0.1:9602",
       to: "127.0.0.1:9601",
       arrivalT: 4800,

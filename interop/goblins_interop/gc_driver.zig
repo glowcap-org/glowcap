@@ -66,7 +66,7 @@ fn proveExportGc(
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort(host, port);
-    const dial = tcp.locator(&designator_buf, designator_addr);
+    const dial = tcp.locatorFromAddress(&designator_buf, designator_addr);
     // Retry a refused dial briefly: the vat's readiness line can race its
     // listener's actual bind.
     var conn = try harness.tcpConnectRetry(io, peer, dial, scaffold.read_buf, scaffold.write_buf, 5_000);

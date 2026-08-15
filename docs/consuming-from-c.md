@@ -56,8 +56,8 @@ it with a transport connection, and repeats three operations:
 
 1. feed received bytes with `pancake_host_session_feed_bytes`;
 2. run resulting work with `pancake_host_pump_drain`;
-3. take bare frames with `pancake_host_session_take_outbound`; for a byte
-   stream, write the decimal byte length and `:`, then the frame bytes.
+3. take outbound frames with `pancake_host_session_take_outbound`; write the
+   returned prefix bytes, then the frame bytes.
 
 `feed_bytes` accepts canonical Syrup byte strings (`length:body`) and owns split
 or coalesced input plus the bounded tail. Whole-frame `feed` and
@@ -71,9 +71,11 @@ requests. Hosted behavior callbacks run synchronously while the Host is being
 driven. Do not block or re-enter the same Host from one of those callbacks.
 
 [`examples/c/host_embedder_pump.c`](../examples/c/host_embedder_pump.c) shows
-the feed, drain, refusal, and EOF choreography used by the language bindings.
-[`examples/c/frame_view.c`](../examples/c/frame_view.c) shows owned frames and
-borrowed views. `zig build examples` compiles and runs both.
+the feed, drain, refusal, and break-far-vows choreography used by the language
+bindings. [`examples/c/frame_view.c`](../examples/c/frame_view.c) shows a
+borrowed `PancakeFrame` view over caller-owned bytes. Owned frames are
+`PancakeManagedFrame` values from `take_outbound` in the host example.
+`zig build examples` compiles and runs both.
 
 ## One opaque capability type
 
@@ -122,7 +124,9 @@ through the Host and usually have no unique exporter session.
 Use `pancake_uri_parse_peer`, `pancake_uri_format_peer`, and the sturdyref URI
 helpers instead of parsing `ocapn://` strings yourself. Host verbs take a
 borrowed `PancakeLocatorView`; owned locator handles project the same view with
-`pancake_locator_borrow_view`.
+`pancake_locator_borrow_view`. Sturdyref parse and format also require the
+CapTP version: swiss-number path spelling belongs to the negotiated profile,
+so the C ABI refuses to infer or default it.
 
 The C transport archives are TCP, relay, in-process, onion, iroh, and WebRTC.
 Each carries bytes for a Host session and does not own CapTP state. Keyed TCP

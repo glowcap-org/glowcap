@@ -96,9 +96,7 @@ export function SelectionFields(
           )}
           <Field label="on stage">
             <span style={valueText}>
-              {facts.onStage === 0
-                ? "none at the playhead"
-                : `${facts.onStage} of ${facts.total} at the playhead`}
+              {facts.onStage === 0 ? "none at the playhead" : `${facts.onStage} of ${facts.total} at the playhead`}
             </span>
           </Field>
           {facts.between && (
@@ -109,10 +107,8 @@ export function SelectionFields(
                   have" both reading as English. */
               }
               <span style={valueText}>
-                {facts.between.closed} of{" "}
-                {countPhrase("session", facts.between.sessions)}{" "}
-                {facts.between.sessions === 1 ? "has" : "have"}{" "}
-                both peers selected
+                {facts.between.closed} of {countPhrase("session", facts.between.sessions)}{" "}
+                {facts.between.sessions === 1 ? "has" : "have"} both peers selected
               </span>
             </Field>
           )}
@@ -170,9 +166,7 @@ function NarrowRow(
     editing: boolean;
   },
 ) {
-  const editable = tallies.some((t) =>
-    t.kind === "peer" || t.kind === "session"
-  );
+  const editable = tallies.some((t) => t.kind === "peer" || t.kind === "session");
   return (
     <Field
       label="narrow to"
@@ -244,9 +238,7 @@ function SharedFields(
     [selection],
   );
   if (!editor) return null;
-  const allKind = refs.length > 0 && refs.every((r) => r.kind === refs[0]!.kind)
-    ? refs[0]!.kind
-    : null;
+  const allKind = refs.length > 0 && refs.every((r) => r.kind === refs[0]!.kind) ? refs[0]!.kind : null;
   if (allKind === null) return null;
 
   if (allKind === "peer") {
@@ -458,8 +450,7 @@ function BulkShiftInput(
       min={-60_000}
       max={60_000}
       defaultValue={0}
-      format={(ms) =>
-        ms === 0 ? "0s" : `${ms >= 0 ? "+" : ""}${formatTime(ms)}`}
+      format={(ms) => ms === 0 ? "0s" : `${ms >= 0 ? "+" : ""}${formatTime(ms)}`}
       formatInput={(ms) => (ms / 1000).toFixed(3)}
       parse={(text) => {
         const stripped = text.trim().replace(/s$/i, "").replace(/^\+/, "");
@@ -582,9 +573,7 @@ function entityLabel(
   }
   if (ref.kind === "endpoint") {
     const at = parseEndpointStageId(ref.id);
-    const claim = at
-      ? engine.doc.entities?.sessions?.[at.sessionId]?.[at.side].designator
-      : undefined;
+    const claim = at ? engine.doc.entities?.sessions?.[at.sessionId]?.[at.side].designator : undefined;
     return endpointLabelText(claim);
   }
   if (ref.kind === "session") {

@@ -36,19 +36,9 @@ import {
   plotWidthOf,
   type TimelineView,
 } from "./state.ts";
-import {
-  drawEyeGlyph,
-  type EyeGlyphMode,
-  eyeGlyphStatus,
-  gutterLabelText,
-  HEADER_EYEBALL_X,
-} from "./gutter-paint.ts";
+import { drawEyeGlyph, type EyeGlyphMode, eyeGlyphStatus, gutterLabelText, HEADER_EYEBALL_X } from "./gutter-paint.ts";
 import { OVERVIEW_EDGE_GRAB_PX as EDGE_GRAB_PX } from "./hit-test.ts";
-import {
-  overviewHitAt,
-  timelineCursor,
-  type TimelineGesture,
-} from "./timeline-cursor.ts";
+import { overviewHitAt, timelineCursor, type TimelineGesture } from "./timeline-cursor.ts";
 import type { SurfaceGestureCtx } from "../../interactions/types.ts";
 
 export const OVERVIEW_HEIGHT = 26;
@@ -424,16 +414,12 @@ export function Overview(
         inFlight: null,
         gestureCtx: gestureCtxRef.current,
       });
-      e.currentTarget.title =
-        hit?.surface === "timeline-gutter-eyeball" && allVisMode !== undefined
-          ? eyeGlyphStatus(allVisMode, { kind: "all" })
-          : OVERVIEW_HOST_TITLE;
+      e.currentTarget.title = hit?.surface === "timeline-gutter-eyeball" && allVisMode !== undefined
+        ? eyeGlyphStatus(allVisMode, { kind: "all" })
+        : OVERVIEW_HOST_TITLE;
       // The ghost playhead follows the pointer only over the t-content area;
       // the gutter and the left pad carry no time.
-      hoverTRef.current =
-        hit !== null && hit.surface !== "timeline-gutter-eyeball"
-          ? hit.t
-          : null;
+      hoverTRef.current = hit !== null && hit.surface !== "timeline-gutter-eyeball" ? hit.t : null;
     },
     // List `view` whole — `plotStartXOf` reads `view.gutterWidth`,
     // which would otherwise go stale after a gutter resize and

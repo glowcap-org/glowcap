@@ -1,0 +1,9 @@
+// PLANNED: pancake has no managed WebRTC Runtime adapter yet.
+// The Rust WebRTC dial API is not yet public; this shows the planned shape.
+// Signaling is a capability you already hold, not a constructor.
+//
+// use pancake::{webrtc, Runtime, RuntimeConfig};
+//
+// let partner = webrtc::locator("<64 lowercase hex characters from the peer>");
+// let runtime = Runtime::open(RuntimeConfig::connectors([webrtc::connector(signaling)])).await?;
+// From here, the CapTP workflow is transport-independent.

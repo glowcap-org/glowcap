@@ -46,6 +46,13 @@ pub const Keepalive = runtime.Keepalive;
 /// `keepalive` null (the default via `{}`) leaves NODELAY-only — same as before.
 /// When set, see `socket.Keepalive` (NAT hold-open / dead-remote-host reclaim).
 pub const StreamOptions = runtime.StreamOptions;
+pub const OperationOptions = struct {
+    stream: StreamOptions = .{},
+
+    pub fn borrowed(self: *const OperationOptions) netlayer.OperationOptions {
+        return netlayer.OperationOptions.borrow(OperationOptions, self);
+    }
+};
 pub const RawConnection = runtime.Connection;
 
 pub fn connectRaw(
@@ -54,7 +61,7 @@ pub fn connectRaw(
     read_buf: []u8,
     write_buf: []u8,
     options: StreamOptions,
-) IpAddress.ConnectError!RawConnection {
+) (IpAddress.ConnectError || runtime.ConfigurationError)!RawConnection {
     return runtime.Connection.connect(io, address, read_buf, write_buf, options);
 }
 
@@ -108,8 +115,8 @@ pub fn connectionOver(
     read_buf: []u8,
     write_buf: []u8,
     options: StreamOptions,
-) std.mem.Allocator.Error!Connection {
-    return connectionOverRaw(peer, runtime.Connection.over(io, stream, read_buf, write_buf, options));
+) (std.mem.Allocator.Error || runtime.ConfigurationError)!Connection {
+    return connectionOverRaw(peer, try runtime.Connection.over(io, stream, read_buf, write_buf, options));
 }
 
 /// The transport symbol carried in a `model.PeerLocator`. `tcp` is what the
@@ -133,13 +140,13 @@ pub fn connectAddress(
     read_buf: []u8,
     write_buf: []u8,
     options: StreamOptions,
-) (IpAddress.ConnectError || std.mem.Allocator.Error)!Connection {
+) (IpAddress.ConnectError || std.mem.Allocator.Error || runtime.ConfigurationError)!Connection {
     var raw = try runtime.Connection.connect(io, address, read_buf, write_buf, options);
     errdefer raw.close();
     return connectionOverRaw(peer, raw);
 }
 
-/// The width of the caller storage `locator` formats a `host:port` designator
+/// The width of the caller storage `locatorFromAddress` formats a `host:port` designator
 /// into. A bracketed IPv6 literal with a port is the widest designator, and it
 /// runs to 47 bytes (`[` + 39 hex-and-colon characters + `]` + `:` + a
 /// five-digit port), so a 64-byte array holds any designator with room to
@@ -147,7 +154,7 @@ pub fn connectAddress(
 /// in `locator` infallible.
 pub const designator_buf_len = profile_listener.designator_buf_len;
 
-/// Build a `tcp` locator for a literal `address`, formatting its `host:port`
+/// Build a `tcp` locator for a typed `address`, formatting its `host:port`
 /// designator into caller storage `buf`. The transport owns this spelling, so a
 /// caller holding a typed address dials without writing the `model.PeerLocator`
 /// literal or the designator format by hand. `buf` is a fixed
@@ -155,7 +162,7 @@ pub const designator_buf_len = profile_listener.designator_buf_len;
 /// the format cannot run out of room and the `bufPrint` cannot fail. `buf` need
 /// only outlive the dial that copies what the session retains. The owning
 /// `driver.connect` takes the returned locator directly.
-pub fn locator(buf: *[designator_buf_len]u8, address: IpAddress) model.PeerLocator {
+pub fn locatorFromAddress(buf: *[designator_buf_len]u8, address: IpAddress) model.PeerLocator {
     const designator = std.fmt.bufPrint(buf, "{f}", .{address}) catch unreachable;
     return .{ .transport = transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
 }
@@ -169,7 +176,7 @@ pub fn locator(buf: *[designator_buf_len]u8, address: IpAddress) model.PeerLocat
 /// a caller never types `.hints` and the signed `op:start-session` bytes are
 /// unchanged. `designator` is borrowed: it must outlive the dial that copies what
 /// the session retains.
-pub fn at(designator: []const u8) model.PeerLocator {
+pub fn locator(designator: []const u8) model.PeerLocator {
     return .{ .transport = transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
 }
 
@@ -200,7 +207,7 @@ pub fn connectFrameStream(
     read_buf: []u8,
     write_buf: []u8,
     options: StreamOptions,
-) IpAddress.ConnectError!FrameStream {
+) (IpAddress.ConnectError || runtime.ConfigurationError)!FrameStream {
     const stream = try runtime.connectStream(io, address, options);
     return FrameStream.initStream(io, allocator, stream, codec_id, max_frame_bytes, read_buf, write_buf);
 }
@@ -223,12 +230,12 @@ pub const Listener = struct {
         return self.profile.readinessFd();
     }
 
-    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) error{ConnectionLost}!bool {
+    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) runtime.WaitError!bool {
         return self.profile.waitAcceptable(timeout_ms);
     }
 
     pub fn acceptStream(self: *Listener) netlayer.AcceptError!Stream {
-        return self.profile.acceptStream(.{});
+        return self.profile.acceptStream(.{}) catch |err| return classifyAccept(err);
     }
 
     pub fn acceptRaw(
@@ -237,7 +244,7 @@ pub const Listener = struct {
         write_buf: []u8,
         options: StreamOptions,
     ) netlayer.AcceptError!RawConnection {
-        return self.profile.acceptRaw(read_buf, write_buf, options);
+        return self.profile.acceptRaw(read_buf, write_buf, options) catch |err| return classifyAccept(err);
     }
 
     pub fn accept(
@@ -247,7 +254,7 @@ pub const Listener = struct {
         write_buf: []u8,
         options: StreamOptions,
     ) (netlayer.AcceptError || std.mem.Allocator.Error)!Connection {
-        var raw = try self.profile.acceptRaw(read_buf, write_buf, options);
+        var raw = self.profile.acceptRaw(read_buf, write_buf, options) catch |err| return classifyAccept(err);
         errdefer raw.close();
         return connectionOverRaw(peer, raw);
     }
@@ -261,7 +268,7 @@ pub const Listener = struct {
         write_buf: []u8,
         options: StreamOptions,
     ) netlayer.AcceptError!FrameStream {
-        const stream = try self.profile.acceptStream(options);
+        const stream = self.profile.acceptStream(options) catch |err| return classifyAccept(err);
         return FrameStream.initStream(self.profile.socket.io, allocator, stream, codec_id, max_frame_bytes, read_buf, write_buf);
     }
 
@@ -274,8 +281,7 @@ pub const Listener = struct {
     }
 
     /// Borrow this typed listener as a contract `netlayer.Listener`. `close` is
-    /// a no-op — the caller still owns this `Listener`. `driver.acceptTcp`
-    /// uses this so the tcp-named accept shares `acceptVia`'s hello path.
+    /// a no-op; the caller still owns this `Listener`.
     pub fn asNetlayer(self: *Listener) NetLayerListener {
         return .{ .ctx = self, .vtable = &borrowed_listener_vtable };
     }
@@ -293,6 +299,7 @@ pub const Listener = struct {
 /// points at it) for as long as the transport slice holds the netlayer.
 pub const Resident = struct {
     io: std.Io,
+    stream_options: StreamOptions = .{},
 
     /// This resident as a `Netlayer`. `self` must outlive every connection the
     /// netlayer mints.
@@ -305,7 +312,7 @@ const resident_ctx = netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{
     .profile = known_transport.metadata(),
-    .dial = residentDial,
+    .dial = .{ .blocking = residentDial },
     .listen = residentListen,
     .io = resident_ctx.io,
 };
@@ -315,22 +322,46 @@ fn residentDial(
     peer: *engine.Peer,
     loc: model.PeerLocator,
     bufs: Buffers,
+    options: netlayer.OperationOptions,
 ) netlayer.DialError!Connection {
     const self = resident_ctx.of(ctx);
+    const override = try options.decode(OperationOptions);
+    const stream_options = if (override) |value| value.stream else self.stream_options;
     const address = addressing.resolveProfile(known_transport.metadata(), loc.designator, &.{}) catch return error.InvalidAddress;
-    return connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| classifyConnect(err);
+    return connectAddress(self.io, peer, address, bufs.read, bufs.write, stream_options) catch |err| classifyConnect(err);
 }
 
 /// Project the std connect fault onto the DialError retry axis (ADR-0081): a
 /// refused partner, a missing route, and a timeout are distinct retryable arms;
 /// OutOfMemory is transient local pressure; everything else stays ConnectionLost.
-pub fn classifyConnect(err: (IpAddress.ConnectError || std.mem.Allocator.Error)) netlayer.DialError {
+pub fn classifyConnect(err: (IpAddress.ConnectError || std.mem.Allocator.Error || runtime.ConfigurationError)) netlayer.DialError {
     return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         error.ConnectionRefused => error.ConnectionRefused,
         error.HostUnreachable, error.NetworkUnreachable, error.NetworkDown => error.NetworkUnreachable,
         error.Timeout => error.TimedOut,
+        error.InvalidKeepalive,
+        error.UnsupportedPlatform,
+        error.KeepaliveRollbackFailed,
+        error.AlreadyConnected,
+        error.FileDescriptorNotASocket,
+        error.InvalidProtocolOption,
+        error.NoDevice,
+        error.OperationUnsupported,
+        error.PermissionDenied,
+        error.SocketNotBound,
+        error.SystemResources,
+        error.TimeoutTooBig,
+        error.Unexpected,
+        => error.SocketConfigurationFailed,
         else => error.ConnectionLost,
+    };
+}
+
+pub fn classifyAccept(err: runtime.AcceptError) netlayer.AcceptError {
+    return switch (err) {
+        error.ConnectionLost => error.ConnectionLost,
+        else => error.SocketConfigurationFailed,
     };
 }
 
@@ -338,22 +369,36 @@ fn residentListen(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,
-) netlayer.ListenError!NetLayerListener {
+) netlayer.ListenStartOutcome {
+    return .{ .admitted = residentListenFallible(ctx, allocator, config) catch |err|
+        return .{ .failed = .init(err) } };
+}
+
+fn residentListenFallible(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    config: netlayer.ListenConfig,
+) netlayer.ListenError!netlayer.ListenResult {
     const self = resident_ctx.of(ctx);
     const address = addressing.parseDesignator(config.designator) catch return error.InvalidAddress;
     const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
     errdefer allocator.destroy(box);
     box.* = .{
         .listener = Listener.bind(self.io, address) catch return error.BindFailed,
+        .stream_options = if (try config.options.decode(OperationOptions)) |value|
+            value.stream
+        else
+            self.stream_options,
         .allocator = allocator,
     };
-    return .{ .ctx = box, .vtable = &listener_vtable };
+    return .{ .ready = .{ .ctx = box, .vtable = &listener_vtable } };
 }
 
 /// A heap-pinned `Listener` behind a contract `NetLayerListener`, freed by
 /// the contract listener's `close`.
 const ListenerBox = struct {
     listener: Listener,
+    stream_options: StreamOptions,
     allocator: std.mem.Allocator,
 };
 
@@ -411,11 +456,13 @@ fn borrowedListenerCanonicalizeLocator(
     return listener.profile.canonicalizeLocator(allocator, proposed);
 }
 
-fn borrowedListenerClose(_: *anyopaque) void {}
+fn borrowedListenerClose(_: *anyopaque) ?netlayer.ListenerCloseFailure {
+    return null;
+}
 
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    return acceptOnListener(&box.listener, peer, bufs);
+    return box.listener.accept(peer, bufs.read, bufs.write, box.stream_options);
 }
 
 fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
@@ -442,10 +489,11 @@ pub fn waitAcceptableOnListener(listener: *Listener, timeout_ms: i32) netlayer.A
     return listener.waitAcceptable(timeout_ms);
 }
 
-fn listenerClose(ctx: *anyopaque) void {
+fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     box.listener.deinit();
     box.allocator.destroy(box);
+    return null;
 }
 
 fn listenerReadinessFd(ctx: *anyopaque) i32 {

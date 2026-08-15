@@ -153,9 +153,7 @@ export function Dialog(
     // the dialog, so it does not carry on to the window either.
     ev.stopPropagation();
     const panel = panelRef.current;
-    const inCycle = panel
-      ? [...panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)]
-      : [];
+    const inCycle = panel ? [...panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)] : [];
     const active = document.activeElement;
     const intent = dialogKeyIntent(ev, {
       atFirst: inCycle.length > 0 && active === inCycle[0],

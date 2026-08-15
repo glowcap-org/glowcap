@@ -7,7 +7,7 @@ Some files here are not pancake's, and their notices travel with them.
 
 Zig's own `compiler/test_runner.zig`, copied from the toolchain pinned in
 `.devcontainer/pins.sh`, with exactly one call renamed. The file itself says why
-at the top, and `zig build meta-check` holds it against the installed toolchain.
+at the top, and `zig build source-check` holds it against the installed toolchain.
 This copied file is MIT-only; it is not offered under pancake's Apache-2.0
 alternative.
 

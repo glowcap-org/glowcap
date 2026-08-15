@@ -33,12 +33,7 @@
  * See `docs/schema-driven-transactions.md`.
  */
 
-import type {
-  MessageDefinition,
-  PeerDefinition,
-  SessionDefinition,
-  TimelineEvent,
-} from "../timeline.ts";
+import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineEvent } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
 
 /** Keys of `T` whose value type cannot be `undefined`. Used to forbid
@@ -162,9 +157,7 @@ export function readEdgeRef(
 ): unknown {
   const value = container[edge.field as string];
   if (edge.nested === undefined) return value;
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)[edge.nested]
-    : undefined;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>)[edge.nested] : undefined;
 }
 
 /** Point `container`'s edge at `id`, in place, preserving whatever else the
@@ -181,8 +174,6 @@ export function writeEdgeRef(
     return;
   }
   const current = container[field];
-  const base = typeof current === "object" && current !== null
-    ? current as Record<string, unknown>
-    : {};
+  const base = typeof current === "object" && current !== null ? current as Record<string, unknown> : {};
   container[field] = { ...base, [edge.nested]: id };
 }

@@ -245,9 +245,7 @@ function cursorOver(
   const hit: Hit = nodeKindOf(id) === "endpoint"
     ? { surface: "stage-endpoint", endpointId: id }
     : { surface: "stage-peer", peerId: id };
-  const toolState: ToolState | null = armed === null
-    ? null
-    : { tool, nodeId: armed };
+  const toolState: ToolState | null = armed === null ? null : { tool, nodeId: armed };
   return cursorFor(
     { modifiers: NO_MODIFIERS, spaceHeld: false, activeTool: tool, toolState },
     {

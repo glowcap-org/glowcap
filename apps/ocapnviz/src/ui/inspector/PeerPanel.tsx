@@ -7,11 +7,7 @@
  * relative to the peer's join/leave window.
  */
 
-import {
-  nodeActivityIn,
-  type PeerActivity,
-  type StageSelection,
-} from "../../render/types.ts";
+import { nodeActivityIn, type PeerActivity, type StageSelection } from "../../render/types.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findPeer } from "../../engine/world.ts";
 import {
@@ -20,19 +16,9 @@ import {
   peerEnding,
   peerTrajectoryRows,
 } from "../../engine/event-helpers.ts";
-import {
-  peerGenesisValue,
-  peerLabelAt,
-  peerProfileAt,
-  peerPropertyAt,
-} from "../../engine/temporal/doc-resolver.ts";
+import { peerGenesisValue, peerLabelAt, peerProfileAt, peerPropertyAt } from "../../engine/temporal/doc-resolver.ts";
 import { PEER_PROPERTIES, PEER_TRAJECTORY } from "../../engine/trajectory.ts";
-import {
-  ActivityChip,
-  LifecycleChip,
-  type LifecycleStatus,
-  PeerKindLabel,
-} from "../EntityChips.tsx";
+import { ActivityChip, LifecycleChip, type LifecycleStatus, PeerKindLabel } from "../EntityChips.tsx";
 import {
   EditableIdField,
   type EditorBindings,
@@ -57,12 +43,7 @@ import {
 } from "./shared.tsx";
 import { elideIdentifier, Identifier } from "../identifier.tsx";
 import { useEngineVersion } from "../useEngineVersion.ts";
-import {
-  isInSelection,
-  peerInfo,
-  sessionInfo,
-  sessionsTouchingPeer,
-} from "./entity-info.ts";
+import { isInSelection, peerInfo, sessionInfo, sessionsTouchingPeer } from "./entity-info.ts";
 import type { EntityRefKey } from "../../interactions/types.ts";
 
 /** Position row that follows mid-drag world coords. The PeerFields shell
@@ -96,9 +77,7 @@ function PeerPositionLiveRow(
       editing={editing}
       onMove={editor && ((pos) => editor.onRepositionPeer(id, pos))}
       onClear={editor && (() => editor.onUnpinPeer(id))}
-      onPinHere={editor && at
-        ? () => editor.onRepositionPeer(id, { x: at.x, y: at.y })
-        : undefined}
+      onPinHere={editor && at ? () => editor.onRepositionPeer(id, { x: at.x, y: at.y }) : undefined}
       editSession={editor}
     />
   );
@@ -148,9 +127,7 @@ export function PeerFields(
   // Off stage there is nothing in flight to be part of. On stage, the same
   // fold the node's own mark is drawn from, so the chip here and the mark
   // there cannot disagree.
-  const activity: PeerActivity = live
-    ? nodeActivityIn(engine.queries.messagesInFlight, live.peer.id)
-    : "idle";
+  const activity: PeerActivity = live ? nodeActivityIn(engine.queries.messagesInFlight, live.peer.id) : "idle";
 
   const lifecycle: LifecycleStatus = live
     ? "active"
@@ -186,9 +163,7 @@ export function PeerFields(
       <FieldGroup title="Details">
         <div style={kv}>
           <Field label="id">
-            {editing && editor
-              ? <EditableIdField kind="peer" id={id} editor={editor} />
-              : <Identifier value={id} />}
+            {editing && editor ? <EditableIdField kind="peer" id={id} editor={editor} /> : <Identifier value={id} />}
           </Field>
           <Field label="profile">
             {editing
@@ -203,8 +178,7 @@ export function PeerFields(
           {ending?.how === "unobserved" && (
             <Field label="ends because">
               <span style={valueText}>
-                the feed showing this peer went away. Whether it is still
-                running is not something this recording knows.
+                the feed showing this peer went away. Whether it is still running is not something this recording knows.
               </span>
             </Field>
           )}
@@ -237,19 +211,11 @@ export function PeerFields(
         <div style={kv}>
           <OptionalTimeRow
             label="start"
-            t={def?.timing?.start.explicit
-              ? engine.intrinsicStart("peers", id)
-              : null}
+            t={def?.timing?.start.explicit ? engine.intrinsicStart("peers", id) : null}
             editing={editing}
-            onMove={editing && editor?.onSetPeerStart
-              ? (t) => editor.onSetPeerStart(id, t)
-              : undefined}
-            onClear={editor?.onClearPeerStart
-              ? () => editor.onClearPeerStart(id)
-              : undefined}
-            onSetAtPlayhead={editor?.onSetPeerStart
-              ? () => editor.onSetPeerStart(id, engine.clock.t)
-              : undefined}
+            onMove={editing && editor?.onSetPeerStart ? (t) => editor.onSetPeerStart(id, t) : undefined}
+            onClear={editor?.onClearPeerStart ? () => editor.onClearPeerStart(id) : undefined}
+            onSetAtPlayhead={editor?.onSetPeerStart ? () => editor.onSetPeerStart(id, engine.clock.t) : undefined}
             min={0}
             max={ending?.t ?? duration}
             strictMax={ending !== null}
@@ -267,12 +233,8 @@ export function PeerFields(
               property renders here with no change to this file. */
           }
           {moments.map((moment, i) => {
-            const prevT = i === 0
-              ? engine.intrinsicStart("peers", id)
-              : moments[i - 1]!.ev.t;
-            const nextT = i === moments.length - 1
-              ? ending?.t ?? duration
-              : moments[i + 1]!.ev.t;
+            const prevT = i === 0 ? engine.intrinsicStart("peers", id) : moments[i - 1]!.ev.t;
+            const nextT = i === moments.length - 1 ? ending?.t ?? duration : moments[i + 1]!.ev.t;
             const spec = PEER_TRAJECTORY[moment.property];
             return (
               <OptionalTimeRow
@@ -315,8 +277,7 @@ export function PeerFields(
                     })
                   : undefined}
                 onClear={editing && editor
-                  ? () =>
-                    editor.onRemovePeerUpdate(id, moment.ev.t, moment.property)
+                  ? () => editor.onRemovePeerUpdate(id, moment.ev.t, moment.property)
                   : undefined}
                 onSetAtPlayhead={undefined}
                 min={prevT}
@@ -364,16 +325,10 @@ export function PeerFields(
           }
           <OptionalTimeRow
             label="duration"
-            t={def?.timing?.duration.explicit
-              ? def.timing.duration.value
-              : null}
+            t={def?.timing?.duration.explicit ? def.timing.duration.value : null}
             editing={editing}
-            onMove={editing && editor?.onSetPeerDuration
-              ? (dur) => editor.onSetPeerDuration(id, dur)
-              : undefined}
-            onClear={editor?.onClearPeerEnd
-              ? () => editor.onClearPeerEnd(id)
-              : undefined}
+            onMove={editing && editor?.onSetPeerDuration ? (dur) => editor.onSetPeerDuration(id, dur) : undefined}
+            onClear={editor?.onClearPeerEnd ? () => editor.onClearPeerEnd(id) : undefined}
             onSetAtPlayhead={editor?.onSetPeerDuration
               ? () =>
                 editor.onSetPeerDuration(
@@ -395,9 +350,7 @@ export function PeerFields(
             editSession={editor}
           />
           <Field label="status">
-            {live
-              ? <ActivityChip activity={activity} />
-              : <LifecycleChip status={lifecycle} entity="peer" />}
+            {live ? <ActivityChip activity={activity} /> : <LifecycleChip status={lifecycle} entity="peer" />}
           </Field>
         </div>
       </FieldGroup>
@@ -436,8 +389,7 @@ export function PeerConnections(
         if (!s) return null;
         const otherId = s.a === id ? s.b : s.a;
         const other = peerInfo(engine, otherId);
-        const selected =
-          isInSelection(entitySelection, { kind: "session", id: sid }) ||
+        const selected = isInSelection(entitySelection, { kind: "session", id: sid }) ||
           isInSelection(entitySelection, { kind: "peer", id: otherId });
         return (
           <SessionLinkRow

@@ -56,10 +56,10 @@ test "releasing the last handle reclaims a spawned actor while its session stays
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, dial_opts);
-    defer server.close() catch {};
+    defer server.deinit();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
-    var host_future = try io.concurrent(hostOnce, .{&server});
+    var host_future = try io.concurrent(hostOnce, .{server});
 
     const client_result = clientHalf(allocator, io, address);
     const host_result = host_future.await(io);
@@ -70,7 +70,7 @@ test "releasing the last handle reclaims a spawned actor while its session stays
 fn clientHalf(allocator: std.mem.Allocator, io: std.Io, address: std.Io.net.IpAddress) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, dial_opts);
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locatorFromAddress(&buf, address), .ephemeral, dial_opts);
     defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);

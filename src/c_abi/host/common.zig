@@ -5,7 +5,8 @@
 //! It owns the host instance state (`Instance`), the C-behavior bridge
 //! (`HostedBehavior`), the handle-recovery casts, the host-error to C-code
 //! projection (`errToCode`), and the per-call marshalling the send / tell /
-//! turn exports share (`msgFromC`, `turnTarget`, `publishHosted`). The `host`,
+//! turn exports share (`valueMessageFromC`, hosted-behavior marshalling).
+//! The `host`,
 //! `session`, `turn`, and `pump` leaves import it; the module root
 //! (`mod.zig`) re-exports their `pancake_host_*` exports and owns the public C
 //! types those exports fill.
@@ -14,7 +15,6 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
-const engine = @import("engine");
 const actors = @import("actors");
 const driver_core = @import("driver_core");
 
@@ -22,6 +22,7 @@ const driver_core = @import("driver_core");
 // slot — not the ocapn root, so this archive pulls none of the ocapn family's
 // exports (ADR-0059 companion split).
 const shared = @import("c_abi_shared");
+const host_error = @import("error.zig");
 
 // The module root owns the public C types these helpers fill; import it for the
 // opaque handles and the behavior callback typedefs (a lazy cyclic import, the
@@ -44,7 +45,6 @@ pub const PancakeHostCtxFree = c.PancakeHostCtxFree;
 pub const PANCAKE_OK = shared.PANCAKE_OK;
 pub const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 pub const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
-pub const PANCAKE_ERR_INTERNAL = shared.PANCAKE_ERR_INTERNAL;
 pub const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 
 /// The retained-capacity ceiling for the per-call scratch arenas: capacity a
@@ -54,9 +54,9 @@ pub const steady_scratch_bytes = 4096;
 
 /// Which adapter owns transport execution and terminal release for this Host.
 /// Application verbs remain Host verbs in either state; the distinction owns
-/// the I/O/action-drain half and prevents two runtimes from driving or freeing
+/// the I/O/action-drain half and prevents two drivers from driving or freeing
 /// the same core.
-pub const RuntimeOwner = enum {
+pub const DriveOwner = enum {
     embedder,
     driver,
 };
@@ -68,7 +68,10 @@ pub const RuntimeOwner = enum {
 pub const Instance = struct {
     core: Host,
     allocator: std.mem.Allocator,
-    runtime_owner: RuntimeOwner = .embedder,
+    /// Stable identity in the owning Context's diagnostic namespace, or zero
+    /// for the context-less compatibility constructor.
+    diagnostic_id: u64,
+    drive_owner: DriveOwner = .embedder,
     /// The C trace callback (`pancake_host_set_trace`), bridged onto the
     /// core's sink; null when tracing is off.
     trace_cb: ?c.PancakeTraceCallback = null,
@@ -77,7 +80,7 @@ pub const Instance = struct {
     /// embedder that cannot take the callback; null when none is installed.
     /// Host-scope, so a session pays nothing for it.
     trace_queue: ?*trace_queue.TraceQueue = null,
-    /// Scratch for one call's inbound argument marshalling (`argsFromC`),
+    /// Scratch for one call's inbound argument marshalling,
     /// reset at the head of each *top-level* send-shaped call. A nested
     /// (in-callback) verb bumps without resetting: a composed `turn_forward`
     /// runs its target synchronously on the outer call's marshalled argument
@@ -103,14 +106,15 @@ pub const zero_action = PancakeHostAction{
     .value = shared.zero_argument,
     .message = null,
     .message_len = 0,
+    .result = PANCAKE_OK,
 };
 
-/// Destroy one Host instance after its runtime owner has ended all access.
+/// Destroy one Host instance after its drive owner has ended all access.
 /// Both archive faces call this no-export implementation; neither calls the
 /// other archive's public release symbol.
-pub fn releaseInstance(inst: *Instance) void {
+pub fn releaseInstance(inst: *Instance) ?anyerror {
     const alloc = inst.allocator;
-    inst.core.deinitAfterDriverTransfer();
+    const failure = inst.core.deinitAfterOwnershipTransfer();
     inst.arg_scratch.deinit();
     inst.turn_scratch.deinit();
     inst.completion_scratch.deinit();
@@ -119,50 +123,44 @@ pub fn releaseInstance(inst: *Instance) void {
         alloc.destroy(queue);
     }
     alloc.destroy(inst);
+    return failure;
 }
 
-pub fn releaseFromDriver(handle: *PancakeHost) void {
+pub fn releaseFromDriver(handle: *PancakeHost) ?anyerror {
     const inst = instanceFrom(handle).?;
-    std.debug.assert(inst.runtime_owner == .driver);
-    std.debug.assert(!inst.core.in_callback);
-    releaseInstance(inst);
+    std.debug.assert(inst.drive_owner == .driver);
+    std.debug.assert(!inst.core.withinCallback());
+    return releaseInstance(inst);
 }
 
 /// Project one settled/failed completion onto the shared C action shape.
 /// The caller resets `completion_scratch` once before this operation.
 pub fn projectCompletionInto(inst: *Instance, action: driver_core.HostAction, slot: *PancakeHostAction) i32 {
-    switch (action) {
-        .settled => |s| {
-            slot.* = zero_action;
-            slot.ticket = s.vow_id;
-            const session = inst.core.sessions.get(s.peer_id) orelse {
-                const reason = "resolution session closed before value projection";
-                slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
-                slot.message = reason.ptr;
-                slot.message_len = reason.len;
-                return PANCAKE_OK;
-            };
-            if (hostArgumentToC(inst, session, inst.completion_scratch.allocator(), s.value)) |c_val| {
-                slot.kind = c.PANCAKE_HOST_ACTION_SETTLE;
-                slot.value = c_val;
-            } else |_| {
-                const reason = "resolution value could not be projected into C";
-                slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
-                slot.message = reason.ptr;
-                slot.message_len = reason.len;
-            }
-            return PANCAKE_OK;
+    const projection = inst.core.projectCompletion(
+        action,
+        inst.completion_scratch.allocator(),
+        inst.completion_scratch.allocator(),
+        valueToC,
+    );
+    slot.* = zero_action;
+    switch (projection) {
+        .settled => |settled| {
+            slot.kind = c.PANCAKE_HOST_ACTION_SETTLE;
+            slot.ticket = settled.vow_id;
+            slot.value = settled.value;
         },
-        .failed => |f| {
-            slot.* = zero_action;
+        .failed => |failed| {
             slot.kind = c.PANCAKE_HOST_ACTION_FAIL;
-            slot.ticket = f.vow_id;
-            if (f.message.len != 0) slot.message = f.message.ptr;
-            slot.message_len = f.message.len;
-            return PANCAKE_OK;
+            slot.ticket = failed.vow_id;
+            slot.result = switch (failed.failure) {
+                .broken => shared.PANCAKE_ERR_BROKEN,
+                .closed => shared.PANCAKE_ERR_CLOSED,
+            };
+            if (failed.message.len != 0) slot.message = failed.message.ptr;
+            slot.message_len = failed.message.len;
         },
-        else => unreachable,
     }
+    return PANCAKE_OK;
 }
 
 pub fn instanceFrom(handle: ?*PancakeHost) ?*Instance {
@@ -172,9 +170,9 @@ pub fn instanceFrom(handle: ?*PancakeHost) ?*Instance {
 /// Whether the byte-fed embedder still owns transport execution for this
 /// Host. Application verbs remain valid after driver adoption; action-drain,
 /// listener metadata, session mint/release, and byte-pump verbs do not.
-pub fn embedderOwnsRuntime(inst: *Instance, operation: []const u8) bool {
-    if (inst.runtime_owner == .embedder) return true;
-    shared.setLastError("host: {s} refused because the driver owns this host's transport runtime", .{operation});
+pub fn embedderOwnsDrive(inst: *Instance, operation: []const u8) bool {
+    if (inst.drive_owner == .embedder) return true;
+    shared.setLastError("host: {s} refused because the native driver owns transport execution", .{operation});
     return false;
 }
 
@@ -208,107 +206,13 @@ pub fn errToCode(err: anyerror) i32 {
     // Every other error names itself and nothing more.
     if (err != error.InvalidArgument) shared.setLastError("host: {s}", .{@errorName(err)});
     return switch (err) {
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        // These are C marshalling failures, not Host-domain failures.
         error.UnsupportedValue => shared.PANCAKE_ERR_UNSUPPORTED_VALUE,
         error.NullPointer => PANCAKE_ERR_NULL_POINTER,
-        // A discriminant outside its family, refused by the marshal leaf with
-        // its own message; it is caller misuse, like the group below.
-        error.InvalidArgument => PANCAKE_ERR_INVALID_ARGUMENT,
-        // The node's fail-closed routing: a retired token or a dead vow row is
-        // a lookup that found nothing, not a malformed request.
-        error.TokenRetired, error.NoSuchVow, error.UnknownCapability, error.UnknownPublication => shared.PANCAKE_ERR_NOT_FOUND,
-        // Namespace misuse at the publication surfaces (ADR-0098): a mutable
-        // name in the reserved durable namespace, a durable removal aimed at
-        // a mutable name, or entropy reuse colliding with a live durable row.
-        error.ReservedDurableNamespace, error.NotDurableName, error.DurableNameCollision => PANCAKE_ERR_INVALID_ARGUMENT,
-        error.UnknownTransport,
-        error.TransportSemanticsConflict,
-        error.TransportAlreadyRegistered,
-        error.InvalidTransportName,
-        => PANCAKE_ERR_INVALID_ARGUMENT,
-        // A condemned session (crossed-hellos loser) refuses every verb;
-        // the embedder writes its queued abort and releases it.
-        error.SessionCondemned => shared.PANCAKE_ERR_CLOSED,
-        // The partner has not sent its handshake half yet: nothing is wrong,
-        // there is just nothing to read, which is what WOULD_BLOCK names.
-        error.HandshakeIncomplete => shared.PANCAKE_ERR_WOULD_BLOCK,
-        // The embedder owns I/O and must drain queued outbound before feeding
-        // more work to this session.
-        error.OutboundBackpressure => shared.PANCAKE_ERR_WOULD_BLOCK,
-        // Asking a session that never verifies its partner for a verified
-        // identity is a session-state refusal, not caller misuse of arguments.
-        error.PartnerUnverified => shared.PANCAKE_ERR_SESSION,
-        error.PeerIdentityUnverified => shared.PANCAKE_ERR_SESSION,
-        // A realizer's proof offered after the partner's handshake was applied:
-        // the session has moved past the point the proof was evidence for, which
-        // is session state rather than a malformed argument.
-        error.HandshakeAlreadyApplied => shared.PANCAKE_ERR_SESSION,
-        // Caller misuse: re-entering a host-driving verb from a callback, a
-        // foreign-homed argument, an enroll that contradicts the kind on an
-        // already-enrolled row, a non-callable target, a projection on a local
-        // vow, a late or duplicate listener, an unparseable locator.
-        error.ReenteredHost,
-        error.SettleInTurn,
-        error.SessionlessVow,
-        error.NotALocalVow,
-        error.PeerIdentityMismatch,
-        error.ForeignSession,
-        error.ForeignArgument,
-        error.ForeignTurn,
-        error.NoAnswer,
-        error.EnrolledKindConflict,
-        error.NoUnliftedImportRetain,
-        error.ImportLifted,
-        error.NotAToken,
-        error.NotAWirePosition,
-        error.InvalidChannelKey,
-        error.ChannelKeyConflict,
-        error.UnheldIdentity,
-        error.MissingDirectAddressesHint,
-        error.MissingAdvertisedLocator,
-        error.SessionPairExists,
-        error.UncallableTarget,
-        error.NotPipelineable,
-        error.NoSuchActor,
-        error.AlreadyListening,
-        error.AlreadySettled,
-        error.NotLocal,
-        error.NotConnected,
-        error.AlreadyPublished,
-        error.NotNearCallable,
-        error.NearCallTooDeep,
-        error.NotOcapnUri,
-        error.MissingTransport,
-        error.EmptyComponent,
-        error.MalformedPath,
-        error.MalformedHint,
-        error.DuplicateHintName,
-        error.UnsupportedHintValue,
-        error.UriParseError,
-        error.InvalidHostPort,
-        => PANCAKE_ERR_INVALID_ARGUMENT,
-        // The bound peer refused an outbound send for a session or protocol
-        // reason: a session-domain refusal, per the shared taxonomy.
-        error.SendRejected => shared.PANCAKE_ERR_SESSION,
-        // Sealed-channel misuse (ADR-0107): a whole-frame verb aimed at a
-        // sealed session.
-        error.SealedSessionBytesOnly,
-        => PANCAKE_ERR_INVALID_ARGUMENT,
-        // The sealed channel refused and the session is condemned; the
-        // embedder drains the close action and releases it, as for any
-        // condemned session.
-        error.SealedChannelFailed => shared.PANCAKE_ERR_CLOSED,
-        // Everything else is an inbound-dispatch failure, classified through
-        // the one shared taxonomy (codec / session / internal).
-        else => shared.feedErrorToCode(err),
+        else => host_error.fromError(err),
     };
 }
 
-/// Refuse a host-driving verb that has no core verb to carry the refusal —
-/// the registration surfaces this archive owns (`session_publish`, `session_spawn`,
-/// the host-wide `publish`). It reads the same latch the core's own top-level
-/// verbs refuse `ReenteredHost` under, so the two tiers cannot disagree on
-/// what a callback may do: enqueue only.
 /// Write a borrowed byte slice into a C `ptr + len` view pair, spelling an
 /// empty slice as NULL. Every host view-struct field goes through this, so
 /// "empty" has one representation across the archive rather than one per
@@ -318,11 +222,11 @@ pub fn setView(slice: []const u8, out_ptr: *?[*]const u8, out_len: *usize) void 
     out_len.* = slice.len;
 }
 
-pub fn refuseLatched(inst: *const Instance) ?i32 {
-    if (inst.core.in_callback) {
-        shared.setLastError("host: {s}", .{@errorName(HostError.ReenteredHost)});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    }
+/// Preflight a foreign callback-context transfer before the C bridge takes
+/// ownership. The Host remains the admission authority; this early call only
+/// preserves the ABI promise that a reentry refusal leaves `ctx` caller-owned.
+pub fn preflightHostedTransfer(inst: *Instance) ?i32 {
+    inst.core.refuseReentry() catch |err| return errToCode(err);
     return null;
 }
 
@@ -371,19 +275,6 @@ pub const HostedBehavior = struct {
     }
 };
 
-/// Spawn a hosted object on `served`, wrapping the C callbacks in a `HostedBehavior`. On
-/// a spawn failure the free contract is honored here (freeing `ctx` and the
-/// bridge), so the caller never double-frees.
-pub fn spawnBridge(
-    vat: *actors.Vat,
-    alloc: std.mem.Allocator,
-    behavior: PancakeHostBehavior,
-    ctx: ?*anyopaque,
-    free: ?PancakeHostCtxFree,
-) !actors.Ref {
-    return vat.spawnHosted(try hostedBridge(alloc, behavior, ctx, free));
-}
-
 /// Allocate the C callback bridge and return the actor descriptor a Vat or
 /// Host publication consumes. On allocation failure this owns the foreign
 /// `ctx` contract and invokes `free`; after return, `HostedActor.free` does.
@@ -401,93 +292,31 @@ pub fn hostedBridge(
     return .{ .ctx = bridge, .handle = HostedBehavior.handle, .free = HostedBehavior.freeThunk };
 }
 
-/// Bind a hosted object on one session: allocate its export position (from
-/// the session's one export allocator; named publications also register the
-/// bootstrap swissnum), spawn the bridge, and bind. Once the position phase
-/// passes, the vat owns the bridge — a later failure leaves the object
-/// spawned unbound and its `free` runs at teardown, so `free` still runs
-/// exactly once on every outcome.
-///
-/// Atomic on the session's observable state: a failure past the grant restores
-/// the name's prior mapping, releases the never-shared export, and discards a
-/// freshly spawned actor if its bind fails. A failed publish (and a caller's
-/// retry after one) therefore leaves no dangling name, actor, or export row.
-pub fn publishHosted(
-    session: *HostSession,
-    alloc: std.mem.Allocator,
-    name: ?[]const u8,
-    behavior: PancakeHostBehavior,
-    ctx: ?*anyopaque,
-    free: ?PancakeHostCtxFree,
-) !u64 {
-    const peer = session.served.port.peer;
-    const prior = if (name) |n| peer.session_state.bootstrapLookup(n) else null;
-    const position = (if (name) |n| peer.registerBootstrapCap(n) else peer.exportNextObject()) catch |err| {
-        if (free) |f| f(ctx);
-        return err;
-    };
-    errdefer {
-        if (name) |n| peer.session_state.restoreBootstrapMapping(n, prior);
-        peer.session_state.releaseUnsharedExport(.from(position));
-    }
-    const ref = try spawnBridge(&session.host.vat, alloc, behavior, ctx, free);
-    errdefer session.served.discardFreshActor(&session.host.vat, ref);
-    try session.served.bindExport(&session.host.vat, ref, position);
-    // The export binding roots the actor; the spawn root transfers to it
-    // (ADR-0101), so a session-hosted object lives exactly as long as some
-    // relationship — this binding, a lift, a gift — holds it.
-    session.host.vat.releaseActor(switch (ref) {
-        .local => |id| id,
-        .far => unreachable,
-    });
-    return position;
-}
+pub const ValueMessage = struct {
+    verb: []const u8,
+    args: []const driver_core.Value,
+};
 
-/// Reserve the opaque Host identity before `publishHosted` makes its actor or
-/// name observable. On reservation failure the Host has not taken ownership,
-/// so honor the hosted callback's free contract here; later failures are owned
-/// by `publishHosted` / the Vat as before.
-pub fn reserveHostedCapability(
+/// Decode one C application message without manufacturing wire references.
+/// Capability leaves remain opaque; the core operation routes its target and
+/// lowers the complete value tree on the session that will actually carry it.
+pub fn valueMessageFromC(
     inst: *Instance,
-    session: *HostSession,
-    ctx: ?*anyopaque,
-    free: ?PancakeHostCtxFree,
-) !void {
-    inst.core.reserveFreshCapability(session) catch |err| {
-        if (free) |f| f(ctx);
-        return err;
-    };
-}
-
-/// Marshal one send-shaped call's `verb` + C `args` into an `actors.Message`
-/// whose args live in the instance's per-call scratch — the one prologue every
-/// send/tell/turn export shares.
-pub fn msgFromC(
-    inst: *Instance,
-    session: *HostSession,
     verb: ?[*]const u8,
     verb_len: usize,
     args: ?[*]const shared.PancakeArgument,
     args_len: usize,
-) !actors.Message {
-    // `sliceFromC`, not a bare null check: the family's `ptr + len` contract
-    // admits `(null, 0)` as the empty view, and the empty verb is a real
-    // message — Goblins invokes a capability positionally with verb "" — that
-    // a wasm caller legitimately stages as a null pointer.
+) !ValueMessage {
     const verb_slice = try shared.sliceFromC(verb, verb_len);
-    // Reset only at a top-level call: a composed forward runs its target
-    // synchronously, so the outer call's marshalled args (the argument arrays
-    // in this scratch — byte payloads stay borrowed from the C caller) are
-    // live for the whole callback window, and a nested verb must bump the
-    // same arena instead of freeing them mid-call.
-    if (!inst.core.in_callback)
+    if (!inst.core.withinCallback())
         _ = inst.arg_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
     return .{
         .verb = verb_slice,
-        .args = try shared.argsFromCWith(
+        .args = try shared.valuesFromCWith(
+            driver_core.Value,
             anyerror,
-            HostRefContext{ .inst = inst, .session = session },
-            decodeHostReference,
+            inst,
+            decodeHostCapability,
             inst.arg_scratch.allocator(),
             args,
             args_len,
@@ -495,6 +324,10 @@ pub fn msgFromC(
             false,
         ),
     };
+}
+
+fn decodeHostCapability(inst: *Instance, ref: shared.PancakeReference) anyerror!driver_core.Capability {
+    return inst.core.capabilityFromRaw(ref.id);
 }
 
 const HostRefContext = struct {
@@ -519,118 +352,15 @@ fn refusePlainReference(ctx: void, ref: shared.PancakeReference) anyerror!model.
 /// Convert one capability-free C argument for a resolver settle, into the
 /// instance's argument scratch (borrowed byte payloads; the vat's settle
 /// spine clones what a listener may outlive). Resets the scratch exactly as
-/// `msgFromC` does at a top-level call.
+/// `valueMessageFromC` does at a top-level call.
 pub fn plainArgumentFromC(inst: *Instance, arg: shared.PancakeArgument) !model.Argument {
-    if (!inst.core.in_callback)
+    if (!inst.core.withinCallback())
         _ = inst.arg_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
     return shared.argumentFromCWith(anyerror, {}, refusePlainReference, inst.arg_scratch.allocator(), arg, 0, false);
 }
 
 fn encodeHostReference(ctx: HostRefContext, ref: model.Reference) anyerror!shared.PancakeReference {
     return .{ .id = (try ctx.inst.core.liftCapability(ctx.session, ref)).raw() };
-}
-
-const HostRefEncodeContext = struct {
-    inst: *Instance,
-    session: *HostSession,
-    arena: std.mem.Allocator,
-    lifts: *LiftReceipts,
-};
-
-/// Rollback receipts for one model->C projection. Ordinary values stay on the
-/// stack; a reference-heavy value spills into the projection's existing arena,
-/// preserving one walk while keeping the common scalar/list path allocation-
-/// free beyond the C child arrays it already needs.
-const LiftReceipts = struct {
-    const inline_capacity = 8;
-
-    inline_items: [inline_capacity]Host.CapabilityLift = undefined,
-    len: usize = 0,
-    spill: std.ArrayListUnmanaged(Host.CapabilityLift) = .empty,
-
-    fn ensureOne(self: *LiftReceipts, arena: std.mem.Allocator) !void {
-        if (self.spill.capacity != 0) {
-            try self.spill.ensureUnusedCapacity(arena, 1);
-            return;
-        }
-        if (self.len < inline_capacity) return;
-        try self.spill.ensureTotalCapacityPrecise(arena, inline_capacity + 1);
-        self.spill.appendSliceAssumeCapacity(self.inline_items[0..self.len]);
-    }
-
-    fn appendAssumeCapacity(self: *LiftReceipts, lifted: Host.CapabilityLift) void {
-        if (self.spill.capacity != 0) {
-            self.spill.appendAssumeCapacity(lifted);
-        } else {
-            self.inline_items[self.len] = lifted;
-        }
-        self.len += 1;
-    }
-
-    fn items(self: *const LiftReceipts) []const Host.CapabilityLift {
-        return if (self.spill.capacity != 0) self.spill.items else self.inline_items[0..self.len];
-    }
-};
-
-fn encodeHostReferenceTracked(ctx: HostRefEncodeContext, ref: model.Reference) anyerror!shared.PancakeReference {
-    // Reserve the rollback receipt before mutating Host identity state. The
-    // receipt list lives with the projection scratch and is discarded on
-    // success; on failure it makes every completed lift reversible.
-    try ctx.lifts.ensureOne(ctx.arena);
-    const lifted = try ctx.inst.core.liftCapabilityTracked(ctx.session, ref);
-    ctx.lifts.appendAssumeCapacity(lifted);
-    return .{ .id = lifted.ref.raw() };
-}
-
-fn rollbackEncodedReferences(inst: *Instance, lifts: []const Host.CapabilityLift) void {
-    var i = lifts.len;
-    while (i != 0) {
-        i -= 1;
-        inst.core.rollbackCapabilityLift(lifts[i]);
-    }
-}
-
-fn discardUnprojectedArgumentReferences(inst: *Instance, session: *HostSession, arg: model.Argument, skip: *usize) void {
-    switch (arg) {
-        .reference => |reference| {
-            if (skip.* != 0) {
-                skip.* -= 1;
-            } else {
-                inst.core.discardCapabilityObservation(session, reference);
-            }
-        },
-        .list, .set => |items| discardUnprojectedReferences(inst, session, items, skip),
-        .tagged => |tagged| discardUnprojectedReferences(inst, session, tagged.value, skip),
-        .@"struct" => |entries| for (entries) |entry|
-            discardUnprojectedArgumentReferences(inst, session, entry.value, skip),
-        else => {},
-    }
-}
-
-fn discardUnprojectedReferences(inst: *Instance, session: *HostSession, args: []const model.Argument, skip: *usize) void {
-    for (args) |arg| discardUnprojectedArgumentReferences(inst, session, arg, skip);
-}
-
-fn failArgumentProjection(inst: *Instance, session: *HostSession, arg: model.Argument, lifts: []const Host.CapabilityLift) void {
-    rollbackEncodedReferences(inst, lifts);
-    var skip = lifts.len;
-    discardUnprojectedArgumentReferences(inst, session, arg, &skip);
-    std.debug.assert(skip == 0);
-}
-
-fn failArgsProjection(inst: *Instance, session: *HostSession, args: []const model.Argument, lifts: []const Host.CapabilityLift) void {
-    rollbackEncodedReferences(inst, lifts);
-    var skip = lifts.len;
-    discardUnprojectedReferences(inst, session, args, &skip);
-    std.debug.assert(skip == 0);
-}
-
-pub fn hostRefFromC(inst: *Instance, session: *HostSession, ref: shared.PancakeReference) !model.Reference {
-    return decodeHostReference(.{ .inst = inst, .session = session }, ref);
-}
-
-pub fn hostRefToC(inst: *Instance, session: *HostSession, ref: model.Reference) !shared.PancakeReference {
-    return encodeHostReference(.{ .inst = inst, .session = session }, ref);
 }
 
 pub fn hostArgumentFromCOwned(
@@ -643,44 +373,89 @@ pub fn hostArgumentFromCOwned(
     return shared.argumentFromCWith(anyerror, HostRefContext{ .inst = inst, .session = session }, decodeHostReference, arena, arg, depth, true);
 }
 
+pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!shared.PancakeArgument {
+    var out = shared.zero_argument;
+    switch (value) {
+        .integer => |v| {
+            out.kind = shared.PANCAKE_ARG_INTEGER;
+            out.integer = v;
+        },
+        .float64 => |v| {
+            out.kind = shared.PANCAKE_ARG_FLOAT64;
+            out.float64 = v;
+        },
+        .boolean => |v| {
+            out.kind = shared.PANCAKE_ARG_BOOLEAN;
+            out.boolean = if (v) 1 else 0;
+        },
+        .bytes => |bytes| {
+            out.kind = shared.PANCAKE_ARG_BYTES;
+            out.bytes = bytes.ptr;
+            out.bytes_len = bytes.len;
+        },
+        .string => |bytes| {
+            out.kind = shared.PANCAKE_ARG_STRING;
+            out.bytes = bytes.ptr;
+            out.bytes_len = bytes.len;
+        },
+        .symbol => |bytes| {
+            out.kind = shared.PANCAKE_ARG_SYMBOL;
+            out.bytes = bytes.ptr;
+            out.bytes_len = bytes.len;
+        },
+        .void => out.kind = shared.PANCAKE_ARG_VOID,
+        .capability => |capability| {
+            out.kind = shared.PANCAKE_ARG_REFERENCE;
+            out.reference = .{ .id = capability.raw() };
+        },
+        .list => |items| {
+            out.kind = shared.PANCAKE_ARG_LIST;
+            const projected = try valuesToC(arena, items);
+            out.items = projected.ptr;
+            out.items_len = projected.len;
+        },
+        .set => |items| {
+            out.kind = shared.PANCAKE_ARG_SET;
+            const projected = try valuesToC(arena, items);
+            out.items = projected.ptr;
+            out.items_len = projected.len;
+        },
+        .tagged => |tagged| {
+            out.kind = shared.PANCAKE_ARG_TAGGED;
+            out.bytes = tagged.tag.ptr;
+            out.bytes_len = tagged.tag.len;
+            const projected = try valuesToC(arena, tagged.value);
+            out.items = projected.ptr;
+            out.items_len = projected.len;
+        },
+        .keyword => |keyword| {
+            out.kind = shared.PANCAKE_ARG_KEYWORD;
+            out.bytes = keyword.ptr;
+            out.bytes_len = keyword.len;
+        },
+        .big_integer => |big| {
+            out.kind = shared.PANCAKE_ARG_BIG_INTEGER;
+            out.boolean = if (big.negative) 1 else 0;
+            out.bytes = big.digits.ptr;
+            out.bytes_len = big.digits.len;
+        },
+        .@"struct" => return error.UnsupportedValue,
+    }
+    return out;
+}
+
+fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) anyerror![]shared.PancakeArgument {
+    const out = try arena.alloc(shared.PancakeArgument, values.len);
+    for (values, out) |value, *slot| slot.* = try valueToC(arena, value);
+    return out;
+}
+
 pub fn hostArgumentToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, arg: model.Argument) !shared.PancakeArgument {
-    var lifts = LiftReceipts{};
-    const ctx = HostRefEncodeContext{ .inst = inst, .session = session, .arena = arena, .lifts = &lifts };
-    return shared.argumentToCWith(anyerror, ctx, encodeHostReferenceTracked, arena, arg) catch |err| {
-        failArgumentProjection(inst, session, arg, lifts.items());
-        return err;
-    };
+    return inst.core.projectValue(session, arena, arg, arena, valueToC);
 }
 
 pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: []const model.Argument) ![]shared.PancakeArgument {
-    var lifts = LiftReceipts{};
-    const ctx = HostRefEncodeContext{ .inst = inst, .session = session, .arena = arena, .lifts = &lifts };
-    return shared.argsToCWith(anyerror, ctx, encodeHostReferenceTracked, arena, args) catch |err| {
-        failArgsProjection(inst, session, args, lifts.items());
-        return err;
-    };
-}
-
-/// Resolve a turn verb's C target within the turn's own session: a NEAR
-/// reference to the vat-local actor bound at that export, a FAR reference
-/// through the node's routing — refused whole when the route (or any far
-/// argument) leaves this session, since a turn cannot ride another
-/// session's peer.
-pub fn turnTarget(session: *HostSession, reference: model.Reference, args: []const model.Argument) !actors.Ref {
-    switch (reference) {
-        .near => |near| {
-            return session.served.refForExport(near.export_position.int()) orelse actors.Error.NoSuchActor;
-        },
-        .far => {
-            const routed = session.host.node.routeReference(session.peer_id, reference) orelse return HostError.TokenRetired;
-            if (routed.peer_id != session.peer_id) return HostError.ForeignArgument;
-            for (args) |argument| {
-                if (session.host.argIsForeignDeep(session.peer_id, argument)) return HostError.ForeignArgument;
-            }
-            return .{ .far = routed.target.far };
-        },
-        else => return driver_core.Error.UncallableTarget,
-    }
+    return inst.core.projectValues(session, arena, args, arena, valuesToC);
 }
 
 /// One `DurableProvenance` in its C spelling.

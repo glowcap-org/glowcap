@@ -344,16 +344,14 @@ layoutTest(
     // RIGHT of us-west-bob (us-east x = -380, us-west x = -560).
     assert(
       usEast.x > usWest.x,
-      `us-east should be east (right) of us-west; got us-east=${
-        JSON.stringify(usEast)
-      } us-west=${JSON.stringify(usWest)}`,
+      `us-east should be east (right) of us-west; got us-east=${JSON.stringify(usEast)} us-west=${
+        JSON.stringify(usWest)
+      }`,
     );
     // ap-southeast (Singapore-ish) should sit BELOW ap-northeast (Tokyo-ish).
     assert(
       apSe.y > apNe.y,
-      `ap-southeast should be south (below) of ap-northeast; got se=${
-        JSON.stringify(apSe)
-      } ne=${JSON.stringify(apNe)}`,
+      `ap-southeast should be south (below) of ap-northeast; got se=${JSON.stringify(apSe)} ne=${JSON.stringify(apNe)}`,
     );
   },
 );
@@ -583,9 +581,7 @@ layoutTest(
       const alice = kf.layout.get("alice")!;
       assert(
         alice.x === 300 && alice.y === 200,
-        `alice must sit exactly on her pin in every keyframe; got ${
-          JSON.stringify(alice)
-        } at t=${kf.t}`,
+        `alice must sit exactly on her pin in every keyframe; got ${JSON.stringify(alice)} at t=${kf.t}`,
       );
     }
     // Bob gains a link to the pin at t=100 — his converged position
@@ -594,9 +590,9 @@ layoutTest(
     const bobAfter = kfs[1]!.layout.get("bob")!;
     assert(
       dist(bobBefore, bobAfter) > 1,
-      `bob should re-settle when the topology changes; before=${
-        JSON.stringify(bobBefore)
-      } after=${JSON.stringify(bobAfter)}`,
+      `bob should re-settle when the topology changes; before=${JSON.stringify(bobBefore)} after=${
+        JSON.stringify(bobAfter)
+      }`,
     );
   },
 );
@@ -718,9 +714,9 @@ layoutTest(
         const expected = reference.get(peerId)!;
         assert(
           pos.x === expected.x && pos.y === expected.y,
-          `${peerId} must match authored placement; got ${
-            JSON.stringify(pos)
-          } expected ${JSON.stringify(expected)} at t=${kf.t}`,
+          `${peerId} must match authored placement; got ${JSON.stringify(pos)} expected ${
+            JSON.stringify(expected)
+          } at t=${kf.t}`,
         );
       }
     }
@@ -791,9 +787,7 @@ layoutTest(
     const elapsed = performance.now() - t0;
     assert(
       elapsed < 200,
-      `all-pinned recompute spent ${
-        elapsed.toFixed(1)
-      }ms over 30 drags; expected the pin-only path`,
+      `all-pinned recompute spent ${elapsed.toFixed(1)}ms over 30 drags; expected the pin-only path`,
     );
   },
 );
@@ -847,9 +841,9 @@ layoutTest(
     assert(at !== undefined, "p0 should have a solved position");
     // Seed the pin at the solved point once so subsequent placement edits
     // are "pin here" rather than first-time pins.
-    const joins = observations.filter((o) =>
-      (o as { kind: string }).kind === "peer-joined"
-    ) as Array<{ peerId: string; position?: { x: number; y: number } }>;
+    const joins = observations.filter((o) => (o as { kind: string }).kind === "peer-joined") as Array<
+      { peerId: string; position?: { x: number; y: number } }
+    >;
     const p0 = joins.find((j) => j.peerId === "p0")!;
     p0.position = { x: at.x, y: at.y };
     layout.recomputeForPlacement();
@@ -1141,9 +1135,7 @@ layoutTest("wide labels are kept out of each other", () => {
       );
       assert(
         overlap <= 0,
-        `${ids[i]} and ${ids[j]} reach ${
-          overlap.toFixed(0)
-        } into each other's drawing`,
+        `${ids[i]} and ${ids[j]} reach ${overlap.toFixed(0)} into each other's drawing`,
       );
     }
   }
@@ -1525,16 +1517,14 @@ layoutTest(
     const settledT = DEFAULT_LAYOUT_CONFIG.transitionWindow + 50;
     layout.update(world, settledT);
     layout.update(world, settledT); // second call is the early-out
-    const beforePos =
-      [...world.with("peer", "position")].find((e) => e.peer.id === "a")!
-        .position;
+    const beforePos = [...world.with("peer", "position")].find((e) => e.peer.id === "a")!
+      .position;
     const before = { x: beforePos.x, y: beforePos.y };
     doc.entities!.peers!.a!.position = { x: 40, y: 40 };
     layout.recomputeForPlacement();
     layout.update(world, settledT);
-    const after =
-      [...world.with("peer", "position")].find((e) => e.peer.id === "a")!
-        .position;
+    const after = [...world.with("peer", "position")].find((e) => e.peer.id === "a")!
+      .position;
     assertEquals(
       { x: after.x, y: after.y },
       { x: 40, y: 40 },

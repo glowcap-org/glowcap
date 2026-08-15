@@ -1,7 +1,18 @@
-from pancake import listen
+from pancake import Argument, tcp
 
 # Plain TCP binds the host and port you choose.
-server = await listen("127.0.0.1", 9099)
-async for session in server:
-    session.publish("greeter", lambda _verb, args: f"hello, {args[0]}")
-    session.serve()
+async with await tcp.listen("127.0.0.1", 9099) as server:
+    # From here, the CapTP workflow is transport-independent.
+    print(server.uri)  # hand this locator to partners
+
+    def greet(verb: str, args: list[Argument]) -> str:
+        if verb != "greet":
+            raise LookupError("no such method")
+        if len(args) != 1 or not isinstance(args[0], str):
+            raise TypeError("bad invocation")
+        return f"Hello, {args[0]}"
+
+    server.host.publish_giftable("greeter", greet)
+    async for accepted in server:
+        async with accepted as session:
+            await session.serve()

@@ -39,7 +39,7 @@ zig build check-external       # core external protocol baseline: upstream OCapN
 zig build test                 # the correctness suite
 zig build test -Dtest-filter=substring # only tests whose names match
 zig build arch-check           # the layer boundaries: module edges, the no-I/O core, and file coverage
-zig build meta-check           # the scaffolding and documentation claims, checked against the tree
+zig build source-check         # cross-file source, documentation, generated-mirror, and scaffolding contracts
 zig build toolchain-check      # hold check to the runtimes it declares: no member may reach for an undeclared program
 zig build oracle-check         # the protocol reference corpus and the scenario traces
 zig build fmt                  # format Zig sources in place (zig fmt)
@@ -62,7 +62,7 @@ zig build gen-capnp-fixtures   # regenerate Cap'n Proto golden fixtures under te
 zig build racket-test          # Racket unit tests, file by file through `tools/check/racket-test.rkt`, because a bare `racket <file>` prints FAILURE, still exits 0, and never runs `module+ test` (needs racket + goblins)
 zig build docs                 # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site                 # build the documentation site (Zine + autodoc) under zig-out/site/
-zig build docs-serve           # serve the documentation site locally at http://127.0.0.1:1990/pancake/
+zig build docs-serve           # serve the documentation site locally at http://127.0.0.1:1990/pancake/ (regenerates site example tabs on start and while site/examples changes)
 zig build release-pack         # stage the installed archives, headers, and licenses into one versioned, checksummed per-target tarball under zig-out/release/ (needs cargo)
 ```
 
@@ -119,10 +119,15 @@ zig build gen-header-net-transport-relay-check  # verify it matches src/c_abi/ne
 The bindings read the same facts out of generated mirrors.
 
 ```sh
-zig build gen-ts-abi                    # regenerate the TypeScript ABI mirror from src/c_abi: constants into bindings/ts/abi/constants.ts, 64-bit struct layouts into bindings/ts/stack/internal/abi.ts, and the symbol-owning dlopen tables — the libpancake_host byte-fed family into bindings/ts/stack/internal/ffi/host.ts and the libpancake_driver loop family into bindings/ts/stack/internal/ffi/driver.ts (from the annotated inventories in src/c_abi/host/symbols.zig and src/c_abi/driver/symbols.zig)
+zig build gen-ts-abi                    # regenerate the TypeScript ABI mirror from src/c_abi: constants into bindings/ts/abi/constants.ts, 64-bit struct layouts into bindings/ts/runtime/internal/abi.ts, and the symbol-owning dlopen tables — the libpancake_host byte-fed family into bindings/ts/runtime/internal/ffi/host.ts and the libpancake_driver loop family into bindings/ts/runtime/internal/ffi/driver.ts (from the annotated inventories in src/c_abi/host/symbols.zig and src/c_abi/driver/symbols.zig)
 zig build gen-ts-abi-check              # verify the generated TypeScript ABI mirror matches src/c_abi (fails if stale), part of check
-zig build gen-site-examples             # assemble site/examples snippets into SuperMD code-tabs between page markers (Start, bindings, onion, browser)
+zig build gen-site-examples             # assemble site/examples snippets into SuperMD code-tabs between page markers on the Start, binding, transport, and relay pages
 zig build gen-site-examples-check       # verify those tabs match site/examples (fails if stale), part of check
+zig build site-zig-examples-check       # compile the authoritative Zig transport snippets and the separately rooted iroh locator test, part of check
+zig build site-ts-examples-check        # type-check every .ts transport snippet through the public package map, part of check
+zig build site-python-examples-check    # type-check every .python transport snippet through the public package, part of bindings (needs python3 + uv)
+zig build site-rust-examples-check      # type-check every .rust transport snippet through the public package, part of bindings (needs python3 + cargo)
+zig build site-racket-examples-check    # compile every .racket transport snippet through the public package, part of bindings (needs python3 + racket)
 zig build gen-binding-constants         # regenerate binding ABI constants from src/c_abi
 zig build gen-binding-constants-check   # verify binding ABI constants match src/c_abi (fails if stale), part of check
 zig build gen-binding-host-action       # regenerate binding HostAction decode/types from src/c_abi/host
@@ -258,7 +263,7 @@ zig build webrtc-mesh               # two native peers bring up a DataChannel th
 zig build webrtc-signaling-captp    # the exporter hosts a signaling inbox behind a keyed session, and the recipient drives offer/answer/candidate over it (phase 5; needs cargo)
 zig build webrtc-answerer           # build the native answerer for the webrtc-browser-peer proof (phase 6; needs cargo)
 zig build webrtc-browser-peer       # a real headless Chromium runs @pancake/web and @pancake/webrtc, and the DataChannel to the native answerer carries a keyed OCapN session (phase 6; needs cargo + deno + a Playwright Chromium)
-zig build webrtc-browser-to-browser # two headless Chromium peers bring up a direct DataChannel and hold a keyed session, the offerer dialing a bare webrtc locator through Host.setSignaling with the signaling host out of the byte path (needs deno + a Playwright Chromium)
+zig build webrtc-browser-to-browser # two headless Chromium peers bring up a direct DataChannel and hold a keyed session, the offerer dialing a bare webrtc locator through its composed webrtc connector's signaling authority with the signaling host out of the byte path (needs deno + a Playwright Chromium)
 ```
 
 ## The onion transport
@@ -314,7 +319,7 @@ zig build rust-relay-idle-test            # the Rust relay reclaims a silent idl
 zig build racket-relay-idle-test          # the Racket relay reclaims a silent idle session (needs deno + racket)
 zig build deno-relay-iroh-test            # a browser peer holds a live iroh session through the Deno relay's iroh leg (needs deno + cargo)
 zig build python-relay-iroh-test          # the same through the Python relay, dialing iroh via dial_locator_for_relay (needs deno + uv + cargo)
-zig build rust-relay-iroh-test            # the same through the Rust relay, dialing iroh via IrohNetlayer::connect_owned behind an opt-in iroh feature (needs deno + cargo)
+zig build rust-relay-iroh-test            # the same through the Rust relay, dialing iroh via Netlayer::connect_owned behind an opt-in iroh feature (needs deno + cargo)
 zig build racket-relay-iroh-test          # the same through the Racket relay, dialing iroh via dial-locator-for-relay (needs deno + cargo + racket)
 zig build bindings-keyed-relay-rendezvous # each language binding and the native CLI cold-dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)
 zig build deno-keyed-relay-rendezvous     # that cold dial, the Deno binding (needs deno)
@@ -322,7 +327,6 @@ zig build python-keyed-relay-rendezvous   # that cold dial, the Python binding (
 zig build rust-keyed-relay-rendezvous     # that cold dial, the Rust binding (needs deno + cargo)
 zig build racket-keyed-relay-rendezvous   # that cold dial, the Racket binding (needs deno + racket)
 zig build zig-keyed-relay-rendezvous      # that cold dial, the native pancake CLI via PANCAKE_RENDEZVOUS (needs deno)
-zig build rooms-web-noise-relay-provenance # browser relay session reports sealed-channel provenance
 zig build zig-keyed-relay-register        # the native CLI registers at the reference relay with no listening socket and answers a cold dial (needs deno)
 ```
 
@@ -360,8 +364,8 @@ zig build rooms-web-browser-peer  # a real headless Chromium runs the @pancake/w
 zig build rooms-web-page          # the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line (needs deno + a Playwright Chromium)
 zig build rooms-web-reconnect     # the page survives losing its room server: it notices, reconnects, re-enters its room untouched, keeps the conversation the dead session delivered, and reaches the room again over the new one (needs deno + a Playwright Chromium)
 zig build rooms-web-dm            # the page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)
-zig build rooms-web-dm-tabs       # two tabs cold-dial each other by relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction tab-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)
-zig build rooms-web-dm-native     # a native peer cold-dials a browser member by relay rendezvous through its configured rendezvous mapping (Host.setRendezvousUrl; needs deno + a Playwright Chromium)
+zig build rooms-web-dm-tabs       # two tabs DM over WebRTC (default) or keyed-relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction tab-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)
+zig build rooms-web-dm-native     # a native peer cold-dials a browser member by relay rendezvous through the relay provider it composes for rendezvous dials (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-webrtc     # two browser members direct-message over a DataChannel by redeeming a webrtc handoff give, the room directory carrying only offer/answer/candidate (ADR-0089; needs deno + a Playwright Chromium)
 zig build rooms-web-dm-viz        # a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, and the endpoint scopes both producers' session ids apart (needs deno + a Playwright Chromium)
 zig build rooms-web-dm-retarget   # a nickname changing hands cannot move a direct conversation: the member leaves, another is granted the name, and a message typed into the original conversation reaches nobody and says why (needs deno + a Playwright Chromium)

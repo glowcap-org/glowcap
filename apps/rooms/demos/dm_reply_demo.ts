@@ -26,6 +26,7 @@ import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/loca
 import { DM } from "../lib/protocol.ts";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
 import { waitUntil } from "../lib/dm_handoff.ts";
+import { openRoomsRuntime } from "../lib/runtime.ts";
 
 const TEXT = "hi Bob, from Alice";
 const REPLY = "re: hi Bob, from Alice";
@@ -50,8 +51,8 @@ const dmBehavior = recordingReplyDm(bobInbox, (text) => `re: ${text}`);
 async function main(): Promise<void> {
 	const bobHost = roomsHost();
 	bobHost.publishGiftable("dm", dmBehavior);
-	const bob = roomsListen("127.0.0.1", 0, bobHost);
-	const bobLocator = loopbackTcpDesignator(await bob.ready());
+	const bob = await roomsListen("127.0.0.1", 0, bobHost);
+	const bobLocator = loopbackTcpDesignator(bob.port);
 	(async () => {
 		for await (const session of bob) {
 			bobAccepts += 1;
@@ -62,7 +63,8 @@ async function main(): Promise<void> {
 	// Alice dials Bob, fetches his `dm`, and hands it a reply inbox she hosts on
 	// this same connection (a near export on her dialing session, so it rides the
 	// call cleanly). Alice never listens.
-	const alice = await dial(bobLocator);
+	const aliceRuntime = await openRoomsRuntime();
+	const alice = await dial(bobLocator, aliceRuntime);
 	alice.serve().catch(() => {});
 	const bobDm = await alice.fetch("dm");
 
@@ -91,6 +93,7 @@ async function main(): Promise<void> {
 
 	alice.close();
 	bob.close();
+	await aliceRuntime.close();
 	process.exit(0);
 }
 

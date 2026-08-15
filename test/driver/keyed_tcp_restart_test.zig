@@ -20,6 +20,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 const support_actors = @import("../support/actors.zig");
 
 const crypto = pancake.foundation.crypto;
@@ -113,11 +114,11 @@ fn serveAndDial(
     secret: crypto.SecretKey,
     dial_designator: []const u8,
 ) !void {
-    var listener = try resident.netlayer().listen(allocator, .{
+    var listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = secret.publicKey(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
 
     const local_locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, local_locator);
@@ -149,11 +150,11 @@ test "keyed-tcp loopback: the dialed key designator is the partner's signed iden
 
     // The contract listener also reports the key as its designator (what a
     // `driver.Server.localDesignator` hands an application to publish).
-    var listener = try resident.netlayer().listen(allocator, .{
+    var listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = secret.publicKey(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
     const local_locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, local_locator);
     try std.testing.expectEqualStrings(designator[0..], local_locator.designator);
@@ -171,11 +172,11 @@ test "keyed-tcp negative: a listener claiming a different key than the dialed de
 
     // The squatter answers the socket the hint names, holding a different key.
     var resident = net.tcp.keyed.Resident{ .io = io };
-    var listener = try resident.netlayer().listen(allocator, .{
+    var listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = squatter.publicKey(),
     });
-    defer listener.close();
+    defer netlayer_test.close(listener);
     const local_locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, local_locator);
     const locator: model.PeerLocator = .{
@@ -232,7 +233,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
 
     // First life: bind on port 0, serve one client through the key designator,
     // and record only the designator (the hint is per-life connection advice).
-    var first_listener = try resident.netlayer().listen(allocator, .{
+    var first_listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = secret.publicKey(),
     });
@@ -258,7 +259,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     // that the designator is the identity, not the address.
     const rebuilt = crypto.SecretKey.fromSeed(seed);
     var second_life = net.tcp.keyed.Resident{ .io = io };
-    var second_listener = try second_life.netlayer().listen(allocator, .{
+    var second_listener = try netlayer_test.listenBlocking(second_life.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = rebuilt.publicKey(),
     });
@@ -266,7 +267,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     defer model.freePeerLocator(allocator, second_local);
     const second_hint = net.netlayer.directAddrHint(second_local.hints) orelse return error.MissingDirectAddresses;
     try std.testing.expect(!std.mem.eql(u8, first_hint, second_hint));
-    first_listener.close();
+    netlayer_test.close(first_listener);
     {
         // Re-dial the locator recorded before the restart: same designator,
         // only the hint updated.
@@ -281,7 +282,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
         try client_result;
         try host_result;
     }
-    second_listener.close();
+    netlayer_test.close(second_listener);
 
     // The locator a partner recorded before the restart names the same peer
     // as the one it dialed after it: hints are connection advice, never

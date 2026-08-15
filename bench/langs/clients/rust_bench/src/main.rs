@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use pancake::{connect, listen, tcp_locator, Argument, Ref, Session};
+use pancake::{tcp, Argument, ConnectOptions, Locator, Ref, Runtime, RuntimeConfig, Session};
 
 const CLIENT: &str = "rust";
 const RUNTIME: &str = "rust";
@@ -18,8 +18,7 @@ async fn run_unit(conn: &Session, root: &Ref) -> Result<(), String> {
 		.send(root, "create", &[Argument::Bytes(b"benchmark".to_vec())])
 		.await
 		.map_err(|e| format!("create: {e:?}"))?;
-	let task =
-		Ref::try_from(&reply).map_err(|_| "create did not return a capability".to_string())?;
+	let task = Ref::try_from(&reply).map_err(|_| "create did not return a capability".to_string())?;
 	conn.send(&task, "assign", &[Argument::Bytes(b"alice".to_vec())])
 		.await
 		.map_err(|e| format!("assign: {e:?}"))?;
@@ -64,14 +63,15 @@ fn percentile_ms(sorted: &[f64], p: f64) -> f64 {
 	sorted[rank.saturating_sub(1).min(sorted.len() - 1)]
 }
 
-async fn run_latency(locator: &str, n: usize) -> Result<(), String> {
-	let conn = connect(locator, None, None)
+async fn run_latency(locator: &Locator, n: usize) -> Result<(), String> {
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| format!("runtime: {e:?}"))?;
+	let conn = runtime
+		.connect(locator, ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
-	let root = conn
-		.fetch("root")
-		.await
-		.map_err(|e| format!("fetch: {e:?}"))?;
+	let root = conn.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
 	let mut lats: Vec<f64> = Vec::with_capacity(n);
 	for _ in 0..n {
 		let s = Instant::now();
@@ -92,25 +92,22 @@ async fn run_latency(locator: &str, n: usize) -> Result<(), String> {
 	Ok(())
 }
 
-async fn run_throughput(locator: &str, n: usize) -> Result<(), String> {
-	let conn = connect(locator, None, None)
+async fn run_throughput(locator: &Locator, n: usize) -> Result<(), String> {
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| format!("runtime: {e:?}"))?;
+	let conn = runtime
+		.connect(locator, ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
-	let root = conn
-		.fetch("root")
-		.await
-		.map_err(|e| format!("fetch: {e:?}"))?;
+	let root = conn.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
 	let t0 = Instant::now();
 	for _ in 0..n {
 		run_unit_pipelined(&conn, &root).await?;
 	}
 	let total = t0.elapsed().as_secs_f64() * 1000.0;
 	conn.close();
-	let rps = if total <= 0.0 {
-		0.0
-	} else {
-		n as f64 / (total / 1000.0)
-	};
+	let rps = if total <= 0.0 { 0.0 } else { n as f64 / (total / 1000.0) };
 	println!(
         "{{\"v\":1,\"metric\":\"throughput\",\"client\":\"{CLIENT}\",\"suite\":\"taskboard\",\"n\":{n},\"total_ms\":{:.2},\"rps\":{},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
         total, rps.round() as i64,
@@ -118,10 +115,14 @@ async fn run_throughput(locator: &str, n: usize) -> Result<(), String> {
 	Ok(())
 }
 
-async fn run_connections(locator: &str, n: usize) -> Result<(), String> {
+async fn run_connections(locator: &Locator, n: usize) -> Result<(), String> {
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| format!("runtime: {e:?}"))?;
 	let mut warm: Vec<Session> = Vec::new();
 	for _ in 0..n.min(5) {
-		let c = connect(locator, None, None)
+		let c = runtime
+			.connect(locator, ConnectOptions::default())
 			.await
 			.map_err(|e| format!("connect: {e:?}"))?;
 		c.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
@@ -132,7 +133,7 @@ async fn run_connections(locator: &str, n: usize) -> Result<(), String> {
 	let mut handles: Vec<Session> = Vec::with_capacity(n);
 	let t0 = Instant::now();
 	for _ in 0..n {
-		let c = connect(locator, None, None)
+		let c = connect(locator, ConnectOptions::default())
 			.await
 			.map_err(|e| format!("connect: {e:?}"))?;
 		c.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
@@ -156,8 +157,7 @@ async fn run_connections(locator: &str, n: usize) -> Result<(), String> {
 /// The local-turn counter behavior: `hit` increments and returns the count,
 /// any other verb refuses. A fresh closure per use, so the two paths of
 /// `run_local` never share a count.
-fn counter_behavior(
-) -> impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static {
+fn counter_behavior() -> impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static {
 	let mut count: i64 = 0;
 	move |verb, _args| {
 		if verb != "hit" {
@@ -176,10 +176,7 @@ async fn measure_hits(conn: &Session, target: &Ref, n: usize) -> Result<Vec<f64>
 	let mut last: i64 = 0;
 	for _ in 0..n {
 		let s = Instant::now();
-		let reply = conn
-			.send(target, "hit", &[])
-			.await
-			.map_err(|e| format!("hit: {e:?}"))?;
+		let reply = conn.send(target, "hit", &[]).await.map_err(|e| format!("hit: {e:?}"))?;
 		lats.push(s.elapsed().as_secs_f64() * 1e9);
 		last = reply
 			.as_i64()
@@ -199,13 +196,10 @@ async fn measure_hits(conn: &Session, target: &Ref, n: usize) -> Result<Vec<f64>
 // codec, feed, trampoline, and marshal both ways. The orchestrator's host/port
 // arguments are unused; the pair is self-contained.
 async fn run_local(n: usize) -> Result<(), String> {
-	let server = listen(("127.0.0.1", 0))
+	let server = tcp::listen("127.0.0.1", 0, tcp::ListenOptions::default())
 		.await
 		.map_err(|e| format!("listen: {e:?}"))?;
-	let loop_port = server
-		.local_addr()
-		.map_err(|e| format!("local_addr: {e:?}"))?
-		.port();
+	let loop_port = server.port().map_err(|e| format!("port: {e:?}"))?;
 	// The accept half on its own local task: accept the one dialer, publish the
 	// counter (before serving, so the dialer's fetch cannot race it), and serve
 	// until the dialer leaves. A failure here would strand the dialer in a
@@ -224,7 +218,11 @@ async fn run_local(n: usize) -> Result<(), String> {
 		}
 		conn.serve().await;
 	});
-	let dial = connect(&tcp_locator("127.0.0.1", loop_port), None, None)
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| format!("runtime: {e:?}"))?;
+	let dial = runtime
+		.connect(&tcp::locator("127.0.0.1", loop_port), ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
 
@@ -236,10 +234,7 @@ async fn run_local(n: usize) -> Result<(), String> {
 	let in_lang = measure_hits(&dial, &local, n).await?;
 
 	// (b) via_host: the published counter across the loopback pair.
-	let far = dial
-		.fetch("counter")
-		.await
-		.map_err(|e| format!("fetch: {e:?}"))?;
+	let far = dial.fetch("counter").await.map_err(|e| format!("fetch: {e:?}"))?;
 	let via_host = measure_hits(&dial, &far, n).await?;
 
 	dial.close();
@@ -254,11 +249,7 @@ async fn run_local(n: usize) -> Result<(), String> {
 	} else {
 		via_host.iter().sum::<f64>() / n as f64
 	};
-	let ratio = if in_mean > 0.0 {
-		via_mean / in_mean
-	} else {
-		0.0
-	};
+	let ratio = if in_mean > 0.0 { via_mean / in_mean } else { 0.0 };
 	println!(
         "{{\"v\":1,\"metric\":\"local\",\"client\":\"{CLIENT}\",\"suite\":\"local-turn\",\"n\":{n},\"in_lang_ns\":{:.1},\"in_lang_p99_ns\":{:.1},\"via_host_ns\":{:.1},\"via_host_p99_ns\":{:.1},\"ratio\":{:.2},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
         in_mean, percentile_ms(&in_lang, 0.99), via_mean, percentile_ms(&via_host, 0.99), ratio,
@@ -266,14 +257,15 @@ async fn run_local(n: usize) -> Result<(), String> {
 	Ok(())
 }
 
-async fn run_cold(locator: &str) -> Result<(), String> {
-	let conn = connect(locator, None, None)
+async fn run_cold(locator: &Locator) -> Result<(), String> {
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| format!("runtime: {e:?}"))?;
+	let conn = runtime
+		.connect(locator, ConnectOptions::default())
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
-	let root = conn
-		.fetch("root")
-		.await
-		.map_err(|e| format!("fetch: {e:?}"))?;
+	let root = conn.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
 	run_unit(&conn, &root).await?;
 	conn.close();
 	println!("{{\"v\":1,\"event\":\"cold-done\",\"client\":\"{CLIENT}\"}}");
@@ -292,7 +284,7 @@ async fn main() {
 		eprintln!("port must be a number");
 		std::process::exit(2);
 	};
-	let locator = tcp_locator(&args[2], port);
+	let locator = tcp::locator(&args[2], port);
 	let n: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
 
 	let local = tokio::task::LocalSet::new();

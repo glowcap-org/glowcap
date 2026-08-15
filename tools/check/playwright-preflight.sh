@@ -76,6 +76,6 @@ On a machine of your own, install the same pinned version and its libraries:
   sudo npx playwright@${PLAYWRIGHT_VERSION} install-deps chromium
 
 That version is written in one place, .devcontainer/pins.sh, and zig build
-meta-check holds the root deno.json's playwright import to it.
+source-check holds the root deno.json's playwright import to it.
 EOF
 exit 1

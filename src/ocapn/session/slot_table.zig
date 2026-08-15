@@ -278,6 +278,18 @@ pub const ImportTable = struct {
         gop.value_ptr.node_token = token;
     }
 
+    /// Undo a token enrollment that never became observable. The import row
+    /// remains authoritative and any Host identity attached beside the token
+    /// is preserved. Retained map capacity is intentional high-water storage.
+    pub fn abandonToken(self: *ImportTable, position: Id, token: u64) void {
+        const map = self.identities orelse unreachable;
+        const identity = map.getPtr(position.int()) orelse unreachable;
+        std.debug.assert(identity.node_token == token);
+        identity.node_token = 0;
+        if (identity.host_ref == 0 and identity.lifted_retains == 0)
+            std.debug.assert(map.remove(position.int()));
+    }
+
     /// Opaque Host capability currently naming this live import incarnation.
     pub fn hostRefOf(self: *const ImportTable, position: Id) ?u64 {
         const map = self.identities orelse return null;

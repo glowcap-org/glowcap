@@ -23,7 +23,7 @@
 // full anyway); a send that throws is swallowed; a socket that dies is retried
 // with backoff.
 
-import type { TraceEvent } from "@pancake/stack";
+import type { TraceEvent } from "@pancake/runtime";
 
 /** The endpoint path a producer connects to. Viewers use `/`; this is the
  * other half of that split, named once so the endpoint and its producers

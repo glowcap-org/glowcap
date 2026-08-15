@@ -33,13 +33,11 @@ export const explicitBound = (value: number): Bound => ({
  *  inherited, they should snapshot the inherited value into `value`
  *  themselves before calling — `withExplicit` does not consult
  *  context (it can't; it doesn't know about it). */
-export const withExplicit = (b: Bound): Bound =>
-  b.explicit ? b : { ...b, explicit: true };
+export const withExplicit = (b: Bound): Bound => b.explicit ? b : { ...b, explicit: true };
 
 /** Make a bound implicit while preserving its stored value so a
  *  later `withExplicit` can restore the user's last input. */
-export const withImplicit = (b: Bound): Bound =>
-  b.explicit ? { ...b, explicit: false } : b;
+export const withImplicit = (b: Bound): Bound => b.explicit ? { ...b, explicit: false } : b;
 
 /** Set the stored value AND mark explicit. The common case for an
  *  authoring intent that takes a user-typed number. */

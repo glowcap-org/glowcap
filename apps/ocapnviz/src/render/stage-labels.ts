@@ -119,9 +119,7 @@ export function pillSize(
  * value stays one selection away.
  */
 export function endpointLabelText(designator: string | undefined): string {
-  return designator === undefined
-    ? UNNAMED_END_LABEL
-    : elideIdentifier(designator);
+  return designator === undefined ? UNNAMED_END_LABEL : elideIdentifier(designator);
 }
 
 /**

@@ -30,10 +30,31 @@
 //! [`last_error`](crate::last_error).
 
 use core::marker::PhantomData;
+use std::sync::{Arc, Mutex};
+
+#[cfg(feature = "async")]
+use std::rc::Rc;
 
 use crate::error_slot::error_slot;
 use crate::sys::onion as ffi;
-use crate::{Codec, Context, Result};
+use crate::{Codec, Context, Error, HintWireForm, Locator, Result};
+
+fn lock_failure(slot: &Mutex<Option<Error>>) -> std::sync::MutexGuard<'_, Option<Error>> {
+	slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(feature = "async")]
+pub use crate::ListenerIdentity;
+
+/// Build the standardized hint-free locator for an onion service.
+pub fn locator(service_id: &str) -> Locator {
+	Locator {
+		transport: crate::abi_constants::TRANSPORT_ONION.to_string(),
+		designator: service_id.to_string(),
+		hints: std::collections::BTreeMap::new(),
+		hint_wire_form: HintWireForm::BooleanFalse,
+	}
+}
 
 error_slot!(
 	// Like the core `check`, but for `pancake_onion_*` calls: snapshot the onion
@@ -79,6 +100,14 @@ pub struct Config<'a> {
 	/// The local endpoint Tor forwards the service's virtual port to. Empty binds
 	/// a loopback port and reports the one the OS chose.
 	pub forward: &'a str,
+}
+
+/// Listener construction options. See [`ListenerIdentity`] for the difference
+/// between restoring an identity and sharing an existing Host.
+#[cfg(feature = "async")]
+#[derive(Clone, Default)]
+pub struct ListenOptions {
+	pub identity: ListenerIdentity,
 }
 
 impl<'a> Config<'a> {
@@ -135,21 +164,79 @@ impl<'a> Config<'a> {
 			forward_len: self.forward.len(),
 		}
 	}
+
+	fn to_owned(&self) -> OwnedConfig {
+		OwnedConfig {
+			socks: self.socks.to_owned(),
+			control: self.control.to_owned(),
+			auth: match self.auth {
+				Auth::None => OwnedAuth::None,
+				Auth::Cookie(bytes) => OwnedAuth::Cookie(bytes.to_vec()),
+				Auth::Password(text) => OwnedAuth::Password(text.to_owned()),
+			},
+			service_key: self.service_key.to_vec(),
+			forward: self.forward.to_owned(),
+		}
+	}
 }
 
-/// Install one configured onion provider into `driver`.
-///
-/// Registration retains the archive-owned provider package before this function
-/// drops the netlayer's construction reference. Dropping that reference does not
-/// shut the runtime down; the driver lease remains its lifetime authority until
-/// driver teardown.
+#[derive(Clone)]
+struct OwnedConfig {
+	socks: String,
+	control: String,
+	auth: OwnedAuth,
+	service_key: Vec<u8>,
+	forward: String,
+}
+
+#[derive(Clone)]
+enum OwnedAuth {
+	None,
+	Cookie(Vec<u8>),
+	Password(String),
+}
+
+impl OwnedConfig {
+	fn as_config(&self) -> Config<'_> {
+		Config {
+			socks: &self.socks,
+			control: &self.control,
+			auth: match &self.auth {
+				OwnedAuth::None => Auth::None,
+				OwnedAuth::Cookie(bytes) => Auth::Cookie(bytes),
+				OwnedAuth::Password(text) => Auth::Password(text),
+			},
+			service_key: &self.service_key,
+			forward: &self.forward,
+		}
+	}
+}
+
+/// Configure the onion provider package for a generic [`crate::Runtime::connect`]
+/// operation. The configuration is copied at construction so the provider's
+/// lifetime is independent of the caller's borrowed [`Config`].
 #[cfg(feature = "async")]
-pub fn install_provider(
-	driver: &crate::driver_loop::DriverLoop,
-	config: &Config<'_>,
-) -> Result<()> {
+pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
+	let config = config.to_owned();
+	crate::driver_loop::Provider::new(move |lp| {
+		let config = config.clone();
+		async move {
+			let netlayer = Netlayer::new(&config.as_config())?;
+			lp.add_provider(netlayer.transport_provider()?)
+		}
+	})
+}
+
+#[cfg(all(feature = "async", test))]
+fn install_provider(driver: &crate::driver_loop::DriverLoop, config: &Config<'_>) -> Result<()> {
 	let netlayer = Netlayer::new(config)?;
 	driver.add_provider(netlayer.transport_provider()?)
+}
+
+#[cfg(feature = "async")]
+fn ensure_loop_provider(lp: &Rc<crate::driver_loop::LoopShared>, config: &Config<'_>) -> Result<()> {
+	let netlayer = Netlayer::new(config)?;
+	lp.add_provider(netlayer.transport_provider()?)
 }
 
 /// Owns where Tor listens and the one I/O backend its streams block on.
@@ -159,6 +246,7 @@ pub fn install_provider(
 /// to its [`Context`].
 pub struct Netlayer<'ctx> {
 	raw: *mut ffi::PancakeOnionNetlayer,
+	listener_close_failure: Arc<Mutex<Option<Error>>>,
 	_ctx: PhantomData<&'ctx Context>,
 }
 
@@ -173,6 +261,7 @@ impl<'ctx> Netlayer<'ctx> {
 		check_onion(unsafe { ffi::pancake_onion_netlayer_new(&c, &mut raw) })?;
 		Ok(Netlayer {
 			raw,
+			listener_close_failure: Arc::new(Mutex::new(None)),
 			_ctx: PhantomData,
 		})
 	}
@@ -185,16 +274,16 @@ impl<'ctx> Netlayer<'ctx> {
 		check_onion(unsafe { ffi::pancake_onion_netlayer_new_in(context.raw(), &c, &mut raw) })?;
 		Ok(Netlayer {
 			raw,
+			listener_close_failure: Arc::new(Mutex::new(None)),
 			_ctx: PhantomData,
 		})
 	}
 
 	#[cfg(feature = "async")]
-	fn transport_provider(&self) -> Result<crate::driver_loop::TransportProvider<'_>> {
-		let mut package: crate::sys::driver::PancakeTransportProvider =
-			unsafe { core::mem::zeroed() };
+	fn transport_provider(&self) -> Result<crate::driver_loop::ProviderPackage<'_>> {
+		let mut package: crate::sys::driver::PancakeTransportProvider = unsafe { core::mem::zeroed() };
 		check_onion(unsafe { ffi::pancake_onion_transport_provider(self.raw, &mut package) })?;
-		Ok(crate::driver_loop::TransportProvider {
+		Ok(crate::driver_loop::ProviderPackage {
 			package,
 			_owner: PhantomData,
 		})
@@ -229,6 +318,7 @@ impl<'ctx> Netlayer<'ctx> {
 			id_len,
 			key,
 			key_len,
+			close_failure: Arc::clone(&self.listener_close_failure),
 			_nl: PhantomData,
 		})
 	}
@@ -240,12 +330,7 @@ impl<'ctx> Netlayer<'ctx> {
 	/// `.onion` suffix, which a locator's transport label supplies. One that is
 	/// not a well-formed v3 address is refused before any socket opens. Blocking:
 	/// a Tor circuit takes seconds.
-	pub fn connect(
-		&self,
-		service_id: &str,
-		codec: Codec,
-		max_frame_bytes: usize,
-	) -> Result<Connection<'_>> {
+	pub fn connect(&self, service_id: &str, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeOnionConn = core::ptr::null_mut();
 		check_onion(unsafe {
 			ffi::pancake_onion_connect(
@@ -257,16 +342,45 @@ impl<'ctx> Netlayer<'ctx> {
 				&mut raw,
 			)
 		})?;
-		Ok(Connection {
-			raw,
-			_nl: PhantomData,
-		})
+		Ok(Connection { raw, _nl: PhantomData })
+	}
+
+	/// Return and clear the first listener failure retained by implicit drop.
+	pub fn take_listener_close_failure(&self) -> Option<Error> {
+		lock_failure(&self.listener_close_failure).take()
+	}
+
+	/// Release the netlayer and report any listener close failure retained by
+	/// implicit destruction. The borrow checker guarantees every listener has
+	/// already retired before this consuming barrier can run.
+	pub fn close(mut self) -> Result<()> {
+		let listener_failure = self.take_listener_close_failure();
+		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		let release = check_onion(unsafe { ffi::pancake_onion_netlayer_release(raw) });
+		if let Some(error) = listener_failure {
+			return match release {
+				Ok(()) => Err(error),
+				Err(cleanup) => Err(error.with_secondary(cleanup)),
+			};
+		}
+		release
 	}
 }
 
 impl Drop for Netlayer<'_> {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_onion_netlayer_release(self.raw) };
+		if !self.raw.is_null() {
+			if let Err(error) = check_onion(unsafe { ffi::pancake_onion_netlayer_release(self.raw) }) {
+				let listener_failure = lock_failure(&self.listener_close_failure).take();
+				crate::record_runtime_failure(
+					crate::FailureLayer::Transport,
+					"onion-netlayer-drop-release",
+					listener_failure.map_or(error.clone(), |primary| primary.with_secondary(error)),
+				);
+			} else if let Some(error) = lock_failure(&self.listener_close_failure).take() {
+				crate::record_runtime_failure(crate::FailureLayer::Transport, "onion-listener-drop-release", error);
+			}
+		}
 	}
 }
 
@@ -281,6 +395,7 @@ pub struct Listener<'a> {
 	id_len: usize,
 	key: [u8; ffi::ONION_SERVICE_KEY_CAP],
 	key_len: usize,
+	close_failure: Arc<Mutex<Option<Error>>>,
 	_nl: PhantomData<&'a ()>,
 }
 
@@ -307,13 +422,8 @@ impl Listener<'_> {
 	/// service nothing about who dialed it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeOnionConn = core::ptr::null_mut();
-		check_onion(unsafe {
-			ffi::pancake_onion_accept(self.raw, codec.to_c(), max_frame_bytes, &mut raw)
-		})?;
-		Ok(Connection {
-			raw,
-			_nl: PhantomData,
-		})
+		check_onion(unsafe { ffi::pancake_onion_accept(self.raw, codec.to_c(), max_frame_bytes, &mut raw) })?;
+		Ok(Connection { raw, _nl: PhantomData })
 	}
 
 	/// The descriptor this listener's circuits arrive on, for a caller that polls
@@ -342,6 +452,19 @@ impl Listener<'_> {
 		check_onion(unsafe { ffi::pancake_onion_listener_wait(self.raw, timeout_ms, &mut ready) })?;
 		Ok(ready != 0)
 	}
+
+	fn release(&mut self) -> Result<()> {
+		if self.raw.is_null() {
+			return Ok(());
+		}
+		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
+		check_onion(unsafe { ffi::pancake_onion_listener_release(raw) })
+	}
+
+	/// Close explicitly and return the native teardown failure, if any.
+	pub fn close(mut self) -> Result<()> {
+		self.release()
+	}
 }
 
 // SAFETY: a `Listener` owns a self-contained payload — its own control session,
@@ -355,7 +478,12 @@ unsafe impl Send for Listener<'_> {}
 
 impl Drop for Listener<'_> {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_onion_listener_release(self.raw) };
+		if let Err(error) = self.release() {
+			let mut retained = lock_failure(&self.close_failure);
+			if retained.is_none() {
+				*retained = Some(error);
+			}
+		}
 	}
 }
 
@@ -367,6 +495,19 @@ pub struct Connection<'a> {
 }
 
 impl Connection<'_> {
+	/// Seal this connection and interrupt blocking frame operations. Drop then
+	/// releases its storage after callers have joined their operation threads.
+	pub fn shutdown(&self) -> Result<()> {
+		check_onion(unsafe { ffi::pancake_onion_conn_shutdown(self.raw) })
+	}
+
+	/// Close explicitly, reporting a shutdown failure to the caller. Native
+	/// storage is released as this value is consumed; a release-only refusal is
+	/// retained by the process diagnostic fallback because `Drop` has no caller.
+	pub fn close(self) -> Result<()> {
+		self.shutdown()
+	}
+
 	/// Block for one whole frame. [`ErrorKind::Closed`](crate::ErrorKind::Closed)
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
@@ -403,8 +544,125 @@ unsafe impl Send for Connection<'_> {}
 
 impl Drop for Connection<'_> {
 	fn drop(&mut self) {
-		unsafe { ffi::pancake_onion_conn_release(self.raw) };
+		if let Err(error) = check_onion(unsafe { ffi::pancake_onion_conn_release(self.raw) }) {
+			crate::record_runtime_failure(crate::FailureLayer::Transport, "onion-connection-drop-release", error);
+		}
 	}
+}
+
+#[cfg(feature = "async")]
+/// A native-loop onion listener yielding ordinary high-level [`Session`]s.
+///
+/// The generic driver owns Tor execution, admission, and accepted-session
+/// pumping. This type exposes only the driver's canonical locator and the
+/// onion provider's opaque restoration key; it does not recreate either value
+/// from configuration or from the public service id.
+pub struct Server {
+	listener: crate::server::LoopListener,
+	service_key: Vec<u8>,
+}
+
+#[cfg(feature = "async")]
+impl Server {
+	async fn bind(config: Config<'_>, options: ListenOptions) -> Result<Self> {
+		let owns_loop = !matches!(&options.identity, ListenerIdentity::Host(_));
+		let host = options.identity.into_host()?;
+		let shared = host.shared();
+		let lp = shared.ensure_driver_loop(
+			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+			crate::session::HANDSHAKE_TIMEOUT.as_millis() as u32,
+		)?;
+		Self::bind_on_loop(lp, host, config, owns_loop).await
+	}
+
+	async fn bind_on_loop(
+		lp: Rc<crate::driver_loop::LoopShared>,
+		host: crate::Host,
+		config: Config<'_>,
+		owns_loop: bool,
+	) -> Result<Self> {
+		let mut listener = None;
+		let result = async {
+			ensure_loop_provider(&lp, &config)?;
+			let id = lp.listen(crate::abi_constants::TRANSPORT_ONION, "").await?;
+			listener = Some(id);
+			lp.select_listener(id)?;
+			Ok::<_, crate::Error>(())
+		}
+		.await;
+		if let Err(mut err) = result {
+			if let Some(id) = listener {
+				if let Err(cleanup) = lp.close_listener(id) {
+					err = err.with_secondary(cleanup);
+				}
+			}
+			if owns_loop {
+				lp.close();
+			}
+			return Err(err);
+		}
+		let listener = listener.expect("onion listener is set after successful bind");
+
+		let service_key = match lp.listener_restoration_state(listener) {
+			Ok(key) => key,
+			Err(err) => {
+				let err = match lp.close_listener(listener) {
+					Ok(()) => err,
+					Err(cleanup) => err.with_secondary(cleanup),
+				};
+				if owns_loop {
+					lp.close();
+				}
+				return Err(err);
+			}
+		};
+		Ok(Self {
+			listener: crate::server::LoopListener::new(Rc::clone(&lp), listener, host),
+			service_key,
+		})
+	}
+
+	/// The Host shared by every accepted session.
+	pub fn host(&self) -> crate::Host {
+		self.listener.host()
+	}
+
+	/// The driver's canonical OCapN locator for this listener.
+	pub fn locator(&self) -> Result<crate::Locator> {
+		self.listener.locator()
+	}
+
+	/// The driver's canonical OCapN locator rendered as a URI.
+	pub fn uri(&self) -> Result<String> {
+		crate::uri::format_locator_uri(&self.locator()?)
+	}
+
+	/// The onion service id in the driver's canonical locator.
+	pub fn service_id(&self) -> Result<String> {
+		Ok(self.locator()?.designator)
+	}
+
+	/// The provider-owned bytes needed to restore this exact Tor service.
+	pub fn service_key(&self) -> &[u8] {
+		&self.service_key
+	}
+
+	/// Accept the next partner as a ready high-level [`Session`].
+	pub async fn accept(&self) -> Result<crate::Session> {
+		self.listener.accept().await
+	}
+
+	/// Stop admitting partners. Already accepted sessions remain live on the
+	/// shared Host, matching [`crate::tcp::Server`] and [`crate::iroh::Server`].
+	pub fn close(&self) -> Result<()> {
+		self.listener.close()
+	}
+}
+
+#[cfg(feature = "async")]
+/// Bind an onion service and return its high-level listener.
+pub async fn listen(config: Config<'_>, options: ListenOptions) -> Result<Server> {
+	Server::bind(config, options).await
 }
 
 #[cfg(test)]
@@ -435,10 +693,7 @@ mod tests {
 	/// `ADD_ONION` named down it. That target is the local endpoint pancake bound
 	/// and told the daemon about, which is what a test needs to stand in for Tor
 	/// forwarding a circuit.
-	fn fake_control_reporting(
-		listener: TcpListener,
-		forward: Option<std::sync::mpsc::Sender<String>>,
-	) -> String {
+	fn fake_control_reporting(listener: TcpListener, forward: Option<std::sync::mpsc::Sender<String>>) -> String {
 		let mut authenticate = String::new();
 		let (mut stream, _) = listener.accept().unwrap();
 		let mut pending = Vec::new();
@@ -470,9 +725,7 @@ mod tests {
 				}
 			}
 			let reply = if line.starts_with("ADD_ONION") {
-				format!(
-					"250-ServiceID={SERVICE_ID}\r\n250-PrivateKey=ED25519-V3:c3RvcmVk\r\n250 OK\r\n"
-				)
+				format!("250-ServiceID={SERVICE_ID}\r\n250-PrivateKey=ED25519-V3:c3RvcmVk\r\n250 OK\r\n")
 			} else {
 				"250 OK\r\n".to_string()
 			};
@@ -502,9 +755,7 @@ mod tests {
 		// 9045, big-endian.
 		assert_eq!(&request[67..], &[0x23, 0x55]);
 
-		stream
-			.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
-			.unwrap();
+		stream.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).unwrap();
 		stream
 	}
 
@@ -512,6 +763,110 @@ mod tests {
 		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
 		let address = listener.local_addr().unwrap().to_string();
 		(listener, address)
+	}
+
+	#[test]
+	#[cfg(feature = "async")]
+	fn high_level_listener_projects_driver_locator_and_restoration_key() {
+		let (control_listener, control) = loopback();
+		let daemon = std::thread::spawn(move || fake_control(control_listener));
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let config = Config::dial_only("127.0.0.1:1").with_control(&control, Auth::None);
+			let server = listen(config, ListenOptions::default()).await.unwrap();
+
+			let locator = server.locator().unwrap();
+			assert_eq!(locator.transport, "onion");
+			assert_eq!(locator.designator, SERVICE_ID);
+			assert!(locator.hints.is_empty());
+			assert_eq!(server.service_id().unwrap(), SERVICE_ID);
+			assert_eq!(server.uri().unwrap(), format!("ocapn://{SERVICE_ID}.onion"));
+			assert_eq!(server.service_key(), b"ED25519-V3:c3RvcmVk");
+
+			server.close().unwrap();
+			let accepted = server.accept().await;
+			assert_eq!(accepted.err().map(|err| err.code()), Some(crate::sys::ERR_CLOSED));
+		});
+		drop(runtime);
+		assert_eq!(daemon.join().unwrap(), "AUTHENTICATE");
+	}
+
+	#[test]
+	#[cfg(feature = "async")]
+	fn caller_owned_host_survives_onion_listener_close() {
+		let (control_listener, control) = loopback();
+		let daemon = std::thread::spawn(move || fake_control(control_listener));
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let host = crate::Host::from_seed([0x73; 32]).unwrap();
+			let config = Config::dial_only("127.0.0.1:1").with_control(&control, Auth::None);
+			let server = listen(
+				config,
+				ListenOptions {
+					identity: ListenerIdentity::Host(host.clone()),
+				},
+			)
+			.await
+			.unwrap();
+			server.close().unwrap();
+			assert!(host.designator().is_ok());
+			drop(server);
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+		});
+		drop(runtime);
+		assert_eq!(daemon.join().unwrap(), "AUTHENTICATE");
+	}
+
+	#[test]
+	#[cfg(feature = "async")]
+	fn caller_owned_host_rejects_incompatible_onion_provider_config() {
+		let (control_listener, control) = loopback();
+		let daemon = std::thread::spawn(move || fake_control(control_listener));
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let host = crate::Host::from_seed([0x74; 32]).unwrap();
+			let config = Config::dial_only("127.0.0.1:1").with_control(&control, Auth::None);
+			let server = listen(
+				config,
+				ListenOptions {
+					identity: ListenerIdentity::Host(host.clone()),
+				},
+			)
+			.await
+			.unwrap();
+			server.close().unwrap();
+
+			let incompatible = Config::dial_only("127.0.0.1:1")
+				.with_control(&control, Auth::None)
+				.with_forward("127.0.0.1:2");
+			let result = listen(
+				incompatible,
+				ListenOptions {
+					identity: ListenerIdentity::Host(host.clone()),
+				},
+			)
+			.await;
+			assert_eq!(
+				result.err().map(|err| err.code()),
+				Some(crate::sys::ERR_INVALID_ARGUMENT)
+			);
+
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+		});
+		drop(runtime);
+		assert_eq!(daemon.join().unwrap(), "AUTHENTICATE");
 	}
 
 	#[test]
@@ -533,6 +888,23 @@ mod tests {
 		install_provider(&driver, &config).unwrap();
 		assert!(driver.has_transport("onion").unwrap());
 		let listener = driver.listen("onion", "").unwrap();
+		'ready: for attempt in 0..1_000 {
+			for event in driver.step(20).unwrap().unwrap_or_default() {
+				match event {
+					crate::driver_loop::LoopEvent::ListenerReady { listener: ready } if ready == listener => {
+						break 'ready;
+					}
+					crate::driver_loop::LoopEvent::ListenerFailed {
+						listener: failed,
+						failure,
+					} if failed == listener => panic!("listener failed: {}", failure.primary_name),
+					_ => {}
+				}
+			}
+			if attempt == 999 {
+				panic!("listener setup timed out");
+			}
+		}
 		let locator = driver.listener_locator(listener).unwrap();
 		assert_eq!(locator.transport, "onion");
 		assert_eq!(locator.designator, SERVICE_ID);
@@ -647,15 +1019,10 @@ mod tests {
 		// The duplicate is what keeps the listener's own descriptor intact.
 		let probe = {
 			use std::os::fd::{AsRawFd, BorrowedFd};
-			let owned = unsafe { BorrowedFd::borrow_raw(fd) }
-				.try_clone_to_owned()
-				.unwrap();
+			let owned = unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned().unwrap();
 			let probe = TcpListener::from(owned);
 			probe.set_nonblocking(true).unwrap();
-			assert_eq!(
-				probe.accept().unwrap_err().kind(),
-				std::io::ErrorKind::WouldBlock
-			);
+			assert_eq!(probe.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 			assert!(probe.as_raw_fd() != fd);
 			probe
 		};

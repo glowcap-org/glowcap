@@ -21,6 +21,23 @@ pub const ValidationError = transport.SymbolError || error{
     InvalidFalseHints,
 };
 
+pub const HintAdditionError = error{
+    EmptyHintName,
+    DuplicateHintName,
+    InvalidFalseHints,
+};
+
+/// Validate adding one named hint to an already-valid locator. Storage owners
+/// perform their own transactional allocation, but model invariants have one
+/// authority here.
+pub fn validateHintAddition(locator: PeerLocator, name: []const u8) HintAdditionError!void {
+    if (locator.hints.wire_form == .boolean_false) return error.InvalidFalseHints;
+    if (name.len == 0) return error.EmptyHintName;
+    for (locator.hints.entries) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) return error.DuplicateHintName;
+    }
+}
+
 /// Validate the representation-independent OCapN peer-locator invariants.
 /// Transport-specific designator and hint semantics stay with the provider.
 pub fn validate(locator: PeerLocator) ValidationError!void {
@@ -28,10 +45,9 @@ pub fn validate(locator: PeerLocator) ValidationError!void {
     if (locator.designator.len == 0) return error.EmptyDesignator;
     if (locator.hints.wire_form == .boolean_false and locator.hints.entries.len != 0)
         return error.InvalidFalseHints;
-    for (locator.hints.entries, 0..) |entry, i| {
+    for (locator.hints.entries) |entry| {
         if (entry.name.len == 0) return error.EmptyHintName;
-        for (locator.hints.entries[i + 1 ..]) |other| {
-            if (std.mem.eql(u8, entry.name, other.name)) return error.DuplicateHintName;
-        }
     }
+    if (hints.firstDuplicateName(locator.hints.entries) != null)
+        return error.DuplicateHintName;
 }

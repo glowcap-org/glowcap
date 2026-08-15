@@ -13,6 +13,12 @@ questions are [watched separately](upstream-watch.md).
   artifacts.
 - **macOS runtime CI.** The kqueue path is cross-compiled on every push but
   never executed. A macOS runner closes this gap.
+- **Browser `noise-relay`.** Native peers dial and register `noise-relay`
+  through the generic driver. A real browser still uses WebRTC for an
+  authenticated channel, or explicit cleartext `keyed-relay` rendezvous.
+  Composing the sealed relay provider in wasm, so native peers can find
+  browsers on a sealed relay path, is the remaining work
+  ([known limitations](boundaries.md#browser-reachability)).
 
 ## Scale and release
 

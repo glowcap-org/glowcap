@@ -41,7 +41,7 @@ export fn pancake_webrtc_sidecar_endpoint_drain_driver_ready(endpoint: *const an
     _ = out_cap;
     return -1;
 }
-export fn pancake_webrtc_sidecar_endpoint_free(endpoint: *anyopaque) void {
+export fn pancake_webrtc_sidecar_endpoint_free(endpoint: *anyopaque) i32 {
     _ = endpoint;
     @panic(msg);
 }

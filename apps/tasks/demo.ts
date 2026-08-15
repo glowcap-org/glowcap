@@ -116,8 +116,7 @@ await runCrossLangDemo(
 		listenPattern: /TASKS-SERVER-LISTENING (\d+)/,
 		listenMiss: "server never announced its port",
 		roster,
-		failLine:
-			"tasks demo FAILED: at least one client did not complete the add-list-done-list round trip",
+		failLine: "tasks demo FAILED: at least one client did not complete the add-list-done-list round trip",
 		okLine: (langs) =>
 			`tasks demo OK: ${langs} held one capability-secure task board and every client completed a round trip`,
 	},

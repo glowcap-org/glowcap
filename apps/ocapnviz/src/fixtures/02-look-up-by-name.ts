@@ -57,8 +57,7 @@ export const lookUpByName = TimelineDocument.parse({
       id: "session-opens",
       t: 0,
       kind: "session-opened",
-      sessionId:
-        "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
+      sessionId: "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
       a: {
         peer: "127.0.0.1:9201",
         designator: "127.0.0.1:9201",
@@ -79,8 +78,7 @@ export const lookUpByName = TimelineDocument.parse({
       t: 200,
       kind: "message-sent",
       messageId: "ss-out",
-      sessionId:
-        "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
+      sessionId: "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
       from: "127.0.0.1:9201",
       to: "127.0.0.1:9202",
       arrivalT: 400,
@@ -98,8 +96,7 @@ export const lookUpByName = TimelineDocument.parse({
       t: 500,
       kind: "message-sent",
       messageId: "ss-back",
-      sessionId:
-        "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
+      sessionId: "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
       from: "127.0.0.1:9202",
       to: "127.0.0.1:9201",
       arrivalT: 700,
@@ -116,8 +113,7 @@ export const lookUpByName = TimelineDocument.parse({
       id: "session-open",
       t: 700,
       kind: "session-state-changed",
-      sessionId:
-        "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
+      sessionId: "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
       state: "open",
     },
     {
@@ -125,8 +121,7 @@ export const lookUpByName = TimelineDocument.parse({
       t: 1100,
       kind: "message-sent",
       messageId: "fetch",
-      sessionId:
-        "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
+      sessionId: "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
       from: "127.0.0.1:9201",
       to: "127.0.0.1:9202",
       arrivalT: 1500,
@@ -143,8 +138,7 @@ export const lookUpByName = TimelineDocument.parse({
       t: 1800,
       kind: "message-sent",
       messageId: "fetch-resolve",
-      sessionId:
-        "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
+      sessionId: "59b79ed34e6ede4e56486b962eb594e572b6841841196bef3eb37d9949a3fa8c",
       from: "127.0.0.1:9202",
       to: "127.0.0.1:9201",
       arrivalT: 2200,

@@ -20,12 +20,7 @@ import {
   sessionEndpointPlaceAt,
   sessionStateAt,
 } from "../../engine/temporal/doc-resolver.ts";
-import type {
-  CaptpVersion,
-  Codec,
-  PeerProfile,
-  SessionState,
-} from "../../schema/topology.ts";
+import type { CaptpVersion, Codec, PeerProfile, SessionState } from "../../schema/topology.ts";
 import type { EntityKind, EntityRefKey } from "../../interactions/types.ts";
 import type { LifecycleStatus } from "../EntityChips.tsx";
 
@@ -70,11 +65,7 @@ export function peerInfo(engine: Engine, peerId: string): PeerInfo | null {
   const start = engine.effectiveStart("peers", peerId);
   const end = engine.effectiveEnd("peers", peerId);
   const t = engine.clock.t;
-  const lifecycle: LifecycleStatus = t < start
-    ? "before"
-    : t >= end
-    ? "after"
-    : "off-stage";
+  const lifecycle: LifecycleStatus = t < start ? "before" : t >= end ? "after" : "off-stage";
   return {
     label: peerLabelAt(engine.doc, peerId, t),
     profile: peerProfileAt(engine.doc, peerId, t),
@@ -102,11 +93,7 @@ export function sessionInfo(
   const start = engine.effectiveStart("sessions", sessionId);
   const end = engine.effectiveEnd("sessions", sessionId);
   const t = engine.clock.t;
-  const lifecycle: LifecycleStatus = t < start
-    ? "before"
-    : t >= end
-    ? "after"
-    : "off-stage";
+  const lifecycle: LifecycleStatus = t < start ? "before" : t >= end ? "after" : "off-stage";
   return {
     // Where each end sits AT the playhead, not where it sat at genesis:
     // the same rule the state below follows, and the one the stage
@@ -187,9 +174,7 @@ export function sessionsTouchingPeer(
   const all = engine.doc.entities?.sessions ?? {};
   const order: { id: string; t: number }[] = [];
   for (const [id, def] of Object.entries(all)) {
-    const onEnd = SESSION_SIDES.some((side) =>
-      sessionEndpointOccupants(def, side).includes(peerId)
-    );
+    const onEnd = SESSION_SIDES.some((side) => sessionEndpointOccupants(def, side).includes(peerId));
     if (!onEnd) continue;
     order.push({ id, t: engine.effectiveStart("sessions", id) });
   }

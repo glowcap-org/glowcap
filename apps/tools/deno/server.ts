@@ -16,7 +16,8 @@
 //
 // Run it with a port:  deno run --allow-ffi --allow-net --allow-read server.ts 9099
 
-import { type Argument, listen, Session } from "@pancake/stack";
+import { type Argument, Session } from "@pancake/runtime";
+import * as tcp from "@pancake/tcp";
 import { GRANT, GRANT_REVOCABLE, NOW, READ, REVOKE_LAST, TOOLS, WRITE } from "./protocol.ts";
 
 /** A tool is a plain behavior function. These are the things the coordinator
@@ -104,8 +105,8 @@ function coordinatorBehavior(session: Session) {
 }
 
 const port = Number(Deno.args[0] ?? "0");
-const server = listen("127.0.0.1", port);
-console.log(`TOOLS-SERVER-LISTENING ${await server.ready()}`);
+const server = await tcp.listen("127.0.0.1", port);
+console.log(`TOOLS-SERVER-LISTENING ${server.port}`);
 
 for await (const session of server) {
 	session.publish(TOOLS, coordinatorBehavior(session));

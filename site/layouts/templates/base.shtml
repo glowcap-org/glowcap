@@ -24,6 +24,7 @@
 			// who picked light on a dark desktop never sees a flash of the other
 			// one. Everyone who has not chosen is left alone for the stylesheet's
 			// media query to answer.
+			document.documentElement.classList.add("js");
 			try {
 				var saved = localStorage.getItem("pancake-theme");
 				if (saved === "light" || saved === "dark") {
@@ -51,13 +52,14 @@
 		</header>
 		<div class="shell">
 			<aside class="sidebar">
-				<nav class="nav" aria-label="Documentation">
+				<button type="button" id="docsNavToggle" class="docs-nav-toggle" aria-expanded="false" aria-controls="docsNav">Browse documentation</button>
+				<nav class="nav" id="docsNav" aria-label="Documentation">
 					<span class="nav-heading">Understand</span>
 					<a class="$site.page('why').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('why').link()">Why OCapN</a>
 					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
-					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Surfaces</a>
+					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Choose an API</a>
 					<a class="$site.page('cli').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('cli').link()">CapTP CLI</a>
 					<a class="$site.page('bindings').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('bindings').link()">Bindings</a>
 					<div class="nav-sub">
@@ -136,6 +138,18 @@
 		     switch would stay rendered, styled, and dead. Separate elements are
 		     parsed and run independently, so one failure costs one feature. The
 		     switch goes first because it is the only visible control here. -->
+		<script>
+			// Collapse the documentation index on narrow screens. Without
+			// JavaScript, the full index remains visible.
+			const docsNavToggle = document.getElementById("docsNavToggle");
+			const docsNav = document.getElementById("docsNav");
+			if (docsNavToggle && docsNav) {
+				docsNavToggle.addEventListener("click", () => {
+					const open = docsNav.classList.toggle("is-open");
+					docsNavToggle.setAttribute("aria-expanded", String(open));
+				});
+			}
+		</script>
 		<script>
 			// The theme switch. The stylesheet answers for anyone who never
 			// presses it; this records a deliberate choice and applies it now.
@@ -314,12 +328,7 @@
 				const prose = document.querySelector(".prose");
 				if (!toc || !prose) return;
 				const heads = [...prose.querySelectorAll("h2, h3")];
-				// Two headings is a page you can simply read; the list earns its
-				// column only once there is somewhere to jump.
-				if (heads.length < 3) return;
-				const links = toc.querySelector(".toc-links");
 				const seen = new Set();
-				const byId = new Map();
 				for (const h of heads) {
 					if (!h.id) {
 						let slug = h.textContent.trim().toLowerCase()
@@ -332,6 +341,20 @@
 						h.id = id;
 					}
 					seen.add(h.id);
+				}
+				// The initial fragment is resolved before generated ids exist. Scroll
+				// once after assigning them so direct section links still land.
+				if (location.hash.length > 1) {
+					const target = document.getElementById(location.hash.slice(1));
+					if (target) requestAnimationFrame(() => target.scrollIntoView());
+				}
+				// Two headings is a page you can simply read; the list earns its
+				// column only once there is somewhere to jump. The ids above remain
+				// useful to direct links on shorter pages.
+				if (heads.length < 3) return;
+				const links = toc.querySelector(".toc-links");
+				const byId = new Map();
+				for (const h of heads) {
 					const a = document.createElement("a");
 					a.href = "#" + h.id;
 					a.textContent = h.textContent.trim();

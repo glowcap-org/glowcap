@@ -1,21 +1,20 @@
 ---
-.title = "Protocol cheatsheet",
-.description = "A one-glance map of the OCapN vocabulary pancake speaks: CapTP messages, the descriptors they carry, and the locators that say where a peer lives.",
+.title = "Protocol vocabulary",
+.description = "Reference for the CapTP messages, reference descriptors, and peer locators pancake implements.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Every conversation pancake has on the wire uses a small, fixed vocabulary from the
+Every pancake session uses a small vocabulary from the
 [OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications).
-[Concepts]($link.page('concepts')) tells the story behind each part, and the
+[Concepts]($link.page('concepts')) explains how the parts work together, and the
 [protocol diagrams](https://github.com/jimisaacs/pancake/blob/main/docs/protocol-diagrams/README.md)
 draw the flows.
 
-The list is not hand-kept. A build check pins every entry here to the labels the
-Syrup codec reads and writes. If the protocol surface grows a label or drops one,
-this page moves with it or the build check fails.
+The operation and descriptor names below are checked against the Syrup codec,
+so this list changes with the implementation.
 
 ## Operations
 
@@ -80,4 +79,5 @@ ocapn://<64 hex chars>.iroh/s/<swiss>
 If a name here is new, start with [Concepts]($link.page('concepts')).
 [Transports]($link.page('transports')) explains what a netlayer is;
 [Choosing a transport]($link.page('transports/choosing')) lists the ones a
-locator can name.
+locator can name. [Codecs]($link.page('codecs')) compares the wire encodings
+used to carry these values.

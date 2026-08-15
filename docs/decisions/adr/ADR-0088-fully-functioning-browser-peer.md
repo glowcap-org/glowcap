@@ -298,11 +298,11 @@ it is what `currentSession()` enables.
 
 - Browser binding and wasm Host: [ADR-0070](ADR-0070-browser-binding-via-wasm.md).
 - Byte-transparent relay contract: [ADR-0086](ADR-0086-byte-transparent-relay.md).
-- Reply primitive: `currentSession()` in `bindings/ts/stack/session.ts`, the
-  arriving-session ambient in `bindings/ts/stack/trampoline.ts` and
-  `bindings/ts/stack/pump.ts`; proof `apps/rooms/demos/dm_reply_demo.ts`.
+- Reply primitive: `currentSession()` in `bindings/ts/runtime/session.ts`, the
+  arriving-session ambient in `bindings/ts/runtime/trampoline.ts` and
+  `bindings/ts/runtime/pump.ts`; proof `apps/rooms/demos/dm_reply_demo.ts`.
 - Redeemed-session surfacing: `Session.sendRedeeming` resolving `via` through
-  `Host.exporterFor` (`bindings/ts/stack/session.ts`, `bindings/ts/stack/host.ts`),
+  `Host.exporterFor` (`bindings/ts/runtime/session.ts`, `bindings/ts/runtime/host.ts`),
   and the same verb in every other binding: `send_redeeming` in
   `bindings/rust/src/session.rs` and `bindings/python/pancake/_session.py`,
   `session-send-redeeming` in `bindings/racket/private/session.rkt`
@@ -317,10 +317,10 @@ it is what `currentSession()` enables.
   `webSocketChannel` in `@pancake/relay` (`bindings/ts/relay/rendezvous.ts`,
   `bindings/ts/relay/ws_relay.ts`); the accept side `serveRendezvous` and the
   shared WebSocket byte channel, runtime-neutral in the stack
-  (`bindings/ts/stack/rendezvous.ts`, `bindings/ts/stack/ws_channel.ts`); the
-  dial executor's `keyed-relay` intercept (`bindings/ts/stack/dial.ts`) over
+  (`bindings/ts/runtime/rendezvous.ts`, `bindings/ts/runtime/websocket.ts`); the
+  dial executor's `keyed-relay` intercept (`bindings/ts/runtime/dial.ts`) over
   the host's configured mapping (`Host.setRendezvousUrl`,
-  `bindings/ts/stack/host.ts`); the resident-less `keyed-relay` transport
+  `bindings/ts/runtime/host.ts`); the resident-less `keyed-relay` transport
   symbol (`src/ocapn/model/transport.zig`, `src/driver/core/vocab.zig`); the
   rooms relay endpoints and rooms UI wiring (`apps/rooms/web/relay.ts`,
   `apps/rooms/web/serve.ts`, `apps/rooms/web/ui/net.ts`); proofs

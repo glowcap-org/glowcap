@@ -17,15 +17,10 @@
  */
 
 import type { TimelineEvent } from "./timeline.ts";
-import {
-  attributionForProvenance,
-  captpVersionFromWire,
-  sessionEndpoint,
-  UNKNOWN_CODEC,
-} from "../schema/topology.ts";
+import { attributionForProvenance, captpVersionFromWire, sessionEndpoint, UNKNOWN_CODEC } from "../schema/topology.ts";
 import type { Codec } from "../schema/topology.ts";
 import type { EngineError } from "./errors.ts";
-import type { BrowserStack, PancakeWebModule } from "./pancake-web-api.ts";
+import type { BrowserRuntime, PancakeWebModule } from "./pancake-web-api.ts";
 import { StageLedger, wireKeyFor } from "./stage-ledger.ts";
 
 /**
@@ -196,9 +191,7 @@ function nonEmptyStringFromWire(value: unknown): string | undefined {
 }
 
 function numberFromWire(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 /** Which kinds a replayed batch holds.
@@ -338,9 +331,7 @@ function flushReplayBatch(
     const present = new Set<string>();
     for (const ev of batch) {
       const open = replayOpen(ev);
-      const session = open === null
-        ? undefined
-        : nonEmptyStringFromWire(ev.session);
+      const session = open === null ? undefined : nonEmptyStringFromWire(ev.session);
       if (session !== undefined) present.add(session);
     }
     const retained = [...state.sessionsOfScope.values()].flatMap((sessions) => [
@@ -361,12 +352,8 @@ function flushReplayBatch(
     // name is the other's answer. One end, or a shape this cannot read,
     // falls through to what a live feed does — which is honest about what it
     // did not know.
-    const partnerOwnName = selves?.size === 2
-      ? [...selves.keys()].find((self) => self !== open?.self)
-      : undefined;
-    const stated = partnerOwnName === undefined
-      ? undefined
-      : selves?.get(partnerOwnName);
+    const partnerOwnName = selves?.size === 2 ? [...selves.keys()].find((self) => self !== open?.self) : undefined;
+    const stated = partnerOwnName === undefined ? undefined : selves?.get(partnerOwnName);
     applyEvent(ev, state, out, {
       partnerOwnName,
       partnerOwnProfile: stated,
@@ -542,9 +529,7 @@ function applyEvent(
           row.b === undefined ? { designator: b } : {
             peer: row.b.stage,
             designator: b,
-            attributedBy: row.b.backing === "correlated"
-              ? "viewer-correlated"
-              : proved,
+            attributedBy: row.b.backing === "correlated" ? "viewer-correlated" : proved,
           },
         ),
         // The netlayer this session runs over, carried straight across.
@@ -634,9 +619,7 @@ function applyEvent(
       const session = nonEmptyStringFromWire(ev.session);
       if (session == null || ev.meta === undefined) return;
       if (ev.meta.label === undefined) return;
-      const label = ev.meta.label === null
-        ? null
-        : stringFromWire(ev.meta.label);
+      const label = ev.meta.label === null ? null : stringFromWire(ev.meta.label);
       if (label === undefined) return;
       // The ledger owns what each stage peer is called, so it decides
       // whether this claim is a rename, a withdrawal, a restatement to
@@ -756,7 +739,7 @@ export type LivePeerFactory = (
   onRecord: (line: string) => void,
 ) => Promise<LivePeer>;
 
-let browserStackPromise: Promise<BrowserStack> | null = null;
+let browserRuntimePromise: Promise<BrowserRuntime> | null = null;
 
 function wasmUrl(): string {
   const configured = (globalThis as { __OCV_PANCAKE_WASM_URL?: string })
@@ -764,37 +747,35 @@ function wasmUrl(): string {
   return configured ?? "/pancake_host.wasm";
 }
 
-async function browserStack(): Promise<BrowserStack> {
-  if (browserStackPromise !== null) return await browserStackPromise;
-  browserStackPromise = (async () => {
+async function browserRuntime(): Promise<BrowserRuntime> {
+  if (browserRuntimePromise !== null) return await browserRuntimePromise;
+  browserRuntimePromise = (async () => {
     const override = (globalThis as {
       __OCV_PANCAKE_WEB_LOADER?: () => Promise<PancakeWebModule>;
     }).__OCV_PANCAKE_WEB_LOADER;
-    const web = override === undefined
-      ? await import("virtual:pancake-web")
-      : await override();
+    const web = override === undefined ? await import("virtual:pancake-web") : await override();
     // `init` is identity-sensitive by design. Keep this one options object
     // for the page, so remounting Live mode does not attempt a second runtime.
     return await web.init({ wasm: fetch(wasmUrl()) });
   })();
   try {
-    return await browserStackPromise;
+    return await browserRuntimePromise;
   } catch (error) {
-    browserStackPromise = null;
+    browserRuntimePromise = null;
     throw error;
   }
 }
 
-/** The production browser peer. The socket is created by `@pancake/stack` from
+/** The production browser peer. The socket is created by `@pancake/runtime` from
  * the sturdyref's parsed locator; this function never interprets or forwards
  * CapTP bytes. */
 export const browserPeerFactory: LivePeerFactory = async (
   sturdyref,
   onRecord,
 ) => {
-  const stack = await browserStack();
-  const { locator } = stack.parseSturdyRef(sturdyref);
-  const session = await stack.connect(stack.formatLocatorUri(locator));
+  const runtime = await browserRuntime();
+  const { locator } = runtime.parseSturdyRef(sturdyref, "v1_0");
+  const session = await runtime.connect(locator);
   const closed = session.serve();
   // Construction may still be enlivening when the session fails. Attach a
   // handler immediately; callers still receive the original promise below.
@@ -879,8 +860,7 @@ export class LiveFeed {
       this.#emitError({
         code: "validation",
         title: "Live capability invalid",
-        detail:
-          `The live endpoint did not provide a sturdyref: "${this.#sturdyref}"`,
+        detail: `The live endpoint did not provide a sturdyref: "${this.#sturdyref}"`,
         recovery: "Paste the complete sturdyref announced by the rooms server.",
       });
       return;
@@ -913,8 +893,7 @@ export class LiveFeed {
           code: "internal",
           title: "Live capability unreachable",
           detail: cause instanceof Error ? cause.message : String(cause),
-          recovery:
-            "Check the sturdyref and the rooms server, then wait for reconnect.",
+          recovery: "Check the sturdyref and the rooms server, then wait for reconnect.",
           cause,
         });
         this.#scheduleReconnect();

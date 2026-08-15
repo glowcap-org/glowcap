@@ -18,11 +18,7 @@ import type {
 import type { EntityKind } from "./refs.ts";
 import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef } from "./edges.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
-import {
-  type ClipboardEntities,
-  type ClipboardPayload,
-  type ExternalRef,
-} from "./clipboard.ts";
+import { type ClipboardEntities, type ClipboardPayload, type ExternalRef } from "./clipboard.ts";
 import { ENTITIES_KEY } from "./walk.ts";
 
 /** Selection input: which entity ids are being copied, by kind. */

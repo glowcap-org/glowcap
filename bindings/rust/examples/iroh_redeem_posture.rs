@@ -4,11 +4,10 @@
 //!
 //! A give whose exporter location names the exporter by **node id alone** (no
 //! `direct-addresses`) cannot be dialed `Direct` — the recipient must resolve the
-//! id. Which discovery posture it resolves under is the recipient node's
-//! `set_redeem_reachability` knob: `Discovery` (n0 relays + DNS/pkarr) by default,
-//! lowerable for a deployment policy. This gate sets that knob to
-//! `LocalDiscovery` — an in-process address book, no network — and proves the
-//! hint-less redeem dials by id through it and withdraws the gift.
+//! id. Which discovery posture it resolves under is owned by the iroh provider
+//! installed on the recipient Host. This gate installs `LocalDiscovery` — an
+//! in-process address book, no network — and proves the hint-less redeem dials
+//! by id through it and withdraws the gift.
 //!
 //! It is a *discriminating* proof: with the default `Discovery`, the hint-less
 //! redeem would reach for n0's public relays + DNS and fail with no internet; the
@@ -23,8 +22,8 @@
 //!             identity), fetches the greeter, and records the exporter's
 //!             **id-only** location as the give's exporter location — a hint-less
 //!             give.
-//!   Recipient binds its own endpoint, sets its redeem posture to
-//!             `LocalDiscovery`, dials the gifter, asks for the greeter, redeems
+//!   Recipient installs a `LocalDiscovery` provider, dials the gifter, asks for
+//!             the greeter, redeems
 //!             the hint-less give by resolving the exporter's id through the book,
 //!             and calls it — the reply must echo its name.
 //!
@@ -33,10 +32,8 @@
 
 use std::rc::Rc;
 
-use pancake_rust_dogfood::{
-	connect, format_peer_uri, listen_iroh, parse_locator, Argument, IrohConfig, Reachability, Ref,
-	Session, TRANSPORT_IROH,
-};
+use pancake_rust_dogfood::iroh::Reachability;
+use pancake_rust_dogfood::{iroh, Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, Session};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -48,37 +45,48 @@ const NAME: &str = "rust-redeem-posture-carol";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
 	helpers::ignore_port_args()?;
-	// The `Session`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
+	// The `Session`/`Server` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
 }
 
 async fn run() -> Result<(), Fail> {
 	// ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
-	let exporter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
-	exporter
-		.host()
-		.publish_giftable("greeter", || Box::new(greeter));
+	let exporter = Rc::new(
+		iroh::listen(
+			iroh::Config::new(Reachability::LocalDiscovery),
+			iroh::ListenOptions::default(),
+		)
+		.await?,
+	);
+	exporter.host().publish_giftable("greeter", || Box::new(greeter))?;
 	let exporter_id = exporter.node_id().to_string();
 	accept_loop(Rc::clone(&exporter));
 	println!("rust-iroh-redeem-posture: exporter published greeter on {exporter_id}");
 
 	// ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
-	let gifter = Rc::new(listen_iroh(IrohConfig::new(Reachability::LocalDiscovery)).await?);
+	let gifter = Rc::new(
+		iroh::listen(
+			iroh::Config::new(Reachability::LocalDiscovery),
+			iroh::ListenOptions::default(),
+		)
+		.await?,
+	);
 	let gifter_host = gifter.host();
 	let gifter_id = gifter.node_id().to_string();
-	let exporter_uri = format_peer_uri(TRANSPORT_IROH, &exporter_id, &Default::default())?;
-	let to_exporter = connect(
-		&exporter_uri,
-		Some(Reachability::LocalDiscovery),
-		Some(gifter_host.clone()),
+	let exporter_locator = pancake_rust_dogfood::iroh::locator(&exporter_id, None);
+	let gifter_runtime = Runtime::open(
+		RuntimeConfig::providers([iroh::provider(iroh::Config::new(Reachability::LocalDiscovery))])
+			.adopt_host(&gifter_host),
 	)
 	.await?;
+	let to_exporter = gifter_runtime
+		.connect(&exporter_locator, ConnectOptions::default())
+		.await?;
 	let greeter_ref = to_exporter.fetch("greeter").await?;
 	// Record the exporter's location by **node id alone** — no direct-addresses.
 	// This is what forces the recipient down the configured-posture redeem path
 	// instead of a Direct dial.
-	let exporter_locator = parse_locator(&exporter_uri)?;
 	to_exporter.set_exporter_locator(Some(&exporter_locator))?;
 	gifter_host.publish_giftable("introducer", move || {
 		let greeter = greeter_ref.clone();
@@ -89,23 +97,25 @@ async fn run() -> Result<(), Fail> {
 				Err(format!("introducer: no such verb {verb:?}"))
 			}
 		})
-	});
+	})?;
 	accept_loop(Rc::clone(&gifter));
 	println!("rust-iroh-redeem-posture: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: configures its redeem posture, then redeems the hint-less give ─
-	let gifter_uri = format_peer_uri(TRANSPORT_IROH, &gifter_id, &Default::default())?;
-	let recipient = connect(&gifter_uri, Some(Reachability::LocalDiscovery), None).await?;
-	// The knob under test: without it, the hint-less redeem defaults to Discovery
-	// (n0 relays + DNS) and would fail with no network. The node is shared, so
-	// this reaches the connection that performs the redeem.
-	recipient
-		.host()
-		.set_redeem_reachability(Reachability::LocalDiscovery)?;
+	let gifter_locator = pancake_rust_dogfood::iroh::locator(&gifter_id, None);
+	let recipient_runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
+		Reachability::LocalDiscovery,
+	))]))
+	.await?;
+	let recipient = recipient_runtime
+		.connect(&gifter_locator, ConnectOptions::default())
+		.await?;
+	// The provider installed by connect remains on the shared Host, so the
+	// transparent redeem uses the same LocalDiscovery authority.
 	let introducer = recipient.fetch("introducer").await?;
 	let granted = recipient.send(&introducer, "get-greeter", &[]).await?;
-	let greeter = Ref::try_from(&granted)
-		.map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
+	let greeter =
+		Ref::try_from(&granted).map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
 	println!(
 		"rust-iroh-redeem-posture: recipient redeemed the hint-less give under its configured \
 		 LocalDiscovery posture, got the greeter as an ordinary ref"
@@ -118,9 +128,7 @@ async fn run() -> Result<(), Fail> {
 		Argument::String(text) if text.contains(NAME) => {
 			println!("rust-iroh-redeem-posture: greeter replied: {text}");
 		}
-		other => {
-			return Err(format!("greeter reply did not carry the name back: {other:?}").into())
-		}
+		other => return Err(format!("greeter reply did not carry the name back: {other:?}").into()),
 	}
 
 	println!(
@@ -128,15 +136,15 @@ async fn run() -> Result<(), Fail> {
 		 recipient's configured LocalDiscovery posture (default Discovery would need the network)"
 	);
 
-	recipient.close();
-	to_exporter.close();
+	recipient.close(PendingWork::Cancel).await?;
+	to_exporter.close(PendingWork::Cancel).await?;
 	Ok(())
 }
 
 // Serve every connection a server accepts for the life of the run: the loop holds
 // its own `Rc` to the server and parks on `accept().await`, so it is cancelled
 // with the enclosing `LocalSet` rather than awaited.
-fn accept_loop(server: Rc<pancake_rust_dogfood::IrohServer>) {
+fn accept_loop(server: Rc<pancake_rust_dogfood::iroh::Server>) {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
 		while let Ok(session) = server.accept().await {

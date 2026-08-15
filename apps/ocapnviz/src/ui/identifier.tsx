@@ -30,11 +30,7 @@ import { elideIdentifier } from "./elide.ts";
 // the label a node wears has to be measured by the layout before any DOM
 // exists. Re-exported here so a panel that wants the text and the component
 // still has one import.
-export {
-  elideIdentifier,
-  IDENTIFIER_ELIDE_ABOVE,
-  IDENTIFIER_END_CHARS,
-} from "./elide.ts";
+export { elideIdentifier, IDENTIFIER_ELIDE_ABOVE, IDENTIFIER_END_CHARS } from "./elide.ts";
 
 /** The elided text plus the clamp that keeps it inside its cell however
  *  narrow the panel gets. Two defenses rather than one: the elision is

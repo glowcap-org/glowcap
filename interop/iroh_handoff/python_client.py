@@ -41,15 +41,16 @@ insert_bindings_path()
 from pancake import (  # noqa: E402
     HINT_DIRECT_ADDRESSES,
     Ref,
+    Runtime,
     TRANSPORT_IROH,
-    connect,
     Locator,
     format_peer_uri,
 )
 from pancake.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
-    listen_iroh,
+    listen,
+    provider,
 )
 
 NAME = "python-iroh-carol"
@@ -88,7 +89,7 @@ def greeter(verb: str, args: list):
 
 async def run() -> None:
     # ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-    exporter = await listen_iroh(IrohConfig(Reachability.DIRECT))
+    exporter = await listen(IrohConfig(Reachability.DIRECT))
     exporter.host.publish_giftable("greeter", greeter)
     exporter_id, exporter_addrs = await dialable(exporter)
     exporter_served: list = []
@@ -96,12 +97,15 @@ async def run() -> None:
     print(f"python-iroh-handoff: exporter published greeter on {exporter_id}")
 
     # ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
-    gifter = await listen_iroh(IrohConfig(Reachability.DIRECT))
+    gifter = await listen(IrohConfig(Reachability.DIRECT))
     gifter_id, gifter_addrs = await dialable(gifter)
     exporter_uri = format_peer_uri(
         TRANSPORT_IROH, exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs}
     )
-    to_exporter = await connect(exporter_uri, Reachability.DIRECT, host=gifter.host)
+    gifter_runtime = await Runtime.open(
+        provider=provider(IrohConfig(Reachability.DIRECT)), host=gifter.host
+    )
+    to_exporter = await gifter_runtime.connect(exporter_uri)
     greeter_ref = await to_exporter.fetch("greeter")
     # The exporter's own signed session record names it by node id alone — not
     # dialable under the relay-less Direct posture — so record its full dialable
@@ -126,7 +130,10 @@ async def run() -> None:
     gifter_uri = format_peer_uri(
         TRANSPORT_IROH, gifter_id, {HINT_DIRECT_ADDRESSES: gifter_addrs}
     )
-    recipient = await connect(gifter_uri, Reachability.DIRECT)
+    recipient_runtime = await Runtime.open(
+        provider=provider(IrohConfig(Reachability.DIRECT))
+    )
+    recipient = await recipient_runtime.connect(gifter_uri)
     introducer_ref = await recipient.fetch("introducer")
     granted = await recipient.send(introducer_ref, "get-greeter", [])
     if not isinstance(granted, Ref):
@@ -147,7 +154,9 @@ async def run() -> None:
     # then the servers, closing a server ends its accept loop, which we await so
     # no readiness fd reader outlives the endpoint it watches.
     await recipient.close()
+    await recipient_runtime.close()
     await to_exporter.close()
+    await gifter_runtime.close()
     for session in (*exporter_served, *gifter_served):
         await session.close()
     await exporter.close()

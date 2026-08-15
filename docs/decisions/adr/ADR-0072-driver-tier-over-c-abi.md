@@ -395,7 +395,7 @@ The pull-queue remains normative: `pancake_host_next_action` stays the C
 contract the wrapper pops internally, and `examples/c/host_embedder_pump.c`
 still names it. Binding action modules must not hand-roll a
 `pancake_host_next_action` pop loop where the callback wrapper is available.
-`zig build meta-check` requires the wrapper in Python, Rust, and Racket while
+`zig build source-check` requires the wrapper in Python, Rust, and Racket while
 holding TypeScript's callbackless pull loop to the same generated action
 inventory.
 

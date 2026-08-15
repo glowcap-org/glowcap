@@ -14,6 +14,7 @@ const actors = @import("actors");
 
 const host_mod = @import("host.zig");
 const host_pump = @import("host_pump.zig");
+const capability = @import("capability.zig");
 const vocab = @import("vocab.zig");
 
 const Host = host_mod.Host;
@@ -48,6 +49,7 @@ pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerId, swissnum: 
 /// sturdyref from being retargeted after restart.
 pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
     self.assertOwner();
+    try self.admitApplicationOperation();
     if (engine.isDurableSwiss(name)) return error.ReservedDurableNamespace;
     if (self.giftables.getPtr(name)) |existing| {
         const displaced = existing.actor;
@@ -65,6 +67,7 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
 /// the displaced actor until Host teardown.
 pub fn publishGiftable(self: *Host, name: []const u8, comptime Behavior: type, initial: Behavior) !actors.Ref {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
     const actor = try self.vat.spawn(Behavior, initial);
     errdefer self.vat.discardFreshActor(actor);
     try bindPublication(self, name, actor);
@@ -74,7 +77,12 @@ pub fn publishGiftable(self: *Host, name: []const u8, comptime Behavior: type, i
 /// Foreign-callback twin of `publishGiftable`. `hosted` transfers into the
 /// Vat on every outcome, preserving one owner for its context.
 pub fn publishHostedGiftable(self: *Host, name: []const u8, hosted: actors.HostedActor) !actors.Ref {
+    var hosted_pending = true;
+    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+
     try self.refuseReentry();
+    try self.admitApplicationOperation();
+    hosted_pending = false;
     const actor = try self.vat.spawnHosted(hosted);
     errdefer self.vat.discardFreshActor(actor);
     try bindPublication(self, name, actor);
@@ -87,8 +95,12 @@ pub fn publishHostedGiftable(self: *Host, name: []const u8, hosted: actors.Hoste
 /// gifts keep naming the exact actor, which stays in the Host Vat until
 /// teardown. An absent alias is refused `UnknownPublication`, so a typo
 /// is loud instead of an idempotent no-op.
-pub fn unpublish(self: *Host, name: []const u8) error{ UnknownPublication, ReservedDurableNamespace }!void {
-    self.assertOwner();
+pub fn unpublish(
+    self: *Host,
+    name: []const u8,
+) error{ ReenteredHost, WrongThread, HostClosing, UnknownPublication, ReservedDurableNamespace }!void {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
     // The mutable-alias verb refuses durable rows: a minted sturdyref's
     // name is removed only through `removeDurable`, so the two authority
     // surfaces stay distinct (ADR-0098).
@@ -143,6 +155,7 @@ pub fn publishDurable(
     initial: Behavior,
 ) !DurableSwiss {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
     const actor = try self.vat.spawn(Behavior, initial);
     errdefer self.vat.discardFreshActor(actor);
     return bindDurable(self, entropy, actor);
@@ -155,7 +168,12 @@ pub fn publishHostedDurable(
     entropy: [engine.durable_swiss_entropy_len]u8,
     hosted: actors.HostedActor,
 ) !DurableSwiss {
+    var hosted_pending = true;
+    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+
     try self.refuseReentry();
+    try self.admitApplicationOperation();
+    hosted_pending = false;
     const actor = try self.vat.spawnHosted(hosted);
     errdefer self.vat.discardFreshActor(actor);
     return bindDurable(self, entropy, actor);
@@ -178,8 +196,12 @@ pub fn bindDurable(self: *Host, entropy: [engine.durable_swiss_entropy_len]u8, a
 /// actor — and it releases the row's adopted root (ADR-0101). A name
 /// outside the durable namespace is refused: mutable aliases leave
 /// through `unpublish`.
-pub fn removeDurable(self: *Host, swiss: []const u8) error{ UnknownPublication, NotDurableName }!void {
-    self.assertOwner();
+pub fn removeDurable(
+    self: *Host,
+    swiss: []const u8,
+) error{ ReenteredHost, WrongThread, HostClosing, UnknownPublication, NotDurableName }!void {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
     if (!engine.isDurableSwiss(swiss)) return error.NotDurableName;
     const removed = self.giftables.fetchRemove(swiss) orelse return error.UnknownPublication;
     self.allocator.free(@constCast(removed.value.name));
@@ -208,4 +230,21 @@ pub fn publishedPosition(self: *Host, session: *HostSession, name: []const u8) !
     if (session.served.port.peer.session_state.bootstrapLookup(name)) |position| return position.int();
     const position = try resolvePublishedTarget(self, session.peer_id, name) orelse return null;
     return position.int();
+}
+
+/// Return the Host-scoped capability published under `name` for `session`.
+/// Publication lookup and capability retention are one core operation, while
+/// the Port position remains lazy until the capability is actually marshalled.
+pub fn publishedCapability(self: *Host, session: *HostSession, name: []const u8) !?capability.Ref {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
+    try self.checkSession(session);
+    const actor = if (session.served.port.peer.session_state.bootstrapLookup(name)) |position|
+        session.served.refForExport(position.int()) orelse return actors.Error.NoSuchActor
+    else if (self.giftables.get(name)) |row|
+        row.actor
+    else
+        return null;
+    return @as(?capability.Ref, try self.retainLocalCapability(actor));
 }

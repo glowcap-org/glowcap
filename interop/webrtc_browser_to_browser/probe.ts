@@ -2,12 +2,11 @@
 
 // One browser peer for the WebRTC browser-to-browser proof (ADR-0089 phase 6).
 // Two browser tabs run this, one as `?role=offerer` and one as `?role=answerer`.
-// Each bundles `@pancake/web` (the wasm Host); the answerer also drives
-// `@pancake/webrtc` (`RtcPeer`) directly, while the offerer exercises the
-// standalone dial: it configures its Host with a signaling authority
-// (`Host.setSignaling`) and dials the bare `ocapn://<key>.webrtc` locator, so
-// the dial executor owns the whole bring-up — offer, answer, trickled
-// candidates, channel adoption, keyed handshake. The signaling relay only
+// Each bundles `@pancake/web` (the wasm Host); the answerer drives
+// `@pancake/webrtc` (`RtcPeer`) directly, while the offerer opens a managed
+// Runtime with the WebRTC connector and dials the bare
+// `ocapn://<key>.webrtc` locator, so the dial executor owns the whole bring-up
+// — offer, answer, trickled candidates, channel adoption, keyed handshake. The signaling relay only
 // moves opaque strings between the two tabs; the keyed session and its DTLS
 // run end to end over the DataChannel, so the relay is out of the byte path.
 // Two browsers speak directly, the signaling host blind to what they say.
@@ -18,7 +17,8 @@
 // deno-only and needs no room.
 
 import { init } from "@pancake/web";
-import { RtcPeer } from "@pancake/webrtc";
+import { connector, locator, RtcPeer } from "@pancake/webrtc";
+import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 
 const GREETING = "hello browser to browser over webrtc";
 
@@ -51,8 +51,6 @@ const remoteId = new Promise<string>((res) => (resolveRemoteId = res));
 
 async function main(): Promise<void> {
 	const stack = await init({ wasm: fetch("/pancake_host.wasm") });
-	const host = new stack.Host();
-	const myDesignator = host.designator();
 
 	const ws = new WebSocket(
 		`ws://${location.host}/signal?role=${offerer ? "offerer" : "answerer"}`,
@@ -67,7 +65,7 @@ async function main(): Promise<void> {
 
 	if (offerer) {
 		// The dial executor drives the bring-up, so this side holds no RtcPeer.
-		// The WebSocket becomes the host's signaling authority: the offer rides
+		// The WebSocket becomes the connector's signaling authority: the offer rides
 		// out and resolves with the answer, candidates trickle both ways, and the
 		// answerer's identity pins the keyed dial.
 		let resolveAnswer!: (sdp: string) => void;
@@ -81,26 +79,33 @@ async function main(): Promise<void> {
 				remoteCandidates?.(JSON.stringify(m.candidate));
 			}
 		};
-		host.setSignaling({
-			offer(_to, sdp) {
-				send({ type: "offer", sdp });
-				return answerSdp;
-			},
-			candidate(_to, ice) {
-				send({ type: "candidate", candidate: JSON.parse(ice) as RTCIceCandidateInit });
-			},
-			onCandidate(_to, sink) {
-				remoteCandidates = sink;
-				return () => {
-					remoteCandidates = null;
-				};
-			},
+		const runtime = await stack.openRuntime({
+			connectors: [
+				connector({
+					offer(_to, sdp) {
+						send({ type: "offer", sdp });
+						return answerSdp;
+					},
+					candidate(_to, ice) {
+						send({
+							type: "candidate",
+							candidate: JSON.parse(ice) as RTCIceCandidateInit,
+						});
+					},
+					onCandidate(_to, sink) {
+						remoteCandidates = sink;
+						return () => {
+							remoteCandidates = null;
+						};
+					},
+				}),
+			],
 		});
 
 		// Wait for the answerer's key before dialing, so its identity is pinned
 		// for the keyed dial and the offer never races an absent answerer.
 		const designator = await remoteId;
-		const session = await stack.connect(`ocapn://${designator}.webrtc`, undefined, host);
+		const session = await runtime.connect(locator(designator));
 		status("channel open");
 		session.serve().catch(() => {});
 		try {
@@ -109,10 +114,13 @@ async function main(): Promise<void> {
 			resolveVerdict({ ok: reply === GREETING, reason: String(reply) });
 		} finally {
 			session.close();
+			await runtime.close();
 		}
 	} else {
 		// The answerer announces its keyed identity and publishes the greeter, then
 		// accepts the keyed session over the DataChannel and serves.
+		const host = stack.host;
+		const myDesignator = host.designator();
 		const peer = new RtcPeer({ offerer: false });
 		peer.onLocalCandidate((candidate) => send({ type: "candidate", candidate }));
 		ws.onmessage = async (ev: MessageEvent) => {
@@ -135,9 +143,12 @@ async function main(): Promise<void> {
 
 		const session = await stack.Session.establishAccepted(
 			host,
-			"webrtc",
-			myDesignator,
-			peer.channel(),
+			{
+				transport: "webrtc",
+				designatorScheme: DESIGNATOR_SCHEME_KEY,
+				serverDesignator: myDesignator,
+				channel: peer.channel(),
+			},
 		);
 		resolveVerdict({ ok: true, reason: "accepted" });
 		await session.serve();

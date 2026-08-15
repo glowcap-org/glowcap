@@ -61,9 +61,13 @@
 ;; ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
 (define gifter (listen-iroh (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
 (define gifter-id (iroh-server-node-id gifter))
+(define gifter-runtime
+  (open-runtime
+   #:providers (list (iroh-provider (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
+   #:adopt-host (iroh-server-host gifter)))
 (define to-exporter
-  (connect (format-peer-uri TRANSPORT-IROH exporter-id) IROH-REACH-LOCAL-DISCOVERY
-           #:host (iroh-server-host gifter)))
+  (runtime-connect gifter-runtime
+                   (parse-locator (format-peer-uri TRANSPORT-IROH exporter-id))))
 (define greeter-ref (session-fetch to-exporter "greeter"))
 ;; Record the exporter's location by node id alone, no direct-addresses. This is
 ;; what forces the recipient down the configured-posture redeem path.
@@ -75,12 +79,19 @@
 (printf "racket-iroh-redeem-posture: gifter published introducer on ~a\n" gifter-id)
 
 ;; ── Recipient: configures its redeem posture, then redeems the hint-less give ──
+(define recipient-runtime
+  (open-runtime
+   #:providers (list (iroh-provider (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))))
 (with-handlers ([(lambda (_) #t)
                  (lambda (e)
+                   (runtime-close! recipient-runtime)
+                   (runtime-close! gifter-runtime)
                    (iroh-server-close! exporter)
                    (iroh-server-close! gifter)
                    (raise e))])
-  (define recipient (connect (format-peer-uri TRANSPORT-IROH gifter-id) IROH-REACH-LOCAL-DISCOVERY))
+  (define recipient
+    (runtime-connect recipient-runtime
+                     (parse-locator (format-peer-uri TRANSPORT-IROH gifter-id))))
   ;; The knob under test: without it, the hint-less redeem defaults to DISCOVERY
   ;; (n0 relays + DNS) and would fail with no network.
   (set-host-redeem-reachability! (session-host recipient) IROH-REACH-LOCAL-DISCOVERY)
@@ -104,6 +115,8 @@
   ;; share that loop and netlayer, so their serve threads end on the EOF.
   (session-close! recipient)
   (session-close! to-exporter)
+  (runtime-close! recipient-runtime)
+  (runtime-close! gifter-runtime)
   (iroh-server-close! exporter)
   (iroh-server-close! gifter)
   (thread-wait exporter-accept)

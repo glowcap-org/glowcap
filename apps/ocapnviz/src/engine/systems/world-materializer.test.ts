@@ -10,13 +10,7 @@
 import { assert, assertEquals } from "@std/assert";
 import { materializeWorldAt } from "./world-materializer.ts";
 import type { TimelineDocument } from "../timeline.ts";
-import {
-  createWorld,
-  findEndpoint,
-  findPeer,
-  findSession,
-  type GameWorld,
-} from "../world.ts";
+import { createWorld, findEndpoint, findPeer, findSession, type GameWorld } from "../world.ts";
 import { explicitBound, implicitBound } from "../temporal/bound.ts";
 import { attachedEndpoint, sessionEndpoint } from "../../schema/topology.ts";
 

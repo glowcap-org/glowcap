@@ -113,7 +113,12 @@ void pancake_inproc_conn_release(PancakeInprocConn *conn);
 void pancake_inproc_listener_shutdown(PancakeInprocListener *listener);
 /* After stopping new calls, invoking shutdown, and joining the embedding's
    operation leases, close and free the listener. Release must not race call initiation. */
-void pancake_inproc_listener_release(PancakeInprocListener *listener);
+int32_t pancake_inproc_listener_release(PancakeInprocListener *listener);
+/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
+   capture for runtimes that dispatch native calls to worker threads. out_error_len
+   is required and receives the full diagnostic length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_inproc_listener_release_with_diagnostic(PancakeInprocListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy the calling thread's last in-process-transport error into out_buf, the
    inproc sibling of pancake_last_error, reading this archive's own per-thread
    slot. A pancake_inproc_* call that returns a cause-bearing code records it

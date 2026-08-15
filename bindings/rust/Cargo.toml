@@ -45,7 +45,7 @@ async = ["dep:tokio", "dep:getrandom"]
 # (`libpancake_net_transport_iroh`, built by `zig build iroh-abi`, needs cargo) *alongside*
 # the static core archive, it exports only `pancake_iroh_*`, so core symbols still
 # come from `libpancake_ocapn` (ADR-0055). Compiles `pub mod iroh` and adds
-# `listen_iroh` / `IrohServer` over the encrypted-QUIC sidecar
+# `iroh::listen` / `iroh::Server` over the encrypted-QUIC sidecar
 # bridge (`connect(locator)` routes iroh dials). Implies `async` (the driver it rides).
 iroh = ["async"]
 # Opt-in WebRTC transport. Links the WebRTC public C ABI companion library
@@ -58,17 +58,9 @@ webrtc = []
 # Opt-in native relay provider. Links the relay archive and composes its
 # keyed-relay/noise-relay package into the generic driver loop.
 relay = ["async"]
-# Opt-in keyed-relay rendezvous dial (ADR-0088): a WebSocket client over
-# tokio-tungstenite, so `connect(locator)` opens the relay rendezvous leg the
-# host's `set_rendezvous_url` mapping names. Implies `async` (the driver it
-# rides); the default build stays dependency-clean.
-rendezvous = ["async", "dep:tokio-tungstenite", "dep:futures-util", "dep:url"]
 
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "time"], optional = true }
-tokio-tungstenite = { version = "0.30", optional = true }
-futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
-url = { version = "2", optional = true }
 getrandom = { version = "0.4", optional = true }
 
 # build.rs parses the package-shipped c-abi-resolve.json (ADR-0077).
@@ -91,7 +83,7 @@ tokio = { version = "1", default-features = false, features = ["process"] }
 [[example]]
 name = "rust_client"
 path = "../../interop/goblins_interop/rust_client.rs"
-required-features = ["async"]
+required-features = ["async", "tcp"]
 
 # Live three-party gift: the binding deposits a capability with a real Goblins
 # exporter and the recipient withdraws it. Run via `zig build rust-goblins-gift`
@@ -99,7 +91,7 @@ required-features = ["async"]
 [[example]]
 name = "rust_gift_client"
 path = "../../interop/goblins_interop/rust_gift_client.rs"
-required-features = ["async"]
+required-features = ["async", "tcp"]
 
 # Live three-party handoff: the binding redeems a give from a real Goblins
 # introducer and calls the exporter. Run via `zig build rust-goblins-handoff`
@@ -107,7 +99,7 @@ required-features = ["async"]
 [[example]]
 name = "rust_handoff_client"
 path = "../../interop/goblins_interop/rust_handoff_client.rs"
-required-features = ["async"]
+required-features = ["async", "tcp"]
 
 # Live iroh scale proof: many concurrent connections served from one readiness
 # loop (ADR-0057), the Rust sibling of `zig build iroh-loop`. Run via
@@ -143,10 +135,10 @@ required-features = ["iroh"]
 # `zig build rust-keyed-relay-rendezvous` (the harness supplies relay + peer).
 [[example]]
 name = "keyed_relay_rendezvous"
-required-features = ["rendezvous"]
+required-features = ["relay"]
 
 # Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-seed
 # fresh-port restart. Run via `zig build rust-keyed-tcp-restart`.
 [[example]]
 name = "keyed_tcp_restart"
-required-features = ["async"]
+required-features = ["async", "tcp"]

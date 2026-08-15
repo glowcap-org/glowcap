@@ -51,7 +51,7 @@ test "stateless GC releases a far introduced inside a nested argument" {
         var event = p2.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
-        driver.core.emitStatelessAfter(&p2, &event);
+        try driver.core.testing.emitStatelessAfter(&p2, &event);
     }
 
     // The emission released the nested import on p2's own table.
@@ -107,7 +107,7 @@ test "stateless GC's fallback walk matches the threaded record for the same nest
         try std.testing.expect(event.introduced_far_imports != null);
         event.allocator.free(event.introduced_far_imports.?);
         event.introduced_far_imports = null;
-        driver.core.emitStatelessAfter(&p2, &event);
+        try driver.core.testing.emitStatelessAfter(&p2, &event);
     }
 
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
@@ -147,7 +147,7 @@ test "stateless GC releases every answer sharing a resolve callback" {
     try event.resolve_aliases.append(allocator, .from(6));
     try event.resolve_aliases.append(allocator, .from(7));
 
-    driver.core.emitStatelessAfter(&peer, &event);
+    try driver.core.testing.emitStatelessAfter(&peer, &event);
     try std.testing.expect(peer.session_state.outboundAnswer(.from(5)) == null);
     try std.testing.expect(peer.session_state.outboundAnswer(.from(6)) == null);
     try std.testing.expect(peer.session_state.outboundAnswer(.from(7)) == null);
@@ -160,4 +160,37 @@ test "stateless GC releases every answer sharing a resolve callback" {
     try std.testing.expectEqual(@as(u64, 5), try body.gc_answer.positions.at(0));
     try std.testing.expectEqual(@as(u64, 6), try body.gc_answer.positions.at(1));
     try std.testing.expectEqual(@as(u64, 7), try body.gc_answer.positions.at(2));
+}
+
+test "stateless GC reports an enqueue allocation failure" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var peer = engine.Peer.init(failing.allocator());
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        peer.deinit();
+    }
+    peer.session_state.captp_version = .next;
+    try peer.session_state.installOutboundAnswer(.from(5));
+
+    const storage = try std.testing.allocator.dupe(u8, "resolve");
+    var event: engine.Event = .{
+        .frame = try pancake.foundation.Frame.initOwned(
+            std.testing.allocator,
+            storage,
+            .byte,
+            .fromByteUnits(1),
+        ),
+        .tag = .resolve,
+        .codec = .syrup,
+        .captp_version = .next,
+        .answer_override = .{ .resolver_callback = .from(5) },
+        .allocator = std.testing.allocator,
+    };
+    defer event.deinit();
+
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(
+        error.OutOfMemory,
+        driver.core.testing.emitStatelessAfter(&peer, &event),
+    );
 }

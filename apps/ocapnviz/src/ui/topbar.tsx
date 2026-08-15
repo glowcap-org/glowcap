@@ -8,13 +8,7 @@
 import { Engine } from "../engine/engine.ts";
 import type { AppMode } from "../state/app-state.ts";
 import { useDocVersion } from "./useDocVersion.ts";
-import {
-  FolderGlyph,
-  NewDocGlyph,
-  RedoGlyph,
-  SaveGlyph,
-  UndoGlyph,
-} from "./glyphs.tsx";
+import { FolderGlyph, NewDocGlyph, RedoGlyph, SaveGlyph, UndoGlyph } from "./glyphs.tsx";
 import { segmentCellClass } from "./tokens.ts";
 
 /**
@@ -99,9 +93,7 @@ export function UndoRedoControls(
   },
 ) {
   useDocVersion(engine);
-  const undoLabel = engine.nextUndoLabel
-    ? `Undo ${engine.nextUndoLabel} (Cmd/Ctrl+Z)`
-    : "Undo (Cmd/Ctrl+Z)";
+  const undoLabel = engine.nextUndoLabel ? `Undo ${engine.nextUndoLabel} (Cmd/Ctrl+Z)` : "Undo (Cmd/Ctrl+Z)";
   const redoLabel = engine.nextRedoLabel
     ? `Redo ${engine.nextRedoLabel} (Cmd/Ctrl+Shift+Z)`
     : "Redo (Cmd/Ctrl+Shift+Z)";
@@ -153,9 +145,7 @@ export function SaveOpenControls(
         className="ocv-btn is-ghost is-icon"
         onClick={onNew}
         disabled={recording}
-        title={recording
-          ? recordingHolds("starting a new document")
-          : "New — start an empty document in Build"}
+        title={recording ? recordingHolds("starting a new document") : "New — start an empty document in Build"}
         aria-label="New"
       >
         <NewDocGlyph />
@@ -180,9 +170,7 @@ export function SaveOpenControls(
         className="ocv-btn is-ghost is-icon"
         onClick={onOpen}
         disabled={recording}
-        title={recording
-          ? recordingHolds("opening a file")
-          : "Open (Cmd/Ctrl+O) — load a timeline from a JSON file"}
+        title={recording ? recordingHolds("opening a file") : "Open (Cmd/Ctrl+O) — load a timeline from a JSON file"}
         aria-label="Open"
       >
         <FolderGlyph />

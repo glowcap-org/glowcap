@@ -114,8 +114,10 @@ A QUIC/iroh resident slots in as `src/net/quic.zig` implementing
 its reader/writer with a `TransportHandle` whose `socketHandle` returns null;
 `transport_name = "quic"`; the node id is the dialable designator. The host
 registers it; the driver already dispatches `quic` by symbol. The
-key-as-designator identity such a transport carries is the seam `ocapn://` URI
-dialing and durable identity wait on (see [the roadmap](../../roadmap.md)).
+key-as-designator identity such a transport carries is the seam iroh and
+`noise-tcp` later supplied
+([ADR-0055](ADR-0055-iroh-netlayer-sidecar.md),
+[ADR-0107](ADR-0107-sealed-byte-channel.md)).
 
 ## Notes
 

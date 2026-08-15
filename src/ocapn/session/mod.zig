@@ -37,6 +37,7 @@ const limits = @import("limits.zig");
 /// `engine.inbound.applyDecodedOwnedFrame`) can name `validate.IntroducedImports`
 /// without reaching past this module into `session/validate.zig` directly.
 pub const validate = @import("validate.zig");
+pub const parsePreferenceHints = validate.parsePreferenceHints;
 
 /// Position-keyed wire-delta refcount tables. Exports and imports share one
 /// integer-keyed hash core (`slot_table` explains why partner-controlled
@@ -1094,11 +1095,10 @@ pub const Session = struct {
     /// carries no row (ADR-0006). Wider than `hasImport` by exactly that
     /// bootstrap case.
     ///
-    /// The one definition of "an import this session holds". The send-side
-    /// reference rule asks it before letting a far onto the wire, and
-    /// `driver_core.Host.enrollCapability` asks it before minting a routing
-    /// token for one, so the two cannot drift into disagreeing about which
-    /// positions this session may name.
+    /// The one definition of "an import this session holds". Send-side
+    /// reference validation and Host capability lifting both ask it, so the
+    /// two cannot drift into disagreeing about which positions this session
+    /// may name.
     pub fn holdsImport(self: *const Session, id: model.ImportPosition) bool {
         return id.int() == BOOTSTRAP_POSITION or self.imports.contains(id);
     }
@@ -1207,6 +1207,12 @@ pub const Session = struct {
     /// import row, so releasing the import forgets it in the same step.
     pub fn noteForeignToken(self: *Session, position: model.ImportPosition, token: u64) !void {
         return self.imports.noteToken(self.allocator, position, token);
+    }
+
+    /// Undo a freshly installed Node token that no application operation made
+    /// observable. Other identity attached to the import row remains intact.
+    pub fn abandonForeignToken(self: *Session, position: model.ImportPosition, token: u64) void {
+        self.imports.abandonToken(position, token);
     }
 
     /// Opaque Host capability attached to this live import incarnation.

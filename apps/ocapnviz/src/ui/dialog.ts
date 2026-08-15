@@ -66,6 +66,5 @@ export function dialogKeyIntent(
  * a selector that guessed at every focusable thing would quietly include
  * whatever a future dialog puts inside it — including elements that should
  * not be in the cycle. Widen it when a dialog grows a control, not before. */
-export const DIALOG_FOCUSABLE_SELECTOR =
-  "button:not([disabled]), [href], input:not([disabled]), " +
+export const DIALOG_FOCUSABLE_SELECTOR = "button:not([disabled]), [href], input:not([disabled]), " +
   "select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";

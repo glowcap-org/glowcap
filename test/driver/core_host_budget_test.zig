@@ -81,7 +81,7 @@ test "finite host quantum does not starve Node work behind a hot session" {
         .{ .verb = "hit", .args = &.{} },
     );
     host.next_work_lane = .session;
-    host.testingMarkDirty(pair.b.peer_id);
+    driver.core.testing.markDirty(&host, pair.b.peer_id);
 
     try host.node.actions.reserve(allocator, 1);
     host.node.actions.pushReserved(.{ .retire_exporter = engine.PeerId.from(1234) });
@@ -122,6 +122,7 @@ const NoopActionExec = struct {
     pub fn flush(_: @This(), _: engine.PeerId) !void {}
     pub fn close(_: @This(), _: engine.PeerId) !void {}
     pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
+    pub fn cancelDial(_: @This(), _: @FieldType(driver.core.HostAction, "cancel_dial")) !void {}
     pub fn complete(_: @This(), _: driver.core.HostAction) !void {}
 };
 
@@ -136,7 +137,47 @@ const RetryDialExec = struct {
             return error.DialUnavailable;
         }
     }
+    pub fn cancelDial(_: @This(), _: @FieldType(driver.core.HostAction, "cancel_dial")) !void {}
     pub fn complete(_: @This(), _: driver.core.HostAction) !void {}
+};
+
+const RetryCancelExec = struct {
+    host: *Host,
+    fail_next: *bool,
+
+    pub fn flush(_: @This(), _: engine.PeerId) !void {}
+    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
+    pub fn cancelDial(self: @This(), cancel: @FieldType(driver.core.HostAction, "cancel_dial")) !void {
+        if (self.fail_next.*) {
+            self.fail_next.* = false;
+            return error.CancelUnavailable;
+        }
+        try self.host.dialCancelled(cancel.ticket);
+    }
+    pub fn complete(self: @This(), action: driver.core.HostAction) !void {
+        self.host.freeAction(action);
+    }
+};
+
+const RetryPrepareExec = struct {
+    host: *Host,
+    fail_next: *bool,
+
+    pub fn prepare(self: @This(), action: driver.core.HostAction) !void {
+        if (action != .settled and action != .failed) return;
+        if (self.fail_next.*) {
+            self.fail_next.* = false;
+            return error.PublicationUnavailable;
+        }
+    }
+    pub fn flush(_: @This(), _: engine.PeerId) !void {}
+    pub fn close(_: @This(), _: engine.PeerId) !void {}
+    pub fn dial(_: @This(), _: @FieldType(driver.core.HostAction, "dial")) !void {}
+    pub fn cancelDial(_: @This(), _: @FieldType(driver.core.HostAction, "cancel_dial")) !void {}
+    pub fn complete(self: @This(), action: driver.core.HostAction) !void {
+        self.host.freeAction(action);
+    }
 };
 
 test "standard host action drain yields between finite-quantum slices" {
@@ -173,12 +214,11 @@ test "standard host action drain retains a gift-id request when entropy fails" {
     var host = test_host.init(allocator, [_]u8{0x1e} ** 32, .{});
     defer host.deinit();
 
-    // A node gift request is transferred onto the Host queue by the ordinary
-    // finite work pump. The ticket is intentionally stale: this test owns the
-    // executor's retry boundary, while Node ticket settlement is covered by
-    // the handoff scenarios.
-    try host.node.actions.reserve(allocator, 1);
-    host.node.actions.pushReserved(.{ .need_gift_id = .{ .ticket = 77 } });
+    const recipient = try host.node.registerPeer(.{});
+    const exporter = try host.node.registerPeer(.{});
+    try host.node.peer(exporter).?.session_state.registerImport(.from(4));
+    const gift = try host.node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    try std.testing.expect(try host.node.interceptFulfilledRef(recipient, 77, gift.far.import_position.int()));
 
     var fail_next = true;
     try std.testing.expectError(
@@ -186,7 +226,7 @@ test "standard host action drain retains a gift-id request when entropy fails" {
         driver.core.drainActions(&host, RetryEntropy{ .fail_next = &fail_next }, NoopActionExec{}),
     );
     const parked = (try host.peekAction()) orelse return error.MissingGiftIdAction;
-    try std.testing.expectEqual(@as(u64, 77), parked.need_gift_id.ticket);
+    try std.testing.expect(host.node.hasPendingGift(parked.need_gift_id.ticket));
 
     try std.testing.expectEqual(
         driver.core.DrainResult.drained,
@@ -200,8 +240,8 @@ test "standard host action drain retries a dial whose executor fails" {
     var host = test_host.init(allocator, [_]u8{0x1f} ** 32, .{});
     defer host.deinit();
 
-    try host.actions.reserve(allocator, 1);
-    host.actions.pushReserved(.{ .dial = .{ .ticket = 91 } });
+    _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7095"));
+    const ticket = ((try host.peekAction()) orelse return error.MissingDialAction).dial.ticket;
 
     var fail_next = true;
     try std.testing.expectError(
@@ -209,13 +249,76 @@ test "standard host action drain retries a dial whose executor fails" {
         driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &fail_next }),
     );
     const parked = (try host.peekAction()) orelse return error.MissingDialAction;
-    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), parked.dial.ticket);
+    try std.testing.expectEqual(ticket, parked.dial.ticket);
 
     try std.testing.expectEqual(
         driver.core.DrainResult.drained,
         try driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &fail_next }),
     );
     try std.testing.expect((try host.peekAction()) == null);
+
+    try host.dialFailed(ticket, "test dial retired");
+    const failed = (try host.takeAction()) orelse return error.MissingDialFailure;
+    defer host.freeAction(failed);
+    try std.testing.expect(failed == .failed);
+}
+
+test "standard host action drain retains a completion when publication preparation fails" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x3f} ** 32, .{});
+    defer host.deinit();
+
+    _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7099"));
+    const ticket = ((try host.peekAction()) orelse return error.MissingDialAction).dial.ticket;
+    var dial_failed = false;
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &dial_failed }),
+    );
+    try host.dialFailed(ticket, "test completion");
+
+    var prepare_failed = true;
+    const exec = RetryPrepareExec{ .host = &host, .fail_next = &prepare_failed };
+    try std.testing.expectError(
+        error.PublicationUnavailable,
+        driver.core.drainActions(&host, NoopActionIo{}, exec),
+    );
+    try std.testing.expect((try host.peekAction()).? == .failed);
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, NoopActionIo{}, exec),
+    );
+    try std.testing.expect((try host.peekAction()) == null);
+}
+
+test "standard host action drain retries cancellation until physical acknowledgement" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x21} ** 32, .{});
+    defer host.deinit();
+
+    _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7098"));
+    var dial_failed = false;
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, NoopActionIo{}, RetryDialExec{ .fail_next = &dial_failed }),
+    );
+    try std.testing.expectEqual(@as(usize, 1), host.node.pendingDialCount());
+
+    host.beginClose(.cancel, 0);
+    var cancel_failed = true;
+    const exec = RetryCancelExec{ .host = &host, .fail_next = &cancel_failed };
+    try std.testing.expectError(
+        error.CancelUnavailable,
+        driver.core.drainActions(&host, NoopActionIo{}, exec),
+    );
+    const parked = (try host.peekAction()) orelse return error.MissingDialCancellation;
+    try std.testing.expect(parked == .cancel_dial);
+    try std.testing.expectEqual(@as(usize, 1), host.node.pendingDialCount());
+
+    try std.testing.expectEqual(
+        driver.core.DrainResult.drained,
+        try driver.core.drainActions(&host, NoopActionIo{}, exec),
+    );
+    try std.testing.expectEqual(@as(usize, 0), host.node.pendingDialCount());
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
 }
 
 test "borrowed action refusal retries in place without reordering" {
@@ -223,18 +326,33 @@ test "borrowed action refusal retries in place without reordering" {
     var host = test_host.init(allocator, [_]u8{0x20} ** 32, .{});
     defer host.deinit();
 
-    try host.actions.reserve(allocator, 2);
-    host.actions.pushReserved(.{ .dial = .{ .ticket = 91 } });
-    host.actions.pushReserved(.{ .dial = .{ .ticket = 92 } });
+    _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7096"));
+    _ = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7097"));
 
-    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), (try host.nextAction()).?.dial.ticket);
+    const first = ((try host.nextAction()) orelse return error.MissingFirstDial).dial.ticket;
     try std.testing.expect(host.retryBorrowedAction());
-    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), (try host.peekAction()).?.dial.ticket);
+    try std.testing.expectEqual(first, (try host.peekAction()).?.dial.ticket);
     const retried = (try host.takeAction()) orelse return error.MissingRetriedAction;
     defer host.freeAction(retried);
-    try std.testing.expectEqual(@as(engine.Node.PendingId, 91), retried.dial.ticket);
-    try std.testing.expectEqual(@as(engine.Node.PendingId, 92), (try host.nextAction()).?.dial.ticket);
+    try std.testing.expectEqual(first, retried.dial.ticket);
+    const second = ((try host.nextAction()) orelse return error.MissingSecondDial).dial.ticket;
+    try std.testing.expect(first != second);
     try std.testing.expect((try host.nextAction()) == null);
+
+    try host.dialFailed(first, "test dial retired");
+    try host.dialFailed(second, "test dial retired");
+    while (try host.takeAction()) |action| host.freeAction(action);
+}
+
+fn tcpSturdyref(designator: []const u8) model.SturdyRef {
+    return .{
+        .peer = .{
+            .transport = model.transport.tcp,
+            .designator = designator,
+            .hints = model.Hints.emptyFalse(),
+        },
+        .swissnum = "retry-test",
+    };
 }
 
 test "event serve OOM condemns the consumed event instead of retrying it" {
@@ -266,7 +384,7 @@ test "event serve OOM condemns the consumed event instead of retrying it" {
     try host.flushSession(pair.b);
     try std.testing.expectEqual(@as(usize, 1), serve_attempts);
     try std.testing.expect(!pair.b.served.port.peer.hasEvent());
-    try std.testing.expect(pair.b.condemned);
+    try std.testing.expect(pair.b.isTerminating());
 
     var saw_close = false;
     while (try host.nextAction()) |action| switch (action) {

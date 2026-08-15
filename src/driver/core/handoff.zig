@@ -1,8 +1,8 @@
 //! Third-party handoff for the byte-fed host core: the node-service
 //! callbacks that project, capture, and release local gift targets, the
 //! embedder's dial-ticket seam (`pendingDial` / `exporterDialed` /
-//! `dialFailed` / `provideGiftId`), and the give verbs (`acceptGive`,
-//! `setExporterLocation`, `enrollCapability`).
+//! `dialFailed` / `provideGiftId`), and the give verbs (`acceptGive` /
+//! `setExporterLocation`).
 //!
 //! One of `host.zig`'s responsibilities, kept beside it rather than in it.
 //! The `Host` still owns the state and presents each verb as its own through
@@ -24,7 +24,6 @@ const sessions_mod = @import("sessions.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
-const HostError = host_mod.HostError;
 const resolvePublishedTarget = @import("publish.zig").resolvePublishedTarget;
 
 fn captureGiftTarget(ctx: ?*anyopaque, scope: engine.PeerId, export_position: model.ExportPosition) ?u64 {
@@ -96,6 +95,10 @@ pub fn wireNodeServices(self: *Host) void {
 /// Borrow the in-flight pending dial for `ticket`, or null if settled.
 /// Same contract as `Node.pendingDial`.
 pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId) ?engine.Node.PendingDialView {
+    switch (self.lifecyclePhase()) {
+        .active, .finishing => {},
+        .terminating, .closed => return null,
+    }
     return self.node.pendingDial(ticket);
 }
 
@@ -112,7 +115,7 @@ fn finishCommittedEffect(self: *Host) !void {
     };
 }
 
-/// Report a `dial` action's success: `session` is an `openDialedLocator`
+/// Report a `dial` action's success: `session` is an `openPendingDial`
 /// against that ticket's pending locator, driven to an open session. The
 /// node withdraws every give waiting on the ticket; the withdraws and
 /// their flushes pump inside this call. A stale ticket is a no-op.
@@ -135,6 +138,14 @@ pub fn dialFailed(self: *Host, ticket: engine.Node.PendingId, reason: []const u8
     const outcome = try self.node.dialFailed(ticket, reason);
     if (outcome == .exhausted)
         enliven_mod.settleParkedEnlivens(self, ticket, null, reason);
+    try finishCommittedEffect(self);
+}
+
+/// A `cancel_dial` executor has interrupted and joined the physical dial it
+/// owned. Terminal Host completion remains pending until this report arrives.
+pub fn dialCancelled(self: *Host, ticket: engine.Node.PendingId) !void {
+    try self.refuseReentry();
+    self.node.dialCancelled(ticket);
     try finishCommittedEffect(self);
 }
 
@@ -170,6 +181,8 @@ pub fn giftIdFailed(self: *Host, ticket: u64) !void {
 /// inside a callback.
 pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const u8, exporter_locator: []const u8) !void {
     try self.refuseReentry();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
     try self.checkSession(session);
     try self.node.acceptGive(session.peer_id, answer, give, exporter_locator);
     try finishCommittedEffect(self);
@@ -181,95 +194,8 @@ pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const
 /// record bytes — a URI string is unrepresentable here.
 pub fn setExporterLocation(self: *Host, session: *HostSession, location: ?model.PeerLocator) !void {
     self.assertOwner();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
     try self.checkSession(session);
     try self.node.setExporterLocation(session.peer_id, location);
-}
-
-/// Enroll a capability `session` holds under a node-unique token, so it can
-/// be handed to a third party, and return that token.
-///
-/// An import position is a name on one session and nowhere else, so the
-/// node cannot route a capability it has never been told the home of. That
-/// is why `fetch` enrolls its result (`enrollFetched`): the gifter
-/// intercept looks the reply's capability up by token, and a capability
-/// with no token has no recorded home, so the intercept declines and the
-/// reply goes out as a raw position naming nothing on the recipient's
-/// session. Every other way to come by a capability — returned from a
-/// call, lifted from a delivered argument — arrives without one. This is
-/// the verb that gives it one.
-///
-/// Enrolling is how an application says it intends to hand this capability
-/// on, which is a capability act rather than bookkeeping, and it is the
-/// same reason `releaseImport` exists beside the finalizer path. It is not
-/// done for every capability that settles: a token is what the node routes,
-/// not what the partner named, so blanket enrollment would hand back ids
-/// that no longer answer to `releaseImport` and would switch on the node's
-/// per-send lowering walk for applications that never introduce anyone.
-///
-/// Idempotent per import, by `Node.enrollForeign`: the same capability
-/// keeps the token it was first given, so enrolling twice cannot give one
-/// object two identities. A position already in the token range is already
-/// routable and is returned unchanged, because enrolling a token would
-/// double-wrap it into a reference no session can lower.
-///
-/// A position with no import row on this session is refused
-/// `ForeignArgument`, and the rule is the row rather than reachability.
-/// A row is usually missing because the position names nothing here, and
-/// minting a token for it would route a later gift to a capability the
-/// partner never exported. It is also where `Node.enrollForeign` remembers
-/// the token a capability already has, so a position with no row could not
-/// be enrolled idempotently: a second call would mint a second token, and
-/// one object wearing two identities is what the idempotency above exists
-/// to prevent. The partner's pinned bootstrap is the one addressable
-/// position that can be missing a row (it is reachable without one until
-/// something fetches through it, which registers it), and it answers to
-/// the same rule rather than an exception.
-///
-/// `kind` says whether the position names a settled capability or a promise
-/// the partner has not settled, and the caller has to supply it because the
-/// session cannot. A far reference encodes as `desc:export` whatever it
-/// points at (`session.slot`'s `remote_value` carries no kind field), so the
-/// import row records the position and nothing about its settledness. The
-/// one place a received reference's promise-ness survives is the reference
-/// the application was handed. Routing reads the kind off the enrolled row:
-/// a promise enrolled as an object is not recognized by the
-/// introducing-session proxy (`Node.proxyForeignPromiseFulfill`), so
-/// replying with it hands a recipient a position rather than a promise it
-/// can wait on.
-///
-/// A row already enrolled under the other kind is refused
-/// `EnrolledKindConflict`. The kind lives on the row, and the row is what
-/// routing reads, so `Node.enrollForeign` answers a second caller with the
-/// kind it recorded rather than the one just asked for. Returning that token
-/// in silence would leave the caller believing the row agreed with the kind
-/// it asked for, and the proxy would then decline the token the caller was
-/// told to expect a settlement through. A fresh enroll cannot conflict,
-/// since the row is created with the kind asked for; only re-enrolling one
-/// position under both kinds does. The native `driver.Session.enroll` takes
-/// a whole `model.FarRef`, so it cannot name a kind the reference disagrees
-/// with in the first place; this tier is C-shaped and takes the two apart.
-///
-/// The token fast path below returns `position` unchanged and ignores
-/// `kind`: a token is already routable, and the row it was minted from
-/// holds the kind, so there is nothing here to record or to disagree with.
-pub fn enrollCapability(
-    self: *Host,
-    session: *HostSession,
-    position: u64,
-    kind: model.RefKind,
-) !u64 {
-    self.assertOwner();
-    try self.checkSession(session);
-    switch (model.ImportName.classify(position)) {
-        .token => return position,
-        .wire => {},
-    }
-    if (!session.served.port.peer.session_state.hasImport(model.ImportPosition.from(position)))
-        return HostError.ForeignArgument;
-    const token = try self.node.enrollForeign(
-        session.peer_id,
-        .{ .far = .{ .import_position = .from(position), .kind = kind } },
-    );
-    if (token.far.kind != kind) return HostError.EnrolledKindConflict;
-    return token.far.import_position.int();
 }

@@ -42,7 +42,7 @@ fn expectStep(rc: i32) !void {
 /// COMPLETION's views die at the next `pancake_driver_next_event`.
 const Drained = struct {
     dialed_session: ?*cd.PancakeHostSession = null,
-    dialed_ticket: u64 = 0,
+    dialed_operation_id: u64 = 0,
     dial_failed: bool = false,
     accepted_session: ?*cd.PancakeHostSession = null,
     accepted_listener: u64 = 0,
@@ -59,17 +59,17 @@ fn drainEvents(loop: ?*cdrv.PancakeDriverLoop, into: *Drained) !void {
         switch (event.kind) {
             cdrv.PANCAKE_DRIVER_EVENT_OPENED => {
                 into.dialed_session = event.session;
-                into.dialed_ticket = event.ticket;
+                into.dialed_operation_id = event.operation_id;
             },
             cdrv.PANCAKE_DRIVER_EVENT_OPEN_FAILED => {
                 into.dial_failed = true;
-                if (event.message) |msg| {
-                    std.debug.print("iroh-driver-provider: dial failed: {s}\n", .{msg[0..event.message_len]});
+                if (event.primary_name) |name| {
+                    std.debug.print("iroh-driver-provider: dial failed: {s}\n", .{name[0..event.primary_name_len]});
                 }
             },
             cdrv.PANCAKE_DRIVER_EVENT_ACCEPTED => {
                 into.accepted_session = event.session;
-                into.accepted_listener = event.ticket;
+                into.accepted_listener = event.listener_id;
             },
             cdrv.PANCAKE_DRIVER_EVENT_SESSION_CLOSED => {},
             cdrv.PANCAKE_DRIVER_EVENT_COMPLETION => switch (event.action.kind) {
@@ -141,6 +141,7 @@ fn newLoop(seed_byte: u8) !?*cdrv.PancakeDriverLoop {
         .wire_buffer_bytes = 16 << 10,
         .max_pending_opens = 256,
         .handshake_ms = 15_000,
+        .listener_setup_ms = 15_000,
         .settle_ms = 15_000,
     };
     try expectOk(cdrv.pancake_driver_take_host(
@@ -173,16 +174,16 @@ pub fn main(init: std.process.Init) !void {
     try expectOk(cdrv.pancake_driver_add_provider(client_loop, &client_provider));
 
     var listener: u64 = 0;
-    try expectOk(cdrv.pancake_driver_listen(server_loop, model.transport.iroh.ptr, model.transport.iroh.len, null, 0, &listener));
+    try expectOk(cdrv.pancake_driver_listen(server_loop, model.transport.iroh.ptr, model.transport.iroh.len, null, 0, null, &listener));
     const locator = try readListenerLocator(server_loop, listener);
     defer model.freePeerLocator(std.heap.page_allocator, locator);
     std.debug.print("iroh-driver-provider: generic listener published {s}\n", .{locator.designator});
 
-    var ticket: u64 = 0;
+    var operation_id: u64 = 0;
     var hint_views: [8]cs.PancakeLocatorHintView = undefined;
     var projection = try cs.locator_adapter.Projection.init(std.heap.page_allocator, locator, &hint_views);
     defer projection.deinit(std.heap.page_allocator);
-    try expectOk(cdrv.pancake_driver_dial(client_loop, &projection.view, &ticket));
+    try expectOk(cdrv.pancake_driver_dial(client_loop, &projection.view, null, &operation_id));
 
     var server_seen = Drained{};
     var client_seen = Drained{};
@@ -207,7 +208,7 @@ pub fn main(init: std.process.Init) !void {
         if (client_seen.dial_failed) return error.DialFailed;
         if (client_seen.fail_ticket != 0) return error.FetchFailed;
         if (client_seen.dialed_session != null and fetch_vow == 0 and server_seen.accepted_session != null) {
-            if (client_seen.dialed_ticket != ticket) return error.TicketMismatch;
+            if (client_seen.dialed_operation_id != operation_id) return error.OperationIdMismatch;
             try expectOk(cd.pancake_host_session_fetch(client_seen.dialed_session, "greeter", 7, &fetch_vow));
         }
     }

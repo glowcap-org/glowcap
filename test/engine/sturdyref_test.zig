@@ -123,7 +123,9 @@ test "in-flight enliven indexes reject an answer-position collision" {
 
 test "in-flight enliven registration is failure-atomic across both indexes" {
     var observed_failures: usize = 0;
-    for (0..4) |fail_index| {
+    // Cache-return capacity is part of the same pre-commit transaction as the
+    // two pending indexes, so exercise every allocation edge plus one success.
+    for (0..6) |fail_index| {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
         var s = session.Session.init(failing.allocator());
         defer s.deinit();
@@ -138,7 +140,25 @@ test "in-flight enliven registration is failure-atomic across both indexes" {
         try std.testing.expectEqual(@as(usize, 0), s.pending_enlivens.count());
         try std.testing.expectEqual(@as(usize, 0), s.pending_enliven_by_answer.count());
     }
-    try std.testing.expectEqual(@as(usize, 3), observed_failures);
+    try std.testing.expectEqual(@as(usize, 5), observed_failures);
+}
+
+test "fulfilled enliven settlement allocates nothing after registration" {
+    // Registration consumes allocation attempts 0 through 4. If settlement
+    // tries attempt 5, the allocator refuses and the test fails or traps;
+    // moving the pending swissnum into its reserved cache row must be a commit.
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 5 });
+    var s = session.Session.init(failing.allocator());
+    defer s.deinit();
+
+    try s.notePendingEnliven("reserved", .from(19));
+    s.settlePendingEnlivenIntoCache("reserved", .{
+        .import_position = .from(23),
+        .kind = .object,
+    });
+
+    const cached = s.sturdyrefCacheLookup("reserved") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u64, 23), cached.far.import_position.int());
 }
 
 test "checkEnlivenPreconditions rejects non-negotiated and non-open sessions" {

@@ -16,12 +16,7 @@ import {
   type SessionState,
   UNATTRIBUTED_WORD,
 } from "../schema/topology.ts";
-import {
-  CAPTP_VERSION_COLORS,
-  colorForProfile,
-  lineStyleForCodec,
-  PROFILE_FALLBACK_COLOR,
-} from "../render/palette.ts";
+import { CAPTP_VERSION_COLORS, colorForProfile, lineStyleForCodec, PROFILE_FALLBACK_COLOR } from "../render/palette.ts";
 import type { PeerActivity } from "../render/types.ts";
 import { c, FONT, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
@@ -238,9 +233,7 @@ export function LifecycleChip(
   },
 ) {
   const [bg, fg, label] = lifecycleVisual(status, entity);
-  return (
-    <span style={{ ...stateChipBase, background: bg, color: fg }}>{label}</span>
-  );
+  return <span style={{ ...stateChipBase, background: bg, color: fg }}>{label}</span>;
 }
 
 function lifecycleVisual(
@@ -276,9 +269,7 @@ function lifecycleVisual(
       "off-stage": "off stage",
     },
   };
-  const [bg, fg] = status === "active"
-    ? [c.positiveSoft, c.positive]
-    : [c.surfaceMuted, c.textSubtle];
+  const [bg, fg] = status === "active" ? [c.positiveSoft, c.positive] : [c.surfaceMuted, c.textSubtle];
   return [bg, fg, labels[entity][status]];
 }
 
@@ -357,9 +348,7 @@ export function attributionStandingStyle(
 /** Traffic-light coloring for session state. */
 export function StateChip({ state }: { state: SessionState }) {
   const [bg, fg] = stateColors(state);
-  return (
-    <span style={{ ...stateChipBase, background: bg, color: fg }}>{state}</span>
-  );
+  return <span style={{ ...stateChipBase, background: bg, color: fg }}>{state}</span>;
 }
 
 function stateColors(state: SessionState): [bg: string, fg: string] {
@@ -397,11 +386,7 @@ function ActivityDots({ activity }: { activity: PeerActivity }) {
       </span>
     );
   }
-  const color = activity === "sending"
-    ? c.danger
-    : activity === "receiving"
-    ? c.positive
-    : c.textSubtle;
+  const color = activity === "sending" ? c.danger : activity === "receiving" ? c.positive : c.textSubtle;
   return <Dot color={color} />;
 }
 

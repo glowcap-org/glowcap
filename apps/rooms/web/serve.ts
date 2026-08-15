@@ -22,14 +22,17 @@
 // The browser reconnects on its own and replays its join, so restarting this
 // process (to pick up a code change, say) just shows "reconnecting…" and recovers.
 //
-//   deno run --allow-ffi --allow-read --allow-net --allow-run serve.ts
+//   deno run --allow-ffi --allow-read --allow-write --allow-net --allow-env --allow-run serve.ts
 //
 // Open the printed URL. It also prints the room's locator, so you can join from
 // a terminal (`chat.ts <locator> <room> <nick>`) at the same time.
 
 import { Directory } from "../lib/room_client.ts";
-import { classifyRelayTarget, type RelayTarget } from "@pancake/stack";
-import { dial, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
+import { classifyRelayTarget, type RelayTarget } from "./relay_target.ts";
+import { dial, isUriLocator, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
+import { openRoomsRuntime } from "../lib/runtime.ts";
+import { nextRestartWait } from "./restart.ts";
+import { Reachability } from "@pancake/iroh";
 import {
 	bridgeRendezvous,
 	isRendezvousDesignator,
@@ -79,6 +82,16 @@ const RELAY_TCP_PEERS = parseTcpPeers(
 	tcpPeersAllowed ? Deno.env.get("PANCAKE_RELAY_TCP_PEERS") : undefined,
 );
 const ROOT = new URL(".", import.meta.url).pathname;
+// A supervised child is another process incarnation of the same room server,
+// not a new authority. Keep its Host identity and durable room publications in
+// one state directory for the supervisor's whole lifetime. An operator-supplied
+// ROOMS_STATE survives the supervisor too; the temporary default is removed
+// when this development process stops.
+const stateEnvAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_STATE" })
+	.state === "granted";
+const configuredRoomState = stateEnvAllowed ? Deno.env.get("ROOMS_STATE")?.trim() : undefined;
+const temporaryRoomState = configuredRoomState ? null : await Deno.makeTempDir({ prefix: "pancake-rooms-" });
+const ROOM_STATE = configuredRoomState || temporaryRoomState!;
 // `--no-lock` on both arms, because this process spawns the room server as a
 // child and the child needs the same posture the parent was given. The deploy
 // runs with the repository mounted read-only and passes `--no-lock` on the
@@ -97,18 +110,20 @@ const DENO_FLAGS = [
 	"--allow-read",
 	"--allow-net",
 	"--allow-env",
+	`--allow-write=${ROOM_STATE}`,
 	"--no-lock",
 	...(TRANSPORT === "iroh" ? ["--unstable-ffi"] : []),
 ];
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// One stray async error in the relay or the supervisor, or a transport hiccup, must never take
-// the whole server down. Roots are handled where they occur; this backstop keeps
-// the long-running process alive and logs anything that still slips through.
+// Every background root is expected to handle its own failure. If one escapes,
+// this process no longer knows which effect committed, so stop the room and let
+// the outer service supervisor restart the whole owned unit from durable state.
 globalThis.addEventListener("unhandledrejection", (event) => {
 	event.preventDefault();
-	console.error("rooms: unhandled rejection (continuing):", event.reason);
+	console.error("rooms: fatal unhandled rejection:", event.reason);
+	requestStop(1);
 });
 
 // The room server runs as a supervised child process. `roomLocator` always points
@@ -119,23 +134,63 @@ const shutdown = new AbortController();
 let roomLocator = "";
 let child: Deno.ChildProcess | null = null;
 
+// Stopping, stated with the state it stops and above everything that can ask
+// for it. It used to sit at the foot of the file, which read fine and was a
+// hazard: `stopping` is a `let`, so the startup path calling `stop` — a room
+// server that would not start, a port already taken — reached it before its
+// declaration had run and died of a ReferenceError while trying to shut down
+// cleanly. The one failure a shutdown must survive is the one that called it.
+//
+// Stop cleanly when interrupted: end the respawn loop, close the HTTP server (its
+// abort signal), stop and join the room child, release temporary durable state,
+// then exit. Cleanup failure changes a successful exit into a failure instead of
+// silently leaking state the process claimed to own.
+let stopping = false;
+async function stop(requestedExitCode: number): Promise<never> {
+	if (stopping) await new Promise<never>(() => {});
+	stopping = true;
+	shutdown.abort();
+	shutdownRelay();
+	const owned = child;
+	if (owned !== null) {
+		try {
+			owned.kill("SIGTERM");
+		} catch {
+			// `status` below is the authority: a child that won the race and already
+			// exited needs no signal, while every live child must accept this one.
+		}
+		await owned.status;
+	}
+	let exitCode = requestedExitCode;
+	if (temporaryRoomState !== null) {
+		try {
+			await Deno.remove(temporaryRoomState, { recursive: true });
+		} catch (err) {
+			exitCode = 1;
+			console.error("rooms: could not remove temporary room state:", err);
+		}
+	}
+	Deno.exit(exitCode);
+}
+
+/** Give an asynchronous stop an error owner when no caller can await it. */
+function requestStop(exitCode: number): void {
+	void stop(exitCode).catch((err) => {
+		console.error("rooms: shutdown failed:", err);
+		Deno.exit(1);
+	});
+}
+
 function spawnRoomServer(): Deno.ChildProcess {
 	const serverArgs = TRANSPORT === "iroh"
 		? [`${ROOT}../server/main.ts`, "--transport=iroh"]
 		: [`${ROOT}../server/main.ts`, ROOM_PORT];
 	return new Deno.Command("deno", {
 		args: [...DENO_FLAGS, ...serverArgs],
+		env: { ROOMS_STATE: ROOM_STATE },
 		stdout: "piped",
 		stderr: "inherit",
 	}).spawn();
-}
-
-// Stop the room child if we spawned one (in attach mode there is none). A function
-// so `child` keeps its declared type instead of being narrowed at a call site.
-function killChild(): void {
-	try {
-		child?.kill("SIGTERM");
-	} catch { /* already gone */ }
 }
 
 // Whether the fixed TCP room port is already bound — an orphaned server from a
@@ -153,34 +208,68 @@ function roomPortInUse(): boolean {
 // Whether `locator` answers as a rooms directory. Used to tell an orphaned rooms
 // server (which we can attach to) from something unrelated holding the port.
 async function isRoomsServer(locator: string): Promise<boolean> {
+	let runtime: Awaited<ReturnType<typeof openRoomsRuntime>> | null = null;
 	try {
-		const dir = await Directory.connect(locator, dial);
+		const opened = await openRoomsRuntime({
+			iroh: isUriLocator(locator) ? { reachability: Reachability.Direct } : undefined,
+		});
+		runtime = opened;
+		const dir = await Directory.connect(locator, (address) => dial(address, opened));
 		await dir.close();
 		return true;
 	} catch {
 		return false;
+	} finally {
+		await runtime?.close().catch(() => {});
 	}
 }
 
 // Own the room child: when it exits, respawn until `shutdown` aborts.
 // Shared by the spawn path and by attach-mode take-over (so one loop, not two).
+//
+// Every path through here has to lead back to a spawn. A failed respawn used to
+// leave `child` empty with nothing that would ever fill it again: the loop spun
+// on its own idle delay, the room server stayed gone, and the page went on
+// dialling a locator with nothing behind it while the console said nothing more.
 async function respawnOwnedServer(): Promise<void> {
+	let wait = 0;
 	while (!shutdown.signal.aborted) {
 		const owned = child;
-		if (owned === null) {
-			await delay(100);
-			continue;
+		if (owned !== null) {
+			const startedAt = Date.now();
+			const status = await owned.status;
+			if (shutdown.signal.aborted) return;
+			// A server that had been running and then died comes straight back,
+			// which is what this loop is for. One that never got going waits, so
+			// the reason it printed stays readable instead of scrolling past under
+			// thousands of copies of itself.
+			const ranFor = Date.now() - startedAt;
+			wait = nextRestartWait(wait, ranFor);
+			console.error(
+				`rooms: room server exited (code ${status.code}) after ${ranFor} ms; ` +
+					(wait === 0 ? "restarting…" : `restarting in ${wait} ms…`),
+			);
 		}
-		const status = await owned.status;
-		if (shutdown.signal.aborted) return;
-		console.error(`rooms: room server exited (code ${status.code}); restarting…`);
+		if (wait > 0) {
+			await delay(wait);
+			if (shutdown.signal.aborted) return;
+		}
 		try {
 			child = spawnRoomServer();
 			roomLocator = await readAnnouncedLocator(child);
 		} catch (err) {
-			console.error("rooms: room server respawn failed:", err);
+			// A child that started and then would not announce is still running and
+			// still holding whatever the next one needs, so it goes before the next
+			// attempt rather than being forgotten with the variable that named it.
+			try {
+				child?.kill();
+			} catch {
+				// Already gone.
+			}
 			child = null;
-			await delay(500);
+			// A start that never ran is never steady, whatever the last one did.
+			wait = nextRestartWait(wait, 0);
+			console.error(`rooms: room server respawn failed; trying again in ${wait} ms:`, err);
 		}
 	}
 }
@@ -209,8 +298,7 @@ async function watchAttachedServer(): Promise<void> {
 			console.error(
 				`rooms: port ${ROOM_PORT} is held by something that is not a rooms server after the attached server died.`,
 			);
-			shutdown.abort();
-			Deno.exit(1);
+			await stop(1);
 		}
 		try {
 			child = spawnRoomServer();
@@ -244,23 +332,19 @@ async function superviseServer(): Promise<void> {
 		console.error(
 			`rooms: port ${ROOM_PORT} is already in use by something that is not a rooms server.\n` +
 				`       Stop it, or start with a free room port, for example:\n` +
-				`       deno run --allow-ffi --allow-read --allow-net --allow-run ${ROOT}serve.ts ${HTTP_PORT} 9100`,
+				`       deno run --allow-ffi --allow-read --allow-write --allow-net --allow-env --allow-run ${ROOT}serve.ts ${HTTP_PORT} 9100`,
 		);
-		Deno.exit(1);
+		await stop(1);
 	}
 
 	child = spawnRoomServer();
 	try {
 		roomLocator = await readAnnouncedLocator(child);
 	} catch (err) {
-		try {
-			child.kill("SIGTERM");
-		} catch { /* already gone */ }
-		child = null;
 		console.error(
 			`rooms: the room server did not start: ${err instanceof Error ? err.message : err}`,
 		);
-		Deno.exit(1);
+		await stop(1);
 	}
 	// Watch the live child and respawn it when it exits, until we are shutting
 	// down. This runs in the background; the first locator is already in hand.
@@ -274,9 +358,7 @@ console.log(
 	`rooms server:   ${roomLocator}  (join from a terminal too:`,
 );
 console.log(
-	`                deno ${
-		DENO_FLAGS.join(" ")
-	} ${ROOT}../clients/deno/chat.ts ${roomLocator} <room> <nick>)`,
+	`                deno ${DENO_FLAGS.join(" ")} ${ROOT}../clients/deno/chat.ts ${roomLocator} <room> <nick>)`,
 );
 
 // The browser UI lives in ui/: page.html, page.css, and a set of React components
@@ -414,10 +496,7 @@ if (pageJs === "") {
 	console.error(
 		`rooms: could not build the browser UI: ${startupFailure ?? "no bundle produced"}`,
 	);
-	shutdown.abort();
-	shutdownRelay();
-	killChild();
-	Deno.exit(1);
+	await stop(1);
 }
 if (startupFailure !== null) {
 	console.warn(`rooms: could not rebundle (${startupFailure}); serving ui/page.js as built`);
@@ -593,7 +672,7 @@ try {
 		// messages appear on the same timeline as the room's own sessions. The
 		// page builds the socket URL against its own hostname, so this answers
 		// with the port alone; a run whose endpoint is not reachable from the
-		// browser passes `?viz=<ws url>` on the page URL instead.
+		// browser sets the URL in Settings, or passes `?viz=<ws url>` on the page.
 		if (url.pathname === "/viz") {
 			if (VIZ_PORT === "") {
 				return new Response("rooms: no live timeline endpoint\n", { status: 404 });
@@ -664,25 +743,11 @@ try {
 	// The usual cause is a second serve.ts on the same HTTP port; say so and stop the
 	// child we just started rather than leave it orphaned.
 	console.error(
-		`rooms: could not serve on http port ${HTTP_PORT} (${
-			err instanceof Error ? err.message : err
-		}).\n` +
-			`       Another rooms web UI may already be on it; try a different port, e.g. serve.ts ${
-				HTTP_PORT + 1
-			}`,
+		`rooms: could not serve on http port ${HTTP_PORT} (${err instanceof Error ? err.message : err}).\n` +
+			`       Another rooms web UI may already be on it; try a different port, e.g. serve.ts ${HTTP_PORT + 1}`,
 	);
-	shutdown.abort();
-	killChild();
-	Deno.exit(1);
+	await stop(1);
 }
 
-// Stop cleanly when interrupted: end the respawn loop, close the HTTP server (its
-// abort signal), stop the room child, then exit.
-function stop(): void {
-	shutdown.abort();
-	shutdownRelay();
-	killChild();
-	Deno.exit(0);
-}
-Deno.addSignalListener("SIGINT", stop);
-Deno.addSignalListener("SIGTERM", stop);
+Deno.addSignalListener("SIGINT", () => requestStop(0));
+Deno.addSignalListener("SIGTERM", () => requestStop(0));

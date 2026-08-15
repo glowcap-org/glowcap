@@ -262,7 +262,7 @@ fn run(
     io.randomSecure(&gifter_seed) catch return error.HandshakeEntropyFailed;
     var gifter_session_root: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&gifter_session_root) catch return error.HandshakeEntropyFailed;
-    var gifter = Host.init(allocator, gifter_seed, gifter_session_root, nativeOptions());
+    var gifter = try Host.init(allocator, gifter_seed, gifter_session_root, nativeOptions());
     defer gifter.deinit();
 
     var fetched = std.atomic.Value(bool).init(false);
@@ -285,7 +285,7 @@ fn run(
     const gifter_port = gifter_loop.port().?;
     var gifter_bound_buf: [tcp.designator_buf_len]u8 = undefined;
     const gifter_addr = try tcp.parseHostPort(host_addr, gifter_port);
-    const gifter_bound = tcp.locator(&gifter_bound_buf, gifter_addr).designator;
+    const gifter_bound = tcp.locatorFromAddress(&gifter_bound_buf, gifter_addr).designator;
     try gifter_bridge.attach(model.transport.Known.tcp.metadata(), gifter_bound, &.{});
 
     // Queue the dial before the loop thread starts. The bridge and its host

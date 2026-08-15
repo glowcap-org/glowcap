@@ -74,13 +74,7 @@ async fn join_room(locator: &str, room_name: &str, nick: &str) -> Result<Room, S
 	Room::subscribe(dir.session(), room_ref, nick).await
 }
 
-async fn run_client(
-	locator: &str,
-	room_name: &str,
-	nick: &str,
-	line: &str,
-	roster: &[String],
-) -> Result<(), String> {
+async fn run_client(locator: &str, room_name: &str, nick: &str, line: &str, roster: &[String]) -> Result<(), String> {
 	let mut room = join_room(locator, room_name, nick).await?;
 	let mut present: HashSet<String> = HashSet::new();
 	let mut seen: HashSet<String> = HashSet::new();
@@ -113,7 +107,7 @@ async fn run_client(
 			posted = true;
 		}
 	}
-	room.leave().await;
+	room.leave().await?;
 
 	if !roster.iter().all(|n| seen.contains(n)) {
 		let missing: Vec<&str> = roster
@@ -143,19 +137,10 @@ async fn main() {
 	let nick = args[3].clone();
 	let line = args[4].clone();
 	let roster: Vec<String> = match args.get(5) {
-		Some(s) => s
-			.split(',')
-			.filter(|n| !n.is_empty())
-			.map(str::to_string)
-			.collect(),
+		Some(s) => s.split(',').filter(|n| !n.is_empty()).map(str::to_string).collect(),
 		None => vec![nick.clone()],
 	};
 
-	let result = demo_run::run_with_timeout(
-		&nick,
-		15,
-		run_client(&locator, &room_name, &nick, &line, &roster),
-	)
-	.await;
+	let result = demo_run::run_with_timeout(&nick, 15, run_client(&locator, &room_name, &nick, &line, &roster)).await;
 	demo_run::exit_on_result(&nick, "client", result);
 }

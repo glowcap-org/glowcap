@@ -13,22 +13,11 @@
  * EntityChips) also need, and it lives in `./types.ts` where they read it.
  */
 
-import {
-  Container,
-  type FederatedPointerEvent,
-  Graphics,
-  Rectangle,
-  Text,
-} from "pixi.js";
+import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
 import { captpVersionLabel } from "../schema/topology.ts";
 import { entityKey, type EntityRefKey } from "../interactions/types.ts";
 import type { Engine } from "../engine/engine.ts";
-import type {
-  EndpointEntity,
-  MessageEntity,
-  PeerEntity,
-  SessionEntity,
-} from "../engine/world.ts";
+import type { EndpointEntity, MessageEntity, PeerEntity, SessionEntity } from "../engine/world.ts";
 import { type SessionCurve } from "../engine/session-geometry.ts";
 import {
   drawLooseEndBody,
@@ -744,8 +733,7 @@ function syncPeerSprite(
     // that now matters: a zoom changes the mark's world geometry and nothing about
     // the body, so one flag for both would re-stroke every body on every frame of
     // a zoom gesture. Tier and hover never reached the body anyway.
-    const haloDirty =
-      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+    const haloDirty = marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
       (colorsDirty ||
         sprite.lastHalo !== tier ||
         sprite.lastHovered !== hovered ||
@@ -974,8 +962,7 @@ function syncEndpointSprite(
     // Split for the reason a peer's is: the camera reaches the ring and not the
     // body. `claiming` reaches both, because it sets this body's half-width and
     // the ring is sized off that.
-    const haloDirty =
-      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+    const haloDirty = marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
       (colorsDirty || sprite.lastHalo !== tier ||
         sprite.lastHovered !== hovered || sprite.lastClaiming !== claiming ||
         sprite.lastScale !== scale);
@@ -1056,9 +1043,7 @@ function syncEdgeSprite(
    *  unhiding forces a redraw. */
   drawBody: boolean,
 ): void {
-  const labelText = `${e.session.codec} · ${
-    captpVersionLabel(e.session.captpVersion)
-  }`;
+  const labelText = `${e.session.codec} · ${captpVersionLabel(e.session.captpVersion)}`;
 
   let sprite = sprites.get(e.session.id);
   if (!sprite) {
@@ -1172,8 +1157,7 @@ function syncEdgeSprite(
     // than on a node, because a dashed wire is walked over
     // `CURVE_STROKE_SAMPLES` every time it is stroked. The mark reads
     // `width` too: its spread is measured out from the wire's edge.
-    const haloDirty =
-      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+    const haloDirty = marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
       (colorsDirty || curveMoved ||
         sprite.lastHalo !== tier ||
         sprite.lastHovered !== hovered ||
@@ -1374,8 +1358,7 @@ function syncMessageSprite(
     // dot. `MESSAGE_RADIUS` is world units and nothing the dot draws reads the
     // scale, so one flag for both re-stroked every message in flight on every
     // frame of a zoom — and messages are the things that are moving.
-    const haloDirty =
-      marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
+    const haloDirty = marked(tier, hovered, sprite.lastHalo, sprite.lastHovered) &&
       (sprite.lastHalo !== tier ||
         sprite.lastHovered !== hovered ||
         sprite.lastScale !== scale ||

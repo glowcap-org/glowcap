@@ -6,17 +6,12 @@
 // `RtcPeer` meets them, so it is the one rooms-lib file that touches WebRTC
 // and it loads only in a browser.
 //
-// The dialing half is not here: a member reaches a `webrtc` peer by giving its
-// `Host` the `directorySignalingAuthority` below and dialing the bare locator
-// — the stack's dial executor owns the bring-up (`Host.setSignaling`).
+// The dialing half is not here: a member reaches a `webrtc` peer by installing
+// `webrtc.connector` over the `directorySignalingAuthority` below and dialing
+// the bare locator — the connector owns the bring-up (`@pancake/webrtc`).
 
-import {
-	Session,
-	type SignalingAuthority,
-	SignalingSendOwner,
-	TRANSPORT_WEBRTC,
-} from "@pancake/stack";
-import { RtcPeer } from "@pancake/webrtc";
+import { Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@pancake/runtime";
+import { RtcPeer, type SignalingAuthority } from "@pancake/webrtc";
 import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 import { SIG_CANDIDATE, SIG_OFFER } from "./protocol.ts";
 import type { Directory } from "./room_client.ts";
@@ -31,7 +26,7 @@ export interface WebrtcSignalingServer {
 /** The dialing host's signaling authority, over the room directory: offers and
  * candidates ride directory verbs, and the answer and far candidates ride the
  * reply capability `Directory.signalOffer` spawns. Give it to
- * `Host.setSignaling`; the `dir` thunk keeps it valid across reconnects. */
+ * `webrtc.connector`; the `dir` thunk keeps it valid across reconnects. */
 export function directorySignalingAuthority(
 	dir: () => Directory | null,
 ): SignalingAuthority {
@@ -54,7 +49,7 @@ export function directorySignalingAuthority(
  * and again after a reconnect (the inbox lives on the directory session).
  * Returns the accept loop's sessions through `onError` only when they fail. */
 export async function serveWebrtcSignaling(opts: {
-	host: import("@pancake/stack").Host;
+	host: import("@pancake/runtime").Host;
 	dir: () => Directory | null;
 	onError?: (err: unknown) => void;
 }): Promise<WebrtcSignalingServer> {

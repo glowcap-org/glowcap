@@ -20,6 +20,7 @@
 
 (require racket/match
          "constants.rkt"
+         "finalizer-diagnostics.rkt"
          "value.rkt"
          (for-syntax racket/base))
 
@@ -278,7 +279,14 @@
 ;; to a far reference it sends a deliver with no answer through the far half.
 (define (<-np ref method . args)
   (cond
-    [(actor-ref? ref) (queue-local-send ref method args) (void)]
+    [(actor-ref? ref)
+     (define vow (queue-local-send ref method args))
+     (on vow #:catch
+         (lambda (message)
+           (record-runtime-failure!
+            'application-observer "tell.behavior"
+            (exn:fail message (current-continuation-marks)))))
+     (void)]
     [else ((far-ops-send (vat-far-ops '<-np (the-vat '<-np))) ref method args #f) (void)]))
 
 ;; One queued local eventual-send: the target actor, the turn's method and args,

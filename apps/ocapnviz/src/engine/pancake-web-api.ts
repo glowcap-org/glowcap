@@ -1,4 +1,4 @@
-/** The narrow browser-stack surface Live mode consumes. This type-only module
+/** The narrow browser-runtime surface Live mode consumes. This type-only module
  * is the product boundary: ocapnviz does not inherit the binding workspace's
  * compiler policy, and Vite still resolves the implementation to @pancake/web. */
 export type BrowserSession = {
@@ -22,12 +22,14 @@ export type BrowserLocator = {
   hintWireForm: "map" | "boolean-false";
 };
 
-export type BrowserStack = {
-  connect: (locator: string) => Promise<BrowserSession>;
-  parseSturdyRef: (sturdyref: string) => { locator: BrowserLocator };
-  formatLocatorUri: (locator: BrowserLocator) => string;
+export type BrowserRuntime = {
+  connect: (locator: BrowserLocator) => Promise<BrowserSession>;
+  parseSturdyRef: (
+    sturdyref: string,
+    captpVersion: "v1_0" | "next",
+  ) => { locator: BrowserLocator };
 };
 
 export type PancakeWebModule = {
-  init: (options: { wasm: Promise<Response> }) => Promise<BrowserStack>;
+  init: (options: { wasm: Promise<Response> }) => Promise<BrowserRuntime>;
 };

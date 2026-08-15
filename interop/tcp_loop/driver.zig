@@ -52,23 +52,21 @@ var park_kills: std.atomic.Value(usize) = .init(0);
 var drain_kills: std.atomic.Value(usize) = .init(0);
 var closes_seen: std.atomic.Value(usize) = .init(0);
 
-/// Watch the close reason on the way past, then hand off to the bridge, which
-/// discards it. `CloseReason` exists for exactly this — an embedder telling
-/// backpressure reclaim apart from ordinary peer loss — and nothing else in
-/// the tree reads it.
+/// Watch the close reason on the way past, then hand the complete report to the
+/// bridge. `CloseReason` lets an embedder tell backpressure reclaim apart from
+/// ordinary peer loss; the report also preserves the originating failure.
 fn watchClose(
     ctx: ?*anyopaque,
     slot: usize,
     conn_ctx: ?*anyopaque,
-    opened: bool,
-    reason: net.completion.CloseReason,
+    report: net.completion.CloseReport,
 ) void {
     // Counted first, and unconditionally. The two reclaim counters below are
     // only ever read as "still zero", so a `watchClose` that stopped being
     // called — or a `reason` arm that stopped matching — would satisfy the
     // gate forever. This is the witness that the observation happened at all.
     _ = closes_seen.fetchAdd(1, .monotonic);
-    switch (reason) {
+    switch (report.reason) {
         .park_kill => _ = park_kills.fetchAdd(1, .monotonic),
         // Counted apart from the park kill. Both are reclaims, but the failure
         // message names one of them, and reporting a terminal-flush timeout as
@@ -76,7 +74,7 @@ fn watchClose(
         .drain_kill => _ = drain_kills.fetchAdd(1, .monotonic),
         .ordinary => {},
     }
-    TcpBridge.onClose(ctx, slot, conn_ctx, opened, reason);
+    TcpBridge.onClose(ctx, slot, conn_ctx, report);
 }
 
 /// Parks where this connection's own partner stopped draining, counted apart
@@ -172,7 +170,11 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16, barrier: ?*Ba
     defer scaffold.deinit();
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, .{
+    const tcp_provider = try net.tcp.Provider.create(allocator, io, .{});
+    defer tcp_provider.destroy(allocator);
+    const netlayers = tcp_provider.netlayers();
+    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
+    var cv = try driver.connectVia(allocator, &netlayers, &scaffold.peer, net.tcp.locatorFromAddress(&designator_buf, address), .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
         .handshake = client_budget,
         .settle = client_budget,
     });
@@ -250,7 +252,11 @@ fn backpressureOnce(io: std.Io, allocator: std.mem.Allocator, port: u16) anyerro
     defer scaffold.deinit();
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf, .{
+    const tcp_provider = try net.tcp.Provider.create(allocator, io, .{});
+    defer tcp_provider.destroy(allocator);
+    const netlayers = tcp_provider.netlayers();
+    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
+    var cv = try driver.connectVia(allocator, &netlayers, &scaffold.peer, net.tcp.locatorFromAddress(&designator_buf, address), .ephemeral, scaffold.read_buf, scaffold.write_buf, .{
         .handshake = client_budget,
         .settle = client_budget,
     });
@@ -341,7 +347,7 @@ pub fn main(init: std.process.Init) !void {
 
     var session_root: [32]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = driver.core.Host.init(server_alloc, [_]u8{0x42} ** 32, session_root, .{
+    var host = try driver.core.Host.init(server_alloc, [_]u8{0x42} ** 32, session_root, .{
         .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
@@ -399,7 +405,7 @@ pub fn main(init: std.process.Init) !void {
     const port = loop.port().?;
     var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try net.tcp.parseHostPort("127.0.0.1", port);
-    const designator = net.tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = net.tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), designator, &.{});
 
     // The two waves plus the one backpressure connection below.

@@ -16,9 +16,7 @@ export type Theme = "light" | "dark";
  *  there is no document. */
 export function currentTheme(): Theme {
   if (typeof globalThis.document === "undefined") return "light";
-  return globalThis.document.documentElement.dataset.theme === "dark"
-    ? "dark"
-    : "light";
+  return globalThis.document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
 /**
@@ -157,8 +155,7 @@ export const PANEL = {
 } as const;
 
 export const FONT = {
-  sans:
-    "'Inter', 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+  sans: "'Inter', 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   // Departure Mono is a bitmap-inspired pixel-grid monospace,
   // self-hosted; see the @font-face in styles.css. It ships Regular
   // only, so nothing may ask this family for bold. The face is hinted

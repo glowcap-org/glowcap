@@ -14,7 +14,7 @@
 // fed bytes" scenario, one layer out through the wasm exports.
 //
 // The full binding lives one directory up: `mod.ts` / `adapter.ts` grow the
-// same linear-memory marshalling into the stack's runtime adapter, proved end
+// same linear-memory marshalling into the runtime's wasm adapter, proved end
 // to end (WebSocket, keyed handshake, both call directions) by
 // `zig build web-peer-test`.
 
@@ -24,6 +24,7 @@ import {
 	CAPTP_V1_0,
 	CODEC_SYRUP,
 	DEFAULT_FRAME_CAP,
+	DESIGNATOR_SCHEME_ADDRESS,
 	FEATURE_FULL,
 	HINTS_BOOLEAN_FALSE,
 	HOST_OUTBOUND_PREFIX_CAP,
@@ -32,7 +33,7 @@ import {
 	OK,
 	WOULD_BLOCK,
 } from "@pancake/abi";
-import { layoutFromWasmDescriptor } from "../../stack/internal/layout.ts";
+import { layoutFromWasmDescriptor } from "../../runtime/internal/layout.ts";
 
 // The `PancakeManagedFrame` byte offsets ARE target-specific (wasm32 pointers
 // and usize are four bytes), so they cannot come from the 64-bit `abi.ts`. The
@@ -68,11 +69,6 @@ type Exports = {
 		host: number,
 		locator: number,
 	) => number;
-	pancake_host_ensure_advertised_locator: (
-		host: number,
-		transport: number,
-		transportLen: number,
-	) => number;
 	pancake_host_remove_advertised_locator: (
 		host: number,
 		transport: number,
@@ -80,16 +76,18 @@ type Exports = {
 	) => number;
 	pancake_host_session_open_dialed_locator: (
 		host: number,
-		transport: number,
-		transportLen: number,
-		designator: number,
-		designatorLen: number,
+		locator: number,
 		outSession: number,
 	) => number;
 	pancake_host_session_open_accepted: (
 		host: number,
 		transport: number,
 		transportLen: number,
+		designatorScheme: number,
+		serverDesignator: number,
+		serverDesignatorLen: number,
+		acceptedLocalAddr: number,
+		acceptedLocalAddrLen: number,
 		outSession: number,
 	) => number;
 	pancake_host_session_release: (session: number) => void;
@@ -244,6 +242,35 @@ function designatorFromSeed(seed: Uint8Array): string {
 }
 
 function openAccepted(host: number, transport: string, designator: string): number {
+	// An address-scheme accept signs the accepted local address; the host
+	// derives and retains the locator itself (no set_advertised_locator here).
+	const t = writeStr(transport);
+	const d = writeStr(designator);
+	const outPtr = ex.pancake_wasm_alloc(4);
+	try {
+		const rc = ex.pancake_host_session_open_accepted(
+			host,
+			t.ptr,
+			t.len,
+			DESIGNATOR_SCHEME_ADDRESS,
+			0,
+			0,
+			d.ptr,
+			d.len,
+			outPtr,
+		);
+		if (rc !== OK) throw new Error(`open_accepted failed: rc=${rc}`);
+		return readU32(outPtr);
+	} finally {
+		free(t.ptr, t.len);
+		free(d.ptr, d.len);
+		free(outPtr, 4);
+	}
+}
+
+function openDialed(host: number, transport: string, designator: string): number {
+	// The host retains its own dial default and the locator travels whole as
+	// one hintless view; no binding-side ensure precedes the open.
 	const t = writeStr(transport);
 	const d = writeStr(designator);
 	const outPtr = ex.pancake_wasm_alloc(4);
@@ -259,47 +286,14 @@ function openAccepted(host: number, transport: string, designator: string): numb
 		view.setUint32(locator + L.LOCATOR_VIEW_HINTS_OFF, 0, true);
 		view.setUint32(locator + L.LOCATOR_VIEW_HINT_COUNT_OFF, 0, true);
 		view.setUint32(locator + L.LOCATOR_VIEW_HINT_WIRE_FORM_OFF, HINTS_BOOLEAN_FALSE, true);
-		const setRc = ex.pancake_host_set_advertised_locator(host, locator);
-		if (setRc !== OK) throw new Error(`set_advertised_locator failed: rc=${setRc}`);
-		const rc = ex.pancake_host_session_open_accepted(
-			host,
-			t.ptr,
-			t.len,
-			outPtr,
-		);
-		if (rc !== OK) throw new Error(`open_accepted failed: rc=${rc}`);
-		return readU32(outPtr);
-	} finally {
-		free(t.ptr, t.len);
-		free(d.ptr, d.len);
-		free(outPtr, 4);
-		free(locator, L.LOCATOR_VIEW_SIZE);
-	}
-}
-
-function openDialed(host: number, transport: string, designator: string): number {
-	const t = writeStr(transport);
-	const d = writeStr(designator);
-	const outPtr = ex.pancake_wasm_alloc(4);
-	try {
-		const ensureRc = ex.pancake_host_ensure_advertised_locator(host, t.ptr, t.len);
-		if (ensureRc !== OK) {
-			throw new Error(`ensure_advertised_locator failed: rc=${ensureRc}`);
-		}
-		const rc = ex.pancake_host_session_open_dialed_locator(
-			host,
-			t.ptr,
-			t.len,
-			d.ptr,
-			d.len,
-			outPtr,
-		);
+		const rc = ex.pancake_host_session_open_dialed_locator(host, locator, outPtr);
 		if (rc !== OK) throw new Error(`open_dialed_locator failed: rc=${rc}`);
 		return readU32(outPtr);
 	} finally {
 		free(t.ptr, t.len);
 		free(d.ptr, d.len);
 		free(outPtr, 4);
+		free(locator, L.LOCATOR_VIEW_SIZE);
 	}
 }
 

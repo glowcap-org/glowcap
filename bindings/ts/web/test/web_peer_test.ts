@@ -1,9 +1,10 @@
+import * as tcp from "@pancake/tcp";
 // The ADR-0070 Milestone 1 proof, run by `zig build web-peer-test`: a browser-
 // shaped pancake peer holds a real keyed OCapN session over WebSocket.
 //
 // Two processes so the two runtime adapters never share a module graph: the
 // child (`serve_ws_host.ts`) is a native dlopen host accepting WebSocket; this
-// process loads the stack through `@pancake/web` — the wasm module, the
+// process loads the runtime through `@pancake/web` — the wasm module, the
 // linear-memory FFI adapter, the WebSocket channel — with no `Deno.dlopen`
 // anywhere in its path. The proof: the keyed handshake terminates inside the
 // wasm peer, a fetch and a call settle, and the host calls back into an object
@@ -62,21 +63,21 @@ const ready = JSON.parse(readyLine) as {
 };
 
 try {
-	// 2. Load the stack over the wasm peer. The wsUrl map says how a dialed
+	// 2. Load the runtime over the wasm peer. The wsUrl map says how a dialed
 	//    host:port reaches its bytes; here the host accepts WebSocket on the
 	//    dialed port itself.
 	const wasmBytes = await Deno.readFile(
 		new URL("../../../../zig-out/wasm/pancake_host.wasm", import.meta.url),
 	);
-	const stack = await init({
+	const runtime = await init({
 		wasm: wasmBytes,
 		wsUrl: (host, port) => `ws://${host}:${port}/`,
 	});
 
 	// 3. Dial the keyed locator. The handshake verifies the host's key inside
 	//    the wasm session; a squatter would refuse here.
-	const session = await stack.connect(
-		stack.keyedTcpLocator(ready.designator, "127.0.0.1", ready.port),
+	const session = await runtime.connect(
+		tcp.keyed.locator(ready.designator, "127.0.0.1", ready.port),
 	);
 	session.serve().catch(() => {});
 
@@ -101,11 +102,9 @@ try {
 
 	// 5. The second grammar: a fresh dial negotiates Cap'n Proto against the
 	//    capnp host, so both codecs run inside the wasm peer on this proof.
-	const capnpSession = await stack.connect(
-		stack.keyedTcpLocator(ready.capnpDesignator, "127.0.0.1", ready.capnpPort),
-		undefined,
-		undefined,
-		"capnp",
+	const capnpRuntime = await runtime.openRuntime({ codec: "capnp" });
+	const capnpSession = await capnpRuntime.connect(
+		tcp.keyed.locator(ready.capnpDesignator, "127.0.0.1", ready.capnpPort),
 	);
 	capnpSession.serve().catch(() => {});
 	const capnpGreeter = await capnpSession.fetch("greeter");
@@ -113,7 +112,8 @@ try {
 	if (capnpReply !== "hello capnp web") {
 		fail(`unexpected capnp greet reply: ${JSON.stringify(capnpReply)}`);
 	}
-	capnpSession.close();
+	await capnpSession.close();
+	await capnpRuntime.close();
 
 	console.log(
 		"PASS: a wasm browser peer held keyed OCapN sessions over WebSocket " +

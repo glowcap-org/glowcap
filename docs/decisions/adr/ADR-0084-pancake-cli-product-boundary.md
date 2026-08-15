@@ -85,5 +85,5 @@ layer.
   present edges.
 - Rooms peer presence migrates toward `pancake app rooms-peer` without a second Host
   stack.
-- `meta-check` gains the `zig build pancake` step when documented.
+- `source-check` gains the `zig build pancake` step when documented.
 - Future OTEL/timeline attach to one event spine designed with stderr logging.

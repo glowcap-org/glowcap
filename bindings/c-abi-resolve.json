@@ -8,7 +8,7 @@
 	"package_copies": [
 		"bindings/rust/c-abi-resolve.json",
 		"bindings/python/pancake/c-abi-resolve.json",
-		"bindings/ts/stack/internal/ffi/c-abi-resolve.json",
+		"bindings/ts/runtime/internal/ffi/c-abi-resolve.json",
 		"bindings/racket/private/c-abi-resolve.json"
 	],
 	"fallback_cache_name": "pancake-c-abi-cache",

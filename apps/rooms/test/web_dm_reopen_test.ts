@@ -20,8 +20,8 @@
 // It runs the same scenario twice against one room, once for each way a browser
 // tab can be reached directly. One pair of tabs advertises a `webrtc` locator
 // (`?dm=webrtc`), so their line is a DataChannel the room only signals; the
-// other pair advertises `noise-relay`, so their line is a Noise-sealed cold dial through the
-// relay's rendezvous. Both are direct lines between two tabs with the room off
+// other pair advertises `keyed-relay` (`?dm=relay`), so their line is a cold
+// dial through the relay's rendezvous. Both are direct lines between two tabs with the room off
 // the message path, and a defect in reopening one of them is not a defect in
 // reopening the other — running both is what makes "is this specific to
 // WebRTC?" a question this file answers rather than one a reader has to ask.
@@ -42,6 +42,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_reopen_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
+import { connectVizViewer, scrapeVizSturdyref } from "./viz_viewer.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -52,7 +53,7 @@ const ROOM = "lobby";
  * either of these transports is a direct line and nothing else. */
 const MODES = [
 	{ name: "webrtc", query: "?dm=webrtc", transport: "webrtc", first: "alice", second: "bob" },
-	{ name: "noise-relay", query: "", transport: "noise-relay", first: "carol", second: "dave" },
+	{ name: "keyed-relay", query: "?dm=relay", transport: "keyed-relay", first: "carol", second: "dave" },
 ] as const;
 
 function fail(message: string): never {
@@ -130,19 +131,12 @@ class Timeline {
 	}
 }
 
-/** Watch the endpoint the way ocapnviz does. */
-async function watch(port: number): Promise<Timeline> {
+/** Watch the endpoint the way ocapnviz does: the WebSocket is only the byte
+ * channel, and records arrive through an inbox capability after enlivening
+ * the sturdyref the server announced. */
+async function watch(port: number, sturdyref: string): Promise<Timeline> {
 	const timeline = new Timeline();
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
-	socket.onmessage = (msg) => {
-		if (typeof msg.data !== "string") return;
-		timeline.apply(JSON.parse(msg.data) as Record<string, unknown>);
-	};
-	await new Promise<void>((resolve, reject) => {
-		socket.onopen = () => resolve();
-		socket.onerror = () =>
-			reject(new Error("the live timeline endpoint would not accept a viewer"));
-	});
+	await connectVizViewer(port, sturdyref, (record) => timeline.apply(record));
 	return timeline;
 }
 
@@ -228,6 +222,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -237,14 +232,17 @@ const web = new Deno.Command("deno", {
 	],
 	cwd: ROOT,
 	env: { ROOMS_VIZ_PORT: String(vizPort) },
-	stdout: "piped",
-	stderr: "inherit",
+	stdout: "inherit",
+	stderr: "piped",
 }).spawn();
+// The viz sturdyref rides the server's stderr; the scraper tees the stream
+// through so the run stays observable.
+const vizRef = scrapeVizSturdyref(web.stderr);
 
 let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
-	const timeline = await watch(vizPort);
+	const timeline = await watch(vizPort, await vizRef);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	for (const mode of MODES) {

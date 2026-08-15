@@ -23,12 +23,7 @@
  * See `docs/schema-driven-transactions.md`.
  */
 
-import type {
-  MessageDefinition,
-  PeerDefinition,
-  SessionDefinition,
-  TimelineEvent,
-} from "../timeline.ts";
+import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineEvent } from "../timeline.ts";
 import type { EntityKind } from "./refs.ts";
 
 /** Subset of `Entities` carrying only the selected entities. */

@@ -2,11 +2,7 @@ import { assertEquals } from "@std/assert";
 import { attachedEndpoint, sessionEndpoint } from "../../schema/topology.ts";
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { projectFromObservations } from "./project-from-observations.ts";
-import {
-  peerLabelAt,
-  sessionEffective,
-  sessionEndpointPlaceAt,
-} from "./doc-resolver.ts";
+import { peerLabelAt, sessionEffective, sessionEndpointPlaceAt } from "./doc-resolver.ts";
 
 const emptyDoc = (): TimelineDocument => ({
   id: "test",

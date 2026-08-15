@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // An agent, written on pancake actors in native Deno. It connects to the tools
 // coordinator and proves the three capability properties — delegation,
 // attenuation, revocation — over the wire:
@@ -13,7 +14,7 @@
 //
 //   deno run --allow-ffi --allow-read --allow-net agent.ts 127.0.0.1 9099 deno-agent
 
-import { connect, type Ref, tcpLocator } from "@pancake/stack";
+import { type Ref, Runtime } from "@pancake/runtime";
 import { GRANT, GRANT_REVOCABLE, NOW, READ, REVOKE_LAST, TOOLS, WRITE } from "./protocol.ts";
 
 const [host, portStr, nick] = Deno.args;
@@ -36,7 +37,8 @@ async function broke(call: Promise<unknown>): Promise<boolean> {
 	}
 }
 
-const session = await connect(tcpLocator(host, Number(portStr)));
+await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+const session = await runtime.connect(tcp.locator(host, Number(portStr)));
 session.serve().catch(() => {});
 const tools = await session.fetch(TOOLS);
 

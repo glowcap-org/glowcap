@@ -15,11 +15,12 @@ import ctypes
 import secrets
 
 from . import _constants as _abi
-from ._errors import PancakeError, VowBroken, _check_host
+from ._errors import _check_host, _vow_failure
 from ._ffi_host import _HostPumpArmFn, _HostPumpHooks, _host
 from ._ffi_ocapn import _byte_buf
 from ._host_action_gen import (
     Close,
+    CancelDial,
     Dial,
     Fail,
     Flush,
@@ -32,7 +33,6 @@ from ._host_action_gen import (
 )
 
 _OK = _abi.OK
-_ERR_CLOSED = _abi.ERR_CLOSED
 
 
 def _park_actions(host) -> tuple[list[HostAction], bool]:
@@ -75,12 +75,20 @@ async def _run_action(host, action: HostAction) -> None:
             # without serializing this drain behind network establishment.
             from ._dial import run_dial_ticket
 
-            host.start_dial_task(lambda: run_dial_ticket(host, a.ticket))
+            host.start_dial_task(a.ticket, lambda: run_dial_ticket(host, a.ticket))
+
+        async def cancel_dial(self, a: CancelDial) -> None:
+            await host.cancel_dial_task(a.ticket)
 
         async def flush(self, a: Flush) -> None:
             session = host.get_session(a.session_ptr)
             if session is not None:
-                await session.flush_outbound()
+                try:
+                    await session.flush_outbound()
+                except BaseException:
+                    # Session.flush_outbound retained the exact first cause and
+                    # retired this stream. Do not fail an unrelated Host drain.
+                    pass
 
         async def close(self, a: Close) -> None:
             session = host.get_session(a.session_ptr)
@@ -88,8 +96,10 @@ async def _run_action(host, action: HostAction) -> None:
                 try:
                     await session.flush_outbound()
                 except Exception:  # noqa: BLE001 — the session is ending either way
+                    # Session.flush_outbound owns terminal failure state.
                     pass
                 session.close_transport()
+                session._finish_close(a.result)
 
         async def need_gift_id(self, a: NeedGiftId) -> None:
             try:
@@ -110,12 +120,7 @@ async def _run_action(host, action: HostAction) -> None:
             host.settle_vow(a.ticket, True, a.value)
 
         async def fail(self, a: Fail) -> None:
-            error = (
-                PancakeError(_ERR_CLOSED, a.message)
-                if host.vow_session_closing(a.ticket)
-                else VowBroken(a.message)
-            )
-            host.settle_vow(a.ticket, False, error)
+            host.settle_vow(a.ticket, False, _vow_failure(a.result, a.message))
 
         async def resume(self, a: Resume) -> None:
             # The shared C pump reports this as `yielded` before dispatch; keep

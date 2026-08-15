@@ -26,7 +26,7 @@ topic, not a lesson; split it.
 
 | The lesson is…                 | It lands as                    | Where                                                                  |
 | ------------------------------ | ------------------------------ | ---------------------------------------------------------------------- |
-| Mechanically checkable         | a build check                  | `tools/check/meta_check/` (§3), or `arch_check.zig` for layer imports  |
+| Mechanically checkable         | a build check                  | `tools/check/source_check/` (§3), or `arch_check.zig` for layer imports  |
 | A semantic or protocol fact    | a test, fixture, or scenario   | the placement map in [tests](../../rules/tests.md)                     |
 | A judgment no check can hold   | the sharpest rule line         | the rule that owns the surface, per the [index](../../README.md)       |
 | A line that stopped paying rent | a deletion                    | wherever it sits                                                       |
@@ -36,24 +36,16 @@ not yet written; when the check lands, the sentence shrinks to a pointer.
 
 ## 3. Landing a check
 
-- Pick the module by concern: `scaffolding.zig` (overlays, indexes,
-  frontmatter, this very map), `docs.zig` (markdown, links, site, prose),
-  `project_shape.zig` (build steps, layer and test placement),
-  `bans.zig` (substring claims over a scope), `zig_docs.zig` (doc-comment
-  symbol claims), `fuzz.zig` (fuzz targets, seeds, the vendored runner),
-  `namespaces.zig` (bare keyed tables), `signing_domain.zig` (durable-key
-  signing sites and the Ed25519-to-X25519 bridge), `ui.zig` and
-  `rooms_ui.zig` (the shared UI core and the rooms page), and the C ABI,
-  binding, and CapTP
-  spines: `c_abi.zig`, `binding_spine.zig`, `binding_runtime_proof.zig`,
-  `captp_io_spine.zig`, `captp_product.zig`. The driver
-  [`meta_check.zig`](../../../tools/check/meta_check.zig) wires every check,
-  and `checkRatchetModuleMap` holds this list complete in both directions.
+- Put the check beside its concern under
+  [`tools/check/source_check/`](../../../tools/check/source_check/) and wire it
+  in [`source_check.zig`](../../../tools/check/source_check.zig). Layer-import
+  checks belong in `arch_check.zig`; runtime dependency checks belong in
+  `toolchain_check.zig`.
 - A substring claim is one `Ban` row in a table joined into `bans.all`;
   prefer a row over bespoke code. Anything needing parsing or cross-file
   state is a `pub fn check…` in the owning module, called from the driver.
 - **Validate the check against the defect it claims to catch.** Introduce the
-  violation, watch `zig build meta-check` name it, then remove it. A check
+  violation, watch `zig build source-check` name it, then remove it. A check
   that has never fired has proven nothing — the same discipline
   [tests](../../rules/tests.md) demands of a new property target.
 - Checks pay rent too: prefer one general check to fifty string bans, and
@@ -67,8 +59,7 @@ not yet written; when the check lands, the sentence shrinks to a pointer.
   the [rules table](../../README.md). `.claude/rules` is a directory
   symlink; there is nothing to add there.
 - A skill is `.agents/skills/<name>/SKILL.md` with frontmatter whose `name:`
-  equals the directory name, plus rows in both the
-  [skills catalog](../README.md) and the [index](../../README.md).
+  equals the directory name, plus a row in the [index](../../README.md).
 - The budget binds every addition: find the sentence the new line displaces
   or compresses before writing it, and put it in the rule that owns the
   surface, never a new grab-bag rule.
@@ -82,5 +73,5 @@ landing, not maintenance deferred.
 
 ## Verify
 
-`zig build meta-check` holds the topology, both indexes, links, frontmatter,
+`zig build source-check` holds the topology, indexes, links, frontmatter,
 and documented build steps. Run it before calling the landing done.

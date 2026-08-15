@@ -20,20 +20,10 @@
  * See `docs/schema-driven-transactions.md`.
  */
 
-import type {
-  MessageDefinition,
-  PeerDefinition,
-  SessionDefinition,
-  TimelineDocument,
-} from "../timeline.ts";
+import type { MessageDefinition, PeerDefinition, SessionDefinition, TimelineDocument } from "../timeline.ts";
 import { collisionError, type EngineResult, err, ok } from "../errors.ts";
 import type { EntityKind } from "./refs.ts";
-import {
-  ENTITY_EDGES,
-  EVENT_EDGES,
-  readEdgeRef,
-  writeEdgeRef,
-} from "./edges.ts";
+import { ENTITY_EDGES, EVENT_EDGES, readEdgeRef, writeEdgeRef } from "./edges.ts";
 import { DOC_INDEX_EDGES, docIndexesForTarget } from "./doc-index.ts";
 import { assertNoRefsTo, ENTITIES_KEY, findEntityRefs } from "./walk.ts";
 
@@ -63,9 +53,7 @@ function removeEntity(
   const hasAny = Object.values(nextEntities).some((v) => v !== undefined);
   return {
     ...doc,
-    entities: hasAny
-      ? (nextEntities as TimelineDocument["entities"])
-      : undefined,
+    entities: hasAny ? (nextEntities as TimelineDocument["entities"]) : undefined,
   };
 }
 

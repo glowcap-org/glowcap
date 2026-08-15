@@ -33,30 +33,12 @@ import {
   findSessionClosedEvent,
   findSessionOpenedEvent,
 } from "../../engine/event-helpers.ts";
-import {
-  peerLabelAt,
-  sessionEndpointPlaceAt,
-} from "../../engine/temporal/doc-resolver.ts";
-import {
-  CAPTP_VERSION_OPTIONS,
-  captpVersionLabel,
-  CODEC_OPTIONS,
-  SessionState,
-} from "../../schema/topology.ts";
-import {
-  SESSION_PROPERTIES,
-  type SessionProperty,
-  sessionTrajectoryRows,
-} from "../../engine/trajectory.ts";
+import { peerLabelAt, sessionEndpointPlaceAt } from "../../engine/temporal/doc-resolver.ts";
+import { CAPTP_VERSION_OPTIONS, captpVersionLabel, CODEC_OPTIONS, SessionState } from "../../schema/topology.ts";
+import { SESSION_PROPERTIES, type SessionProperty, sessionTrajectoryRows } from "../../engine/trajectory.ts";
 import { SessionMoments } from "./SessionTrajectory.tsx";
 import { c } from "../tokens.ts";
-import {
-  AttributionChip,
-  LifecycleChip,
-  type LifecycleStatus,
-  SessionKindLabel,
-  StateChip,
-} from "../EntityChips.tsx";
+import { AttributionChip, LifecycleChip, type LifecycleStatus, SessionKindLabel, StateChip } from "../EntityChips.tsx";
 import {
   ClaimLinkRow,
   DivergenceHint,
@@ -236,9 +218,7 @@ function EndFields(
                   : undefined}
                 onChange={(v) =>
                   editor.onUpdateSessionEndpoint(sessionId, side, {
-                    attributedBy: v === NONE
-                      ? null
-                      : EndpointAttribution.parse(v),
+                    attributedBy: v === NONE ? null : EndpointAttribution.parse(v),
                   })}
               />
             )
@@ -301,9 +281,7 @@ export function SessionFields(
   const bJoinedEv = findPeerJoinedEvent(engine.doc, endpointB);
   const bLeftEv = findPeerLeftEvent(engine.doc, endpointB);
   const containedMin = Math.max(aJoinedEv?.t ?? 0, bJoinedEv?.t ?? 0);
-  const peerLeftMin = aLeftEv && bLeftEv
-    ? Math.min(aLeftEv.t, bLeftEv.t)
-    : aLeftEv?.t ?? bLeftEv?.t ?? null;
+  const peerLeftMin = aLeftEv && bLeftEv ? Math.min(aLeftEv.t, bLeftEv.t) : aLeftEv?.t ?? bLeftEv?.t ?? null;
 
   const lifecycle: LifecycleStatus = live
     ? "active"
@@ -341,9 +319,7 @@ export function SessionFields(
     }),
   );
   const effStart = engine.intrinsicStart("sessions", id);
-  const startMaxEdit = moments.length > 0
-    ? Math.min(moments[0]!.t, closedEv?.t ?? duration)
-    : closedEv?.t ?? duration;
+  const startMaxEdit = moments.length > 0 ? Math.min(moments[0]!.t, closedEv?.t ?? duration) : closedEv?.t ?? duration;
   const startStrictEdit = moments.length > 0 || closedEv !== null;
   return (
     <>
@@ -370,9 +346,7 @@ export function SessionFields(
       <FieldGroup title="Details">
         <div style={kv}>
           <Field label="id">
-            {editing && editor
-              ? <EditableIdField kind="session" id={id} editor={editor} />
-              : <Identifier value={id} />}
+            {editing && editor ? <EditableIdField kind="session" id={id} editor={editor} /> : <Identifier value={id} />}
           </Field>
           <Field label="codec">
             {editing
@@ -411,8 +385,7 @@ export function SessionFields(
                   options={[NONE, ...TRANSPORT_OPTIONS]}
                   ariaLabel="Session transport"
                   labelFor={(v) => v === NONE ? NOTHING : v}
-                  onChange={(v) =>
-                    update?.(id, { transport: v === NONE ? null : v })}
+                  onChange={(v) => update?.(id, { transport: v === NONE ? null : v })}
                 />
               )
               : transport === undefined
@@ -441,12 +414,8 @@ export function SessionFields(
             // handoff attached mid-session says what proved it instead
             // of reporting the birth of an end that was loose then.
             peer={editable ? end?.peer : attached}
-            peerLabel={attached === undefined
-              ? undefined
-              : peerLabelAt(engine.doc, attached, engine.clock.t)}
-            attributedBy={editable
-              ? end?.attributedBy
-              : place[side].attributedBy}
+            peerLabel={attached === undefined ? undefined : peerLabelAt(engine.doc, attached, engine.clock.t)}
+            attributedBy={editable ? end?.attributedBy : place[side].attributedBy}
             peers={peerOptions}
             editor={editable ? editor : undefined}
           />
@@ -473,15 +442,9 @@ export function SessionFields(
             }
             t={def?.timing?.start.explicit ? effStart : null}
             editing={editing}
-            onMove={editing && editor
-              ? (t) => editor.onSetSessionStart(id, t)
-              : undefined}
-            onClear={editing && editor
-              ? () => editor.onClearSessionStart(id)
-              : undefined}
-            onSetAtPlayhead={editing && editor
-              ? () => editor.onSetSessionStart(id, engine.clock.t)
-              : undefined}
+            onMove={editing && editor ? (t) => editor.onSetSessionStart(id, t) : undefined}
+            onClear={editing && editor ? () => editor.onClearSessionStart(id) : undefined}
+            onSetAtPlayhead={editing && editor ? () => editor.onSetSessionStart(id, engine.clock.t) : undefined}
             min={containedMin}
             max={editing && editor ? startMaxEdit : closedEv?.t ?? duration}
             strictMax={editing && editor ? startStrictEdit : closedEv !== null}
@@ -510,16 +473,10 @@ export function SessionFields(
                 reason={engine.clampReason("sessions", id, "end")}
               />
             }
-            t={def?.timing?.duration.explicit
-              ? def.timing.duration.value
-              : null}
+            t={def?.timing?.duration.explicit ? def.timing.duration.value : null}
             editing={editing}
-            onMove={editing && editor?.onSetSessionDuration
-              ? (dur) => editor.onSetSessionDuration(id, dur)
-              : undefined}
-            onClear={editor?.onClearSessionEnd
-              ? () => editor.onClearSessionEnd(id)
-              : undefined}
+            onMove={editing && editor?.onSetSessionDuration ? (dur) => editor.onSetSessionDuration(id, dur) : undefined}
+            onClear={editor?.onClearSessionEnd ? () => editor.onClearSessionEnd(id) : undefined}
             onSetAtPlayhead={editor?.onSetSessionDuration
               ? () =>
                 editor.onSetSessionDuration(
@@ -532,9 +489,8 @@ export function SessionFields(
               : undefined}
             min={Math.max(
               0,
-              (moments.length > 0
-                ? moments[moments.length - 1]!.t
-                : openedEv?.t ?? 0) - engine.intrinsicStart("sessions", id),
+              (moments.length > 0 ? moments[moments.length - 1]!.t : openedEv?.t ?? 0) -
+                engine.intrinsicStart("sessions", id),
             )}
             max={Math.max(
               0,
@@ -546,9 +502,7 @@ export function SessionFields(
             editSession={editor}
           />
           <Field label="status">
-            {live
-              ? <StateChip state={sessionState} />
-              : <LifecycleChip status={lifecycle} entity="session" />}
+            {live ? <StateChip state={sessionState} /> : <LifecycleChip status={lifecycle} entity="session" />}
           </Field>
         </div>
       </FieldGroup>

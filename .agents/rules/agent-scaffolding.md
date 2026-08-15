@@ -30,7 +30,7 @@ fourth outcome, and no follow-up PR.
 
 Code answers to `zig build check`; the scaffolding answers to the same
 invocation. The gate verifies, mechanically, every claim it can reach.
-`tools/check/meta_check.zig` (the driver) and its `tools/check/meta_check/`
+`tools/check/source_check.zig` (the driver) and its `tools/check/source_check/`
 check modules and tables are the complete inventory, read them before assuming
 a claim is unchecked. The shape of
 what it holds:
@@ -93,61 +93,30 @@ or verification standard a future agent needs.
 
 ## The gate accretes too
 
-The budget binds `meta-check` itself. Its honest job is doc and scaffolding
-truth (overlay symlinks, index parity, link and build-step resolution, the
-living-state registry) and cross-file derived invariants (ABI version lockstep,
-host-action drains, constant parity, a deleted symbol or export not
-reappearing). Those earn their rent every run.
+The budget binds `source-check` itself. Its honest job is current doc and
+scaffolding truth (overlay symlinks, index parity, link and build-step
+resolution, the living-state registry) and current cross-file invariants (ABI
+version lockstep, host-action drains, constant parity, and layer ownership).
+Those earn their rent every run.
 
-Banning one exact prose sentence a rename replaced is a different thing: a
-tombstone with a half-life. It is worth its place while the rename is still
-landing across the tree and a straggler might re-type the old word; it is pure
-rent once the rename has shipped everywhere and stopped being reworded, because
-then it only bans a string no one would write. So gating a fresh rename owes a
-prune of the previous rename's now-stable prose tombstones — that record lives
-in the ADR and git history, not a grep table. Keep the structural half (a
-resurrected symbol or export a compiler would not catch); retire the prose half;
-prefer one general check to fifty per-file string bans.
+Banning an exact sentence, symbol, or file name that a rename replaced is a
+tombstone with a half-life. It is useful while the move is landing and a
+straggler can preserve the old shape; once the tree and its generated mirrors
+agree, the old spelling belongs to the ADR and git history, not a permanent grep
+ledger. Keep the current contract positively (required exports, module edges,
+and cross-language parity), and prefer one general invariant to fifty old-name
+bans.
 
-## Taste lives here as structure, not as names
+## Taste lands as structure
 
-Engineering-taste references belong in prompts and plans; committed files carry
-the taste as shape, explicit protocol vocabulary, honest allocation and
-lifetime surfaces, sharp module boundaries, a gate that bites. If a prompt's
-standard is worth keeping, this rule and the gate are where it keeps, expressed
-as a consequence an agent can act on, never as a name an agent is asked to
-impersonate.
+Committed guidance carries explicit protocol vocabulary, ownership, boundaries,
+and evidence, never names of people an agent was asked to emulate. Live humans
+stay out of rules and human docs except for copyright attribution; examples use
+generic nicks such as `Alice`.
 
-**Live humans stay out of rules and docs.** Do not write a living person's
-personal name into `.agents/` rules or skills, `AGENTS.md` / `CLAUDE.md`, or
-human docs under `docs/` / READMEs. Use generic nicks in examples (`Alice`,
-`<human>`). Copyright attribution lines are fine; this ban is not a scrub of
-`Copyright …` notices.
-
-**A commit message is a committed file, and it is the one this rule keeps
-losing.** History carries persona slugs, skill names, review-loop vocabulary,
-and engineering-taste proper names in dozens of subjects, where a stranger reads
-them as either name-dropping or an internal code name. No build step can reach a
-message — it is immutable by the time any gate runs — so the discipline is the
-only thing holding it:
-
-- **Keep it short.** A subject line under about 70 characters, then a body only
-  when the *why* is not obvious from the diff. One paragraph is the normal size;
-  three is the ceiling, and reaching it should feel like a decision. The bar is
-  what a maintainer writes at the end of a working day, not a report. If the
-  change genuinely needs more explanation than that, it needs an ADR, and the
-  message should link to it instead. No gate can hold this, so it is on you.
-- A message says what changed and why. It never says which lens, persona, skill,
-  or review pass produced it. `git log` is the project's record, not the
-  session's.
-- A message asserts only what its own diff demonstrates. A claim about
-  pre-existing code — "this also fixes a bug where X" — quotes the pre-image from
-  `git show <sha>^:<path>` before it is written. A remembered line is not
-  evidence, and a fabricated defect in the permanent record is worse than the
-  defect would have been.
-- Paths, symbols, and shas in a message are read back off the diff, never from
-  the plan that preceded it. A plan that said `foundation/sync.zig` does not make
-  it true when the diff created `net/sync.zig`.
+Commit messages describe only what their diff demonstrates and why. Keep the
+subject short, omit session machinery and persona names, and put durable design
+rationale in an ADR rather than a long commit body.
 
 ## Scaffolding litmus
 

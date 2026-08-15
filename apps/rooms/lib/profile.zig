@@ -16,7 +16,7 @@
 //! use site coerces them to `model.CaptpVersion` and `model.CodecId`.
 //!
 //! `apps/rooms/lib/protocol.ts` carries the same pair for the peers written
-//! in TypeScript, Python, Racket, and Rust, and `zig build meta-check` holds
+//! in TypeScript, Python, Racket, and Rust, and `zig build source-check` holds
 //! the two spellings in lockstep.
 
 pub const captp_version = .next;

@@ -14,6 +14,7 @@ pub const CountingHost = struct {
     free_calls: usize = 0,
     live_bytes: usize = 0,
     fail_allocations: bool = false,
+    allocations_before_failure: ?usize = null,
 
     pub fn spec(self: *CountingHost) c.PancakeAllocator {
         return .{ .alloc = hostAlloc, .free = hostFree, .user_data = self };
@@ -26,6 +27,10 @@ pub const CountingHost = struct {
     fn hostAlloc(user_data: ?*anyopaque, size: usize, alignment: usize) callconv(.c) ?*anyopaque {
         const self: *CountingHost = @ptrCast(@alignCast(user_data.?));
         if (self.fail_allocations) return null;
+        if (self.allocations_before_failure) |remaining| {
+            if (remaining == 0) return null;
+            self.allocations_before_failure = remaining - 1;
+        }
         const al = std.mem.Alignment.fromByteUnits(alignment);
         const ptr = std.testing.allocator.rawAlloc(size, al, @returnAddress()) orelse return null;
         _ = @atomicRmw(usize, &self.alloc_calls, .Add, 1, .monotonic);

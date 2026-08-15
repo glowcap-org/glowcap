@@ -1,0 +1,17 @@
+(require "pancake.rkt" "pancake-onion.rkt")
+
+;; pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+(define server (listen-onion #:socks "/run/tor/socks"
+                             #:control "/run/tor/control"))
+(printf "~a\n" (onion-server-uri server)) ; hand this locator to partners
+(define service-key (onion-server-service-key server)) ; persist securely
+(define host (onion-server-host server))
+(define (accept-session) (onion-server-accept server))
+;; From here, the CapTP workflow is transport-independent.
+(host-publish-giftable host "greeter"
+  (methods [(greet who)
+            (format "Hello, ~a" who)]))
+(let loop ()
+  (define session (accept-session))
+  (thread (lambda () (session-serve session)))
+  (loop))

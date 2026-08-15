@@ -33,8 +33,8 @@ pub const Handle = struct {
     /// `start`'s frame because the server borrows one for the accept thread's
     /// whole life; which one is chosen is `ocapn.listenTarget`'s decision.
     tcp: pancake.net.tcp.Resident = undefined,
-    relay: ?pancake.net.keyed_relay.Resident = null,
-    server: driver.Server,
+    relay: ?pancake.net.relay.Resident = null,
+    server: *driver.Server,
     thread: std.Thread = undefined,
     stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     accepted: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
@@ -66,7 +66,7 @@ pub const Handle = struct {
     pub fn shutdown(handle: *Handle) void {
         handle.stop.store(true, .release);
         handle.thread.join();
-        handle.server.close() catch {};
+        handle.server.deinit();
         if (handle.relay) |*resident| resident.deinit();
         if (handle.publish) |name| handle.gpa.free(name);
         handle.gpa.free(handle.locator);
@@ -128,9 +128,9 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         return exit_codes.dial;
     };
     var server_owned = true;
-    defer if (server_owned) server.close() catch {};
+    defer if (server_owned) server.deinit();
 
-    const uri = try model.uri.writePeer(ctx.gpa, server.advertisedLocator());
+    const uri = try model.uri.writePeer(ctx.gpa, (try server.advertisedLocator()));
     defer ctx.gpa.free(uri);
 
     // Flag-guarded like the handle: once the thread is live these belong to

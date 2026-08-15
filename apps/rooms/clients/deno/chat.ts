@@ -24,8 +24,10 @@
 
 import { Directory, Room } from "../../lib/room_client.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
-import { type Ref } from "@pancake/stack";
-import { dial } from "../../lib/locator.ts";
+import type { Ref } from "@pancake/runtime";
+import { Reachability } from "@pancake/iroh";
+import { dial, isUriLocator } from "../../lib/locator.ts";
+import { openRoomsRuntime } from "../../lib/runtime.ts";
 
 const [locator, room_name, nick] = Deno.args;
 if (!locator || !room_name || !nick) {
@@ -35,7 +37,10 @@ if (!locator || !room_name || !nick) {
 	Deno.exit(2);
 }
 
-const dir = await Directory.connect(locator, dial);
+await using runtime = await openRoomsRuntime({
+	iroh: isUriLocator(locator) ? { reachability: Reachability.Direct } : undefined,
+});
+const dir = await Directory.connect(locator, (address) => dial(address, runtime));
 
 // Follow the directory so `/list` is always current: fold each delta into a map
 // of live rooms, seeded with the snapshot `watch` returns.

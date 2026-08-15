@@ -110,7 +110,7 @@ fn senderOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
@@ -163,7 +163,7 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
-    const designator = tcp.locator(&designator_buf, designator_addr).designator;
+    const designator = tcp.locatorFromAddress(&designator_buf, designator_addr).designator;
     var quiet_conn = try tcp.connect(io, &quiet_peer, .{
         .transport = tcp.transport_name,
         .designator = designator,
@@ -210,10 +210,17 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
 const CrossArmBackend = struct {
     pub const Fd = i32;
 
+    pub fn applyKeepalive(_: *CrossArmBackend, _: Fd, _: completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
+
     var chunks: []const []const u8 = &.{};
     var hold_sends: bool = false;
     var refuse_cancel: bool = false;
     var eof_when_exhausted: bool = false;
+    /// Refuse this numbered submission on the caller-owned wake descriptor.
+    /// Connection receives use other descriptors and remain unaffected.
+    var fail_wake_submit_at: ?usize = null;
     /// Set once the loop asks `poll` to wait a bounded time rather than block.
     /// A deadline the loop enforces only after the poll cannot fire on a quiet
     /// connection, because that connection is the one producing no
@@ -233,6 +240,7 @@ const CrossArmBackend = struct {
     held_len: usize = 0,
     ready: [16]completion.Completion = undefined,
     ready_len: usize = 0,
+    wake_submit_count: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, queue_entries: u16, read_buffers: u16, read_buffer_bytes: u32) !CrossArmBackend {
         _ = allocator;
@@ -292,7 +300,10 @@ const CrossArmBackend = struct {
     }
 
     pub fn submitRecv(self: *CrossArmBackend, user_data: u64, fd: Fd) !void {
-        _ = fd;
+        if (fd == 99) {
+            self.wake_submit_count += 1;
+            if (fail_wake_submit_at == self.wake_submit_count) return error.WakeSubmitRefused;
+        }
         if (self.chunk_idx < chunks.len) {
             const chunk = chunks[self.chunk_idx];
             self.chunk_idx += 1;
@@ -388,6 +399,62 @@ fn countWake(ctx: ?*anyopaque) void {
     count.* += 1;
 }
 
+test "completion wake: initial submission failure is transactional and exact" {
+    const allocator = std.testing.allocator;
+    CrossArmBackend.chunks = &.{};
+    CrossArmBackend.eof_when_exhausted = false;
+    CrossArmBackend.fail_wake_submit_at = 1;
+    defer CrossArmBackend.fail_wake_submit_at = null;
+
+    var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(
+        allocator,
+        makeServerPeer,
+        null,
+        .{ .max_conns = 1 },
+    );
+    defer loop.deinit();
+
+    var wake_count: usize = 0;
+    try std.testing.expectError(error.WakeSubmitRefused, loop.armWake(99, &wake_count, countWake));
+    try loop.closeAndDrain();
+    try std.testing.expectEqual(@as(usize, 0), wake_count);
+}
+
+const WakeRunProbe = struct {
+    count: usize = 0,
+    done: std.atomic.Value(bool) = .init(false),
+
+    fn wake(ctx: ?*anyopaque) void {
+        const self: *@This() = @ptrCast(@alignCast(ctx.?));
+        self.count += 1;
+        self.done.store(true, .release);
+    }
+};
+
+test "completion wake: rearm failure escapes the loop with its exact cause" {
+    const allocator = std.testing.allocator;
+    const nudge = [_]u8{1};
+    CrossArmBackend.chunks = &.{&nudge};
+    defer CrossArmBackend.chunks = &.{};
+    CrossArmBackend.eof_when_exhausted = false;
+    CrossArmBackend.fail_wake_submit_at = 2;
+    defer CrossArmBackend.fail_wake_submit_at = null;
+
+    var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(
+        allocator,
+        makeServerPeer,
+        null,
+        .{ .max_conns = 1 },
+    );
+    defer loop.deinit();
+
+    var probe: WakeRunProbe = .{};
+    try loop.armWake(99, &probe, WakeRunProbe.wake);
+    try std.testing.expectError(error.WakeSubmitRefused, loop.runUntil(&probe.done, 0));
+    try std.testing.expectEqual(@as(usize, 1), probe.count);
+    try loop.closeAndDrain();
+}
+
 test "completion wake: shutdown cancels an idle armed recv before backend teardown" {
     const allocator = std.testing.allocator;
     CrossArmBackend.chunks = &.{};
@@ -428,6 +495,7 @@ test "completion wake: a ready wake racing shutdown runs no handler and does not
 
     var wake_count: usize = 0;
     try loop.armWake(99, &wake_count, countWake);
+    try std.testing.expectError(error.SubmissionQueueFull, loop.closeAndDrain());
     try loop.closeAndDrain();
 
     try std.testing.expectEqual(@as(usize, 0), wake_count);

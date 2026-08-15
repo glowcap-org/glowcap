@@ -19,8 +19,8 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-loop`.
 
-import { connect, formatPeerUri, type Session, TRANSPORT_IROH } from "@pancake/stack";
-import { dialLocatorForRelay, listenIroh, Reachability } from "@pancake/iroh";
+import { formatPeerUri, Runtime, type Session, TRANSPORT_IROH } from "@pancake/runtime";
+import { dialLocatorForRelay, listen, locator, provider, Reachability } from "@pancake/iroh";
 import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const GATE = "deno-iroh-loop";
@@ -54,8 +54,11 @@ async function runAccepts(server: AsyncIterable<Session>, served: Session[]): Pr
  * local-discovery book resolves it), fetch the greeter, and call it
  * `CALLS_PER_CONN` times, checking every reply. */
 async function clientOnce(serverId: string): Promise<void> {
-	const locator = formatPeerUri(TRANSPORT_IROH, serverId);
-	const session = await connect(locator, Reachability.LocalDiscovery);
+	const partner = locator(serverId);
+	const runtime = await Runtime.open({
+		providers: [provider({ reachability: Reachability.LocalDiscovery })],
+	});
+	const session = await runtime.connect(partner);
 	try {
 		const greeterRef = await session.fetch("greeter");
 		for (let i = 0; i < CALLS_PER_CONN; i++) {
@@ -66,10 +69,11 @@ async function clientOnce(serverId: string): Promise<void> {
 		}
 	} finally {
 		session.close();
+		await runtime.close();
 	}
 }
 
-const server = await listenIroh({ reachability: Reachability.LocalDiscovery, workerThreads: 1 });
+const server = await listen({ reachability: Reachability.LocalDiscovery, workerThreads: 1 });
 const serverId = server.nodeId;
 console.log(`${GATE}: server endpoint id ${serverId}`);
 
@@ -101,8 +105,8 @@ const results = await Promise.allSettled(
 
 // Bring the server-side connections and the server down so the gate never
 // hangs and no fd reader outlives the endpoint it watches.
-for (const session of served) session.close();
-server.close();
+for (const session of served) await session.close();
+await server.close();
 await acceptTask;
 
 const errors = results.filter((r) => r.status === "rejected");
@@ -113,21 +117,22 @@ if (errors.length > 0) {
 
 // Host teardown owns admission on every transport. Prove a waiter parked on
 // iroh's reactor wakes terminally rather than keeping the endpoint alive.
-const closing = await listenIroh({
+const closing = await listen({
 	reachability: Reachability.LocalDiscovery,
 	workerThreads: 1,
 });
 const iterator = closing[Symbol.asyncIterator]();
 const pendingAccept = iterator.next();
 await Promise.resolve();
-closing.host.release();
+const closingHost = closing.host.close();
 const closedAccept = await Promise.race([
 	pendingAccept,
 	new Promise<never>((_, reject) =>
-		setTimeout(() => reject(new Error("Host release did not wake iroh accept")), 2_000)
+		setTimeout(() => reject(new Error("Host close did not wake iroh accept")), 2_000)
 	),
 ]);
 if (!closedAccept.done) fail(GATE, "a released Host admitted an iroh session");
+await closingHost;
 closing.close();
 
 console.log(

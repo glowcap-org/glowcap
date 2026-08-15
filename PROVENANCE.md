@@ -34,7 +34,7 @@ single call to `std.debug.writeErrorReturnTrace`, the function that accepts the
 value. The file itself records its origin and edit;
 [`LICENSE-THIRD-PARTY`](LICENSE-THIRD-PARTY) carries Zig's notice.
 
-`zig build meta-check` compares the copied body with the installed toolchain.
+`zig build source-check` compares the copied body with the installed toolchain.
 It will fail if Zig changes the source, including when the upstream fix makes
 the copy unnecessary. Anyone may report the bug or carry the fix upstream;
 this project will not send it.

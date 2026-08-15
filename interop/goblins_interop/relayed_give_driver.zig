@@ -15,8 +15,9 @@
 //!                               has not settled. He hands the promise to
 //!                               pancake as a delivered argument, and settles it
 //!                               when the driver writes a line to his stdin.
-//!   pancake  (introducer)        holds Bob's promise, enrolls it as a promise,
-//!                               and answers `get-greeter` with it. Its host
+//!   pancake  (introducer)        holds Bob's promise as an opaque Host
+//!                               capability and answers `get-greeter` with it.
+//!                               Its host
 //!                               proxies the promise onto Carol's session and
 //!                               waits on Bob's.
 //!   Carol    (Goblins recipient) asks pancake for the greeter, waits on the
@@ -27,8 +28,8 @@
 //! Why Bob hands the promise over as an *argument*: an answer carrying a local
 //! promise chains through Goblins' own promise machinery and stays pending on
 //! the wire, so pancake would be handed a pending answer rather than a promise
-//! it can name. An argument marshals as `desc:import-promise`, which is the one
-//! shape pancake can enroll and introduce.
+//! it can name. An argument marshals as `desc:import-promise`, which the Host
+//! lifts under Bob's session before application code sees it.
 //!
 //! Needs `racket` + the `goblins` collection on PATH: it compiles under
 //! `zig build check` and runs only as the sibling step
@@ -69,14 +70,14 @@ fn pokeListener(io: std.Io, port: u16) void {
 }
 
 /// What the introducer half of pancake knows: Bob's session, the capability it
-/// published for Bob to send the promise to, and the routing token the promise
-/// is enrolled under once it arrives.
+/// published for Bob to send the promise to, and the opaque Host capability
+/// produced when that argument arrives.
 const IntroducerState = struct {
     host: *Host,
     bridge: *TcpBridge,
     bob_conn: ?*HostSession = null,
     holder: ?model.Reference = null,
-    promise_token: ?u64 = null,
+    promise: ?driver.Capability = null,
     held: *std.atomic.Value(bool),
 
     fn onRendezvous(ctx: ?*anyopaque, resolution: actors.Resolution) void {
@@ -116,45 +117,49 @@ const IntroducerState = struct {
     }
 };
 
-/// The capability Bob sends the promise to. Its one job is the product verb this
-/// scenario exists to exercise: a promise lifted from a delivered argument is
-/// enrolled *as a promise*, which is what lets the node proxy it onto a third
-/// party's session instead of shipping a position that means nothing there.
+/// The capability Bob sends the promise to. The owning-tier adapter lifts the
+/// delivered promise under Bob's session before this handler sees it, so the
+/// opaque capability already carries the home and kind needed for handoff.
 const Holder = struct {
     state: *IntroducerState,
 
-    pub fn handle(self: *Holder, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(
+        self: *Holder,
+        turn: *driver.HostTurn,
+        verb: []const u8,
+        args: []const driver.Value,
+    ) !driver.Value {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "hold")) return error.NoSuchMethod;
-        const arg = try msg.arg(0);
-        if (arg != .reference or arg.reference != .far) return error.NotAReference;
-        const far = arg.reference.far;
-        if (far.kind != .promise) return error.NotAPromise;
-        const conn = self.state.bob_conn orelse return error.NotReady;
-        const token = try self.state.host.enrollCapability(conn, far.import_position.int(), .promise);
-        self.state.promise_token = token;
+        if (!std.mem.eql(u8, verb, "hold")) return error.NoSuchMethod;
+        if (args.len != 1 or args[0] != .capability) return error.NotACapability;
+        self.state.promise = args[0].capability;
         self.state.held.store(true, .release);
         std.debug.print("goblins-relayed-give: goblins-bob handed over an unsettled promise\n", .{});
         return .{ .string = "held" };
     }
 };
 
-/// What Carol asks. Answering with the enrolled promise token is what sends the
+/// What Carol asks. Lowering the opaque promise onto Carol's session sends the
 /// host down the introducing-session proxy path.
 const Introducer = struct {
     state: *IntroducerState,
 
-    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(
+        self: *Introducer,
+        turn: *driver.HostTurn,
+        verb: []const u8,
+        args: []const driver.Value,
+    ) !driver.Value {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "get-greeter")) return error.NoSuchMethod;
-        const token = self.state.promise_token orelse return error.NotReady;
-        return .{ .reference = .{ .far = model.FarRef.promise(token) } };
+        _ = args;
+        if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
+        return .{ .capability = self.state.promise orelse return error.NotReady };
     }
 };
 
 fn publishIntroducer(ctx: ?*anyopaque, served: *driver.Served, vat: *actors.Vat) anyerror!void {
     const state: *IntroducerState = @ptrCast(@alignCast(ctx.?));
-    _ = try served.publish(vat, introducer_swiss, Introducer, .{ .state = state });
+    _ = try served.publish(vat, introducer_swiss, driver.Hosting(Introducer), .{ .inner = .{ .state = state } });
 }
 
 fn introducerOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
@@ -163,7 +168,12 @@ fn introducerOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot)
     if (state.bob_conn != null) return;
     state.bob_conn = conn.session;
     std.debug.print("goblins-relayed-give: session open (pancake as introducer -> bob)\n", .{});
-    const holder = try conn.session.served.publish(&conn.session.host.vat, holder_swiss, Holder, .{ .state = state });
+    const holder = try conn.session.served.publish(
+        &conn.session.host.vat,
+        holder_swiss,
+        driver.Hosting(Holder),
+        .{ .inner = .{ .state = state } },
+    );
     state.holder = holder.nearRef();
     const vow = try state.host.fetch(conn.session, rendezvous_swiss);
     try state.host.vowOn(vow, .{ .ctx = state, .func = IntroducerState.onRendezvous });
@@ -272,7 +282,7 @@ fn introducerStep(
     var session_root: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
 
-    var host = Host.init(allocator, seed, session_root, blk: {
+    var host = try Host.init(allocator, seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;
@@ -303,12 +313,12 @@ fn introducerStep(
     const introducer_port = loop.port().?;
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bound_addr = try tcp.parseHostPort(host_addr, introducer_port);
-    const bound = tcp.locator(&designator_buf, bound_addr).designator;
+    const bound = tcp.locatorFromAddress(&designator_buf, bound_addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
 
     var bob_designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bob_addr = try tcp.parseHostPort(host_addr, bob_port);
-    const bob_locator = tcp.locator(&bob_designator_buf, bob_addr);
+    const bob_locator = tcp.locatorFromAddress(&bob_designator_buf, bob_addr);
     try bridge.dialOutbound(bob_locator);
 
     var loop_done = std.atomic.Value(bool).init(false);
@@ -323,7 +333,7 @@ fn introducerStep(
     // Bob has to have handed the promise over before Carol can be introduced to
     // it; the introducer answers `NotReady` until then.
     try harness.untilFlag(io, deadline_ms, &held);
-    if (state.promise_token == null) return error.PromiseNeverHeld;
+    if (state.promise == null) return error.PromiseNeverHeld;
 
     var introducer_designator_buf: [64]u8 = undefined;
     const introducer_designator = try std.fmt.bufPrint(

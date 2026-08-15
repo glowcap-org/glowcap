@@ -6,9 +6,7 @@
 
 use std::rc::Rc;
 
-use pancake_rust_dogfood::{
-	connect, keyed_tcp_locator, listen_keyed_tcp, Argument, KeyedTcpServer, Session,
-};
+use pancake_rust_dogfood::{tcp, Argument, ConnectOptions, Locator, Runtime, RuntimeConfig, Session};
 use tokio::sync::oneshot;
 use tokio::task::LocalSet;
 
@@ -26,24 +24,40 @@ fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
 	}
 }
 
+async fn listen(seed: [u8; 32]) -> Result<tcp::Server, String> {
+	tcp::keyed::listen(
+		"127.0.0.1",
+		0,
+		tcp::KeyedListenOptions {
+			identity: tcp::ListenerIdentity::Seed(seed),
+			..tcp::KeyedListenOptions::default()
+		},
+	)
+	.await
+	.map_err(|e| e.to_string())
+}
+
 /// Dial, wait until the host has published, then fetch/call. `connect` must run
 /// concurrently with `accept` so the listener unblocks; the oneshot orders
 /// publish ahead of fetch.
-async fn call_greeter(uri: &str, published: oneshot::Receiver<()>) -> Result<(), String> {
-	let session = connect(uri, None, None).await.map_err(|e| e.to_string())?;
-	let _ = published.await;
-	let greeter = session.fetch("greeter").await.map_err(|e| e.to_string())?;
-	let reply = session
-		.send(&greeter, "greet", &[])
+async fn call_greeter(partner: &Locator, published: oneshot::Receiver<()>) -> Result<(), String> {
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
 		.await
 		.map_err(|e| e.to_string())?;
+	let session = runtime
+		.connect(partner, ConnectOptions::default())
+		.await
+		.map_err(|e| e.to_string())?;
+	let _ = published.await;
+	let greeter = session.fetch("greeter").await.map_err(|e| e.to_string())?;
+	let reply = session.send(&greeter, "greet", &[]).await.map_err(|e| e.to_string())?;
 	match reply {
 		Argument::String(s) if s == GREETING => Ok(()),
 		other => Err(format!("unexpected greeting: {other:?}")),
 	}
 }
 
-async fn host_one(server: Rc<KeyedTcpServer>, published: oneshot::Sender<()>) {
+async fn host_one(server: Rc<tcp::Server>, published: oneshot::Sender<()>) {
 	match server.accept().await {
 		Ok(session) => {
 			if session.publish("greeter", greeter).is_ok() {
@@ -57,44 +71,36 @@ async fn host_one(server: Rc<KeyedTcpServer>, published: oneshot::Sender<()>) {
 }
 
 async fn scene_happy() -> Result<(), String> {
-	let server = Rc::new(
-		listen_keyed_tcp("127.0.0.1", 0, Some(SEED_HAPPY))
-			.await
-			.map_err(|e| e.to_string())?,
-	);
+	let server = Rc::new(listen(SEED_HAPPY).await?);
 	let (published_tx, published_rx) = oneshot::channel::<()>();
 	let host = {
 		let server = Rc::clone(&server);
 		tokio::task::spawn_local(async move { host_one(server, published_tx).await })
 	};
-	let uri = server.uri().map_err(|e| e.to_string())?;
-	call_greeter(&uri, published_rx).await?;
+	let partner = server.locator().map_err(|e| e.to_string())?;
+	call_greeter(&partner, published_rx).await?;
 	drop(host);
 	println!("rust-keyed-tcp-restart: happy path ok");
 	Ok(())
 }
 
 async fn scene_squatter() -> Result<(), String> {
-	let honest = listen_keyed_tcp("127.0.0.1", 0, Some(SEED_HONEST))
-		.await
-		.map_err(|e| e.to_string())?;
-	let designator = honest.designator().to_string();
+	let honest = listen(SEED_HONEST).await?;
+	let designator = honest.locator().map_err(|e| e.to_string())?.designator;
 	drop(honest);
 
-	let squatter = Rc::new(
-		listen_keyed_tcp("127.0.0.1", 0, Some(SEED_SQUATTER))
-			.await
-			.map_err(|e| e.to_string())?,
-	);
+	let squatter = Rc::new(listen(SEED_SQUATTER).await?);
 	let host = {
 		let squatter = Rc::clone(&squatter);
 		tokio::task::spawn_local(async move {
 			let _ = squatter.accept().await;
 		})
 	};
-	let addr = squatter.local_addr().map_err(|e| e.to_string())?;
-	let uri = keyed_tcp_locator(&designator, &addr.ip().to_string(), addr.port());
-	match connect(&uri, None, None).await {
+	let partner = tcp::keyed::locator(&designator, "127.0.0.1", squatter.port().map_err(|e| e.to_string())?);
+	let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+		.await
+		.map_err(|e| e.to_string())?;
+	match runtime.connect(&partner, ConnectOptions::default()).await {
 		Ok(_session) => return Err("squatter dial should have been refused".into()),
 		Err(e) => println!("rust-keyed-tcp-restart: squatter refused ({e})"),
 	}
@@ -104,30 +110,22 @@ async fn scene_squatter() -> Result<(), String> {
 }
 
 async fn scene_restart() -> Result<(), String> {
-	let first = Rc::new(
-		listen_keyed_tcp("127.0.0.1", 0, Some(SEED_RESTART))
-			.await
-			.map_err(|e| e.to_string())?,
-	);
-	let designator = first.designator().to_string();
+	let first = Rc::new(listen(SEED_RESTART).await?);
+	let designator = first.locator().map_err(|e| e.to_string())?.designator;
 	let (published_tx, published_rx) = oneshot::channel::<()>();
 	let host = {
 		let first = Rc::clone(&first);
 		tokio::task::spawn_local(async move { host_one(first, published_tx).await })
 	};
-	call_greeter(&first.uri().map_err(|e| e.to_string())?, published_rx).await?;
+	call_greeter(&first.locator().map_err(|e| e.to_string())?, published_rx).await?;
 	drop(host);
 	drop(first);
 
-	let second = Rc::new(
-		listen_keyed_tcp("127.0.0.1", 0, Some(SEED_RESTART))
-			.await
-			.map_err(|e| e.to_string())?,
-	);
-	if second.designator() != designator {
+	let second = Rc::new(listen(SEED_RESTART).await?);
+	let second_designator = second.locator().map_err(|e| e.to_string())?.designator;
+	if second_designator != designator {
 		return Err(format!(
-			"restart designator drifted: {designator} vs {}",
-			second.designator()
+			"restart designator drifted: {designator} vs {second_designator}",
 		));
 	}
 	let (published_tx, published_rx) = oneshot::channel::<()>();
@@ -135,12 +133,7 @@ async fn scene_restart() -> Result<(), String> {
 		let second = Rc::clone(&second);
 		tokio::task::spawn_local(async move { host_one(second, published_tx).await })
 	};
-	let addr = second.local_addr().map_err(|e| e.to_string())?;
-	call_greeter(
-		&keyed_tcp_locator(&designator, &addr.ip().to_string(), addr.port()),
-		published_rx,
-	)
-	.await?;
+	call_greeter(&second.locator().map_err(|e| e.to_string())?, published_rx).await?;
 	drop(host);
 	println!("rust-keyed-tcp-restart: restart ok");
 	Ok(())

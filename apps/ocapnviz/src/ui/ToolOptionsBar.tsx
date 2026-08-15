@@ -214,14 +214,13 @@ export function ToolOptionsBar(
               ? (
                 <>
                   Waiting on a second node for{" "}
-                  <span style={armedWho}>{armedLabel}</span>. Clicking empty
-                  canvas ends the session at an end nobody has attributed.
+                  <span style={armedWho}>{armedLabel}</span>. Clicking empty canvas ends the session at an end nobody
+                  has attributed.
                 </>
               )
               : (
                 <>
-                  Waiting on a receiver for{" "}
-                  <span style={armedWho}>{armedLabel}</span>.
+                  Waiting on a receiver for <span style={armedWho}>{armedLabel}</span>.
                 </>
               )}
           </span>
@@ -246,8 +245,7 @@ export function ToolOptionsBar(
               type="text"
               className="ocv-input"
               value={drafts.peerId}
-              onChange={(ev) =>
-                onDraftsChange({ ...drafts, peerId: ev.target.value })}
+              onChange={(ev) => onDraftsChange({ ...drafts, peerId: ev.target.value })}
               placeholder={placeholder}
               spellCheck={false}
               aria-invalid={peerIdError !== null}
@@ -261,8 +259,7 @@ export function ToolOptionsBar(
               type="text"
               className="ocv-input"
               value={drafts.peerLabel}
-              onChange={(ev) =>
-                onDraftsChange({ ...drafts, peerLabel: ev.target.value })}
+              onChange={(ev) => onDraftsChange({ ...drafts, peerLabel: ev.target.value })}
               placeholder="(uses id)"
               spellCheck={false}
               aria-label="Peer label"
@@ -282,9 +279,7 @@ export function ToolOptionsBar(
               style={inlineSelect}
               aria-label="Peer profile"
             >
-              {PROFILE_OPTIONS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
+              {PROFILE_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </Field>
           {peerIdError && (
@@ -308,9 +303,7 @@ export function ToolOptionsBar(
               style={{ ...inlineSelect, maxWidth: 92 }}
               aria-label="Session codec"
             >
-              {CODEC_OPTIONS.map((codec) => (
-                <option key={codec} value={codec}>{codec}</option>
-              ))}
+              {CODEC_OPTIONS.map((codec) => <option key={codec} value={codec}>{codec}</option>)}
             </select>
           </Field>
           <Field label="CapTP">
@@ -325,9 +318,7 @@ export function ToolOptionsBar(
               style={{ ...inlineSelect, maxWidth: 92 }}
               aria-label="CapTP version"
             >
-              {CAPTP_VERSION_OPTIONS.map((v) => (
-                <option key={v} value={v}>{CAPTP_VERSION_WIRE[v]}</option>
-              ))}
+              {CAPTP_VERSION_OPTIONS.map((v) => <option key={v} value={v}>{CAPTP_VERSION_WIRE[v]}</option>)}
             </select>
           </Field>
           <Field label="Initial">
@@ -342,9 +333,7 @@ export function ToolOptionsBar(
               style={{ ...inlineSelect, maxWidth: 104 }}
               aria-label="Session initial state"
             >
-              {SessionState.options.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {SessionState.options.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
         </div>
@@ -356,8 +345,7 @@ export function ToolOptionsBar(
               type="text"
               className="ocv-input"
               value={drafts.messageLabel}
-              onChange={(ev) =>
-                onDraftsChange({ ...drafts, messageLabel: ev.target.value })}
+              onChange={(ev) => onDraftsChange({ ...drafts, messageLabel: ev.target.value })}
               placeholder="(unlabeled)"
               spellCheck={false}
               aria-label="Message label"
@@ -367,9 +355,7 @@ export function ToolOptionsBar(
           <Field label="Flight">
             <ScrubInput
               label="Message flight ms"
-              value={drafts.messageFlightMs === ""
-                ? 500
-                : (Number(drafts.messageFlightMs) || 500)}
+              value={drafts.messageFlightMs === "" ? 500 : (Number(drafts.messageFlightMs) || 500)}
               onChange={(next) =>
                 onDraftsChange({
                   ...drafts,

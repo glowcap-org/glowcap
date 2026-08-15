@@ -256,14 +256,14 @@ pub fn listenTarget(
     register_url_opt: ?[]const u8,
     relay_url_opt: ?[]const u8,
     tcp: *pancake.net.tcp.Resident,
-    relay: *?pancake.net.keyed_relay.Resident,
+    relay: *?pancake.net.relay.Resident,
 ) !ListenTarget {
     tcp.* = .{ .io = ctx.io };
     const register_url = register_url_opt orelse return .{
         .netlayer = tcp.netlayer(),
         .designator = bind_designator,
     };
-    _ = pancake.net.keyed_relay.RelayUrl.parse(register_url) catch {
+    _ = pancake.net.relay.RelayUrl.parse(register_url) catch {
         ctx.logErr("--rendezvous wants a ws://host:port/path relay URL, got {s}", .{register_url});
         return error.Usage;
     };
@@ -271,14 +271,14 @@ pub fn listenTarget(
         ctx.logErr("--rendezvous requires --rendezvous-relay or PANCAKE_RENDEZVOUS so its locator names a dialable route", .{});
         return error.Usage;
     };
-    _ = pancake.net.keyed_relay.RelayUrl.parse(dial_url) catch {
+    _ = pancake.net.relay.RelayUrl.parse(dial_url) catch {
         ctx.logErr("{s} is not a ws://host:port/path relay URL: {s}", .{
             if (relay_url_opt != null) "--rendezvous-relay" else "PANCAKE_RENDEZVOUS",
             dial_url,
         });
         return error.Usage;
     };
-    relay.* = pancake.net.keyed_relay.Resident.initRegistered(
+    relay.* = pancake.net.relay.Resident.initRegistered(
         ctx.gpa,
         ctx.io,
         dial_url,
@@ -309,7 +309,7 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     const accept_id = try ctx.acceptIdentity();
 
     var tcp = pancake.net.tcp.Resident{ .io = ctx.io };
-    var relay: ?pancake.net.keyed_relay.Resident = null;
+    var relay: ?pancake.net.relay.Resident = null;
     defer if (relay) |*resident| resident.deinit();
     const target = try listenTarget(
         ctx,
@@ -324,9 +324,9 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
         ctx.logErr("listen: {s}", .{@errorName(err)});
         return exit_codes.dial;
     };
-    defer server.close() catch {};
+    defer server.deinit();
 
-    const uri = try model.uri.writePeer(ctx.gpa, server.advertisedLocator());
+    const uri = try model.uri.writePeer(ctx.gpa, (try server.advertisedLocator()));
     defer ctx.gpa.free(uri);
     const locator_copy = try ctx.gpa.dupe(u8, uri);
     if (ctx.last_locator) |old| ctx.gpa.free(old);

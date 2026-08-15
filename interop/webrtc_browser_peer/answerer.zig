@@ -192,7 +192,7 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     var resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer resident.deinit();
+    defer resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var peer = try resident.newPeer(false); // answerer
     defer peer.deinit();
 

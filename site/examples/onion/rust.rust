@@ -1,0 +1,25 @@
+use pancake::onion::{self, Auth, Config};
+use pancake::Argument;
+
+// pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+let config = Config::dial_only("/run/tor/socks")
+    .with_control("/run/tor/control", Auth::None);
+let server = onion::listen(config, onion::ListenOptions::default()).await?;
+let service_key = server.service_key(); // persist securely to restore this service
+// From here, the CapTP workflow is transport-independent.
+println!("{}", server.uri()?); // hand this locator to partners
+server.host().publish_giftable("greeter", || Box::new(greeter))?;
+loop {
+    let session = server.accept().await?;
+    session.serve().await?;
+}
+
+fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
+    if verb != "greet" {
+        return Err("no such method".into());
+    }
+    let Some(Argument::String(name)) = args.first() else {
+        return Err("bad invocation".into());
+    };
+    Ok(Argument::String(format!("Hello, {name}").into()))
+}

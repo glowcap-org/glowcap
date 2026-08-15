@@ -132,6 +132,10 @@ test "sendKeyedStartSession advertises non-baseline features into the signed hel
     try std.testing.expect(p2.sessionIsOpen());
     try std.testing.expectEqual(model.FeatureSet.minimum(), p1.session_state.features);
     try std.testing.expectEqual(model.FeatureSet.minimum(), p2.session_state.features);
+    // The recorded partner preference is what the partner's hello stated: p2
+    // stated minimum features, p1 stated nothing and so means the baseline.
+    try std.testing.expectEqual(model.FeatureSet.minimum(), p1.session_state.partner_preference.features);
+    try std.testing.expectEqual(model.Preference.baseline, p2.session_state.partner_preference);
 }
 
 test "sendKeyedStartSession preserves arbitrary locator hint maps" {

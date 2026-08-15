@@ -107,7 +107,7 @@ both, including the escapes that shaped it.
   loaders, and whole-conversation scenario traces compared against the oracle.
 - `test/codec/fuzz_regressions`: inputs the fuzzer found, replayed by the
   ordinary suite so a crash it caught cannot return quietly. `zig build fuzz`
-  writes them; `meta-check` refuses one that is not wired into the replay.
+  writes them; `source-check` refuses one that is not wired into the replay.
 - `test/support`: shared test helpers, including the copy utilities production
   modules must not carry.
 - `test/api_surface_test.zig`: recursively references every exported `pancake`

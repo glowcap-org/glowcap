@@ -51,6 +51,16 @@ provided/failed. The shared Zig helper
 `embedder_pump`, the generated action inventory, and the C pull queue keep this
 loop from drifting across runtimes.
 
+The same commit discipline governs work created by a language finalizer or a
+detached progress task. Finalizers only park opaque Host IDs; they never call
+the C ABI. The pumping thread calls `pancake_host_ref_release`, removes a token
+only after PANCAKE_OK, and leaves the refused token and unattempted tail owned
+for retry. A scheduled drain has no immediate caller, so the Host wrapper
+retains its exact typed failure and surfaces it at the next verb head. Bindings
+do not classify failures or invent release semantics: the C ABI guarantees
+that non-OK committed no release, and the core remains the authority for what
+the release means.
+
 Inbound byte streams go through `pancake_host_session_feed_bytes`. The host
 unwraps canonical Syrup byte strings, retains a split prefix or body, and
 applies the declared-body limit. A binding should not add another scanner or
@@ -84,7 +94,7 @@ await:
 
 The files use each language's naming conventions, but this division is the
 same in all four bindings. The embedder-spine module split is complete.
-`zig build meta-check` rejects a missing module, a direct action-pop loop, or a
+`zig build source-check` rejects a missing module, a direct action-pop loop, or a
 binding that bypasses the generated action decoder.
 
 ### TypeScript package surface
@@ -94,7 +104,7 @@ Its root is the ship surface: source that a consumer imports. Tests, harnesses,
 smokes, benches, and probes live under that package's `test/` directory (or
 under the workspace-level `dogfood/`), never beside `mod.ts`. Every package
 `deno.json` names `test/**` in `publish.exclude`, so a broad `**/*.ts` include
-cannot ship them. `zig build meta-check` refuses `*_test.ts`, `*_smoke.ts`,
+cannot ship them. `zig build source-check` refuses `*_test.ts`, `*_smoke.ts`,
 `*_bench.ts`, `*_probe.ts`, and `*_harness.ts` outside `test/` in a package,
 and a publish block that includes TypeScript without excluding `test/**`.
 
@@ -127,7 +137,7 @@ whole shape of the C struct it mirrors: its size, and each field's name, offset,
 and width, reflected off the real Zig types by
 `zig build gen-binding-ffi-layouts`. Rust checks at compile time in a `const`
 block; Python and Racket check the moment the module is imported. A mirror that
-declares no such check fails `zig build meta-check`, so every mirror is
+declares no such check fails `zig build source-check`, so every mirror is
 covered.
 
 A C layout change must update every hand-written mirror in the same change.

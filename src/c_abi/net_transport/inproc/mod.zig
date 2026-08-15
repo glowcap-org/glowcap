@@ -48,7 +48,6 @@ const PancakeManagedFrame = c.PancakeManagedFrame;
 
 const setLastError = c.setLastError;
 const clearLastError = c.lastErrorClear;
-const codecFromC = c.codecFromC;
 
 const PANCAKE_OK = c.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
@@ -144,7 +143,8 @@ pub export fn pancake_inproc_netlayer_new_in(context: ?*PancakeContext, out_netl
 }
 
 fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*PancakeInprocNetlayer) i32 {
-    const payload = alloc.create(InprocNetlayerPayload) catch return PANCAKE_ERR_INTERNAL;
+    const payload = alloc.create(InprocNetlayerPayload) catch |err|
+        return c.failInternal("inproc netlayer_new", err);
     payload.threaded = std.Io.Threaded.init(alloc, .{});
     payload.calls = .{};
     payload.allocator = alloc;
@@ -181,10 +181,11 @@ pub export fn pancake_inproc_connect(
     defer nl.calls.release(nl.io());
     const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
     const designator_ptr = designator orelse return PANCAKE_ERR_NULL_POINTER;
-    const codec_id = codecFromC(codec) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    if (max_frame_bytes == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "inproc connect") catch
+        return PANCAKE_ERR_INVALID_ARGUMENT;
 
-    const payload = beginConn(nl.allocator, max_frame_bytes) orelse return PANCAKE_ERR_INTERNAL;
+    const payload = beginConn(nl.allocator, max_frame_bytes) orelse
+        return c.failInternal("inproc connect", error.OutOfMemory);
     payload.stream = nl.network.connectFrameStream(designator_ptr[0..designator_len], codec_id, max_frame_bytes, payload.read_buf, payload.write_buf) catch |err| {
         abortConn(payload);
         return dialErrorToCode(err);
@@ -230,7 +231,8 @@ pub export fn pancake_inproc_listen(
     const slot = out_listener orelse return PANCAKE_ERR_NULL_POINTER;
     const designator_ptr = designator orelse return PANCAKE_ERR_NULL_POINTER;
 
-    const payload = nl.allocator.create(InprocListenerPayload) catch return PANCAKE_ERR_INTERNAL;
+    const payload = nl.allocator.create(InprocListenerPayload) catch |err|
+        return c.failInternal("inproc listen", err);
     payload.* = .{
         .listener = nl.network.bindFrame(nl.allocator, designator_ptr[0..designator_len]) catch |err| {
             nl.allocator.destroy(payload);
@@ -270,10 +272,11 @@ pub export fn pancake_inproc_accept(
     if (!lpayload.operations.acquire(lpayload.io)) return PANCAKE_ERR_CLOSED;
     defer lpayload.operations.release(lpayload.io);
     const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
-    const codec_id = codecFromC(codec) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    if (max_frame_bytes == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const codec_id = c.framingOptionsFromC(codec, max_frame_bytes, "inproc accept") catch
+        return PANCAKE_ERR_INVALID_ARGUMENT;
 
-    const payload = beginConn(lpayload.allocator, max_frame_bytes) orelse return PANCAKE_ERR_INTERNAL;
+    const payload = beginConn(lpayload.allocator, max_frame_bytes) orelse
+        return c.failInternal("inproc accept", error.OutOfMemory);
     payload.stream = lpayload.listener.acceptFrameStream(lpayload.allocator, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf) catch |err| {
         abortConn(payload);
         return acceptErrorToCode(err);
@@ -378,13 +381,37 @@ pub export fn pancake_inproc_listener_shutdown(listener: ?*PancakeInprocListener
     if (payload.operations.beginShutdown(payload.io)) payload.listener.shutdown();
 }
 
-pub export fn pancake_inproc_listener_release(listener: ?*PancakeInprocListener) void {
-    const payload = listenerFromOpaque(listener) orelse return;
+pub export fn pancake_inproc_listener_release(listener: ?*PancakeInprocListener) i32 {
+    clearLastError();
+    const payload = listenerFromOpaque(listener) orelse return PANCAKE_OK;
     pancake_inproc_listener_shutdown(listener);
     payload.operations.wait(payload.io);
     const alloc = payload.allocator;
-    payload.listener.close();
+    const failure = payload.listener.close();
     alloc.destroy(payload);
+    if (failure) |chain| {
+        setLastError("listener release: {s}", .{@errorName(chain.cause)});
+        return PANCAKE_ERR_IO;
+    }
+    return PANCAKE_OK;
+}
+
+pub export fn pancake_inproc_listener_release_with_diagnostic(
+    listener: ?*PancakeInprocListener,
+    out_error: ?[*]u8,
+    error_cap: usize,
+    out_error_len: ?*usize,
+) i32 {
+    const len = out_error_len orelse {
+        clearLastError();
+        return PANCAKE_ERR_NULL_POINTER;
+    };
+    return c.captureCallError(
+        pancake_inproc_listener_release(listener),
+        out_error,
+        error_cap,
+        len,
+    );
 }
 
 fn dialErrorToCode(err: net.netlayer.DialError) i32 {
@@ -417,6 +444,7 @@ fn listenErrorToCode(err: net.netlayer.ListenError) i32 {
             setLastError("listen: empty inproc designator", .{});
             break :blk PANCAKE_ERR_INVALID_ARGUMENT;
         },
+        error.InvalidOptions => PANCAKE_ERR_INVALID_ARGUMENT,
         error.BindFailed => blk: {
             setLastError("listen: inproc designator already bound", .{});
             break :blk PANCAKE_ERR_INVALID_ARGUMENT;
@@ -429,6 +457,18 @@ fn acceptErrorToCode(err: net.netlayer.AcceptError) i32 {
     return switch (err) {
         error.ConnectionLost => blk: {
             setLastError("accept: listener closed", .{});
+            break :blk PANCAKE_ERR_IO;
+        },
+        error.SocketConfigurationFailed => blk: {
+            setLastError("accept: transport socket configuration failed", .{});
+            break :blk PANCAKE_ERR_IO;
+        },
+        error.WakeNudgeFailed => blk: {
+            setLastError("accept: in-process listener wake failed", .{});
+            break :blk PANCAKE_ERR_IO;
+        },
+        error.WakeDrainFailed => blk: {
+            setLastError("accept: in-process listener wake drain failed", .{});
             break :blk PANCAKE_ERR_IO;
         },
         error.OutOfMemory => PANCAKE_ERR_INTERNAL,

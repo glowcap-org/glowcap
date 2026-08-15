@@ -27,6 +27,20 @@ const engine = @import("engine");
 
 const Stream = std.Io.net.Stream;
 
+/// Interrupt both halves of an open byte stream. A peer reset, abort, or prior
+/// disconnect already establishes the postcondition shutdown exists to create:
+/// no blocked operation can keep waiting for this connection. Preserve every
+/// other failure because it does not prove that cancellation completed.
+pub fn shutdownStream(stream: *const Stream, io: std.Io) std.Io.net.ShutdownError!void {
+    stream.shutdown(io, .both) catch |err| switch (err) {
+        error.ConnectionAborted,
+        error.ConnectionResetByPeer,
+        error.SocketUnconnected,
+        => return,
+        else => return err,
+    };
+}
+
 /// The per-connection outbound-queue capacity a drained queue retains (ADR-0042).
 /// Capacity past this is burst from a slow-reader episode and frees on drain, so
 /// one episode never pins its high-water bytes for the connection's life;
@@ -34,7 +48,7 @@ const Stream = std.Io.net.Stream;
 /// never reallocates. One `completion.Loop` honors it for every backend it is
 /// instantiated over, so there is no second Zig spelling to drift from. The
 /// mirror that can drift is across languages: the iroh sidecar keeps its own
-/// per-direction bound in Rust (`NB_STEADY_BYTES`), and `meta-check` pins the
+/// per-direction bound in Rust (`NB_STEADY_BYTES`), and `source-check` pins the
 /// two literals together, because this is a per-connection footprint number the
 /// ladder's 500k-connection budget owns.
 pub const steady_outbound_bytes: usize = 16 * 1024;
@@ -412,8 +426,8 @@ pub const FrameStream = struct {
     /// storage. Foreign runtimes use this as the cancellation half of a split
     /// close: shutdown wakes an operation running on another OS thread, and the
     /// owner calls `deinit` only after that operation has returned.
-    pub fn shutdown(self: *FrameStream) void {
-        self.reader.stream.shutdown(self.io, .both) catch {};
+    pub fn shutdown(self: *FrameStream) std.Io.net.ShutdownError!void {
+        try shutdownStream(&self.reader.stream, self.io);
     }
 
     /// Block for one whole frame as an owned `Frame` (allocated, like the spill,

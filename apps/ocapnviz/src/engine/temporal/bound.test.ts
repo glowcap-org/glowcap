@@ -1,12 +1,5 @@
 import { assertEquals } from "@std/assert";
-import {
-  type Bound,
-  explicitBound,
-  implicitBound,
-  withExplicit,
-  withImplicit,
-  withValue,
-} from "./bound.ts";
+import { type Bound, explicitBound, implicitBound, withExplicit, withImplicit, withValue } from "./bound.ts";
 
 Deno.test("implicitBound seeds value, explicit=false", () => {
   assertEquals(implicitBound(7), { value: 7, explicit: false });

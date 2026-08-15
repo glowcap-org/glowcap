@@ -1,10 +1,6 @@
 import { findSession, type GameWorld } from "../world.ts";
 import { type EasingFn, smoothstep } from "../easing.ts";
-import {
-  bezierAt,
-  type FrameGeometry,
-  temporalArcAmount,
-} from "../session-geometry.ts";
+import { bezierAt, type FrameGeometry, temporalArcAmount } from "../session-geometry.ts";
 
 /**
  * MessageFlightSystem — position messages-in-flight along their

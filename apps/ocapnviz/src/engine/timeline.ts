@@ -321,16 +321,14 @@ export const TimelineDocument = z
       if (ev.t < last) {
         ctx.addIssue({
           code: "custom",
-          message:
-            `Events must be sorted by t (event ${i} at t=${ev.t} after t=${last})`,
+          message: `Events must be sorted by t (event ${i} at t=${ev.t} after t=${last})`,
           path: ["events", i, "t"],
         });
       }
       if (ev.t > doc.duration) {
         ctx.addIssue({
           code: "custom",
-          message:
-            `Event ${i} at t=${ev.t} exceeds document duration ${doc.duration}`,
+          message: `Event ${i} at t=${ev.t} exceeds document duration ${doc.duration}`,
           path: ["events", i, "t"],
         });
       }
@@ -385,9 +383,7 @@ export const TimelineDocument = z
           codec: ev.codec,
           captpVersion: ev.captpVersion,
           ...(ev.transport !== undefined ? { transport: ev.transport } : {}),
-          ...(ev.initialState !== undefined
-            ? { initialState: ev.initialState }
-            : {}),
+          ...(ev.initialState !== undefined ? { initialState: ev.initialState } : {}),
         };
       } else if (ev.kind === "message-sent" && !messages[ev.messageId]) {
         messages[ev.messageId] = {

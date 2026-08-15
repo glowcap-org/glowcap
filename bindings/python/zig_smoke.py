@@ -8,6 +8,7 @@ bindings`` runs."""
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import gc
 import re
 import sys
@@ -19,15 +20,25 @@ import time
 import ctypes
 import pancake
 import pancake._host as _host_module
+import pancake._loop as _loop_module
+from pancake._gc import HostGc
+from pancake._lifecycle import _close_options
+from pancake._errors import _retain_cleanup_failure, _retain_terminal_failure
+from pancake._failure import _RuntimeFailureQueue
+from pancake._server import _rollback_listener_construction
 
 from pancake import (
+    tcp,
     Context,
     FetchFailed,
+    FailureLayer,
+    FailureScope,
     Forward,
     Keyword,
     Locator,
     Host,
     PancakeError,
+    PendingWork,
     SendRedeemingResult,
     Ref,
     Set,
@@ -35,19 +46,29 @@ from pancake import (
     Tagged,
     VowBroken,
     abi_version,
-    connect,
+    Runtime,
     encode_peer_locator,
+    format_locator_uri,
     format_sturdyref,
-    listen,
-    listen_keyed_tcp,
+    parse_locator,
     parse_sturdyref,
-    socket_addr_designator,
-    tcp_locator,
 )
+from pancake._transport import Connector, Provider
+from pancake._native import NativeHandle
+from pancake._ws import _WebSocketTransport
 from pancake._constants import (
     DESIGNATOR_SCHEME_ADDRESS,
+    ERR_CLOSED,
     ERR_FRAME_TOO_LARGE,
     ERR_INVALID_ARGUMENT,
+    ERR_INTERNAL,
+    ERR_IO,
+    ERR_NULL_POINTER,
+    ERR_TIMEOUT,
+    FAILURE_LAYER_TRANSPORT,
+    FAILURE_SCOPE_LISTENER,
+    TRANSPORT_KEYED_TCP,
+    TRANSPORT_NOISE_TCP,
     TRANSPORT_TCP,
 )
 from pancake.inproc import InprocNetlayer
@@ -55,27 +76,819 @@ from pancake._trampoline import _entry_for
 from pancake.onion import (
     AUTH_COOKIE,
     AUTH_PASSWORD,
+    OnionConfig,
     OnionNetlayer,
     SERVICE_ID_LENGTH,
-    install_provider as install_onion_provider,
+    listen as onion_listen,
+    provider as onion_provider,
 )
 from pancake.tcp import TcpNetlayer
 
 
+_scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
+
+
+def _gc_release_refusal_stays_owned() -> None:
+    """A scheduled GC refusal remains queued and reaches the next verb head."""
+
+    class RefusingHost:
+        released = False
+        host_raw = None
+
+        def kick(self) -> None:
+            raise AssertionError("a refused release must not kick")
+
+        def schedule_drain(self, _run) -> None:
+            pass
+
+    host_gc = HostGc()
+    host_gc.bind(RefusingHost())
+    host_gc.pending.append(17)
+    host_gc._drain_scheduled()
+    background_failure = host_gc._background_failure
+    assert isinstance(background_failure, PancakeError), background_failure
+    assert background_failure.code == ERR_NULL_POINTER, background_failure
+    assert host_gc.pending == [17], host_gc.pending
+    try:
+        host_gc.drain_gc()
+    except PancakeError as surfaced:
+        assert surfaced is background_failure
+    else:
+        raise AssertionError("scheduled GC refusal did not reach the next drain")
+    assert host_gc.pending == [17], host_gc.pending
+
+
+async def _websocket_close_failure_is_observable() -> None:
+    failure = RuntimeError("WebSocket close handshake failed")
+
+    class RefusingWebSocket:
+        async def close(self) -> None:
+            raise failure
+
+    transport = _WebSocketTransport(RefusingWebSocket())
+    transport.close()
+    try:
+        await transport.wait_closed()
+    except RuntimeError as observed:
+        assert observed is failure
+    else:
+        raise AssertionError("WebSocket close failure disappeared")
+
+
+async def _host_owns_async_behavior_settlement_failure() -> None:
+    """An admitted behavior settlement belongs to Host shutdown even after
+    its originating callback frame has returned."""
+    failure = RuntimeError("deferred resolver settlement failed")
+
+    async def fail_settlement() -> None:
+        raise failure
+
+    async def remain_pending() -> None:
+        await asyncio.Future()
+
+    host = Host.__new__(Host)
+    host._behavior_tasks = set()
+    host._terminal_failures = []
+    host._terminal_failure_count = 0
+    host._close_activity = asyncio.Event()
+    failed = asyncio.create_task(fail_settlement())
+    host._own_behavior_task(failed)
+    await asyncio.gather(failed, return_exceptions=True)
+    await asyncio.sleep(0)
+    consequence = RuntimeError("second settlement failure from the same operation")
+    host._record_terminal_failure(consequence)
+    try:
+        host._raise_terminal_failure()
+    except BaseException as observed:
+        assert observed is failure, "Host replaced its async settlement failure"
+    else:
+        raise AssertionError("Host discarded its async settlement failure")
+    assert host.terminal_failures == (failure, consequence)
+    assert host.terminal_failure_count == 2
+
+    pending = asyncio.create_task(remain_pending())
+    host._own_behavior_task(pending)
+    await host._join_behavior_tasks()
+    assert pending.cancelled(), "Host shutdown left an admitted settlement task alive"
+    assert not host._behavior_tasks, "Host shutdown retained completed settlement tasks"
+    try:
+        host._raise_terminal_failure()
+    except BaseException as observed:
+        assert observed is failure, "task cancellation replaced the earlier failure"
+    else:
+        raise AssertionError("Host shutdown lost its retained settlement failure")
+
+    drain_failure = RuntimeError("scheduled action drain failed")
+
+    async def fail_drain() -> None:
+        raise drain_failure
+
+    host._action_drains = set()
+    drain = asyncio.create_task(fail_drain())
+    host._own_action_drain(drain)
+    await asyncio.gather(drain, return_exceptions=True)
+    await asyncio.sleep(0)
+    assert host.terminal_failures == (
+        failure,
+        consequence,
+        drain_failure,
+    ), host.terminal_failures
+    try:
+        host._raise_terminal_failure()
+    except BaseException as observed:
+        assert observed is failure, "a later drain failure replaced the first cause"
+    else:
+        raise AssertionError("Host shutdown lost its ordered terminal failures")
+
+    from pancake._transport import _rollback_failed_provider, _rollback_failed_transport
+
+    rollback_failure = RuntimeError("connector rollback failed")
+
+    class FailedTransport:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            raise rollback_failure
+
+    transport = FailedTransport()
+    await _rollback_failed_transport(host, transport)
+    assert transport.closed, "connector rollback did not start transport close"
+    assert host.terminal_failures == (
+        failure,
+        consequence,
+        drain_failure,
+        rollback_failure,
+    ), host.terminal_failures
+
+    provider_failure = RuntimeError("provider rollback failed")
+
+    class Loop:
+        def wrapper_host(self):
+            return host
+
+    def fail_provider_rollback() -> None:
+        raise provider_failure
+
+    _rollback_failed_provider(Loop(), fail_provider_rollback)
+    assert host.terminal_failures == (
+        failure,
+        consequence,
+        drain_failure,
+        rollback_failure,
+        provider_failure,
+    ), host.terminal_failures
+
+
+async def _iroh_readiness_failure_settles_waiters_exactly() -> None:
+    from pancake.iroh import _IrohLoop
+
+    failure = RuntimeError("iroh readiness drain failed")
+
+    class Netlayer:
+        def drain_ready(self, _buffer, _cap):
+            raise failure
+
+        def cancel_connect(self, _request_id):
+            return None
+
+    class Connection:
+        def key(self):
+            return 7
+
+        def close(self):
+            return None
+
+    loop = _IrohLoop(Netlayer())
+    connection = Connection()
+    loop.register(connection)
+    readable = loop.wait_readable(connection)
+    writable = loop.wait_writable(connection)
+    dial = asyncio.get_running_loop().create_future()
+    loop._dials[11] = dial
+    accepted = loop.next_accept()
+    loop._on_ready()
+    assert loop.failure is failure, "iroh loop replaced its readiness failure"
+    for waiter in (readable, writable, dial, accepted):
+        try:
+            await waiter
+        except BaseException as observed:
+            assert observed is failure, "iroh waiter replaced its readiness failure"
+        else:
+            raise AssertionError("iroh readiness failure became a clean close")
+
+    future = loop.next_accept()
+    try:
+        await future
+    except BaseException as observed:
+        assert observed is failure, "future iroh waiter lost the terminal failure"
+    else:
+        raise AssertionError("future iroh waiter observed a clean close")
+
+
+async def _local_tell_failure_belongs_to_host() -> None:
+    from pancake._trampoline import _BehaviorEntry, _tell_local
+
+    failure = RuntimeError("local tell behavior failed")
+
+    def fail(_verb, _args):
+        raise failure
+
+    host = Host()
+    session = type("LocalTellSession", (), {"host": host})()
+    ctx = host._register_behavior(_BehaviorEntry(run=fail, resolve_local=None))
+    try:
+        await _tell_local(session, ctx, "notify", [])
+        failures = host.take_failures()
+        assert len(failures) == 1, failures
+        retained = failures[0]
+        assert retained.operation == "tell.behavior", retained
+        assert retained.scope_id > 0, retained
+        assert retained.primary_name == "RuntimeError", retained
+        assert retained.primary_message == str(failure), retained
+    finally:
+        host._unregister_behavior(ctx)
+        await host.close()
+
+
+def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
+    one_slot = _RuntimeFailureQueue(1)
+    one_slot.record(FailureLayer.BINDING, "x" * 600, RuntimeError("first"))
+    one_slot.record(FailureLayer.BINDING, "second", RuntimeError("second"))
+    bounded = one_slot.claim()
+    assert len(bounded) == 1 and bounded[0].dropped_before == 1, bounded
+    assert bounded[0].truncated_fields == 0, bounded
+
+    text_queue = _RuntimeFailureQueue(1)
+    text_queue.record(FailureLayer.BINDING, "x" * 600, RuntimeError("unretained"))
+    truncated = text_queue.claim()[0]
+    assert len(truncated.operation.encode()) <= 512, truncated
+    assert truncated.truncated_fields & 1, truncated
+
+    unicode_queue = _RuntimeFailureQueue(1)
+    unicode_queue.record(FailureLayer.BINDING, "☃" * 600, RuntimeError("unretained"))
+    unicode_truncated = unicode_queue.claim()[0]
+    assert len(unicode_truncated.operation.encode()) <= 512, unicode_truncated
+    assert "�" not in unicode_truncated.operation, unicode_truncated
+
+    typed_queue = _RuntimeFailureQueue(1)
+    typed_primary = PancakeError(ERR_IO, "primary")
+    typed_secondary = PancakeError(ERR_INTERNAL, "cleanup")
+    _retain_cleanup_failure(typed_primary, typed_secondary)
+    typed_queue.record(FailureLayer.TRANSPORT, "listener.close", typed_primary)
+    typed = typed_queue.claim()[0]
+    assert typed.primary_result == ERR_IO, typed
+    assert typed.secondary_result == ERR_INTERNAL, typed
+    assert typed.secondary_count == 1, typed
+    assert typed.secondary_name == "PancakeError", typed
+    assert typed.secondary_message == str(typed_secondary), typed
+
+    pancake.take_runtime_failures()
+    explicit_failure = RuntimeError("explicit native release failed")
+    release_failure = RuntimeError("explicit native release cleanup failed")
+
+    def fail_shutdown(_raw) -> None:
+        raise explicit_failure
+
+    def fail_release(_raw) -> None:
+        raise release_failure
+
+    explicit = NativeHandle(
+        object(), fail_release, fail_shutdown, label="explicit-test"
+    )
+    try:
+        explicit.close()
+    except BaseException as observed:
+        assert observed is explicit_failure, "explicit release replaced its failure"
+    else:
+        raise AssertionError("explicit native release failure disappeared")
+    assert explicit.terminal_failures == (
+        explicit_failure,
+        release_failure,
+    ), explicit.terminal_failures
+    try:
+        explicit.close()
+    except BaseException as observed:
+        assert observed is explicit_failure, "repeated close replaced its first failure"
+    else:
+        raise AssertionError("repeated explicit close forgot its failure")
+    assert not pancake.take_runtime_failures(), (
+        "explicit close leaked into finalizer diagnostics"
+    )
+
+    finalizer_failure = RuntimeError("finalizer native release failed")
+
+    def fail_finalizer(_raw) -> None:
+        raise finalizer_failure
+
+    abandoned = NativeHandle(object(), fail_finalizer, label="finalizer-test")
+    del abandoned
+    gc.collect()
+    diagnostics = pancake.take_runtime_failures()
+    assert len(diagnostics) == 1, diagnostics
+    assert diagnostics[0].operation == "finalizer-test.finalize", diagnostics
+    assert diagnostics[0].primary_name == "RuntimeError", diagnostics
+    assert diagnostics[0].primary_message == str(finalizer_failure), diagnostics
+
+    reports = []
+
+    class FinalizerContext:
+        def _report_failure(self, **report) -> None:
+            reports.append(report)
+
+        def _release_handle(self) -> None:
+            pass
+
+    state = _loop_module._DriverFinalizerState(123, FinalizerContext())
+    original_release = _loop_module._driver.pancake_driver_release
+    attempts = 0
+
+    def refuse_once(_handle) -> int:
+        nonlocal attempts
+        attempts += 1
+        return ERR_IO if attempts == 1 else 0
+
+    _loop_module._driver.pancake_driver_release = refuse_once
+    try:
+        _loop_module._release_driver_finalizer_state(state)
+        assert state.handle is not None, "refused final release lost its native lease"
+        assert len(reports) == 1, reports
+        assert reports[0]["operation"] == "driver-loop.finalize.release", reports
+        assert reports[0]["primary_result"] == ERR_IO, reports
+        _loop_module._release_driver_finalizer_state(state)
+        assert state.handle is None, "successful retry retained the native lease"
+        assert len(reports) == 1, "release retry duplicated its diagnostic"
+    finally:
+        _loop_module._driver.pancake_driver_release = original_release
+        with _loop_module._deferred_driver_finalizers_lock:
+            if state in _loop_module._deferred_driver_finalizers:
+                _loop_module._deferred_driver_finalizers.remove(state)
+
+    pancake.take_runtime_failures()
+    original = RuntimeError("observer failed")
+    recorder = RuntimeError("Context recorder failed")
+
+    class BrokenContext:
+        def _report_failure(self, **_kwargs) -> None:
+            raise recorder
+
+    owner = type(
+        "BrokenDiagnosticOwner",
+        (),
+        {"_context": BrokenContext(), "_diagnostic_id": 17},
+    )()
+    _host_module.Host._record_callerless_failure(owner, "trace.sink", original)
+    fallback = pancake.take_runtime_failures()
+    assert len(fallback) == 2, fallback
+    assert fallback[0].operation == "trace.sink", fallback
+    assert fallback[0].layer is FailureLayer.APPLICATION_OBSERVER, fallback
+    assert fallback[0].primary_message == str(original), fallback
+    assert fallback[1].operation == "trace.sink.diagnostic", fallback
+    assert fallback[1].layer is FailureLayer.BINDING, fallback
+    assert fallback[1].primary_message == str(recorder), fallback
+
+
+def _allocator_callback_exceptions_are_contained() -> None:
+    pancake.take_runtime_failures()
+    alloc_error = RuntimeError("allocator refused")
+
+    def fail_alloc(_size: int, _alignment: int) -> int:
+        raise alloc_error
+
+    try:
+        Context.with_allocator(fail_alloc, lambda *_args: None)
+    except PancakeError:
+        pass
+    else:
+        raise AssertionError("null allocator result must refuse Context construction")
+    failures = pancake.take_runtime_failures()
+    assert len(failures) == 1, failures
+    assert failures[0].operation == "context.allocator.alloc", failures
+    assert failures[0].primary_message == str(alloc_error), failures
+
+    live = {}
+    free_error = RuntimeError("allocator free refused")
+
+    def allocate(size: int, alignment: int) -> int:
+        backing = (ctypes.c_uint8 * (size + alignment))()
+        base = ctypes.addressof(backing)
+        address = (base + alignment - 1) & ~(alignment - 1) if alignment > 1 else base
+        live[address] = backing
+        return address
+
+    def fail_free(_address: int, _size: int, _alignment: int) -> None:
+        raise free_error
+
+    context = Context.with_allocator(allocate, fail_free)
+    context.close()
+    failures = pancake.take_runtime_failures()
+    assert failures, "free callback exception disappeared"
+    assert failures[0].operation == "context.allocator.free", failures
+    assert failures[0].primary_message == str(free_error), failures
+    assert live, "failed free fabricated successful ownership release"
+
+
+def run_managed(awaitable):
+    """Run one async scenario and cross every Runtime teardown barrier."""
+
+    async def scoped():
+        runtimes: list[Runtime] = []
+        token = _scenario_runtimes.set(runtimes)
+        try:
+            return await awaitable
+        finally:
+            try:
+                await asyncio.gather(*(runtime.close() for runtime in reversed(runtimes)))
+            finally:
+                _scenario_runtimes.reset(token)
+
+    return asyncio.run(scoped())
+
+
+async def tcp_connect(partner, **kwargs):
+    """Open one managed TCP runtime for this smoke scenario."""
+    host = kwargs.pop("host", None)
+    codec = kwargs.pop("codec", "syrup")
+    timeout = kwargs.pop("handshake_timeout_ms", None)
+    runtime = await Runtime.open(
+        provider=tcp.provider(),
+        adopt_host=host,
+        codec=codec,
+        handshake_timeout_ms=timeout if timeout is not None else 10_000,
+    )
+    try:
+        session = await runtime.connect(partner)
+    except BaseException:
+        await runtime.close()
+        raise
+    runtimes = _scenario_runtimes.get()
+    if runtimes is None:
+        await runtime.close()
+        raise RuntimeError("tcp_connect must run inside run_managed")
+    runtimes.append(runtime)
+    return session
+
+
+async def _connector_install_is_transactional() -> None:
+    """A conflicting later symbol cannot publish an earlier connector."""
+    host = Host()
+
+    def never(_host, _locator, _timeout):
+        return None
+
+    first = Connector((TRANSPORT_TCP, TRANSPORT_KEYED_TCP), never)
+    second = Connector((TRANSPORT_NOISE_TCP, TRANSPORT_TCP), never)
+    try:
+        try:
+            host.install_connectors((first, second))
+        except PancakeError:
+            pass
+        else:
+            raise AssertionError("conflicting connector set was accepted")
+        assert host._connector_for(TRANSPORT_TCP) is None
+        assert host._connector_for(TRANSPORT_KEYED_TCP) is None
+        assert host._connector_for(TRANSPORT_NOISE_TCP) is None
+    finally:
+        await host.close()
+
+
+async def _cancelled_dial_does_not_report_failure() -> None:
+    """Core-selected cancellation is acknowledged only by the CANCEL_DIAL arm."""
+    import pancake._dial as dial_module
+
+    started = asyncio.Event()
+    failures = 0
+
+    class HostStub:
+        released = False
+        raw = 1
+
+    class OwnedLocatorStub:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            pass
+
+        def value(self):
+            return Locator("cancel-test", "peer", {})
+
+    def pending_dial(*_args) -> int:
+        return 0
+
+    def dial_failed(*_args) -> int:
+        nonlocal failures
+        failures += 1
+        return 0
+
+    async def blocked_dial(*_args):
+        started.set()
+        await asyncio.Event().wait()
+
+    original_pending = dial_module._host.pancake_host_pending_dial
+    original_failed = dial_module._host.pancake_host_dial_failed
+    original_clone = dial_module._OwnedLocator.__dict__["clone_view"]
+    original_dial = dial_module.dial_exporter
+    dial_module._host.pancake_host_pending_dial = pending_dial
+    dial_module._host.pancake_host_dial_failed = dial_failed
+    setattr(
+        dial_module._OwnedLocator,
+        "clone_view",
+        classmethod(lambda _cls, _view: OwnedLocatorStub()),
+    )
+    dial_module.dial_exporter = blocked_dial
+    try:
+        task = asyncio.create_task(dial_module.run_dial_ticket(HostStub(), 7))
+        await asyncio.wait_for(started.wait(), 1)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("dial cancellation did not propagate")
+        assert failures == 0, "cancelled dial reported dial_failed"
+    finally:
+        dial_module._host.pancake_host_pending_dial = original_pending
+        dial_module._host.pancake_host_dial_failed = original_failed
+        setattr(dial_module._OwnedLocator, "clone_view", original_clone)
+        dial_module.dial_exporter = original_dial
+
+
+async def _driver_completion_preserves_failure_category() -> None:
+    from pancake import _constants
+    from pancake._host_action_gen import Fail
+    from pancake._loop import DriverLoop, LoopEvent
+
+    loop = DriverLoop.__new__(DriverLoop)
+    loop._wrapper = None
+    failure = asyncio.get_running_loop().create_future()
+    loop._completions = {9: failure}
+    loop._dispatch(
+        LoopEvent(
+            _constants.DRIVER_EVENT_COMPLETION,
+            _constants.ERR_CLOSED,
+            0,
+            0,
+            0,
+            0,
+            None,
+            primary_name="closed by owner",
+            settled_ok=False,
+            decoded=Fail(9, _constants.ERR_CLOSED, "closed by owner"),
+        )
+    )
+    try:
+        await failure
+    except PancakeError as error:
+        assert error.code == _constants.ERR_CLOSED, error
+    else:
+        raise AssertionError("failed driver completion resolved successfully")
+
+
+async def _runtime_open_is_transactional() -> None:
+    """Failed Runtime setup releases only resources it already owns."""
+
+    async with Host() as managed_host:
+        assert not managed_host.released
+    assert managed_host.released, "Host async context did not cross its close barrier"
+
+    async def never(_host, _locator, _timeout):
+        raise AssertionError("the failed connector must never be dialed")
+
+    connector = Connector(("runtime-test",), never)
+
+    retryable = await Runtime.open(connector=connector)
+    try:
+        await retryable.close(grace=1)
+    except PancakeError as error:
+        assert error.code == ERR_INVALID_ARGUMENT, error
+    else:
+        raise AssertionError("Runtime accepted grace for cancel close")
+    await retryable
+    await retryable.close()
+    for operation in (
+        lambda: retryable,
+        lambda: retryable.connect(Locator("runtime-test", "peer", {})),
+    ):
+        try:
+            await operation()
+        except PancakeError as error:
+            assert error.code == ERR_CLOSED, error
+        else:
+            raise AssertionError("closed Runtime admitted another operation")
+
+    grace_host = Host()
+    try:
+        maximum = _close_options(PendingWork.FINISH, 0xFFFF_FFFF / 1_000)
+        assert maximum.grace_ms == 0xFFFF_FFFF
+        try:
+            await grace_host.close(PendingWork.FINISH, grace=10**10_000)
+        except PancakeError as error:
+            assert error.code == ERR_INVALID_ARGUMENT, error
+        else:
+            raise AssertionError("Host accepted a grace value outside the C range")
+        assert not grace_host.released, "invalid grace closed the Host"
+    finally:
+        await grace_host.close()
+
+    original_install = Host.install_connectors
+    original_close = Host.close
+    created: list[Host] = []
+    adopted_host = None
+    setup_failure = PancakeError(
+        ERR_INVALID_ARGUMENT, "synthetic connector install failure"
+    )
+    cleanup_failure = RuntimeError("synthetic failed-open cleanup failure")
+
+    retained_primary = PancakeError(ERR_INVALID_ARGUMENT, "synthetic primary")
+    retained_cleanup = PancakeError(ERR_IO, "synthetic cleanup")
+    assert _retain_cleanup_failure(retained_primary, retained_cleanup) is retained_primary
+    assert retained_primary.secondary == (retained_cleanup,)
+    assert retained_primary.secondary_count == 1
+
+    rollback_primary = PancakeError(ERR_INVALID_ARGUMENT, "listener setup failed")
+    listener_cleanup = PancakeError(ERR_IO, "listener cleanup failed")
+    loop_cleanup = PancakeError(ERR_INTERNAL, "loop cleanup failed")
+    cleanup_order: list[str] = []
+
+    class FailedListener:
+        def close(self) -> None:
+            cleanup_order.append("listener")
+            raise listener_cleanup
+
+    class FailedLoop:
+        def close(self) -> None:
+            cleanup_order.append("loop")
+            raise loop_cleanup
+
+    assert _rollback_listener_construction(
+        rollback_primary, FailedLoop(), FailedListener(), True
+    ) is rollback_primary
+    assert cleanup_order == ["listener", "loop"]
+    assert rollback_primary.secondary == (listener_cleanup, loop_cleanup)
+    assert rollback_primary.secondary_count == 2
+
+    retained_occurrences: list[BaseException] = []
+    occurrence_count = 0
+    for index in range(65):
+        occurrence_count = _retain_terminal_failure(
+            retained_occurrences, occurrence_count, RuntimeError(f"occurrence {index}")
+        )
+    assert len(retained_occurrences) == 64
+    assert occurrence_count == 65
+
+    def fail_install(host, _connectors) -> None:
+        created.append(host)
+        raise setup_failure
+
+    async def fail_after_close(host, *args, **kwargs) -> None:
+        await original_close(host, *args, **kwargs)
+        raise cleanup_failure
+
+    setattr(Host, "install_connectors", fail_install)
+    try:
+        runtime = Runtime.open(connector=connector)
+        setattr(Host, "close", fail_after_close)
+        try:
+            await runtime
+        except PancakeError as error:
+            assert error is setup_failure, "Runtime replaced its setup failure"
+        else:
+            raise AssertionError("failed connector installation opened a Runtime")
+        finally:
+            setattr(Host, "close", original_close)
+        assert len(created) == 1
+        assert created[0].released, "a newly created Host survived failed open"
+        assert runtime._host is None, "failed open published a Host before commit"
+        assert runtime.terminal_failures == (
+            setup_failure,
+            cleanup_failure,
+        ), runtime.terminal_failures
+
+        adopted_host = Host()
+        adopted = Runtime.open(adopt_host=adopted_host, connector=connector)
+        try:
+            await adopted
+        except PancakeError as error:
+            assert error.code == ERR_INVALID_ARGUMENT, error
+        else:
+            raise AssertionError("failed adopted connector installation opened a Runtime")
+        assert not adopted_host.released, "failed open released an adopted Host before transfer"
+        assert adopted._host is None, "failed adopted open published a Host before commit"
+    finally:
+        setattr(Host, "install_connectors", original_install)
+        setattr(Host, "close", original_close)
+        if adopted_host is not None and not adopted_host.released:
+            await adopted_host.close()
+
+    async def fail_provider(_loop) -> None:
+        raise PancakeError(ERR_INVALID_ARGUMENT, "synthetic provider install failure")
+
+    created_provider_loop = None
+
+    async def fail_created_provider(loop) -> None:
+        nonlocal created_provider_loop
+        created_provider_loop = loop
+        raise PancakeError(ERR_INVALID_ARGUMENT, "synthetic provider install failure")
+
+    created_runtime = Runtime.open(provider=Provider(fail_created_provider))
+    try:
+        await created_runtime
+    except PancakeError as error:
+        assert error.code == ERR_INVALID_ARGUMENT, error
+    else:
+        raise AssertionError("failed provider installation opened a Runtime")
+    assert created_provider_loop is not None
+    assert created_provider_loop._released, "failed provider setup returned before its created loop released"
+
+    supplied = Host()
+    runtime = Runtime.open(
+        adopt_host=supplied,
+        provider=Provider(fail_provider),
+    )
+    try:
+        try:
+            await runtime
+        except PancakeError as error:
+            assert error.code == ERR_INVALID_ARGUMENT, error
+        else:
+            raise AssertionError("failed provider installation opened a Runtime")
+        assert not supplied.released, "failed provider setup released the caller-owned Host"
+        assert supplied.driver_loop is not None, "failed provider setup discarded the adopted loop"
+        assert runtime._host is None, "failed provider setup published a Host"
+        retry = Runtime.open(adopt_host=supplied, provider=tcp.provider())
+        await retry
+        await retry.close()
+    finally:
+        if not supplied.released:
+            await supplied.close()
+
+    from pancake._loop import DriverLoop
+
+    installer_called = False
+
+    async def fail_existing_install(_loop) -> None:
+        nonlocal installer_called
+        installer_called = True
+        raise PancakeError(ERR_INVALID_ARGUMENT, "synthetic existing-loop install failure")
+
+    existing_host = Host()
+    existing_loop = DriverLoop.take_host(existing_host)
+    runtime = Runtime.open(
+        adopt_host=existing_host,
+        provider=Provider(fail_existing_install),
+    )
+    try:
+        try:
+            await runtime
+        except PancakeError as error:
+            assert error.code == ERR_INVALID_ARGUMENT, error
+        else:
+            raise AssertionError("failed existing-loop provider installation opened a Runtime")
+        assert installer_called, "Runtime bypassed provider installation for an existing driver loop"
+        assert not existing_host.released, "failed open released a caller-owned driver loop"
+    finally:
+        existing_loop.close()
+
+
 def main() -> int:
+    _gc_release_refusal_stays_owned()
+    asyncio.run(_websocket_close_failure_is_observable())
+    print("python zig-smoke OK: WebSocket close retains its exact async failure")
+    asyncio.run(_host_owns_async_behavior_settlement_failure())
+    print("python zig-smoke OK: Host shutdown owns async behavior settlement failure")
+    asyncio.run(_iroh_readiness_failure_settles_waiters_exactly())
+    print("python zig-smoke OK: iroh readiness faults settle every waiter exactly")
+    asyncio.run(_local_tell_failure_belongs_to_host())
+    print("python zig-smoke OK: local tell failure enters its Host diagnostic seam")
+    _native_finalizer_failure_is_nonfatal_and_observable()
+    print("python zig-smoke OK: native finalizer failures stay nonfatal and observable")
+    _allocator_callback_exceptions_are_contained()
+    print("python zig-smoke OK: allocator callback exceptions stay nonfatal and observable")
+    run_managed(_connector_install_is_transactional())
+    run_managed(_cancelled_dial_does_not_report_failure())
+    run_managed(_driver_completion_preserves_failure_category())
+    run_managed(_runtime_open_is_transactional())
+    print("python zig-smoke OK: Runtime.open preserves caller-owned Hosts across failed provider setup")
+    print("python zig-smoke OK: connector installation is transactional")
     sturdyref = parse_sturdyref(
         "ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/"
-        "eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU"
+        "eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU",
+        "v1_0",
     )
     assert sturdyref.locator.transport == "onion"
     assert sturdyref.swissnum == bytes.fromhex(
-        "79 08 cf e2 74 76 f1 f7 d7 e5 ea 0d 08 ae 43 58 "
-        "7e 83 4f f7 7b 04 8a 83 df e3 32 e3 9f 42 51 b5"
+        "79 08 cf e2 74 76 f1 f7 d7 e5 ea 0d 08 ae 43 58 7e 83 4f f7 7b 04 8a 83 df e3 32 e3 9f 42 51 b5"
     )
     formatted_sturdyref = format_sturdyref(
-        "ocapn://127.0.0.1%3A9045.tcp", b"durable:0123456789abcdef"
+        tcp.locator("127.0.0.1", 9045),
+        b"durable:0123456789abcdef",
+        "next",
     )
-    assert parse_sturdyref(formatted_sturdyref).swissnum == b"durable:0123456789abcdef"
+    assert parse_sturdyref(formatted_sturdyref, "next").swissnum == b"durable:0123456789abcdef"
 
     try:
         Ref(1)
@@ -86,6 +899,38 @@ def main() -> int:
     # The linked library reports a nonzero ABI version.
     major, minor, patch = abi_version()
     assert major + minor + patch > 0, (major, minor, patch)
+
+    with Context() as diagnostic_context:
+        diagnostic_context._report_failure(
+            layer=FAILURE_LAYER_TRANSPORT,
+            scope=FAILURE_SCOPE_LISTENER,
+            operation="listener.close",
+            primary_name="CloseFailed",
+            primary_result=ERR_IO,
+            primary_message="socket refused shutdown",
+            scope_id=31,
+            operation_id=47,
+            secondary_result=ERR_INTERNAL,
+            secondary_name="ReleaseFailed",
+            secondary_message="descriptor remained live",
+            secondary_count=2,
+        )
+        failures = diagnostic_context.take_failures()
+        assert len(failures) == 1, failures
+        failure = failures[0]
+        assert failure.sequence == 1 and failure.dropped_before == 0, failure
+        assert failure.layer is FailureLayer.TRANSPORT, failure
+        assert failure.scope is FailureScope.LISTENER, failure
+        assert failure.scope_id == 31 and failure.operation_id == 47, failure
+        assert failure.primary_result == ERR_IO, failure
+        assert failure.secondary_result == ERR_INTERNAL, failure
+        assert failure.secondary_count == 2, failure
+        assert failure.operation == "listener.close", failure
+        assert failure.primary_name == "CloseFailed", failure
+        assert failure.primary_message == "socket refused shutdown", failure
+        assert failure.secondary_name == "ReleaseFailed", failure
+        assert failure.secondary_message == "descriptor remained live", failure
+        assert diagnostic_context.next_failure() is None
 
     for invalid_seed in (b"\0" * 31, b"\0" * 33):
         try:
@@ -103,13 +948,12 @@ def main() -> int:
         assert owned_seed_host.designator() == expected_designator
         assert owned_seed_host.seed == bytes(range(32))
     finally:
-        owned_seed_host.release()
+        asyncio.run(owned_seed_host.close())
 
     locator_host = Host()
     locator_host.set_advertised_locator(Locator("tcp", "127.0.0.1:7441", {}))
     locator_host.remove_advertised_locator("tcp")
-    locator_host.close_sessions()
-    locator_host.release()
+    asyncio.run(locator_host.close())
 
     async def make_loop_bound_host() -> Host:
         return Host()
@@ -117,10 +961,8 @@ def main() -> int:
     stopped_loop = asyncio.new_event_loop()
     stopped_host = stopped_loop.run_until_complete(make_loop_bound_host())
     assert not stopped_loop.is_running() and not stopped_loop.is_closed()
-    stopped_host.release()
-    assert stopped_host.released, (
-        "release must not queue cleanup onto a stopped event loop"
-    )
+    stopped_loop.run_until_complete(stopped_host.close())
+    assert stopped_host.released, "release must not queue cleanup onto a stopped event loop"
     stopped_loop.close()
 
     stopped_work_loop = asyncio.new_event_loop()
@@ -138,18 +980,15 @@ def main() -> int:
             finally:
                 stopped_work_finished = True
 
-        host.start_dial_task(pending)
+        host.start_dial_task(1, pending)
         await started.wait()
+        await host.cancel_dial_task(1)
         return host
 
-    stopped_work_host = stopped_work_loop.run_until_complete(
-        make_host_with_active_work()
-    )
-    stopped_work_host.release()
-    assert stopped_work_finished, "stopped-loop release did not join active work"
-    assert stopped_work_host._raw is None, (
-        "stopped-loop release retained the native Host after joining work"
-    )
+    stopped_work_host = stopped_work_loop.run_until_complete(make_host_with_active_work())
+    stopped_work_loop.run_until_complete(stopped_work_host.close())
+    assert stopped_work_finished, "CANCEL_DIAL did not join its ticketed task"
+    assert stopped_work_host._raw is None, "stopped-loop close retained the native Host after joining work"
     stopped_work_loop.close()
 
     # Collection is not an operational Host verb and may run on any Python
@@ -166,9 +1005,7 @@ def main() -> int:
         return host, host._giftables["finalized"]
 
     finalizer_loop = asyncio.new_event_loop()
-    finalized, finalized_ctx = finalizer_loop.run_until_complete(
-        make_finalizable_host()
-    )
+    finalized, finalized_ctx = finalizer_loop.run_until_complete(make_finalizable_host())
     handoff = [finalized]
     del finalized
     finalizer_loop.close()
@@ -180,9 +1017,7 @@ def main() -> int:
     collector = threading.Thread(target=collect_host)
     collector.start()
     collector.join()
-    assert _entry_for(finalized_ctx) is None, (
-        "off-thread Host finalization must retire native and trampoline authority"
-    )
+    assert _entry_for(finalized_ctx) is None, "off-thread Host finalization must retire native and trampoline authority"
 
     # A finalizer release refused outside a callback transfers to one process
     # retry owner. The next safe Host boundary retries it instead of retaining
@@ -383,149 +1218,136 @@ def main() -> int:
     assert not accepter.is_alive(), "inproc owner release did not join a blocked accept"
     assert accept_errors, "inproc listener shutdown did not interrupt a blocked accept"
 
-    print(
-        "python zig-smoke OK: the blocking TCP and in-process transports shuttled a frame"
-    )
+    print("python zig-smoke OK: the blocking TCP and in-process transports shuttled a frame")
 
     _onion_against_a_fake_daemon()
-    print(
-        "python zig-smoke OK: the onion transport reached a fake Tor and reported its service"
-    )
+    print("python zig-smoke OK: the onion transport reached a fake Tor and reported its service")
 
     _loop_archive_stepping_parity()
     print(
         "python zig-smoke OK: the public Session surface ran over the driver archive — connect, fetch, an eventual-send round trip, VowBroken, and close"
     )
 
-    asyncio.run(_allocator_context_round_trip())
-    print(
-        "python zig-smoke OK: drove a published counter round-trip from a context-backed Host"
-    )
+    run_managed(_allocator_context_round_trip())
+    print("python zig-smoke OK: drove a published counter round-trip from a context-backed Host")
 
-    asyncio.run(_live_trace_produces_timeline())
-    print(
-        "python zig-smoke OK: the live trace produced the timeline schema for a whole conversation"
-    )
+    run_managed(_live_trace_produces_timeline())
+    print("python zig-smoke OK: the live trace produced the timeline schema for a whole conversation")
 
-    asyncio.run(_async_behavior_defers())
-    print(
-        "python zig-smoke OK: an async behavior deferred its answer onto a resolver vow and settled off-turn"
-    )
+    run_managed(_async_behavior_defers())
+    print("python zig-smoke OK: an async behavior deferred its answer onto a resolver vow and settled off-turn")
 
-    asyncio.run(_capnp_codec_round_trip())
-    print(
-        "python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip"
-    )
+    run_managed(_capnp_codec_round_trip())
+    print("python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip")
 
-    asyncio.run(_empty_codec_is_not_the_default())
-    print(
-        "python zig-smoke OK: an empty codec offer is refused, not rewritten as Syrup"
-    )
+    run_managed(_empty_codec_is_not_the_default())
+    print("python zig-smoke OK: an empty codec offer is refused, not rewritten as Syrup")
 
-    asyncio.run(_feed_refusals_are_typed())
-    print(
-        "python zig-smoke OK: an over-cap frame refuses typed and a refused frame carries its abort cause"
-    )
+    run_managed(_feed_refusals_are_typed())
+    print("python zig-smoke OK: an over-cap frame refuses typed and a refused frame carries its abort cause")
 
-    asyncio.run(_tightened_admission_cap_refuses())
-    print(
-        "python zig-smoke OK: a tightened session limit refuses a frame the default cap admits"
-    )
+    run_managed(_tightened_admission_cap_refuses())
+    print("python zig-smoke OK: a tightened session limit refuses a frame the default cap admits")
 
-    asyncio.run(_disconnect_rejects_pending_send())
+    run_managed(_disconnect_rejects_pending_send())
     print("python zig-smoke OK: an outstanding send rejects on disconnect")
 
-    asyncio.run(_listen_surfaces_bound_port())
-    print(
-        "python zig-smoke OK: high-level listen() surfaces the bound port and accepts"
-    )
+    run_managed(_listen_surfaces_bound_port())
+    print("python zig-smoke OK: high-level listen() surfaces the bound port and accepts")
 
-    asyncio.run(_rude_probe_cannot_close_the_listener())
+    run_managed(_rude_probe_cannot_close_the_listener())
     print("python zig-smoke OK: a rude probe cannot close the listener")
 
-    asyncio.run(_supplied_host_tcp_listener_ownership())
-    print(
-        "python zig-smoke OK: supplied TCP Hosts transfer to the driver transactionally"
-    )
+    run_managed(_supplied_host_tcp_listener_ownership())
+    print("python zig-smoke OK: supplied TCP Hosts transfer to the driver transactionally")
 
-    asyncio.run(_listener_close_preserves_sibling())
+    run_managed(_failed_listener_preserves_supplied_host())
+    print("python zig-smoke OK: failed listener setup preserves its supplied Host for retry")
+
+    run_managed(_listener_close_preserves_sibling())
     print("python zig-smoke OK: closing one listener preserves a sibling listener")
 
-    asyncio.run(_host_release_joins_dial_task())
-    print("python zig-smoke OK: Host release joins every registered DIAL task")
+    run_managed(_host_release_joins_dial_task())
+    print("python zig-smoke OK: Host close joins every registered DIAL task")
 
-    asyncio.run(_supplied_host_iroh_listener_ownership())
+    run_managed(_supplied_host_iroh_listener_ownership())
     print("python zig-smoke OK: supplied iroh Hosts transfer to the resident driver")
 
-    asyncio.run(_proof_refusal_releases_minted_session())
+    run_managed(_proof_refusal_releases_minted_session())
     print("python zig-smoke OK: proof refusal releases the newly minted session")
 
-    asyncio.run(_cancelled_iroh_open_releases_constructed_endpoint())
+    run_managed(_cancelled_iroh_open_releases_constructed_endpoint())
     print("python zig-smoke OK: canceled iroh startup joins and releases its endpoint")
 
-    asyncio.run(_iroh_release_async_joins_after_cancellation())
-    print("python zig-smoke OK: canceled iroh release still joins native teardown")
+    run_managed(_iroh_close_joins_after_cancellation())
+    print("python zig-smoke OK: canceled iroh close still joins native teardown")
 
-    asyncio.run(_session_close_joins_owned_transport_release())
+    run_managed(_session_close_joins_owned_transport_release())
     print("python zig-smoke OK: Session.close joins owned transport teardown")
 
-    asyncio.run(_structured_args_round_trip())
-    print(
-        "python zig-smoke OK: a Set round-trips as a Set, a nested capability stays sendable, a break is typed"
-    )
+    run_managed(_session_repeated_close_joins_published_failure())
+    print("python zig-smoke OK: repeated Session.close joins its published failure")
 
-    asyncio.run(_enliven_round_trips_then_caches())
-    print(
-        "python zig-smoke OK: a sturdyref enlivens to a live capability, and a repeat enliven hits the cache"
-    )
+    run_managed(_session_close_retains_every_terminal_failure())
+    print("python zig-smoke OK: Session.close retains every terminal failure in order")
 
-    asyncio.run(_gc_releases_dropped_import())
-    print(
-        "python zig-smoke OK: a dropped fetched import releases its export when GC is opted in"
-    )
+    run_managed(_session_wire_failure_is_exact_and_retired())
+    print("python zig-smoke OK: Session wire failure is exact and joins retirement")
 
-    asyncio.run(_fetch_failed_is_typed())
+    run_managed(_cancelled_session_close_waiter_does_not_stop_driver())
+    print("python zig-smoke OK: canceled Session.close waiter leaves the shared close driver running")
+
+    run_managed(_repeated_host_close_observes_recorded_timeout())
+    print("python zig-smoke OK: repeated Host.close observes the recorded finish timeout")
+
+    run_managed(_loop_finish_close_reports_finite_grace_timeout())
+    print("python zig-smoke OK: a loop finish close that outlives its finite grace reports the typed timeout")
+
+    run_managed(_silent_loop_dial_reaches_native_handshake_deadline())
+    print("python zig-smoke OK: a silent loop dial reaches pancake's native handshake deadline")
+
+    run_managed(_host_close_shuts_a_still_open_listener())
+    print("python zig-smoke OK: Host.close completes over an open listener and ends its accept stream")
+
+    run_managed(_structured_args_round_trip())
+    print("python zig-smoke OK: a Set round-trips as a Set, a nested capability stays sendable, a break is typed")
+
+    run_managed(_enliven_round_trips_then_caches())
+    print("python zig-smoke OK: a sturdyref enlivens to a live capability, and a repeat enliven hits the cache")
+
+    run_managed(_gc_releases_dropped_import())
+    print("python zig-smoke OK: a dropped fetched import releases its export when GC is opted in")
+
+    run_managed(_fetch_failed_is_typed())
     print("python zig-smoke OK: a non-capability fetch raises the typed FetchFailed")
 
-    asyncio.run(_pipelining_drives_chain())
-    print(
-        "python zig-smoke OK: promise pipelining drives create->assign->complete->status as one batch"
-    )
+    run_managed(_pipelining_drives_chain())
+    print("python zig-smoke OK: promise pipelining drives create->assign->complete->status as one batch")
 
-    asyncio.run(_turn_spawn_survives_originating_port_close())
-    print(
-        "python zig-smoke OK: turn-time spawn uses the Host after the originating Port closes"
-    )
+    run_managed(_turn_spawn_survives_originating_port_close())
+    print("python zig-smoke OK: turn-time spawn uses the Host after the originating Port closes")
 
-    asyncio.run(_unawaited_break_stays_silent())
-    print(
-        "python zig-smoke OK: an unawaited send is an asyncio.Future whose far break stays silent"
-    )
+    run_managed(_unawaited_break_stays_silent())
+    print("python zig-smoke OK: an unawaited send is an asyncio.Future whose far break stays silent")
 
-    asyncio.run(_projections_reach_a_field())
+    run_managed(_projections_reach_a_field())
     print(
         "python zig-smoke OK: pipelined projections untag->index reach a field, and a late source await still settles"
     )
 
-    asyncio.run(_forwarding_proxies_over_the_wire())
-    print(
-        "python zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire"
-    )
+    run_managed(_forwarding_proxies_over_the_wire())
+    print("python zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire")
 
-    asyncio.run(_forwarding_proxy_local_call())
-    print(
-        "python zig-smoke OK: a forwarding proxy answers its host's own local call (local and far target)"
-    )
+    run_managed(_forwarding_proxy_local_call())
+    print("python zig-smoke OK: a forwarding proxy answers its host's own local call (local and far target)")
 
-    asyncio.run(_mid_turn_driving_verb_breaks_the_answer())
-    print(
-        "python zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer"
-    )
+    run_managed(_mid_turn_driving_verb_breaks_the_answer())
+    print("python zig-smoke OK: a behavior's mid-turn driving verb is refused and breaks its own answer")
 
-    asyncio.run(_mid_turn_host_release_orders_sessions_before_host())
-    print("python zig-smoke OK: callback-time Host release defers one driver teardown")
+    run_managed(_mid_turn_host_release_orders_sessions_before_host())
+    print("python zig-smoke OK: callback-time Host close records native intent")
 
-    asyncio.run(_send_redeeming_surfaces_the_direct_exporter())
+    run_managed(_send_redeeming_surfaces_the_direct_exporter())
     print(
         "python zig-smoke OK: send_redeeming surfaces the redeemed exporter session, and a reply capability hosted on it routes"
     )
@@ -542,9 +1364,7 @@ async def _start_relay(target_port: int, rewrite=None, observe=None):
 
     async def handle(client_reader, client_writer) -> None:
         try:
-            server_reader, server_writer = await asyncio.open_connection(
-                "127.0.0.1", target_port
-            )
+            server_reader, server_writer = await asyncio.open_connection("127.0.0.1", target_port)
         except OSError:
             client_writer.close()
             return
@@ -558,9 +1378,7 @@ async def _start_relay(target_port: int, rewrite=None, observe=None):
                         break
                     if observe is not None:
                         observe(chunk, rewriting)
-                    dst.write(
-                        rewrite(chunk) if (rewriting and rewrite is not None) else chunk
-                    )
+                    dst.write(rewrite(chunk) if (rewriting and rewrite is not None) else chunk)
                     await dst.drain()
             except OSError:
                 pass
@@ -591,19 +1409,18 @@ async def _live_trace_produces_timeline() -> None:
 
     events: list = []
     host = Host()
+    trace_failure = RuntimeError("trace sink failure must stay observer-only")
 
     def record_then_raise(event) -> None:
         events.append(event)
-        raise RuntimeError("trace sink failure must stay observer-only")
+        raise trace_failure
 
     # Trace configuration is process-global, but every native Host remains
     # owner-thread confined. Installing from a worker must hop back to this
     # loop rather than calling through a retained raw pointer.
-    uninstall = await asyncio.to_thread(
-        lambda: enable_trace(record_then_raise, self_label="smoke")
-    )
+    uninstall = await asyncio.to_thread(lambda: enable_trace(record_then_raise, self_label="smoke"))
     host.publish_giftable("greeter", lambda verb, args: f"hello {verb}")
-    server = await listen("127.0.0.1", 0, host)
+    server = await tcp.listen("127.0.0.1", 0, host=host)
     try:
 
         async def serve_one() -> None:
@@ -612,7 +1429,8 @@ async def _live_trace_produces_timeline() -> None:
                 break
 
         hosted = asyncio.ensure_future(serve_one())
-        client = await connect(tcp_locator("127.0.0.1", server.port))
+        client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
+        client_host = client.host
         client.serve()
         greeter = await client.fetch("greeter")
         reply = await client.send(greeter, "trace-me", [])
@@ -623,9 +1441,18 @@ async def _live_trace_produces_timeline() -> None:
         await client.close()
         await asyncio.wait_for(hosted, timeout=5)
     finally:
-        await server.close_async()
-    await host.release_async()
+        await server.close()
+        await host.close()
     await asyncio.to_thread(uninstall)
+    trace_diagnostics = host.take_failures() + client_host.take_failures()
+    assert trace_diagnostics, "trace sink failures disappeared"
+    assert all(
+        failure.operation == "trace.sink"
+        and failure.scope_id > 0
+        and failure.primary_name == "RuntimeError"
+        and failure.primary_message == str(trace_failure)
+        for failure in trace_diagnostics
+    ), trace_diagnostics
 
     opened = [ev for ev in events if ev["kind"] == "ocapn.session-opened"]
     assert len(opened) >= 2, f"both hosts' opens reached the one sink: {events}"
@@ -644,24 +1471,16 @@ async def _live_trace_produces_timeline() -> None:
     assert all(ev.get("session_id") == opened[0].get("session_id") for ev in opened)
     assert re.fullmatch(r"[0-9a-f]{64}", opened[0].get("session_id", ""))
     outbound = [
-        ev
-        for ev in events
-        if ev["kind"] == "ocapn.message-decoded"
-        and ev.get("op") == "trace-me"
-        and ev["outbound"]
+        ev for ev in events if ev["kind"] == "ocapn.message-decoded" and ev.get("op") == "trace-me" and ev["outbound"]
     ]
     assert outbound, "the client's send traced outbound"
     inbound = [
         ev
         for ev in events
-        if ev["kind"] == "ocapn.message-decoded"
-        and ev.get("op") == "trace-me"
-        and not ev["outbound"]
+        if ev["kind"] == "ocapn.message-decoded" and ev.get("op") == "trace-me" and not ev["outbound"]
     ]
     assert inbound, "the server's deliver traced inbound"
-    assert inbound[0]["session"] != outbound[0]["session"], (
-        "each host names its own session row"
-    )
+    assert inbound[0]["session"] != outbound[0]["session"], "each host names its own session row"
     # Payload: both fact sites sit at the wire boundary (inbound dispatch,
     # the outbound drain), so both records carry the whole (sub-cap) frame
     # with its true length and the verb inside it.
@@ -673,12 +1492,8 @@ async def _live_trace_produces_timeline() -> None:
         assert b"trace-me" in frame, "the frame bytes contain the delivered verb"
     assert any(ev["kind"] == "ocapn.session-closed" for ev in events)
     metas = [ev for ev in events if ev["kind"] == "ocapn.session-meta"]
-    assert metas and metas[0]["meta"]["label"] == "greeter-server", (
-        "the annotation reached the sink with its label"
-    )
-    assert metas[0]["session"] == outbound[0]["session"], (
-        "the annotation names the same session row the tap names"
-    )
+    assert metas and metas[0]["meta"]["label"] == "greeter-server", "the annotation reached the sink with its label"
+    assert metas[0]["session"] == outbound[0]["session"], "the annotation names the same session row the tap names"
     stamps = [ev["sim_t_ns"] for ev in events]
     assert stamps == sorted(stamps), "sim_t_ns is monotone"
 
@@ -700,7 +1515,7 @@ async def _async_behavior_defers() -> None:
         return "computed off-turn"
 
     host.publish_giftable("worker", work)
-    server = await listen("127.0.0.1", 0, host)
+    server = await tcp.listen("127.0.0.1", 0, host=host)
     try:
 
         async def serve_one() -> None:
@@ -709,7 +1524,7 @@ async def _async_behavior_defers() -> None:
                 break
 
         hosted = asyncio.ensure_future(serve_one())
-        client = await connect(tcp_locator("127.0.0.1", server.port))
+        client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         client.serve()
         worker = await client.fetch("worker")
         reply = await client.send(worker, "work", [])
@@ -717,24 +1532,20 @@ async def _async_behavior_defers() -> None:
         try:
             await client.send(worker, "fail", [])
         except VowBroken as broke:
-            assert "worker gave up" in str(broke), (
-                f"async raise carries the reason, got {broke!s}"
-            )
+            assert "worker gave up" in str(broke), f"async raise carries the reason, got {broke!s}"
         else:
             raise AssertionError("an async behavior's raise must break the caller")
         try:
             await client.send(worker, "unsupported", [])
         except VowBroken as broke:
-            assert "unsupported" in str(broke).lower(), (
-                f"async marshal failure carries the reason, got {broke!s}"
-            )
+            assert "unsupported" in str(broke).lower(), f"async marshal failure carries the reason, got {broke!s}"
         else:
             raise AssertionError("an unsupported async result must break the caller")
         await client.close()
         await asyncio.wait_for(hosted, timeout=5)
     finally:
-        server.close()
-    await host.release_async()
+        await server.close()
+    await asyncio.wait_for(host.close(), timeout=1)
 
 
 async def _allocator_context_round_trip() -> None:
@@ -780,21 +1591,19 @@ async def _allocator_context_round_trip() -> None:
             raise ValueError(f"no such method {verb!r}")
 
         host.publish_giftable("counter", counter)
-        server = await listen("127.0.0.1", 0, host)
+        server = await tcp.listen("127.0.0.1", 0, host=host)
         try:
 
             async def serve_one() -> None:
                 async for session in server:
                     local_counter = session.published_ref("counter")
-                    assert local_counter is not None, (
-                        "the Host alias projects onto the accepted session"
-                    )
+                    assert local_counter is not None, "the Host alias projects onto the accepted session"
                     assert await session.send(local_counter, "get", []) == 10
                     await session.serve()
                     break
 
             hosted = asyncio.ensure_future(serve_one())
-            client = await connect(tcp_locator("127.0.0.1", server.port))
+            client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
             client.serve()
             counter_ref = await client.fetch("counter")
             grown = await client.send(counter_ref, "add", [5])
@@ -836,8 +1645,8 @@ async def _allocator_context_round_trip() -> None:
             await client.close()
             await asyncio.wait_for(hosted, timeout=5)
         finally:
-            server.close()
-        await host.release_async()
+            await server.close()
+        await host.close()
         assert stats["allocs"] > 0, "the host allocator serviced the Host"
         assert not live, "Context release returned every custom allocation"
 
@@ -849,7 +1658,7 @@ async def _capnp_codec_round_trip() -> None:
     a Keyword included, so the two rare marshal arms are witnessed alongside
     the codec."""
     big = 2**80
-    server = await listen("127.0.0.1", 0, codec="capnp")
+    server = await tcp.listen("127.0.0.1", 0, codec="capnp")
     published = asyncio.Event()
     try:
 
@@ -869,7 +1678,7 @@ async def _capnp_codec_round_trip() -> None:
                 break
 
         hosted = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port), codec="capnp")
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port), codec="capnp")
         session.serve()
         await asyncio.wait_for(published.wait(), timeout=5)
         svc_ref = await session.fetch("svc")
@@ -878,7 +1687,7 @@ async def _capnp_codec_round_trip() -> None:
         await session.close()
         await asyncio.wait_for(hosted, timeout=5)
     finally:
-        await server.close_async()
+        await server.close()
 
 
 async def _empty_codec_is_not_the_default() -> None:
@@ -886,8 +1695,11 @@ async def _empty_codec_is_not_the_default() -> None:
     codec is not omission: it is invalid input and must fail before a socket is
     opened or a Host is minted with Syrup by accident."""
     for verb, action in (
-        ("listen", lambda: listen("127.0.0.1", 0, codec="")),
-        ("connect", lambda: connect(tcp_locator("127.0.0.1", 1), codec="")),
+        ("listen", lambda: tcp.listen("127.0.0.1", 0, codec="")),
+        (
+            "connect",
+            lambda: Runtime.open(provider=tcp.provider(), codec="", handshake_timeout_ms=10_000),
+        ),
     ):
         try:
             opened = await action()
@@ -923,7 +1735,9 @@ def _dial_injected(host: Host):
     from pancake._session import Session as _Session
 
     return _Session._open_dialed_locator(
-        host, TRANSPORT_TCP, socket_addr_designator("127.0.0.1", 1), _InjectTransport()
+        host,
+        Locator(TRANSPORT_TCP, tcp.address_designator("127.0.0.1", 1), {}, "boolean-false"),
+        _InjectTransport(),
     )
 
 
@@ -958,6 +1772,9 @@ async def _feed_refusals_are_typed() -> None:
             assert exc.abort.domain == "codec", exc.abort
             assert exc.abort.kind == "MalformedFrame", exc.abort
             assert exc.abort.error_name == "MalformedFrame", exc.abort
+            assert exc.abort.abort_delivery_error_name is None, exc.abort
+            assert exc.abort.secondary_error_name is None, exc.abort
+            assert exc.abort.secondary_error_count == 0, exc.abort
     finally:
         session.close_transport()
 
@@ -994,7 +1811,7 @@ async def _disconnect_rejects_pending_send() -> None:
     hanging on a reply that can never arrive. The server serves one call and
     then closes without warning; the client's next awaited send settles with a
     typed rejection once the disconnect lands."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     closed = asyncio.Event()
     published = asyncio.Event()
     try:
@@ -1010,7 +1827,7 @@ async def _disconnect_rejects_pending_send() -> None:
                 break
 
         hosted = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         session.serve()  # a disconnect ends the serve task; expected here
         await asyncio.wait_for(published.wait(), timeout=5)
         svc = await session.fetch("svc")
@@ -1025,13 +1842,13 @@ async def _disconnect_rejects_pending_send() -> None:
         await session.close()
         await asyncio.wait_for(hosted, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _listen_surfaces_bound_port() -> None:
     """`listen` binds a `Server` whose `.port` reads the kernel-chosen ephemeral
     port, and a client can dial it."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     try:
         port = server.port
         assert port != 0, "bound ephemeral port should be readable"
@@ -1047,13 +1864,15 @@ async def _listen_surfaces_bound_port() -> None:
                 break
 
         accept_task = asyncio.ensure_future(accept_one())
-        client = await connect(tcp_locator("127.0.0.1", port))
-        expected = encode_peer_locator(Locator(
-            TRANSPORT_TCP,
-            socket_addr_designator(("127.0.0.1", port)),
-            {},
-            "boolean-false",
-        ))
+        client = await tcp_connect(tcp.locator("127.0.0.1", port))
+        expected = encode_peer_locator(
+            Locator(
+                TRANSPORT_TCP,
+                tcp.address_designator("127.0.0.1", port),
+                {},
+                "boolean-false",
+            )
+        )
         assert client.partner_identity().locator_record == expected, (
             "the accepted host advertised the listener's complete locator record"
         )
@@ -1064,7 +1883,7 @@ async def _listen_surfaces_bound_port() -> None:
         assert len(accepted) == 1, "the dialed connection was accepted"
         await client.close()
     finally:
-        server.close()
+        await server.close()
 
 
 async def _rude_probe_cannot_close_the_listener() -> None:
@@ -1072,7 +1891,7 @@ async def _rude_probe_cannot_close_the_listener() -> None:
     failure, not the listener's. The Server's iterator must skip the failed
     handshake and keep accepting; without the skip, one port scan takes a
     long-lived server down."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     try:
         port = server.port
@@ -1091,7 +1910,7 @@ async def _rude_probe_cannot_close_the_listener() -> None:
         probe_writer.close()
         del probe_reader
 
-        session = await connect(tcp_locator("127.0.0.1", port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", port))
         await asyncio.wait_for(published.wait(), timeout=5)
         svc = await session.fetch("svc")
         reply = await session.send(svc, "ping", [])
@@ -1099,88 +1918,116 @@ async def _rude_probe_cannot_close_the_listener() -> None:
         await session.close()
         await asyncio.wait_for(served, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _supplied_host_tcp_listener_ownership() -> None:
     """A supplied TCP Host is the exact wrapper adopted by the driver.
 
     Closing the listener seals admission but does not release the yielded
-    session; the final Host release happens only after that session closes.
+    session; the final Host close happens only after that session closes.
     """
     supplied = Host()
-    server = await listen("127.0.0.1", 0, host=supplied)
+    server = await tcp.listen("127.0.0.1", 0, host=supplied)
     accepted_task = asyncio.create_task(server.__anext__())
     client = None
     accepted = None
     try:
-        assert server.host is supplied, (
-            "listener did not preserve the supplied Host wrapper"
-        )
-        client = await connect(tcp_locator("127.0.0.1", server.port))
+        assert server.host is supplied, "listener did not preserve the supplied Host wrapper"
+        assert server.uri.endswith(".tcp"), server.uri
+        client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         accepted = await asyncio.wait_for(accepted_task, timeout=5)
         accepted.publish("svc", lambda verb, args: Symbol("alive"))
         accepted.serve()
 
-        close_tasks = server.close()
+        await server.close()
         await asyncio.sleep(0)
         assert not supplied.released, "listener close released a yielded supplied Host"
         svc = await client.fetch("svc")
         assert await client.send(svc, "ping", []) == Symbol("alive")
         await accepted.close()
         await client.close()
-        await asyncio.gather(*close_tasks)
     finally:
         if accepted is not None:
             await accepted.close()
         if client is not None:
             await client.close()
         if not supplied.released:
-            await supplied.release_async()
+            await supplied.close()
+
+
+async def _failed_listener_preserves_supplied_host() -> None:
+    """Post-adoption failure keeps the caller's Host and retires listener rows."""
+    supplied = Host()
+    retry = None
+    try:
+        try:
+            await tcp.listen("0.0.0.0", 0, host=supplied)
+            raise AssertionError("wildcard listen without an advertised host must fail")
+        except PancakeError as error:
+            assert error.code == ERR_INVALID_ARGUMENT, error
+
+        assert not supplied.released, "failed listen released the supplied Host"
+        loop = supplied._driver_loop
+        assert loop is not None, "failed listen detached the adopted driver loop"
+        assert not loop._listeners, loop._listeners
+        assert not loop._listener_waiters, loop._listener_waiters
+        assert not loop._accepts, loop._accepts
+
+        retry = await tcp.listen("127.0.0.1", 0, host=supplied)
+        assert retry.host is supplied
+    finally:
+        if retry is not None:
+            await retry.close()
+        if not supplied.released:
+            await supplied.close()
 
 
 async def _supplied_host_iroh_listener_ownership() -> None:
     """The iroh resident uses the same supplied Host and driver barrier."""
-    from pancake.iroh import IrohConfig, Reachability, listen_iroh
+    from pancake.iroh import IrohConfig, Reachability, listen
 
     supplied = Host(seed=b"pancake-supplied-iroh-seed-000000"[:32])
-    server = await listen_iroh(IrohConfig(Reachability.LOCAL_DISCOVERY), host=supplied)
+    server = await listen(IrohConfig(Reachability.LOCAL_DISCOVERY), host=supplied)
     accepted_task = asyncio.create_task(server.__anext__())
     client = None
     accepted = None
     try:
-        assert server.host is supplied, (
-            "iroh listener did not preserve the supplied Host wrapper"
-        )
-        client = await connect(server.uri, Reachability.LOCAL_DISCOVERY)
+        assert server.host is supplied, "iroh listener did not preserve the supplied Host wrapper"
+        from pancake.iroh import provider as iroh_provider
+
+        runtime = await Runtime.open(provider=iroh_provider(IrohConfig(Reachability.LOCAL_DISCOVERY)))
+        client = await runtime.connect(server.locator)
         accepted = await asyncio.wait_for(accepted_task, timeout=10)
-        close_task = asyncio.create_task(server.close())
+        await server.close()
         await asyncio.sleep(0)
-        assert not supplied.released, (
-            "iroh listener close released a yielded supplied Host"
-        )
+        assert not supplied.released, "iroh listener close released a yielded supplied Host"
         await accepted.close()
         await client.close()
-        await close_task
     finally:
         if accepted is not None:
             await accepted.close()
         if client is not None:
             await client.close()
         if not supplied.released:
-            await supplied.release_async()
+            await supplied.close()
 
 
 async def _listener_close_preserves_sibling() -> None:
     """Closing one listener leaves a sibling provider on the same Host usable."""
     supplied = Host()
-    tcp_server = await listen("127.0.0.1", 0, host=supplied)
-    keyed_server = await listen_keyed_tcp("127.0.0.1", 0, host=supplied)
+    tcp_server = await tcp.listen("127.0.0.1", 0, host=supplied)
+    keyed_server = await tcp.keyed.listen("127.0.0.1", 0, host=supplied)
+    noise_server = await tcp.noise.listen("127.0.0.1", 0, host=supplied)
     client = None
     accepted = None
     try:
-        tcp_server.close()
-        client = await connect(keyed_server.uri())
+        await tcp_server.close()
+        assert keyed_server.locator.transport == TRANSPORT_KEYED_TCP
+        assert noise_server.locator.transport == TRANSPORT_NOISE_TCP
+        assert parse_locator(keyed_server.uri) == keyed_server.locator
+        assert parse_locator(noise_server.uri) == noise_server.locator
+        client = await tcp_connect(keyed_server.locator)
         accepted = await asyncio.wait_for(keyed_server.__anext__(), timeout=5)
         assert not supplied.released, "closing one listener released the shared Host"
     finally:
@@ -1188,13 +2035,14 @@ async def _listener_close_preserves_sibling() -> None:
             await accepted.close()
         if client is not None:
             await client.close()
-        keyed_server.close()
+        await keyed_server.close()
+        await noise_server.close()
         if not supplied.released:
-            await supplied.release_async()
+            await supplied.close()
 
 
 async def _host_release_joins_dial_task() -> None:
-    """A registered DIAL executor is canceled and finished before Host teardown.
+    """CANCEL_DIAL joins the registered executor before acknowledging it.
 
     The fake executor is installed at the action seam that creates the task,
     so this proves the real Host registry and done
@@ -1220,25 +2068,19 @@ async def _host_release_joins_dial_task() -> None:
         # arm must return after transferring ownership to Host, not await the
         # network operation inline and serialize every later action behind it.
         from pancake._action import _run_action
-        from pancake._host_action_gen import Dial
+        from pancake._host_action_gen import CancelDial, Dial
 
         await _run_action(host, Dial(ticket=7))
         await asyncio.wait_for(started.wait(), timeout=1)
-        host.release()
-        assert host._release_started, "synchronous release did not make close terminal"
-        assert host._raw is not None, "native Host freed before canceled DIAL cleanup"
-        await host.release_async()
-        assert finished.is_set(), "Host release returned before DIAL cleanup finished"
-        assert host._raw is None, (
-            "Host release retained native authority after DIAL cleanup"
-        )
-        assert not host._dial_tasks, (
-            "the Host-owned DIAL registry retained a finished task"
-        )
+        await _run_action(host, CancelDial(ticket=7))
+        assert finished.is_set(), "CANCEL_DIAL returned before DIAL cleanup finished"
+        await host.close()
+        assert host._raw is None, "Host close retained native authority after CANCEL_DIAL cleanup"
+        assert not host._dial_tasks, "the Host-owned DIAL registry retained a finished task"
     finally:
         dial_module.run_dial_ticket = original
         if host._raw is not None:
-            await host.release_async()
+            await host.close()
 
 
 async def _proof_refusal_releases_minted_session() -> None:
@@ -1253,11 +2095,13 @@ async def _proof_refusal_releases_minted_session() -> None:
             self.close_count += 1
 
     host = Host()
-    host.set_advertised_locator(Locator(
-        TRANSPORT_TCP,
-        socket_addr_designator("127.0.0.1", 1),
-        {},
-    ))
+    host.set_advertised_locator(
+        Locator(
+            TRANSPORT_TCP,
+            tcp.address_designator("127.0.0.1", 1),
+            {},
+        )
+    )
     transport = Transport()
     releases = 0
     original_bind = session_module._host.pancake_host_session_bind_verified_channel_key
@@ -1266,10 +2110,10 @@ async def _proof_refusal_releases_minted_session() -> None:
     def refuse_proof(*_args) -> int:
         return ERR_INVALID_ARGUMENT
 
-    def count_release(raw) -> None:
+    def count_release(raw) -> int:
         nonlocal releases
         releases += 1
-        original_release(raw)
+        return original_release(raw)
 
     session_module._host.pancake_host_session_bind_verified_channel_key = refuse_proof
     session_module._host.pancake_host_session_release = count_release
@@ -1277,8 +2121,7 @@ async def _proof_refusal_releases_minted_session() -> None:
         try:
             await session_module.Session.establish_dialed_locator(
                 host,
-                TRANSPORT_TCP,
-                "127.0.0.1:2",
+                Locator(TRANSPORT_TCP, "127.0.0.1:2", {}, "boolean-false"),
                 transport,
                 verified_channel_key="00" * 32,
             )
@@ -1303,24 +2146,14 @@ async def _proof_refusal_releases_minted_session() -> None:
         except PancakeError as exc:
             assert exc.code == ERR_INVALID_ARGUMENT, exc.code
         else:
-            raise AssertionError(
-                "a refused accepted-channel proof unexpectedly established"
-            )
-        assert releases == 2, (
-            "accepted proof refusal did not release exactly one session"
-        )
-        assert accepted_transport.close_count == 1, (
-            "accepted proof refusal did not close its transport"
-        )
-        assert not host._sessions, (
-            "accepted proof refusal left a session registered on its Host"
-        )
+            raise AssertionError("a refused accepted-channel proof unexpectedly established")
+        assert releases == 2, "accepted proof refusal did not release exactly one session"
+        assert accepted_transport.close_count == 1, "accepted proof refusal did not close its transport"
+        assert not host._sessions, "accepted proof refusal left a session registered on its Host"
     finally:
-        session_module._host.pancake_host_session_bind_verified_channel_key = (
-            original_bind
-        )
+        session_module._host.pancake_host_session_bind_verified_channel_key = original_bind
         session_module._host.pancake_host_session_release = original_release
-        await host.release_async()
+        await host.close()
 
 
 async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
@@ -1330,20 +2163,19 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
     started = threading.Event()
     finish = threading.Event()
     released = threading.Event()
+    cleanup_failure = RuntimeError("canceled iroh construction cleanup failed")
+    pancake.take_runtime_failures()
 
     class ControlledNetlayer(IrohNetlayer):
-        def __init__(
-            self, _config, _secret_seed=None, *, _construction_token=None
-        ) -> None:
+        def __init__(self, _config, _secret_seed=None, *, _construction_token=None) -> None:
             started.set()
             finish.wait()
 
-        async def release_async(self) -> None:
+        async def close(self) -> None:
             released.set()
+            raise cleanup_failure
 
-    opening = asyncio.create_task(
-        ControlledNetlayer.open(IrohConfig(Reachability.DIRECT))
-    )
+    opening = asyncio.create_task(ControlledNetlayer.open(IrohConfig(Reachability.DIRECT)))
     assert await asyncio.to_thread(started.wait, 1), "iroh constructor did not start"
     opening.cancel()
     finish.set()
@@ -1353,13 +2185,15 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
         pass
     else:
         raise AssertionError("cancelled iroh startup returned an endpoint")
-    assert released.is_set(), (
-        "cancelled iroh startup abandoned the constructed endpoint"
-    )
+    assert released.is_set(), "cancelled iroh startup abandoned the constructed endpoint"
+    diagnostics = pancake.take_runtime_failures()
+    assert len(diagnostics) == 1, diagnostics
+    assert diagnostics[0].operation == "iroh-release-after-cancel"
+    assert diagnostics[0].primary_message == str(cleanup_failure)
 
 
-async def _iroh_release_async_joins_after_cancellation() -> None:
-    """A canceled release waiter cannot detach the native release task."""
+async def _iroh_close_joins_after_cancellation() -> None:
+    """A canceled close waiter cannot detach the native release task."""
     from pancake.iroh import IrohNetlayer
 
     started = threading.Event()
@@ -1368,34 +2202,34 @@ async def _iroh_release_async_joins_after_cancellation() -> None:
 
     class ControlledNetlayer(IrohNetlayer):
         def __init__(self) -> None:
-            self._release_task = None
+            self._close_task = None
 
-        def release(self) -> None:
+        def _release_blocking(self) -> None:
             nonlocal calls
             calls += 1
             started.set()
             finish.wait()
 
     netlayer = ControlledNetlayer()
-    release = asyncio.create_task(netlayer.release_async())
-    assert await asyncio.to_thread(started.wait, 1), "release did not start"
-    release.cancel()
+    close = asyncio.create_task(netlayer.close())
+    assert await asyncio.to_thread(started.wait, 1), "close did not start"
+    close.cancel()
     await asyncio.sleep(0)
-    assert not release.done(), "release waiter detached before native teardown"
+    assert not close.done(), "close waiter detached before native teardown"
     finish.set()
     try:
-        await release
+        await close
     except asyncio.CancelledError:
         pass
     else:
-        raise AssertionError("release cancellation was not preserved")
+        raise AssertionError("close cancellation was not preserved")
 
-    await netlayer.release_async()
-    assert calls == 1, "repeated release_async started a second native release"
+    await netlayer.close()
+    assert calls == 1, "repeated close started a second native release"
 
 
 async def _session_close_joins_owned_transport_release() -> None:
-    """Session.close keeps its sync close seam but joins owned transport cleanup."""
+    """Session.close joins transport cleanup after the core close effect."""
     from pancake._session import Session
 
     started = asyncio.Event()
@@ -1420,25 +2254,402 @@ async def _session_close_joins_owned_transport_release() -> None:
     session._host = HostStub()
     session._transport = transport
     session._closing = False
-    session.owns_host = False
+    session._released = True
+    session._close_future = None
+    session._close_task = None
     session._serve_task = None
+    session._wire_failure = None
+    session._transport_lost = False
+    session._transport_close_started = True
     session.close_transport = transport.close
+    transport.close()
 
     closing = asyncio.create_task(session.close())
     await asyncio.wait_for(started.wait(), timeout=1)
-    assert transport.closed, (
-        "Session.close did not preserve synchronous transport close"
-    )
+    assert transport.closed, "the core close effect did not retire the transport"
     assert not closing.done(), "Session.close returned before transport completion"
     finish.set()
     await closing
+
+
+async def _session_repeated_close_joins_published_failure() -> None:
+    """Released state cannot let a repeated close outrun its shared result."""
+    from pancake._session import Session
+
+    class HostStub:
+        def _assert_owner(self) -> None:
+            pass
+
+    session = Session.__new__(Session)
+    session._host = HostStub()
+    session._transport = object()
+    session._closing = True
+    session._released = True
+    session._close_future = asyncio.get_running_loop().create_future()
+    session._close_task = None
+    session._serve_task = None
+    session._wire_failure = None
+    session._transport_lost = False
+    session._transport_close_started = True
+
+    repeated = asyncio.create_task(session.close())
+    await asyncio.sleep(0)
+    assert not repeated.done(), "released state bypassed the active close barrier"
+
+    session._close_future.set_exception(PancakeError(ERR_INVALID_ARGUMENT, "published close failure"))
+    try:
+        await repeated
+    except PancakeError as error:
+        assert error.code == ERR_INVALID_ARGUMENT, error
+    else:
+        raise AssertionError("repeated close discarded the shared close failure")
+
+
+async def _session_close_retains_every_terminal_failure() -> None:
+    """The exact primary remains raised while later owned-barrier failures
+    remain inspectable in deterministic observation order."""
+    from pancake._session import Session
+
+    primary = OSError("primary wire failure")
+    close_result = RuntimeError("native close result failed")
+    wait_closed = LookupError("transport wait_closed failed")
+    serve_failure = ValueError("serve task failed")
+
+    class HostStub:
+        def _assert_owner(self) -> None:
+            pass
+
+    class TransportStub:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def wait_closed(self) -> None:
+            self.calls += 1
+            if self.calls == 1:
+                raise wait_closed
+            raise LookupError("duplicate wait_closed observation")
+
+    async def rejected_result() -> None:
+        raise close_result
+
+    async def rejected_serve() -> None:
+        raise serve_failure
+
+    session = Session.__new__(Session)
+    session._host = HostStub()
+    session._transport = TransportStub()
+    session._released = True
+    session._release_pending = False
+    session._wire_failure = primary
+    session._terminal_failures = []
+    session._terminal_failure_count = 0
+    session._terminal_joined = False
+    session._serve_task = asyncio.create_task(rejected_serve())
+
+    try:
+        await session._join_close_barrier(rejected_result())
+    except BaseException as observed:
+        assert observed is primary, "close replaced its exact first failure"
+    else:
+        raise AssertionError("close discarded its terminal failure chain")
+    expected = (primary, close_result, wait_closed, serve_failure)
+    assert session.terminal_failures == expected, session.terminal_failures
+    assert session.terminal_failure_count == len(expected)
+
+    try:
+        await session._join_close_barrier()
+    except BaseException as observed:
+        assert observed is primary, "repeated close replaced its exact primary"
+    else:
+        raise AssertionError("repeated close discarded its terminal failure chain")
+    assert session.terminal_failures == expected, (
+        "repeated close duplicated or reordered retained failures"
+    )
+
+
+async def _session_wire_failure_is_exact_and_retired() -> None:
+    """A session-scoped FLUSH fault reaches every public observer only after
+    the byte channel has crossed its retirement barrier."""
+    from pancake._session import Session
+
+    class MemoryChannel:
+        designator_scheme = DESIGNATOR_SCHEME_ADDRESS
+
+        def __init__(self, hold_close: bool = False) -> None:
+            self.inbound: asyncio.Queue[bytes | None] = asyncio.Queue()
+            self.peer: "MemoryChannel | None" = None
+            self.failure: BaseException | None = None
+            self.closed = False
+            self.close_done = asyncio.Event()
+            self.hold_close = hold_close
+
+        async def read(self) -> bytes | None:
+            return await self.inbound.get()
+
+        async def write(self, data: bytes) -> None:
+            if self.failure is not None:
+                raise self.failure
+            if self.closed or self.peer is None or self.peer.closed:
+                raise BrokenPipeError("memory channel is closed")
+            await self.peer.inbound.put(bytes(data))
+
+        def close(self) -> None:
+            if self.closed:
+                return
+            self.closed = True
+            self.inbound.put_nowait(None)
+            if self.peer is not None:
+                self.peer.inbound.put_nowait(None)
+            if not self.hold_close:
+                self.close_done.set()
+
+        async def wait_closed(self) -> None:
+            await self.close_done.wait()
+
+    client_channel = MemoryChannel(hold_close=True)
+    server_channel = MemoryChannel()
+    client_channel.peer = server_channel
+    server_channel.peer = client_channel
+    client_host = Host()
+    server_host = Host()
+    designator = tcp.address_designator("127.0.0.1", 1)
+    accepted = Session.establish_accepted(
+        server_host,
+        TRANSPORT_TCP,
+        designator,
+        server_channel,
+    )
+    dialed = Session.establish_dialed_locator(
+        client_host,
+        Locator(TRANSPORT_TCP, designator, {}, "boolean-false"),
+        client_channel,
+    )
+    server_session, session = await asyncio.gather(accepted, dialed)
+    server_session.publish("svc", lambda _verb, _args: Symbol("alive"))
+    server_serving = server_session.serve()
+    client_serving = session.serve()
+    svc = await session.fetch("svc")
+
+    first_failure = OSError("injected exact FLUSH failure")
+    client_channel.failure = first_failure
+    try:
+        await session.tell(svc, "ping", [])
+    except BaseException as error:
+        assert error is first_failure, "tell lost the exact FLUSH failure"
+    else:
+        raise AssertionError("tell accepted a failed FLUSH")
+    try:
+        await client_serving
+    except BaseException as error:
+        assert error is first_failure, "serve lost the exact FLUSH failure"
+    else:
+        raise AssertionError("serve resolved after a failed FLUSH")
+
+    closing = asyncio.create_task(session.close())
+    await asyncio.sleep(0)
+    assert not closing.done(), "close reported failure before transport retirement"
+    client_channel.close_done.set()
+    try:
+        await closing
+    except BaseException as error:
+        assert error is first_failure, "close lost the exact FLUSH failure"
+    else:
+        raise AssertionError("close resolved after a failed FLUSH")
+
+    await server_serving
+    await asyncio.gather(client_host.close(), server_host.close())
+
+
+async def _cancelled_session_close_waiter_does_not_stop_driver() -> None:
+    """A finite session finish keeps progressing after its first waiter leaves."""
+    from pancake._session import Session
+
+    class PendingTransport:
+        async def read(self) -> bytes:
+            await asyncio.Future()
+
+        async def write(self, _data: bytes) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    host = Host()
+    session = Session._open_dialed_locator(
+        host,
+        Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"),
+        PendingTransport(),
+    )
+
+    first = asyncio.create_task(
+        session.close(pending=PendingWork.FINISH, grace=0.02)
+    )
+    while session._close_task is None:
+        await asyncio.sleep(0)
+    first.cancel()
+    try:
+        await first
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("cancelled Session.close waiter did not preserve cancellation")
+
+    async def wait_released() -> None:
+        while not session._released:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(wait_released(), timeout=1)
+    try:
+        await session.close(pending=PendingWork.FINISH, grace=None)
+    except PancakeError as error:
+        assert error.code == ERR_TIMEOUT, error
+    else:
+        raise AssertionError("the shared finite finish discarded its timeout")
+
+    await host.close()
+
+
+async def _repeated_host_close_observes_recorded_timeout() -> None:
+    """A Host close that exhausted its finish grace keeps its outcome: a later
+    close raises the recorded timeout instead of silently succeeding."""
+    from pancake._session import Session
+
+    class PendingTransport:
+        async def read(self) -> bytes:
+            await asyncio.Future()
+
+        async def write(self, _data: bytes) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    host = Host()
+    # The wrapper stays referenced so only Host.close drives the teardown.
+    pending_session = Session._open_dialed_locator(
+        host,
+        Locator(TRANSPORT_TCP, "pending-session", {}, "boolean-false"),
+        PendingTransport(),
+    )
+
+    try:
+        await host.close(PendingWork.FINISH, grace=0.02)
+    except PancakeError as error:
+        assert error.code == ERR_TIMEOUT, error
+    else:
+        raise AssertionError("a negotiating session let the finite finish settle in time")
+
+    assert host.released, "the timed-out finish close did not reach its terminal release"
+    try:
+        await host.close()
+    except PancakeError as error:
+        assert error.code == ERR_TIMEOUT, error
+    else:
+        raise AssertionError("repeated Host.close discarded the recorded timeout")
+    del pending_session
+
+
+async def _loop_finish_close_reports_finite_grace_timeout() -> None:
+    """The same spent-grace outcome through the loop front (ADR-0112): the
+    pending work is a Runtime dial whose partner accepted the socket and says
+    nothing. After close begins nothing arrives on the wire and no verb runs,
+    so the close driver's park over ``pancake_driver_step_wait_ms`` is what
+    spans the expiry, and its waking step escalates and reports the timeout."""
+    silent = socket.socket()
+    try:
+        silent.bind(("127.0.0.1", 0))
+        silent.listen(1)
+        port = silent.getsockname()[1]
+        runtime = await Runtime.open(provider=tcp.provider(), handshake_timeout_ms=10_000)
+        negotiating = asyncio.create_task(runtime.connect(tcp.locator("127.0.0.1", port)))
+        driver_loop = runtime._loop
+        assert driver_loop is not None, "a provider Runtime did not open on the loop tier"
+        # Let the connect task run far enough to admit its pending open before
+        # close seals admission.
+        for _ in range(100):
+            if driver_loop._pending_dials:
+                break
+            await asyncio.sleep(0)
+        assert driver_loop._pending_dials, "the dial never admitted its pending open"
+        try:
+            await asyncio.wait_for(runtime.close(PendingWork.FINISH, grace=0.02), 5)
+        except PancakeError as error:
+            assert error.code == ERR_TIMEOUT, error
+        else:
+            raise AssertionError("a negotiating dial let the finite finish settle in time")
+        try:
+            await negotiating
+        except (PancakeError, asyncio.CancelledError):
+            pass
+    finally:
+        silent.close()
+
+
+async def _silent_loop_dial_reaches_native_handshake_deadline() -> None:
+    """An ordinary dial has no close driver to wake it. The loop's one
+    asyncio progress clock must therefore step when pancake's handshake
+    deadline expires, even though the accepted socket produces no fd edge."""
+    listener = socket.socket()
+    listener.setblocking(False)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    runtime = await Runtime.open(
+        provider=tcp.provider(),
+        handshake_timeout_ms=50,
+    )
+    accepted: socket.socket | None = None
+    try:
+        port = listener.getsockname()[1]
+        dial = asyncio.create_task(
+            runtime.connect(tcp.locator("127.0.0.1", port))
+        )
+        accepted, _address = await asyncio.wait_for(
+            asyncio.get_running_loop().sock_accept(listener),
+            timeout=1,
+        )
+        try:
+            await asyncio.wait_for(dial, timeout=1)
+        except PancakeError as error:
+            assert error.code == ERR_TIMEOUT, error
+        else:
+            raise AssertionError("a silent partner opened a session")
+    finally:
+        if accepted is not None:
+            accepted.close()
+        listener.close()
+        await runtime.close()
+
+
+async def _host_close_shuts_a_still_open_listener() -> None:
+    """``await host.close()`` with a listener still open completes the barrier
+    and shuts the listener down itself, ending its accept stream."""
+    supplied = Host()
+    server = await tcp.listen("127.0.0.1", 0, host=supplied)
+    pending_accept = asyncio.ensure_future(server.__anext__())
+    try:
+        await asyncio.sleep(0)
+        assert not pending_accept.done(), "the accept stream ended before Host close"
+        await asyncio.wait_for(supplied.close(), timeout=5)
+        assert supplied.released, "Host close did not complete over the open listener"
+        try:
+            await asyncio.wait_for(pending_accept, timeout=1)
+        except StopAsyncIteration:
+            pass
+        else:
+            raise AssertionError("Host close did not end the open listener's accept stream")
+    finally:
+        if not pending_accept.done():
+            pending_accept.cancel()
+        await server.close()
+        if not supplied.released:
+            await supplied.close()
 
 
 async def _structured_args_round_trip() -> None:
     """A ``Set`` argument crosses the application surface as a ``Set`` (never a
     plain list), a capability nested in a Set or Tagged arrives as a sendable
     :class:`Ref`, and a partner break raises the typed :class:`VowBroken`."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     try:
 
@@ -1450,20 +2661,12 @@ async def _structured_args_round_trip() -> None:
                         raise ValueError("kaboom")
                     assert verb == "probe", verb
                     probe_set = args[0]
-                    assert type(probe_set) is Set, (
-                        f"a Set argument arrives as a Set, got {type(probe_set).__name__}"
-                    )
+                    assert type(probe_set) is Set, f"a Set argument arrives as a Set, got {type(probe_set).__name__}"
                     assert 1 in probe_set, probe_set
-                    nested = next(
-                        (item for item in probe_set if isinstance(item, Ref)), None
-                    )
-                    assert isinstance(nested, Ref), (
-                        f"a capability inside a Set lifts to a Ref, got {nested!r}"
-                    )
+                    nested = next((item for item in probe_set if isinstance(item, Ref)), None)
+                    assert isinstance(nested, Ref), f"a capability inside a Set lifts to a Ref, got {nested!r}"
                     note = args[1]
-                    assert isinstance(note, Tagged), (
-                        f"a Tagged argument arrives as a Tagged, got {note!r}"
-                    )
+                    assert isinstance(note, Tagged), f"a Tagged argument arrives as a Tagged, got {note!r}"
                     assert isinstance(note.value[0], Ref), note.value
                     # The nested capability is sendable: poke back through it.
                     asyncio.ensure_future(session.tell(nested, "poke", []))
@@ -1475,7 +2678,7 @@ async def _structured_args_round_trip() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         session.serve()
         poked = asyncio.get_running_loop().create_future()
 
@@ -1486,12 +2689,8 @@ async def _structured_args_round_trip() -> None:
         inbox = session.spawn(inbox_behavior)
         await asyncio.wait_for(published.wait(), timeout=5)
         svc_ref = await session.fetch("svc")
-        reply = await session.send(
-            svc_ref, "probe", [Set([1, inbox]), Tagged("note", [inbox])]
-        )
-        assert type(reply) is Set, (
-            f"a Set reply survives the round-trip as a Set, got {type(reply).__name__}"
-        )
+        reply = await session.send(svc_ref, "probe", [Set([1, inbox]), Tagged("note", [inbox])])
+        assert type(reply) is Set, f"a Set reply survives the round-trip as a Set, got {type(reply).__name__}"
         assert Symbol("ok") in reply and 7 in reply, reply
         await asyncio.wait_for(poked, timeout=5)
 
@@ -1506,7 +2705,7 @@ async def _structured_args_round_trip() -> None:
         await asyncio.wait_for(serve_task, timeout=5)
 
     finally:
-        server.close()
+        await server.close()
 
 
 async def _enliven_round_trips_then_caches() -> None:
@@ -1522,7 +2721,7 @@ async def _enliven_round_trips_then_caches() -> None:
         return Symbol("alive")
 
     server_host.publish_giftable("greeter", greeter)
-    server = await listen("127.0.0.1", 0, server_host)
+    server = await tcp.listen("127.0.0.1", 0, host=server_host)
     try:
 
         async def serve_one() -> None:
@@ -1531,8 +2730,8 @@ async def _enliven_round_trips_then_caches() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        locator = tcp_locator("127.0.0.1", server.port)
-        session = await connect(locator)
+        locator = tcp.locator("127.0.0.1", server.port)
+        session = await tcp_connect(locator)
         session.serve()
         try:
             await session.enliven("ocapn://127.0.0.1%3A1.tcp/s/Z3JlZXRlcg")
@@ -1541,25 +2740,19 @@ async def _enliven_round_trips_then_caches() -> None:
         else:
             raise AssertionError("enliven accepted a sturdyref for another peer")
         # The complete sturdyref must name this selected session's peer.
-        sturdyref = f"{locator}/s/Z3JlZXRlcg"
+        sturdyref = f"{format_locator_uri(locator)}/s/Z3JlZXRlcg"
         cap = await session.enliven(sturdyref)
         greeting = await session.send(cap, "hello", [])
-        assert greeting == Symbol("alive"), (
-            f"enlivened cap answers hello, got {greeting!r}"
-        )
+        assert greeting == Symbol("alive"), f"enlivened cap answers hello, got {greeting!r}"
         # A repeat enliven hits the dedup cache: the same live capability.
         again = await session.enliven(sturdyref)
         greeting2 = await session.send(again, "hello", [])
-        assert greeting2 == Symbol("alive"), (
-            f"cached enliven answers hello, got {greeting2!r}"
-        )
+        assert greeting2 == Symbol("alive"), f"cached enliven answers hello, got {greeting2!r}"
         # Listen (CapTP ``op:listen``): a held capability's resolution comes
         # back through the vow -- a listen on an already-settled capability
         # answers at once.
         settled = await session.listen(cap)
-        assert isinstance(settled, Ref), (
-            f"listen settles naming the capability, got {settled!r}"
-        )
+        assert isinstance(settled, Ref), f"listen settles naming the capability, got {settled!r}"
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
 
@@ -1568,15 +2761,16 @@ async def _enliven_round_trips_then_caches() -> None:
         # exporter session without a binding-side TCP branch.
         cold_serve = asyncio.ensure_future(serve_one())
         cold = Host()
+        cold.register_connector(tcp.connector())
         cold_cap = await cold.enliven(sturdyref)
         cold_exporter = cold.exporter_for(cold_cap)
         assert cold_exporter is not None, "cold enliven retains its exporter session"
         cold_greeting = await cold_exporter.send(cold_cap, "hello", [])
         assert cold_greeting == Symbol("alive"), cold_greeting
-        await cold.release_async()
+        await cold.close()
         await asyncio.wait_for(cold_serve, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _gc_releases_dropped_import() -> None:
@@ -1586,7 +2780,7 @@ async def _gc_releases_dropped_import() -> None:
     byte relay between them watches the wire for the release frame. The client
     drops its only handle, and CPython's refcounting fires the finalizer
     promptly."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     saw_gc = asyncio.Event()
     published = asyncio.Event()
 
@@ -1605,7 +2799,7 @@ async def _gc_releases_dropped_import() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = (await connect(tcp_locator("127.0.0.1", relay_port))).with_gc()
+        session = (await tcp_connect(tcp.locator("127.0.0.1", relay_port))).with_gc()
         session.serve()
         await asyncio.wait_for(published.wait(), timeout=5)
         cap = await session.fetch("svc")
@@ -1617,20 +2811,16 @@ async def _gc_releases_dropped_import() -> None:
             if saw_gc.is_set():
                 break
             await asyncio.sleep(0.01)
-        assert saw_gc.is_set(), (
-            "the wire never carried op:gc-export for the dropped import"
-        )
+        assert saw_gc.is_set(), "the wire never carried op:gc-export for the dropped import"
         # The finalizer parked the release and hopped to the loop; observing
         # op:gc-export means it ran, so no parked release is left behind (parity
         # with the TypeScript, Rust, and Racket dogfoods, which assert the same).
-        assert session._host.pending_release_count() == 0, (
-            "the finalizer's parked release drained after the turn"
-        )
+        assert session._host.pending_release_count() == 0, "the finalizer's parked release drained after the turn"
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         relay_close()
-        server.close()
+        await server.close()
 
 
 async def _fetch_failed_is_typed() -> None:
@@ -1644,7 +2834,7 @@ async def _fetch_failed_is_typed() -> None:
     marshal is what grants the export (ADR-0074), so the doctored deliver
     that follows is admitted rather than refused as a probe of an ungranted
     position."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     plain_export: list[int] = []
     observed_wire = bytearray()
     export_known = asyncio.Event()
@@ -1692,9 +2882,7 @@ async def _fetch_failed_is_typed() -> None:
             output.extend(body)
         return bytes(output)
 
-    relay_port, relay_close = await _start_relay(
-        server.port, rewrite=retarget, observe=observe
-    )
+    relay_port, relay_close = await _start_relay(server.port, rewrite=retarget, observe=observe)
     try:
 
         async def serve_one() -> None:
@@ -1708,7 +2896,7 @@ async def _fetch_failed_is_typed() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", relay_port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", relay_port))
         session.serve()
         await export_known.wait()
         # The granting fetch: its resolve marshals the "plain" reference,
@@ -1732,7 +2920,7 @@ async def _fetch_failed_is_typed() -> None:
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         relay_close()
-        server.close()
+        await server.close()
 
 
 async def _pipelining_drives_chain() -> None:
@@ -1744,7 +2932,7 @@ async def _pipelining_drives_chain() -> None:
     it; the partner's engine queues the pipelined calls on that pending answer
     and drains them onto the task once ``create`` resolves. A ``status`` of
     ``done`` proves the chain crossed without round-tripping per link."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     try:
 
@@ -1773,7 +2961,7 @@ async def _pipelining_drives_chain() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         session.serve()
         await asyncio.wait_for(published.wait(), timeout=5)
         root_ref = await session.fetch("root")
@@ -1787,7 +2975,7 @@ async def _pipelining_drives_chain() -> None:
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _turn_spawn_survives_originating_port_close() -> None:
@@ -1795,7 +2983,7 @@ async def _turn_spawn_survives_originating_port_close() -> None:
     that Port, call it through a sibling, then use the captured stale Session
     handle to spawn a child inside the sibling's turn. Host ownership selects
     turn-spawn; the dead Session is not consulted for routing."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     ready = asyncio.Event()
     try:
 
@@ -1809,11 +2997,7 @@ async def _turn_spawn_survives_originating_port_close() -> None:
 
                     def root(verb, args):
                         assert verb == "create", verb
-                        return origin.spawn(
-                            lambda child_verb, child_args: (
-                                "alive" if child_verb == "ping" else None
-                            )
-                        )
+                        return origin.spawn(lambda child_verb, child_args: ("alive" if child_verb == "ping" else None))
 
                     root_ref = origin.spawn(root)
                     continue
@@ -1828,9 +3012,9 @@ async def _turn_spawn_survives_originating_port_close() -> None:
                 break
 
         hosted = asyncio.ensure_future(host())
-        origin_client = await connect(tcp_locator("127.0.0.1", server.port))
+        origin_client = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         origin_client.serve()
-        sibling = await connect(tcp_locator("127.0.0.1", server.port))
+        sibling = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         sibling.serve()
         await ready.wait()
         introducer = await sibling.fetch("introducer")
@@ -1843,7 +3027,7 @@ async def _turn_spawn_survives_originating_port_close() -> None:
         await origin_client.close()
         await asyncio.wait_for(hosted, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _unawaited_break_stays_silent() -> None:
@@ -1856,7 +3040,7 @@ async def _unawaited_break_stays_silent() -> None:
     loop = asyncio.get_running_loop()
     seen: list = []
     loop.set_exception_handler(lambda _loop, ctx: seen.append(ctx))
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     try:
 
@@ -1874,14 +3058,12 @@ async def _unawaited_break_stays_silent() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         session.serve()
         await asyncio.wait_for(published.wait(), timeout=5)
         root_ref = await session.fetch("root")
         anchor = session.send(root_ref, "explode", [])
-        assert isinstance(anchor, asyncio.Future), (
-            "a send handle must be an asyncio.Future"
-        )
+        assert isinstance(anchor, asyncio.Future), "a send handle must be an asyncio.Future"
         # `anchor` is never awaited; awaiting ping flushes the queued batch, so
         # explode's deliver crosses the wire and the host breaks its answer. The
         # break's FAIL completion is recorded with no waiter -- no exception.
@@ -1893,7 +3075,7 @@ async def _unawaited_break_stays_silent() -> None:
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _projections_reach_a_field() -> None:
@@ -1906,7 +3088,7 @@ async def _projections_reach_a_field() -> None:
     handle is also awaited afterward to prove a far reply observed *late* (after
     a sibling projection already pumped the loop) still settles from the
     recorded outcome."""
-    server = await listen("127.0.0.1", 0, host=Host(captp_version="next"))
+    server = await tcp.listen("127.0.0.1", 0, host=Host(captp_version="next"))
     published = asyncio.Event()
     try:
 
@@ -1925,9 +3107,7 @@ async def _projections_reach_a_field() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(
-            tcp_locator("127.0.0.1", server.port), host=Host(captp_version="next")
-        )
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port), host=Host(captp_version="next"))
         session.serve()
         await asyncio.wait_for(published.wait(), timeout=5)
         root_ref = await session.fetch("root")
@@ -1935,9 +3115,7 @@ async def _projections_reach_a_field() -> None:
         # answer and the whole chain leaves on one flush.
         made = session.send(root_ref, "make", ["alice"])
         label = await made.untag("task").index(1)
-        assert label == "alice", (
-            f"pipelined untag->index should reach the label, got {label!r}"
-        )
+        assert label == "alice", f"pipelined untag->index should reach the label, got {label!r}"
         # The source answer settled while the projection pumped the loop; awaiting
         # it now must still resolve (a late observation settles from the store).
         full = await made
@@ -1947,7 +3125,7 @@ async def _projections_reach_a_field() -> None:
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _forwarding_proxies_over_the_wire() -> None:
@@ -1957,7 +3135,7 @@ async def _forwarding_proxies_over_the_wire() -> None:
     call through the proxy forwards across the server to the client's tool (the
     far deferred-answer path) and settles the caller's answer; the attenuator
     passes only its allow-listed verb; and a revoke breaks every later call."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     tool_ready = asyncio.Event()
     proxy_ready = asyncio.Event()
     try:
@@ -1986,7 +3164,7 @@ async def _forwarding_proxies_over_the_wire() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         session.serve()  # serve so the server's forwarded call arrives
 
         def tool(verb, args):
@@ -2018,9 +3196,7 @@ async def _forwarding_proxies_over_the_wire() -> None:
             await session.send(readonly, "add", [1])
         except VowBroken as error:
             denied = error
-        assert denied is not None and "Attenuated" in str(denied), (
-            "an out-of-list verb breaks Attenuated"
-        )
+        assert denied is not None and "Attenuated" in str(denied), "an out-of-list verb breaks Attenuated"
 
         # Revoke: every later call through the proxy breaks.
         await session.send(root_ref, "revoke", [])
@@ -2029,14 +3205,12 @@ async def _forwarding_proxies_over_the_wire() -> None:
             await session.send(proxy, "add", [1])
         except VowBroken as error:
             severed = error
-        assert severed is not None and "Revoked" in str(severed), (
-            "a revoked proxy breaks Revoked"
-        )
+        assert severed is not None and "Revoked" in str(severed), "a revoked proxy breaks Revoked"
 
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _forwarding_proxy_local_call() -> None:
@@ -2046,7 +3220,7 @@ async def _forwarding_proxy_local_call() -> None:
     over a *far* tool forwards across the wire and the local send still
     settles; and a revoke breaks the local call too, no second-class behavior
     on the hosting side."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     try:
 
@@ -2064,7 +3238,7 @@ async def _forwarding_proxy_local_call() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         session.serve()
 
         # A caretaker over a local tool, called locally by its own host.
@@ -2083,9 +3257,7 @@ async def _forwarding_proxy_local_call() -> None:
         far = await session.fetch("tool")
         care_far = session.caretaker(far)
         pong = await session.send(care_far.proxy, "ping", [])
-        assert pong == "pong", (
-            f"a local call to a proxy over a far tool settles, got {pong!r}"
-        )
+        assert pong == "pong", f"a local call to a proxy over a far tool settles, got {pong!r}"
 
         # Revoke severs the local call exactly as it severs a partner's.
         care_local.revoke()
@@ -2094,14 +3266,12 @@ async def _forwarding_proxy_local_call() -> None:
             await session.send(care_local.proxy, "double", [1])
         except VowBroken as error:
             severed = error
-        assert severed is not None and "Revoked" in str(severed), (
-            "revoke breaks a local call too"
-        )
+        assert severed is not None and "Revoked" in str(severed), "revoke breaks a local call too"
 
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _mid_turn_driving_verb_breaks_the_answer() -> None:
@@ -2110,7 +3280,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
     refusal surfaces as the behavior's own raise, and the answer breaks with
     it — the turn neither deadlocks nor corrupts the host. The connection
     stays fully usable afterwards."""
-    server = await listen("127.0.0.1", 0)
+    server = await tcp.listen("127.0.0.1", 0)
     published = asyncio.Event()
     try:
 
@@ -2132,7 +3302,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
         session.serve()
         await asyncio.wait_for(published.wait(), timeout=5)
         svc_ref = await session.fetch("svc")
@@ -2148,15 +3318,14 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
         await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
-        server.close()
+        await server.close()
 
 
 async def _mid_turn_host_release_orders_sessions_before_host() -> None:
-    """A driver-owned Host release requested by a behavior is one deferred
-    terminal operation. The driver owns its Sessions and Host together, so the
-    binding parks that owner rather than recreating per-session teardown."""
+    """A behavior records driver-owned Host close intent immediately. Python
+    schedules only the completion barrier; native code owns session teardown."""
     host = Host()
-    server = await listen("127.0.0.1", 0, host)
+    server = await tcp.listen("127.0.0.1", 0, host=host)
     loop = asyncio.get_running_loop()
     callback_errors = []
     prior_exception_handler = loop.get_exception_handler()
@@ -2167,7 +3336,7 @@ async def _mid_turn_host_release_orders_sessions_before_host() -> None:
     def svc(verb, args):
         if verb != "release-host":
             return None
-        host.release()
+        host._request_close()
         if not during.done():
             during.set_result(host.pending_release_count())
         return "closing"
@@ -2184,9 +3353,9 @@ async def _mid_turn_host_release_orders_sessions_before_host() -> None:
                 break
 
     hosted = asyncio.ensure_future(accept_two())
-    first = await connect(tcp_locator("127.0.0.1", server.port))
+    first = await tcp_connect(tcp.locator("127.0.0.1", server.port))
     first.serve()
-    second = await connect(tcp_locator("127.0.0.1", server.port))
+    second = await tcp_connect(tcp.locator("127.0.0.1", server.port))
     second.serve()
     try:
         await asyncio.wait_for(accepted.wait(), timeout=5)
@@ -2196,14 +3365,12 @@ async def _mid_turn_host_release_orders_sessions_before_host() -> None:
         except Exception:
             # Host teardown may close the wire before this answer arrives.
             pass
-        assert await asyncio.wait_for(during, timeout=5) == 1, (
-            "callback-time release must park exactly one driver teardown"
+        assert await asyncio.wait_for(during, timeout=5) == 0, (
+            "callback-time native close must not park binding teardown policy"
         )
-        assert host.pending_release_count() == 0, (
-            "the callback unwind drains every parked release"
-        )
+        assert host.pending_release_count() == 0, "native-authoritative close leaves no binding release transaction"
         await asyncio.wait_for(hosted, timeout=5)
-        await host.release_async()
+        await host.close()
         assert host._raw is None, "Host teardown retained native authority"
         await asyncio.sleep(0)
         assert not callback_errors, callback_errors
@@ -2211,7 +3378,7 @@ async def _mid_turn_host_release_orders_sessions_before_host() -> None:
         loop.set_exception_handler(prior_exception_handler)
         await first.close()
         await second.close()
-        server.close()
+        await server.close()
 
 
 async def _send_redeeming_surfaces_the_direct_exporter() -> None:
@@ -2232,8 +3399,8 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
     delivered: list = []
     acked: list = []
 
-    bob = await listen("127.0.0.1", 0)
-    broker = await listen("127.0.0.1", 0)
+    bob = await tcp.listen("127.0.0.1", 0)
+    broker = await tcp.listen("127.0.0.1", 0)
     accepting: list = []
     try:
 
@@ -2259,9 +3426,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         # The broker dials Bob under its own identity and fetches his giftable
         # inbox; returning that ref into a *different* session is what trips
         # the transparent gifter.
-        broker_to_bob = await connect(
-            tcp_locator("127.0.0.1", bob.port), host=broker.host
-        )
+        broker_to_bob = await tcp_connect(tcp.locator("127.0.0.1", bob.port), host=broker.host)
         broker_to_bob.serve()
         bob_dm = await broker_to_bob.fetch("dm")
 
@@ -2271,9 +3436,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         decoy_delivered: list = []
         bob.host.publish_giftable(
             "dm",
-            lambda verb, args: (
-                decoy_delivered.append(args[0]) if verb == "dm" else None
-            ),
+            lambda verb, args: (decoy_delivered.append(args[0]) if verb == "dm" else None),
         )
 
         broker.host.publish_giftable(
@@ -2281,7 +3444,19 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
             lambda verb, args: bob_dm if verb == "introduce" else "no capability here",
         )
 
-        carol = await connect(tcp_locator("127.0.0.1", broker.port))
+        # Keep Carol's Host on the byte-fed tier. The handoff redeem below must
+        # open its exporter TCP channel on that same active Host; attempting to
+        # transfer it into the driver would fail and split ownership.
+        carol_locator = tcp.locator("127.0.0.1", broker.port)
+        carol_host = Host()
+        from pancake.tcp import connector as tcp_connector
+
+        runtime = await Runtime.open(
+            adopt_host=carol_host,
+            connector=tcp_connector(),
+            handshake_timeout_ms=10_000,
+        )
+        carol = await runtime.connect(carol_locator)
         carol.serve()
         introducer = await carol.fetch("introducer")
 
@@ -2289,37 +3464,23 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
         assert isinstance(settled, SendRedeemingResult), settled
         reply, via = settled
         assert isinstance(reply, Ref), f"introduce returned a capability, got {reply!r}"
-        assert via is not None, (
-            "the redeemed reply surfaces its direct exporter session"
-        )
-        assert via is not carol, (
-            "`via` is the direct exporter session, not the broker one"
-        )
+        assert via is not None, "the redeemed reply surfaces its direct exporter session"
+        assert via is not carol, "`via` is the direct exporter session, not the broker one"
         assert via.host is carol.host, "the redeem shares Carol's Host"
 
         # The reply inbox is hosted where the reply lives, and the DM goes out
         # over that session's connection: Bob's answer is his call back into it.
         inbox = via.spawn(lambda verb, args: acked.append(args[0]))
         note = await via.send(reply, "dm", ["hello bob", inbox])
-        assert delivered == ["hello bob"], (
-            f"the DM reached Bob directly, got {delivered!r}"
-        )
-        assert acked == ["bob got hello bob"], (
-            f"Bob called the reply inbox back, got {acked!r}"
-        )
-        assert note is None, (
-            f"the forwarded answer settles from the inbox, got {note!r}"
-        )
-        assert decoy_delivered == [], (
-            f"the DM leaked to the alias's decoy, got {decoy_delivered!r}"
-        )
+        assert delivered == ["hello bob"], f"the DM reached Bob directly, got {delivered!r}"
+        assert acked == ["bob got hello bob"], f"Bob called the reply inbox back, got {acked!r}"
+        assert note is None, f"the forwarded answer settles from the inbox, got {note!r}"
+        assert decoy_delivered == [], f"the DM leaked to the alias's decoy, got {decoy_delivered!r}"
 
         # Deterministic re-redeem: the second introduction routes to the
         # exporter already dialed, so `via` is that same live session.
         again = await carol.send_redeeming(introducer, "introduce", [])
-        assert again.via is via, (
-            "a re-redeem resolves the same exporter session, no second dial"
-        )
+        assert again.via is via, "a re-redeem resolves the same exporter session, no second dial"
 
         # A reply that is no capability at all has no exporter to name.
         plain = await carol.send_redeeming(introducer, "ping", [])
@@ -2331,8 +3492,8 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
     finally:
         for task in accepting:
             task.cancel()
-        broker.close()
-        bob.close()
+        await broker.close()
+        await bob.close()
 
 
 # --- The onion transport, against a fake Tor daemon ---------------------------
@@ -2459,14 +3620,13 @@ def _listen_with_auth(auth_kind: int, secret) -> str:
 def _loop_archive_stepping_parity() -> None:
     """The driver archive from Python (ADR-0112): two stepping loops,
     the server driven by a plain thread, the client parked on the readiness
-    descriptor via asyncio — dial as a ticket, session as an OPENED event,
+    descriptor via asyncio — dial as an operation id, session as an OPENED event,
     vow outcomes as COMPLETION events routed through the adopted wrapper
     Host's vow table, and a hangup. The server publishes through its own
     wrapper Host, so the trampoline, the fetch's settle (a real ``Ref``),
     and a missing-name break (``VowBroken``) all cross the loop tier.
     """
     from pancake._loop import DriverLoop
-    from pancake.tcp import install_provider
 
     ready = threading.Event()
     stop = threading.Event()
@@ -2476,16 +3636,20 @@ def _loop_archive_stepping_parity() -> None:
     def serve() -> None:
         try:
             server = DriverLoop.open(wire_buffer_bytes=1024, max_pending_opens=8)
-            install_provider(server)
-            server.wrapper_host().publish_giftable(
-                "widget", lambda verb, args: "poked through the loop tier"
-            )
+            asyncio.run(tcp.provider().install(server))
+            server.wrapper_host().publish_giftable("widget", lambda verb, args: "poked through the loop tier")
             listener = server.listen("tcp", "127.0.0.1:0")
+            while not listener.ready and listener.failure is None:
+                server.step(20)
+            if listener.failure is not None:
+                raise listener.failure
             server.select_listener(listener)
             designator_box.append(server.listener_locator(listener).designator)
             ready.set()
             while not stop.is_set():
                 server.step(20)
+                while (accepted := server.try_accept(listener)) is not None:
+                    server.serve_session(accepted)
             server.close()
         except BaseException as exc:
             server_errors.append(exc)
@@ -2499,16 +3663,14 @@ def _loop_archive_stepping_parity() -> None:
 
     async def client() -> None:
         loop = DriverLoop.open()
-        install_provider(loop)
-        await loop.start()
+        await tcp.provider().install(loop)
+        loop.start()
 
         # The whole public Session surface over the loop tier: fetch settles
         # as a real Ref, an eventual-send round-trips through the server's
         # trampoline, a missing name classifies as VowBroken, and close
         # releases through the loop's own verb.
-        session = await asyncio.wait_for(
-            loop.connect_session(pancake.format_peer_uri("tcp", designator)), 10
-        )
+        session = await asyncio.wait_for(loop.connect_session(pancake.format_peer_uri("tcp", designator)), 10)
         widget = await asyncio.wait_for(session.fetch("widget"), 10)
         assert isinstance(widget, Ref), widget
         reply = await asyncio.wait_for(session.send(widget, "poke", []), 10)
@@ -2539,20 +3701,55 @@ def _onion_against_a_fake_daemon() -> None:
     thread.start()
     loop = DriverLoop.open()
     try:
-        install_onion_provider(loop, socks=_ABSENT_SOCKS, control=_address_of(control))
+        asyncio.run(onion_provider(OnionConfig(_ABSENT_SOCKS, control=_address_of(control))).install(loop))
         assert loop._has_transport("onion")
         listener = loop.listen("onion", "")
+        while not listener.ready and listener.failure is None:
+            loop.step(20)
+        if listener.failure is not None:
+            raise listener.failure
         locator = loop.listener_locator(listener)
         assert locator.transport == "onion", locator
         assert locator.designator == _ONION_SERVICE_ID, locator
+        assert loop.listener_restoration_state(listener) == _ONION_SERVICE_KEY
         loop.close_listener(listener)
     finally:
         loop.close()
         control.close()
         thread.join(timeout=2)
-        assert not thread.is_alive(), (
-            "driver release did not close the onion control session"
-        )
+        assert not thread.is_alive(), "driver release did not close the onion control session"
+
+    # The public composition owns only the generic driver listener and projects
+    # its locator, Host wrapper, and opaque restoration state.
+    control = _loopback()
+    seen = []
+    thread = threading.Thread(target=_fake_control, args=(control, seen), daemon=True)
+    thread.start()
+    supplied = Host()
+
+    async def driver_server_surface() -> None:
+        server = None
+        try:
+            server = await onion_listen(
+                socks=_ABSENT_SOCKS,
+                control=_address_of(control),
+                host=supplied,
+            )
+            assert server.uri == f"ocapn://{_ONION_SERVICE_ID}.onion", server.uri
+            assert server.service_id == _ONION_SERVICE_ID, server.service_id
+            assert server.service_key == _ONION_SERVICE_KEY, server.service_key
+            assert server.host is supplied
+            assert server.__aiter__() is server
+        finally:
+            if server is not None:
+                await server.close()
+            if not supplied.released:
+                await supplied.close()
+
+    asyncio.run(driver_server_surface())
+    control.close()
+    thread.join(timeout=2)
+    assert not thread.is_alive(), "driver server release did not close onion control"
 
     # Hosting reports the id the daemon named, and the key that restores it.
     control = _loopback()
@@ -2570,9 +3767,7 @@ def _onion_against_a_fake_daemon() -> None:
         # accept would park.
         fd = listener.readiness_fd()
         assert fd >= 0, fd
-        assert select.select([fd], [], [], 0.05) == ([], [], []), (
-            "readable with no circuit"
-        )
+        assert select.select([fd], [], [], 0.05) == ([], [], []), "readable with no circuit"
 
         # Stand in for Tor forwarding a circuit: connect to the local endpoint the
         # listener bound and told the daemon about.
@@ -2635,10 +3830,7 @@ def _onion_against_a_fake_daemon() -> None:
 
     # Each credential form reaches the daemon as itself.
     assert _listen_with_auth(0, None) == "AUTHENTICATE"
-    assert (
-        _listen_with_auth(AUTH_COOKIE, bytes([0x00, 0x01, 0x0F, 0xFF]))
-        == "AUTHENTICATE 00010fff"
-    )
+    assert _listen_with_auth(AUTH_COOKIE, bytes([0x00, 0x01, 0x0F, 0xFF])) == "AUTHENTICATE 00010fff"
     assert _listen_with_auth(AUTH_PASSWORD, "hunter2") == 'AUTHENTICATE "hunter2"'
 
     # The dial half: a circuit carries a framed message. What reaches the wire is

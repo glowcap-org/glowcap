@@ -17,10 +17,32 @@ nothing about who is on the other end, so keep it for a peer that speaks nothing
 else.
 
 Open `http://localhost:8000`, choose a room and nickname, then open another tab.
+The join card also accepts another directory's OCapN locator, so the page can hold
+rooms on several directories at once and join a room owned by any iroh peer its
+relay can reach. Once it holds more than one, every room in the rail says which
+directory it is on, and that line opens what is known about that directory. Cleartext TCP remains pinned to the page's own directory unless the relay
+operator explicitly allow-lists another peer.
 Entering a room that does not exist creates it. The page also supports direct
-messages, live room and member lists, light Markdown, mentions, notifications,
-and mobile layouts. Rooms and messages are held in memory: an empty room is
-removed, and restarting the server loses its history.
+messages, live room and member lists, light Markdown with fenced code blocks,
+`/me` actions, changing or taking back a message you posted, a room topic anyone in the room can set,
+stepping away with a reason, quiet notices that never ping, mentions,
+notifications, inline completion (`@` members, `#`
+rooms, `:` emoji, `/` commands), file and image posting,
+and mobile layouts. Attach a file with the paperclip, by dropping it on the
+conversation, or by pasting one; pictures appear in the line and everything
+else arrives as a row you can download from. Files work in rooms and direct
+messages. Several files sent together stay together in one message bubble,
+while each file keeps its own transfer and download state. Settings holds this
+directory's address and the name it granted you, this browser's own locator,
+light or syrup appearance, mention notifications, direct-message transport, and
+the ocapnviz endpoint. Appearance and notifications apply at once; the others save by
+reloading the tab. The same transport and
+endpoint still work as `?dm=` /
+`?viz=` on the address for tests and shared links. Rooms and messages are held in
+memory: an empty room is removed, and restarting the server loses its history.
+A posted file is held by the room, so it outlives the tab that posted it, and
+the room drops its oldest file to stay under a fixed ceiling. A direct file
+comes from its sender over the direct session instead, with no room in its path.
 
 For the automated cross-language tour, run:
 
@@ -48,6 +70,28 @@ directory ──open/enter──▶ room
 room ──message──▶ member inbox
 ```
 
+Posting files works the same way, one more object down. The composer keeps its
+selected files local. Send asks the room for one upload reference per file,
+publishes their single ordered message, then drives those references in
+parallel. Holding one upload is the authority to fill that file, so nothing
+has to name or re-authenticate the uploader. The room hands each member a blob
+reference immediately; a read waits only when it reaches bytes still in flight.
+
+```text
+room ──upload/file──▶ member     (one independent pair per attached file)
+room ──file reference──▶ member inbox
+member ──read(offset)──▶ file
+```
+
+A direct message carries the same file reference after its text and optional
+reply reference. The sender hosts that blob on the direct connection, and the
+recipient pulls the same bounded chunks whether the connection uses WebRTC,
+iroh, a relay, or TCP. The sender keeps a bounded set of unfetched direct files
+and expires the oldest when that limit fills. Room uploads for one message run
+in parallel after the room publishes it. Direct files are separate capabilities,
+so the recipient can fetch them independently and concurrently without sending
+them through a storage service first.
+
 Nicknames are claims granted by a room, not durable identities. A claim lasts
 until that member leaves. Direct conversations therefore follow the
 introduction that created them, never a nickname that another person might use
@@ -66,7 +110,8 @@ This three-party handoff is a central OCapN feature. The browser turns it into a
 click: select a member, then keep chatting even after either person leaves the
 room. A browser tab or native process can also open a new direct line through
 relay rendezvous. The published locator carries its relay route, so the dialer
-need not use the same deployment fallback.
+need not use the same deployment fallback. In the browser, pick **Through the room relay** in Settings (or open with `?dm=relay`) so a native rooms-peer can
+introduce you.
 
 ## Other ways to run it
 

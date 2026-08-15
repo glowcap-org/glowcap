@@ -7,7 +7,6 @@
 //! module root (`mod.zig`) owns the public C types these exports fill.
 
 const std = @import("std");
-const builtin = @import("builtin");
 
 const foundation = @import("foundation");
 const model = @import("model");
@@ -17,6 +16,7 @@ const driver_core = @import("driver_core");
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
 const common = @import("common.zig");
+const capability_ids = @import("capability_ids.zig");
 const trace_queue = @import("trace_queue.zig");
 
 const crypto = foundation.crypto;
@@ -28,8 +28,7 @@ const setView = common.setView;
 const sessionFrom = common.sessionFrom;
 const instOf = common.instOf;
 const errToCode = common.errToCode;
-const refuseLatched = common.refuseLatched;
-const publishHosted = common.publishHosted;
+const preflightHostedTransfer = common.preflightHostedTransfer;
 const steady_scratch_bytes = common.steady_scratch_bytes;
 
 const PancakeContext = c.PancakeContext;
@@ -45,91 +44,11 @@ const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
 const PANCAKE_ERR_INTERNAL = shared.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 
-const first_capability_id: u64 = 1 << 62;
-const exhausted_capability_id: u64 = 1 << 63;
-var next_capability_id_atomic: std.atomic.Value(u64) = .init(first_capability_id);
-var next_capability_id_single: u64 = first_capability_id;
-var capability_key_state: std.atomic.Value(u8) = .init(0);
-var capability_key_ready_single = false;
-var capability_key: [16]u8 = undefined;
-
-fn deriveCapabilityKey(seed: [crypto.SEED_BYTES]u8) [16]u8 {
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    hasher.update("pancake C capability id permutation\x00");
-    hasher.update(&seed);
-    var digest: [32]u8 = undefined;
-    hasher.final(&digest);
-    return digest[0..16].*;
-}
-
-/// Initialize the process-wide permutation once. Host seeds already enter from
-/// the adapter's entropy boundary; the first one supplies a process-local key
-/// while the monotonic input below supplies collision-free global scope.
-fn ensureCapabilityKey(seed: [crypto.SEED_BYTES]u8) void {
-    if (comptime builtin.single_threaded) {
-        if (!capability_key_ready_single) {
-            capability_key = deriveCapabilityKey(seed);
-            capability_key_ready_single = true;
-        }
-        return;
-    }
-
-    if (capability_key_state.load(.acquire) == 2) return;
-    if (capability_key_state.cmpxchgStrong(0, 1, .acq_rel, .acquire) == null) {
-        capability_key = deriveCapabilityKey(seed);
-        capability_key_state.store(2, .release);
-        return;
-    }
-    while (capability_key_state.load(.acquire) != 2) std.atomic.spinLoopHint();
-}
-
-fn capabilityRound(half: u32, round: u8) u32 {
-    const SipHash = std.crypto.auth.siphash.SipHash64(2, 4);
-    var input: [5]u8 = undefined;
-    std.mem.writeInt(u32, input[0..4], half, .little);
-    input[4] = round;
-    var tag: [SipHash.mac_length]u8 = undefined;
-    SipHash.create(&tag, &input, &capability_key);
-    return @truncate(std.mem.readInt(u64, &tag, .little));
-}
-
-/// A balanced Feistel network is a permutation over all 64-bit values. Mapping
-/// the process-wide monotonic input through it therefore hides adjacency while
-/// preserving the counter's collision and non-reuse guarantees exactly.
-fn permuteCapabilityId(value: u64) u64 {
-    var left: u32 = @truncate(value >> 32);
-    var right: u32 = @truncate(value);
-    inline for (0..6) |round| {
-        const next = left ^ capabilityRound(right, round);
-        left = right;
-        right = next;
-    }
-    return (@as(u64, left) << 32) | right;
-}
-
-fn issueCapabilityId(_: ?*anyopaque) error{CapabilitySpaceExhausted}!u64 {
-    if (comptime builtin.single_threaded) {
-        if (next_capability_id_single == exhausted_capability_id) return error.CapabilitySpaceExhausted;
-        const current = next_capability_id_single;
-        next_capability_id_single += 1;
-        return permuteCapabilityId(current);
-    }
-
-    var current = next_capability_id_atomic.load(.monotonic);
-    while (current != exhausted_capability_id) {
-        if (next_capability_id_atomic.cmpxchgStrong(current, current + 1, .monotonic, .monotonic)) |observed| {
-            current = observed;
-        } else {
-            return permuteCapabilityId(current);
-        }
-    }
-    return error.CapabilitySpaceExhausted;
-}
-
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 pub fn hostNewIn(
     alloc: std.mem.Allocator,
+    diagnostic_id: u64,
     seed_ptr: ?[*]const u8,
     seed_len: usize,
     frame_cap: usize,
@@ -174,7 +93,6 @@ pub fn hostNewIn(
         shared.setLastError("host: features must be a PANCAKE_FEATURE_* bitmask", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
-    ensureCapabilityKey(seed_nn[0..crypto.SEED_BYTES].*);
     const inst = alloc.create(Instance) catch |err| return errToCode(err);
     var opts = Host.Options.withFrameCap(frame_cap);
     opts.verify_partner = verify_partner != 0;
@@ -182,15 +100,20 @@ pub fn hostNewIn(
     opts.captp_version = version_id;
     opts.features = feature_set;
     opts.local_turn_budget = if (local_turn_budget == 0) null else local_turn_budget;
-    opts.capability_id_issuer = .{ .next = issueCapabilityId };
+    opts.capability_id_issuer = capability_ids.issuer(seed_nn[0..crypto.SEED_BYTES].*);
+    const core = Host.init(
+        alloc,
+        seed_nn[0..crypto.SEED_BYTES].*,
+        seed_nn[crypto.SEED_BYTES..session_root_len].*,
+        opts,
+    ) catch |err| {
+        alloc.destroy(inst);
+        return errToCode(err);
+    };
     inst.* = .{
-        .core = Host.init(
-            alloc,
-            seed_nn[0..crypto.SEED_BYTES].*,
-            seed_nn[crypto.SEED_BYTES..session_root_len].*,
-            opts,
-        ),
+        .core = core,
         .allocator = alloc,
+        .diagnostic_id = diagnostic_id,
         .arg_scratch = std.heap.ArenaAllocator.init(alloc),
         .turn_scratch = std.heap.ArenaAllocator.init(alloc),
         .completion_scratch = std.heap.ArenaAllocator.init(alloc),
@@ -221,7 +144,7 @@ pub export fn pancake_host_new(
     local_turn_budget: u32,
     out_host: ?*?*PancakeHost,
 ) i32 {
-    return hostNewIn(shared.library_allocator, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
+    return hostNewIn(shared.library_allocator, 0, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
 }
 
 /// `pancake_host_new` allocating every byte the host owns through `context`'s
@@ -239,7 +162,93 @@ pub export fn pancake_host_new_in(
     out_host: ?*?*PancakeHost,
 ) i32 {
     const ctx = shared.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
-    return hostNewIn(ctx.allocator(), seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
+    const diagnostic_id = ctx.lifecycle_ids.allocate() catch {
+        shared.setLastError("host: Context lifecycle identity space exhausted", .{});
+        return PANCAKE_ERR_INTERNAL;
+    };
+    return hostNewIn(ctx.allocator(), diagnostic_id, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, out_host);
+}
+
+/// Return this Host's stable identity in its owning Context's diagnostic
+/// namespace. The context-less compatibility constructor reports zero.
+pub export fn pancake_host_diagnostic_id(host: ?*PancakeHost, out_id: ?*u64) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_id orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = inst.diagnostic_id;
+    return PANCAKE_OK;
+}
+
+fn progressHostClose(inst: *common.Instance, now_ms: i64) i32 {
+    inst.core.progressClose(now_ms) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+fn projectHostLifecycle(inst: *const common.Instance) u32 {
+    return switch (inst.core.lifecyclePhase()) {
+        .active => c.PANCAKE_LIFECYCLE_ACTIVE,
+        .finishing => c.PANCAKE_LIFECYCLE_FINISHING,
+        .terminating => c.PANCAKE_LIFECYCLE_TERMINATING,
+        .closed => c.PANCAKE_LIFECYCLE_CLOSED,
+    };
+}
+
+fn hostCloseOutcomeCode(inst: *const common.Instance) i32 {
+    return if (inst.core.closeOutcome(inst.core.lifecyclePhase() == .closed) == .timed_out)
+        shared.PANCAKE_ERR_TIMEOUT
+    else
+        PANCAKE_OK;
+}
+
+/// Seal application admission and begin or escalate terminal Host close. The
+/// byte-fed embedder supplies its monotonic clock reading; shared Zig state
+/// retains the first deadline and owns expiry semantics.
+pub export fn pancake_host_close(
+    host: ?*PancakeHost,
+    options: ?*const c.PancakeCloseOptions,
+    now_ms: i64,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "close")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const policy = c.parseCloseOptions(options) catch |err| return c.closeOptionsErrorCode("host", err);
+    inst.core.beginClose(policy, now_ms);
+    return PANCAKE_OK;
+}
+
+/// Apply the caller's current monotonic time to a byte-fed Host close. This
+/// performs no I/O: expiry may only escalate FINISH to the core's CANCEL path.
+pub export fn pancake_host_close_progress(host: ?*PancakeHost, now_ms: i64, out_state: ?*u32) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "close_progress")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const slot = out_state orelse return PANCAKE_ERR_NULL_POINTER;
+    const rc = progressHostClose(inst, now_ms);
+    if (rc != PANCAKE_OK) return rc;
+    slot.* = projectHostLifecycle(inst);
+    return hostCloseOutcomeCode(inst);
+}
+
+/// The longest a close driver may wait for new input before calling
+/// `pancake_host_close_progress` again: milliseconds until the nearest FINISH
+/// grace deadline, the Host's own or any session's, clamped at zero. Writes -1
+/// when no finite deadline is pending, meaning only feed, action-drain,
+/// settle, or escalation activity can advance terminal progress, so the
+/// embedder may park on activity alone. Poll-shaped on purpose: the value
+/// drops straight into a wait primitive's timeout argument.
+pub export fn pancake_host_close_wait_ms(host: ?*PancakeHost, now_ms: i64, out_wait_ms: ?*i64) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "close_wait_ms")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const slot = out_wait_ms orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = inst.core.closeWaitMs(now_ms);
+    return PANCAKE_OK;
+}
+
+/// Observe the byte-fed Host lifecycle without advancing it. The embedder
+/// advances terminal progress through the ordinary feed/action-drain cycle.
+pub export fn pancake_host_lifecycle_state(host: ?*PancakeHost, out_state: ?*u32) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "lifecycle_state")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const slot = out_state orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = projectHostLifecycle(inst);
+    return hostCloseOutcomeCode(inst);
 }
 
 /// Release the host and everything it owns: every still-open session
@@ -254,20 +263,12 @@ pub export fn pancake_host_new_in(
 /// the last error set) from inside a callback.
 pub fn release(host: ?*PancakeHost) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_OK;
-    if (inst.runtime_owner == .driver) {
+    if (inst.drive_owner == .driver) {
         shared.setLastError("host: release refused because the driver owns this host", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     }
-    if (inst.core.in_callback) {
-        // A code, not a bare return. The refusal frees nothing, so an embedder
-        // that dropped the pointer here leaked the whole host — and the only
-        // signal was a thread-local nobody was told to read. Its sibling
-        // `pancake_host_set_session_limits` reports the identical refusal with
-        // exactly this value.
-        shared.setLastError("host: release re-entered from a callback", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    }
-    common.releaseInstance(inst);
+    inst.core.checkReleaseOwnershipTransfer() catch |err| return errToCode(err);
+    if (common.releaseInstance(inst)) |failure| return errToCode(failure);
     return PANCAKE_OK;
 }
 
@@ -308,11 +309,11 @@ pub export fn pancake_host_designator_from_seed(
 /// validates and deep-copies the borrowed locator view before returning.
 pub export fn pancake_host_set_advertised_locator(host: ?*PancakeHost, locator: ?*const shared.PancakeLocatorView) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "set_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "set_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const view = locator orelse return PANCAKE_ERR_NULL_POINTER;
     var hint_stack: [shared.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = shared.locator_adapter.BorrowedLocator.init(inst.allocator, view, &hint_stack) catch |err| {
-        if (err == error.OutOfMemory) return PANCAKE_ERR_INTERNAL;
+        if (err == error.OutOfMemory) return errToCode(err);
         shared.setLastError("host: set_advertised_locator received an invalid locator view", .{});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
@@ -325,7 +326,7 @@ pub export fn pancake_host_set_advertised_locator(host: ?*PancakeHost, locator: 
 /// an acceptable location already selected for another transport.
 pub export fn pancake_host_ensure_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "ensure_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "ensure_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.ensureAdvertisedLocator(bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
@@ -335,9 +336,9 @@ pub export fn pancake_host_ensure_advertised_locator(host: ?*PancakeHost, transp
 /// leaves no acceptable location. Existing sessions retain their signed hello.
 pub export fn pancake_host_remove_advertised_locator(host: ?*PancakeHost, transport: ?[*]const u8, transport_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "remove_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "remove_advertised_locator")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
-    inst.core.removeAdvertisedLocator(bytes);
+    inst.core.removeAdvertisedLocator(bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -352,15 +353,12 @@ pub export fn pancake_host_set_session_limits(
     outbound_high_water_bytes: usize,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (inst.core.in_callback) {
-        shared.setLastError("host: set_session_limits re-entered from a callback", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    }
+    if (!common.embedderOwnsDrive(inst, "set_session_limits")) return PANCAKE_ERR_INVALID_ARGUMENT;
     inst.core.setSessionLimits(
         if (max_frame_bytes != 0) max_frame_bytes else null,
         if (queue_cap != 0) queue_cap else null,
         if (outbound_high_water_bytes != 0) outbound_high_water_bytes else null,
-    );
+    ) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -386,7 +384,7 @@ pub export fn pancake_host_pending_dial(
     out_hint_count: ?*usize,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "pending_dial")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "pending_dial")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const locator_slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
     const count_slot = out_hint_count orelse return PANCAKE_ERR_NULL_POINTER;
     const view = inst.core.pendingDial(ticket) orelse {
@@ -458,16 +456,7 @@ pub export fn pancake_host_plan_dial(
             return PANCAKE_ERR_INVALID_ARGUMENT;
         },
     };
-    const plan = driver_core.planDial(t, d, h, posture) catch |err| {
-        switch (err) {
-            error.UnknownTransport => shared.setLastError("dial: unsupported transport \"{s}\"", .{t}),
-            error.DesignatorNotHostPort => shared.setLastError("dial: designator \"{s}\" is not host:port", .{d}),
-            error.DesignatorNotPeerKey => shared.setLastError("dial: designator \"{s}\" is not a peer key", .{d}),
-            error.MissingDirectAddressesHint => shared.setLastError("dial: a keyed-tcp locator requires a direct-addresses hint", .{}),
-            error.ReachabilityRequired => shared.setLastError("dial: a peer-id open requires a reachability posture", .{}),
-        }
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    };
+    const plan = driver_core.planDial(t, d, h, posture) catch |err| return errToCode(err);
     slot.reach_value = 0;
     switch (plan) {
         .host_port => |hp| {
@@ -521,13 +510,13 @@ pub export fn pancake_host_set_trace(
     ctx: ?*anyopaque,
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (callback == null and inst.trace_queue == null) {
+        inst.core.setTrace(null) catch |err| return errToCode(err);
+    } else {
+        inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit }) catch |err| return errToCode(err);
+    }
     inst.trace_cb = callback;
     inst.trace_ctx = ctx;
-    if (callback == null and inst.trace_queue == null) {
-        inst.core.setTrace(null);
-    } else {
-        inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit });
-    }
     return PANCAKE_OK;
 }
 
@@ -553,12 +542,13 @@ pub export fn pancake_host_set_trace_queue(
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     if (capacity == 0) {
+        if (inst.trace_cb == null)
+            inst.core.setTrace(null) catch |err| return errToCode(err);
         if (inst.trace_queue) |queue| {
             queue.deinit(inst.allocator);
             inst.allocator.destroy(queue);
             inst.trace_queue = null;
         }
-        if (inst.trace_cb == null) inst.core.setTrace(null);
         return PANCAKE_OK;
     }
     if (payload_cap == 0) {
@@ -574,13 +564,17 @@ pub export fn pancake_host_set_trace_queue(
         }
         return errToCode(err);
     };
+    inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit }) catch |err| {
+        queue.deinit(inst.allocator);
+        inst.allocator.destroy(queue);
+        return errToCode(err);
+    };
     const previous = inst.trace_queue;
     inst.trace_queue = queue;
     if (previous) |old| {
         old.deinit(inst.allocator);
         inst.allocator.destroy(old);
     }
-    inst.core.setTrace(.{ .ctx = inst, .emit = traceEmit });
     return PANCAKE_OK;
 }
 
@@ -714,43 +708,7 @@ pub export fn pancake_host_enliven(
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const uri = shared.sliceFromC(sturdyref_uri, sturdyref_uri_len) catch |err| return shared.marshalErrorToCode(err);
-    const sturdyref = model.uri.parseSturdyrefForProfile(
-        inst.allocator,
-        inst.core.opts.captp_version,
-        uri,
-    ) catch |err| return errToCode(err);
-    defer model.uri.freeSturdyref(inst.allocator, sturdyref);
-    slot.* = inst.core.enlivenSelectOrDial(sturdyref) catch |err| return errToCode(err);
-    return PANCAKE_OK;
-}
-
-/// Resolve what an accepted session signs as its own locator, without a
-/// socket. transport is the accepted transport; server_designator is the
-/// listener's own signing designator (its key for a key transport, unused for an
-/// address transport); accepted_local_addr is what the accept reported (NULL/0
-/// when unavailable). On PANCAKE_OK *out_plan is filled with views borrowing the
-/// caller's input, except the address-transport empty-address fallback, which is
-/// the static unreachable-client placeholder. Feed the result to
-/// pancake_host_session_open_accepted.
-pub export fn pancake_host_plan_accept(
-    designator_scheme: u32,
-    server_designator: ?[*]const u8,
-    server_designator_len: usize,
-    accepted_local_addr: ?[*]const u8,
-    accepted_local_addr_len: usize,
-    out_plan: ?*PancakeAcceptPlan,
-) i32 {
-    const slot = out_plan orelse return PANCAKE_ERR_NULL_POINTER;
-    const sd = shared.sliceFromC(server_designator, server_designator_len) catch |err| return shared.marshalErrorToCode(err);
-    const la = shared.sliceFromC(accepted_local_addr, accepted_local_addr_len) catch |err| return shared.marshalErrorToCode(err);
-    const scheme: model.transport.DesignatorScheme = switch (designator_scheme) {
-        c.PANCAKE_DESIGNATOR_SCHEME_ADDRESS => .address,
-        c.PANCAKE_DESIGNATOR_SCHEME_KEY => .key,
-        else => return PANCAKE_ERR_INVALID_ARGUMENT,
-    };
-    const plan = driver_core.planAccept(scheme, sd, la);
-    setView(plan.designator, &slot.designator, &slot.designator_len);
-    setView(plan.direct_addresses_hint, &slot.direct_addresses_hint, &slot.direct_addresses_hint_len);
+    slot.* = inst.core.enlivenUri(uri) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -771,7 +729,7 @@ pub export fn pancake_host_plan_accept(
 /// call when pressure subsides. Refused inside a callback.
 pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*PancakeHostAction) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "next_action")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "next_action")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const slot = out_action orelse return PANCAKE_ERR_NULL_POINTER;
     // The core pop carries the reentry refusal (`ReenteredHost` maps to
     // INVALID_ARGUMENT) and it runs before anything is freed, so a refused
@@ -788,10 +746,16 @@ pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*Pancak
                 slot.ticket = d.ticket;
                 return PANCAKE_OK;
             },
+            .cancel_dial => |d| {
+                slot.* = common.zero_action;
+                slot.kind = c.PANCAKE_HOST_ACTION_CANCEL_DIAL;
+                slot.ticket = d.ticket;
+                return PANCAKE_OK;
+            },
             .flush => |peer_id| {
                 // A flush for a session released meanwhile has nothing to
                 // drain; skip to the next action.
-                const session = inst.core.sessions.get(peer_id) orelse continue;
+                const session = inst.core.sessionForPeer(peer_id) orelse continue;
                 slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_FLUSH;
                 slot.session = @ptrCast(session);
@@ -800,10 +764,12 @@ pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*Pancak
             .close => |peer_id| {
                 // A close for a session released meanwhile is already
                 // done; skip to the next action.
-                const session = inst.core.sessions.get(peer_id) orelse continue;
+                const session = inst.core.sessionForPeer(peer_id) orelse continue;
                 slot.* = common.zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_CLOSE;
                 slot.session = @ptrCast(session);
+                if (inst.core.sessionCloseOutcome(session, true) == .timed_out)
+                    slot.result = shared.PANCAKE_ERR_TIMEOUT;
                 return PANCAKE_OK;
             },
             .resume_work => {
@@ -839,7 +805,7 @@ pub fn retryBorrowedAction(host: ?*PancakeHost) bool {
 /// flushes pump inside this call. A stale ticket is a no-op success.
 pub export fn pancake_host_dialed(host: ?*PancakeHost, ticket: u64, raw: ?*PancakeHostSession) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "dialed")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "dialed")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const session = sessionFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     // The ticket is registered against the session's `peer_id`, which indexes
     // that session's own host's node: a session from another host would name a
@@ -857,9 +823,18 @@ pub export fn pancake_host_dialed(host: ?*PancakeHost, ticket: u64, raw: ?*Panca
 /// is a no-op success.
 pub export fn pancake_host_dial_failed(host: ?*PancakeHost, ticket: u64, reason: ?[*]const u8, reason_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "dial_failed")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "dial_failed")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const reason_bytes = shared.sliceFromC(reason, reason_len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.dialFailed(ticket, reason_bytes) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// A CANCEL_DIAL action's physical operation has stopped and its executor
+/// state can be released. Host close remains pending until this acknowledgement.
+pub export fn pancake_host_dial_cancelled(host: ?*PancakeHost, ticket: u64) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!common.embedderOwnsDrive(inst, "dial_cancelled")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    inst.core.dialCancelled(ticket) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -868,7 +843,7 @@ pub export fn pancake_host_dial_failed(host: ?*PancakeHost, ticket: u64, reason:
 /// first. A stale ticket is a no-op success.
 pub export fn pancake_host_provide_gift_id(host: ?*PancakeHost, ticket: u64, gift_id: ?[*]const u8, gift_id_len: usize) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "provide_gift_id")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "provide_gift_id")) return PANCAKE_ERR_INVALID_ARGUMENT;
     const bytes = shared.sliceFromC(gift_id, gift_id_len) catch |err| return shared.marshalErrorToCode(err);
     inst.core.provideGiftId(ticket, bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
@@ -879,7 +854,7 @@ pub export fn pancake_host_provide_gift_id(host: ?*PancakeHost, ticket: u64, gif
 /// has already consumed. A stale ticket is a no-op success.
 pub export fn pancake_host_gift_id_failed(host: ?*PancakeHost, ticket: u64) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (!common.embedderOwnsRuntime(inst, "gift_id_failed")) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "gift_id_failed")) return PANCAKE_ERR_INVALID_ARGUMENT;
     inst.core.giftIdFailed(ticket) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
@@ -907,7 +882,7 @@ pub export fn pancake_host_publish(
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const b = behavior orelse return PANCAKE_ERR_NULL_POINTER;
     const name_bytes = shared.sliceFromC(name, name_len) catch |err| return shared.marshalErrorToCode(err);
-    if (refuseLatched(inst)) |code| return code;
+    if (preflightHostedTransfer(inst)) |code| return code;
 
     const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
     _ = inst.core.publishHostedGiftable(name_bytes, hosted) catch |err| return errToCode(err);
@@ -947,7 +922,7 @@ pub export fn pancake_host_publish_durable(
         shared.setLastError("host: durable swiss buffer needs {d} bytes", .{engine.durable_swiss_len});
         return shared.PANCAKE_ERR_BUFFER_TOO_SMALL;
     }
-    if (refuseLatched(inst)) |code| return code;
+    if (preflightHostedTransfer(inst)) |code| return code;
     const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
     var entropy_fixed: [engine.durable_swiss_entropy_len]u8 = undefined;
     @memcpy(&entropy_fixed, entropy_bytes);
@@ -969,7 +944,6 @@ pub export fn pancake_host_remove_durable(
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const swiss_bytes = shared.sliceFromC(swiss, swiss_len) catch |err| return shared.marshalErrorToCode(err);
-    if (refuseLatched(inst)) |code| return code;
     inst.core.removeDurable(swiss_bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
@@ -987,7 +961,6 @@ pub export fn pancake_host_unpublish(
 ) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const name_bytes = shared.sliceFromC(name, name_len) catch |err| return shared.marshalErrorToCode(err);
-    if (refuseLatched(inst)) |code| return code;
     inst.core.unpublish(name_bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
@@ -996,7 +969,10 @@ pub export fn pancake_host_unpublish(
 
 /// Release `delta` application retains on one opaque Host capability. The Host
 /// resolves the owning session itself; callers never pair a handle with a
-/// session-local wire position. Single-thread affinity applies.
+/// session-local wire position. A non-OK return commits no release, so the same
+/// `(ref, delta)` may be retried. OK consumes the release; any later pump
+/// cleanup failure is converted into typed session close and must not invite a
+/// duplicate release. Single-thread affinity applies.
 pub export fn pancake_host_ref_release(host: ?*PancakeHost, ref: ?*const shared.PancakeReference, delta: u64) i32 {
     const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
     const raw = ref orelse return PANCAKE_ERR_NULL_POINTER;

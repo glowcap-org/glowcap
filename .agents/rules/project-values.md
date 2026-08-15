@@ -22,6 +22,23 @@ the vision itself when a tradeoff between them is unclear.
   In JavaScript and TypeScript, `== null` / `!= null` are the ordinary nullish
   absence checks; reserve strict equality for type guards, discriminants, and
   cases where `null` and `undefined` mean different things.
+- **Effects have a commit point; failures have an owner.** Prepare fallible
+  work before mutation or external effect. A refusal is retryable only when it
+  committed nothing. After commit, consume success and retain or convert any
+  cleanup failure in the state that owns diagnosis. A callback, finalizer,
+  destructor, or detached task with no result channel must pre-reserve, defer
+  to a fallible owner, or latch its exact failure for the next observable
+  boundary. Never dequeue work before success or erase a cause because its
+  immediate caller is gone.
+- **Failure has a boundary, not a blast radius.** Every runtime operation either
+  succeeds with committed effects or reports its exact failure after leaving
+  the state it owns in a documented condition and settling its owned waiters.
+  Retire the smallest irrecoverable scope; independent work stays live. Input,
+  I/O, resource pressure, cancellation, and callbacks must not terminate the
+  process or leave state ambiguously usable. Initialization may fail before
+  publishing a live object; whether that failure ends the process is consumer
+  policy. A panic or `unreachable` is reserved for an internal invariant whose
+  preconditions exclude runtime input, never an error path.
 - **No hidden runtime.** The protocol core is deterministic, sync, and no-I/O.
   Adapters own host integration.
 - **Boring public surface.** The C ABI ships as a small declared set of

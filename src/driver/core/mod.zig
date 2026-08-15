@@ -9,6 +9,7 @@
 //! layer's `Host`), the transport constructors — live above it in `driver`.
 
 const served = @import("served.zig");
+const builtin = @import("builtin");
 const vocab = @import("vocab.zig");
 const host = @import("host.zig");
 const capability = @import("capability.zig");
@@ -18,11 +19,34 @@ const crossed_hellos = @import("crossed_hellos.zig");
 const action_drain = @import("action_drain.zig");
 const dial_plan = @import("dial_plan.zig");
 const gc = @import("gc.zig");
+const host_pump = @import("host_pump.zig");
+const close = @import("close.zig");
 
-/// Stateless GC emission after a serve event (ADR-0008). `Served` wires this
-/// internally; the named export exists for the unit test that pins the nested-
-/// introduction balance without constructing a full `Served`.
-pub const emitStatelessAfter = gc.emitStatelessAfter;
+/// Narrow support for white-box core tests. Empty in production builds so
+/// pump mechanics and direct GC emission never become embedder API.
+pub const testing = if (builtin.is_test) struct {
+    pub const queueUniqueSessionAction = host_pump.testing.queueUniqueSessionAction;
+
+    pub fn emitStatelessAfter(peer: *@import("engine").Peer, event: *@import("engine").Event) !void {
+        try gc.emitStatelessAfter(peer, event);
+    }
+
+    pub fn condemn(core_host: *host.Host, session: *host.HostSession, kind: @import("model").AbortKind, message: []const u8) !void {
+        try host_pump.condemn(core_host, session, kind, message);
+    }
+
+    pub fn markDirty(core_host: *host.Host, peer_id: @import("engine").PeerId) void {
+        host_pump.testing.markDirty(core_host, peer_id);
+    }
+
+    pub fn finishCommittedWork(core_host: *host.Host, session: *host.HostSession) void {
+        host_pump.finishCommittedWork(core_host, session);
+    }
+
+    pub fn retainFailureMessage(allocator: @import("std").mem.Allocator, message: []const u8) host_action.RetainedFailureMessage {
+        return host_action.retainFailureMessage(allocator, message);
+    }
+} else struct {};
 pub const drainActions = action_drain.drainActions;
 pub const DrainResult = action_drain.DrainResult;
 
@@ -41,12 +65,20 @@ pub const HostSession = host.HostSession;
 /// `HostSession` runs its wire through. Its ephemeral derives from the unique
 /// per-session signing seed; embedders supply one fresh session root per Host.
 pub const HostAction = host_action.HostAction;
+pub const VowFailure = host_action.VowFailure;
+pub const HostFailure = @import("host_failure.zig").HostFailure;
 /// The live trace tap: the sink vocabulary a Host reports its own session
 /// opens, message verbs, and closes through (`Host.setTrace`).
 pub const trace = @import("trace.zig");
 pub const CrossedHellos = crossed_hellos.CrossedHellos;
 pub const DialTarget = crossed_hellos.DialTarget;
 pub const HostError = host.HostError;
+pub const HostInitError = host.Host.InitError;
+pub const PendingWork = close.PendingWork;
+pub const PendingWorkInput = close.PendingWorkInput;
+pub const CloseGrace = close.Grace;
+pub const max_finite_close_grace_ms = close.max_finite_grace_ms;
+pub const CloseOutcome = close.CloseOutcome;
 pub const EnlivenPeerPolicy = host.EnlivenPeerPolicy;
 pub const PeerProvenance = host.PeerProvenance;
 pub const EnlivenStart = host.EnlivenStart;
@@ -54,6 +86,9 @@ pub const EnlivenStart = host.EnlivenStart;
 /// application holds instead of an actor id or a wire position. The same
 /// identity the C ABI and every binding carry as their `Ref`.
 pub const Capability = capability.Ref;
+/// Injection seam for adapters that erase a native capability's Registry
+/// pointer. The adapter owns any synchronization and process-wide state.
+pub const CapabilityIdIssuer = capability.IdIssuer;
 /// The owning tier's passable value and reply (see `value.zig`): data arms
 /// mirror `model.Argument`, capability mentions are opaque.
 pub const Value = value.Value;

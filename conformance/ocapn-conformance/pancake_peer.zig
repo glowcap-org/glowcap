@@ -705,7 +705,7 @@ fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.PeerLocator) ?
             const port_num = std.fmt.parseInt(u16, p, 10) catch return null;
             const addr = tcp.parseHostPort(h, port_num) catch return null;
             var buf: [tcp.designator_buf_len]u8 = undefined;
-            return allocator.dupe(u8, tcp.locator(&buf, addr).designator) catch null;
+            return allocator.dupe(u8, tcp.locatorFromAddress(&buf, addr).designator) catch null;
         }
     }
     return allocator.dupe(u8, locator.designator) catch null;
@@ -803,7 +803,7 @@ pub fn main(init: std.process.Init) !void {
     var session_root: [crypto.SEED_BYTES]u8 = undefined;
     try io.randomSecure(&session_root);
 
-    var host = Host.init(allocator, seed, session_root, blk: {
+    var host = try Host.init(allocator, seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         break :blk o;

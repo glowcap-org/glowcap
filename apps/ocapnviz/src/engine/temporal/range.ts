@@ -24,16 +24,14 @@ export const rangeOf = (start: number, end: number): EffectiveRange => ({
 
 /** Duration of a range. Always non-negative — clamps to 0 for the
  *  degenerate `start > end` case. */
-export const durationOf = (r: EffectiveRange): number =>
-  Math.max(0, r.end - r.start);
+export const durationOf = (r: EffectiveRange): number => Math.max(0, r.end - r.start);
 
 /** A range is empty when its end is at or before its start.
  *  Drives the ghost-render gate on the Stage and the "hidden"
  *  state for sessions whose peers don't overlap. */
 export const isEmpty = (r: EffectiveRange): boolean => r.end <= r.start;
 
-export const containsTime = (r: EffectiveRange, t: number): boolean =>
-  t >= r.start && t < r.end;
+export const containsTime = (r: EffectiveRange, t: number): boolean => t >= r.start && t < r.end;
 
 /** Intersect two ranges. For a session with two peer parents,
  *  call `intersect(peerA.effective, peerB.effective)` to produce

@@ -477,9 +477,7 @@ Deno.test("an unverified claim is session-scoped, not an identity", () => {
   // Only the reporting host is ever drawn, and only once: the first session
   // joins it and the second finds it already there.
   assertEquals(
-    first.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    first.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["rooms"],
   );
   assertEquals(
@@ -536,9 +534,7 @@ Deno.test("a room nick is a name for an end, never a name that identifies it", (
   );
   assertEquals(opened.b.designator, "127.0.0.1:41234");
   assertEquals(
-    open.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    open.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["127.0.0.1:9099"],
     "only the reporting host is drawn",
   );
@@ -1072,9 +1068,7 @@ Deno.test("a producer leaving does not retire another producer's host", () => {
     kind: "trace.producer-left",
     scope: "p2",
   });
-  const gone = left.filter((e) => e.kind === "peer-unobserved").map((e) =>
-    expectKind(e, "peer-unobserved").peerId
-  );
+  const gone = left.filter((e) => e.kind === "peer-unobserved").map((e) => expectKind(e, "peer-unobserved").peerId);
   assertEquals(gone, ["tab-designator"]);
 });
 
@@ -1172,9 +1166,7 @@ Deno.test("two producers watching one wire draw one session", () => {
   // report drew nobody for that end, so this join has nothing to be a
   // duplicate of — two producers leave two nodes on stage, not three.
   assertEquals(
-    second.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    second.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["tab-designator"],
   );
   assertEquals(
@@ -1241,9 +1233,7 @@ Deno.test("a tab's later session hangs off the node its end attached to", () => 
     dm.find((e) => e.kind === "session-opened"),
     "session-opened",
   );
-  const newNodes = dm.filter((e) => e.kind === "peer-joined").map((e) =>
-    expectKind(e, "peer-joined").peerId
-  );
+  const newNodes = dm.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId);
   // Only the far end of the direct session is new.
   assertEquals(newNodes, ["other-tab"]);
   assertEquals(opened.a.peer, tab, "the tab's two sessions meet at one node");
@@ -1685,9 +1675,9 @@ Deno.test("a name claimed before an end attaches comes with it", () => {
     "session-endpoint-attributed",
   );
   assertEquals(attached.peerId, "alice-key");
-  const renamed = dialed.filter((e) =>
-    e.kind === "peer-updated" && e.label !== undefined
-  ).map((e) => expectKind(e, "peer-updated"));
+  const renamed = dialed.filter((e) => e.kind === "peer-updated" && e.label !== undefined).map((e) =>
+    expectKind(e, "peer-updated")
+  );
   assertEquals(renamed.map((e) => e.label), ["alice"]);
   assertEquals(renamed[0]?.peerId, "alice-key");
 });
@@ -1715,9 +1705,7 @@ Deno.test("an end nobody could name attaches when its own producer speaks", () =
   // Only the reporting host is drawn: it speaks for itself, and nothing
   // speaks for the end it accepted.
   assertEquals(
-    accepted.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    accepted.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["bob-key"],
   );
   const opened = expectKind(
@@ -1749,14 +1737,12 @@ Deno.test("an end nobody could name attaches when its own producer speaks", () =
     codec: "syrup",
   });
   assertEquals(
-    dialed.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    dialed.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["alice-key"],
   );
-  const attached = dialed.filter((e) =>
-    e.kind === "session-endpoint-attributed"
-  ).map((e) => expectKind(e, "session-endpoint-attributed"));
+  const attached = dialed.filter((e) => e.kind === "session-endpoint-attributed").map((e) =>
+    expectKind(e, "session-endpoint-attributed")
+  );
   assertEquals(attached.length, 1);
   assertEquals(attached[0]?.sessionId, opened.sessionId);
   assertEquals(attached[0]?.side, "b");
@@ -2006,9 +1992,7 @@ Deno.test("a replayed snapshot draws what a feed that never had to learn draws",
       "before it drew anything",
   );
   assertEquals(
-    resolved.filter((e) =>
-      e.kind === "session-opened" && e.b.peer === undefined
-    )
+    resolved.filter((e) => e.kind === "session-opened" && e.b.peer === undefined)
       .length,
     0,
     "a resolved snapshot leaves no end loose: it knew both before it drew",
@@ -2046,9 +2030,7 @@ Deno.test("a room whose every end publishes is a room of pancake peers", () => {
   const live = runThrough(AS_STAMPED);
   const liveJoined = joinedProfiles(live);
   const learned = new Set(
-    live.flatMap((e) =>
-      e.kind === "peer-updated" && e.profile !== undefined ? [e.peerId] : []
-    ),
+    live.flatMap((e) => e.kind === "peer-updated" && e.profile !== undefined ? [e.peerId] : []),
   );
   for (const [peer, joined] of Object.entries(liveJoined)) {
     assert(
@@ -2142,9 +2124,7 @@ Deno.test("a producer restarting discards the batch it never finished", () => {
   const opens = afterRestart.filter((e) => e.kind === "session-opened");
   assertEquals(opens.length, 1, "only the new epoch's session is drawn");
   assertEquals(
-    afterRestart.filter((e) =>
-      e.kind === "peer-joined" && e.peerId === "tab1-key"
-    ).length,
+    afterRestart.filter((e) => e.kind === "peer-joined" && e.peerId === "tab1-key").length,
     0,
     "a peer from the dead process's batch was drawn into the new epoch",
   );
@@ -2188,9 +2168,7 @@ Deno.test("a producer's later sessions hang off the node its end attached to", (
     opened(1, "p1/s1", "tab1-key", "rooms-key", roomWire, true),
   );
   assertEquals(
-    spoke.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    spoke.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["tab1-key"],
   );
   const attached = expectKind(
@@ -2282,9 +2260,7 @@ Deno.test("a wire another producer still watches survives one leaving", () => {
     scope: "p1",
   });
   assertEquals(
-    gone.filter((e) =>
-      e.kind === "session-unobserved" || e.kind === "session-closed"
-    ).length,
+    gone.filter((e) => e.kind === "session-unobserved" || e.kind === "session-closed").length,
     0,
     "a wire the room server still reports stayed on stage",
   );
@@ -2351,9 +2327,7 @@ Deno.test("an unproven claim never becomes anyone's identifier", () => {
   );
   assertEquals(loose.b, sessionEndpoint({ designator: "127.0.0.1:0" }));
   assertEquals(
-    first.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    first.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["rooms-key"],
     "the claim drew a peer",
   );
@@ -2365,9 +2339,7 @@ Deno.test("an unproven claim never becomes anyone's identifier", () => {
   const spoke = convert(
     opened(1, "p1/s1", "tab1-key", "rooms-key", wire, true),
   );
-  const named = spoke.filter((e) =>
-    (e as { designator?: string }).designator !== undefined
-  );
+  const named = spoke.filter((e) => (e as { designator?: string }).designator !== undefined);
   assertEquals(
     named.length,
     1,
@@ -2662,9 +2634,7 @@ Deno.test("a peer learns what it runs when it first speaks for itself", () => {
   assertEquals(profileUpdates(later), ["member-key@750=pancake"]);
   // Learning is not a re-join: the peer keeps the one lifetime it had.
   assertEquals(
-    later.filter((e) => e.kind === "peer-joined").map((e) =>
-      expectKind(e, "peer-joined").peerId
-    ),
+    later.filter((e) => e.kind === "peer-joined").map((e) => expectKind(e, "peer-joined").peerId),
     ["other-key"],
   );
 });
@@ -3124,8 +3094,7 @@ try {
 }
 
 Deno.test({
-  name:
-    "the lazy wasm browser peer enlivens, subscribes, and receives a live record",
+  name: "the lazy wasm browser peer enlivens, subscribes, and receives a live record",
   ignore: !browserWasmExists,
   sanitizeOps: false,
   sanitizeResources: false,
@@ -3151,11 +3120,11 @@ Deno.test({
         sturdyref: string;
       };
       const registry = globalThis as Record<symbol, unknown>;
-      const adapterKey = Symbol.for("pancake.stack.adapter");
+      const adapterKey = Symbol.for("pancake.runtime.adapter");
       assertEquals(
         registry[adapterKey],
         undefined,
-        "importing LiveFeed eagerly initialized the browser stack",
+        "importing LiveFeed eagerly initialized the browser runtime",
       );
 
       const wasm = await Deno.readFile(browserWasm);
@@ -3167,12 +3136,14 @@ Deno.test({
       const webModuleName: string = "@pancake/web";
       (globalThis as {
         __OCV_PANCAKE_WEB_LOADER?: () => Promise<PancakeWebModule>;
-      }).__OCV_PANCAKE_WEB_LOADER = () =>
-        import(webModuleName) as unknown as Promise<PancakeWebModule>;
+      }).__OCV_PANCAKE_WEB_LOADER = () => import(webModuleName) as unknown as Promise<PancakeWebModule>;
 
       let connected!: () => void;
       const didConnect = new Promise<void>((resolve) => connected = resolve);
       feed = new LiveFeed(ready.sturdyref);
+      let fail!: (cause: unknown) => void;
+      const didFail = new Promise<never>((_, reject) => fail = reject);
+      feed.onError((error) => fail(error.cause ?? new Error(error.detail)));
       feed.onConnectionChange((value) => {
         if (value) connected();
       });
@@ -3184,7 +3155,7 @@ Deno.test({
         if (event.kind === "session-opened") sawSession();
       });
       feed.connect();
-      await didConnect;
+      await Promise.race([didConnect, didFail]);
       assert(
         registry[adapterKey] !== undefined,
         "Live mode did not initialize wasm",
@@ -3204,7 +3175,7 @@ Deno.test({
         b: "alice",
         codec: "syrup",
       }));
-      await didReceive;
+      await Promise.race([didReceive, didFail]);
       assertEquals(
         received.filter((event) => event.kind === "session-opened").length,
         1,

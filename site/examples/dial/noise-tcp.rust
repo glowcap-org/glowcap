@@ -1,16 +1,17 @@
-use pancake::{connect, noise_tcp_locator, Argument};
+use pancake::{tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
 
 // Same TCP sockets as keyed dialing; Noise_XK seals the CapTP stream.
-let partner = noise_tcp_locator("<64 hex chars>", "127.0.0.1", 9099);
+let peer_key = "<64 lowercase hex characters from the server>";
+let partner = tcp::noise::locator(peer_key, "127.0.0.1", 9099);
 
-let session = connect(&partner, None, None).await?;
-let greeter = session.fetch("greeter").await?; // a capability, by name
-match session
-    .send(&greeter, "greet", &[Argument::String("world".into())])
-    .await
-{
+let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config::default())])).await?;
+// From here, the CapTP workflow is transport-independent.
+let session = runtime.connect(&partner, ConnectOptions::default()).await?;
+let greeter = session.fetch("greeter").await?; // a capability this peer published
+match session.send(&greeter, "greet", &["world".into()]).await {
     Ok(Argument::String(reply)) => println!("{reply}"),
     Ok(other) => println!("unexpected reply: {other:?}"),
     Err(reason) => eprintln!("the greeter refused: {reason:?}"),
 }
-session.close();
+session.close(PendingWork::Cancel).await?;
+runtime.close(PendingWork::Cancel).await?;

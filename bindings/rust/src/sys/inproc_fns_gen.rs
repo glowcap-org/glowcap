@@ -33,28 +33,19 @@ extern "C" {
 		designator_len: usize,
 		out_listener: *mut *mut PancakeInprocListener,
 	) -> c_int;
-	pub fn pancake_inproc_listener_readiness_fd(
-		listener: *mut PancakeInprocListener,
-		out_fd: *mut i32,
-	) -> c_int;
+	pub fn pancake_inproc_listener_readiness_fd(listener: *mut PancakeInprocListener, out_fd: *mut i32) -> c_int;
 	pub fn pancake_inproc_accept(
 		listener: *mut PancakeInprocListener,
 		codec: c_uint,
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeInprocConn,
 	) -> c_int;
-	pub fn pancake_inproc_conn_read_frame(
-		conn: *mut PancakeInprocConn,
-		out_frame: *mut PancakeManagedFrame,
-	) -> c_int;
-	pub fn pancake_inproc_conn_write_frame(
-		conn: *mut PancakeInprocConn,
-		frame: *const PancakeFrame,
-	) -> c_int;
+	pub fn pancake_inproc_conn_read_frame(conn: *mut PancakeInprocConn, out_frame: *mut PancakeManagedFrame) -> c_int;
+	pub fn pancake_inproc_conn_write_frame(conn: *mut PancakeInprocConn, frame: *const PancakeFrame) -> c_int;
 	pub fn pancake_inproc_conn_shutdown(conn: *mut PancakeInprocConn);
 	pub fn pancake_inproc_conn_release(conn: *mut PancakeInprocConn);
 	pub fn pancake_inproc_listener_shutdown(listener: *mut PancakeInprocListener);
-	pub fn pancake_inproc_listener_release(listener: *mut PancakeInprocListener);
+	pub fn pancake_inproc_listener_release(listener: *mut PancakeInprocListener) -> c_int;
 	pub fn pancake_inproc_clear_last_error();
 	pub fn pancake_inproc_netlayer_new_in(
 		context: *mut PancakeContext,

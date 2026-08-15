@@ -69,7 +69,7 @@ export fn pancake_iroh_sidecar_endpoint_close(ep: *anyopaque) void {
     _ = ep;
     @panic(msg);
 }
-export fn pancake_iroh_sidecar_endpoint_free(ep: *anyopaque) void {
+export fn pancake_iroh_sidecar_endpoint_free(ep: *anyopaque) i32 {
     _ = ep;
     @panic(msg);
 }

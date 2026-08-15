@@ -33,6 +33,7 @@
 ;; module; lazy-require breaks the cycle).
 (lazy-require
  ["session.rkt" (session-vat session-host session-ptr)]
+ ["host.rkt" (host-record-callerless-failure!)]
  ["pump.rkt" (pump-until current-deliver-session)]
  ["host.rkt" (host-retain! host-retire! call-with-host)]
  ["promise.rkt" (await-vow session-far-send)])
@@ -127,20 +128,28 @@
     [else (write-reply! chased out-reply)]))
 
 ;; The shared trampoline body: decode the deliver, run the actor under the turn
-;; context, and settle the reply. Every raise (an attenuator's "Attenuated", a
-;; revoked caretaker's "Revoked", an unknown-method error) crosses the boundary
-;; as a break carrying the message.
+;; context, and settle the reply. Only the behavior call is application policy:
+;; its raises (an attenuator's "Attenuated", a revoked caretaker's "Revoked",
+;; an unknown-method error) cross the boundary as a broken answer. Decode,
+;; routing, reply encoding, and native settlement failures remain binding/wire
+;; failures and unwind into the Session owner instead of being mislabeled as a
+;; partner-visible behavior result.
 (define (serve-foreign-call v turn verb-ptr verb-len args-ptr args-len out-reply run)
-  (with-handlers ([converts-to-broken? (lambda (e) (turn-break! turn (exn->message e)))])
-    (define method (decode-verb verb-ptr verb-len))
-    (define args (args<-c args-ptr args-len))
-    ;; A native callback can only run synchronously inside the pump's feed
-    ;; bracket. The arriving Session supplies routing; never retain the Port
-    ;; that happened to create this Host-owned actor.
-    (define arriving (current-deliver-session))
-    (unless arriving (error "hosted callback ran outside a session feed"))
-    (define result (parameterize ([current-turn (cons turn arriving)]) (run method args)))
-    (settle-turn-reply arriving v turn result out-reply)))
+  (define method (decode-verb verb-ptr verb-len))
+  (define args (args<-c args-ptr args-len))
+  ;; A native callback can only run synchronously inside the pump's feed
+  ;; bracket. The arriving Session supplies routing; never retain the Port
+  ;; that happened to create this Host-owned actor.
+  (define arriving (current-deliver-session))
+  (unless arriving (error "hosted callback ran outside a session feed"))
+  (define outcome
+    (with-handlers ([converts-to-broken? (lambda (error) (cons 'broken error))])
+      (cons 'ok
+            (parameterize ([current-turn (cons turn arriving)])
+              (run method args)))))
+  (case (car outcome)
+    [(broken) (turn-break! turn (exn->message (cdr outcome)))]
+    [else (settle-turn-reply arriving v turn (cdr outcome) out-reply)]))
 
 ;; The PancakeHostBehavior for a vat actor: each wire
 ;; deliver runs the actor's current cell through `run-turn` (so `bcom` and
@@ -235,7 +244,14 @@
   (define resolved (vat-resolve-target v target))
   (cond
     [(actor-ref? resolved)
-     (with-vat v (apply <-np resolved verb args))
+     (with-vat
+      v
+      (define vow (apply <- resolved verb args))
+      (on vow #:catch
+          (lambda (message)
+            (host-record-callerless-failure!
+             (session-host c) "tell.behavior"
+             (exn:fail message (current-continuation-marks))))))
      (drive v)]
     [else (session-far-send c resolved verb args #f)]))
 

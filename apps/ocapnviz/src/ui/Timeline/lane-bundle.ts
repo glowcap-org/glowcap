@@ -45,10 +45,7 @@ import {
   sessionStateColors,
   themedColors,
 } from "../../render/palette.ts";
-import {
-  keyframeAt,
-  type KeyframeTrack,
-} from "../../engine/temporal/keyframes.ts";
+import { keyframeAt, type KeyframeTrack } from "../../engine/temporal/keyframes.ts";
 import { momentOf } from "../../engine/event-helpers.ts";
 import { PEER_TRAJECTORY, peerUpdateStates } from "../../engine/trajectory.ts";
 import type { SessionState } from "../../schema/topology.ts";
@@ -439,15 +436,11 @@ export function buildLaneBundle(
     // profile color, so its tone is chosen against that fill. A
     // glyph whose peer is undeclared has no pill under it and takes
     // the chrome tone instead.
-    const profile = entities?.peers?.[ev.peerId] === undefined
-      ? undefined
-      : peerProfileAt(doc, ev.peerId, ev.t);
+    const profile = entities?.peers?.[ev.peerId] === undefined ? undefined : peerProfileAt(doc, ev.peerId, ev.t);
     const glyph: LaneGlyph = {
       t: momentEffective(doc, "peers", ev.peerId, ev.t),
       shape: "diamond",
-      color: profile === undefined
-        ? colors.peerMuted
-        : hex(glyphOnFill(colorForProfile(profile))),
+      color: profile === undefined ? colors.peerMuted : hex(glyphOnFill(colorForProfile(profile))),
       label: stated
         .map((s) => `${PEER_TRAJECTORY[s.property].noun} → ${s.value}`)
         .join(", "),

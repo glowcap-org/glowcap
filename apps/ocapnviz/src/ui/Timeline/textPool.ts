@@ -87,11 +87,7 @@ export class TextPool {
     // Canvas 2D's "alphabetic" baseline ≈ anchor.y 0.85 in Pixi.
     text.anchor.set(
       style.align === "right" ? 1 : 0,
-      style.baseline === "middle"
-        ? 0.5
-        : style.baseline === "alphabetic"
-        ? 0.85
-        : 0,
+      style.baseline === "middle" ? 0.5 : style.baseline === "alphabetic" ? 0.85 : 0,
     );
     text.position.set(x, y);
   }

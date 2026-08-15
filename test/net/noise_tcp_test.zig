@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
@@ -48,7 +49,7 @@ test "noise-tcp dial refuses a non-key designator and a hint-less key designator
         .transport = net.tcp.noise.transport_name,
         .designator = "127.0.0.1:9999",
         .hints = model.Hints.emptyFalse(),
-    }, bufs));
+    }, bufs, .inherit));
 
     // A canonical key with no direct-addresses hint has nowhere to dial:
     // refused loud instead of timing out (TCP has no discovery).
@@ -57,7 +58,7 @@ test "noise-tcp dial refuses a non-key designator and a hint-less key designator
         .transport = net.tcp.noise.transport_name,
         .designator = designator[0..],
         .hints = model.Hints.emptyFalse(),
-    }, bufs));
+    }, bufs, .inherit));
 
     // A malformed hint value (the address grammar is tcp's) also refuses.
     const bad_hint = [_]model.HintEntry{.{
@@ -68,7 +69,7 @@ test "noise-tcp dial refuses a non-key designator and a hint-less key designator
         .transport = net.tcp.noise.transport_name,
         .designator = designator[0..],
         .hints = .{ .entries = &bad_hint },
-    }, bufs));
+    }, bufs, .inherit));
 }
 
 fn waitUntilNoiseListenerClose(listener: net.netlayer.Listener) anyerror!void {
@@ -83,7 +84,7 @@ test "noise-tcp listener designator is the identity key, and close wakes a block
 
     const secret = crypto.SecretKey.fromSeed([_]u8{0x6f} ** crypto.SEED_BYTES);
     var resident = net.tcp.noise.Resident{ .io = io };
-    const listener = try resident.netlayer().listen(allocator, .{
+    const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = secret.publicKey(),
     });
@@ -99,6 +100,6 @@ test "noise-tcp listener designator is the identity key, and close wakes a block
 
     var waiter = try io.concurrent(waitUntilNoiseListenerClose, .{listener});
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
-    listener.close();
+    netlayer_test.close(listener);
     try waiter.await(io);
 }

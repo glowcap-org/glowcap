@@ -28,6 +28,7 @@ from ._sigs_gen import iroh_sigs
 _IROH_LIB_PATH = _lib_path("pancake_net_transport_iroh")
 _IROH_LIB_FILE = _lib_file("pancake_net_transport_iroh")
 
+
 class _IrohReadyEvent(ctypes.Structure):
     """One readiness record drained by ``pancake_iroh_netlayer_drain_ready``, the
     ``extern struct`` counterpart of the header's ``PancakeIrohReadyEvent``.
@@ -59,7 +60,9 @@ pin_struct(_IrohConfig, "PANCAKE_IROH_CONFIG")
 
 def _load_iroh():
     lib = ctypes.CDLL(str(_IROH_LIB_PATH))
-    for name, (argtypes, restype) in iroh_sigs(_IrohReadyEvent, _IrohConfig, _TransportProvider).items():
+    for name, (argtypes, restype) in iroh_sigs(
+        _IrohReadyEvent, _IrohConfig, _TransportProvider
+    ).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes
         fn.restype = restype
@@ -81,6 +84,7 @@ def _iroh():
             raise RuntimeError(
                 f"iroh transport unavailable: could not load {_IROH_LIB_FILE} from "
                 "PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system "
-                "library path. Build it with `zig build iroh-abi` (needs cargo). " + str(exc)
+                "library path. Build it with `zig build iroh-abi` (needs cargo). "
+                + str(exc)
             ) from exc
     return _iroh_lib_cache

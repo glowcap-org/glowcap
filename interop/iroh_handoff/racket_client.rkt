@@ -76,8 +76,12 @@
 (define-values (gifter-id gifter-addrs) (dialable gifter))
 (define exporter-uri
   (format-peer-uri TRANSPORT-IROH exporter-id (hash HINT-DIRECT-ADDRESSES exporter-addrs)))
+(define gifter-runtime
+  (open-runtime
+   #:providers (list (iroh-provider (make-iroh-config IROH-REACH-DIRECT)))
+   #:adopt-host (iroh-server-host gifter)))
 (define to-exporter
-  (connect exporter-uri IROH-REACH-DIRECT #:host (iroh-server-host gifter)))
+  (runtime-connect gifter-runtime (parse-locator exporter-uri)))
 (define greeter-ref (session-fetch to-exporter "greeter"))
 ;; The exporter's own signed session record names it by node id alone — not
 ;; dialable under the relay-less Direct posture — so record its full dialable
@@ -92,14 +96,20 @@
 (printf "racket-iroh-handoff: gifter published introducer on ~a\n" gifter-id)
 
 ;; ── Recipient: dials the gifter, redeems the give by dialing the exporter ──────
+(define recipient-runtime
+  (open-runtime
+   #:providers (list (iroh-provider (make-iroh-config IROH-REACH-DIRECT)))))
 (with-handlers ([(lambda (_) #t)
                  (lambda (e)
+                   (runtime-close! recipient-runtime)
+                   (runtime-close! gifter-runtime)
                    (iroh-server-close! exporter)
                    (iroh-server-close! gifter)
                    (raise e))])
   (define gifter-uri
   (format-peer-uri TRANSPORT-IROH gifter-id (hash HINT-DIRECT-ADDRESSES gifter-addrs)))
-(define recipient (connect gifter-uri IROH-REACH-DIRECT))
+(define recipient
+  (runtime-connect recipient-runtime (parse-locator gifter-uri)))
   (define introducer (session-fetch recipient "introducer"))
   (define greeter (session-send recipient introducer 'get-greeter))
   (unless (ref? greeter)
@@ -123,6 +133,8 @@
   ;; readiness thread outlives the endpoint it watches.
   (session-close! recipient)
   (session-close! to-exporter)
+  (runtime-close! recipient-runtime)
+  (runtime-close! gifter-runtime)
   (iroh-server-close! exporter)
   (iroh-server-close! gifter)
   (thread-wait exporter-accept)

@@ -21,6 +21,10 @@ pancake help
 Put that directory on your `PATH` once per shell, then every example below is
 just `pancake …`.
 
+In the devcontainer, skip both steps: `pancake` is already on `PATH` there, as
+a link to the repo-root shim, and the shim runs `zig build` itself if the
+binary is missing.
+
 To install into a prefix that is already on your `PATH` (for example
 `~/.local/bin`):
 
@@ -213,8 +217,12 @@ lives at [`docs/examples/pancake-mcp.json`](examples/pancake-mcp.json).
 
 Room presence is `pancake app rooms-peer` (install alias `rooms-peer`). The peer
 registers a giftable `dm` inbox so `reply --dm PEER` delivers via directory
-introduction (same path as `demo-rooms-dm-iroh`). Deploy and locator details are
-in [`apps/rooms/README.md`](../apps/rooms/README.md).
+introduction (same path as `demo-rooms-dm-iroh`). Native rooms-peer speaks iroh
+and keyed-relay, not WebRTC: a first DM to a default browser tab cannot redeem
+that locator, and the peer answers on the reply capability after the tab
+messages first. Tabs that want to be introduced from native pick Via this server
+(relay) in Settings, or open with `?dm=relay`. Deploy and locator details are in
+[`apps/rooms/README.md`](../apps/rooms/README.md).
 
 ## Shell completion and scripting
 
@@ -231,8 +239,9 @@ A `keyed-relay` locator names a peer that holds no listening socket (a
 browser tab, or any process that registered its identity at a relay instead).
 Its `rendezvous-relay` hint carries the dial route; `PANCAKE_RENDEZVOUS` is
 the deployment fallback for a bare locator. The relay carries cleartext CapTP
-frames and does not prove who answered; use `noise-relay` when the
-conversation needs a sealed path
+frames and does not prove who answered. Native peers can seal that path with
+`noise-relay`. A browser tab on the accepting side still uses WebRTC or
+cleartext `keyed-relay` rendezvous
 ([known limitations](boundaries.md#browser-reachability)):
 
 ```sh

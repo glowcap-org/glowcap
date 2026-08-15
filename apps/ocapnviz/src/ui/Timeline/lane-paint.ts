@@ -14,19 +14,8 @@ import { FillGradient, type Graphics } from "pixi.js";
 import type { TextPool } from "./textPool.ts";
 import type { LaneGlyph, LaneSpan } from "./lane-bundle.ts";
 import type { TimelineView } from "./state.ts";
-import {
-  LABEL_GAP_PX,
-  LABEL_MIN_PX,
-  layoutLaneLabels,
-  monoAdvance,
-} from "./label-layout.ts";
-import {
-  SPAN_MIN_PILL_PX,
-  SPAN_PILL_INSET_Y,
-  SPAN_RADIUS,
-  type SpanRect,
-  spanScreenRect,
-} from "./span-geometry.ts";
+import { LABEL_GAP_PX, LABEL_MIN_PX, layoutLaneLabels, monoAdvance } from "./label-layout.ts";
+import { SPAN_MIN_PILL_PX, SPAN_PILL_INSET_Y, SPAN_RADIUS, type SpanRect, spanScreenRect } from "./span-geometry.ts";
 import { FONT, SIZE } from "../tokens.ts";
 
 /** Palette subset `drawLaneSpans` actually reads. Decoupled from
@@ -241,12 +230,8 @@ export function drawLaneSpans(
         const segRightRaw = isLast ? right : tToPx(seg.t1);
         // Extend roundRect segments by RADIUS into the abutting rect
         // so the notch sits under the neighbor's full-coverage paint.
-        const drawLeft = isFirst || isLast
-          ? segLeftRaw - (isFirst && !isLast ? 0 : RADIUS)
-          : segLeftRaw;
-        const drawRight = isFirst || isLast
-          ? segRightRaw + (isLast && !isFirst ? 0 : RADIUS)
-          : segRightRaw;
+        const drawLeft = isFirst || isLast ? segLeftRaw - (isFirst && !isLast ? 0 : RADIUS) : segLeftRaw;
+        const drawRight = isFirst || isLast ? segRightRaw + (isLast && !isFirst ? 0 : RADIUS) : segRightRaw;
         const clipLeft = Math.max(left, drawLeft);
         const clipRight = Math.min(right, drawRight);
         if (clipRight <= clipLeft) continue;

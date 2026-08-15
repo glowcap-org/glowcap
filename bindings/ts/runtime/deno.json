@@ -1,0 +1,26 @@
+{
+	"name": "@pancake/runtime",
+	"compilerOptions": {
+		"lib": ["deno.window", "esnext"]
+	},
+	"version": "0.1.0",
+	"exports": {
+		".": "./mod.ts",
+		"./transport": "./transport.ts",
+		"./websocket": "./websocket.ts",
+		"./ffi": "./ffi.ts"
+	},
+	"publish": {
+		"include": [
+			"**/*.ts",
+			"**/c-abi-resolve.json",
+			"README.md"
+		],
+		"exclude": [
+			"test/**"
+		]
+	},
+	"tasks": {
+		"check": "deno check mod.ts runtime.ts transport.ts websocket.ts ffi.ts driver_loop.ts internal/server.ts test/runtime_test.ts"
+	}
+}

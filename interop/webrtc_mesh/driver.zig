@@ -245,9 +245,9 @@ pub fn main(init: std.process.Init) !void {
     // The offerer is the recipient (it initiates the reach); the answerer is the
     // exporter (it is being reached).
     var offerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer offerer_resident.deinit();
+    defer offerer_resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var answerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer answerer_resident.deinit();
+    defer answerer_resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var offerer = try offerer_resident.newPeer(true);
     defer offerer.deinit();
     var answerer = try answerer_resident.newPeer(false);

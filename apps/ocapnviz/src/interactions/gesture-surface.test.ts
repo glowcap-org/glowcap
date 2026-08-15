@@ -21,11 +21,7 @@
  */
 
 import { assertEquals } from "@std/assert";
-import {
-  type GestureEndReason,
-  GestureRouter,
-  watchGestureEnd,
-} from "./gesture-router.ts";
+import { type GestureEndReason, GestureRouter, watchGestureEnd } from "./gesture-router.ts";
 
 class FakeElement {
   dataset: Record<string, string> = {};

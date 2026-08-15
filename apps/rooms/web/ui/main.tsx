@@ -20,6 +20,7 @@ import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { handOffWhenReady } from "./boot.ts";
 import * as net from "./net.ts";
 import * as store from "./store.ts";
+import * as prefs from "./prefs.ts";
 import { type Peer, PeerProvider } from "./peer.ts";
 
 // The one binding of what the interface can ask for to what performs it. Built
@@ -30,18 +31,36 @@ const peer: Peer = {
 	showRail: store.showRail,
 	pickRoom: net.pickRoom,
 	leaveRoom: net.leaveRoom,
+	addDirectory: net.addDirectory,
+	aboutDirectory: net.aboutDirectory,
+	leaveDirectory: net.leaveDirectory,
 	openConv: store.switchTo,
 	closeDm: net.closeDm,
 	banner: store.setBanner,
 	showRoster: store.showRoster,
 	endConv: net.endConversation,
-	toggleTheme: () => store.setTheme(store.get().theme === "dark" ? "light" : "dark"),
+	setTheme: store.setTheme,
 	toggleNotify: net.toggleNotify,
+	openSettings: store.openSettings,
+	closeSettings: store.closeSettings,
+	applySettings: prefs.apply,
+	selfLocator: net.selfLocator,
+	directoryLocator: net.directoryLocator,
 	startDm: net.startDm,
 	retry: net.retrySend,
+	stopSend: net.stopSend,
+	withdraw: net.withdraw,
+	changeLine: store.startChange,
+	cancelChange: store.cancelChange,
 	mention: net.mention,
 	setDraft: net.setDraft,
 	send: net.send,
+	addFiles: net.addFiles,
+	removeFile: store.removeDraftFile,
+	openFile: net.openAttachment,
+	openViewer: store.openViewer,
+	stepViewer: net.stepViewer,
+	closeViewer: store.closeViewer,
 	setTyping: net.setTyping,
 	setJoinDraft: store.setDrafts,
 	join: net.joinRoom,
@@ -57,8 +76,7 @@ createRoot(mount, {
 	// is React repairing itself and worth seeing while developing.
 	onUncaughtError: (error: unknown, info: { componentStack?: string }) =>
 		console.error("rooms: nothing caught this render error:", error, info.componentStack),
-	onCaughtError: (error: unknown) =>
-		console.warn("rooms: a boundary caught a render error:", error),
+	onCaughtError: (error: unknown) => console.warn("rooms: a boundary caught a render error:", error),
 	onRecoverableError: (error: unknown) => console.warn("rooms: React recovered from:", error),
 }).render(
 	<StrictMode>

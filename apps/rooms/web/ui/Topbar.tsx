@@ -1,5 +1,5 @@
 // The header over the conversation: where you are, what kind of line it is, and
-// the three controls that act on it.
+// the controls that act on it.
 //
 // Every word and every pressed-state here is derived from the conversation on
 // screen. The old header was written by four functions that each set some of it,
@@ -9,6 +9,7 @@
 import { memo } from "react";
 import type { Conv } from "./types.ts";
 import { Icon } from "./icons.tsx";
+import { IconButton } from "./IconButton.tsx";
 import { usePeer } from "./peer.ts";
 
 /** What the title says, and what its mark would do. */
@@ -26,12 +27,16 @@ function titleOf(conv: Conv | null): { name: string; said: string } {
  * phone has no room for the full phrase. */
 function provenanceOf(conv: Conv, online: boolean, narrow: boolean): string {
 	if (!online) return "Offline";
-	if (conv.type === "dm" && conv.line !== "live") return "Introducing…";
+	// Not "Introducing…", which claims something is happening: the line opens on
+	// the first message, so before one is sent nothing has started, and after one
+	// has failed nothing is still running. This says the state a reader can act
+	// on, and it stays true through the moment in between.
+	if (conv.type === "dm" && conv.line !== "live") return "Not open yet";
 	return narrow ? "Encrypted" : "Direct · encrypted, peer-to-peer";
 }
 
 function TopbarPane(
-	{ conv, online, unread, mobile, railShown, rosterShown, memberCount, theme, notifyOn }: {
+	{ conv, online, unread, mobile, railShown, rosterShown, memberCount, settingsOpen }: {
 		conv: Conv | null;
 		online: boolean;
 		unread: number;
@@ -39,16 +44,14 @@ function TopbarPane(
 		railShown: boolean;
 		rosterShown: boolean;
 		memberCount: number;
-		theme: "light" | "dark";
-		notifyOn: boolean;
+		settingsOpen: boolean;
 	},
 ) {
 	const peer = usePeer();
 	const title = titleOf(conv);
 	const isRoom = conv?.type === "room";
-	// Past two digits the exact number stops being the thing anyone reads: a room
-	// of 143 and a room of 178 are the same room to a reader. The panel behind the
-	// button keeps the real figure, as does the label the button answers to.
+	// How many people are here now, rather than how many the room has ever seen —
+	// the roster behind this button draws the same distinction in words.
 	const said = "Members, " + memberCount + " online";
 	// The sigil in the title says what kind of line this is: a room keeps its
 	// hash, and a direct line takes two endpoints with nothing in between, which
@@ -56,33 +59,34 @@ function TopbarPane(
 	const sigil = isRoom ? "#" : conv ? <Icon name="direct" size={17} /> : null;
 	return (
 		<header className="topbar">
-			<button
-				type="button"
+			<IconButton
 				id="backBtn"
-				className={unread > 0 ? "icon mark-btn has-unread" : "icon mark-btn"}
+				className={unread > 0 ? "mark-btn has-unread" : "mark-btn"}
+				icon="mark"
+				label="Rooms and direct messages"
+				size={mobile ? "large" : "normal"}
 				title={railShown ? "Hide the rooms list" : "Show the rooms list"}
-				aria-label="Rooms and direct messages"
 				aria-pressed={railShown}
 				onClick={() => peer.showRail(true)}
 			/>
 			<h1 id="roomTitle">
-				<button
-					id="leaveBtn"
-					className="title-btn"
-					type="button"
-					disabled={conv === null}
-					title={conv ? title.said : undefined}
-					aria-label={title.said}
-					onClick={peer.endConv}
-				>
+				<span className="title-chip">
 					<span className={isRoom ? "hash" : "at"} id="roomSigil" hidden={conv === null}>
 						{sigil}
 					</span>
 					<span id="roomName">{title.name}</span>
-					<span className="leave-x" aria-hidden="true">
-						<Icon name="close" size={14} />
-					</span>
-				</button>
+					<IconButton
+						id="leaveBtn"
+						className="leave-x"
+						icon="close"
+						label={title.said}
+						size="small"
+						variant="ghost"
+						tone="danger"
+						hidden={conv === null}
+						onClick={peer.endConv}
+					/>
+				</span>
 			</h1>
 			<span
 				className={conv?.type === "dm"
@@ -99,43 +103,28 @@ function TopbarPane(
 				</span>
 			</span>
 			<span className="spacer" />
-			<button
-				type="button"
-				id="notifyToggle"
-				className={notifyOn ? "icon on" : "icon"}
-				title="Notify me when I'm mentioned"
-				aria-label="Toggle mention notifications"
-				aria-pressed={notifyOn}
-				hidden={conv === null}
-				onClick={peer.toggleNotify}
-			>
-				<Icon name={notifyOn ? "bell" : "bellOff"} />
-			</button>
-			<button
-				type="button"
-				id="themeToggle"
-				className="icon"
-				title={theme === "dark" ? "Switch to light" : "Switch to syrup (dark)"}
-				aria-label="Toggle light or dark theme"
-				onClick={peer.toggleTheme}
-			>
-				<Icon name={theme === "dark" ? "sun" : "moon"} />
-			</button>
-			<button
-				type="button"
+			<IconButton
+				id="settingsBtn"
+				icon="gear"
+				label="Settings"
+				size={mobile ? "large" : "normal"}
+				aria-pressed={settingsOpen}
+				onClick={() => settingsOpen ? peer.closeSettings() : peer.openSettings()}
+			/>
+			<IconButton
 				id="membersToggle"
-				className="icon count-btn"
+				icon="group"
+				label={said}
+				size={mobile ? "large" : "normal"}
+				badge={memberCount > 99 ? "99+" : memberCount}
+				// Past two digits the exact number stops being what anyone reads: a
+				// room of 143 and a room of 178 are the same room to a reader. The
+				// roster behind the button keeps the real figure, as does the label
+				// the button answers to.
 				aria-pressed={rosterShown}
-				aria-label={said}
-				title={said}
 				hidden={!isRoom}
 				onClick={() => peer.showRoster(!rosterShown)}
-			>
-				<span className="count-mark" aria-hidden="true">
-					<Icon name="group" />
-				</span>
-				<span id="memberCount">{memberCount > 99 ? "99+" : memberCount}</span>
-			</button>
+			/>
 		</header>
 	);
 }

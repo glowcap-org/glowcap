@@ -2,21 +2,17 @@
 //!
 //! The two moves that make capabilities compose. A listener asks a record desk
 //! to `checkout` its house record. Without waiting for the answer, it
-//! addresses `play` and `eject` at the *unresolved* checkout answer
-//! (`sendToAnswer`, the questioner half of ADR-0007). All three delivers cross
-//! the wire as one batch; the desk queues the dependent calls on its pending
-//! answer and drains them onto the record the moment `checkout` resolves. No
-//! round trip is paid to learn an answer only the partner needs.
+//! addresses `play` and `eject` at the unresolved checkout answer. All three
+//! delivers cross the wire as one batch; the desk queues the dependent calls
+//! on its pending answer and drains them onto the record the moment `checkout`
+//! resolves. No round trip is paid to learn an answer only the partner needs.
 //!
 //! The desk, meanwhile, never hands out the record itself. It wraps it in an
-//! attenuator (`actors.attenuate`, ADR-0064) that forwards only `play`, so the
-//! refused authority is unrepresentable rather than permission-checked:
-//! `play` resolves with the song, and the pipelined `eject` comes back a
-//! broken vow (`Attenuated`) without the record ever hearing the verb.
-//!
-//! Same altitude as chapter 03 (two `actors.Vat`s over a Goblins-profile paired
-//! session, frames shuttled by hand); chapter 01's `Session.sendToAnswer` rides
-//! this exact machinery over a real socket.
+//! attenuator that forwards only `play`, so the refused authority is
+//! unrepresentable rather than permission-checked: `play` resolves with the
+//! song, and the pipelined `eject` comes back a broken vow without the record
+//! ever hearing the verb. Chapter 01's session pipelines this same way over a
+//! real socket.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

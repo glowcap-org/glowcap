@@ -5,7 +5,7 @@
 //! `Session` owns the peer on a background task, so the application above sees
 //! only the board methods.
 //!
-//!   let board = Board::join(&tcp_locator("127.0.0.1", 9099)).await?;
+//!   let board = Board::join(&tcp::locator("127.0.0.1", 9099)).await?;
 //!   let id = board.add("buy groceries").await?;
 //!   board.done(id).await?;
 //!   let tasks = board.list().await?;
@@ -13,7 +13,7 @@
 
 use std::rc::Rc;
 
-use pancake::{connect, Argument, Session};
+use pancake::{tcp, Argument, ConnectOptions, Locator, Runtime, RuntimeConfig, Session};
 
 const BOARD: &str = "board";
 
@@ -48,20 +48,22 @@ fn parse_snapshot(arg: &Argument) -> Vec<Task> {
 pub struct Board {
 	session: Rc<Session>,
 	board: pancake::Ref,
+	_runtime: Runtime,
 }
 
 impl Board {
 	/// Join the board at `locator`. Call inside a `LocalSet` (the peer is `!Send`).
-	pub async fn join(locator: &str) -> Result<Board, String> {
+	pub async fn join(locator: &Locator) -> Result<Board, String> {
+		let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]))
+			.await
+			.map_err(|e| format!("runtime: {e:?}"))?;
 		let session = Rc::new(
-			connect(locator, None, None)
+			runtime
+				.connect(locator, ConnectOptions::default())
 				.await
 				.map_err(|e| format!("connect: {e:?}"))?,
 		);
-		let board = session
-			.fetch(BOARD)
-			.await
-			.map_err(|e| format!("fetch board: {e:?}"))?;
+		let board = session.fetch(BOARD).await.map_err(|e| format!("fetch board: {e:?}"))?;
 
 		// Watch the board so changes are pushed to us (we ignore the updates in
 		// this one-shot client, but it exercises the capability callback).
@@ -78,14 +80,16 @@ impl Board {
 			.await
 			.map_err(|e| format!("watch: {e:?}"))?;
 
-		Ok(Board { session, board })
+		Ok(Board {
+			session,
+			board,
+			_runtime: runtime,
+		})
 	}
 
 	pub async fn add(&self, text: &str) -> Result<i64, String> {
 		match self.session.send(&self.board, "add", &[text.into()]).await {
-			Ok(reply) => reply
-				.as_i64()
-				.ok_or_else(|| "unexpected reply to add".to_string()),
+			Ok(reply) => reply.as_i64().ok_or_else(|| "unexpected reply to add".to_string()),
 			Err(e) => Err(format!("add: {e:?}")),
 		}
 	}

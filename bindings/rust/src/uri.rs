@@ -4,8 +4,8 @@
 //! defined once in libpancake_ocapn's `pancake_uri_*` / `pancake_locator_*` surface, so
 //! the Rust binding hand-rolls no percent codec and reaches the same grammar a
 //! TCP-only consumer does. [`parse_locator`] copies every borrowed view into an
-//! owned [`Locator`] before releasing the handle; [`format_peer_uri`],
-//! [`tcp_locator`], and [`encode_peer_locator`] render through the same
+//! owned [`Locator`] before releasing the handle; [`format_peer_uri`] and
+//! [`encode_peer_locator`] render through the same
 //! grammar. All of it is pure grammar over the always-linked core, so the whole
 //! module is available in every build, transports and async aside.
 
@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use core::ffi::{c_int, c_uchar};
 
-use crate::{check, sys, Error, Result};
+use crate::{check, sys, CaptpVersion, Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HintValue {
@@ -50,6 +50,19 @@ pub struct Locator {
 	pub hint_wire_form: HintWireForm,
 }
 
+impl Locator {
+	/// A locator carrying no hints, for a caller that holds only a transport
+	/// and a designator. The wire form matches the core's empty-hints default.
+	pub fn bare(transport: &str, designator: &str) -> Self {
+		Self {
+			transport: transport.to_string(),
+			designator: designator.to_string(),
+			hints: BTreeMap::new(),
+			hint_wire_form: HintWireForm::BooleanFalse,
+		}
+	}
+}
+
 /// A parsed OCapN sturdyref. The swissnum is authority, so it never collapses
 /// into a peer [`Locator`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,11 +94,12 @@ pub fn parse_locator(uri: &str) -> Result<Locator> {
 	OwnedLocator::adopt(raw)?.value()
 }
 
-/// Parse an `ocapn://…/s/<swiss>` sturdyref URI, recovering its swissnum.
-pub fn parse_sturdyref(uri: &str) -> Result<SturdyRef> {
+/// Parse an `ocapn://…/s/<swiss>` sturdyref URI under its CapTP profile,
+/// recovering its swissnum.
+pub fn parse_sturdyref(uri: &str, captp_version: CaptpVersion) -> Result<SturdyRef> {
 	let bytes = uri.as_bytes();
 	let mut raw: *mut sys::PancakeSturdyRef = core::ptr::null_mut();
-	check(unsafe { sys::pancake_uri_parse_sturdyref(bytes.as_ptr(), bytes.len(), &mut raw) })?;
+	check(unsafe { sys::pancake_uri_parse_sturdyref(captp_version.to_c(), bytes.as_ptr(), bytes.len(), &mut raw) })?;
 	OwnedSturdyRef::adopt(raw)?.value()
 }
 
@@ -112,26 +126,15 @@ impl OwnedLocator {
 		for (name, value) in &locator.hints {
 			let rc = unsafe {
 				match value {
-					HintValue::String(value) => sys::pancake_locator_add_string(
-						owned.0,
-						name.as_ptr(),
-						name.len(),
-						value.as_ptr(),
-						value.len(),
-					),
-					HintValue::Bytes(value) => sys::pancake_locator_add_bytes(
-						owned.0,
-						name.as_ptr(),
-						name.len(),
-						value.as_ptr(),
-						value.len(),
-					),
-					HintValue::Boolean(value) => sys::pancake_locator_add_boolean(
-						owned.0,
-						name.as_ptr(),
-						name.len(),
-						u8::from(*value),
-					),
+					HintValue::String(value) => {
+						sys::pancake_locator_add_string(owned.0, name.as_ptr(), name.len(), value.as_ptr(), value.len())
+					}
+					HintValue::Bytes(value) => {
+						sys::pancake_locator_add_bytes(owned.0, name.as_ptr(), name.len(), value.as_ptr(), value.len())
+					}
+					HintValue::Boolean(value) => {
+						sys::pancake_locator_add_boolean(owned.0, name.as_ptr(), name.len(), u8::from(*value))
+					}
 					HintValue::Integer(value) => {
 						sys::pancake_locator_add_integer(owned.0, name.as_ptr(), name.len(), *value)
 					}
@@ -189,11 +192,7 @@ impl OwnedLocator {
 
 		unsafe fn field(
 			raw: *mut sys::PancakeLocator,
-			accessor: unsafe extern "C" fn(
-				*mut sys::PancakeLocator,
-				*mut *const u8,
-				*mut usize,
-			) -> c_int,
+			accessor: unsafe extern "C" fn(*mut sys::PancakeLocator, *mut *const u8, *mut usize) -> c_int,
 		) -> Result<String> {
 			let mut ptr = core::ptr::null();
 			let mut len = 0;
@@ -210,12 +209,8 @@ impl OwnedLocator {
 			let name = unsafe { text(hint.name, hint.name_len)? };
 			let value = match hint.kind {
 				sys::HINT_STRING => HintValue::String(unsafe { text(hint.bytes, hint.bytes_len)? }),
-				sys::HINT_BYTES => {
-					HintValue::Bytes(unsafe { bytes(hint.bytes, hint.bytes_len)?.to_vec() })
-				}
-				sys::HINT_BOOLEAN if hint.boolean_value <= 1 => {
-					HintValue::Boolean(hint.boolean_value != 0)
-				}
+				sys::HINT_BYTES => HintValue::Bytes(unsafe { bytes(hint.bytes, hint.bytes_len)?.to_vec() }),
+				sys::HINT_BOOLEAN if hint.boolean_value <= 1 => HintValue::Boolean(hint.boolean_value != 0),
 				sys::HINT_INTEGER => HintValue::Integer(hint.integer_value),
 				_ => {
 					return Err(Error::with_detail(
@@ -310,18 +305,13 @@ unsafe fn view_to_string(ptr: *const c_uchar, len: usize) -> String {
 
 /// Format a peer locator as an `ocapn://<designator>.<transport>[?hints]` URI
 /// through the core grammar.
-pub fn format_peer_uri(
-	transport: &str,
-	designator: &str,
-	hints: &BTreeMap<String, String>,
-) -> Result<String> {
+pub fn format_peer_uri(transport: &str, designator: &str, hints: &BTreeMap<String, String>) -> Result<String> {
 	format_uri(transport, designator, None, hints)
 }
 
-/// Format a peer URI plus opaque swiss authority as a sturdyref through the
-/// core grammar. The locator is parsed first so no binding splices URI syntax.
-pub fn format_sturdyref(locator_uri: &str, swissnum: &[u8]) -> Result<String> {
-	let locator = parse_locator(locator_uri)?;
+/// Add opaque swiss authority to a typed peer locator and render a sturdyref
+/// under the selected CapTP profile.
+pub fn format_sturdyref(locator: &Locator, swissnum: &[u8], captp_version: CaptpVersion) -> Result<String> {
 	let mut hints = BTreeMap::new();
 	for (name, value) in &locator.hints {
 		let value = value
@@ -332,7 +322,7 @@ pub fn format_sturdyref(locator_uri: &str, swissnum: &[u8]) -> Result<String> {
 	format_uri(
 		&locator.transport,
 		&locator.designator,
-		Some(swissnum),
+		Some((swissnum, captp_version)),
 		&hints,
 	)
 }
@@ -340,7 +330,7 @@ pub fn format_sturdyref(locator_uri: &str, swissnum: &[u8]) -> Result<String> {
 fn format_uri(
 	transport: &str,
 	designator: &str,
-	swissnum: Option<&[u8]>,
+	swissnum: Option<(&[u8], CaptpVersion)>,
 	hints: &BTreeMap<String, String>,
 ) -> Result<String> {
 	let keys: Vec<&[u8]> = hints.keys().map(|k| k.as_bytes()).collect();
@@ -376,8 +366,9 @@ fn format_uri(
 		let mut buf = vec![0u8; cap];
 		let mut out_len: usize = 0;
 		let rc = unsafe {
-			if let Some(swiss) = swissnum {
+			if let Some((swiss, captp_version)) = swissnum {
 				sys::pancake_uri_format_sturdyref(
+					captp_version.to_c(),
 					t.as_ptr(),
 					t.len(),
 					d.as_ptr(),
@@ -422,12 +413,8 @@ fn format_uri(
 	}
 }
 
-#[cfg(feature = "async")]
-pub(crate) fn format_peer_locator(
-	transport: &str,
-	designator: &str,
-	direct_addresses: &str,
-) -> Result<String> {
+#[cfg(feature = "tcp")]
+pub(crate) fn format_peer_locator(transport: &str, designator: &str, direct_addresses: &str) -> Result<String> {
 	let mut hints = BTreeMap::new();
 	if !direct_addresses.is_empty() {
 		hints.insert(
@@ -438,8 +425,11 @@ pub(crate) fn format_peer_locator(
 	format_peer_uri(transport, designator, &hints)
 }
 
-#[cfg(feature = "iroh")]
-pub(crate) fn format_locator_uri(locator: &Locator) -> Result<String> {
+/// Render a typed peer locator as its canonical `ocapn://` URI.
+///
+/// Keep locators typed while dialing and serving. Serialize only at text
+/// boundaries such as configuration, logs, and sturdyref construction.
+pub fn format_locator_uri(locator: &Locator) -> Result<String> {
 	let mut hints = BTreeMap::new();
 	for (name, value) in &locator.hints {
 		let value = value.as_str().ok_or_else(|| {
@@ -451,15 +441,6 @@ pub(crate) fn format_locator_uri(locator: &Locator) -> Result<String> {
 		hints.insert(name.clone(), value.to_owned());
 	}
 	format_peer_uri(&locator.transport, &locator.designator, &hints)
-}
-
-/// Render host:port as a tcp designator; bracket IPv6 for the core grammar.
-pub fn socket_addr_designator(host: &str, port: u16) -> String {
-	if host.contains(':') && !(host.starts_with('[') && host.ends_with(']')) {
-		format!("[{host}]:{port}")
-	} else {
-		format!("{host}:{port}")
-	}
 }
 
 /// Split a bare designator as `host:port` through the core grammar
@@ -481,63 +462,12 @@ pub fn designator_host_port(designator: &str) -> Result<(String, u16)> {
 	Ok((unsafe { view_to_string(host_ptr, host_len) }, port))
 }
 
-/// Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
-/// rendered through the core grammar. The convenience for the common case — a
-/// caller holding a host and port passes `connect(&tcp_locator(host, port))`
-/// instead of hand-formatting the URI. `host:port` is not a dial of its own; it
-/// is a locator like any other.
-pub fn tcp_locator(host: &str, port: u16) -> String {
-	format_peer_uri(
-		crate::abi_constants::TRANSPORT_TCP,
-		&socket_addr_designator(host, port),
-		&BTreeMap::new(),
-	)
-	.expect("a tcp host:port locator always formats through the core grammar")
-}
-
-/// Build a `keyed-tcp` locator: the designator is the listener's Ed25519 public
-/// key in canonical hex, and `host`/`port` ride the `direct-addresses` hint
-/// (ADR-0075). A partner dials with [`crate::connect`] and re-dials after a
-/// restart with only the hint updated.
-pub fn keyed_tcp_locator(designator: &str, host: &str, port: u16) -> String {
-	let mut hints = BTreeMap::new();
-	hints.insert(
-		crate::abi_constants::HINT_DIRECT_ADDRESSES.to_string(),
-		socket_addr_designator(host, port),
-	);
-	format_peer_uri(
-		crate::abi_constants::TRANSPORT_KEYED_TCP,
-		designator,
-		&hints,
-	)
-	.expect("a keyed-tcp locator always formats through the core grammar")
-}
-
-/// Build a `noise-tcp` locator: the designator is the listener's durable
-/// Ed25519 public key, and `host`/`port` are its direct-addresses hint. The
-/// peers authenticate that key and seal the byte channel before CapTP opens.
-pub fn noise_tcp_locator(designator: &str, host: &str, port: u16) -> String {
-	let mut hints = BTreeMap::new();
-	hints.insert(
-		crate::abi_constants::HINT_DIRECT_ADDRESSES.to_string(),
-		socket_addr_designator(host, port),
-	);
-	format_peer_uri(
-		crate::abi_constants::TRANSPORT_NOISE_TCP,
-		designator,
-		&hints,
-	)
-	.expect("a noise-tcp locator always formats through the core grammar")
-}
-
 /// Encode a complete typed locator as the canonical signed handoff record.
 pub fn encode_peer_locator(locator: &Locator) -> Result<Vec<u8>> {
 	let owned = OwnedLocator::new(locator)?;
 	let mut out: *mut u8 = core::ptr::null_mut();
 	let mut out_len: usize = 0;
-	check(unsafe {
-		sys::pancake_locator_record_encode(owned.borrow_view()?, &mut out, &mut out_len)
-	})?;
+	check(unsafe { sys::pancake_locator_record_encode(owned.borrow_view()?, &mut out, &mut out_len) })?;
 	let bytes = if out.is_null() || out_len == 0 {
 		Vec::new()
 	} else {
@@ -551,7 +481,10 @@ pub fn encode_peer_locator(locator: &Locator) -> Result<Vec<u8>> {
 mod tests {
 	use std::collections::BTreeMap;
 
-	use super::{format_sturdyref, parse_sturdyref, HintValue, HintWireForm, Locator};
+	#[cfg(feature = "tcp")]
+	use super::format_sturdyref;
+	use super::{parse_sturdyref, HintValue, HintWireForm, Locator};
+	use crate::CaptpVersion;
 
 	#[test]
 	fn string_hint_distinguishes_absence_from_a_type_mismatch() {
@@ -572,6 +505,7 @@ mod tests {
 	fn sturdyref_parse_preserves_locator_and_swiss_authority() {
 		let sturdyref = parse_sturdyref(
 			"ocapn://wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd.onion/s/eQjP4nR28ffX5eoNCK5DWH6DT_d7BIqD3-My459CUbU",
+			CaptpVersion::V1_0,
 		)
 		.expect("canonical sturdyref parses");
 
@@ -579,19 +513,20 @@ mod tests {
 		assert_eq!(
 			sturdyref.swissnum,
 			[
-				0x79, 0x08, 0xcf, 0xe2, 0x74, 0x76, 0xf1, 0xf7, 0xd7, 0xe5, 0xea, 0x0d, 0x08, 0xae,
-				0x43, 0x58, 0x7e, 0x83, 0x4f, 0xf7, 0x7b, 0x04, 0x8a, 0x83, 0xdf, 0xe3, 0x32, 0xe3,
-				0x9f, 0x42, 0x51, 0xb5,
+				0x79, 0x08, 0xcf, 0xe2, 0x74, 0x76, 0xf1, 0xf7, 0xd7, 0xe5, 0xea, 0x0d, 0x08, 0xae, 0x43, 0x58, 0x7e,
+				0x83, 0x4f, 0xf7, 0x7b, 0x04, 0x8a, 0x83, 0xdf, 0xe3, 0x32, 0xe3, 0x9f, 0x42, 0x51, 0xb5,
 			]
 		);
 	}
 
+	#[cfg(feature = "tcp")]
 	#[test]
 	fn sturdyref_format_round_trips_opaque_authority() {
-		let locator = "ocapn://127.0.0.1%3A9045.tcp";
+		let locator = crate::tcp::locator("127.0.0.1", 9045);
 		let swiss = b"durable:0123456789abcdef";
-		let uri = format_sturdyref(locator, swiss).expect("sturdyref formats");
-		let parsed = parse_sturdyref(&uri).expect("formatted sturdyref parses");
+		let uri = format_sturdyref(&locator, swiss, CaptpVersion::Next).expect("sturdyref formats");
+		assert!(uri.ends_with("/s/durable%3A0123456789abcdef"));
+		let parsed = parse_sturdyref(&uri, CaptpVersion::Next).expect("formatted sturdyref parses");
 		assert_eq!(parsed.swissnum, swiss);
 		assert_eq!(parsed.locator.transport, "tcp");
 	}

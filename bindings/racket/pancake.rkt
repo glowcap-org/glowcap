@@ -25,11 +25,14 @@
          "private/gc.rkt"
          "private/session.rkt"
          "private/trace.rkt"
+         "private/finalizer-diagnostics.rkt"
          "private/dial.rkt"
-         "private/listen.rkt"
-         "private/constants.rkt")
+         "private/constants.rkt"
+         "private/transport.rkt")
 
 (provide ref? ref-id ref-released? (struct-out sym)
+         (struct-out driver-provider) (struct-out byte-connector)
+         make-driver-provider make-byte-connector
          (struct-out kw) (struct-out pset) (struct-out tagged-arg)
          (struct-out abort-info)
          (struct-out partner-identity)
@@ -55,15 +58,8 @@
 ;; keeps the full prefix so the application-surface close reads distinctly from
 ;; the netlayer's `connection-release!`. The Goblins verbs (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`)
 ;; are unchanged, you use them through the session's vat.
-(provide server? server-host
-         connect listen accept server-port server-close!
+(provide open-runtime runtime? runtime-host runtime-connect runtime-close!
          HANDSHAKE-TIMEOUT-MS
-         listen-keyed-tcp keyed-tcp-server-port keyed-tcp-server-uri
-         keyed-tcp-server-accept keyed-tcp-server-close!
-         keyed-tcp-server? keyed-tcp-server-host keyed-tcp-server-designator
-         listen-noise-tcp noise-tcp-server-port noise-tcp-server-uri
-         noise-tcp-server-accept noise-tcp-server-close!
-         noise-tcp-server? noise-tcp-server-host noise-tcp-server-designator
          make-host make-fresh-host
          host-publish-giftable
          host-unpublish-giftable
@@ -72,13 +68,12 @@
          host-defer-turn resolver?
          resolver-fulfill! resolver-break!
          host-enliven
+         (struct-out failure-event) host-take-failures! take-runtime-failures!
          enable-trace!
-         tcp-locator keyed-tcp-locator noise-tcp-locator
-         parse-locator parse-sturdyref format-peer-uri format-sturdyref
+         parse-locator parse-sturdyref format-locator-uri format-peer-uri format-sturdyref
          (struct-out locator) (struct-out sturdyref)
-         encode-peer-locator designator-host-port socket-addr-designator session-set-exporter-locator!
+         encode-peer-locator designator-host-port session-set-exporter-locator!
          host-redeem-reachability-value set-host-redeem-reachability!
-         host-rendezvous-url-value set-host-rendezvous-url!
          designator-from-seed
          session-partner-identity partner-identity-durable-authenticated?
          session-bind-verified-channel-key!
@@ -88,9 +83,10 @@
          session-index session-untag session-get session-serve session-tell session-close!
          session-annotate!
          session-with-gc! session-release! session-caretaker session-attenuate session-revoke!
-         ;; Closing a session closes that connection; this closes every session
-         ;; the host holds, including the ones it dialed to redeem handoffs.
-         host-release!
+         ;; Closing a session closes that connection; this is the Host-wide
+         ;; close barrier over every session the host holds, including the ones
+         ;; it dialed to redeem handoffs, and it releases the handle last.
+         host-close!
          TRANSPORT-TCP TRANSPORT-KEYED-TCP TRANSPORT-NOISE-TCP TRANSPORT-INPROC TRANSPORT-IROH
          HINT-DIRECT-ADDRESSES)
 

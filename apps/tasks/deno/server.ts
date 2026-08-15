@@ -15,7 +15,8 @@
 // With port 0 it binds an ephemeral port and prints it, which the demo harness
 // reads to point clients at the right place.
 
-import { type Argument, listen, Ref, Session } from "@pancake/stack";
+import { type Argument, Ref, Session } from "@pancake/runtime";
+import * as tcp from "@pancake/tcp";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 
 interface Task {
@@ -89,10 +90,17 @@ function boardBehavior(session: Session) {
 }
 
 const port = Number(Deno.args[0] ?? "0");
-const server = listen("127.0.0.1", port);
-console.log(`TASKS-SERVER-LISTENING ${await server.ready()}`);
+const server = await tcp.listen("127.0.0.1", port);
+console.log(`TASKS-SERVER-LISTENING ${server.port}`);
 
 for await (const session of server) {
 	session.publish(BOARD, boardBehavior(session)); // fetchable by name
-	session.serve().catch(() => removeWatcher(session));
+	// When the client's connection ends — cleanly or not — its watcher row
+	// leaves and the session itself is retired. Without the close, the native
+	// shell outlives its dead transport, one per departed client, and the
+	// board keeps a watcher nothing can ever notify.
+	session.serve().catch(() => {}).finally(() => {
+		removeWatcher(session);
+		session.close().catch(() => {});
+	});
 }

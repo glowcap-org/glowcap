@@ -39,6 +39,7 @@ change as the state they describe:
 - `docs/community-review.md`
 - `docs/decisions/README.md`
 - `docs/protocol-diagrams/**`
+- `docs/issues/**`
 - `site/content/**`
 - `bindings/README.md`
 - `bindings/DEVELOPING.md`
@@ -78,7 +79,7 @@ change as the state they describe:
 - `.mcp.json` and `.serena/project.yml`
 - test names that encode API contracts
 
-`zig build meta-check` holds this registry honest in both directions: every
+`zig build source-check` holds this registry honest in both directions: every
 top-level `docs/*.md`, every planning doc that declares itself living-state, and
 every doc under a `docs/` subdirectory that declares itself a living-state
 surface must be listed here (a covering glob like `docs/protocol-diagrams/**`
@@ -123,7 +124,12 @@ surface; do not let old plan language masquerade as current architecture.
   same change. A rename that updates its target file and leaves the referrers
   behind is the commonest drift here, and the compiler will not catch it in
   prose: grep the old name across the tree before calling the rename done.
-- A Zig doc comment naming `Type.method` is a claim `zig build meta-check`
+- Write source comments in the indicative only for mechanisms that have a real
+  caller. Name the implementing symbol so a reader can verify it and a rename
+  can break the claim. Intended behavior belongs in an ADR's explicit scope;
+  a public function reached only by its own tests says that plainly until the
+  production path exists.
+- A Zig doc comment naming `Type.method` is a claim `zig build source-check`
   checks (`checkZigDocSymbolClaims`): the method must be declared under `src/`.
   The memory rule's ledger is held the same way and a little wider
   (`checkMemoryLedgerSymbolClaims`), because each entry there points at the

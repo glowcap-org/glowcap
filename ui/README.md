@@ -8,7 +8,12 @@ tokens.css   palette, type, and mark
 fonts/       IBM Plex Sans and IBM Plex Mono
 ```
 
-Each surface keeps its own layout and component styles.
+Each surface keeps its own layout and component styles. That is not a
+placeholder for a later component library. The site is static HTML; rooms is
+React. Widgets that look cousinly — a theme button, a tab strip — do different
+jobs (a code listing's folder tabs are not a settings mode switch), and a
+shared class would make one of them wrong. If a third pancake surface needs
+the same control, extract then.
 
 ## What belongs here
 
@@ -20,7 +25,7 @@ Each surface keeps its own layout and component styles.
   the surface.
 
 Do not repeat a core value. Use `var(--accent)`, for example, rather than its
-hex value. `zig build meta-check` catches repeated core colors, including
+hex value. `zig build source-check` catches repeated core colors, including
 equivalent `rgb()` and `rgba()` forms. The rooms avatar ramp is exempt because
 its ten fixed tints must support white initials; `page.css` documents that
 exception.
@@ -60,7 +65,7 @@ Each surface sets `color-scheme` for the system preference and for its explicit
 theme selector. The diagram colors are different: their SVGs include light
 fallbacks, while the stylesheet supplies only dark overrides. Giving those
 tokens a shared light value would flatten distinct colors in the artwork.
-`meta-check` keeps the two dark-theme declarations in sync.
+`source-check` keeps the two dark-theme declarations in sync.
 
 Do not add a plain custom-property declaration before a `light-dark()`
 declaration as a compatibility fallback. Browsers accept any token sequence
@@ -75,6 +80,8 @@ Edit `tokens.css` to change a shared color, typeface, or mark.
   a browser refresh. Changes to `ui/*.ts` need a server restart because the
   bundle is built at startup.
 - Rebuild the site with `zig build site`, or use `zig build docs-serve` while
-  editing.
+  editing: Zine reloads content and templates, regenerates CapTP example tabs
+  when `site/examples/` changes, and nudges a CSS reload when `ui/tokens.css`
+  changes.
 
-Run `zig build meta-check` before committing.
+Run `zig build source-check` before committing.

@@ -391,7 +391,7 @@ pub const Queue = struct {
             .fetch => {
                 if (tokens.len < 2) return error.Usage;
                 const vow = try session.beginFetch(tokens[1]);
-                try session.on(vow, .{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
+                try vow.on(.{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
                 _ = session.stepReadable(0) catch {};
                 self.active = active;
                 return .waiting;
@@ -418,7 +418,7 @@ pub const Queue = struct {
                         return .finished;
                     }
                     const vow = try session.send(target, active.tokens[2], args);
-                    try session.on(vow, .{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
+                    try vow.on(.{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
                     _ = session.stepReadable(0) catch {};
                     self.active = active;
                     return .waiting;

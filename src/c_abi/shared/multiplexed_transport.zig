@@ -13,6 +13,9 @@
 //!
 //! Every function is called from the one thread that steps the loop, and
 //! `ctx` must outlive its registration.
+//! Handle-producing callbacks transfer outputs only on `PANCAKE_OK`; on any
+//! error the provider retains and cleans partial work and leaves output slots
+//! untouched. Finish callbacks consume the announced operation on every return.
 
 const locator = @import("locator.zig");
 const transport_provider = @import("transport_provider.zig");
@@ -32,6 +35,7 @@ pub const PANCAKE_MULTIPLEXED_EV_WRITABLE: u32 = 2;
 pub const PANCAKE_MULTIPLEXED_EV_CLOSED: u32 = 4;
 pub const PANCAKE_MULTIPLEXED_EV_ACCEPT: u32 = 8;
 pub const PANCAKE_MULTIPLEXED_EV_CONNECT: u32 = 16;
+pub const PANCAKE_MULTIPLEXED_EV_LISTEN: u32 = 32;
 
 /// Version of the required `PancakeMultiplexedTransport` prefix. Registrants also set
 /// `struct_size`, so a loop can reject an older table without reading beyond
@@ -41,7 +45,7 @@ pub const PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION: u32 = 1;
 
 /// One drained readiness record. `subject` is the connection id for
 /// connection events, the caller's request id for a connect event, and the
-/// driver-minted listener route id for an accept event.
+/// driver-minted listener route id for listen and accept events.
 pub const PancakeMultiplexedReadyEvent = extern struct {
     subject: u64,
     events: u32,
@@ -52,12 +56,16 @@ pub const PancakeMultiplexedReadyEvent = extern struct {
 pub const PancakeMultiplexedReadinessFdFn = *const fn (ctx: ?*anyopaque) callconv(.c) i32;
 
 /// Drain up to `cap` pending records into `out`, clearing the descriptor's
-/// coalesced wake. Returns how many records were written.
+/// coalesced wake. On `PANCAKE_OK`, writes the number of records to `out_count`
+/// and leaves `out_failure` empty. On failure, leaves `out_count` untouched and
+/// describes the exact provider failure in `out_failure`.
 pub const PancakeMultiplexedDrainReadyFn = *const fn (
     ctx: ?*anyopaque,
     out: ?[*]PancakeMultiplexedReadyEvent,
     cap: usize,
-) callconv(.c) usize;
+    out_count: ?*usize,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
+) callconv(.c) i32;
 
 /// Begin a dial toward a complete borrowed locator without waiting for
 /// transport completion. Completion arrives as a connect record carrying
@@ -66,6 +74,8 @@ pub const PancakeMultiplexedStartConnectFn = *const fn (
     ctx: ?*anyopaque,
     request_id: u64,
     locator_view: ?*const locator.PancakeLocatorView,
+    options: ?*const transport_provider.PancakeTransportOperationOptions,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
 ) callconv(.c) i32;
 
 /// Claim the connection a completed connect record announced, writing its
@@ -75,6 +85,7 @@ pub const PancakeMultiplexedFinishConnectFn = *const fn (
     ctx: ?*anyopaque,
     request_id: u64,
     out_conn: ?*u64,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
 ) callconv(.c) i32;
 
 /// Claim one externally established provider connection by its stable,
@@ -84,6 +95,7 @@ pub const PancakeMultiplexedClaimExternalFn = *const fn (
     ctx: ?*anyopaque,
     subject: u64,
     out_conn: ?*u64,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
 ) callconv(.c) i32;
 
 /// Begin accepting one provider profile through the runtime. `route_id` is minted
@@ -91,15 +103,25 @@ pub const PancakeMultiplexedClaimExternalFn = *const fn (
 /// `transport` is the selected package entry, not a second dispatch guess. A nonempty
 /// `requested_designator` is the identity or address the caller expects this
 /// provider to own; empty asks the provider to publish its canonical
-/// designator. On success `out_listener` receives the provider-owned handle
-/// passed to the locator, accept, and stop callbacks.
-pub const PancakeMultiplexedStartListenFn = *const fn (
+/// designator. Immediate completion writes `PANCAKE_LISTEN_READY` and the
+/// provider-owned listener handle. Externally paced setup writes
+/// `PANCAKE_LISTEN_PENDING`, then emits a listen event carrying `route_id`.
+/// PENDING is legal only when the table supplies both `finish_listen` and
+/// `cancel_listen`; an immediate-only provider must return READY.
+pub const PancakeMultiplexedListenFn = *const fn (
     ctx: ?*anyopaque,
     route_id: u64,
     transport: ?[*]const u8,
     transport_len: usize,
     requested_designator: ?[*]const u8,
     requested_designator_len: usize,
+    options: ?*const transport_provider.PancakeTransportOperationOptions,
+    out_result: ?*transport_provider.PancakeListenResult,
+) callconv(.c) i32;
+
+pub const PancakeMultiplexedFinishListenFn = *const fn (
+    ctx: ?*anyopaque,
+    route_id: u64,
     out_listener: ?*?*anyopaque,
 ) callconv(.c) i32;
 
@@ -110,15 +132,29 @@ pub const PancakeMultiplexedStartListenFn = *const fn (
 pub const PancakeMultiplexedFinishAcceptFn = *const fn (
     listener_ctx: ?*anyopaque,
     out_conn: ?*u64,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
 ) callconv(.c) i32;
 
 /// Stop accepting. Idempotent; the runtime and dial side stay alive.
-pub const PancakeMultiplexedStopListenFn = *const fn (listener_ctx: ?*anyopaque) callconv(.c) void;
+pub const PancakeMultiplexedStopListenFn = *const fn (
+    listener_ctx: ?*anyopaque,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
+) callconv(.c) i32;
 
 /// One subject id (a dial's request id, or a connection id) and no result:
 /// the shape `cancel_connect` and `conn_close` share. One typedef because
 /// the two signatures are identical; each field's contract is on the field.
-pub const PancakeMultiplexedSubjectFn = *const fn (ctx: ?*anyopaque, subject: u64) callconv(.c) void;
+pub const PancakeMultiplexedSubjectFn = *const fn (
+    ctx: ?*anyopaque,
+    subject: u64,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
+) callconv(.c) i32;
+
+pub const PancakeMultiplexedConnTakeFailureFn = *const fn (
+    ctx: ?*anyopaque,
+    conn: u64,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
+) callconv(.c) void;
 
 /// Read into `buf`: bytes read, 0 on clean end of stream, -1 on a dead
 /// connection, `PANCAKE_MULTIPLEXED_WOULD_BLOCK` when nothing is pending.
@@ -151,8 +187,10 @@ pub const PancakeMultiplexedConnRemoteKeyFn = *const fn (
 
 /// One multiplexed transport, as a filled function table: the
 /// mirror of `net.MultiplexedResident.VTable` with C-stable types. Readiness and
-/// connection callbacks are mandatory; each dial/listen operation group is
-/// either complete or absent, so callback presence is the sole capability
+/// connection callbacks are mandatory. Dial and the base listener capability
+/// are each complete or absent. Listener completion is a separate optional
+/// pair: `finish_listen` and `cancel_listen` are both present exactly when
+/// `listen` may return PENDING. Callback presence is the sole capability
 /// authority. Field contracts are on the typedefs above and in the generated
 /// header.
 pub const PancakeMultiplexedTransport = extern struct {
@@ -168,9 +206,16 @@ pub const PancakeMultiplexedTransport = extern struct {
     /// record was announced but before `finish_connect` claimed it: the
     /// resident releases the unclaimed connection.
     cancel_connect: ?PancakeMultiplexedSubjectFn,
-    start_listen: ?PancakeMultiplexedStartListenFn,
+    listen: ?PancakeMultiplexedListenFn,
+    /// Consume one PENDING route on every return. Present exactly with
+    /// `cancel_listen`; absent for an immediate-only listener.
+    finish_listen: ?PancakeMultiplexedFinishListenFn,
+    /// Abandon one PENDING route before finish. Present exactly with
+    /// `finish_listen` and idempotent after the route has already failed.
+    cancel_listen: ?PancakeMultiplexedSubjectFn,
     listener_locator: ?transport_provider.PancakeTransportListenerLocatorFn,
     listener_advertise: ?transport_provider.PancakeTransportListenerAdvertiseFn,
+    listener_restoration_state: ?transport_provider.PancakeTransportListenerRestorationStateFn = null,
     finish_accept: ?PancakeMultiplexedFinishAcceptFn,
     stop_listen: ?PancakeMultiplexedStopListenFn,
     try_read: ?PancakeMultiplexedTryReadFn,
@@ -178,5 +223,6 @@ pub const PancakeMultiplexedTransport = extern struct {
     /// Close and release one connection. Later records naming the id drain
     /// to nothing.
     conn_close: ?PancakeMultiplexedSubjectFn,
+    conn_take_failure: ?PancakeMultiplexedConnTakeFailureFn,
     conn_remote_key: ?PancakeMultiplexedConnRemoteKeyFn,
 };

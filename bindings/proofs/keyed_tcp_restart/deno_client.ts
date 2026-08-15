@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
 // refusal, and same-seed-fresh-port restart — the Deno sibling of
 // `test/driver/keyed_tcp_restart_test.zig`.
@@ -5,20 +6,22 @@
 // Needs deno and the installed pancake archives; run via
 // `zig build deno-keyed-tcp-restart`.
 
-import { connect, keyedTcpLocator, type KeyedTcpServer, listenKeyedTcp } from "@pancake/stack";
+import { type Locator, Runtime } from "@pancake/runtime";
+import type { Server } from "@pancake/tcp";
 
 const GREETING = "hello from the keyed listener";
 const SEED_HAPPY = new Uint8Array(32).fill(0x71);
 const SEED_HONEST = new Uint8Array(32).fill(0x72);
 const SEED_SQUATTER = new Uint8Array(32).fill(0x73);
 const SEED_RESTART = new Uint8Array(32).fill(0x74);
+await using runtime = await Runtime.open({ providers: [tcp.provider()] });
 
 function greeter(verb: string, _args: unknown[]): string | null {
 	if (verb === "greet") return GREETING;
 	return null;
 }
 
-async function serveOnce(server: KeyedTcpServer): Promise<void> {
+async function serveOnce(server: Server): Promise<void> {
 	for await (const session of server) {
 		session.publish("greeter", greeter);
 		session.serve();
@@ -26,8 +29,8 @@ async function serveOnce(server: KeyedTcpServer): Promise<void> {
 	}
 }
 
-async function callGreeter(uri: string): Promise<void> {
-	const session = await connect(uri);
+async function callGreeter(partner: Locator): Promise<void> {
+	const session = await runtime.connect(partner);
 	try {
 		const ref = await session.fetch("greeter");
 		const reply = await session.send(ref, "greet", []);
@@ -40,26 +43,23 @@ async function callGreeter(uri: string): Promise<void> {
 }
 
 async function sceneHappy(): Promise<void> {
-	const server = listenKeyedTcp("127.0.0.1", 0, SEED_HAPPY);
+	const server = await tcp.keyed.listen("127.0.0.1", 0, { seed: SEED_HAPPY });
 	const task = serveOnce(server);
-	await server.ready();
-	await callGreeter(await server.uri());
+	await callGreeter(server.locator);
 	await task;
 	server.close();
 	console.log("deno-keyed-tcp-restart: happy path ok");
 }
 
 async function sceneSquatter(): Promise<void> {
-	const honest = listenKeyedTcp("127.0.0.1", 0, SEED_HONEST);
-	await honest.ready();
+	const honest = await tcp.keyed.listen("127.0.0.1", 0, { seed: SEED_HONEST });
 	const designator = honest.designator;
 	honest.close();
-	const squatter = listenKeyedTcp("127.0.0.1", 0, SEED_SQUATTER);
+	const squatter = await tcp.keyed.listen("127.0.0.1", 0, { seed: SEED_SQUATTER });
 	const task = serveOnce(squatter);
-	await squatter.ready();
-	const uri = keyedTcpLocator(designator, "127.0.0.1", squatter.port);
+	const partner = tcp.keyed.locator(designator, "127.0.0.1", squatter.port);
 	try {
-		await callGreeter(uri);
+		await callGreeter(partner);
 		throw new Error("squatter dial should have been refused");
 	} catch (e) {
 		if (e instanceof Error && e.message.includes("should have been refused")) throw e;
@@ -71,21 +71,19 @@ async function sceneSquatter(): Promise<void> {
 }
 
 async function sceneRestart(): Promise<void> {
-	const first = listenKeyedTcp("127.0.0.1", 0, SEED_RESTART);
+	const first = await tcp.keyed.listen("127.0.0.1", 0, { seed: SEED_RESTART });
 	const task1 = serveOnce(first);
-	await first.ready();
 	const designator = first.designator;
-	await callGreeter(await first.uri());
+	await callGreeter(first.locator);
 	await task1;
 	first.close();
 
-	const second = listenKeyedTcp("127.0.0.1", 0, SEED_RESTART);
+	const second = await tcp.keyed.listen("127.0.0.1", 0, { seed: SEED_RESTART });
 	const task2 = serveOnce(second);
-	await second.ready();
 	if (second.designator !== designator) {
 		throw new Error(`restart designator drifted: ${designator} vs ${second.designator}`);
 	}
-	await callGreeter(keyedTcpLocator(designator, "127.0.0.1", second.port));
+	await callGreeter(tcp.keyed.locator(designator, "127.0.0.1", second.port));
 	await task2;
 	second.close();
 	console.log("deno-keyed-tcp-restart: restart ok");

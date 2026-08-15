@@ -36,10 +36,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use iroh::address_lookup::memory::MemoryLookup;
-use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
+use iroh::endpoint::{presets, ConnectError, Connection, ConnectionError, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
+
+fn teardown_status(f: impl FnOnce()) -> i32 {
+	match catch_unwind(AssertUnwindSafe(f)) {
+		Ok(()) => 0,
+		Err(_) => -1,
+	}
+}
 
 /// The ALPN both pancake peers negotiate (ADR-0055).
 const ALPN: &[u8] = b"ocapn/pancake/1";
@@ -207,12 +214,8 @@ fn dialable_addrs(ep: &Endpoint) -> BTreeSet<SocketAddr> {
 	let mut addrs: BTreeSet<SocketAddr> = BTreeSet::new();
 	for addr in ep.bound_sockets() {
 		let dialable = match addr.ip() {
-			IpAddr::V4(ip) if ip.is_unspecified() => {
-				SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), addr.port())
-			}
-			IpAddr::V6(ip) if ip.is_unspecified() => {
-				SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), addr.port())
-			}
+			IpAddr::V4(ip) if ip.is_unspecified() => SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), addr.port()),
+			IpAddr::V6(ip) if ip.is_unspecified() => SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), addr.port()),
 			_ => addr,
 		};
 		addrs.insert(dialable);
@@ -464,9 +467,7 @@ struct DialState {
 }
 
 enum DialEntry {
-	Pending {
-		abort: Option<tokio::task::AbortHandle>,
-	},
+	Pending { abort: Option<tokio::task::AbortHandle> },
 	Terminal(Result<AcceptedRaw, i32>),
 }
 
@@ -582,9 +583,7 @@ impl Inbound {
 	}
 
 	fn read_budget(&self) -> usize {
-		NB_BUFFER_BOUND
-			.saturating_sub(self.pending())
-			.min(READ_CHUNK_BYTES)
+		NB_BUFFER_BOUND.saturating_sub(self.pending()).min(READ_CHUNK_BYTES)
 	}
 }
 
@@ -687,9 +686,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_new(
 			REACH_DIRECT => Endpoint::builder(presets::Minimal),
 			REACH_DISCOVERY => Endpoint::builder(presets::N0),
 			REACH_DISCOVERY_NO_RELAY => Endpoint::builder(presets::N0DisableRelay),
-			REACH_LOCAL_DISCOVERY => {
-				Endpoint::builder(presets::Minimal).address_lookup(local_book().clone())
-			}
+			REACH_LOCAL_DISCOVERY => Endpoint::builder(presets::Minimal).address_lookup(local_book().clone()),
 			_ => return None,
 		};
 		builder = builder.alpns(vec![ALPN.to_vec()]);
@@ -821,14 +818,13 @@ fn parse_target(
 	if node_id.is_null() || (addr_hints.is_null() && addr_hints_len != 0) {
 		return Err(DIAL_INVALID);
 	}
-	let id_str = std::str::from_utf8(unsafe { std::slice::from_raw_parts(node_id, node_id_len) })
-		.map_err(|_| DIAL_INVALID)?;
+	let id_str =
+		std::str::from_utf8(unsafe { std::slice::from_raw_parts(node_id, node_id_len) }).map_err(|_| DIAL_INVALID)?;
 	let id = EndpointId::from_str(id_str).map_err(|_| DIAL_INVALID)?;
 	let mut addr = EndpointAddr::new(id);
 	if addr_hints_len > 0 {
-		let hints =
-			std::str::from_utf8(unsafe { std::slice::from_raw_parts(addr_hints, addr_hints_len) })
-				.map_err(|_| DIAL_INVALID)?;
+		let hints = std::str::from_utf8(unsafe { std::slice::from_raw_parts(addr_hints, addr_hints_len) })
+			.map_err(|_| DIAL_INVALID)?;
 		for hint in hints.split(',') {
 			let hint = hint.trim();
 			if hint.is_empty() {
@@ -841,32 +837,30 @@ fn parse_target(
 	Ok(addr)
 }
 
-async fn dial_raw(
-	ep: Endpoint,
-	addr: EndpointAddr,
-	connect_timeout: std::time::Duration,
-) -> Result<AcceptedRaw, i32> {
+fn connection_failure_code(error: &ConnectionError) -> i32 {
+	match error {
+		ConnectionError::TimedOut => DIAL_TIMEOUT,
+		_ => DIAL_UNREACHABLE,
+	}
+}
+
+fn connect_failure_code(error: &ConnectError) -> i32 {
+	match error {
+		ConnectError::Connection { source, .. } => connection_failure_code(source),
+		_ => DIAL_UNREACHABLE,
+	}
+}
+
+async fn dial_raw(ep: Endpoint, addr: EndpointAddr, connect_timeout: std::time::Duration) -> Result<AcceptedRaw, i32> {
 	let conn = match tokio::time::timeout(connect_timeout, ep.connect(addr, ALPN)).await {
 		Ok(Ok(conn)) => conn,
-		Ok(Err(e)) => {
-			eprintln!("pancake-iroh: connect failed: {e:?}");
-			return Err(DIAL_UNREACHABLE);
-		}
-		Err(_) => {
-			eprintln!("pancake-iroh: connect timed out after {connect_timeout:?}");
-			return Err(DIAL_TIMEOUT);
-		}
+		Ok(Err(error)) => return Err(connect_failure_code(&error)),
+		Err(_) => return Err(DIAL_TIMEOUT),
 	};
 	let (send, recv) = match tokio::time::timeout(connect_timeout, conn.open_bi()).await {
 		Ok(Ok(streams)) => streams,
-		Ok(Err(e)) => {
-			eprintln!("pancake-iroh: open_bi failed: {e:?}");
-			return Err(DIAL_LOST);
-		}
-		Err(_) => {
-			eprintln!("pancake-iroh: open_bi timed out after {connect_timeout:?}");
-			return Err(DIAL_TIMEOUT);
-		}
+		Ok(Err(_)) => return Err(DIAL_LOST),
+		Err(_) => return Err(DIAL_TIMEOUT),
 	};
 	Ok(AcceptedRaw { conn, send, recv })
 }
@@ -874,9 +868,7 @@ async fn dial_raw(
 fn make_conn(ep: &PancakeIrohEndpoint, raw: AcceptedRaw) -> Option<*mut PancakeIrohConn> {
 	let id = ep
 		.next_conn_id
-		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
-			next.checked_add(1)
-		})
+		.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| next.checked_add(1))
 		.ok()?;
 	Some(Box::into_raw(Box::new(PancakeIrohConn {
 		id,
@@ -919,9 +911,7 @@ pub extern "C" fn pancake_iroh_sidecar_connect_blocking(
 		}
 		let ep = unsafe { &*ep };
 		let addr = parse_target(node_id, node_id_len, addr_hints, addr_hints_len)?;
-		let raw = ep
-			.rt
-			.block_on(dial_raw(ep.ep.clone(), addr, ep.connect_timeout))?;
+		let raw = ep.rt.block_on(dial_raw(ep.ep.clone(), addr, ep.connect_timeout))?;
 		make_conn(ep, raw).ok_or(DIAL_LOST)
 	}));
 	let (handle, code) = match result {
@@ -1041,10 +1031,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_finish_connect(
 /// Cancel one admitted dial. The pending-to-canceled winner emits the request's
 /// sole terminal event; canceling an already-terminal request is idempotent.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_cancel_connect(
-	ep: *mut PancakeIrohEndpoint,
-	request_id: usize,
-) -> i32 {
+pub extern "C" fn pancake_iroh_sidecar_endpoint_cancel_connect(ep: *mut PancakeIrohEndpoint, request_id: usize) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		if ep.is_null() || request_id == 0 {
 			return DIAL_INVALID;
@@ -1071,8 +1058,7 @@ async fn accept_one(ep: &PancakeIrohEndpoint) -> Option<AcceptedRaw> {
 		// Bound the stream accept: a dialer that opens the QUIC connection but
 		// never its bidirectional stream is dropped instead of holding the
 		// acceptor. A stalled or failed accept keeps serving the next incoming.
-		let Ok(Ok((send, recv))) = tokio::time::timeout(ep.connect_timeout, conn.accept_bi()).await
-		else {
+		let Ok(Ok((send, recv))) = tokio::time::timeout(ep.connect_timeout, conn.accept_bi()).await else {
 			continue;
 		};
 		return Some(AcceptedRaw { conn, send, recv });
@@ -1095,14 +1081,11 @@ pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		ep.rt.block_on(async {
-			tokio::time::timeout(
-				std::time::Duration::from_millis(timeout_ms as u64),
-				accept_one(ep),
-			)
-			.await
-			.ok()
-			.flatten()
-			.and_then(|raw| make_conn(ep, raw))
+			tokio::time::timeout(std::time::Duration::from_millis(timeout_ms as u64), accept_one(ep))
+				.await
+				.ok()
+				.flatten()
+				.and_then(|raw| make_conn(ep, raw))
 		})
 	}));
 	match result {
@@ -1118,10 +1101,7 @@ pub extern "C" fn pancake_iroh_sidecar_accept_timeout(
 /// same guarantee, since iroh refuses to connect to any endpoint but the id
 /// it was asked for. Returns 0 on success, -1 on failure. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_remote_node_id(
-	conn: *const PancakeIrohConn,
-	out_key32: *mut u8,
-) -> i32 {
+pub extern "C" fn pancake_iroh_sidecar_conn_remote_node_id(conn: *const PancakeIrohConn, out_key32: *mut u8) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		*conn.conn.remote_id().as_bytes()
@@ -1140,11 +1120,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_remote_node_id(
 /// (the partner finished its send side or closed the connection cleanly), or
 /// -1 on error. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_read(
-	conn: *mut PancakeIrohConn,
-	buf: *mut u8,
-	len: usize,
-) -> isize {
+pub extern "C" fn pancake_iroh_sidecar_conn_read(conn: *mut PancakeIrohConn, buf: *mut u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let dest = unsafe { std::slice::from_raw_parts_mut(buf, len) };
@@ -1175,11 +1151,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_read(
 /// the QUIC flow-control window. Returns `len`, or -1 on error. Borrows the
 /// handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_write(
-	conn: *mut PancakeIrohConn,
-	buf: *const u8,
-	len: usize,
-) -> isize {
+pub extern "C" fn pancake_iroh_sidecar_conn_write(conn: *mut PancakeIrohConn, buf: *const u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let src = unsafe { std::slice::from_raw_parts(buf, len) };
@@ -1413,8 +1385,7 @@ async fn nb_acceptor(
 		};
 		// Same bound on the scale-path acceptor: a half-open dialer is dropped
 		// after the timeout rather than stalling this loop's stream accept.
-		let Ok(Ok((send, recv))) = tokio::time::timeout(connect_timeout, conn.accept_bi()).await
-		else {
+		let Ok(Ok((send, recv))) = tokio::time::timeout(connect_timeout, conn.accept_bi()).await else {
 			continue;
 		};
 		let queued = {
@@ -1441,9 +1412,7 @@ async fn nb_acceptor(
 /// the fd is owned by the endpoint and is valid until
 /// `pancake_iroh_sidecar_endpoint_free`.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_readiness_fd(
-	ep: *const PancakeIrohEndpoint,
-) -> i32 {
+pub extern "C" fn pancake_iroh_sidecar_endpoint_readiness_fd(ep: *const PancakeIrohEndpoint) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		match endpoint_readiness(ep) {
@@ -1485,9 +1454,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_drain_ready(
 /// blocking `accept`. Idempotent. Returns 0 on success, -1 if the readiness
 /// channel could not be created. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(
-	ep: *mut PancakeIrohEndpoint,
-) -> i32 {
+pub extern "C" fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *mut PancakeIrohEndpoint) -> i32 {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		if ep.accept.get().is_some() {
@@ -1503,12 +1470,8 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(
 		if ep.accept.set(acc.clone()).is_err() {
 			return 0; // raced with another caller; theirs won
 		}
-		ep.rt.spawn(nb_acceptor(
-			ep.ep.clone(),
-			ep.connect_timeout,
-			acc,
-			readiness,
-		));
+		ep.rt
+			.spawn(nb_acceptor(ep.ep.clone(), ep.connect_timeout, acc, readiness));
 		0
 	}));
 	result.unwrap_or(-1)
@@ -1521,9 +1484,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(
 /// to bind it to the readiness surface. Returns an owned handle or null. The
 /// endpoint must outlive the connection.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_try_accept(
-	ep: *mut PancakeIrohEndpoint,
-) -> *mut PancakeIrohConn {
+pub extern "C" fn pancake_iroh_sidecar_endpoint_try_accept(ep: *mut PancakeIrohEndpoint) -> *mut PancakeIrohConn {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let ep = unsafe { &*ep };
 		let acc = ep.accept.get()?;
@@ -1610,11 +1571,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_id(conn: *const PancakeIrohConn) -> 
 /// buffer frees room for the reader task to resume. The connection must have been
 /// moved to the readiness surface with `conn_set_nonblocking`. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_try_read(
-	conn: *mut PancakeIrohConn,
-	buf: *mut u8,
-	len: usize,
-) -> isize {
+pub extern "C" fn pancake_iroh_sidecar_conn_try_read(conn: *mut PancakeIrohConn, buf: *mut u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let nb = match conn.nb.get() {
@@ -1674,11 +1631,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_read(
 /// error. The connection must have been moved to the readiness surface with
 /// `conn_set_nonblocking`. Borrows the handle.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_conn_try_write(
-	conn: *mut PancakeIrohConn,
-	buf: *const u8,
-	len: usize,
-) -> isize {
+pub extern "C" fn pancake_iroh_sidecar_conn_try_write(conn: *mut PancakeIrohConn, buf: *const u8, len: usize) -> isize {
 	let result = catch_unwind(AssertUnwindSafe(|| {
 		let conn = unsafe { &*conn };
 		let nb = match conn.nb.get() {
@@ -1720,11 +1673,11 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_close(ep: *mut PancakeIrohEndpoi
 /// closes, then shuts the runtime down. Free every connection minted from this
 /// endpoint first.
 #[no_mangle]
-pub extern "C" fn pancake_iroh_sidecar_endpoint_free(ep: *mut PancakeIrohEndpoint) {
+pub extern "C" fn pancake_iroh_sidecar_endpoint_free(ep: *mut PancakeIrohEndpoint) -> i32 {
 	if ep.is_null() {
-		return;
+		return 0;
 	}
-	let _ = catch_unwind(AssertUnwindSafe(|| {
+	teardown_status(|| {
 		let handle = unsafe { Box::from_raw(ep) };
 		if let Some(dials) = handle.dials.get() {
 			dials.cancel_all();
@@ -1733,7 +1686,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_free(ep: *mut PancakeIrohEndpoin
 		handle.rt.block_on(handle.ep.close());
 		// Dropping the runtime outside an async context shuts it down cleanly.
 		drop(handle);
-	}));
+	})
 }
 
 #[cfg(test)]
@@ -1784,10 +1737,7 @@ mod tests {
 		assert!(exported.write_all(&[1]).is_err());
 
 		readiness.signal(7, EV_WRITABLE);
-		let mut events = [PancakeIrohReadyEvent {
-			subject: 0,
-			events: 0,
-		}];
+		let mut events = [PancakeIrohReadyEvent { subject: 0, events: 0 }];
 		assert_eq!(readiness.drain(&mut events), 1);
 		assert_eq!(events[0].subject, 7);
 		assert_eq!(events[0].events, EV_WRITABLE);
@@ -1809,13 +1759,7 @@ mod tests {
 		readiness.signal(7, EV_WRITABLE);
 		assert_eq!(readiness.queue.lock().unwrap().len(), SUBJECTS);
 
-		let mut events = vec![
-			PancakeIrohReadyEvent {
-				subject: 0,
-				events: 0,
-			};
-			SUBJECTS
-		];
+		let mut events = vec![PancakeIrohReadyEvent { subject: 0, events: 0 }; SUBJECTS];
 		assert_eq!(readiness.drain(&mut events), SUBJECTS);
 		assert_eq!(events[6].subject, 7);
 		assert_eq!(events[6].events, EV_READABLE | EV_WRITABLE);
@@ -1849,17 +1793,11 @@ mod tests {
 	fn outbound_reuses_one_steady_spare_without_double_spending_the_bound() {
 		let mut outbound = Outbound::default();
 		let bytes = vec![9u8; NB_STEADY_BYTES];
-		assert_eq!(
-			enqueue_outbound(&mut outbound, &bytes),
-			NB_STEADY_BYTES as isize
-		);
+		assert_eq!(enqueue_outbound(&mut outbound, &bytes), NB_STEADY_BYTES as isize);
 
 		let batch = outbound.take_batch();
 		assert_eq!(outbound.pending(), NB_STEADY_BYTES);
-		assert_eq!(
-			enqueue_outbound(&mut outbound, &bytes),
-			NB_STEADY_BYTES as isize
-		);
+		assert_eq!(enqueue_outbound(&mut outbound, &bytes), NB_STEADY_BYTES as isize);
 		outbound.finish_batch(batch, true);
 
 		let spare_ptr = outbound.spare.as_ptr();
@@ -1918,13 +1856,9 @@ mod tests {
 
 	fn wait_event(ep: *mut PancakeIrohEndpoint) -> PancakeIrohReadyEvent {
 		let deadline = Instant::now() + Duration::from_secs(5);
-		let mut events = [PancakeIrohReadyEvent {
-			subject: 0,
-			events: 0,
-		}; 4];
+		let mut events = [PancakeIrohReadyEvent { subject: 0, events: 0 }; 4];
 		loop {
-			let n =
-				pancake_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len());
+			let n = pancake_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len());
 			if n > 0 {
 				return events[0];
 			}
@@ -1941,6 +1875,12 @@ mod tests {
 	/// proving the per-endpoint `connect_timeout` reaches the connect await rather
 	/// than merely that some dial eventually fails. Hermetic: `REACH_DIRECT` binds
 	/// relay-less and lookup-less, and every address is loopback.
+	#[test]
+	fn inner_connect_timeout_keeps_its_timeout_classification() {
+		assert_eq!(connection_failure_code(&ConnectionError::TimedOut), DIAL_TIMEOUT);
+		assert_eq!(connection_failure_code(&ConnectionError::Reset), DIAL_UNREACHABLE);
+	}
+
 	#[test]
 	fn evented_connect_returns_promptly_and_times_out_once() {
 		let (_black_hole, unreachable_id, hint) = black_hole_target();
@@ -1979,10 +1919,7 @@ mod tests {
 			DIAL_INVALID,
 			"terminal result is one-shot"
 		);
-		let mut events = [PancakeIrohReadyEvent {
-			subject: 0,
-			events: 0,
-		}; 1];
+		let mut events = [PancakeIrohReadyEvent { subject: 0, events: 0 }; 1];
 		assert_eq!(
 			pancake_iroh_sidecar_endpoint_drain_ready(ep, events.as_mut_ptr(), events.len()),
 			0,
@@ -1998,24 +1935,11 @@ mod tests {
 		assert!(!ep.is_null(), "endpoint_new");
 		let invalid = b"not-an-endpoint-id";
 		assert_eq!(
-			pancake_iroh_sidecar_endpoint_start_connect(
-				ep,
-				1,
-				invalid.as_ptr(),
-				invalid.len(),
-				std::ptr::null(),
-				0,
-			),
+			pancake_iroh_sidecar_endpoint_start_connect(ep, 1, invalid.as_ptr(), invalid.len(), std::ptr::null(), 0,),
 			DIAL_INVALID
 		);
-		let mut event = PancakeIrohReadyEvent {
-			subject: 0,
-			events: 0,
-		};
-		assert_eq!(
-			pancake_iroh_sidecar_endpoint_drain_ready(ep, &mut event, 1),
-			0
-		);
+		let mut event = PancakeIrohReadyEvent { subject: 0, events: 0 };
+		assert_eq!(pancake_iroh_sidecar_endpoint_drain_ready(ep, &mut event, 1), 0);
 		pancake_iroh_sidecar_endpoint_free(ep);
 	}
 
@@ -2051,10 +1975,7 @@ mod tests {
 		);
 
 		for request_id in 1..=DIAL_ADMISSION_BOUND {
-			assert_eq!(
-				pancake_iroh_sidecar_endpoint_cancel_connect(ep, request_id),
-				DIAL_OK
-			);
+			assert_eq!(pancake_iroh_sidecar_endpoint_cancel_connect(ep, request_id), DIAL_OK);
 			let mut conn = std::ptr::null_mut();
 			assert_eq!(
 				pancake_iroh_sidecar_endpoint_finish_connect(ep, request_id, &mut conn),
@@ -2102,10 +2023,7 @@ mod tests {
 			),
 			DIAL_OK
 		);
-		assert_eq!(
-			pancake_iroh_sidecar_endpoint_cancel_connect(ep, 23),
-			DIAL_OK
-		);
+		assert_eq!(pancake_iroh_sidecar_endpoint_cancel_connect(ep, 23), DIAL_OK);
 		assert_eq!(
 			pancake_iroh_sidecar_endpoint_cancel_connect(ep, 23),
 			DIAL_OK,
@@ -2126,5 +2044,11 @@ mod tests {
 			DIAL_INVALID
 		);
 		pancake_iroh_sidecar_endpoint_free(ep);
+	}
+
+	#[test]
+	fn teardown_panics_become_failures() {
+		assert_eq!(teardown_status(|| {}), 0);
+		assert_eq!(teardown_status(|| panic!("forced teardown panic")), -1);
 	}
 }

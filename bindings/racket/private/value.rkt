@@ -22,8 +22,12 @@
 ;; `abort` field of the `exn:fail:pancake` the feeding path raises. `domain` is
 ;; 'codec, 'session, or 'foreign; `kind` is the wire name of the projected
 ;; op:abort kind, or #f when none was projected; `message` is the static
-;; diagnostic and `error-name` the originating error.
-(struct abort-info (domain kind message error-name) #:transparent)
+;; diagnostic, `error-name` the originating error, and
+;; `abort-delivery-error-name` a failure publishing the terminal abort, and
+;; `secondary-error-name` / `secondary-error-count` the bounded cleanup or
+;; consequence failures that followed the originating error.
+(struct abort-info (domain kind message error-name abort-delivery-error-name
+                           secondary-error-name secondary-error-count) #:transparent)
 
 ;; What a session's handshake reports about its partner. `session-key` is the
 ;; partner's fresh session public key, `designator` is the location designator

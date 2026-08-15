@@ -1,17 +1,15 @@
-from pancake import connect
-from pancake.iroh import Reachability
+from pancake import Runtime
+from pancake.iroh import IrohConfig, Reachability, locator, provider
 
 # DISCOVERY resolves a bare iroh node ID without an address hint.
-partner = "ocapn://3b6a…da29.iroh"
+node_id = "<64 lowercase hex characters from the server>"
+partner = locator(node_id)
 
-session = await connect(partner, Reachability.DISCOVERY)
-session.serve()
-
-greeter = await session.fetch("greeter")  # a capability, by name
-try:
-    reply = await session.send(greeter, "greet", ["world"])
-    print(reply)
-except Exception as reason:
-    print(f"the greeter refused: {reason}")
-
-await session.close()
+async with Runtime.open(
+    provider=provider(IrohConfig(Reachability.DISCOVERY))
+) as runtime:
+    # From here, the CapTP workflow is transport-independent.
+    async with await runtime.connect(partner) as session:
+        greeter = await session.fetch("greeter")  # a capability this peer published
+        reply = await session.send(greeter, "greet", ["world"])
+        print(reply)

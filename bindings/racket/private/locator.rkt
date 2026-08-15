@@ -6,8 +6,8 @@
 ;; `pancake.rkt` re-provides these on the public surface.
 
 (require ffi/unsafe
-         racket/string
          "constants.rkt"
+         "codec.rkt"
          "ffi-ocapn.rkt"
          "errors.rkt")
 
@@ -20,9 +20,9 @@
 ;; every borrowed view into Racket strings before releasing the handle;
 ;; `format-peer-uri` renders through the same grammar.
 
-;; A parsed OCapN peer locator. `hints` is a string→typed-value hash. Dial resolves host:port through
-;; `pancake_host_plan_dial`; apps that need a bare designator split use
-;; `designator-host-port`. Hint values are strings, bytes, booleans, or exact
+;; A parsed OCapN peer locator. `hints` is a string→typed-value hash. Transport
+;; packages interpret their own designator and hint policy; apps that need a
+;; bare host:port split use `designator-host-port`. Hint values are strings, bytes, booleans, or exact
 ;; signed 64-bit integers; `hint-wire-form` is 'map or 'boolean-false.
 (struct locator (transport designator hints hint-wire-form) #:transparent)
 
@@ -45,10 +45,13 @@
 
 ;; Parse an `ocapn://.../s/<swiss>` sturdyref without collapsing it into a
 ;; peer locator and dropping authority.
-(define (parse-sturdyref uri)
+(define (parse-sturdyref uri #:captp-version captp-version)
   (define ub (string->bytes/utf-8 uri))
   (define-values (rc handle)
-    (pancake_uri_parse_sturdyref (pin-immobile ub) (bytes-length ub)))
+    (pancake_uri_parse_sturdyref
+     (captp-version-id captp-version)
+     (pin-immobile ub)
+     (bytes-length ub)))
   (check rc)
   (dynamic-wind
    void
@@ -179,12 +182,10 @@
 (define (format-peer-uri transport designator [hints (hash)])
   (format-uri transport designator #f hints))
 
-;; Format a peer URI plus opaque swiss authority through the core grammar.
-;; Parsing the locator first keeps URI syntax out of this binding.
-(define (format-sturdyref locator-uri swissnum)
+;; Add opaque swiss authority to a typed locator and render a sturdyref.
+(define (format-sturdyref loc swissnum #:captp-version captp-version)
   (unless (bytes? swissnum)
     (raise-argument-error 'format-sturdyref "bytes?" swissnum))
-  (define loc (parse-locator locator-uri))
   (define hints
     (for/hash ([(name value) (in-hash (locator-hints loc))])
       (unless (string? value)
@@ -192,9 +193,9 @@
                                "locator hint has no lossless URI spelling"
                                "name" name "value" value))
       (values name value)))
-  (format-uri (locator-transport loc) (locator-designator loc) swissnum hints))
+  (format-uri (locator-transport loc) (locator-designator loc) swissnum hints captp-version))
 
-(define (format-uri transport designator swissnum hints)
+(define (format-uri transport designator swissnum hints [captp-version #f])
   (define pairs (hash->list hints))
   (define n (length pairs))
   (define tb (string->bytes/utf-8 transport))
@@ -218,6 +219,7 @@
       (if swissnum
           (let ([sbuf (pin-immobile swissnum)])
             (pancake_uri_format_sturdyref
+             (captp-version-id captp-version)
              tbuf (bytes-length tb) dbuf (bytes-length db)
              sbuf (bytes-length swissnum)
              key-ptrs key-lens val-ptrs val-lens n buf cap))
@@ -239,13 +241,6 @@
      (pancake_locator_record_bytes_release ptr len)
      out)))
 
-;; Render host:port as a tcp designator; bracket IPv6 for the core grammar.
-(define (socket-addr-designator host port)
-  (if (and (string-contains? host ":")
-           (not (and (string-prefix? host "[") (string-suffix? host "]"))))
-      (format "[~a]:~a" host port)
-      (format "~a:~a" host port)))
-
 ;; Split a bare designator as host:port through the core grammar
 ;; (`pancake_designator_host_port`). Prefer this over minting a peer URI
 ;; just to call `parse-locator`.
@@ -259,24 +254,3 @@
               ""
               (bytes->string/utf-8 (bytes<-c hptr hlen) #\uFFFD))
           hport))
-
-;; Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
-;; rendered through the core grammar. The convenience for the common case, a
-;; caller holding a host and port passes `(connect (tcp-locator host port))`
-;; instead of hand-formatting the URI. `host:port` is not a dial of its own; it
-;; is a locator like any other.
-(define (tcp-locator host port)
-  (format-peer-uri TRANSPORT-TCP (socket-addr-designator host port)))
-
-;; Build a `keyed-tcp` locator: the designator is the listener's Ed25519 public
-;; key in canonical hex, and host/port ride the `direct-addresses` hint
-;; (ADR-0075).
-(define (keyed-tcp-locator designator host port)
-  (format-peer-uri TRANSPORT-KEYED-TCP designator
-                   (hash HINT-DIRECT-ADDRESSES (socket-addr-designator host port))))
-
-;; Build a `noise-tcp` locator from the listener's durable key and bound
-;; address. The key remains the designator; the socket rides the hint.
-(define (noise-tcp-locator designator host port)
-  (format-peer-uri TRANSPORT-NOISE-TCP designator
-                   (hash HINT-DIRECT-ADDRESSES (socket-addr-designator host port))))

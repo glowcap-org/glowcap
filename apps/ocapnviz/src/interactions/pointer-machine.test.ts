@@ -151,13 +151,10 @@ Deno.test("one big move leaves the same trail as several small ones", () => {
     "drag-end",
   ]);
   assertEquals(
-    manyMoves.effects.map((e) => e.kind).filter((k, i, a) =>
-      k !== "drag-move" || a[i - 1] !== "drag-move"
-    ),
+    manyMoves.effects.map((e) => e.kind).filter((k, i, a) => k !== "drag-move" || a[i - 1] !== "drag-move"),
     ["drag-start", "drag-move", "drag-end"],
   );
-  const lastMove = (r: typeof oneMove) =>
-    r.effects.filter((e) => e.kind === "drag-move").at(-1);
+  const lastMove = (r: typeof oneMove) => r.effects.filter((e) => e.kind === "drag-move").at(-1);
   const a = lastMove(oneMove), b = lastMove(manyMoves);
   assert(a && "at" in a && b && "at" in b);
   assertEquals([a.at.clientX, a.at.clientY], [b.at.clientX, b.at.clientY]);

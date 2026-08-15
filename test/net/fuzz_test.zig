@@ -269,6 +269,10 @@ const LifecycleBackend = struct {
     pub const Fd = i32;
     pub const ConnectTarget = void;
 
+    pub fn applyKeepalive(_: *LifecycleBackend, _: Fd, _: net.completion.Keepalive) !void {
+        return error.OperationUnsupported;
+    }
+
     const Kind = enum { accept, recv, send, close, connect, cancel };
     /// `len` is the submitted byte count, carried so a send can complete as a
     /// *full* write. Without it every send reported a short count, so a queued
@@ -699,8 +703,8 @@ var serve_backend: ?*LifecycleBackend = null;
 /// tally can.
 var close_hook_fires: usize = 0;
 
-fn countClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: completion.CloseReason) void {
-    _ = .{ ctx, slot, opened, reason };
+fn countClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: completion.CloseReport) void {
+    _ = .{ ctx, slot, report };
     if (conn_ctx != null) contexts_seen_on_close += 1;
     close_hook_fires += 1;
 }

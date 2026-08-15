@@ -1,17 +1,12 @@
-import { connect, tcpLocator } from "@pancake/stack";
+import { locator, provider } from "@pancake/tcp";
+import { Runtime } from "@pancake/runtime";
 
 // Plain TCP uses a cleartext host and port.
-const partner = tcpLocator("127.0.0.1", 9099);
+const partner = locator("127.0.0.1", 9099);
 
-const session = await connect(partner);
-session.serve().catch(() => {});
-
-const greeter = await session.fetch("greeter"); // a capability, by name
-try {
-	const reply = await session.send(greeter, "greet", ["world"]);
-	console.log(reply);
-} catch (reason) {
-	console.error("the greeter refused:", reason);
-}
-
-session.close();
+await using runtime = await Runtime.open({ providers: [provider()] });
+// From here, the CapTP workflow is transport-independent.
+await using session = await runtime.connect(partner);
+const greeter = await session.fetch("greeter"); // a capability this peer published
+const reply = await session.send(greeter, "greet", ["world"]);
+console.log(reply);

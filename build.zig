@@ -12,7 +12,7 @@
 //! the step variable is wired onto `check_step`, an inline declaration sits
 //! over a run step that `check_step` also wires, or a table row names it
 //! (`.check_step_name`, the generated-header families). Whichever it is, the
-//! cli rule's step table must say "part of check" and `meta-check`
+//! cli rule's step table must say "part of check" and `source-check`
 //! (`checkGatedStepsRideCheck`) holds the two together — so a step cannot
 //! quietly fall off the gate, which is the failure this file's length would
 //! otherwise hide.
@@ -27,12 +27,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch_check = @import("tools/check/arch_check.zig");
-const meta_check = @import("tools/check/meta_check.zig");
+const source_check = @import("tools/check/source_check.zig");
 const toolchain_check = @import("tools/check/toolchain_check.zig");
 
 /// C ABI version (keep in lockstep with `PANCAKE_VERSION_*` in
 /// `include/pancake_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
-/// in `build.zig.zon` — the meta gate holds the zon triple to this one). Each
+/// in `build.zig.zon` — the source gate holds the zon triple to this one). Each
 /// archive's dynamic library soname tracks `major`.
 const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
@@ -51,13 +51,19 @@ const check_runtimes = [_]toolchain_check.Runtime{
     .{
         .program = "bash",
         .scripts = &.{
+            ".devcontainer/check-env-sync.sh",
             "tools/check/ocapnviz-test.sh",
             "tools/c-abi/c-abi-extract-matrix.sh",
         },
-        .why = "two harnesses whose subjects are not Zig. The C-ABI extract matrix requires `tar`; " ++
+        .why = "the devcontainer contract test plus two harnesses whose subjects are not Zig. The host contract test uses standard Git and POSIX tools; the C-ABI extract matrix requires `tar`; " ++
             "its Python and Deno validators, and the visualizer's Deno suite, run when those optional " ++
             "runtimes are present and report an explicit skip otherwise. Script-internal programs " ++
             "are invisible to this graph check, which sees only the interpreter name.",
+    },
+    .{
+        .program = "deno",
+        .why = "the checked documentation examples are executable TypeScript product surfaces; " ++
+            "type-checking them in the main gate prevents the site from publishing binding API drift",
     },
 };
 
@@ -85,7 +91,8 @@ const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "oracle", .prefix = "oracle/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
     .{ .name = "driver_core", .prefix = "driver/core/", .imports = &.{ "foundation", "model", "engine", "actors" }, .core = true },
     .{ .name = "driver", .prefix = "driver/", .imports = &.{ "foundation", "model", "engine", "actors", "net", "driver_core" }, .core = false },
-    .{ .name = "c_abi_shared", .prefix = "c_abi/shared/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
+    .{ .name = "diagnostics", .prefix = "diagnostics/", .imports = &.{}, .core = false },
+    .{ .name = "c_abi_shared", .prefix = "c_abi/shared/", .imports = &.{ "foundation", "model", "engine", "diagnostics" }, .core = false },
     .{ .name = "c_abi", .prefix = "c_abi/ocapn/", .imports = &.{ "model", "engine", "c_abi_shared" }, .core = false },
     .{ .name = "c_abi_net_transport_iroh", .prefix = "c_abi/net_transport/iroh/", .imports = &.{ "model", "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_webrtc", .prefix = "c_abi/net_transport/webrtc/", .imports = &.{ "foundation", "c_abi_shared" }, .core = false, .graph = false },
@@ -340,7 +347,7 @@ fn relayHarnessSpec(kind: RelayHarness) RelayHarnessSpec {
 }
 
 /// One row of the cross-runtime relay matrix: a single (runtime, harness) proof.
-/// `step_name` is a literal so `meta-check`'s build-step census sees it.
+/// `step_name` is a literal so `source-check`'s build-step census sees it.
 const RelayRow = struct {
     step_name: []const u8,
     description: []const u8,
@@ -813,13 +820,15 @@ pub fn build(b: *std.Build) void {
     // (ocapn) layer module directly — the same module the ocapn header generator
     // reflects over — so it exports exactly the sans-io ocapn family and nothing
     // the `pancake` root module would otherwise drag in.
-    const ocapn_static = installArchive(b, "pancake_ocapn", host_mods[layerIndex("c_abi")], abi_version).static;
-    _ = installArchive(b, "pancake_net_transport_tcp", tcp_abi_mod, abi_version);
+    const ocapn_archive = installArchive(b, "pancake_ocapn", host_mods[layerIndex("c_abi")], abi_version);
+    const ocapn_static = ocapn_archive.static;
+    const tcp_archive = installArchive(b, "pancake_net_transport_tcp", tcp_abi_mod, abi_version);
     _ = installArchive(b, "pancake_net_transport_relay", relay_abi_mod, abi_version);
     _ = installArchive(b, "pancake_net_transport_inproc", inproc_abi_mod, abi_version);
     const onion_archive = installArchive(b, "pancake_net_transport_onion", onion_abi_mod, abi_version);
-    const host_static = installArchive(b, "pancake_host", host_archive_mod, abi_version).static;
-    _ = installArchive(b, "pancake_driver", driver_abi_mod, abi_version);
+    const host_archive = installArchive(b, "pancake_host", host_archive_mod, abi_version);
+    const host_static = host_archive.static;
+    const driver_archive = installArchive(b, "pancake_driver", driver_abi_mod, abi_version);
 
     // Install each archive's public header.
     inline for (archive_table) |arch| {
@@ -862,7 +871,7 @@ pub fn build(b: *std.Build) void {
     // follow; the non-hermetic sibling steps come last, grouped by concern.
     //
     // The core correctness gate is hermetic from outside authority: arch gate,
-    // meta gate, tests, oracle checks, the header staleness check, the Zig + C
+    // source gate, tests, oracle checks, the header staleness check, the Zig + C
     // examples, the cross-compile gate, the accountability application
     // (loopback TCP) with its three-party attribution test, and the benchmark
     // checks (peer-scaling in smoke mode). The cross-language C ABI dogfood
@@ -875,7 +884,7 @@ pub fn build(b: *std.Build) void {
     // image via ci/gates.sh.
     // Each section below wires its gated runs into `check` where the artifacts
     // are built.
-    const check_step = b.step("check", "Run the hermetic correctness and meta-scaffolding gate");
+    const check_step = b.step("check", "Run the complete in-tree correctness gate");
 
     // ── Tests ────────────────────────────────────────────────────────────────
     const tests_mod = b.createModule(.{
@@ -947,7 +956,7 @@ pub fn build(b: *std.Build) void {
         // that takes exactly the type in hand.
         //
         // The copy is kept byte-identical to upstream apart from that rename,
-        // which is what lets `meta-check` compare the two exactly and tell you
+        // which is what lets `source-check` compare the two exactly and tell you
         // to delete the copy the day Zig fixes it. Only this artifact uses it;
         // `zig build test` runs on the stock runner.
         .test_runner = .{ .path = b.path("tools/fuzz/test_runner.zig"), .mode = .server },
@@ -1017,23 +1026,26 @@ pub fn build(b: *std.Build) void {
     toolchain_check_step.dependOn(toolchain_check_step_inner);
     check_step.dependOn(toolchain_check_step);
 
-    const meta_check_step_inner = meta_check.create(b);
+    const source_check_step_inner = source_check.create(b);
 
-    // Unit tests for the meta gate's own parsers (link/command/Mermaid logic)
-    // live in `tools/check/meta_check.zig`. The file is a build-time import, so its
+    // Unit tests for the source gate's own parsers (link/command/Mermaid logic)
+    // live in `tools/check/source_check.zig`. The file is a build-time import, so its
     // `test` blocks only run when compiled as a dedicated test artifact.
-    const meta_check_tests_mod = b.createModule(.{
-        .root_source_file = b.path("tools/check/meta_check.zig"),
+    const source_check_tests_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/source_check.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const meta_check_tests = b.addTest(.{ .root_module = meta_check_tests_mod });
-    const run_meta_check_tests = b.addRunArtifact(meta_check_tests);
+    const source_check_tests = b.addTest(.{ .root_module = source_check_tests_mod });
+    const run_source_check_tests = b.addRunArtifact(source_check_tests);
 
-    const meta_check_step = b.step("meta-check", "Enforce agent scaffolding and documented build-step parity");
-    meta_check_step.dependOn(meta_check_step_inner);
-    meta_check_step.dependOn(&run_meta_check_tests.step);
-    check_step.dependOn(meta_check_step);
+    const source_check_step = b.step("source-check", "Enforce cross-file source, generated, documentation, and scaffolding contracts");
+    source_check_step.dependOn(source_check_step_inner);
+    source_check_step.dependOn(&run_source_check_tests.step);
+    const devcontainer_contracts = b.addSystemCommand(&.{ "bash", ".devcontainer/check-env-sync.sh" });
+    devcontainer_contracts.has_side_effects = true;
+    source_check_step.dependOn(&devcontainer_contracts.step);
+    check_step.dependOn(source_check_step);
 
     // The deadline wrapper every CI gate runs under, held by its behaviour
     // rather than by its source text: a check that greps the file for
@@ -1376,6 +1388,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    site_examples_mod.addImport("model", host_mods[layerIndex("model")]);
     const site_examples_exe = b.addExecutable(.{
         .name = "gen-site-examples",
         .root_module = site_examples_mod,
@@ -1384,7 +1397,7 @@ pub fn build(b: *std.Build) void {
     site_examples_write.setCwd(b.path("."));
     site_examples_write.addArg("write");
     site_examples_write.has_side_effects = true;
-    const site_examples_write_step = b.step("gen-site-examples", "Assemble site/examples snippets into SuperMD code-tabs on binding and Start pages");
+    const site_examples_write_step = b.step("gen-site-examples", "Assemble site/examples snippets into SuperMD code-tabs on binding, Start, and transport pages");
     site_examples_write_step.dependOn(&site_examples_write.step);
 
     const site_examples_check_run = b.addRunArtifact(site_examples_exe);
@@ -1393,6 +1406,88 @@ pub fn build(b: *std.Build) void {
     const site_examples_check_step = b.step("gen-site-examples-check", "Verify site transport example tabs match site/examples snippets (fails if stale)");
     site_examples_check_step.dependOn(&site_examples_check_run.step);
     check_step.dependOn(site_examples_check_step);
+
+    // The Zig and TypeScript transport tabs are authoritative source, not
+    // prose fragments: compile or type-check the exact files so a public
+    // example cannot drift from the API it presents. The checked set is
+    // discovered from `site/examples/` itself rather than kept as a second
+    // list beside the generator's matrix, so a snippet the matrix gains
+    // cannot ship unchecked. A `PLANNED:` marker excludes a snippet exactly
+    // as `tools/check/site_binding_examples.py` excludes it, and that checker
+    // holds planned snippets to comment-only bodies. The iroh Zig tabs are
+    // the one named exception, added beside their separate resident module
+    // below, because that module intentionally stays outside the default
+    // pancake graph.
+    const snippets_io = b.graph.io;
+    var site_zig_snippets: std.ArrayList([]const u8) = .empty;
+    var site_ts_snippets: std.ArrayList([]const u8) = .empty;
+    for ([_][]const u8{
+        "site/examples/browser",
+        "site/examples/dial",
+        "site/examples/listen",
+        "site/examples/onion",
+    }) |dir_path| {
+        var dir = std.Io.Dir.cwd().openDir(snippets_io, dir_path, .{ .iterate = true }) catch |err|
+            std.debug.panic("site snippets {s}: {s}", .{ dir_path, @errorName(err) });
+        defer dir.close(snippets_io);
+        var entries = dir.iterate();
+        while (entries.next(snippets_io) catch |err|
+            std.debug.panic("site snippets {s}: {s}", .{ dir_path, @errorName(err) })) |entry|
+        {
+            if (entry.kind != .file) continue;
+            const is_zig = std.mem.endsWith(u8, entry.name, ".zig");
+            if (!is_zig and !std.mem.endsWith(u8, entry.name, ".ts")) continue;
+            if (is_zig and std.mem.eql(u8, entry.name, "iroh.zig")) continue;
+            const path = b.fmt("{s}/{s}", .{ dir_path, entry.name });
+            const body = std.Io.Dir.cwd().readFileAlloc(snippets_io, path, b.allocator, .limited(1 << 20)) catch |err|
+                std.debug.panic("site snippet {s}: {s}", .{ path, @errorName(err) });
+            if (std.mem.indexOf(u8, body, "PLANNED:") != null) continue;
+            const list = if (is_zig) &site_zig_snippets else &site_ts_snippets;
+            list.append(b.allocator, path) catch @panic("OOM");
+        }
+    }
+    // Directory iteration order is platform noise; sort so the graph and the
+    // deno invocation stay byte-stable across runs.
+    for ([_]*std.ArrayList([]const u8){ &site_zig_snippets, &site_ts_snippets }) |list| {
+        std.mem.sort([]const u8, list.items, {}, struct {
+            fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
+                return std.mem.lessThan(u8, lhs, rhs);
+            }
+        }.lessThan);
+    }
+
+    const site_zig_examples_check = b.step("site-zig-examples-check", "Compile the authoritative Zig transport site examples");
+    check_step.dependOn(site_zig_examples_check);
+    for (site_zig_snippets.items) |snippet_path| {
+        const example_mod = b.createModule(.{
+            .root_source_file = b.path(snippet_path),
+            .target = target,
+            .optimize = optimize,
+        });
+        example_mod.addImport("pancake", lib_mod);
+        const name = b.fmt("site-example-{s}", .{snippet_path["site/examples/".len .. snippet_path.len - ".zig".len]});
+        std.mem.replaceScalar(u8, name, '/', '-');
+        const example_test = b.addTest(.{ .name = b.fmt("{s}-compile", .{name}), .root_module = example_mod });
+        site_zig_examples_check.dependOn(&example_test.step);
+    }
+
+    const site_ts_examples_check = b.step("site-ts-examples-check", "Type-check the authoritative TypeScript transport site examples");
+    const site_ts_check = b.addSystemCommand(&.{ "deno", "check", "--config", "deno.json" });
+    for (site_ts_snippets.items) |snippet_path| site_ts_check.addArg(snippet_path);
+    site_ts_examples_check.dependOn(&site_ts_check.step);
+    check_step.dependOn(site_ts_examples_check);
+
+    const site_python_examples_check = b.step("site-python-examples-check", "Type-check the authoritative Python transport site examples");
+    const site_python_check = addRootedSystemCommand(b, &.{ "python3", "tools/check/site_binding_examples.py", "python" });
+    site_python_examples_check.dependOn(&site_python_check.step);
+
+    const site_rust_examples_check = b.step("site-rust-examples-check", "Type-check the authoritative Rust transport site examples");
+    const site_rust_check = addInstalledSystemRun(b, &.{ "python3", "tools/check/site_binding_examples.py", "rust" });
+    site_rust_examples_check.dependOn(&site_rust_check.step);
+
+    const site_racket_examples_check = b.step("site-racket-examples-check", "Compile the authoritative Racket transport site examples");
+    const site_racket_check = addRootedSystemCommand(b, &.{ "python3", "tools/check/site_binding_examples.py", "racket" });
+    site_racket_examples_check.dependOn(&site_racket_check.step);
 
     // ── Examples ─────────────────────────────────────────────────────────────
     const examples_step = b.step("examples", "Build and run examples");
@@ -1620,16 +1715,21 @@ pub fn build(b: *std.Build) void {
         "conformance/goblins-peer/racket/iroh-netlayer.rkt",
         "conformance/goblins-peer/racket/rooms-client.rkt",
         "conformance/goblins-peer/racket/rooms-dm.rkt",
+        "bindings/racket/private/gc.rkt",
     };
     const racket_test_step = b.step("racket-test", "Run the Racket unit tests (needs racket + goblins)");
     for (racket_tests) |file| {
         const run = b.addSystemCommand(&.{ "racket", "-y", "tools/check/racket-test.rkt", file });
+        run.step.dependOn(b.getInstallStep());
         run.has_side_effects = true;
         racket_test_step.dependOn(&run.step);
     }
 
-    const bindings_step = b.step("bindings", "Run per-language dogfood of the C ABI (rust, deno, bun, python, racket)");
+    const bindings_step = b.step("bindings", "Run language-binding dogfood and verify published examples (rust, deno, bun, python, racket)");
     for (dogfood_runs) |run| bindings_step.dependOn(&run.step);
+    bindings_step.dependOn(site_python_examples_check);
+    bindings_step.dependOn(site_rust_examples_check);
+    bindings_step.dependOn(site_racket_examples_check);
     const bindings_onion_step = b.step("bindings-onion", "Run the onion provider proof in every native language binding (needs cargo + deno + python3 + racket)");
 
     // Pancake-only three-party handoff: pancake is exporter, gifter, and
@@ -2214,7 +2314,7 @@ pub fn build(b: *std.Build) void {
     webrtc_browser_to_browser.has_side_effects = true;
     webrtc_browser_to_browser.step.dependOn(&browser_preflight.step);
     webrtc_browser_to_browser.step.dependOn(&wasm_driver_install.step);
-    b.step("webrtc-browser-to-browser", "Prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the offerer dialing a bare webrtc locator through its host's configured signaling authority (Host.setSignaling), the signaling host out of the byte path (ADR-0089; needs deno + a Playwright Chromium)").dependOn(&webrtc_browser_to_browser.step);
+    b.step("webrtc-browser-to-browser", "Prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the offerer dialing a bare webrtc locator through the signaling authority of its composed webrtc connector, the signaling host out of the byte path (ADR-0089; needs deno + a Playwright Chromium)").dependOn(&webrtc_browser_to_browser.step);
 
     // The resident compiles as its own module over the same layer-module
     // instances, *outside* the `pancake` root namespace: its externs resolve
@@ -2388,6 +2488,44 @@ pub fn build(b: *std.Build) void {
     });
     check_step.dependOn(&iroh_resident_check.step);
 
+    const site_iroh_examples = [_]struct { name: []const u8, path: []const u8 }{
+        .{ .name = "site-example-dial-iroh", .path = "site/examples/dial/iroh.zig" },
+        .{ .name = "site-example-listen-iroh", .path = "site/examples/listen/iroh.zig" },
+    };
+    for (site_iroh_examples) |example| {
+        const example_mod = b.createModule(.{
+            .root_source_file = b.path(example.path),
+            .target = target,
+            .optimize = optimize,
+        });
+        example_mod.addImport("pancake", lib_mod);
+        example_mod.addImport("iroh", iroh_resident_mod);
+        const example_test = b.addTest(.{
+            .name = b.fmt("{s}-compile", .{example.name}),
+            .root_module = example_mod,
+        });
+        site_zig_examples_check.dependOn(&example_test.step);
+    }
+
+    const iroh_locator_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/net/iroh_locator_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    iroh_locator_test_mod.addImport("iroh", iroh_resident_mod);
+    iroh_locator_test_mod.addImport("model", host_mods[layerIndex("model")]);
+    iroh_locator_test_mod.addImport("iroh_sidecar_stub", b.createModule(.{
+        .root_source_file = b.path("tools/gen/stub/iroh_sidecar.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    const iroh_locator_test = b.addTest(.{
+        .name = "iroh-locator",
+        .root_module = iroh_locator_test_mod,
+    });
+    const run_iroh_locator_test = b.addRunArtifact(iroh_locator_test);
+    site_zig_examples_check.dependOn(&run_iroh_locator_test.step);
+
     // ── iroh public C ABI (separate artifact; ADR-0055) ──────────────────────
     // `src/c_abi/net_transport/iroh/mod.zig` is the iroh transport's public C ABI. It ships as
     // its own library, `libpancake_net_transport_iroh`, because it links the Rust
@@ -2552,9 +2690,9 @@ pub fn build(b: *std.Build) void {
     // (ADR-0103); the harness reads both profiles off the server's live trace
     // rather than taking either member's word for it.
     const goblins_rooms = addInstalledSystemRun(b, &.{
-        "deno",                             "run",         "--allow-read",
-        "--allow-net",                      "--allow-run", "--allow-env",
-        "interop/goblins_rooms/harness.ts",
+        "deno",        "run",            "--allow-read",
+        "--allow-net", "--allow-run",    "--allow-env",
+        "--allow-ffi", "--unstable-ffi", "interop/goblins_rooms/harness.ts",
     });
     const goblins_rooms_step = b.step("goblins-rooms", "Live Goblins in the rooms chat: a real Goblins vat and a pancake peer hold one room, each on the profile its own session settled (needs deno + racket + goblins)");
     goblins_rooms_step.dependOn(&goblins_rooms.step);
@@ -2899,7 +3037,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "rust-keyed-relay-rendezvous",
             .description = "Keyed-relay rendezvous cold-dial proof: the Rust binding dials a registered peer through the reference relay (needs deno + cargo)",
-            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "rendezvous", "--example", "keyed_relay_rendezvous", "--" },
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "relay", "--example", "keyed_relay_rendezvous", "--" },
         },
         .{
             .step_name = "zig-keyed-relay-register",
@@ -3140,6 +3278,13 @@ pub fn build(b: *std.Build) void {
         .extra_imports = &.{
             .{ .name = "c_abi_host", .module = host_abi_mod },
             .{ .name = "c_abi_driver", .module = driver_abi_mod },
+            .{ .name = "c_abi_net_transport_tcp", .module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/tcp/mod.zig", &.{
+                .{ .name = "foundation", .module = host_mods[layerIndex("foundation")] },
+                .{ .name = "model", .module = host_mods[layerIndex("model")] },
+                .{ .name = "net", .module = host_mods[layerIndex("net")] },
+                .{ .name = "driver", .module = host_mods[layerIndex("driver")] },
+                .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+            }) },
             .{ .name = "c_abi_net_transport_iroh", .module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod) },
             .{ .name = "c_abi_net_transport_webrtc", .module = webrtcAbiModule(b, target, optimize, host_mods, webrtc_resident_mod) },
         },
@@ -3352,10 +3497,30 @@ pub fn build(b: *std.Build) void {
     // --unstable-ffi lets the iroh server tests in server_test.ts dial the
     // sidecar's nonblocking FFI; they skip when the iroh ABI lib is absent, so
     // the flag is harmless for the TCP suite and a cargo-free run stays green.
-    const rooms_server_test = addInstalledSystemRun(b, &.{
-        "deno",                           "test",                        "--allow-ffi",                 "--unstable-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "apps/rooms/test/server_test.ts", "apps/rooms/test/web_test.ts", "apps/rooms/test/viz_test.ts",
+    // --allow-write is for the room-link tests, which give a server a state
+    // directory under the system temp and restart it there: a room sturdyref
+    // has to survive the process that minted it, so proving it needs a server
+    // that can write and a second one that reads what the first left.
+    const rooms_server_test = addRootedSystemCommand(b, &.{
+        "deno",                               "test",                             "--allow-ffi",                      "--unstable-ffi",                "--allow-read",                     "--allow-net",                   "--allow-run",                   "--allow-env",                         "--allow-write",
+        "apps/rooms/test/server_test.ts",     "apps/rooms/test/web_test.ts",      "apps/rooms/test/viz_test.ts",      "apps/rooms/test/prefs_test.ts", "apps/rooms/test/complete_test.ts", "apps/rooms/test/media_test.ts", "apps/rooms/test/store_test.ts", "apps/rooms/test/upload_stop_test.ts", "apps/rooms/test/richtext_test.ts",
+        "apps/rooms/test/room_facts_test.ts", "apps/rooms/test/commands_test.ts", "apps/rooms/test/deadline_test.ts",
     });
+    rooms_server_test.has_side_effects = true;
+    // The suite dlopens exactly these installed archives (the iroh arm
+    // self-skips when its sidecar lib is absent), so it depends on their
+    // install steps rather than the global install, which would drag the
+    // cargo-built iroh sidecar into `check`'s runtime set.
+    rooms_server_test.step.dependOn(&ocapn_archive.dynamic_install.step);
+    rooms_server_test.step.dependOn(&host_archive.dynamic_install.step);
+    rooms_server_test.step.dependOn(&driver_archive.dynamic_install.step);
+    rooms_server_test.step.dependOn(&tcp_archive.dynamic_install.step);
+
+    // The rooms hermetic suite is part of `check`: it needs only deno and
+    // loopback, runs in seconds, and is the one place the app's server,
+    // relay, viz, and interface contracts are exercised together — five
+    // regressions once accumulated unseen while it rode only `demo-rooms`.
+    check_step.dependOn(&rooms_server_test.step);
 
     const rooms_demo = addInstalledSystemRun(b, &.{
         "deno",                     "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
@@ -3633,7 +3798,7 @@ pub fn build(b: *std.Build) void {
     // `rooms-web-iroh` below, which runs the same UI over encrypted QUIC and
     // costs only `cargo`.
     const rooms_web = addInstalledSystemRun(b, &.{
-        "deno",        "run",                     "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "deno",        "run",                     "--allow-ffi", "--allow-read", "--allow-write", "--allow-net", "--allow-run",
         // PANCAKE_RELAY_MAX_SESSIONS / _MAX_REGISTRATIONS override the
         // host-derived caps; PANCAKE_RELAY_TCP_PEERS names the cleartext-TCP
         // peers a browser may be relayed to besides the room itself.
@@ -3681,20 +3846,6 @@ pub fn build(b: *std.Build) void {
     const rooms_web_browser_peer_step = b.step("rooms-web-browser-peer", "Prove a real headless Chromium runs the @pancake/web peer through serve.ts's /relay (needs deno + a Playwright Chromium)");
     rooms_web_browser_peer_step.dependOn(&rooms_web_browser_peer.step);
 
-    // The direct browser provenance proof: two real wasm tabs use the public
-    // Noise-relay rendezvous surface, and the dialer reads partnerIdentity()
-    // before fetching a capability. This is opt-in because it needs Chromium.
-    const rooms_web_noise_relay_provenance = b.addSystemCommand(&.{
-        "deno", "run", "--allow-all", "apps/rooms/test/browser_noise_relay_provenance_test.ts",
-    });
-    rooms_web_noise_relay_provenance.setCwd(b.path("."));
-    rooms_web_noise_relay_provenance.has_side_effects = true;
-    rooms_web_noise_relay_provenance.step.dependOn(&browser_preflight.step);
-    rooms_web_noise_relay_provenance.step.dependOn(&wasm_driver_install.step);
-    rooms_web_noise_relay_provenance.step.dependOn(b.getInstallStep());
-    const rooms_web_noise_relay_provenance_step = b.step("rooms-web-noise-relay-provenance", "Prove a real headless Chromium wasm session reports authenticated Noise-relay transport provenance through Session.partnerIdentity() (needs deno + Playwright Chromium)");
-    rooms_web_noise_relay_provenance_step.dependOn(&rooms_web_noise_relay_provenance.step);
-
     // The whole rooms page as a browser peer: a real headless Chromium loads
     // the page serve.ts serves (bundled @pancake/web graph, the wasm module, the
     // UI), joins a room through /relay, and round-trips a chat line over the
@@ -3715,7 +3866,9 @@ pub fn build(b: *std.Build) void {
     // directory session is only observable when one dies, so this kills the room
     // out from under a joined page: it must notice, come back and re-enter on its
     // own, keep the conversation the dead session delivered, and reach the room
-    // again over the new one. Same needs as rooms-web-page.
+    // again over the new one. Runs the room over iroh so a restart changes its
+    // routing hints while preserving its durable authority; that adds the iroh
+    // ABI dependency to the rooms-web-page needs.
     const rooms_web_reconnect = b.addSystemCommand(&.{
         "deno", "run", "--allow-all", "apps/rooms/test/web_reconnect_test.ts",
     });
@@ -3723,8 +3876,9 @@ pub fn build(b: *std.Build) void {
     rooms_web_reconnect.has_side_effects = true;
     rooms_web_reconnect.step.dependOn(&browser_preflight.step);
     rooms_web_reconnect.step.dependOn(&wasm_driver_install.step);
+    rooms_web_reconnect.step.dependOn(iroh_abi_step);
     rooms_web_reconnect.step.dependOn(b.getInstallStep());
-    const rooms_web_reconnect_step = b.step("rooms-web-reconnect", "Prove the rooms page survives losing its room server: it notices, reconnects and re-enters its room untouched, keeps the conversation, and reaches the room again over the new session (needs deno + a Playwright Chromium)");
+    const rooms_web_reconnect_step = b.step("rooms-web-reconnect", "Prove the rooms page survives losing its iroh room server: it notices, refreshes changed routing hints without changing authority, reconnects and re-enters its room untouched (needs cargo + deno + a Playwright Chromium)");
     rooms_web_reconnect_step.dependOn(&rooms_web_reconnect.step);
 
     // The browser sends a direct message end to end: a real headless Chromium
@@ -3759,7 +3913,7 @@ pub fn build(b: *std.Build) void {
     rooms_web_dm_tabs.step.dependOn(&browser_preflight.step);
     rooms_web_dm_tabs.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_tabs.step.dependOn(b.getInstallStep());
-    const rooms_web_dm_tabs_step = b.step("rooms-web-dm-tabs", "Prove two browser tabs direct-message each other over a Noise-sealed cold-dial relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction by cold-dialing it tab-to-tab off-room, and the reply rides back over the arriving connection — browser-to-browser on a shared relay, deno-only (needs deno + a Playwright Chromium)");
+    const rooms_web_dm_tabs_step = b.step("rooms-web-dm-tabs", "Prove two browser tabs direct-message each other over WebRTC (default) or cleartext keyed-relay rendezvous (ADR-0088): one registers its keyed identity, the other redeems a room introduction by cold-dialing it tab-to-tab off-room, and the reply rides back over the arriving connection — browser-to-browser, deno-only (needs deno + a Playwright Chromium)");
     rooms_web_dm_tabs_step.dependOn(&rooms_web_dm_tabs.step);
 
     // Two browser tabs direct-message each other and the conversation appears
@@ -3797,10 +3951,10 @@ pub fn build(b: *std.Build) void {
     // A NATIVE peer cold-dials a browser member by relay rendezvous (ADR-0088
     // capability 5, the native-dialer row): the tab registers its keyed
     // identity, the native Host redeems the room's introduction and bridges
-    // onto the held socket through its configured rendezvous mapping
-    // (`Host.setRendezvousUrl`), the keyed session opens native-to-tab
-    // off-room, and the reply rides back over the arriving connection. Same
-    // needs as rooms-web-dm-tabs.
+    // onto the held socket through the relay provider it composes for
+    // rendezvous dials, the keyed session opens native-to-tab off-room, and
+    // the reply rides back over the arriving connection. Same needs as
+    // rooms-web-dm-tabs.
     const rooms_web_dm_native = b.addSystemCommand(&.{
         "deno", "run", "--allow-all", "apps/rooms/test/web_dm_native_dial_test.ts",
     });
@@ -3809,12 +3963,12 @@ pub fn build(b: *std.Build) void {
     rooms_web_dm_native.step.dependOn(&browser_preflight.step);
     rooms_web_dm_native.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_native.step.dependOn(b.getInstallStep());
-    const rooms_web_dm_native_step = b.step("rooms-web-dm-native", "Prove a native peer cold-dials a browser member by relay rendezvous (ADR-0088): the tab registers its keyed identity, the native Host redeems a room introduction through its configured rendezvous mapping (Host.setRendezvousUrl), the keyed session opens native-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
+    const rooms_web_dm_native_step = b.step("rooms-web-dm-native", "Prove a native peer cold-dials a browser member by relay rendezvous (ADR-0088): the tab registers its keyed identity, the native Host redeems a room introduction through the relay provider it composes for rendezvous dials, the keyed session opens native-to-tab off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
     rooms_web_dm_native_step.dependOn(&rooms_web_dm_native.step);
 
     // The live webrtc handoff-redeem proof (ADR-0089): the give's exporter
     // locator names a bare webrtc designator, the redeeming host signals
-    // through the room directory (Host.setSignaling), and the DM crosses the
+    // through the room directory by its composed webrtc connector, and the DM crosses the
     // DataChannel with the room out of the byte path. Same needs as
     // rooms-web-dm-tabs.
     const rooms_web_dm_webrtc = b.addSystemCommand(&.{
@@ -3825,7 +3979,7 @@ pub fn build(b: *std.Build) void {
     rooms_web_dm_webrtc.step.dependOn(&browser_preflight.step);
     rooms_web_dm_webrtc.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_webrtc.step.dependOn(b.getInstallStep());
-    const rooms_web_dm_webrtc_step = b.step("rooms-web-dm-webrtc", "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only the offer/answer/candidate exchange (Host.setSignaling), the keyed session opens over the DataChannel off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
+    const rooms_web_dm_webrtc_step = b.step("rooms-web-dm-webrtc", "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only the offer/answer/candidate exchange through the tab's composed webrtc connector, the keyed session opens over the DataChannel off-room, and the reply rides back over the arriving connection (needs deno + a Playwright Chromium)");
     rooms_web_dm_webrtc_step.dependOn(&rooms_web_dm_webrtc.step);
 
     // A nickname is a claim the room grants and takes back, so a conversation
@@ -3851,7 +4005,7 @@ pub fn build(b: *std.Build) void {
     // the close was supposed to end also satisfies, so this one watches the
     // live timeline and requires a session id nobody had seen. It runs the
     // scenario once per way a tab is reachable directly, `webrtc` and
-    // `noise-relay`. Same needs as rooms-web-dm-tabs.
+    // `keyed-relay`. Same needs as rooms-web-dm-tabs.
     const rooms_web_dm_reopen = b.addSystemCommand(&.{
         "deno", "run", "--allow-all", "apps/rooms/test/web_dm_reopen_test.ts",
     });
@@ -3860,7 +4014,7 @@ pub fn build(b: *std.Build) void {
     rooms_web_dm_reopen.step.dependOn(&browser_preflight.step);
     rooms_web_dm_reopen.step.dependOn(&wasm_driver_install.step);
     rooms_web_dm_reopen.step.dependOn(b.getInstallStep());
-    const rooms_web_dm_reopen_step = b.step("rooms-web-dm-reopen", "Prove reopening a closed direct conversation opens a second connection and that the second one carries: the live timeline must show the first session gone and a session id nobody had seen, and the reply must ride back over it, run once over webrtc and once over noise-relay (needs deno + a Playwright Chromium)");
+    const rooms_web_dm_reopen_step = b.step("rooms-web-dm-reopen", "Prove reopening a closed direct conversation opens a second connection and that the second one carries: the live timeline must show the first session gone and a session id nobody had seen, and the reply must ride back over it, run once over webrtc and once over keyed-relay (needs deno + a Playwright Chromium)");
     rooms_web_dm_reopen_step.dependOn(&rooms_web_dm_reopen.step);
 
     // The same browser UI with its rooms and its direct-message members over iroh's
@@ -4053,13 +4207,41 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "reference/api",
     });
     site_docs_install.step.dependOn(&render_site.step);
-    const site_step = b.step("site", "Build the documentation site (Zine + autodoc) under zig-out/site/");
-    site_step.dependOn(&site_docs_install.step);
+
+    // Validate the artifact after autodoc replaces the reference placeholder.
+    // Source checks cannot see Zine's resolved URLs, and checking before this
+    // install would miss the generated API's relative assets.
+    const site_output_check_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/site_output.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const site_output_check_exe = b.addExecutable(.{
+        .name = "site-output-check",
+        .root_module = site_output_check_mod,
+    });
+    const run_site_output_check = b.addRunArtifact(site_output_check_exe);
+    run_site_output_check.addArg(b.getInstallPath(.prefix, "site"));
+    run_site_output_check.step.dependOn(&site_docs_install.step);
+    const site_output_check_tests = b.addTest(.{
+        .name = "site-output-check-tests",
+        .root_module = site_output_check_mod,
+    });
+    const run_site_output_check_tests = b.addRunArtifact(site_output_check_tests);
+    check_step.dependOn(&run_site_output_check_tests.step);
+
+    const site_step = b.step("site", "Build and validate the documentation site (Zine + autodoc) under zig-out/site/");
+    site_step.dependOn(&run_site_output_check.step);
 
     // `docs-serve` is the normal local preview: Zine's development server
     // rebuilds and reloads as the content and templates change. It serves the
     // Zine pages only, the generated autodoc reference is a release-time
     // install, so preview the API reference with `zig build site`.
+    //
+    // Transport example tabs are assembled from `site/examples/` into the
+    // pages; regenerate them before the server starts so a fresh preview is
+    // never one gen step behind. `site/docs-serve.sh` then watches the
+    // snippets and re-runs the gen while the server is up.
     //
     // The inner `zig build … docs-serve` launches Zine's dev server as a
     // grandchild, and `zig build` does not reap that subtree when an ancestor is
@@ -4076,7 +4258,8 @@ pub fn build(b: *std.Build) void {
     });
     if (pin_port) |p| serve_site.addArg(b.fmt("-Dport={d}", .{p}));
     serve_site.has_side_effects = true;
-    const docs_serve_step = b.step("docs-serve", "Serve the documentation site locally with Zine's development server");
+    serve_site.step.dependOn(site_examples_write_step);
+    const docs_serve_step = b.step("docs-serve", "Serve the documentation site locally with Zine's development server (regenerates site example tabs; watches site/examples while running)");
     docs_serve_step.dependOn(&serve_site.step);
 
     // ── Formatting ───────────────────────────────────────────────────────────
@@ -4194,27 +4377,32 @@ pub fn build(b: *std.Build) void {
     const deno_stack_test = b.addSystemCommand(&.{
         "deno",
         "test",
-        "stack/test/value_test.ts",
-        "stack/test/native_handle_test.ts",
-        "stack/test/ws_channel_test.ts",
+        "runtime/test/errors_test.ts",
+        "runtime/test/value_test.ts",
+        "runtime/test/native_handle_test.ts",
+        "runtime/test/websocket_test.ts",
         "relay/test/ws_relay_test.ts",
     });
     deno_stack_test.setCwd(b.path("bindings/ts"));
     bindings_fmt_check_step.dependOn(&deno_stack_test.step);
     // This ownership proof takes and reads a real native pointer but opens no
     // archive; keep that capability out of the otherwise pure stack suite.
-    const deno_native_frame_test = b.addSystemCommand(&.{
-        "deno", "test", "--allow-ffi", "stack/test/native_frame_test.ts",
+    const deno_native_frame_test = addInstalledSystemRun(b, &.{
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=PANCAKE_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts",
     });
-    deno_native_frame_test.setCwd(b.path("bindings/ts"));
     bindings_fmt_check_step.dependOn(&deno_native_frame_test.step);
+    const deno_driver_listener_test = addInstalledSystemRun(b, &.{
+        "deno",                                         "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env",
+        "bindings/ts/tcp/test/driver_listener_test.ts",
+    });
+    bindings_fmt_check_step.dependOn(&deno_driver_listener_test.step);
     const deno_onion_test = b.addSystemCommand(&.{
         "deno",
         "test",
         "--allow-ffi",
         "--allow-read",
         "--allow-net=127.0.0.1",
-        "stack/test/onion_test.ts",
+        "onion/test/onion_test.ts",
     });
     deno_onion_test.setCwd(b.path("bindings/ts"));
     deno_onion_test.step.dependOn(&onion_archive.dynamic_install.step);

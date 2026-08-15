@@ -145,7 +145,7 @@ const CountingAllocator = struct {
 
 test "raw-open fixture peer is already open on v1.0, not next" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initRawOpenFixture(allocator);
+    var peer = engine.testing.initRawOpenPeer(allocator);
     defer peer.deinit();
 
     try std.testing.expect(peer.sessionIsOpen());
@@ -154,7 +154,7 @@ test "raw-open fixture peer is already open on v1.0, not next" {
 
 test "raw-open fixture records v1.0 resolver callback imports" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initRawOpenFixture(allocator);
+    var peer = engine.testing.initRawOpenPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
@@ -176,7 +176,7 @@ test "raw-open fixture records v1.0 resolver callback imports" {
 
 test "malformed V1.0 deliver cannot install its advertised resolver" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initRawOpenFixture(allocator);
+    var peer = engine.testing.initRawOpenPeer(allocator);
     defer peer.deinit();
 
     // Export 404 was never granted to the partner. The resolver descriptor is
@@ -196,7 +196,7 @@ test "malformed V1.0 deliver cannot install its advertised resolver" {
 
 test "settled-answer encode OOM leaves its carrier queued and emits exactly once" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    var peer = engine.Peer.initRawOpenFixture(failing.allocator());
+    var peer = engine.testing.initRawOpenPeer(failing.allocator());
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
@@ -253,7 +253,7 @@ test "V1.0 answered-deliver encode OOM rolls back resolver authority and retries
 
     for (0..32) |offset| {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-        var peer = engine.Peer.initRawOpenFixture(failing.allocator());
+        var peer = engine.testing.initRawOpenPeer(failing.allocator());
         defer peer.deinit();
         defer failing.fail_index = std.math.maxInt(usize);
         try peer.session_state.registerImport(.from(7));
@@ -307,7 +307,7 @@ test "V1.0 projection encode OOM publishes neither half and retries atomically" 
 
     for (0..40) |offset| {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-        var peer = engine.Peer.initRawOpenFixture(failing.allocator());
+        var peer = engine.testing.initRawOpenPeer(failing.allocator());
         defer peer.deinit();
         defer failing.fail_index = std.math.maxInt(usize);
         try peer.session_state.registerImport(.from(9));
@@ -359,7 +359,7 @@ test "V1.0 projection encode OOM publishes neither half and retries atomically" 
 
 test "outbound waterline refuses one arbitrarily large producer before authority moves" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initRawOpenFixture(allocator);
+    var peer = engine.testing.initRawOpenPeer(allocator);
     defer peer.deinit();
     peer.outbound_budget = 256;
     try peer.session_state.registerImport(.from(7));
@@ -469,7 +469,7 @@ test "queued local encode backpressure remains retryable and does not abort" {
 
 test "raw-open v1.0 fixture rejects raw inbound op:resolve" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initRawOpenFixture(allocator);
+    var peer = engine.testing.initRawOpenPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
     try peer.sendCopying(.{ .deliver = .{
@@ -1488,6 +1488,7 @@ test "a closing projected abort still closes when the abort frame cannot allocat
     try std.testing.expect(peer.takeOutbound() == null);
     const cause = peer.lastAbort().?;
     try std.testing.expectEqual(model.AbortKind.malformed_frame, cause.kind.?);
+    try std.testing.expectEqual(error.OutOfMemory, cause.abort_delivery_error.?);
 }
 
 test "a malformed inbound frame emits a malformed-frame abort and closes" {
@@ -1510,6 +1511,7 @@ test "a malformed inbound frame emits a malformed-frame abort and closes" {
     try std.testing.expectEqual(engine.abort_projection.Domain.codec, cause.domain);
     try std.testing.expectEqual(model.AbortKind.malformed_frame, cause.kind.?);
     try std.testing.expectEqualStrings("MalformedFrame", cause.error_name);
+    try std.testing.expect(cause.abort_delivery_error == null);
 
     var abort_frame = pair.p1.takeOutbound().?;
     defer abort_frame.deinit();

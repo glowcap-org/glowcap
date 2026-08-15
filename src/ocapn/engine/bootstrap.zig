@@ -655,10 +655,19 @@ pub fn resolveForSwissnum(
             .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
         } };
     }
-    return .{ .resolve = .{
-        .answer = request.answer,
-        .resolution = .{ .@"break" = .{ .message = "unknown swissnum" } },
-    } };
+    return .{
+        .resolve = .{
+            .answer = request.answer,
+            .resolution = .{
+                .@"break" = .{
+                    // Named: the miss diagnostic must outlive this stack frame, and
+                    // `send` frees the resolution. One string dupe on the unknown-name
+                    // path; the fulfill arm is POD and allocates nothing.
+                    .message = try session.allocator.dupe(u8, "unknown swissnum"),
+                },
+            },
+        },
+    };
 }
 
 pub fn resolveForDeposit(

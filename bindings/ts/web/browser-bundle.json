@@ -1,5 +1,5 @@
 {
-	"//": "The deno config every browser bundle in this repository is built with. Maps the same package specifiers the root deno.json does, plus the non-browser FFI host imports (node:*, bun:ffi) to browser stubs, so the stack's node/bun adapters — bundled but never selected once the web adapter is injected — resolve without pulling a runtime the browser lacks. That stub table tracks which built-ins the stack's adapter cascade imports, so it has one owner and is not copied per surface; a browser app that needs more specifiers adds them here rather than forking it, which is why React (the rooms page's UI runtime, pinned to the version apps/rooms/web/ui/deno.json type-checks against) is mapped below and the JSX transform is configured here. A bundle whose entry contains no JSX is unaffected by either. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
+	"//": "The deno config every browser bundle in this repository is built with. Maps the same package specifiers the root deno.json does, plus the non-browser FFI host imports (node:*, bun:ffi) to browser stubs, so the runtime's node/bun adapters — bundled but never selected once the web adapter is injected — resolve without pulling a runtime the browser lacks. That stub table tracks which built-ins the runtime's adapter cascade imports, so it has one owner and is not copied per surface; a browser app that needs more specifiers adds them here rather than forking it, which is why React (the rooms page's UI runtime, pinned to the version apps/rooms/web/ui/deno.json type-checks against) is mapped below and the JSX transform is configured here. A bundle whose entry contains no JSX is unaffected by either. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
 	"compilerOptions": {
 		"jsx": "react-jsx",
 		"jsxImportSource": "react",
@@ -13,9 +13,11 @@
 		"react-dom": "npm:react-dom@19.2.0",
 		"react-dom/client": "npm:react-dom@19.2.0/client",
 		"@pancake/web": "./mod.ts",
-		"@pancake/stack": "../stack/mod.ts",
-		"@pancake/stack/websocket": "../stack/ws_channel.ts",
-		"@pancake/stack/ffi": "../stack/ffi.ts",
+		"@pancake/runtime": "../runtime/mod.ts",
+		"@pancake/runtime/websocket": "../runtime/websocket.ts",
+		"@pancake/runtime/ffi": "../runtime/ffi.ts",
+		"@pancake/runtime/transport": "../runtime/transport.ts",
+		"@pancake/relay": "../relay/mod.ts",
 		"@pancake/iroh": "./browser_iroh_stub.ts",
 		"@pancake/iroh/internal": "./browser_iroh_stub.ts",
 		"@pancake/webrtc": "../webrtc/mod.ts",

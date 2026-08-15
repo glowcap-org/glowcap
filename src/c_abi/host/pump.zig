@@ -35,7 +35,7 @@ pub export fn pancake_host_pump_drain(
         shared.setLastError("null host", .{});
         return PANCAKE_ERR_NULL_POINTER;
     };
-    if (!common.embedderOwnsRuntime(inst, "pump_drain")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(inst, "pump_drain")) return shared.PANCAKE_ERR_INVALID_ARGUMENT;
     const Exec = struct {
         hooks: ?*const PancakeHostPumpHooks,
         err: i32 = PANCAKE_OK,

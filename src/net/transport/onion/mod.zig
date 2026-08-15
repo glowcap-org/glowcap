@@ -55,3 +55,4 @@ pub const Resident = resident.Resident;
 pub const Listener = resident.Listener;
 pub const Config = resident.Config;
 pub const transport_name = resident.transport_name;
+pub const locator = resident.locator;

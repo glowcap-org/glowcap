@@ -11,13 +11,7 @@
 //   import { webSocketRelay } from "@pancake/relay";
 //   webSocketRelay(socket, () => dialLocatorForRelay(locator, reach), reason, config);
 
-export {
-	type ByteSink,
-	type ByteSource,
-	relayBytes,
-	type RelayChannel,
-	type RelayConfig,
-} from "./relay.ts";
+export { type ByteSink, type ByteSource, relayBytes, type RelayChannel, type RelayConfig } from "./relay.ts";
 export { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel, webSocketRelay } from "./ws_relay.ts";
 // The two far-side dials a Deno relay opens (a raw TCP socket, an iroh byte
 // channel), one hardened copy each, shared by the reference relay and an
@@ -26,3 +20,13 @@ export { denoIrohChannel, denoTcpChannel, type IrohReach } from "./deno_channels
 // The cold-dial rendezvous (ADR-0088): let a peer that cannot be dialed register
 // its identity and be reached through the relay by another peer.
 export { isRendezvousDesignator, Rendezvous } from "./rendezvous.ts";
+export {
+	connector,
+	dialUrl,
+	installProvider,
+	keyed,
+	noise,
+	provider,
+	type RelayOptions,
+	routeFromLocator,
+} from "./transport.ts";

@@ -75,16 +75,9 @@ const _: () = {
 	use core::mem::{offset_of, size_of};
 	assert!(size_of::<PancakeIrohConfig>() == PANCAKE_IROH_CONFIG_SIZE);
 	assert!(offset_of!(PancakeIrohConfig, reachability) == PANCAKE_IROH_CONFIG_REACHABILITY_OFF);
-	assert!(
-		offset_of!(PancakeIrohConfig, connect_timeout_ms)
-			== PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF
-	);
-	assert!(
-		offset_of!(PancakeIrohConfig, idle_timeout_ms) == PANCAKE_IROH_CONFIG_IDLE_TIMEOUT_MS_OFF
-	);
-	assert!(
-		offset_of!(PancakeIrohConfig, worker_threads) == PANCAKE_IROH_CONFIG_WORKER_THREADS_OFF
-	);
+	assert!(offset_of!(PancakeIrohConfig, connect_timeout_ms) == PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF);
+	assert!(offset_of!(PancakeIrohConfig, idle_timeout_ms) == PANCAKE_IROH_CONFIG_IDLE_TIMEOUT_MS_OFF);
+	assert!(offset_of!(PancakeIrohConfig, worker_threads) == PANCAKE_IROH_CONFIG_WORKER_THREADS_OFF);
 };
 
 // The raw extern block is generated (`iroh_fns_gen.rs`, `zig build

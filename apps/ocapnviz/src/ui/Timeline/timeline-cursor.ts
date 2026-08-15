@@ -16,11 +16,7 @@
  * Pure: no DOM, no React, no Pixi.
  */
 
-import {
-  allVisModeOnDoc,
-  categoryVisModeOnDoc,
-  rowVisModeOnDoc,
-} from "../../engine/visibility.ts";
+import { allVisModeOnDoc, categoryVisModeOnDoc, rowVisModeOnDoc } from "../../engine/visibility.ts";
 import { type CSSCursor, cursorFor } from "../../interactions/cursor.ts";
 import {
   type DefaultVerb,
@@ -33,21 +29,10 @@ import {
   type SurfaceId,
 } from "../../interactions/types.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
-import {
-  GUTTER_DRAG_GRAB_PX,
-  hitTestEvents,
-  hitTestGutter,
-  OVERVIEW_EDGE_GRAB_PX,
-} from "./hit-test.ts";
+import { GUTTER_DRAG_GRAB_PX, hitTestEvents, hitTestGutter, OVERVIEW_EDGE_GRAB_PX } from "./hit-test.ts";
 import { eyeGlyphStatus, HEADER_EYEBALL_X } from "./gutter-paint.ts";
 import { type RowDescriptor, RULER_HEIGHT } from "./row-layout.ts";
-import {
-  canvasPxToT,
-  gutterWidthOf,
-  plotStartXOf,
-  plotWidthOf,
-  type TimelineView,
-} from "./state.ts";
+import { canvasPxToT, gutterWidthOf, plotStartXOf, plotWidthOf, type TimelineView } from "./state.ts";
 
 /**
  * Hover title for a gutter eyeball — current stored mode, same verbs as the
@@ -118,10 +103,7 @@ export function scrubberHoverAt(
   }
   if (px < gutter) return gutterHover(px, py + scrollY, rows, gutter);
 
-  const lanesBottomY =
-    (rows.length > 0
-      ? rows[rows.length - 1]!.y + rows[rows.length - 1]!.height
-      : 0) - scrollY;
+  const lanesBottomY = (rows.length > 0 ? rows[rows.length - 1]!.y + rows[rows.length - 1]!.height : 0) - scrollY;
   const rulerTopY = size.height - RULER_HEIGHT;
   const t = canvasPxToT(px, size.width, view);
   if (py >= rulerTopY || py >= lanesBottomY) {
@@ -258,9 +240,7 @@ export function overviewHitAt(
   if (px < plotStart) {
     const onEye = args.hasAllRowsEyeball &&
       px >= HEADER_EYEBALL_X - 8 && px < HEADER_EYEBALL_X + 8;
-    return onEye
-      ? { surface: "timeline-gutter-eyeball", scope: { kind: "all" } }
-      : null;
+    return onEye ? { surface: "timeline-gutter-eyeball", scope: { kind: "all" } } : null;
   }
   const plotW = plotWidthOf(width, view);
   if (plotW <= 0) return null;

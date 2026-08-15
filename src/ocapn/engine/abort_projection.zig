@@ -159,6 +159,11 @@ pub fn classify(err: anyerror) Classification {
         // (`pipeline.decomposeOutboundDeliver`). The deliver is refused at send
         // time, before anything reaches the wire, so there is no abort to emit.
         error.UnsupportedPipelineOp => .{ .domain = .codec, .abort = null },
+        // The exact-size Syrup encoder detected disagreement between its two
+        // internal passes. This is codec-owned but outbound-only: no partner
+        // sent a frame to condemn, so contain it to the operation without an
+        // abort.
+        error.EncoderInvariantViolation => .{ .domain = .codec, .abort = null },
         // An already-closed session is a session-domain error, but there is no
         // abort to emit (the session is gone).
         error.SessionClosed => .{ .domain = .session, .abort = null },

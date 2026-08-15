@@ -72,7 +72,7 @@ relay matrix (below) proves every runtime filled them the same way.
    `?locator=<ocapn-uri>` composes the iroh channel. The transport-to-parameter
    choice is the browser peer's (`wsUrl`), so the relay reads no locator grammar
    and links no capability core, and iroh stays opt-in: the iroh binding loads
-   lazily, only when a `?locator=` dial needs it. `meta-check`
+   lazily, only when a `?locator=` dial needs it. `source-check`
    (`checkReferenceRelayIrohLazy`) holds that lazy load for every reference
    relay, so a careless hoist to an eager import fails the gate. One relay
    classifies through the shared core instead: the rooms production relay already
@@ -225,7 +225,7 @@ against one runtime's relay, so this ADR names the shape and points at the gate.
   `net/rfc6455` server). `zig build bindings-relay-iroh` proves the iroh leg for
   all four, each dialing a real iroh endpoint over QUIC — Deno, Python, and
   Racket through the binding's `dial_locator_for_relay` (`dial-locator-for-relay`
-  in Racket), Rust through `IrohNetlayer::connect_owned` (behind an opt-in `iroh`
+  in Racket), Rust through `Netlayer::connect_owned` (behind an opt-in `iroh`
   feature so the TCP relay stays archive-free). A single runtime's cells are also
   addressable on their own (`deno-relay-test`, `python-relay-iroh-test`,
   `racket-relay-idle-test`, and so on). Beyond the matrix,

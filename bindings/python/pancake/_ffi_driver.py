@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_host import _HostAction
-from ._ffi_ocapn import _bind, _Lib, _LocatorView
+from ._ffi_host import _CloseOptions, _HostAction
+from ._ffi_ocapn import _bind, _Lib, _LocatorView, _Reference
 from ._lib_resolve import _lib_path
 from ._pin import pin_struct
 from ._sigs_gen import loop_sigs
@@ -31,6 +31,7 @@ class _DriverOptions(ctypes.Structure):
         ("wire_buffer_bytes", ctypes.c_size_t),
         ("max_pending_opens", ctypes.c_size_t),
         ("handshake_ms", ctypes.c_uint32),
+        ("listener_setup_ms", ctypes.c_uint32),
         ("settle_ms", ctypes.c_uint32),
     ]
 
@@ -40,15 +41,21 @@ pin_struct(_DriverOptions, "PANCAKE_DRIVER_OPTIONS")
 
 class _DriverEvent(ctypes.Structure):
     # PancakeDriverEvent (pancake_driver.h) — one drained loop event. `kind`
-    # selects the live fields; `message` and the views inside `action` are
+    # selects the live fields; failure names and the views inside `action` are
     # loop-owned and valid until the NEXT pancake_driver_next_event call.
     _fields_ = [
         ("kind", ctypes.c_uint32),
-        ("ticket", ctypes.c_uint64),
+        ("primary_result", ctypes.c_int32),
+        ("secondary_result", ctypes.c_int32),
+        ("secondary_count", ctypes.c_uint32),
+        ("operation_id", ctypes.c_uint64),
+        ("listener_id", ctypes.c_uint64),
         ("session", ctypes.c_void_p),
         ("action", _HostAction),
-        ("message", ctypes.c_void_p),
-        ("message_len", ctypes.c_size_t),
+        ("primary_name", ctypes.c_void_p),
+        ("primary_name_len", ctypes.c_size_t),
+        ("secondary_name", ctypes.c_void_p),
+        ("secondary_name_len", ctypes.c_size_t),
     ]
 
 
@@ -62,6 +69,7 @@ class _TransportProvider(ctypes.Structure):
         ("entries", ctypes.c_void_p),
         ("entry_count", ctypes.c_size_t),
         ("lease_ctx", ctypes.c_void_p),
+        ("same_configuration", ctypes.c_void_p),
         ("retain", ctypes.c_void_p),
         ("release", ctypes.c_void_p),
     ]
@@ -70,8 +78,26 @@ class _TransportProvider(ctypes.Structure):
 pin_struct(_TransportProvider, "PANCAKE_TRANSPORT_PROVIDER")
 
 
+class _TransportOperationOptions(ctypes.Structure):
+    _fields_ = [
+        ("data", ctypes.c_void_p),
+        ("size", ctypes.c_size_t),
+    ]
+
+
+pin_struct(_TransportOperationOptions, "PANCAKE_TRANSPORT_OPERATION_OPTIONS")
+
+
 def _load():
-    sigs = loop_sigs(_DriverOptions, _DriverEvent, _LocatorView, _TransportProvider)
+    sigs = loop_sigs(
+        _DriverOptions,
+        _CloseOptions,
+        _DriverEvent,
+        _LocatorView,
+        _Reference,
+        _TransportOperationOptions,
+        _TransportProvider,
+    )
     lib = ctypes.CDLL(str(_lib_path("pancake_driver")))
     facade = _Lib(lib)
     _bind(facade, lib, sigs)

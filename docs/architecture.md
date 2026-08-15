@@ -82,8 +82,8 @@ embedding pancake behind another runtime. Most Zig programs start higher.
 | --- | --- |
 | `driver.Session` | You want one application-facing session with blocking calls, backed by a connection its `driver.HostRuntime` owns. Handoffs are redeemed before a call returns. |
 | `driver.HostRuntime` | You want one identity across several file-descriptor-backed sessions. |
-| `driver.BlockingSession` | You own the connection and buffers, or your transport has no pollable descriptor (an in-process pipe, a WebRTC peer). Values are actor-layer references rather than opaque host capabilities. A call may return a handoff for you to redeem. |
-| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own I/O. This is the core exposed to bindings. |
+| `driver.BlockingSession` | You own the connection and buffers, or your transport has no pollable descriptor (an in-process pipe, or a WebRTC peer you already opened). Values are actor-layer references rather than opaque host capabilities. A call may return a handoff for you to redeem. |
+| `driver_core.Host` | Your runtime feeds bytes and drains actions without letting pancake own I/O. Native bindings hand this Host to the driver; the browser package feeds it itself. |
 | `driver.Bridge` | You are connecting `driver_core.Host` to a completion loop for many sessions. |
 
 The actor layer sits between the protocol peer and these application APIs.
@@ -122,12 +122,13 @@ Outbound backpressure stops reads when queued reply bytes cross their limit.
 
 The simple blocking pump runs on one fiber. Applications that must keep reading
 while a partner streams use a completion loop (TCP, iroh, onion, or keyed-relay
-outbound). WebRTC joins that path through `completion.Loop(webrtc.Backend)`
-under `driver.Bridge` when a `SignalingAuthority` is configured
-(`zig build webrtc-loop`; redeem via `zig build webrtc-bridge-redeem`). A bare
-locator without that authority still refuses. Crossed connections, where both
-peers dial at once, are resolved by the host because the choice depends on peer
-identity rather than transport mechanics.
+outbound). Session and HostRuntime follow that socket path. WebRTC has no
+socket to poll, so it joins a Host through a completion backend once signaling
+is configured (`zig build webrtc-loop`; redeem via
+`zig build webrtc-bridge-redeem`). A bare locator without that authority still
+refuses. Crossed connections, where both peers dial at once, are resolved by
+the host because the choice depends on peer identity rather than transport
+mechanics.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.
@@ -142,10 +143,11 @@ decisions:
 | `driver.HostRuntime.Options.frame_cap` | Protocol admission for sessions the owning face creates. | 64 KiB |
 | `driver.HostRuntime.Options.wire_buffer_bytes` / `PancakeDriverOptions.wire_buffer_bytes` | Each stream read/write buffer and multiplexed-resident read staging buffer. | 16 KiB |
 | `driver.HostRuntime.Options.max_pending_opens` / `PancakeDriverOptions.max_pending_opens` | Transport connects and CapTP handshakes admitted at once, across dial, accept, adoption, and redeem. | 256 |
+| `driver.HostRuntime.Options.listener_setup` / `PancakeDriverOptions.listener_setup_ms` | Maximum time one admitted listener construction may remain pending before its terminal failure. | 10 seconds |
 | `driver_core.Host.Options.limits.max_frame_bytes` | Protocol admission for every peer the byte-fed host creates. | 1 MiB |
 | `net.completion.BackendOptions.read_buffer_bytes` | Each buffer in the loop-wide shared read pool. | 16 KiB |
 | `net.completion.Options.outbound_high_water_bytes` | Pending outbound bytes before one connection's reads park. | 64 KiB |
-| `net.keyed_relay.RelayOptions.send_staging_bytes` | One retained masked WebSocket send chunk, including its header. | 4 KiB |
+| `net.relay.RelayOptions.send_staging_bytes` | One retained masked WebSocket send chunk, including its header. | 4 KiB |
 
 The completion loop can therefore change admission, pool memory, outbound
 slack, and transport staging independently. `initWithBackendOptions` tunes a
@@ -212,28 +214,58 @@ through `PancakeContext`. Peer locators and sturdyrefs stay distinct values at
 every public surface: a locator carries transport, designator, and hints; a
 sturdyref embeds a peer locator plus swiss bytes.
 
+Lifecycle, admission, provider composition, protocol state, and failure
+classification remain in `driver_core` or `driver`. The C layer validates ABI
+layout and lossless representation, marshals values, owns opaque-handle and
+event-delivery storage, and projects the Zig result. Bindings add host-language
+resource idioms and drive effects to the native completion barrier; they do not
+retain policy for a background worker or maintain a second state machine.
+
+Returned failures remain in ordinary control flow. When the last caller or
+close barrier that could receive a failure has gone, the `diagnostics` layer
+normalizes it into a typed record in the owning `PancakeContext` journal. The C
+ABI only projects that record and the Context-local lifecycle IDs that name its
+owners. Its per-thread `last_error`, a session's retained
+abort, and the live protocol trace remain separate because each describes a
+different fact. [ADR-0115](decisions/adr/ADR-0115-structured-diagnostic-waist.md)
+owns this boundary.
+
 There is no umbrella library. A C program links the shared OCapN vocabulary and
 only the Host, driver, and transport archives it needs. [The C
 guide](consuming-from-c.md) has the archive table, build commands, provider
 install, and a complete program.
 
-Bindings drive the byte-fed host in a three-part cycle: feed bytes, pump and
-drain, take outbound frames. The binding's runtime schedules that cycle and
-performs the I/O. pancake does not create a background runtime inside Python,
-Racket, Rust, or TypeScript.
+Native bindings load `libpancake_host` and `libpancake_driver`. The driver
+takes an idle Host and runs the loop. The binding waits on one readiness
+descriptor, arms one runtime-native timer from
+`pancake_driver_step_wait_ms`, calls `pancake_driver_step`, and drains one
+event queue. The driver remains the sole authority for which pending operation
+owns the nearest deadline; a binding only projects that duration into its
+scheduler. The browser package and any embedder that already owns I/O still
+drive the Host themselves: feed bytes, pump and drain, take outbound frames.
+pancake does not create a background runtime inside Python, Racket, Rust, or
+TypeScript.
 
-`libpancake_driver` is the other option: the archive owns pumping while the
-embedder parks on one readiness descriptor, calls `pancake_driver_step`, and
-drains one event queue. It adopts an idle Host from `libpancake_host` and
-starts with zero transports; the application installs provider packages through
-`pancake_transport_provider.h`. The TCP archive supplies `tcp`, `keyed-tcp`,
+`libpancake_driver` starts with zero transports; the application installs
+provider packages through `pancake_transport_provider.h`. The TCP archive supplies `tcp`, `keyed-tcp`,
 and `noise-tcp`; the relay archive supplies `keyed-relay` and `noise-relay`;
 onion, iroh, and WebRTC ship as separate archives the driver consumes without
 naming their members. Listener ids remain the acceptance routing key through
-every binding. Host and session progress occurs only inside a step call on the
+every binding. The driver owns each listener's canonical public locator. A
+provider also owns comparison of its complete effective configuration; an
+equivalent package registration is idempotent, while a conflicting package is
+refused. Bindings keep no parallel provider or credential registry. A
+provider may separately expose opaque local restoration bytes through a
+size-query/caller-buffer callback; those bytes never enter the locator, and
+only the provider package interprets them (the onion package calls them a Tor
+service key). Host and session progress occurs only inside a step call on the
 one thread that drives the loop. A provider may use transport-owned workers,
 but it reports their results through the common readiness seam and never calls
 the Host from those workers.
+
+After `pancake_driver_take_host` succeeds, adoption is durable even when a later
+bind fails: the supplied Host remains a valid loop-backed Host for another
+attempt. Bindings tear down only loops and Hosts they minted themselves.
 
 ## Other entry points
 

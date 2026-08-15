@@ -7,9 +7,11 @@
 // left to test here; reachability is checked the way the page reaches the
 // room: a keyed OCapN session established over `/relay`.
 
-import { classifyRelayTarget, Session } from "@pancake/stack";
+import { bareLocator, Session } from "@pancake/runtime";
+import { classifyRelayTarget } from "../web/relay_target.ts";
+import { nextRestartWait, RESTART_FIRST_WAIT_MS, RESTART_MAX_WAIT_MS, RESTART_STEADY_MS } from "../web/restart.ts";
 import { roomsHost } from "../lib/locator.ts";
-import { webSocketChannel } from "@pancake/stack";
+import { webSocketChannel } from "@pancake/runtime";
 import { DIRECTORY, LIST } from "../lib/protocol.ts";
 import {
 	parseTcpPeers,
@@ -19,6 +21,7 @@ import {
 	rendezvousAdmitted,
 	type TcpPeer,
 } from "../web/relay.ts";
+import { assertEquals } from "./assert.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
@@ -26,6 +29,7 @@ const DENO_FLAGS = [
 	"run",
 	"--allow-ffi",
 	"--allow-read",
+	"--allow-write",
 	"--allow-net",
 	"--allow-run",
 	"--allow-env",
@@ -33,12 +37,6 @@ const DENO_FLAGS = [
 
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
-}
-
-function assertEquals(actual: unknown, expected: unknown): void {
-	const a = JSON.stringify(actual);
-	const b = JSON.stringify(expected);
-	if (a !== b) throw new Error(`expected ${b}, got ${a}`);
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -104,8 +102,7 @@ async function reachRoomThroughRelay(
 	const host = roomsHost(crypto.getRandomValues(new Uint8Array(32)));
 	const session = await Session.establishDialedLocator(
 		host,
-		"tcp",
-		`127.0.0.1:${roomPort}`,
+		bareLocator("tcp", `127.0.0.1:${roomPort}`),
 		webSocketChannel(ws),
 	);
 	try {
@@ -116,7 +113,7 @@ async function reachRoomThroughRelay(
 		await serving;
 		return rooms.length;
 	} finally {
-		host.release();
+		await host.close();
 	}
 }
 
@@ -278,6 +275,73 @@ Deno.test("a pancake peer reaches the room server through the /relay byte pipe",
 		const count = await reachRoomThroughRelay(httpPort, roomPort);
 		assert(count >= 0, "the directory list should answer over the relay");
 	});
+});
+
+Deno.test("a room server that will not start is waited on, one that was serving is not", () => {
+	// The front brings its room server back when it exits. A server that had been
+	// serving and then died is an accident and comes straight back; one that
+	// cannot bind its port says so and exits at once, and starting it again as
+	// fast as it can fail buries that message under thousands of copies of
+	// itself. So the wait is a function of how long the last one ran.
+	assert(nextRestartWait(0, RESTART_STEADY_MS) === 0, "a server that had been serving should come straight back");
+	assert(
+		nextRestartWait(RESTART_MAX_WAIT_MS, RESTART_STEADY_MS + 1) === 0,
+		"a long run should clear the wait a run of refusals had built up",
+	);
+
+	let wait = nextRestartWait(0, 5);
+	assert(wait === RESTART_FIRST_WAIT_MS, `the first wait after a refusal was ${wait}`);
+	const seen = [wait];
+	for (let i = 0; i < 12; i++) {
+		const next = nextRestartWait(wait, 5);
+		assert(next > wait || next === RESTART_MAX_WAIT_MS, `waiting stopped growing at ${wait} before its ceiling`);
+		wait = next;
+		seen.push(wait);
+	}
+	assert(wait === RESTART_MAX_WAIT_MS, `waiting grew past its ceiling to ${wait}`);
+	assert(
+		seen.every((ms) => ms <= RESTART_MAX_WAIT_MS),
+		`a wait went past the ceiling: ${JSON.stringify(seen)}`,
+	);
+});
+
+Deno.test("the web front reports a room server that cannot start, and stops", async () => {
+	// The one failure a shutdown has to survive is the one that called it. This
+	// path — the supervised room server refusing to start — was the only way into
+	// `stop` before the rest of the file had finished evaluating, and `stopping`
+	// is a `let`: the front announced the failure correctly and then died of a
+	// ReferenceError inside its own clean shutdown, leaving the operator a stack
+	// trace where a sentence belongs.
+	const dir = await Deno.makeTempDir();
+	try {
+		await Deno.writeTextFile(
+			`${dir}/rooms.json`,
+			JSON.stringify({ version: 1, identitySeed: "zz", roomLinkSecret: "zz", linkedRooms: [] }) + "\n",
+		);
+		const proc = new Deno.Command("deno", {
+			args: [...DENO_FLAGS, `--allow-write=${dir}`, WEB, String(freePort()), String(freePort())],
+			cwd: ROOT,
+			env: { ROOMS_STATE: dir },
+			stdout: "piped",
+			stderr: "piped",
+		}).spawn();
+		const [status, said] = await Promise.all([
+			proc.status,
+			new Response(proc.stderr).text(),
+			new Response(proc.stdout).text(),
+		]);
+		assert(!status.success, `the front exited ${status.code} when its room server could not start`);
+		assert(
+			said.includes("the room server did not start"),
+			`the front did not say why it stopped: ${said}`,
+		);
+		assert(
+			!said.includes("Cannot access") && !said.includes("ReferenceError"),
+			`the front failed inside its own shutdown: ${said}`,
+		);
+	} finally {
+		await Deno.remove(dir, { recursive: true });
+	}
 });
 
 Deno.test("rooms web UI attaches to a room server already on its port", async () => {

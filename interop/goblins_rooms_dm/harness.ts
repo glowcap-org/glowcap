@@ -45,17 +45,14 @@
 
 import { type Browser, chromium, type Page } from "playwright";
 
-import type { Argument, Behavior } from "@pancake/stack";
+import type { Argument, Behavior } from "@pancake/runtime";
 import { inboxOfferer } from "../../apps/rooms/lib/dm_inbox.ts";
 import { Directory, Room } from "../../apps/rooms/lib/room_client.ts";
 import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
+import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
 import { DM } from "../../apps/rooms/lib/protocol.ts";
-import {
-	dial,
-	loopbackTcpDesignator,
-	roomsHost,
-	roomsListen,
-} from "../../apps/rooms/lib/locator.ts";
+import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../apps/rooms/lib/locator.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizPortOf } from "../../apps/rooms/test/viz_viewer.ts";
 
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
@@ -161,14 +158,14 @@ const recordOnlyDm: Behavior = (verb: string, args: Argument[]): null => {
 async function startNativeMember() {
 	if (!IROH) {
 		const host = roomsHost();
-		const listener = roomsListen("127.0.0.1", 0, host);
-		const port = await listener.ready();
+		const listener = await roomsListen("127.0.0.1", 0, host);
+		const port = listener.port;
 		return { host, listener, locator: loopbackTcpDesignator(port) };
 	}
-	const { listenIroh, Reachability } = await import("@pancake/iroh");
+	const { listen, Reachability } = await import("@pancake/iroh");
 	const seed = crypto.getRandomValues(new Uint8Array(32));
 	const host = roomsHost(seed);
-	const listener = await listenIroh({ reachability: Reachability.Direct }, seed, host);
+	const listener = await listen({ reachability: Reachability.Direct }, { host });
 	await until(
 		() => listener.directAddresses.length > 0,
 		"the native member's iroh direct addresses",
@@ -177,19 +174,19 @@ async function startNativeMember() {
 	return { host, listener, locator: listener.uri };
 }
 
-/** A viewer on the live timeline endpoint, exactly as ocapnviz connects. */
+/** A viewer on the live timeline endpoint, exactly as ocapnviz connects.
+ *
+ * Records arrive through a capability the endpoint hands this viewer's inbox,
+ * after enlivening the sturdyref the server announced. `viz_viewer.ts` is the
+ * one place that connection is made, so this harness and the browser proofs
+ * read the endpoint through the same shape. */
 type Rec = Record<string, unknown>;
-async function watchTimeline(port: number): Promise<Rec[]> {
+async function watchTimeline(sturdyref: string): Promise<{ seen: Rec[]; close: () => Promise<void> }> {
 	const seen: Rec[] = [];
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
-	socket.onmessage = (msg) => {
-		if (typeof msg.data === "string") seen.push(JSON.parse(msg.data));
-	};
-	await new Promise<void>((resolve, reject) => {
-		socket.onopen = () => resolve();
-		socket.onerror = () => reject(new Error("the timeline endpoint would not accept a viewer"));
+	const viewer = await connectVizViewer(vizPortOf(sturdyref), sturdyref, (record) => {
+		seen.push(record);
 	});
-	return seen;
+	return { seen, close: () => viewer.close() };
 }
 
 const httpPort = freePort();
@@ -202,6 +199,8 @@ let web: Deno.ChildProcess | null = null;
 let vat: Deno.ChildProcess | null = null;
 let nativeListener: { close: () => void } | null = null;
 let nativeDir: Directory | null = null;
+let nativeRuntime: Awaited<ReturnType<typeof openRoomsRuntime>> | null = null;
+let closeViewer: (() => Promise<void>) | null = null;
 
 try {
 	// The web front: the page, the byte relay a tab reaches everything through,
@@ -215,6 +214,7 @@ try {
 			"run",
 			"--allow-ffi",
 			"--allow-read",
+			"--allow-write",
 			"--allow-net",
 			"--allow-env",
 			"--allow-run",
@@ -228,13 +228,19 @@ try {
 		env,
 		// Discarded rather than piped: the locator comes from `/locator` over
 		// HTTP, so nothing here reads this stream, and a pipe nobody drains is a
-		// process that eventually blocks on its own output.
+		// process that eventually blocks on its own output. Its stderr is read
+		// rather than inherited, because the trace capability is announced there
+		// and a viewer needs it; `scrapeVizSturdyref` tees the stream onward, so
+		// nothing the server says is lost by reading it here.
 		stdout: "null",
-		stderr: "inherit",
+		stderr: "piped",
 	}).spawn();
 
+	const vizRef = await scrapeVizSturdyref(web.stderr);
 	const roomLocator = await waitForLocator(httpPort);
-	const timeline = await watchTimeline(vizPort);
+	const viewer = await watchTimeline(vizRef);
+	closeViewer = viewer.close;
+	const timeline = viewer.seen;
 
 	// The Goblins vat. It reads the transport off the room's locator and spawns
 	// the netlayer that speaks it, so the same command line covers both arms; an
@@ -298,10 +304,14 @@ try {
 	{
 		const native = await startNativeMember();
 		nativeListener = native.listener;
+		nativeRuntime = await openRoomsRuntime({
+			host: native.host,
+			iroh: IROH ? { reachability: (await import("@pancake/iroh")).Reachability.Direct } : undefined,
+		});
 		(async () => {
 			for await (const session of native.listener) session.serve().catch(() => {});
 		})();
-		nativeDir = await Directory.connect(roomLocator, (l) => dial(l, native.host));
+		nativeDir = await Directory.connect(roomLocator, (l) => dial(l, nativeRuntime!));
 		const nativeRoom = await enterOrOpen(nativeDir, ROOM);
 		await Room.subscribe(nativeDir.session, nativeRoom, NATIVE_NICK);
 		// The inbox the room hands the vat when it asks to be introduced. It is
@@ -356,8 +366,7 @@ try {
 	// (2) And the vat's answer, back over the connection that message arrived on,
 	// painted in the tab's own thread.
 	await tab.waitForFunction(
-		(text) =>
-			[...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
+		(text) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
 		FROM_VAT,
 		{ timeout: WAIT_MS },
 	).catch(() => fail(`the tab never rendered the vat's reply "${FROM_VAT}"`));
@@ -414,9 +423,9 @@ try {
 	 * id matches one the tab is carrying a direct message on. */
 	const vatSideOf = (wanted: Set<string>): string | undefined => {
 		const ids = new Set([...wanted].map(sessionIdOf).filter((id) => id !== undefined));
-		return opensNow().find((r) =>
-			r.a_profile === GOBLINS_PROFILE && ids.has(r.session_id as string)
-		)?.session as string | undefined;
+		return opensNow().find((r) => r.a_profile === GOBLINS_PROFILE && ids.has(r.session_id as string))?.session as
+			| string
+			| undefined;
 	};
 
 	await until(
@@ -449,9 +458,7 @@ try {
 	if (!vatSessions.some((r) => r.b === roomDesignator)) {
 		fail(
 			`the vat published no session to the room itself (${roomDesignator}), so there is ` +
-				`nothing to tell its direct line apart from: ${
-					JSON.stringify(vatSessions.map((r) => r.b))
-				}`,
+				`nothing to tell its direct line apart from: ${JSON.stringify(vatSessions.map((r) => r.b))}`,
 		);
 	}
 	const vatSideOpen = opensNow().find((r) => r.session === vatSide);
@@ -492,8 +499,7 @@ try {
 		"the Goblins vat to receive the reopened conversation's first message",
 	);
 	await tab.waitForFunction(
-		(text) =>
-			[...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
+		(text) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(text)),
 		`${REPLY_PREFIX}${TO_VAT_AGAIN}`,
 		{ timeout: WAIT_MS },
 	).catch(() => fail("the reopened conversation did not carry the Goblins vat's reply"));
@@ -540,9 +546,11 @@ try {
 			`then carried a new message and reply before closing cleanly`,
 	);
 } finally {
+	if (closeViewer) await closeViewer().catch(() => {});
 	if (browser) await browser.close().catch(() => {});
 	if (nativeDir) await nativeDir.close().catch(() => {});
 	if (nativeListener) nativeListener.close();
+	if (nativeRuntime) await nativeRuntime.close().catch(() => {});
 	for (const child of [vat, web]) {
 		if (!child) continue;
 		try {

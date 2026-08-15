@@ -100,6 +100,26 @@ pub const PancakeAllocFn = abi.PancakeAllocFn;
 pub const PancakeFreeFn = abi.PancakeFreeFn;
 pub const PancakeAllocator = abi.PancakeAllocator;
 pub const PancakeContext = abi.PancakeContext;
+pub const PancakeFailureEvent = abi.PancakeFailureEvent;
+pub const PancakeFailureReport = abi.PancakeFailureReport;
+pub const PANCAKE_FAILURE_EVENT_ABI_VERSION = abi.PANCAKE_FAILURE_EVENT_ABI_VERSION;
+pub const PANCAKE_FAILURE_LAYER_CORE = abi.PANCAKE_FAILURE_LAYER_CORE;
+pub const PANCAKE_FAILURE_LAYER_DRIVER = abi.PANCAKE_FAILURE_LAYER_DRIVER;
+pub const PANCAKE_FAILURE_LAYER_TRANSPORT = abi.PANCAKE_FAILURE_LAYER_TRANSPORT;
+pub const PANCAKE_FAILURE_LAYER_BINDING = abi.PANCAKE_FAILURE_LAYER_BINDING;
+pub const PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER = abi.PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER;
+pub const PANCAKE_FAILURE_SCOPE_PROCESS = abi.PANCAKE_FAILURE_SCOPE_PROCESS;
+pub const PANCAKE_FAILURE_SCOPE_CONTEXT = abi.PANCAKE_FAILURE_SCOPE_CONTEXT;
+pub const PANCAKE_FAILURE_SCOPE_HOST = abi.PANCAKE_FAILURE_SCOPE_HOST;
+pub const PANCAKE_FAILURE_SCOPE_SESSION = abi.PANCAKE_FAILURE_SCOPE_SESSION;
+pub const PANCAKE_FAILURE_SCOPE_LISTENER = abi.PANCAKE_FAILURE_SCOPE_LISTENER;
+pub const PANCAKE_FAILURE_SCOPE_TRANSPORT = abi.PANCAKE_FAILURE_SCOPE_TRANSPORT;
+pub const PANCAKE_FAILURE_SCOPE_OPERATION = abi.PANCAKE_FAILURE_SCOPE_OPERATION;
+pub const PANCAKE_FAILURE_TRUNCATED_OPERATION = abi.PANCAKE_FAILURE_TRUNCATED_OPERATION;
+pub const PANCAKE_FAILURE_TRUNCATED_PRIMARY_NAME = abi.PANCAKE_FAILURE_TRUNCATED_PRIMARY_NAME;
+pub const PANCAKE_FAILURE_TRUNCATED_PRIMARY_MESSAGE = abi.PANCAKE_FAILURE_TRUNCATED_PRIMARY_MESSAGE;
+pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_NAME = abi.PANCAKE_FAILURE_TRUNCATED_SECONDARY_NAME;
+pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE = abi.PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE;
 
 // Application value discriminants and structs (shared leaf).
 pub const PANCAKE_ARG_INTEGER = abi.PANCAKE_ARG_INTEGER;
@@ -186,6 +206,9 @@ pub export fn pancake_clear_last_error() void {
 
 pub const pancake_context_new = context.pancake_context_new;
 pub const pancake_context_new_with_allocator = context.pancake_context_new_with_allocator;
+pub const pancake_context_allocate_lifecycle_id = context.pancake_context_allocate_lifecycle_id;
+pub const pancake_context_report_failure = context.pancake_context_report_failure;
+pub const pancake_context_next_failure = context.pancake_context_next_failure;
 pub const pancake_context_release = context.pancake_context_release;
 
 pub const pancake_managed_frame_release = frame.pancake_managed_frame_release;

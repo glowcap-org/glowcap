@@ -22,7 +22,7 @@ test "protocol oracle enumerates every shipped message arm" {
 
 test "protocol oracle exposes the checked-in Syrup fixture corpus" {
     // Corpus/registry agreement — every `.bin` on disk registered, every
-    // registered name on disk — is held both ways by meta-check's
+    // registered name on disk — is held both ways by source-check's
     // checkOracleCorpusRegistry. This proves the embedded bytes are
     // reachable by name and non-empty.
     const abort = protocol_oracle.fixtureByName("op_abort.bin").?;

@@ -4,14 +4,7 @@
 //! a swiss-number. This is the engine-level machinery beneath the fetch-by-name
 //! that chapter 01 rides; chapter 05 pre-wires the import by hand instead.
 //! The server never writes a fetch handler. It maps the swiss-number to a
-//! capability, and the runtime answers the inbound `'fetch` on its own. ADR-0006
-//! records that decision.
-//!
-//! On the client side, `fetch.prepareFetchSwissnum` builds the bootstrap-fetch
-//! deliver, plus, on V1.0, the resolver the answer comes back to. Then
-//! `tryMatchFetchOutcome` takes the partner's reply (on V1.0 that's a
-//! resolver-callback `op:deliver`) and turns it back into a plain fulfilled or
-//! broken outcome. Sessions open via `pairing.pairedV1_0Syrup`.
+//! capability, and the runtime answers the inbound fetch on its own.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

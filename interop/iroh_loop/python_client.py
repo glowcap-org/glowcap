@@ -31,12 +31,13 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import TRANSPORT_IROH, connect, format_peer_uri  # noqa: E402
+from pancake import Runtime, TRANSPORT_IROH, format_peer_uri  # noqa: E402
 from pancake.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
     dial_locator_for_relay,
-    listen_iroh,
+    listen,
+    provider,
 )
 
 # Concurrent connections, each served on the one server loop; calls each makes
@@ -70,7 +71,10 @@ async def _client_once(server_id: str) -> None:
     local-discovery book resolves it), fetch the greeter, and call it
     ``CALLS_PER_CONN`` times, checking every reply."""
     locator = format_peer_uri(TRANSPORT_IROH, server_id)
-    session = await connect(locator, Reachability.LOCAL_DISCOVERY)
+    runtime = await Runtime.open(
+        provider=provider(IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1))
+    )
+    session = await runtime.connect(locator)
     try:
         greeter = await session.fetch("greeter")
         for _ in range(CALLS_PER_CONN):
@@ -79,10 +83,11 @@ async def _client_once(server_id: str) -> None:
                 raise RuntimeError(f"wrong reply: {reply!r}")
     finally:
         await session.close()
+        await runtime.close()
 
 
 async def main() -> None:
-    server = await listen_iroh(
+    server = await listen(
         IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
     )
     server_id = server.node_id
@@ -128,7 +133,7 @@ async def main() -> None:
     # Native-loop server teardown owns admission and resident release. A waiter
     # parked on the generic ACCEPTED queue must wake terminally rather than
     # retaining the endpoint.
-    closing = await listen_iroh(
+    closing = await listen(
         IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
     )
     pending_accept = asyncio.create_task(closing.__anext__())

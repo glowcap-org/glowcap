@@ -18,10 +18,9 @@ iroh = ["pancake/iroh"]
 
 # The pancake binding, with its tokio async layer. Renamed to `pancake` so the
 # application reads against the library, not the dogfood crate's package name.
-# `default-features = false` so this client links only the core archive plus its
-# tokio driver, it dials over native sockets and never the blocking tcp/inproc
-# transport archives, so it pays for neither. The optional `iroh` feature above
-# is the one transport archive it can add.
+# `default-features = false` keeps the archive set explicit. This client always
+# composes the TCP provider for bare room locators; the optional `iroh` feature
+# adds only the iroh provider for `ocapn://…iroh` locators.
 [dependencies]
-pancake = { path = "../../../../bindings/rust", package = "pancake-rust-dogfood", default-features = false, features = ["async"] }
+pancake = { path = "../../../../bindings/rust", package = "pancake-rust-dogfood", default-features = false, features = ["async", "tcp"] }
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

@@ -8,13 +8,10 @@
 //! the path — it cannot see the traffic, and it cannot revoke by eavesdropping
 //! because it was never in the middle.
 //!
-//! On the wire this is OCapN's three-party handoff: the directory signs a
-//! `desc:handoff-give` naming the widget host, your session dials that host,
-//! proves it is the peer the give named, and withdraws the gifted capability.
-//! None of that appears below. `connect`, `fetch`, and `call` are the whole
-//! program, because every `driver.Session` rides a host that redeems the
-//! introduction inside the call you were already waiting on (ADR-0090). The
-//! same three verbs do the same thing in every language binding.
+//! On the wire this is a three-party handoff. None of that appears below.
+//! `connect`, `fetch`, and `call` are the whole program: every `driver.Session`
+//! rides a host that redeems the introduction inside the call you were already
+//! waiting on. The same three verbs do the same thing in every language binding.
 //!
 //! What this costs to serve at scale — one thread, many connections — is
 //! `many_sessions_one_loop.zig`, which performs this same handoff on the
@@ -113,21 +110,22 @@ fn serveDirectory(
     });
 
     var widget_loc_buf: [tcp.designator_buf_len]u8 = undefined;
-    const to_widget = try runtime.connectLocator(tcp.locator(
+    const to_widget = try runtime.connectLocator(tcp.locatorFromAddress(
         &widget_loc_buf,
         try tcp.parseDesignator(widget_designator),
-    ));
-    var widget_view = try driver.Session.view(&runtime, to_widget);
+    ), .inherit);
+    const widget_view = try driver.Session.adopt(&runtime, to_widget);
+    defer widget_view.deinit();
     const widget = try widget_view.fetch("widget");
 
     const accepted = try runtime.acceptWire(listener, listener.transportName());
-    var client_view = try driver.Session.view(&runtime, accepted);
+    const client_view = try driver.Session.adopt(&runtime, accepted);
+    defer client_view.deinit();
     _ = try client_view.publish("directory", Directory, .{ .widget = widget });
 
     while (!done.load(.acquire)) {
         _ = client_view.stepReadable(20) catch break;
     }
-    runtime.releaseWire(accepted);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -140,19 +138,26 @@ pub fn main(init: std.process.Init) !void {
     var done = std.atomic.Value(bool).init(false);
 
     var widget_host = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, opts);
-    defer widget_host.close() catch {};
+    defer widget_host.deinit();
     var widget_addr_buf: [64]u8 = undefined;
     const widget_designator = try allocator.dupe(u8, try widget_host.localDesignator(&widget_addr_buf));
     defer allocator.free(widget_designator);
 
     const netlayers = [_]net.netlayer.Netlayer{tcp_resident.netlayer()};
 
-    var directory_listener = try tcp_resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" });
-    defer directory_listener.close();
+    var directory_listen = switch (tcp_resident.netlayer().listen(allocator, .{ .designator = "127.0.0.1:0" })) {
+        .admitted => |result| result,
+        .failed => |failure| return failure.cause,
+    };
+    var directory_listener = switch (directory_listen.requireReady()) {
+        .ready => |listener| listener,
+        .failed => |failure| return failure.cause,
+    };
+    defer std.debug.assert(directory_listener.close() == null);
     const directory_locator = try directory_listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, directory_locator);
 
-    var widget_future = try io.concurrent(serveWidget, .{ &widget_host, &done });
+    var widget_future = try io.concurrent(serveWidget, .{ widget_host, &done });
     var directory_future = try io.concurrent(serveDirectory, .{ allocator, io, &netlayers, widget_designator, directory_listener, &done });
     defer {
         done.store(true, .release);
@@ -165,7 +170,7 @@ pub fn main(init: std.process.Init) !void {
     const session = try driver.connect(
         allocator,
         &netlayers,
-        tcp.locator(&dir_loc_buf, try tcp.parseDesignator(directory_locator.designator)),
+        tcp.locatorFromAddress(&dir_loc_buf, try tcp.parseDesignator(directory_locator.designator)),
         .ephemeral,
         opts,
     );

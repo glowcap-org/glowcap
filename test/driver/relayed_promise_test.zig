@@ -60,15 +60,21 @@ const Vendor = struct {
     }
 };
 
-/// The introducer's actor: answers with a promise-kind token for something
-/// homed on its *other* connection. Replying with it is what sends the host
-/// down the promise-proxy path.
+/// The introducer's actor: answers with an opaque promise capability homed on
+/// its *other* connection. Lowering it is what sends the Host down the
+/// promise-proxy path.
 const Introducer = struct {
-    promise: model.Reference,
-    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    promise: driver.Capability,
+    pub fn handle(
+        self: *Introducer,
+        turn: *driver.HostTurn,
+        verb: []const u8,
+        args: []const driver.Value,
+    ) !driver.Value {
         _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "introduce")) return error.NoSuchMethod;
-        return .{ .reference = self.promise };
+        _ = args;
+        if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
+        return .{ .capability = self.promise };
     }
 };
 
@@ -97,6 +103,10 @@ fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *std.
                         .ticket = d.ticket,
                         .designator = try allocator.dupe(u8, view.designator),
                     });
+                    did_work = true;
+                },
+                .cancel_dial => |d| {
+                    try host.dialCancelled(d.ticket);
                     did_work = true;
                 },
                 .flush, .settled, .failed, .close, .resume_work => {},
@@ -157,30 +167,26 @@ test "a recipient listens on a relayed promise and redeems the give it settles w
     try pumpToQuiescence(allocator, &hosts, &.{i_to_e}, &dials);
     const held = try made.require();
 
-    // Enroll that position as a *promise*. The kind is the caller's to supply:
-    // a far reference encodes the same whether or not it has settled, so the
-    // import row knows the position and nothing else, and routing reads the
-    // kind off the enrolled token. The kind is named once here, on the reference
-    // handed to the verb, and read back off what the verb returns. This is the
-    // C-shaped core tier, which takes the position and the kind as separate
-    // arguments; `driver.Session.enroll` takes and returns a whole `FarRef`, so
-    // a position and a kind that disagree are unconstructible there.
-    const as_promise = model.FarRef.promise(held.far.import_position.int());
-    const enrolled = try introducer_host.enrollCapability(
+    // Lift that position as a promise into Host identity. A far reference
+    // carries its kind beside the position in memory even though both kinds
+    // encode as the same desc:export; from here the application holds no wire
+    // name and performs no routing setup.
+    const promise = try introducer_host.liftCapability(
         i_to_e.a,
-        as_promise.import_position.int(),
-        as_promise.kind,
+        .{ .far = model.FarRef.promise(held.far.import_position.int()) },
     );
-    const promise_token: model.Reference = .{
-        .far = .{ .import_position = .from(enrolled), .kind = as_promise.kind },
-    };
 
     // The recipient dials the introducer and asks for the introduction. The
     // reply is a promise homed on the introducer's *other* connection, so its
     // host mints a third-party import-promise on this session and arms one home
     // listen for it on the exporter connection.
     const r_to_i = try host_pair.openPair(&recipient, &introducer_host, "127.0.0.1:7802");
-    _ = try r_to_i.b.served.publish(&r_to_i.b.host.vat, "introducer", Introducer, .{ .promise = promise_token });
+    _ = try r_to_i.b.served.publish(
+        &r_to_i.b.host.vat,
+        "introducer",
+        driver.Hosting(Introducer),
+        .{ .inner = .{ .promise = promise } },
+    );
     var introducer_ref = CapturedRef{};
     try recipient.vowOn(
         try recipient.fetch(r_to_i.a, "introducer"),

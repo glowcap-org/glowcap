@@ -5,7 +5,7 @@
 //! answer with a diagnostic (`turn_break`). These are legal only for the
 //! `PancakeHostTurn` the enclosing behavior callback received.
 
-const model = @import("model");
+const driver_core = @import("driver_core");
 const shared = @import("c_abi_shared");
 const c = @import("mod.zig");
 const common = @import("common.zig");
@@ -14,16 +14,27 @@ const turnFrom = common.turnFrom;
 const sessionOfTurn = common.sessionOfTurn;
 const instOf = common.instOf;
 const errToCode = common.errToCode;
-const msgFromC = common.msgFromC;
-const turnTarget = common.turnTarget;
-const publishHosted = common.publishHosted;
-const reserveHostedCapability = common.reserveHostedCapability;
+const valueMessageFromC = common.valueMessageFromC;
 const steady_scratch_bytes = common.steady_scratch_bytes;
 
 const PancakeHostTurn = c.PancakeHostTurn;
 
 const PANCAKE_OK = shared.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
+
+/// Borrow the session whose Port delivered this callback turn. The returned
+/// handle is Host-owned and valid for the same lifetime as that session; the
+/// caller must not release it. This is a projection of authority already held
+/// by the turn, not a second session lookup or routing decision.
+pub export fn pancake_host_turn_session(
+    turn: ?*PancakeHostTurn,
+    out_session: ?*?*c.PancakeHostSession,
+) i32 {
+    const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = @ptrCast(sessionOfTurn(t));
+    return PANCAKE_OK;
+}
 
 /// Atomically defer this turn's answer onto a fresh resolver vow (ADR-0102).
 /// `*out_resolver_id` receives the one-shot settle authority used by
@@ -66,12 +77,15 @@ pub export fn pancake_host_turn_forward(
     const slot = out_reply orelse return PANCAKE_ERR_NULL_POINTER;
     const session = sessionOfTurn(t);
     const inst = instOf(session.host);
-    const msg = msgFromC(inst, session, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    const reference = common.hostRefFromC(inst, session, target_ptr.*) catch |err| return errToCode(err);
-    const vat_target = turnTarget(session, reference, msg.args) catch |err| return errToCode(err);
-    const reply = t.forward(vat_target, msg) catch |err| return errToCode(err);
+    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
+    const reply = host_turn.forward(
+        inst.core.capabilityFromRaw(target_ptr.id),
+        msg.verb,
+        msg.args,
+    ) catch |err| return errToCode(err);
     _ = inst.turn_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
-    slot.* = common.hostArgumentToC(inst, session, inst.turn_scratch.allocator(), reply) catch |err| return errToCode(err);
+    slot.* = common.valueToC(inst.turn_scratch.allocator(), reply) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -93,9 +107,13 @@ pub export fn pancake_host_turn_send(
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const session = sessionOfTurn(t);
     const inst = instOf(session.host);
-    const msg = msgFromC(inst, session, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    const reference = common.hostRefFromC(inst, session, target_ptr.*) catch |err| return errToCode(err);
-    slot.* = inst.core.send(session, reference, msg) catch |err| return errToCode(err);
+    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
+    slot.* = host_turn.send(
+        inst.core.capabilityFromRaw(target_ptr.id),
+        msg.verb,
+        msg.args,
+    ) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -113,9 +131,13 @@ pub export fn pancake_host_turn_tell(
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const session = sessionOfTurn(t);
     const inst = instOf(session.host);
-    const msg = msgFromC(inst, session, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    const reference = common.hostRefFromC(inst, session, target_ptr.*) catch |err| return errToCode(err);
-    inst.core.tell(session, reference, msg) catch |err| return errToCode(err);
+    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
+    host_turn.tell(
+        inst.core.capabilityFromRaw(target_ptr.id),
+        msg.verb,
+        msg.args,
+    ) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -137,9 +159,10 @@ pub export fn pancake_host_turn_spawn(
     const slot = out_ref orelse return PANCAKE_ERR_NULL_POINTER;
     const session = sessionOfTurn(t);
     const inst = instOf(session.host);
-    reserveHostedCapability(inst, session, ctx, free) catch |err| return errToCode(err);
-    const position = publishHosted(session, inst.allocator, null, b, ctx, free) catch |err| return errToCode(err);
-    slot.* = common.hostRefToC(inst, session, .{ .near = model.NearRef.object(position) }) catch unreachable;
+    const hosted = common.hostedBridge(inst.allocator, b, ctx, free) catch |err| return errToCode(err);
+    var host_turn = driver_core.HostTurn{ .host = &inst.core, .session = session, .turn = t };
+    const reference = host_turn.spawnHosted(hosted) catch |err| return errToCode(err);
+    slot.* = .{ .id = reference.raw() };
     return PANCAKE_OK;
 }
 

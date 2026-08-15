@@ -12,8 +12,8 @@ call, promises, and handoffs stay the same no matter which one you pick.
 What changes is how you name a peer and how the bytes get there: a TCP socket,
 an encrypted QUIC channel, a Tor circuit, a browser DataChannel, and so on.
 
-That split is the whole point of the layer. Application code holds capabilities.
-The netlayer only moves the frames those capabilities travel in.
+Application code holds capabilities. A netlayer only moves the frames those
+capabilities travel in.
 
 ## How a peer is named
 
@@ -57,3 +57,13 @@ it, and what the path proves. The Noise, iroh, WebRTC, and onion pages cover
 setup once you know which path you want. A browser that cannot open a native
 socket uses the [relay]($link.page('relay')) as a byte pipe; the relay is not a
 netlayer of its own.
+
+## Read the examples
+
+The first-call examples have one authority: a support matrix in the site
+generator. Binding pages render it by language, split into Dial and Listen;
+the dedicated transport pages render the same cells by transport family. A
+missing tab means either that the binding does not expose that direction or
+that its implementation has no first-call body yet. The [Choosing a
+transport]($link.page('transports/choosing')) table remains the complete list
+for symbols that do not have a dedicated setup page.

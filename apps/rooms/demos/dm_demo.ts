@@ -5,6 +5,7 @@
 
 import { runDmHandoff } from "../lib/dm_handoff.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
+import { openRoomsRuntime } from "../lib/runtime.ts";
 
 runDmHandoff({
 	label: "rooms-dm",
@@ -18,19 +19,25 @@ runDmHandoff({
 	],
 	async startMember(_who) {
 		const host = roomsHost();
-		const member = roomsListen("127.0.0.1", 0, host);
+		const member = await roomsListen("127.0.0.1", 0, host);
+		const runtime = await openRoomsRuntime({ host });
 		return {
 			host,
+			runtime,
 			sessions: member,
-			locator: loopbackTcpDesignator(await member.ready()),
-			close: () => member.close(),
+			locator: loopbackTcpDesignator(member.port),
+			async close() {
+				member.close();
+				await runtime.close();
+			},
 		};
 	},
 	async startRoom() {
-		const room = roomsListen("127.0.0.1", 0);
+		const room = await roomsListen("127.0.0.1", 0);
 		return {
+			host: room.host,
 			listener: room,
-			locator: loopbackTcpDesignator(await room.ready()),
+			locator: loopbackTcpDesignator(room.port),
 			close: () => room.close(),
 		};
 	},

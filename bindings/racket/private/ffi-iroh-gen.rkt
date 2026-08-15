@@ -20,12 +20,12 @@
    'last-error
    (get-ffi-obj 'pancake_iroh_last_error L (_fun _pointer _size -> _size))
    'netlayer-new
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_new L (_fun #:blocking? #t _pointer _size _PancakeIrohConfig-pointer _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_new L (_fun #:blocking? #t _pointer _size (_or-null _PancakeIrohConfig-pointer) _pointer -> _int32))
               _pointer #f)
    'netlayer-close
    (get-ffi-obj 'pancake_iroh_netlayer_close L (_fun #:blocking? #t _pointer -> _void))
    'netlayer-release
-   (get-ffi-obj 'pancake_iroh_netlayer_release L (_fun #:blocking? #t _pointer -> _void))
+   (get-ffi-obj 'pancake_iroh_netlayer_release L (_fun #:blocking? #t _pointer -> _int32))
    'netlayer-node-id
    (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_node_id L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
@@ -61,4 +61,4 @@
    (wrap-out1 (get-ffi-obj 'pancake_iroh_conn_try_write L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'transport-provider
-   (get-ffi-obj 'pancake_iroh_transport_provider L (_fun _pointer _PancakeTransportProvider-pointer -> _int32))))
+   (get-ffi-obj 'pancake_iroh_transport_provider L (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))))

@@ -4,7 +4,7 @@ iroh surface serves while its native-loop surface dials the same live
 endpoint through the common provider ABI — both halves in one process,
 one asyncio thread.
 
-The server half is the shipped path: ``listen_iroh`` accepts keyed sessions
+The server half is the shipped path: ``listen`` accepts keyed sessions
 on the binding's own readiness loop and publishes a greeter on each. The
 client half is the rewire: an iroh netlayer supplies its provider package,
 ``DriverLoop`` adopts it, and dial,
@@ -34,7 +34,7 @@ from pancake.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
     adopt_loop_provider,
-    listen_iroh,
+    listen,
 )
 
 GREETING = "hello through the Python iroh transport"
@@ -56,7 +56,7 @@ async def _run_accepts(server, served: list) -> None:
 
 
 async def main() -> None:
-    server = await listen_iroh(
+    server = await listen(
         IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
     )
     server_id = server.node_id

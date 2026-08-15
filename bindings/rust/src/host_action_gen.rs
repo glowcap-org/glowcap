@@ -24,6 +24,7 @@ pub const HOST_ACTION_SETTLE: c_uint = 3;
 pub const HOST_ACTION_FAIL: c_uint = 4;
 pub const HOST_ACTION_CLOSE: c_uint = 5;
 pub const HOST_ACTION_RESUME: c_uint = 6;
+pub const HOST_ACTION_CANCEL_DIAL: c_uint = 7;
 
 /// One popped embedder action, every borrowed view lifted to owned
 /// Rust values (a SETTLE's `PancakeArgument` included) before the next
@@ -44,15 +45,27 @@ pub enum HostAction {
 	},
 	Fail {
 		ticket: u64,
+		result: i32,
 		message: String,
 	},
 	Close {
 		session: usize,
+		result: i32,
 	},
 	Resume,
+	CancelDial {
+		ticket: u64,
+	},
+}
+
+/// Whether `kind` names a generated host action. Check this before
+/// decoding data received across the C boundary.
+pub fn is_known_kind(kind: c_uint) -> bool {
+    matches!(kind,HOST_ACTION_DIAL | HOST_ACTION_FLUSH | HOST_ACTION_NEED_GIFT_ID | HOST_ACTION_SETTLE | HOST_ACTION_FAIL | HOST_ACTION_CLOSE | HOST_ACTION_RESUME | HOST_ACTION_CANCEL_DIAL)
 }
 
 /// Decode a filled `PancakeHostAction` into an owned `HostAction`.
+/// The caller must first prove `is_known_kind(raw.kind)`.
 pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 	let view = |ptr: *const u8, len: usize| -> String {
 		if ptr.is_null() || len == 0 {
@@ -75,12 +88,15 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 		},
 		HOST_ACTION_FAIL => HostAction::Fail {
 			ticket: raw.ticket,
+			result: raw.result,
 			message: view(raw.message, raw.message_len),
 		},
 		HOST_ACTION_CLOSE => HostAction::Close {
 			session: raw.session as usize,
+			result: raw.result,
 		},
 		HOST_ACTION_RESUME => HostAction::Resume,
+		HOST_ACTION_CANCEL_DIAL => HostAction::CancelDial { ticket: raw.ticket },
 		kind => unreachable!("unknown host action kind {kind}"),
 	}
 }
@@ -99,6 +115,7 @@ where
         HostAction::Fail { .. } => handlers.fail(action).await,
         HostAction::Close { .. } => handlers.close(action).await,
         HostAction::Resume => handlers.resume(action).await,
+        HostAction::CancelDial { .. } => handlers.cancel_dial(action).await,
     }
 }
 
@@ -111,4 +128,5 @@ pub trait HostActionHandlers {
     fn fail(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn close(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
     fn resume(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn cancel_dial(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
 }

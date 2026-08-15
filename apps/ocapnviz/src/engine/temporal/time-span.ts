@@ -58,12 +58,7 @@
  * spec is this module and its siblings.
  */
 
-import {
-  type Bound,
-  explicitBound,
-  implicitBound,
-  withValue,
-} from "./bound.ts";
+import { type Bound, explicitBound, implicitBound, withValue } from "./bound.ts";
 
 export type TimeSpan = {
   start: Bound;

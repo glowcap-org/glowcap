@@ -25,18 +25,19 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::rc::{Rc, Weak};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{oneshot, Notify};
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::task::JoinHandle;
 
-use crate::dial::Reachability;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
 use crate::trampoline::{
-	ctx_free, current_turn_for, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline,
-	ActorCell,
+	ctx_free, current_turn_for, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline, ActorCell,
 };
 use crate::uri::OwnedLocator;
+use crate::PendingWork;
 use crate::Ref;
 use crate::{sys, Argument, Behavior, Codec, Context, ContextInner, Error, Locator, Result};
 
@@ -47,6 +48,35 @@ const HOST_FRAME_CAP: usize = sys::DEFAULT_FRAME_CAP;
 /// Cap on stored outcomes whose vow is never awaited, so the store cannot grow
 /// without bound; the oldest un-awaited outcome is evicted at the cap.
 const MAX_UNOBSERVED_OUTCOMES: usize = 1024;
+
+fn monotonic_ms() -> i64 {
+	static EPOCH: OnceLock<Instant> = OnceLock::new();
+	let elapsed = EPOCH.get_or_init(Instant::now).elapsed().as_millis();
+	i64::try_from(elapsed).unwrap_or(i64::MAX)
+}
+
+fn close_result(code: i32) -> Result<()> {
+	if code == sys::OK {
+		Ok(())
+	} else if code == sys::ERR_TIMEOUT {
+		Err(Error::with_detail(
+			code,
+			"finish close exhausted its grace period".into(),
+		))
+	} else {
+		Err(Error::with_detail(code, "native host close failed".into()))
+	}
+}
+
+fn host_refusal(code: i32, operation: &str) -> Error {
+	match check_host(code) {
+		Err(error) => error,
+		Ok(()) => Error::with_detail(
+			sys::ERR_INTERNAL,
+			format!("{operation} returned success without publishing its result"),
+		),
+	}
+}
 
 crate::error_slot::error_slot!(
 	/// Like the core `check`, but for `pancake_host_*` calls: snapshot the host
@@ -66,10 +96,7 @@ pub(crate) fn try_spawn_local_handle<F>(future: F) -> Option<JoinHandle<()>>
 where
 	F: std::future::Future<Output = ()> + 'static,
 {
-	std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-		tokio::task::spawn_local(future)
-	}))
-	.ok()
+	std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tokio::task::spawn_local(future))).ok()
 }
 
 pub(crate) fn try_spawn_local<F>(future: F) -> bool
@@ -85,16 +112,8 @@ where
 // (the `Rc`) so the release order stays session-before-host.
 enum PendingRelease {
 	Session {
-		session: *mut ffi::PancakeHostSession,
-		host: Rc<HostShared>,
+		shared: Rc<SessionShared>,
 	},
-	/// Explicit terminal close. The shared owner lets the drain release any
-	/// already-parked sessions before it releases the native Host.
-	HostShared(Rc<HostShared>),
-	/// A loop close a behavior requested mid-step (ADR-0112): the native loop
-	/// refuses teardown inside its own callback, so the close waits here for
-	/// the step to unwind.
-	DriverLoop(Rc<crate::driver_loop::LoopShared>),
 	/// Last-owner drop inside a callback. No Session can still retain the Host
 	/// in this arm, so only the raw handle remains.
 	HostRaw {
@@ -104,20 +123,17 @@ enum PendingRelease {
 }
 
 thread_local! {
-	static PENDING_RELEASES: RefCell<Vec<PendingRelease>> = const { RefCell::new(Vec::new()) };
+	static PENDING_RELEASES: RefCell<VecDeque<PendingRelease>> = const { RefCell::new(VecDeque::new()) };
 }
 
 /// Park a connection release that a callback frame refused.
-pub(crate) fn park_session_release(session: *mut ffi::PancakeHostSession, host: Rc<HostShared>) {
-	PENDING_RELEASES.with(|list| {
-		list.borrow_mut()
-			.push(PendingRelease::Session { session, host })
-	});
+pub(crate) fn park_session_release(shared: Rc<SessionShared>) {
+	PENDING_RELEASES.with(|list| list.borrow_mut().push_back(PendingRelease::Session { shared }));
 }
 
 /// Test observability: how many releases are parked on this thread, so a test
 /// can assert a mid-turn close's parked release actually ran after the turn.
-#[cfg(test)]
+#[cfg(all(test, feature = "tcp"))]
 pub(crate) fn pending_release_count() -> usize {
 	PENDING_RELEASES.with(|list| list.borrow().len())
 }
@@ -130,20 +146,18 @@ pub(crate) fn drain_pending_releases() {
 		return;
 	}
 	loop {
-		let Some(pending) = PENDING_RELEASES.with(|list| list.borrow_mut().pop()) else {
+		let Some(pending) = PENDING_RELEASES.with(|list| list.borrow_mut().pop_front()) else {
 			return;
 		};
 		match pending {
-			PendingRelease::Session { session, host } => {
-				host.release_native_session(session);
-				drop(host);
+			PendingRelease::Session { shared } => {
+				if shared.finish_native_release().is_err() {
+					PENDING_RELEASES.with(|list| list.borrow_mut().push_back(PendingRelease::Session { shared }));
+					return;
+				}
 			}
-			// Deferred HostShared release records a failure in its terminal
-			// state and retains the raw handle; a later verb reports that code.
 			// HostRaw has no HostShared left to hold terminal state, but retains
 			// the allocation policy the raw native Host still borrows.
-			PendingRelease::HostShared(host) => host.request_native_release(),
-			PendingRelease::DriverLoop(lp) => lp.close(),
 			PendingRelease::HostRaw { host, context } => {
 				crate::trace::detach_host(host);
 				if unsafe { ffi::pancake_host_release(host) } != sys::OK {
@@ -174,20 +188,16 @@ enum VowState {
 	Settled(Result<Argument>),
 }
 
-// A host vow's row: its home session plus its pending state.
 struct VowRow {
-	/// Home CapTP session at mint (weak so the vow table cannot pin a session).
-	/// FAIL uses it to classify disconnect breaks as CLOSED.
-	session: Option<Weak<SessionShared>>,
 	state: VowState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum HostState {
-	Open,
-	Closing,
-	Closed,
-	Failed(i32),
+enum CloseBarrierState {
+	Idle,
+	Running,
+	Complete(i32),
+	Failed,
 }
 
 /// Removes a detached DIAL task from its Host on every terminal path, including
@@ -207,14 +217,24 @@ impl Drop for OwnedTaskRegistration {
 
 struct DialTaskRegistration {
 	host: Weak<HostShared>,
-	id: usize,
+	ticket: u64,
 	_owned: OwnedTaskRegistration,
+}
+
+struct AbortTaskOnDrop(Option<tokio::task::JoinHandle<()>>);
+
+impl Drop for AbortTaskOnDrop {
+	fn drop(&mut self) {
+		if let Some(task) = self.0.take() {
+			task.abort();
+		}
+	}
 }
 
 impl Drop for DialTaskRegistration {
 	fn drop(&mut self) {
 		if let Some(host) = self.host.upgrade() {
-			host.dial_tasks.borrow_mut().remove(&self.id);
+			host.dial_tasks.borrow_mut().remove(&self.ticket);
 		}
 	}
 }
@@ -226,10 +246,13 @@ impl Drop for DialTaskRegistration {
 /// host pointer cannot be released while any session wrapper lives).
 pub(crate) struct HostShared {
 	raw: Cell<*mut ffi::PancakeHost>,
-	/// Terminal lifecycle. `Closing` begins at close intent, before a callback
-	/// can defer native teardown; `Failed` retains the raw handle for diagnosis
-	/// and a final Drop attempt rather than pretending release succeeded.
-	state: Cell<HostState>,
+	/// Binding-local close barrier coordination. Native Host lifecycle remains
+	/// authoritative; `Failed` retains the raw handle for diagnosis and a final
+	/// Drop attempt rather than pretending release succeeded.
+	close_barrier: Cell<CloseBarrierState>,
+	/// Exact first failure behind `CloseBarrierState::Failed`. The state remains
+	/// `Copy` for cheap barrier checks while this owns the diagnostic payload.
+	close_failure: RefCell<Option<Error>>,
 	// Every live CapTP session shell by its PancakeHostSession address, so a FLUSH
 	// action routes to the transport that owns the bytes and a dialed exporter
 	// stays reachable for teardown. A session unregisters at close, which is
@@ -241,33 +264,32 @@ pub(crate) struct HostShared {
 	// registration when its complete state has actually been dropped.
 	owned_tasks: Cell<usize>,
 	release_notify: Notify,
+	// The host-activity signal the event-driven close waits park on. Every
+	// binding path whose native verb can advance close-relevant state (a byte
+	// feed, a productive action drain, a resolver settle, a close request or
+	// escalation, a session release, a reported dial outcome) wakes all parked
+	// close drivers here. Signaling is wake-all against re-checking waiters,
+	// so a spare signal is harmless; a missed source is a hang.
+	activity: Notify,
 	// Detached DIAL actions may await sockets, discovery, or relay setup after
 	// the action drain returns. The Host owns their cancellation until terminal
 	// reporting; no task may resume against a released native Host.
-	dial_tasks: RefCell<HashMap<usize, AbortHandle>>,
-	next_dial_task_id: Cell<usize>,
+	dial_tasks: RefCell<HashMap<u64, JoinHandle<()>>>,
+	close_task_started: Cell<bool>,
 	// The vow table the drain's SETTLE/FAIL arms settle.
 	vows: RefCell<HashMap<u64, VowRow>>,
 	// Finalizer-reclaimed Host reference ids. A reference may be homed on a
 	// sibling session and outlive the session that delivered it.
-	pub(crate) gc_pending: RefCell<Vec<u64>>,
+	pub(crate) gc_pending: RefCell<VecDeque<u64>>,
+	// The first failure from a detached Host-progress task. Such a task has no
+	// caller result; the next verb head takes this exact typed cause instead.
+	background_failure: RefCell<Option<Error>>,
 	// Opaque Host capability id -> hosted cell. Actors outlive the Port that
 	// first projected them, so every sibling Session resolves through this one
 	// Host-owned index. The core owns each cell and runs ctx_free at Host release.
 	pub(crate) hosted: RefCell<HashMap<u64, *const ActorCell>>,
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	unobserved: RefCell<VecDeque<u64>>,
-	// The iroh reachability posture this host uses to redeem a *hint-less*
-	// handoff give — one whose exporter location names the exporter by node id
-	// alone. Defaults to `Discovery` (n0 relays + DNS/pkarr, the maximal-reach
-	// choice); a relay-policy deployment lowers it. A hinted give always dials
-	// `Direct` and ignores this.
-	redeem_reachability: Cell<Reachability>,
-	// The keyed-relay rendezvous mapping (ADR-0088): the peer's key designator
-	// to the relay rendezvous WebSocket URL that bridges onto its held inbound
-	// socket — the keyed-relay sibling of `redeem_reachability`. None until
-	// configured; a keyed-relay dial refuses without it.
-	rendezvous_url: RefCell<Option<Rc<dyn Fn(&str) -> String>>>,
 	/// The 32-byte Ed25519 identity seed this host was minted with — retained
 	/// so a keyed-tcp listener can derive its public designator without a
 	/// second identity (ADR-0075).
@@ -283,14 +305,18 @@ pub(crate) struct HostShared {
 	// A Host allocated in a caller Context borrows that native policy. Rc makes
 	// the order structural, including teardown parked from a callback.
 	context: Option<Rc<ContextInner>>,
+	/// Stable identity in the retained Context's diagnostic namespace.
+	diagnostic_id: u64,
 	// The native loop this Host was adopted over (ADR-0112), or `None` for a
 	// byte-fed Host this binding pumps itself. On a loop-adopted Host the loop
 	// is the one action drain and the one release authority: kicks become loop
 	// steps, no `pancake_host_pump_drain` runs here, and teardown routes
 	// through `LoopShared::close` (which releases the wrapped native Host).
 	driver_loop: RefCell<Option<Rc<crate::driver_loop::LoopShared>>>,
-	#[cfg(feature = "iroh")]
-	iroh_state: RefCell<Option<crate::iroh::IrohLoopState>>,
+	// Explicit byte-fed connectors, indexed by the transport symbols their
+	// owning package advertises. Native provider composition lives in the
+	// driver loop instead; this registry is only for embedder-owned channels.
+	connectors: RefCell<HashMap<&'static str, crate::Connector>>,
 }
 
 impl HostShared {
@@ -310,73 +336,71 @@ impl HostShared {
 		// seed, since a keyed locator's designator derives from it.
 		let mut seed_with_root = [0u8; 64];
 		seed_with_root[..32].copy_from_slice(&seed);
-		getrandom::fill(&mut seed_with_root[32..]).expect("the OS RNG provides a session-key root");
+		getrandom::fill(&mut seed_with_root[32..]).map_err(|error| {
+			Error::with_detail(
+				sys::ERR_IO,
+				format!("drawing the per-process session-key root failed: {error}"),
+			)
+		})?;
 		// Compute every fallible wrapper-side value before native Host
 		// construction, so `?` cannot leak a raw Host during setup.
 		let mut designator = [0u8; 64];
 		check_host(unsafe {
-			ffi::pancake_host_designator_from_seed(
-				seed.as_ptr(),
-				seed.len(),
-				designator.as_mut_ptr(),
-				designator.len(),
+			ffi::pancake_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
+		})?;
+		let context = match context {
+			Some(context) => context.retain_inner(),
+			None => Rc::new(ContextInner::new()?),
+		};
+		let mut raw: *mut ffi::PancakeHost = core::ptr::null_mut();
+		check_host(unsafe {
+			ffi::pancake_host_new_in(
+				context.raw,
+				seed_with_root.as_ptr(),
+				seed_with_root.len(),
+				HOST_FRAME_CAP,
+				1,
+				codec.to_c(),
+				captp_version.to_c(),
+				features.to_c(),
+				local_turn_budget,
+				&mut raw,
 			)
 		})?;
-		let context = context.map(Context::retain_inner);
-
-		let mut raw: *mut ffi::PancakeHost = core::ptr::null_mut();
-		check_host(match context.as_ref() {
-			Some(context) => unsafe {
-				ffi::pancake_host_new_in(
-					context.raw,
-					seed_with_root.as_ptr(),
-					seed_with_root.len(),
-					HOST_FRAME_CAP,
-					1,
-					codec.to_c(),
-					captp_version.to_c(),
-					features.to_c(),
-					local_turn_budget,
-					&mut raw,
-				)
-			},
-			None => unsafe {
-				ffi::pancake_host_new(
-					seed_with_root.as_ptr(),
-					seed_with_root.len(),
-					HOST_FRAME_CAP,
-					1,
-					codec.to_c(),
-					captp_version.to_c(),
-					features.to_c(),
-					local_turn_budget,
-					&mut raw,
-				)
-			},
-		})?;
+		let mut diagnostic_id = 0;
+		if let Err(error) = check_host(unsafe { ffi::pancake_host_diagnostic_id(raw, &mut diagnostic_id) }) {
+			let cleanup = check_host(unsafe { ffi::pancake_host_release(raw) });
+			return Err(crate::retain_cleanup_failure(error, cleanup));
+		}
 		// The host's own key designator labels the live trace so one peer
 		// remains one node in a feed several producers share.
-		crate::trace::attach_host(raw, String::from_utf8_lossy(&designator).into_owned());
+		crate::trace::attach_host(
+			raw,
+			String::from_utf8_lossy(&designator).into_owned(),
+			Rc::clone(&context),
+			diagnostic_id,
+		);
 		Ok(Rc::new(HostShared {
 			raw: Cell::new(raw),
-			state: Cell::new(HostState::Open),
+			close_barrier: Cell::new(CloseBarrierState::Idle),
+			close_failure: RefCell::new(None),
 			sessions: RefCell::new(HashMap::new()),
 			owned_tasks: Cell::new(0),
 			release_notify: Notify::new(),
+			activity: Notify::new(),
 			dial_tasks: RefCell::new(HashMap::new()),
-			next_dial_task_id: Cell::new(1),
+			close_task_started: Cell::new(false),
 			vows: RefCell::new(HashMap::new()),
-			gc_pending: RefCell::new(Vec::new()),
+			gc_pending: RefCell::new(VecDeque::new()),
+			background_failure: RefCell::new(None),
 			hosted: RefCell::new(HashMap::new()),
 			unobserved: RefCell::new(VecDeque::new()),
-			redeem_reachability: Cell::new(Reachability::REDEEM_DEFAULT),
-			rendezvous_url: RefCell::new(None),
 			giftables: RefCell::new(HashMap::new()),
 			seed,
-			context,
+			context: Some(context),
+			diagnostic_id,
 			driver_loop: RefCell::new(None),
-			#[cfg(feature = "iroh")]
-			iroh_state: RefCell::new(None),
+			connectors: RefCell::new(HashMap::new()),
 		}))
 	}
 
@@ -392,35 +416,87 @@ impl HostShared {
 	) -> Result<Rc<HostShared>> {
 		let mut designator = [0u8; 64];
 		check_host(unsafe {
-			ffi::pancake_host_designator_from_seed(
-				seed.as_ptr(),
-				seed.len(),
-				designator.as_mut_ptr(),
-				designator.len(),
-			)
+			ffi::pancake_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
 		})?;
-		crate::trace::attach_host(raw, String::from_utf8_lossy(&designator).into_owned());
+		let context = driver_loop.retained_context();
+		let mut diagnostic_id = 0;
+		check_host(unsafe { ffi::pancake_host_diagnostic_id(raw, &mut diagnostic_id) })?;
+		if let Some(context) = context.as_ref() {
+			crate::trace::attach_host(
+				raw,
+				String::from_utf8_lossy(&designator).into_owned(),
+				Rc::clone(context),
+				diagnostic_id,
+			);
+		}
 		Ok(Rc::new(HostShared {
 			raw: Cell::new(raw),
-			state: Cell::new(HostState::Open),
+			close_barrier: Cell::new(CloseBarrierState::Idle),
+			close_failure: RefCell::new(None),
 			sessions: RefCell::new(HashMap::new()),
 			owned_tasks: Cell::new(0),
 			release_notify: Notify::new(),
+			activity: Notify::new(),
 			dial_tasks: RefCell::new(HashMap::new()),
-			next_dial_task_id: Cell::new(1),
+			close_task_started: Cell::new(false),
 			vows: RefCell::new(HashMap::new()),
-			gc_pending: RefCell::new(Vec::new()),
+			gc_pending: RefCell::new(VecDeque::new()),
+			background_failure: RefCell::new(None),
 			hosted: RefCell::new(HashMap::new()),
 			unobserved: RefCell::new(VecDeque::new()),
-			redeem_reachability: Cell::new(Reachability::REDEEM_DEFAULT),
-			rendezvous_url: RefCell::new(None),
 			giftables: RefCell::new(HashMap::new()),
 			seed,
-			context: None,
+			context,
+			diagnostic_id,
 			driver_loop: RefCell::new(Some(driver_loop)),
-			#[cfg(feature = "iroh")]
-			iroh_state: RefCell::new(None),
+			connectors: RefCell::new(HashMap::new()),
 		}))
+	}
+
+	pub(crate) fn install_connectors(&self, connectors: &[crate::Connector]) -> Result<()> {
+		self.guard_handle()?;
+		let mut installed = self.connectors.borrow_mut();
+		let mut pending = HashMap::new();
+		for connector in connectors {
+			if connector.transports().is_empty() {
+				return Err(Error::with_detail(
+					sys::ERR_INVALID_ARGUMENT,
+					"Runtime requires at least one connector transport".to_string(),
+				));
+			}
+			for &transport in connector.transports() {
+				if transport.is_empty() {
+					return Err(Error::with_detail(
+						sys::ERR_INVALID_ARGUMENT,
+						"connector transport symbols must not be empty".to_string(),
+					));
+				}
+				if pending.contains_key(transport) {
+					return Err(Error::with_detail(
+						sys::ERR_INVALID_ARGUMENT,
+						format!("Runtime composition repeats transport {transport:?}"),
+					));
+				}
+				if let Some(existing) = installed.get(transport) {
+					if !existing.same_instance(connector) {
+						return Err(Error::with_detail(
+							sys::ERR_INVALID_ARGUMENT,
+							format!("a different connector already owns transport {transport:?}"),
+						));
+					}
+					continue;
+				}
+				pending.insert(transport, connector.clone());
+			}
+		}
+		for (transport, connector) in pending {
+			installed.insert(transport, connector);
+		}
+		Ok(())
+	}
+
+	pub(crate) fn connector(&self, transport: &str) -> Option<crate::Connector> {
+		self.connectors.borrow().get(transport).cloned()
 	}
 
 	/// The native loop this Host is adopted over, or `None` for a byte-fed
@@ -428,28 +504,6 @@ impl HostShared {
 	/// instead of opening a byte channel on a host the loop drains.
 	pub(crate) fn driver_loop(&self) -> Option<Rc<crate::driver_loop::LoopShared>> {
 		self.driver_loop.borrow().clone()
-	}
-
-	#[cfg(feature = "iroh")]
-	pub(crate) fn iroh_state_config(&self) -> Option<crate::iroh::IrohConfig> {
-		self.iroh_state
-			.borrow()
-			.as_ref()
-			.map(|state| state.config())
-	}
-
-	#[cfg(feature = "iroh")]
-	pub(crate) fn iroh_state_node_id(&self) -> Option<String> {
-		self.iroh_state
-			.borrow()
-			.as_ref()
-			.map(|state| state.node_id().to_owned())
-	}
-
-	#[cfg(feature = "iroh")]
-	pub(crate) fn install_iroh_state(&self, state: crate::iroh::IrohLoopState) {
-		let previous = self.iroh_state.borrow_mut().replace(state);
-		assert!(previous.is_none(), "iroh state was installed twice");
 	}
 
 	/// Establish this Host's one native runtime owner before its first network
@@ -460,16 +514,12 @@ impl HostShared {
 		handshake_ms: u32,
 		settle_ms: u32,
 	) -> Result<Rc<crate::driver_loop::LoopShared>> {
-		self.guard_open()?;
+		self.guard_handle()?;
 		if let Some(lp) = self.driver_loop() {
 			return Ok(lp);
 		}
 		let lp = crate::driver_loop::LoopShared::take_host(self, handshake_ms, settle_ms)?;
 		*self.driver_loop.borrow_mut() = Some(Rc::clone(&lp));
-		if let Err(err) = lp.start() {
-			lp.close();
-			return Err(err);
-		}
 		Ok(lp)
 	}
 
@@ -478,36 +528,63 @@ impl HostShared {
 	/// (which also drops queued events naming it), `pancake_host_session_release`
 	/// for a byte-fed one. A loop already released frees its sessions itself,
 	/// so the loop arm is a no-op then.
-	pub(crate) fn release_native_session(&self, session: *mut ffi::PancakeHostSession) {
+	pub(crate) fn release_native_session(&self, session: *mut ffi::PancakeHostSession) -> Result<()> {
 		match self.driver_loop() {
-			Some(lp) => lp.native_session_release(session),
-			None => {
-				let _ = unsafe { ffi::pancake_host_session_release(session) };
-			}
+			Some(lp) => lp.native_session_release(session)?,
+			None => check_host(unsafe { ffi::pancake_host_session_release(session) })?,
 		}
+		// A released session retires its pending close work, so a driver
+		// parked on host activity must re-check progress.
+		self.note_close_activity();
+		Ok(())
 	}
 
-	/// The wrapper half of `LoopShared::close` (ADR-0112): mark this Host
-	/// terminally closed, retire its session shells, and break its vows. The
-	/// native Host itself dies with `pancake_driver_release`, never through
-	/// `pancake_host_release` — the loop owns that handle.
-	pub(crate) fn loop_teardown(self: &Rc<HostShared>) {
-		if matches!(self.state.get(), HostState::Closed | HostState::Failed(_)) {
+	/// Finish the wrapper half after the native loop has reached its close
+	/// barrier and projected every committed event. The native Host itself dies
+	/// with `pancake_driver_release`, never through `pancake_host_release`.
+	pub(crate) fn finish_loop_teardown(self: &Rc<HostShared>, close_code: i32) {
+		self.finish_loop_teardown_with(CloseBarrierState::Complete(close_code), None);
+	}
+
+	/// The same ownership retirement when the loop terminated because of a
+	/// background failure. Native state is still fully released, while every
+	/// Host close observer receives the exact first cause.
+	pub(crate) fn finish_failed_loop_teardown(self: &Rc<HostShared>, error: Error) {
+		self.finish_loop_teardown_with(CloseBarrierState::Failed, Some(error));
+	}
+
+	fn finish_loop_teardown_with(self: &Rc<HostShared>, terminal: CloseBarrierState, failure: Option<Error>) {
+		if matches!(
+			self.close_barrier.get(),
+			CloseBarrierState::Complete(_) | CloseBarrierState::Failed
+		) {
 			return;
 		}
-		self.state.set(HostState::Closing);
-		#[cfg(feature = "iroh")]
-		self.iroh_state.borrow_mut().take();
-		self.drain_parked_sessions();
-		self.cancel_dial_tasks();
-		self.close_sessions();
+		self.close_barrier.set(CloseBarrierState::Running);
+		let sessions: Vec<_> = self.sessions.borrow_mut().drain().map(|(_, session)| session).collect();
+		for session in sessions {
+			session.commit_native_release();
+		}
+		PENDING_RELEASES.with(|list| {
+			list.borrow_mut()
+				.retain(|item| !matches!(item, PendingRelease::Session { shared } if Rc::ptr_eq(&shared.host, self)));
+		});
+		debug_assert!(self
+			.vows
+			.borrow()
+			.values()
+			.all(|row| matches!(row.state, VowState::Settled(_))));
 		let raw = self.raw.replace(core::ptr::null_mut());
 		if !raw.is_null() {
 			crate::trace::detach_host(raw);
 		}
-		self.state.set(HostState::Closed);
+		self.vows.borrow_mut().clear();
+		self.unobserved.borrow_mut().clear();
+		if let Some(error) = failure {
+			*self.close_failure.borrow_mut() = Some(error);
+		}
+		self.close_barrier.set(terminal);
 		self.release_notify.notify_waiters();
-		self.fail_outstanding_vows("host released");
 		// The loop's release runs every ctx-free callback; these maps hold only
 		// non-owning pointers and must not serve stale lookups meanwhile.
 		self.hosted.borrow_mut().clear();
@@ -523,22 +600,84 @@ impl HostShared {
 		self.seed
 	}
 
-	pub(crate) fn guard_open(&self) -> Result<()> {
-		match self.state.get() {
-			HostState::Open => Ok(()),
-			HostState::Closing | HostState::Closed => Err(Error::with_detail(
-				sys::ERR_CLOSED,
-				"host closed".to_string(),
-			)),
-			HostState::Failed(code) => Err(Error::with_detail(
-				code,
-				"native host release failed".to_string(),
-			)),
+	pub(crate) fn retained_context(&self) -> Option<Rc<ContextInner>> {
+		self.context.as_ref().map(Rc::clone)
+	}
+
+	pub(crate) fn diagnostic_id(&self) -> u64 {
+		self.diagnostic_id
+	}
+
+	pub(crate) fn guard_handle(&self) -> Result<()> {
+		if self.raw.get().is_null() {
+			Err(Error::with_detail(sys::ERR_CLOSED, "host closed".to_string()))
+		} else {
+			Ok(())
 		}
 	}
 
 	pub(crate) fn closing(&self) -> bool {
-		self.state.get() != HostState::Open
+		self.close_barrier.get() != CloseBarrierState::Idle
+	}
+
+	pub(crate) fn fail_close(&self, error: Error) {
+		if matches!(
+			self.close_barrier.get(),
+			CloseBarrierState::Complete(_) | CloseBarrierState::Failed
+		) {
+			return;
+		}
+		*self.close_failure.borrow_mut() = Some(error);
+		self.close_barrier.set(CloseBarrierState::Failed);
+		self.release_notify.notify_waiters();
+	}
+
+	fn retained_close_failure(&self) -> Error {
+		self.close_failure.borrow().clone().unwrap_or_else(|| {
+			Error::with_detail(
+				sys::ERR_INTERNAL,
+				"host close failed without retaining its cause".to_string(),
+			)
+		})
+	}
+
+	pub(crate) fn native_close_committed(&self) {
+		if self.close_barrier.get() == CloseBarrierState::Idle {
+			self.close_barrier.set(CloseBarrierState::Running);
+		}
+	}
+
+	/// Wake every close driver parked on host activity. Call it after any
+	/// native verb that can advance close-relevant state; waiters re-check
+	/// progress on every wake, so a spare signal costs one check and a missed
+	/// one is a hang.
+	pub(crate) fn note_close_activity(&self) {
+		self.activity.notify_waiters();
+	}
+
+	/// The registration half of a close driver's wait. The returned future
+	/// must be pinned and enabled before the close-progress check it guards,
+	/// so a signal landing between that check and the await still wakes the
+	/// driver.
+	pub(crate) fn close_activity(&self) -> tokio::sync::futures::Notified<'_> {
+		self.activity.notified()
+	}
+
+	/// The longest a close driver may wait for new input before re-checking
+	/// close progress: the time until the nearest FINISH grace deadline (the
+	/// Host's own or any session's), clamped at zero, or `None` when no finite
+	/// deadline is pending and only host activity can advance terminal
+	/// progress. Native refusal reaches the close driver; treating it as "no
+	/// deadline" would turn a diagnosable failure into an unbounded park.
+	pub(crate) fn close_wait(&self) -> Result<Option<Duration>> {
+		let mut wait_ms: i64 = -1;
+		let rc = unsafe { ffi::pancake_host_close_wait_ms(self.raw(), monotonic_ms(), &mut wait_ms) };
+		check_host(rc)?;
+		if wait_ms >= 0 {
+			Ok(Some(Duration::from_millis(wait_ms as u64)))
+		} else {
+			Ok(None)
+		}
 	}
 
 	pub(crate) fn start_owned_task(self: &Rc<Self>) -> OwnedTaskRegistration {
@@ -560,8 +699,8 @@ impl HostShared {
 			.checked_sub(1)
 			.expect("Host-owned task registration imbalance");
 		self.owned_tasks.set(remaining);
-		if remaining == 0 && self.state.get() == HostState::Closing {
-			self.finish_native_release();
+		if remaining == 0 {
+			self.release_notify.notify_waiters();
 		}
 	}
 
@@ -569,71 +708,90 @@ impl HostShared {
 	/// Tokio cancellation is the right primitive here: every binding task runs
 	/// on one current-thread LocalSet, so close cannot race a task currently on
 	/// another thread, and `abort` prevents its next poll before native teardown.
-	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, run: F) -> bool
+	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, ticket: u64, run: F) -> bool
 	where
 		F: FnOnce(Rc<HostShared>) -> Fut + 'static,
 		Fut: Future<Output = ()> + 'static,
 	{
-		if self.closing() {
+		if self.raw.get().is_null() {
 			return false;
 		}
-		let mut id = self.next_dial_task_id.get();
-		while self.dial_tasks.borrow().contains_key(&id) {
-			id = id.wrapping_add(1);
-		}
-		self.next_dial_task_id.set(id.wrapping_add(1));
 		let host = Rc::clone(self);
 		let registration = DialTaskRegistration {
 			host: Rc::downgrade(self),
-			id,
+			ticket,
 			_owned: self.start_owned_task(),
 		};
 		let Some(task) = try_spawn_local_handle(async move {
 			let _registration = registration;
-			run(host).await;
+			let observer = Rc::clone(&host);
+			let mut inner = AbortTaskOnDrop(Some(tokio::task::spawn_local(run(host))));
+			let outcome = match inner.0.as_mut() {
+				Some(handle) => handle.await,
+				None => return,
+			};
+			inner.0.take();
+			if let Err(join) = outcome {
+				let primary = if join.is_panic() {
+					Error::with_detail(
+						sys::ERR_INTERNAL,
+						format!(
+							"dial task panicked: {}",
+							crate::panic_message(join.into_panic().as_ref())
+						),
+					)
+				} else {
+					Error::with_detail(sys::ERR_INTERNAL, format!("dial task failed: {join}"))
+				};
+				let cancellation = check_host(unsafe { ffi::pancake_host_dial_cancelled(observer.raw(), ticket) });
+				observer.record_background_failure(crate::retain_cleanup_failure(primary, cancellation));
+			}
 		}) else {
 			return false;
 		};
-		self.dial_tasks.borrow_mut().insert(id, task.abort_handle());
+		self.dial_tasks.borrow_mut().insert(ticket, task);
 		true
 	}
 
-	fn cancel_dial_tasks(&self) {
-		for (_, task) in self.dial_tasks.take() {
+	pub(crate) async fn cancel_dial_task(&self, ticket: u64) -> Result<()> {
+		let task = self.dial_tasks.borrow_mut().remove(&ticket);
+		let task_failure = if let Some(task) = task {
 			task.abort();
+			match task.await {
+				Ok(()) => None,
+				Err(join) if join.is_cancelled() => None,
+				Err(join) if join.is_panic() => Some(Error::with_detail(
+					sys::ERR_INTERNAL,
+					format!(
+						"dial task panicked: {}",
+						crate::panic_message(join.into_panic().as_ref())
+					),
+				)),
+				Err(join) => Some(Error::with_detail(
+					sys::ERR_INTERNAL,
+					format!("dial task join failed: {join}"),
+				)),
+			}
+		} else {
+			None
+		};
+		let cancellation = check_host(unsafe { ffi::pancake_host_dial_cancelled(self.raw(), ticket) });
+		match task_failure {
+			Some(primary) => Err(crate::retain_cleanup_failure(primary, cancellation)),
+			None => cancellation,
 		}
 	}
 
-	// Read by the iroh dial executor alone: a hint-less iroh give resolves
-	// under this posture, and no other transport consults it.
-	#[cfg(feature = "iroh")]
-	pub(crate) fn redeem_reachability(&self) -> Reachability {
-		self.redeem_reachability.get()
-	}
-
-	// Read by the rendezvous dial executor alone: the URL a keyed-relay dial
-	// opens for `designator`, or None when the host was never configured.
-	#[cfg(feature = "rendezvous")]
-	pub(crate) fn rendezvous_url_of(&self, designator: &str) -> Option<String> {
-		self.rendezvous_url.borrow().as_ref().map(|f| f(designator))
-	}
-
 	pub(crate) fn set_advertised_locator(&self, locator: &Locator) -> Result<()> {
-		self.guard_open()?;
+		self.guard_handle()?;
 		let owned = OwnedLocator::new(locator)?;
-		check_host(unsafe {
-			ffi::pancake_host_set_advertised_locator(self.raw.get(), owned.borrow_view()?)
-		})
+		check_host(unsafe { ffi::pancake_host_set_advertised_locator(self.raw.get(), owned.borrow_view()?) })
 	}
 
 	pub(crate) fn remove_advertised_locator(&self, transport: &str) -> Result<()> {
-		self.guard_open()?;
+		self.guard_handle()?;
 		check_host(unsafe {
-			ffi::pancake_host_remove_advertised_locator(
-				self.raw.get(),
-				transport.as_ptr(),
-				transport.len(),
-			)
+			ffi::pancake_host_remove_advertised_locator(self.raw.get(), transport.as_ptr(), transport.len())
 		})
 	}
 
@@ -645,14 +803,9 @@ impl HostShared {
 		queue_cap: usize,
 		outbound_high_water_bytes: usize,
 	) -> Result<()> {
-		self.guard_open()?;
+		self.guard_handle()?;
 		check_host(unsafe {
-			ffi::pancake_host_set_session_limits(
-				self.raw.get(),
-				max_frame_bytes,
-				queue_cap,
-				outbound_high_water_bytes,
-			)
+			ffi::pancake_host_set_session_limits(self.raw.get(), max_frame_bytes, queue_cap, outbound_high_water_bytes)
 		})
 	}
 
@@ -661,7 +814,6 @@ impl HostShared {
 	/// Track a live CapTP session shell by its PancakeHostSession address; the
 	/// `SessionShared` constructor calls it.
 	pub(crate) fn register_session(&self, key: usize, session: Rc<SessionShared>) {
-		debug_assert_eq!(self.state.get(), HostState::Open);
 		self.sessions.borrow_mut().insert(key, session);
 	}
 
@@ -686,18 +838,16 @@ impl HostShared {
 	/// redeem reused a session an earlier one already dialed, where no fresh
 	/// dial happened at all. `Session::send_redeeming` calls it on the reply it
 	/// just awaited.
-	pub(crate) fn exporter_for(
-		self: &Rc<Self>,
-		capability: &Ref,
-	) -> Result<Option<Rc<SessionShared>>> {
-		self.guard_open()?;
+	pub(crate) fn exporter_for(self: &Rc<Self>, capability: &Ref) -> Result<Option<Rc<SessionShared>>> {
+		self.guard_handle()?;
 		let wire = capability.to_sys()?;
-		let mut out: *mut ffi::PancakeHostSession = core::ptr::null_mut();
-		// The handle comes back host-owned and borrowed: it lives with the
-		// exporter session, and this side never releases it.
-		check_host(unsafe {
-			ffi::pancake_host_reference_exporter(self.raw.get(), &wire, &mut out)
-		})?;
+		let out = if let Some(lp) = self.driver_loop() {
+			lp.claim_reference_exporter(&wire)?.unwrap_or(core::ptr::null_mut())
+		} else {
+			let mut out: *mut ffi::PancakeHostSession = core::ptr::null_mut();
+			check_host(unsafe { ffi::pancake_host_reference_exporter(self.raw.get(), &wire, &mut out) })?;
+			out
+		};
 		if out.is_null() {
 			return Ok(None);
 		}
@@ -716,66 +866,32 @@ impl HostShared {
 		Ok(None)
 	}
 
-	/// Close every session this host holds — the ones an application opened
-	/// and the ones the host dialed for redeems alike. Each close releases
-	/// that session's handle and unregisters it, which is also what lets the
-	/// host go: the map holds an `Rc` to each session and each session holds
-	/// one back, so an emptied map is what breaks that cycle and lets
-	/// `HostShared::drop` run.
-	pub(crate) fn close_sessions(&self) {
-		loop {
-			let next = self.sessions.borrow().values().next().cloned();
-			let Some(session) = next else { return };
-			session.close_transport();
-		}
-	}
-
 	/// Terminally release this Host. A callback cannot free the native Host
 	/// whose actor cell is on its stack, so it parks one Host-owned transaction;
 	/// the outer feed or local-run drain performs the same ordered teardown.
-	pub(crate) fn close_host(self: &Rc<HostShared>) {
-		if self.state.get() != HostState::Open {
-			return;
+	pub(crate) fn close_host(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
+		pending.to_ffi()?;
+		match self.close_barrier.get() {
+			CloseBarrierState::Complete(code) => return close_result(code),
+			CloseBarrierState::Failed => return Err(self.retained_close_failure()),
+			CloseBarrierState::Idle | CloseBarrierState::Running => {}
 		}
 		// A loop-adopted Host tears down through its loop, which releases the
 		// wrapped native Host itself; `loop_teardown` (called back from
 		// `LoopShared::close`) retires this wrapper's shells and vows.
 		if let Some(lp) = self.driver_loop() {
-			// Publish terminal intent before scheduling the loop release. A
-			// callback may continue running until its turn unwinds, but no Host
-			// verb is legal after close has been requested.
-			self.state.set(HostState::Closing);
-			if inside_turn() {
-				PENDING_RELEASES
-					.with(|list| list.borrow_mut().push(PendingRelease::DriverLoop(lp)));
-			} else {
-				lp.close();
-			}
-			return;
+			return lp.request_close(pending);
 		}
-		self.state.set(HostState::Closing);
-		if inside_turn() {
-			PENDING_RELEASES.with(|list| {
-				list.borrow_mut()
-					.push(PendingRelease::HostShared(Rc::clone(self)))
-			});
-		} else {
-			self.request_native_release();
-		}
+		self.request_native_release(pending)
 	}
 
 	async fn wait_closed(&self) -> Result<()> {
 		loop {
 			let notified = self.release_notify.notified();
-			match self.state.get() {
-				HostState::Closed => return Ok(()),
-				HostState::Failed(code) => {
-					return Err(Error::with_detail(
-						code,
-						"native host release failed".to_string(),
-					));
-				}
-				HostState::Open | HostState::Closing => notified.await,
+			match self.close_barrier.get() {
+				CloseBarrierState::Complete(code) => return close_result(code),
+				CloseBarrierState::Failed => return Err(self.retained_close_failure()),
+				CloseBarrierState::Idle | CloseBarrierState::Running => notified.await,
 			}
 		}
 	}
@@ -783,111 +899,175 @@ impl HostShared {
 	/// Release Session shells that unregistered while their callbacks were
 	/// still on the stack. They are absent from `sessions`, but the native Host
 	/// still owns them and must not be freed first.
-	fn drain_parked_sessions(self: &Rc<HostShared>) {
+	fn drain_parked_sessions(self: &Rc<HostShared>) -> Result<()> {
 		loop {
 			let parked = PENDING_RELEASES.with(|list| {
 				let mut list = list.borrow_mut();
 				let index = list.iter().position(
-					|item| matches!(item, PendingRelease::Session { host, .. } if Rc::ptr_eq(host, self)),
+					|item| matches!(item, PendingRelease::Session { shared } if Rc::ptr_eq(&shared.host, self)),
 				);
-				index.map(|index| list.swap_remove(index))
+				index.and_then(|index| list.remove(index))
 			});
-			let Some(PendingRelease::Session { session, host }) = parked else {
-				return;
+			let Some(PendingRelease::Session { shared }) = parked else {
+				return Ok(());
 			};
-			host.release_native_session(session);
-			drop(host);
+			if let Err(error) = shared.finish_native_release() {
+				PENDING_RELEASES.with(|list| list.borrow_mut().push_back(PendingRelease::Session { shared }));
+				return Err(error);
+			}
 		}
 	}
 
-	fn request_native_release(self: &Rc<HostShared>) {
-		self.drain_parked_sessions();
-		self.cancel_dial_tasks();
-		self.close_sessions();
-		if self.owned_tasks.get() == 0 {
-			self.finish_native_release();
+	fn request_native_release(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
+		self.drain_parked_sessions()?;
+		let options = pending.to_ffi()?;
+		let rc = unsafe { ffi::pancake_host_close(self.raw(), &options, monotonic_ms()) };
+		if rc != sys::OK {
+			return check_host(rc);
 		}
+		self.native_close_committed();
+		// A close request or escalation is close-relevant activity: a driver
+		// parked on a now-superseded wait must re-check progress.
+		self.note_close_activity();
+		if !self.close_task_started.get() {
+			let host = Rc::clone(self);
+			if try_spawn_local_handle(async move { host.drive_native_close().await }).is_none() {
+				return Err(Error::with_detail(
+					sys::ERR_INTERNAL,
+					"host close requires a running LocalSet".into(),
+				));
+			}
+			self.close_task_started.set(true);
+		}
+		Ok(())
 	}
 
-	fn finish_native_release(self: &Rc<HostShared>) {
-		if self.state.get() != HostState::Closing {
+	async fn drive_native_close(self: Rc<HostShared>) {
+		let close_code = loop {
+			if self.close_barrier.get() != CloseBarrierState::Running {
+				return;
+			}
+			// Register the activity waiter before the progress check, so a
+			// verb completing between the check and the await still wakes
+			// this loop instead of being lost.
+			let notified = self.close_activity();
+			tokio::pin!(notified);
+			notified.as_mut().enable();
+			let mut lifecycle = 0;
+			let rc = unsafe { ffi::pancake_host_close_progress(self.raw(), monotonic_ms(), &mut lifecycle) };
+			if rc != sys::OK && rc != sys::ERR_TIMEOUT {
+				self.fail_close(host_refusal(rc, "advancing host close"));
+				return;
+			}
+			if lifecycle == sys::LIFECYCLE_CLOSED {
+				break rc;
+			}
+			// Drain what progress queued before parking. A productive drain
+			// signals the waiter registered above, forcing one more progress
+			// check rather than parking over undrained work.
+			if let Err(error) = self.kick_actions().await {
+				self.fail_close(error);
+				return;
+			}
+			// Wake on host activity or on the nearest FINISH grace deadline;
+			// with no finite deadline pending, only activity can advance
+			// terminal progress, so the driver parks on activity alone.
+			match self.close_wait() {
+				Ok(Some(wait)) => {
+					tokio::select! {
+						() = notified.as_mut() => {}
+						() = tokio::time::sleep(wait) => {}
+					}
+				}
+				Ok(None) => notified.await,
+				Err(error) => {
+					self.fail_close(error);
+					return;
+				}
+			}
+		};
+		loop {
+			let notified = self.release_notify.notified();
+			if self.owned_tasks.get() == 0 {
+				break;
+			}
+			notified.await;
+		}
+		self.finish_native_release(close_code);
+	}
+
+	fn finish_native_release(self: &Rc<HostShared>, close_code: i32) {
+		if self.close_barrier.get() != CloseBarrierState::Running {
 			return;
 		}
+		// A task may fail after the close driver's final action drain but before
+		// its owned-task count reaches zero. Claim that exact cause here, at the
+		// last surviving barrier, while still releasing native state below.
+		let background_failure = self.take_background_failure();
 		let raw = self.raw.get();
 		if raw.is_null() {
-			self.state.set(HostState::Closed);
+			if let Some(error) = background_failure {
+				*self.close_failure.borrow_mut() = Some(error);
+				self.close_barrier.set(CloseBarrierState::Failed);
+			} else {
+				self.close_barrier.set(CloseBarrierState::Complete(close_code));
+			}
 			self.release_notify.notify_waiters();
 			return;
 		}
 		debug_assert_eq!(self.owned_tasks.get(), 0);
-		// Cancellation may have parked a Session release after close intent.
-		self.drain_parked_sessions();
-		self.close_sessions();
+		if let Err(error) = self.drain_parked_sessions() {
+			self.fail_close(background_failure.map_or(error.clone(), |primary| primary.with_secondary(error)));
+			return;
+		}
+		debug_assert!(self.sessions.borrow().is_empty());
+		debug_assert!(self
+			.vows
+			.borrow()
+			.values()
+			.all(|row| matches!(row.state, VowState::Settled(_))));
 		let rc = unsafe { ffi::pancake_host_release(raw) };
 		if rc != sys::OK {
-			self.state.set(HostState::Failed(rc));
-			self.release_notify.notify_waiters();
+			let release = host_refusal(rc, "releasing host");
+			self.fail_close(background_failure.map_or(release.clone(), |primary| primary.with_secondary(release)));
 			return;
 		}
 		crate::trace::detach_host(raw);
 		self.raw.set(core::ptr::null_mut());
-		self.state.set(HostState::Closed);
+		if let Some(error) = background_failure {
+			*self.close_failure.borrow_mut() = Some(error);
+			self.close_barrier.set(CloseBarrierState::Failed);
+		} else {
+			self.close_barrier.set(CloseBarrierState::Complete(close_code));
+		}
 		self.release_notify.notify_waiters();
-		self.fail_outstanding_vows("host released");
+		self.vows.borrow_mut().clear();
+		self.unobserved.borrow_mut().clear();
 		// Native release ran every ctx-free callback. These maps contain only
 		// non-owning pointers and cannot retain stale lookup results afterward.
 		self.hosted.borrow_mut().clear();
 		self.giftables.borrow_mut().clear();
 	}
 
-	fn fail_outstanding_vows(&self, message: &str) {
-		let mut vows = self.vows.borrow_mut();
-		for (_, row) in vows.drain() {
-			if let VowState::Awaited(waiter) = row.state {
-				let _ = waiter.send(Err(Error::with_detail(
-					sys::ERR_CLOSED,
-					message.to_string(),
-				)));
-			}
-		}
-		self.unobserved.borrow_mut().clear();
-	}
-
 	// ── The vow table ──────────────────────────────────────────────────────────
 
 	/// Record a freshly minted vow so the drain can route its completion. Must
 	/// run in the same synchronous block as the minting FFI call, so no drain
-	/// can pop the completion first. `session` is the home CapTP session (FAIL
-	/// classifies disconnect breaks as CLOSED when that session is closing).
-	pub(crate) fn vow_minted(&self, vow: u64, session: Option<&Rc<SessionShared>>) {
+	/// can pop the completion first.
+	pub(crate) fn vow_minted(&self, vow: u64) {
 		self.vows.borrow_mut().insert(
 			vow,
 			VowRow {
-				session: session.map(Rc::downgrade),
 				state: VowState::Minted,
 			},
 		);
-	}
-
-	/// Whether the vow's home session is closing — FAIL arms classify those
-	/// breaks as `ERR_CLOSED`.
-	pub(crate) fn vow_session_closing(&self, vow: u64) -> bool {
-		self.vows
-			.borrow()
-			.get(&vow)
-			.and_then(|row| row.session.as_ref())
-			.and_then(Weak::upgrade)
-			.is_some_and(|s| s.closing())
 	}
 
 	/// The vow's eventual outcome: the fulfilled wire value, or a typed
 	/// rejection — `ErrorKind::Broken` for a partner break, `ErrorKind::Closed`
 	/// when the settle was the disconnect's own break. Settles immediately
 	/// from the recorded state when the outcome already landed.
-	pub(crate) fn await_vow(
-		self: &Rc<HostShared>,
-		vow: u64,
-	) -> impl std::future::Future<Output = Result<Argument>> {
+	pub(crate) fn await_vow(self: &Rc<HostShared>, vow: u64) -> impl std::future::Future<Output = Result<Argument>> {
 		enum Waiting {
 			Now(Result<Argument>),
 			Settled(oneshot::Receiver<Result<Argument>>),
@@ -946,7 +1126,10 @@ impl HostShared {
 				VowState::Awaited(waiter) => {
 					vows.remove(&vow);
 					drop(vows);
-					let _ = waiter.send(outcome);
+					// Send failure proves the awaiting future was cancelled. The vow
+					// row is terminal and removed, and no native handle belongs to this
+					// binding-side delivery.
+					drop(waiter.send(outcome));
 					return;
 				}
 				// Minted, or an already-settled row re-settled: hold the
@@ -974,27 +1157,76 @@ impl HostShared {
 		}
 	}
 
+	/// Settle every binding-side waiter after the loop itself has failed before
+	/// it could project C ABI FAIL events. The core Host remains the semantic
+	/// authority; this only prevents its wrapper promises from parking forever
+	/// when the projection path is what died.
+	pub(crate) fn fail_pending_vows(&self, code: i32, detail: &str) {
+		let vows: Vec<u64> = self.vows.borrow().keys().copied().collect();
+		for vow in vows {
+			self.settle_vow(vow, Err(Error::with_detail(code, detail.to_string())));
+		}
+	}
+
+	pub(crate) fn record_background_failure(&self, error: Error) {
+		let mut retained = self.background_failure.borrow_mut();
+		*retained = Some(match retained.take() {
+			Some(primary) => primary.with_secondary(error),
+			None => error,
+		});
+		self.note_close_activity();
+	}
+
+	pub(crate) fn take_background_failure(&self) -> Option<Error> {
+		self.background_failure.borrow_mut().take()
+	}
+
 	// ── The action drain (the one loop rule) ──────────────────────────────────
 
 	/// Kick the action drain from a synchronous verb: schedule it as its own
 	/// task on the `LocalSet`.
-	pub(crate) fn schedule_kick(self: &Rc<HostShared>) {
+	pub(crate) fn schedule_kick(self: &Rc<HostShared>) -> Result<()> {
 		// On a loop-adopted Host the native loop is the one drain, so the kick
 		// becomes a scheduled loop step — deferred, so a kick from inside a
 		// turn steps only after the enclosing step unwinds.
 		if let Some(lp) = self.driver_loop() {
 			lp.schedule_step();
-			return;
+			return lp.guard_handle();
 		}
-		if inside_turn() || self.closing() || self.raw.get().is_null() {
-			return;
+		if inside_turn() || self.raw.get().is_null() {
+			return Ok(());
+		}
+		if self.closing() {
+			// The close driver owns the drain while the barrier runs, so a
+			// kick cannot spawn one; wake the driver instead, and the work
+			// this verb queued drains in its next pass.
+			self.note_close_activity();
+			return Ok(());
 		}
 		let registration = self.start_owned_task();
 		let host = Rc::clone(self);
-		let _ = try_spawn_local(async move {
+		if !try_spawn_local(async move {
 			let _registration = registration;
-			host.kick_actions().await;
-		});
+			if let Err(error) = host.kick_actions().await {
+				let detail = format!("action drain failed: {error}");
+				host.fail_pending_vows(error.code(), &detail);
+				host.record_background_failure(error);
+			}
+		}) {
+			return Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				"action progress requires a running LocalSet; queued work was not discarded".to_string(),
+			));
+		}
+		Ok(())
+	}
+
+	/// Schedule progress for an unowned destructor/finalizer effect. The work
+	/// stays queued, and refused admission is retained for the next verb head.
+	pub(crate) fn schedule_kick_or_record(self: &Rc<HostShared>) {
+		if let Err(error) = self.schedule_kick() {
+			self.record_background_failure(error);
+		}
 	}
 
 	/// Run the shared C action drain, then honor each parked arm. Reentrant on
@@ -1009,36 +1241,53 @@ impl HostShared {
 	/// as Racket's `drain-host-actions!`). A no-op inside a hosted turn: the
 	/// host refuses the driving verbs there, and everything the turn enqueued
 	/// pumps when the enclosing feed unwinds into this same drain.
-	pub(crate) async fn kick_actions(self: &Rc<HostShared>) {
-		if inside_turn() || self.closing() || self.raw.get().is_null() {
-			return;
+	pub(crate) async fn kick_actions(self: &Rc<HostShared>) -> Result<()> {
+		if inside_turn() || self.raw.get().is_null() {
+			return Ok(());
 		}
 		drain_pending_releases();
-		crate::gc::drain(self);
+		crate::gc::drain(self)?;
 		// The native loop is the drain on a loop-adopted Host: one step flushes
 		// what a verb queued and routes completions as loop events. No
 		// `pancake_host_pump_drain` may run beside it — the loop owns the queue.
 		if let Some(lp) = self.driver_loop() {
-			lp.step_now();
-			return;
+			return match lp.step_now() {
+				Ok(()) => Ok(()),
+				Err(error) => {
+					let surfaced = error.clone();
+					lp.fail_background(error);
+					Err(surfaced)
+				}
+			};
 		}
 		loop {
-			if self.closing() || self.raw.get().is_null() {
-				return;
+			if self.raw.get().is_null() {
+				return Ok(());
 			}
-			let Ok((parked, yielded)) = crate::action::park(self) else {
-				return;
-			};
+			let (parked, yielded) = crate::action::park(self)?;
 			if parked.is_empty() && !yielded {
-				return;
+				return Ok(());
 			}
+			let mut first_failure = None;
 			for action in parked {
 				// One failing action must not strand the rest of the drain: a
 				// FLUSH to a session whose socket just died fails here while
 				// the actions behind it belong to other, live sessions. The
 				// failed session tears itself down through its own serve loop
 				// (a DIAL failure is reported to the core inside the arm).
-				let _ = crate::action::run(self, action).await;
+				if let Err(error) = crate::action::run(self, action).await {
+					if first_failure.is_none() {
+						first_failure = Some(error);
+					}
+				}
+			}
+			// This pass did work that can advance close-relevant state; wake
+			// any parked close driver so it re-checks progress. An idle pass
+			// returns above without signaling, which keeps two parked close
+			// drivers from waking each other in an endless idle exchange.
+			self.note_close_activity();
+			if let Some(error) = first_failure {
+				return Err(error);
 			}
 			if yielded {
 				tokio::task::yield_now().await;
@@ -1070,7 +1319,7 @@ impl Drop for HostShared {
 		if inside_turn() {
 			self.raw.set(core::ptr::null_mut());
 			PENDING_RELEASES.with(|list| {
-				list.borrow_mut().push(PendingRelease::HostRaw {
+				list.borrow_mut().push_back(PendingRelease::HostRaw {
 					host: raw,
 					context: self.context.take(),
 				})
@@ -1080,9 +1329,14 @@ impl Drop for HostShared {
 			let rc = unsafe { ffi::pancake_host_release(raw) };
 			if rc == sys::OK {
 				self.raw.set(core::ptr::null_mut());
-			} else if let Some(context) = self.context.take() {
-				// The leaked raw Host still borrows this policy.
-				core::mem::forget(context);
+			} else {
+				if let Err(error) = check_host(rc) {
+					crate::record_runtime_failure(crate::FailureLayer::Binding, "host-drop-release", error);
+				}
+				if let Some(context) = self.context.take() {
+					// The leaked raw Host still borrows this policy.
+					core::mem::forget(context);
+				}
 			}
 		}
 	}
@@ -1100,6 +1354,30 @@ impl Drop for HostShared {
 #[derive(Clone)]
 pub struct Host {
 	shared: Rc<HostShared>,
+}
+
+/// Identity authority for a listening Host.
+///
+/// A seed restores the Host's durable identity without retaining an existing
+/// session directory. Supplying a [`Host`] shares both its identity and its
+/// live publications, sessions, and handoff router.
+#[derive(Clone, Default)]
+pub enum ListenerIdentity {
+	#[default]
+	Fresh,
+	Seed([u8; 32]),
+	Host(Host),
+}
+
+#[cfg(any(feature = "tcp", feature = "onion"))]
+impl ListenerIdentity {
+	pub(crate) fn into_host(self) -> Result<Host> {
+		match self {
+			Self::Fresh => Host::with_codec(Codec::Syrup),
+			Self::Seed(seed) => Host::from_seed(seed),
+			Self::Host(host) => Ok(host),
+		}
+	}
 }
 
 /// Construction knobs for [`Host`]. Codec, CapTP profile, feature offer, and
@@ -1147,42 +1425,43 @@ impl Host {
 	///
 	/// Closing a [`Session`](crate::Session) closes that one connection and
 	/// nothing else, so this is how an application that shares one host across
-	/// several sessions tears the whole thing down. A session that made its own
-	/// host (the ordinary [`connect`](crate::connect) with no host passed)
-	/// calls this for you when it closes.
-	pub fn close(&self) {
-		self.shared.close_host();
-	}
-
-	/// Request terminal teardown and wait until its native loop or every
-	/// Host-owned byte-channel task has stopped and native state is released.
-	pub async fn close_async(&self) -> Result<()> {
-		self.close();
+	/// several sessions tears the whole thing down. The returned future is the
+	/// completion barrier for Host-owned work and native state.
+	pub async fn close(&self, pending: PendingWork) -> Result<()> {
+		self.shared.close_host(pending)?;
 		self.shared.wait_closed().await
 	}
 
-	// A fresh Host with a random retained identity, minted at the I/O boundary
-	// (the sans-io core never generates entropy). The OS RNG failing is not a
-	// recoverable condition, the same stance the Deno/Python nodes take.
+	#[cfg(test)]
+	pub(crate) fn request_close(&self) {
+		let _ = self.shared.close_host(PendingWork::Cancel);
+	}
+
+	// Test convenience over the fallible public constructor. Production callers
+	// always receive initialization and entropy failures through `Result`.
+	#[cfg(test)]
 	pub(crate) fn new_host() -> Host {
-		Host::with_codec(Codec::Syrup)
+		Host::with_codec(Codec::Syrup).expect("test Host initialization")
 	}
 
 	/// A fresh Host whose sessions all negotiate in `codec` — the codec is a
 	/// Host property, so every session minted against a shared Host speaks
-	/// the same grammar (`Codec::Syrup` is what [`connect`](crate::connect) and
-	/// [`listen`](crate::listen) mint by default). Pass the Host to
-	/// [`connect`](crate::connect) as `Some(host)` or
-	/// [`listen_with_host`](crate::listen_with_host).
-	pub fn with_codec(codec: Codec) -> Host {
+	/// the same grammar (`Codec::Syrup` is what [`RuntimeConfig::providers`](crate::RuntimeConfig::providers) and
+	/// [`tcp::listen`](crate::tcp::listen) mint by default). Pass the Host to
+	/// [`RuntimeConfig::adopt_host`](crate::RuntimeConfig::adopt_host),
+	/// or to [`tcp::listen`](crate::tcp::listen) through
+	/// [`tcp::ListenOptions`](crate::tcp::ListenOptions).
+	pub fn with_codec(codec: Codec) -> Result<Host> {
 		Host::with_options(HostOptions::with_codec(codec))
 	}
 
 	/// A fresh Host from [`HostOptions`] (codec + local-turn budget).
-	pub fn with_options(options: HostOptions) -> Host {
+	pub fn with_options(options: HostOptions) -> Result<Host> {
 		let mut seed = [0u8; 32];
-		getrandom::fill(&mut seed).expect("the OS RNG provides a Host identity seed");
-		Host::from_seed_with_options(seed, options).expect("the allocator provides a Host")
+		getrandom::fill(&mut seed).map_err(|error| {
+			Error::with_detail(sys::ERR_IO, format!("drawing the Host identity seed failed: {error}"))
+		})?;
+		Host::from_seed_with_options(seed, options)
 	}
 
 	/// A Host whose retained Ed25519 identity is reconstructed from `seed`.
@@ -1190,12 +1469,7 @@ impl Host {
 	/// session still receives a fresh signing key (ADR-0075, ADR-0097).
 	/// `Codec::Syrup` is the default wire grammar.
 	pub fn from_seed(seed: [u8; 32]) -> Result<Host> {
-		Host::from_seed_with_codec(seed, Codec::Syrup)
-	}
-
-	/// [`from_seed`] with an explicit wire grammar.
-	pub fn from_seed_with_codec(seed: [u8; 32], codec: Codec) -> Result<Host> {
-		Host::from_seed_with_options(seed, HostOptions::with_codec(codec))
+		Host::from_seed_with_options(seed, HostOptions::with_codec(Codec::Syrup))
 	}
 
 	/// [`from_seed`] with full [`HostOptions`] (codec + local-turn budget).
@@ -1222,6 +1496,20 @@ impl Host {
 	) -> Result<()> {
 		self.shared
 			.set_session_limits(max_frame_bytes, queue_cap, outbound_high_water_bytes)
+	}
+
+	/// Claim every callerless failure retained by this Host's allocation
+	/// context. This is the same queue a caller-supplied [`Context`] exposes;
+	/// returned and close-barrier failures are not duplicated here.
+	pub fn take_failures(&self) -> Result<Vec<crate::FailureEvent>> {
+		let Some(context) = self.shared.retained_context() else {
+			return Ok(Vec::new());
+		};
+		let mut failures = Vec::new();
+		while let Some(failure) = context.next_failure()? {
+			failures.push(failure);
+		}
+		Ok(failures)
 	}
 
 	/// Retain and select this Host's complete acceptable location. Later
@@ -1253,11 +1541,10 @@ impl Host {
 
 	// A Host in a caller-supplied allocation scope; the Host must be dropped
 	// before the context. Test-only: the allocator dogfood drives it.
-	#[cfg(test)]
+	#[cfg(all(test, feature = "tcp"))]
 	pub(crate) fn new_in(context: &Context, codec: Codec) -> Result<Host> {
 		let mut seed = [0u8; 32];
-		getrandom::fill(&mut seed)
-			.map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "no OS entropy".to_string()))?;
+		getrandom::fill(&mut seed).map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "no OS entropy".to_string()))?;
 		Ok(Host {
 			shared: HostShared::new(
 				seed,
@@ -1278,34 +1565,11 @@ impl Host {
 		Rc::clone(&self.shared)
 	}
 
-	/// The iroh reachability posture this host uses to redeem a *hint-less*
-	/// handoff give (the exporter named by node id alone, with no direct-address
-	/// hints). Defaults to [`Reachability::Discovery`]; set
-	/// [`Reachability::DiscoveryNoRelay`] to honor a no-relay deployment policy. A
-	/// hinted give always dials [`Reachability::Direct`] and ignores this.
-	pub fn set_redeem_reachability(&self, reachability: Reachability) -> Result<()> {
-		self.shared.guard_open()?;
-		self.shared.redeem_reachability.set(reachability);
-		Ok(())
-	}
-
-	/// The reachability posture this host uses to redeem a hint-less handoff give.
-	pub fn redeem_reachability(&self) -> Reachability {
-		self.shared.redeem_reachability.get()
-	}
-
-	/// Configure how this host reaches a `keyed-relay` peer: map the peer's
-	/// key designator to the WebSocket URL of the relay rendezvous leg that
-	/// bridges onto its held inbound socket, e.g.
-	/// `|id| format!("wss://example/relay?rendezvous={id}")` (ADR-0088). The
-	/// keyed-relay sibling of [`Host::set_redeem_reachability`]: deployment
-	/// configuration for reaching an exporter that opens no listener. Without
-	/// it, a `keyed-relay` dial refuses; the dial itself needs the
-	/// `rendezvous` feature.
-	pub fn set_rendezvous_url(&self, url: impl Fn(&str) -> String + 'static) -> Result<()> {
-		self.shared.guard_open()?;
-		*self.shared.rendezvous_url.borrow_mut() = Some(Rc::new(url));
-		Ok(())
+	/// Atomically install explicit byte-fed connectors on this Host. The Host
+	/// retains one connector per transport symbol so later handoff redeem uses
+	/// the same caller-selected channel authority.
+	pub fn install_connectors(&self, connectors: &[crate::Connector]) -> Result<()> {
+		self.shared.install_connectors(connectors)
 	}
 
 	/// Enliven a complete sturdyref without naming a session (ADR-0098): the
@@ -1314,26 +1578,19 @@ impl Host {
 	/// the dial reports. [`Session::enliven`] is the narrower verb — it never
 	/// dials, and refuses a sturdyref for another peer.
 	pub async fn enliven(&self, sturdyref: &str) -> Result<Ref> {
-		self.shared.guard_open()?;
+		self.shared.guard_handle()?;
 		let mut vow: u64 = 0;
 		check_host(unsafe {
-			ffi::pancake_host_enliven(
-				self.shared.raw(),
-				sturdyref.as_ptr(),
-				sturdyref.len(),
-				&mut vow,
-			)
+			ffi::pancake_host_enliven(self.shared.raw(), sturdyref.as_ptr(), sturdyref.len(), &mut vow)
 		})?;
 		// The vow may be parked on a dial with no session of its own, which is
 		// exactly the `None` session row the vow table already admits.
-		self.shared.vow_minted(vow, None);
+		self.shared.vow_minted(vow);
 		let settled = self.shared.await_vow(vow);
-		self.shared.kick_actions().await;
+		self.shared.kick_actions().await?;
 		match settled.await? {
 			Argument::Reference(reference) => Ok(reference),
-			_ => Err(Error::broken(format!(
-				"{sturdyref:?} did not resolve to a capability"
-			))),
+			_ => Err(Error::broken(format!("{sturdyref:?} did not resolve to a capability"))),
 		}
 	}
 
@@ -1360,16 +1617,16 @@ impl Host {
 	/// exact actor when a recipient withdraws over its own exporter session
 	/// (ADR-0009). `make` preserves the factory-shaped API for a `!Clone` `FnMut`;
 	/// the Host invokes it once.
-	pub fn publish_giftable(&self, name: &str, make: impl Fn() -> Behavior + 'static) {
-		if let Err(error) = self.shared.guard_open() {
-			panic!("publish_giftable({name:?}) refused: {error}");
-		}
+	pub fn publish_giftable(&self, name: &str, make: impl Fn() -> Behavior + 'static) -> Result<()> {
+		self.shared.guard_handle()?;
 		// A giftable is bound to no single session: its forwards always go
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
 		let mut behavior = make();
 		let cell = Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(outcome_behavior(move |verb, args| behavior(verb, args))),
+			context: self.shared.retained_context().expect("every Host owns a Context"),
+			diagnostic_id: self.shared.diagnostic_id(),
 		}));
 		let rc = unsafe {
 			ffi::pancake_host_publish(
@@ -1382,19 +1639,12 @@ impl Host {
 			)
 		};
 		if rc != sys::OK {
-			unsafe { reclaim_refused_cell(rc, cell) };
-			// A refused host-wide publish is a programming error at the one call
-			// site that owns the name; fail loud rather than serve a ghost.
-			panic!(
-				"publish_giftable({name:?}) refused: {}",
-				host_last_error().unwrap_or_else(|| rc.to_string())
-			);
+			let primary = host_refusal(rc, "host publication");
+			let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
+			return Err(crate::retain_cleanup_failure(primary, cleanup));
 		}
-		self.shared
-			.giftables
-			.borrow_mut()
-			.insert(name.to_string(), cell);
-		self.shared.schedule_kick();
+		self.shared.giftables.borrow_mut().insert(name.to_string(), cell);
+		Ok(())
 	}
 
 	/// Publish `make`'s behavior under a freshly minted durable swiss name and
@@ -1402,16 +1652,18 @@ impl Host {
 	/// own locator (ADR-0098). Unpredictable, never reassigned, structurally
 	/// disjoint from every mutable alias, and removable only through
 	/// [`Host::remove_durable`]. Entropy is drawn here, from the OS RNG.
-	pub fn publish_durable(&self, make: impl Fn() -> Behavior + 'static) -> String {
-		if let Err(error) = self.shared.guard_open() {
-			panic!("publish_durable refused: {error}");
-		}
+	pub fn publish_durable(&self, make: impl Fn() -> Behavior + 'static) -> Result<String> {
+		self.shared.guard_handle()?;
+		let mut entropy = [0u8; 16];
+		getrandom::fill(&mut entropy).map_err(|error| {
+			Error::with_detail(sys::ERR_IO, format!("drawing durable swiss entropy failed: {error}"))
+		})?;
 		let mut behavior = make();
 		let cell = Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(outcome_behavior(move |verb, args| behavior(verb, args))),
+			context: self.shared.retained_context().expect("every Host owns a Context"),
+			diagnostic_id: self.shared.diagnostic_id(),
 		}));
-		let mut entropy = [0u8; 16];
-		getrandom::fill(&mut entropy).expect("the OS RNG provides durable swiss entropy");
 		let mut swiss = [0u8; 64];
 		let rc = unsafe {
 			ffi::pancake_host_publish_durable(
@@ -1426,77 +1678,52 @@ impl Host {
 			)
 		};
 		if rc <= 0 {
-			unsafe { reclaim_refused_cell(rc, cell) };
-			panic!(
-				"publish_durable refused: {}",
-				host_last_error().unwrap_or_else(|| rc.to_string())
-			);
+			let primary = host_refusal(rc, "durable host publication");
+			let cleanup = unsafe { reclaim_refused_cell(rc, cell) };
+			return Err(crate::retain_cleanup_failure(primary, cleanup));
 		}
 		let name = String::from_utf8_lossy(&swiss[..rc as usize]).into_owned();
-		self.shared
-			.giftables
-			.borrow_mut()
-			.insert(name.clone(), cell);
-		self.shared.schedule_kick();
-		name
+		self.shared.giftables.borrow_mut().insert(name.clone(), cell);
+		Ok(name)
 	}
 
 	/// Remove a minted durable publication (ADR-0098): the old sturdyref
 	/// misses from now on, while capabilities already issued and deposited
 	/// gifts keep the exact actor. Returns `false` when no such durable name
 	/// exists.
-	pub fn remove_durable(&self, swiss: &str) -> bool {
-		if let Err(error) = self.shared.guard_open() {
-			panic!("remove_durable({swiss:?}) refused: {error}");
-		}
-		let rc = unsafe {
-			ffi::pancake_host_remove_durable(self.shared.raw.get(), swiss.as_ptr(), swiss.len())
-		};
+	pub fn remove_durable(&self, swiss: &str) -> Result<bool> {
+		self.shared.guard_handle()?;
+		let rc = unsafe { ffi::pancake_host_remove_durable(self.shared.raw.get(), swiss.as_ptr(), swiss.len()) };
 		if rc == sys::ERR_NOT_FOUND {
-			return false;
+			return Ok(false);
 		}
-		if rc != sys::OK {
-			panic!(
-				"remove_durable({swiss:?}) refused: {}",
-				host_last_error().unwrap_or_else(|| rc.to_string())
-			);
-		}
+		check_host(rc)?;
 		self.shared.giftables.borrow_mut().remove(swiss);
-		true
+		Ok(true)
 	}
 
 	/// Remove the Host-wide alias `name` (alias-only, ADR-0096): a later fetch
 	/// misses on every session, while capabilities already issued and deposited
 	/// gifts keep the exact actor, whose behavior stays hosted for the Host's
-	/// life. Returns `false` when no such alias exists; any other refusal is a
-	/// programming error and panics like `publish_giftable`.
-	pub fn unpublish_giftable(&self, name: &str) -> bool {
-		if let Err(error) = self.shared.guard_open() {
-			panic!("unpublish_giftable({name:?}) refused: {error}");
-		}
-		let rc = unsafe {
-			ffi::pancake_host_unpublish(self.shared.raw.get(), name.as_ptr(), name.len())
-		};
+	/// life. Returns `false` when no such alias exists; every other refusal is
+	/// returned with its native diagnostic.
+	pub fn unpublish_giftable(&self, name: &str) -> Result<bool> {
+		self.shared.guard_handle()?;
+		let rc = unsafe { ffi::pancake_host_unpublish(self.shared.raw.get(), name.as_ptr(), name.len()) };
 		if rc == sys::ERR_NOT_FOUND {
-			return false;
+			return Ok(false);
 		}
-		if rc != sys::OK {
-			panic!(
-				"unpublish_giftable({name:?}) refused: {}",
-				host_last_error().unwrap_or_else(|| rc.to_string())
-			);
-		}
+		check_host(rc)?;
 		// The alias is gone but the actor is not: the C row still owns the
 		// behavior cell (freed at release), so only the name bookkeeping drops.
 		self.shared.giftables.borrow_mut().remove(name);
-		true
+		Ok(true)
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::dial::Reachability;
 	use std::cell::Cell;
 
 	struct DropProbe(Rc<Cell<bool>>);
@@ -1512,30 +1739,82 @@ mod tests {
 	// actor row and break that cycle instead of waiting for HostShared::drop.
 	#[test]
 	fn close_breaks_a_hosted_behavior_host_cycle() {
-		let host = Host::new_host();
-		let captured_host = host.clone();
-		let dropped = Rc::new(Cell::new(false));
-		let dropped_by_behavior = Rc::clone(&dropped);
-		host.publish_giftable("cycle", move || {
-			let retained_host = captured_host.clone();
-			let probe = DropProbe(Rc::clone(&dropped_by_behavior));
-			Box::new(move |_verb, _args| {
-				let _keep_host = &retained_host;
-				let _keep_probe = &probe;
-				Ok(Argument::Void)
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.expect("current-thread runtime");
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let host = Host::new_host();
+			let captured_host = host.clone();
+			let dropped = Rc::new(Cell::new(false));
+			let dropped_by_behavior = Rc::clone(&dropped);
+			host.publish_giftable("cycle", move || {
+				let retained_host = captured_host.clone();
+				let probe = DropProbe(Rc::clone(&dropped_by_behavior));
+				Box::new(move |_verb, _args| {
+					let _keep_host = &retained_host;
+					let _keep_probe = &probe;
+					Ok(Argument::Void)
+				})
 			})
-		});
+			.unwrap();
 
-		host.close();
-		assert!(host.shared.raw.get().is_null());
-		assert!(
-			dropped.get(),
-			"native Host release drops the captured behavior"
-		);
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+			assert!(host.shared.raw.get().is_null());
+			assert!(dropped.get(), "native Host release drops the captured behavior");
+		});
 	}
 
 	#[test]
-	fn close_aborts_host_owned_dial_tasks_before_native_release() {
+	fn closed_host_publication_verbs_return_their_refusal() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.expect("current-thread runtime");
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let host = Host::new_host();
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+
+			let publish = host
+				.publish_giftable("late", || Box::new(|_verb, _args| Ok(Argument::Void)))
+				.unwrap_err();
+			assert_eq!(publish.code(), sys::ERR_CLOSED);
+			let durable = host
+				.publish_durable(|| Box::new(|_verb, _args| Ok(Argument::Void)))
+				.unwrap_err();
+			assert_eq!(durable.code(), sys::ERR_CLOSED);
+			assert_eq!(host.remove_durable("late").unwrap_err().code(), sys::ERR_CLOSED);
+			assert_eq!(host.unpublish_giftable("late").unwrap_err().code(), sys::ERR_CLOSED);
+		});
+	}
+
+	#[test]
+	fn host_publication_results_cover_success_and_absence() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.expect("current-thread runtime");
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let host = Host::new_host();
+			host.publish_giftable("alias", || Box::new(|_verb, _args| Ok(Argument::Void)))
+				.unwrap();
+			assert!(host.unpublish_giftable("alias").unwrap());
+			assert!(!host.unpublish_giftable("alias").unwrap());
+
+			let swiss = host
+				.publish_durable(|| Box::new(|_verb, _args| Ok(Argument::Void)))
+				.unwrap();
+			assert!(host.remove_durable(&swiss).unwrap());
+			assert!(!host.remove_durable(&swiss).unwrap());
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+		});
+	}
+
+	#[test]
+	fn cancel_dial_action_joins_its_ticketed_task() {
 		let runtime = tokio::runtime::Builder::new_current_thread()
 			.enable_all()
 			.build()
@@ -1545,16 +1824,107 @@ mod tests {
 			let host = Host::new_host();
 			let dropped = Rc::new(Cell::new(false));
 			let task_dropped = Rc::clone(&dropped);
-			assert!(host.shared.spawn_dial_task(move |_host| async move {
+			assert!(host.shared.spawn_dial_task(1, move |_host| async move {
 				let _probe = DropProbe(task_dropped);
 				std::future::pending::<()>().await;
 			}));
 			tokio::task::yield_now().await;
 
-			host.close_async().await.unwrap();
-			assert!(host.shared.raw.get().is_null());
-			assert!(dropped.get(), "Host close drops the cancelled DIAL future");
+			host.shared.cancel_dial_task(1).await.unwrap();
+			assert!(dropped.get(), "CANCEL_DIAL joins the ticketed DIAL future");
+			host.close(crate::PendingWork::Cancel).await.unwrap();
 		});
+	}
+
+	#[test]
+	fn panicking_dial_task_reaches_the_host_close_barrier() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.expect("current-thread runtime");
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let host = Host::new_host();
+			assert!(host.shared.spawn_dial_task(1, move |_host| async move {
+				panic!("dial executor panic");
+			}));
+			tokio::task::yield_now().await;
+			tokio::task::yield_now().await;
+
+			let error = host.close(crate::PendingWork::Cancel).await.unwrap_err();
+			assert_eq!(error.code(), sys::ERR_INTERNAL);
+			assert!(error
+				.message()
+				.is_some_and(|message| message.contains("dial executor panic")));
+		});
+	}
+
+	#[test]
+	fn panicking_actor_cell_drop_is_contained_and_diagnosed() {
+		struct PanicOnDrop;
+		impl Drop for PanicOnDrop {
+			fn drop(&mut self) {
+				panic!("actor cell destructor panic");
+			}
+		}
+
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.expect("current-thread runtime");
+		let local = tokio::task::LocalSet::new();
+		let diagnostics = local.block_on(&runtime, async {
+			let host = Host::new_host();
+			host.publish_giftable("panicking-drop", move || {
+				let guard = PanicOnDrop;
+				Box::new(move |_verb, _args| {
+					let _keep_captured = &guard;
+					Ok(Argument::Void)
+				})
+			})
+			.unwrap();
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+			host.take_failures().unwrap()
+		});
+
+		assert!(diagnostics.iter().any(|failure| {
+			failure.operation == "actor-cell.drop" && failure.primary_message == "actor cell destructor panic"
+		}));
+	}
+
+	#[test]
+	fn refused_publication_attaches_panicking_actor_cell_drop() {
+		struct PanicOnDrop;
+		impl Drop for PanicOnDrop {
+			fn drop(&mut self) {
+				panic!("refused actor cell destructor panic");
+			}
+		}
+
+		let host = Host::new_host();
+		let guard = PanicOnDrop;
+		let cell = Box::into_raw(Box::new(ActorCell {
+			behavior: RefCell::new(outcome_behavior(move |_verb, _args| {
+				let _keep_captured = &guard;
+				Ok(Argument::Void)
+			})),
+			context: host.shared.retained_context().unwrap(),
+			diagnostic_id: host.shared.diagnostic_id(),
+		}));
+		let cleanup = unsafe { reclaim_refused_cell(sys::ERR_INVALID_ARGUMENT, cell) };
+		let error = crate::retain_cleanup_failure(
+			Error::with_detail(sys::ERR_INVALID_ARGUMENT, "publication refused".to_string()),
+			cleanup,
+		);
+
+		assert_eq!(error.code(), sys::ERR_INVALID_ARGUMENT);
+		assert_eq!(error.secondary_error_count(), 1);
+		assert!(error.secondary_errors()[0]
+			.message()
+			.is_some_and(|message| message.contains("refused actor cell destructor panic")));
+		// Rollback did not poison or consume the Host.
+		host.publish_giftable("still-live", || Box::new(|_verb, _args| Ok(Argument::Void)))
+			.unwrap();
 	}
 
 	#[test]
@@ -1566,35 +1936,106 @@ mod tests {
 		let local = tokio::task::LocalSet::new();
 		local.block_on(&runtime, async {
 			let host = Host::new_host();
-			host.shared.schedule_kick();
+			host.shared.schedule_kick().unwrap();
 			assert_eq!(host.shared.owned_tasks.get(), 1);
 
-			host.close();
+			host.request_close();
 			assert!(
 				!host.shared.raw.get().is_null(),
 				"close released native state beneath an admitted action drain"
 			);
-			host.close_async().await.unwrap();
+			host.close(crate::PendingWork::Cancel).await.unwrap();
 			assert!(host.shared.raw.get().is_null());
 			assert_eq!(host.shared.owned_tasks.get(), 0);
 		});
 	}
 
-	// A fresh host redeems a hint-less iroh give under `Discovery` by default —
-	// the behavior-preserving, maximal-reach choice every existing handoff gate
-	// relies on — and the recipient can lower it to a no-relay policy. The setter
-	// is shared across host clones, so a knob set on one handle reaches the
-	// connections that share the host's identity.
+	// Host-level FINISH (ADR-0114): a negotiating session is admitted pending
+	// work, so a finite grace expires and the close barrier reports its
+	// timeout. The barrier retains that terminal outcome, so a repeated close
+	// observes the same timeout instead of silently succeeding.
 	#[test]
-	fn redeem_reachability_defaults_to_discovery_and_is_settable() {
-		let host = Host::new_host();
-		assert_eq!(host.redeem_reachability(), Reachability::Discovery);
-		host.set_redeem_reachability(Reachability::DiscoveryNoRelay)
+	fn a_finite_finish_close_reports_its_timeout_and_a_repeat_observes_it() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.expect("current-thread runtime");
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			let host = Host::new_host();
+			let pending = crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, "127.0.0.1:1");
+			let owned = crate::uri::OwnedLocator::new(&pending).unwrap();
+			let mut ptr = core::ptr::null_mut();
+			check_host(unsafe {
+				ffi::pancake_host_session_open_dialed_locator(host.shared.raw(), owned.borrow_view().unwrap(), &mut ptr)
+			})
 			.unwrap();
-		assert_eq!(host.redeem_reachability(), Reachability::DiscoveryNoRelay);
+
+			let error = host
+				.close(crate::PendingWork::Finish {
+					grace: Some(std::time::Duration::from_millis(20)),
+				})
+				.await
+				.expect_err("a negotiating session keeps the finite finish from settling in time");
+			assert_eq!(error.kind(), crate::ErrorKind::TimedOut);
+			assert!(
+				host.shared.raw.get().is_null(),
+				"the timed-out finish still releases native state"
+			);
+
+			let again = host
+				.close(crate::PendingWork::Cancel)
+				.await
+				.expect_err("a repeated close observes the recorded timeout");
+			assert_eq!(again.kind(), crate::ErrorKind::TimedOut);
+		});
+	}
+
+	#[test]
+	fn close_barrier_retains_the_exact_first_failure() {
+		let host = Host::new_host();
+		let first = Error::with_detail(sys::ERR_IO, "close transport lost its wake descriptor".to_string());
+		host.shared.fail_close(first.clone());
+		host.shared.fail_close(Error::with_detail(
+			sys::ERR_INTERNAL,
+			"later cleanup failure".to_string(),
+		));
+
+		let observed = host
+			.shared
+			.close_host(crate::PendingWork::Cancel)
+			.expect_err("a terminal close failure remains observable");
+		assert_eq!(observed, first);
+	}
+
+	#[test]
+	fn committed_close_can_retry_its_driver_spawn() {
+		let host = Host::new_host();
+		let first = host.shared.close_host(crate::PendingWork::Cancel);
+		assert!(first.is_err(), "close outside a LocalSet must refuse its driver spawn");
+		assert_eq!(host.shared.close_barrier.get(), CloseBarrierState::Running);
+		assert!(!host.shared.close_task_started.get());
+
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.expect("current-thread runtime");
+		let local = tokio::task::LocalSet::new();
+		local.block_on(&runtime, async {
+			host.close(crate::PendingWork::Cancel).await.unwrap();
+		});
+		assert!(host.shared.raw.get().is_null());
+	}
+
+	#[test]
+	fn action_kick_without_a_local_set_reports_admission_failure() {
+		let host = Host::new_host();
+		let error = host.shared.schedule_kick().unwrap_err();
+		assert_eq!(error.kind(), crate::ErrorKind::Internal);
 		assert_eq!(
-			host.clone().redeem_reachability(),
-			Reachability::DiscoveryNoRelay
+			host.shared.owned_tasks.get(),
+			0,
+			"refused admission releases its task registration"
 		);
 	}
 
@@ -1629,9 +2070,41 @@ mod tests {
 			codec: Codec::Syrup,
 			local_turn_budget: 64,
 			..Default::default()
-		});
-		host.set_session_limits(0, 0, 0)
-			.expect("minted host answers limits");
+		})
+		.unwrap();
+		host.set_session_limits(0, 0, 0).expect("minted host answers limits");
+	}
+
+	#[test]
+	fn connector_installation_publishes_no_partial_batch() {
+		let host = Host::new_host();
+		let mixed = crate::Connector::new(
+			&["new-good", ""],
+			|_host: Host,
+			 _locator: &Locator,
+			 _redeem: bool,
+			 _transport_options: Option<&[u8]>,
+			 _timeout: Option<std::time::Duration>| {
+				Box::pin(async { Err(Error::with_detail(sys::ERR_INTERNAL, "unused".to_string())) })
+			},
+		)
+		.unwrap();
+		assert!(host.install_connectors(&[mixed]).is_err());
+		assert!(host.shared.connector("new-good").is_none());
+
+		let good = crate::Connector::new(
+			&["new-good"],
+			|_host: Host,
+			 _locator: &Locator,
+			 _redeem: bool,
+			 _transport_options: Option<&[u8]>,
+			 _timeout: Option<std::time::Duration>| {
+				Box::pin(async { Err(Error::with_detail(sys::ERR_INTERNAL, "unused".to_string())) })
+			},
+		)
+		.unwrap();
+		host.install_connectors(&[good]).unwrap();
+		assert!(host.shared.connector("new-good").is_some());
 	}
 }
 
@@ -1651,10 +2124,7 @@ pub struct Resolver {
 impl Resolver {
 	fn live_id(&self) -> Result<u64> {
 		self.id.ok_or_else(|| {
-			Error::with_transport_detail(
-				sys::ERR_INVALID_ARGUMENT,
-				Some("resolver already settled".into()),
-			)
+			Error::with_transport_detail(sys::ERR_INVALID_ARGUMENT, Some("resolver already settled".into()))
 		})
 	}
 
@@ -1666,11 +2136,11 @@ impl Resolver {
 		let id = self.live_id()?;
 		let mut arena = crate::SendArena::default();
 		let c_value = arena.one(value)?;
-		check_host(unsafe {
-			ffi::pancake_host_resolver_fulfill(self.shared.raw.get(), id, &c_value)
-		})?;
+		check_host(unsafe { ffi::pancake_host_resolver_fulfill(self.shared.raw.get(), id, &c_value) })?;
 		self.id = None;
-		self.shared.schedule_kick();
+		// A settle can advance a FINISH close; wake any parked close driver.
+		self.shared.note_close_activity();
+		self.shared.schedule_kick()?;
 		Ok(())
 	}
 
@@ -1679,15 +2149,12 @@ impl Resolver {
 	pub fn break_with(&mut self, reason: &str) -> Result<()> {
 		let id = self.live_id()?;
 		check_host(unsafe {
-			ffi::pancake_host_resolver_break(
-				self.shared.raw.get(),
-				id,
-				reason.as_ptr(),
-				reason.len(),
-			)
+			ffi::pancake_host_resolver_break(self.shared.raw.get(), id, reason.as_ptr(), reason.len())
 		})?;
 		self.id = None;
-		self.shared.schedule_kick();
+		// A settle can advance a FINISH close; wake any parked close driver.
+		self.shared.note_close_activity();
+		self.shared.schedule_kick()?;
 		Ok(())
 	}
 }

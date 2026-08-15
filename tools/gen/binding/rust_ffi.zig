@@ -180,7 +180,7 @@ fn renderArchive(
                 width += names[i].len + @intFromBool(isRustKeyword(names[i])) + 2 + (comptime rustParamType(p.type.?, specials)).len;
             }
             if (ret.len != 0) width += 4 + ret.len;
-            if (width <= 100) {
+            if (width <= 120) {
                 try out.print(gpa, "\tpub fn {s}(", .{row.name});
                 inline for (info.params, 0..) |p, i| {
                     if (i != 0) try out.appendSlice(gpa, ", ");
@@ -224,10 +224,12 @@ fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
         \\use core::ffi::{c_int, c_uchar, c_uint};
         \\
     ++ "\nuse super::driver::{\n" ++
-        "\tPancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportProvider,\n" ++
+        "\tPancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportOperationOptions,\n" ++
+        "\tPancakeTransportProvider,\n" ++
         \\};
-        \\use super::host::{PancakeHost, PancakeHostSession};
+        \\use super::host::{PancakeCloseOptions, PancakeHost, PancakeHostSession};
         \\use super::ocapn::PancakeLocatorView;
+        \\use crate::sys::PancakeReference;
         \\
     , &.{});
 }
@@ -241,8 +243,8 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
         \\
     , "use core::ffi::{c_int, c_uchar, c_uint};\n\n" ++
         "use super::ocapn::{\n" ++
-        "\tPancakeAllocator, PancakeContext, PancakeLocator, PancakeLocatorHintView, PancakeLocatorView,\n" ++
-        "\tPancakeManagedFrame, PancakeSturdyRef,\n" ++
+        "\tPancakeAllocator, PancakeContext, PancakeFailureEvent, PancakeFailureReport, PancakeLocator,\n" ++
+        "\tPancakeLocatorHintView, PancakeLocatorView, PancakeManagedFrame, PancakeSturdyRef,\n" ++
         "};\n", &.{});
 }
 
@@ -257,14 +259,11 @@ fn generateHost(gpa: std.mem.Allocator) ![]u8 {
         \\
     , "use core::ffi::{c_int, c_uchar, c_uint, c_void};\n\n" ++
         "use super::host::{\n" ++
-        "\tPancakeAcceptPlan, PancakeDialPlan, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree,\n" ++
-        "\tPancakeHostPumpHooks, PancakeHostSession, PancakeHostTurn, PancakePartnerIdentity,\n" ++
-        "\tPancakeTraceCallback,\n" ++
+        "\tPancakeCloseOptions, PancakeHost, PancakeHostBehavior, PancakeHostCtxFree, PancakeHostPumpHooks,\n" ++
+        "\tPancakeHostSession, PancakeHostTurn, PancakePartnerIdentity, PancakeTraceCallback,\n" ++
         "};\n" ++
         "use super::ocapn::{PancakeLocatorHintView, PancakeLocatorView};\n" ++
-        "use crate::sys::{\n" ++
-        "\tPancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference,\n" ++
-        "};\n", &.{
+        "use crate::sys::{PancakeArgument, PancakeContext, PancakeLastAbort, PancakeManagedFrame, PancakeReference};\n", &.{
         .{ .T = cd.PancakeHostBehavior, .spelling = "PancakeHostBehavior" },
         .{ .T = cd.PancakeTraceCallback, .spelling = "PancakeTraceCallback" },
         .{ .T = cd.PancakeHostCtxFree, .spelling = "PancakeHostCtxFree" },
@@ -278,14 +277,10 @@ fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
         \\// consumers keep their `sys::tcp::pancake_tcp_*` paths.
         \\
         \\
-    ,
-        \\use core::ffi::{c_int, c_uchar, c_uint};
-        \\
-        \\use super::tcp::{PancakeTcpConn, PancakeTcpListener, PancakeTcpNetlayer};
-        \\use crate::sys::driver::PancakeTransportProvider;
-        \\use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
-        \\
-    , &.{});
+    , "use core::ffi::{c_int, c_uchar, c_uint};\n\n" ++
+        "use super::tcp::{PancakeTcpConfig, PancakeTcpConn, PancakeTcpListener, PancakeTcpNetlayer, PancakeTcpStreamOptions};\n" ++
+        "use crate::sys::driver::PancakeTransportProvider;\n" ++
+        "use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};\n", &.{});
 }
 
 fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
@@ -348,9 +343,8 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\
     , "use core::ffi::{c_int, c_uchar};\n\n" ++
-        "use super::webrtc::{\n" ++
-        "\tPancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent,\n" ++
-        "};\n", &.{});
+        "use super::driver::PancakeTransportProvider;\n" ++
+        "use super::webrtc::{PancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};\n", &.{});
 }
 
 fn generateRelay(gpa: std.mem.Allocator) ![]u8 {

@@ -20,10 +20,7 @@ import { TimelineDocument } from "../timeline.ts";
 import { Engine } from "../engine.ts";
 import type { TimelineEvent } from "../timeline.ts";
 import { observationsOf } from "../temporal/recording-access.ts";
-import {
-  sessionEndpointAt,
-  sessionEndpointPlaceAt,
-} from "../temporal/doc-resolver.ts";
+import { sessionEndpointAt, sessionEndpointPlaceAt } from "../temporal/doc-resolver.ts";
 import {
   attachedEndpoint,
   attachedTo,
@@ -235,9 +232,7 @@ engineTest("every attribution a recording can hold can be authored", () => {
       (ev) => ev.kind === "session-endpoint-attributed",
     );
     assertEquals(
-      stated !== undefined && "attributedBy" in stated
-        ? stated.attributedBy
-        : undefined,
+      stated !== undefined && "attributedBy" in stated ? stated.attributedBy : undefined,
       attribution,
       `${attribution}: the moment did not say what backed the attachment`,
     );
@@ -510,9 +505,7 @@ engineTest(
 
 /** The two moments of `s1`'s state track, by the observation each is. */
 function stateMoments(e: Engine) {
-  return sessionTrajectoryRows(e.doc, "s1").filter((m) =>
-    m.property === "state"
-  );
+  return sessionTrajectoryRows(e.doc, "s1").filter((m) => m.property === "state");
 }
 
 engineTest("a moment dropped on its own neighbour is refused", () => {
@@ -572,9 +565,7 @@ engineTest("a moment may land where ANOTHER property states one", () => {
   });
   // The two tracks are read separately and neither shadows the other,
   // so an end's moment is no constraint on the state's.
-  const endMoment = sessionTrajectoryRows(e.doc, "s1").find((m) =>
-    m.property === "b"
-  )!;
+  const endMoment = sessionTrajectoryRows(e.doc, "s1").find((m) => m.property === "b")!;
   e.dispatch({
     kind: "move-event",
     move: { kind: "translate", eventId: endMoment.eventId, newT: 1000 },

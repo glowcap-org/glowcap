@@ -6,6 +6,7 @@ comptime {
     _ = @import("foundation/crypto_test.zig");
     _ = @import("foundation/noise_test.zig");
     _ = @import("foundation/spill_test.zig");
+    _ = @import("foundation/failure_chain_test.zig");
     _ = @import("codec/syrup_test.zig");
     _ = @import("codec/capnp_test.zig");
     _ = @import("codec/capnp_golden_test.zig");
@@ -35,12 +36,16 @@ comptime {
     _ = @import("c_abi/locator_adapter_test.zig");
     _ = @import("c_abi/uri_test.zig");
     _ = @import("c_abi/host_test.zig");
+    _ = @import("c_abi/last_error_test.zig");
+    _ = @import("c_abi/failure_diagnostics_test.zig");
     _ = @import("c_abi/foreign_call_barrier_test.zig");
     _ = @import("c_abi/inproc_loopback_test.zig");
     _ = @import("c_abi/onion_loopback_test.zig");
+    _ = @import("c_abi/tcp_provider_options_test.zig");
     _ = @import("net/connection_test.zig");
     _ = @import("net/frame_stream_test.zig");
     _ = @import("net/netlayer_test.zig");
+    _ = @import("net/operation_owner_test.zig");
     _ = @import("net/onion_control_test.zig");
     _ = @import("net/onion_completion_test.zig");
     _ = @import("net/onion_resident_test.zig");

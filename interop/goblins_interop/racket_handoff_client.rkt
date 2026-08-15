@@ -1,14 +1,14 @@
 #lang racket
 ;; Live three-party handoff with the Racket binding as the recipient (Carol),
 ;; proving the binding redeems a `desc:handoff-give` transparently — through the
-;; same `connect`/`session-fetch`/`session-send` application surface the demos use, with
+;; same Runtime/session application surface the demos use, with
 ;; no bespoke handoff choreography in the application. The binding counterpart of
 ;; `zig build goblins-handoff` (which proves it at the Zig driver level).
 ;;
 ;; It spawns the conformance Goblins introducer host (Alice on PORT, Bob the
 ;; exporter on PORT+1), learns Alice's introducer swiss-num from its NDJSON
 ;; readiness line, then:
-;;   1. `connect` to Alice and `session-fetch` the introducer.
+;;   1. Open a TCP Runtime, connect to Alice, and fetch the introducer.
 ;;   2. `(session-send session introducer 'get-greeter)`. Alice hands back Bob's greeter
 ;;      as a three-party handoff give. The connection's machine redeems it: it
 ;;      dials Bob directly (keyed with the *same* identity Alice saw), withdraws
@@ -23,6 +23,7 @@
 ;; `zig build racket-goblins-handoff`.
 
 (require "../../bindings/racket/pancake.rkt"
+         "../../bindings/racket/pancake-tcp.rkt"
          "../_common/racket/helpers.rkt")
 
 (define HOST "127.0.0.1")
@@ -39,9 +40,10 @@
   (define swiss (read-swiss proc-out "alice exited before publishing the introducer"))
   (printf "racket-goblins-handoff: alice published introducer swiss=~a on ~a:~a\n" swiss HOST PORT)
 
-  ;; `connect` completes the keyed handshake; the machine's retained identity is
-  ;; the recipient key the gift Alice deposits will name.
-  (define session (connect (tcp-locator HOST PORT)))
+  ;; Runtime connection completes the keyed handshake; the machine's retained
+  ;; identity is the recipient key the gift Alice deposits will name.
+  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define session (runtime-connect runtime (tcp-locator HOST PORT)))
   (printf "racket-goblins-handoff: session open (recipient -> alice)\n")
 
   (define introducer (session-fetch session swiss))
@@ -63,4 +65,5 @@
 
   (printf "racket-goblins-handoff OK: the Racket binding redeemed a three-party handoff from live Goblins and called the exporter directly\n")
   (session-close! session)
+  (runtime-close! runtime)
   (subprocess-kill proc #t))

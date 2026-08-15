@@ -4,10 +4,11 @@
 // `zig build demo-rooms-dm-iroh-discovery` (needs internet). The handoff
 // choreography is shared in `runDmHandoff`.
 
-import { formatPeerUri } from "@pancake/stack";
+import { formatPeerUri } from "@pancake/runtime";
 import { roomsHost } from "../lib/locator.ts";
-import { listenIroh, Reachability } from "@pancake/iroh";
+import * as iroh from "@pancake/iroh";
 import { runDmHandoff } from "../lib/dm_handoff.ts";
+import { openRoomsRuntime } from "../lib/runtime.ts";
 
 runDmHandoff({
 	label: "rooms-dm-iroh-discovery",
@@ -21,23 +22,34 @@ runDmHandoff({
 	],
 	async startMember(who) {
 		const host = roomsHost();
-		const member = await listenIroh(
-			{ reachability: Reachability.Discovery },
-			undefined,
-			host,
+		const member = await iroh.listen(
+			{ reachability: iroh.Reachability.Discovery },
+			{ host },
 		);
+		const runtime = await openRoomsRuntime({
+			host,
+			iroh: { reachability: iroh.Reachability.Discovery },
+		});
 		const locator = formatPeerUri("iroh", member.nodeId);
 		console.log(`rooms-dm-iroh-discovery: ${who} published ${locator} (id only)`);
-		return { host, sessions: member, locator, close: () => member.close() };
+		return {
+			host,
+			runtime,
+			sessions: member,
+			locator,
+			async close() {
+				member.close();
+				await runtime.close();
+			},
+		};
 	},
 	async startRoom() {
-		const room = await listenIroh(
-			{ reachability: Reachability.Discovery },
-			undefined,
-			roomsHost(),
+		const room = await iroh.listen(
+			{ reachability: iroh.Reachability.Discovery },
+			{ host: roomsHost() },
 		);
 		const locator = formatPeerUri("iroh", room.nodeId);
 		console.log(`rooms-dm-iroh-discovery: Room published ${locator} (id only)`);
-		return { listener: room, locator, close: () => room.close() };
+		return { host: room.host, listener: room, locator, close: () => room.close() };
 	},
 });

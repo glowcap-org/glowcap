@@ -29,7 +29,7 @@ async def _await_minted(session, vow: int):
     # The shared fetch/enliven wait: register the vow, keep the inbound
     # loop running (the completion's bytes arrive on it), kick the drain so
     # the deliver leaves now, and await the drain-routed outcome.
-    session.host.vow_minted(vow, session)
+    session.host.vow_minted(vow)
     session.serve()
     settled = session.host.await_vow(vow)
     await session.host.kick_actions()
@@ -87,7 +87,7 @@ def _promise_for(session, vow: int) -> RemotePromise:
                 session.host.raw, vow, fptr, len(field), ctypes.byref(out),
             ))
         projected = out.value
-        session.host.vow_minted(projected, session)
+        session.host.vow_minted(projected)
         return _promise_for(session, projected)
 
     return RemotePromise.far(vow, begin, project)
@@ -303,7 +303,7 @@ def _listen_far(session, target) -> RemotePromise:
         session.raw, ctypes.byref(ref), ctypes.byref(out),
     ))
     vow = out.value
-    session.host.vow_minted(vow, session)
+    session.host.vow_minted(vow)
     return _promise_for(session, vow)
 
 
@@ -330,5 +330,5 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
             session.raw, ctypes.byref(ref), vptr, len(verb_bytes), arr, count, ctypes.byref(out),
         ))
     vow = out.value
-    session.host.vow_minted(vow, session)
+    session.host.vow_minted(vow)
     return _promise_for(session, vow)

@@ -30,11 +30,7 @@ import type {
 import { explicitBound, implicitBound } from "./temporal/bound.ts";
 import type { TimeSpan } from "./temporal/time-span.ts";
 import { materializeWorldAt } from "./systems/world-materializer.ts";
-import {
-  CLAIM_LEAN,
-  DEFAULT_LAYOUT_CONFIG,
-  KeyframeLayoutSystem,
-} from "./systems/keyframe-layout-system.ts";
+import { CLAIM_LEAN, DEFAULT_LAYOUT_CONFIG, KeyframeLayoutSystem } from "./systems/keyframe-layout-system.ts";
 import { MessageFlightSystem } from "./systems/animation-system.ts";
 import {
   claimTargets,
@@ -67,28 +63,11 @@ import {
 } from "./visibility.ts";
 import { intentLabel } from "./intent-labels.ts";
 import { isNoOpIntent } from "./no-op-guards.ts";
-import {
-  defineMessage,
-  definePeer,
-  defineSession,
-  patchPeerDefinition,
-} from "./entities.ts";
-import {
-  clampReasonFor,
-  effectiveOfEntity,
-  intrinsicOfEntity,
-} from "./temporal/doc-resolver.ts";
+import { defineMessage, definePeer, defineSession, patchPeerDefinition } from "./entities.ts";
+import { clampReasonFor, effectiveOfEntity, intrinsicOfEntity } from "./temporal/doc-resolver.ts";
 import { projectFromObservations } from "./temporal/project-from-observations.ts";
-import type {
-  PeerProperty,
-  SessionProperty,
-  SessionValue,
-} from "./trajectory.ts";
-import {
-  resetDocumentTo,
-  restoreSnapshotInto,
-  takeSnapshot,
-} from "./snapshot.ts";
+import type { PeerProperty, SessionProperty, SessionValue } from "./trajectory.ts";
+import { resetDocumentTo, restoreSnapshotInto, takeSnapshot } from "./snapshot.ts";
 import { checkRekeyCollision, rekeyEntity } from "./authoring/identity.ts";
 import type { AuthoringContext } from "./authoring/context.ts";
 import {
@@ -1565,9 +1544,7 @@ export class Engine {
     // and multi-delete (after the per-member layout/seek). Rollback of a
     // failed member uses the txn snapshot — the whole gesture, which is
     // what `asOneEdit` means.
-    const snapshotBefore = this.#txnDepth > 0
-      ? this.#txnSnapshot!
-      : this.#takeSnapshot();
+    const snapshotBefore = this.#txnDepth > 0 ? this.#txnSnapshot! : this.#takeSnapshot();
     // `#authoredCounter` lives outside the doc snapshot (undo/redo
     // deliberately doesn't reuse IDs across boundaries), so rollback
     // restores it separately. Without this a half-applied dispatch

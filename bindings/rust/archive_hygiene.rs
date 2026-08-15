@@ -17,13 +17,7 @@ fn iso_date(value: &str) -> bool {
 fn month(value: &str) -> bool {
 	matches!(
 		value,
-		"Jan"
-			| "Feb" | "Mar"
-			| "Apr" | "May"
-			| "Jun" | "Jul"
-			| "Aug" | "Sep"
-			| "Oct" | "Nov"
-			| "Dec"
+		"Jan" | "Feb" | "Mar" | "Apr" | "May" | "Jun" | "Jul" | "Aug" | "Sep" | "Oct" | "Nov" | "Dec"
 	)
 }
 
@@ -34,8 +28,7 @@ fn clock_or_year(value: &str) -> bool {
 			&& bytes[0..2].iter().all(u8::is_ascii_digit)
 			&& bytes[2] == b':'
 			&& bytes[3..5].iter().all(u8::is_ascii_digit)
-			&& (bytes.len() == 5
-				|| (bytes[5] == b':' && bytes[6..8].iter().all(u8::is_ascii_digit))))
+			&& (bytes.len() == 5 || (bytes[5] == b':' && bytes[6..8].iter().all(u8::is_ascii_digit))))
 }
 
 // The whole line is parsed, including any " -> target" tail. Stripping that

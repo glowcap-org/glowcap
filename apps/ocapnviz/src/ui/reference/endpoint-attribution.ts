@@ -20,10 +20,7 @@
  * says and what the Build-mode picker offers.
  */
 
-import type {
-  AttributionStanding,
-  EndpointAttribution,
-} from "../../schema/topology.ts";
+import type { AttributionStanding, EndpointAttribution } from "../../schema/topology.ts";
 import type { ReferenceEntry } from "./entry.ts";
 
 /** The kinds of evidence, strongest first, which is the order the rows read
@@ -46,14 +43,12 @@ export const ATTRIBUTION_STANDING_WORD: Record<AttributionStanding, string> = {
 /** One row per word the schema declares. */
 export const ATTRIBUTION_ROWS: Record<EndpointAttribution, ReferenceEntry> = {
   "authenticated-transport": {
-    says:
-      "The name this end claims is itself a key, and the code that opened the " +
+    says: "The name this end claims is itself a key, and the code that opened the " +
       "connection verified the far end holds it. Dialing the name and proving " +
       "who answered were one act.",
   },
   "verified-handoff": {
-    says:
-      "This end is the party a third peer introduced, and the signatures on " +
+    says: "This end is the party a third peer introduced, and the signatures on " +
       "that introduction checked out. The introducer's gift named the key " +
       "this end holds, and the message that redeemed it was signed with that " +
       "key.",
@@ -62,16 +57,13 @@ export const ATTRIBUTION_ROWS: Record<EndpointAttribution, ReferenceEntry> = {
       "reaches a document by being authored.",
   },
   "self-reported": {
-    says:
-      "The peer published its own trace and named itself, and nothing checked " +
+    says: "The peer published its own trace and named itself, and nothing checked " +
       "the name.",
-    aside:
-      "A producer always speaks for its own end, so no session is loose at " +
+    aside: "A producer always speaks for its own end, so no session is loose at " +
       "both ends.",
   },
   "viewer-correlated": {
-    says:
-      "Two producers described the same session and this viewer matched them " +
+    says: "Two producers described the same session and this viewer matched them " +
       "by its id. That is a correlation between two self-reports, and nothing " +
       "checked either one.",
   },
@@ -80,8 +72,7 @@ export const ATTRIBUTION_ROWS: Record<EndpointAttribution, ReferenceEntry> = {
 /** The fifth answer, which is the absence of the other four and the one a
  *  reader meets most often. It is titled with the phrase the chip wears, so
  *  the word a reader came here from is the word they land on. */
-export const LOOSE_END_TEXT =
-  "An end nothing has attributed stays loose. The viewer draws it as a node " +
+export const LOOSE_END_TEXT = "An end nothing has attributed stays loose. The viewer draws it as a node " +
   "of its own, carrying only the name it claims. Nothing has said which peer " +
   "is on it, and attaching it to one anyway would merge two nodes on no " +
   "evidence.";

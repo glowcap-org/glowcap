@@ -10,10 +10,10 @@
 // `Directory` — never inside it.
 
 import { Directory, Room } from "./room_client.ts";
-import { type Ref } from "@pancake/stack";
+import type { Ref } from "@pancake/runtime";
 import { NO_SUCH_ROOM, ROOM_EXISTS } from "./errors.ts";
 import { roomErrorOf } from "./errors.ts";
-import { dial } from "./locator.ts";
+import { dial, type RoomsRuntime } from "./locator.ts";
 
 /** Get a reference to `name` on `dir`, opening the room if it does not exist
  * yet. Composes the directory's strict `enter`/`open`; the leniency is here. */
@@ -39,8 +39,9 @@ export async function joinRoom(
 	locator: string,
 	room: string,
 	nick: string,
+	runtime: RoomsRuntime,
 ): Promise<{ dir: Directory; room: Room }> {
-	const dir = await Directory.connect(locator, dial);
+	const dir = await Directory.connect(locator, (address) => dial(address, runtime));
 	const roomRef = await enterOrOpen(dir, room);
 	return { dir, room: await Room.subscribe(dir.session, roomRef, nick) };
 }

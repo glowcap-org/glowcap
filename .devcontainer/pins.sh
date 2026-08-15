@@ -1,4 +1,7 @@
-# pancake devcontainer pins, versions and canonical paths.
+# shellcheck shell=bash
+# pancake devcontainer pins, versions and canonical paths. Sourced, never run;
+# every variable is consumed by the scripts that source this file.
+# shellcheck disable=SC2034
 # Install, verify, Dockerfile ENV, and devcontainer.json must stay aligned.
 # check-env-sync.sh enforces path consistency across those surfaces.
 
@@ -8,6 +11,7 @@ ZLS_VERSION="0.16.0"
 
 # --- Rust (C ABI dogfood) ---
 RUST_VERSION="1.97.1"
+RUSTUP_INIT_VERSION="1.29.0"
 
 # --- JavaScript / TypeScript dogfood ---
 DENO_VERSION="2.9.5"
@@ -17,17 +21,21 @@ BUN_VERSION="1.3.14"
 # --- Playwright (the browser proofs' Chromium) ---
 # This is the one place the version is written. The root deno.json resolves the
 # browser proofs' `playwright` import from the same number, and
-# `zig build meta-check` fails if the two ever disagree. The browser build
+# `zig build source-check` fails if the two ever disagree. The browser build
 # number (chromium-<rev>) is Playwright's to choose, so nothing here restates it.
 PLAYWRIGHT_VERSION="1.62.1"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.12.3"
+UV_VERSION="0.12.4"
 OCAPN_CONFORMANCE_PYTHON="3.12.13"
-SERENA_AGENT_VERSION="1.6.1"
+SERENA_AGENT_VERSION="1.7.0"
 SERENA_PYTHON="3.13"
-CLAUDE_CODE_VERSION="2.1.226"
-OPENCODE_VERSION="1.18.15"
+CLAUDE_CODE_VERSION="2.1.232"
+OPENCODE_VERSION="1.18.18"
+CODEX_VERSION="0.147.0"
+
+# --- Host side (not in the image; used by up.sh when no CLI is installed) ---
+DEVCONTAINER_CLI_VERSION="0.88.0"
 
 # --- Racket / Spritely Goblins ---
 RACKET_VERSION="9.2"
@@ -61,5 +69,5 @@ PLTUSERHOME="/opt/pancake-racket-userhome"
 # reads them.
 PLAYWRIGHT_BROWSERS_PATH="/usr/local/share/ms-playwright"
 UV_TOOL_DIR="/usr/local/uv/tools"
+UV_TOOL_BIN_DIR="/usr/local/bin"
 UV_PYTHON_INSTALL_DIR="/usr/local/uv/python"
-OPENCODE_HOME="/opt/opencode"

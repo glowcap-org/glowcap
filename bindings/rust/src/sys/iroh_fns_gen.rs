@@ -25,7 +25,7 @@ extern "C" {
 		out_netlayer: *mut *mut PancakeIrohNetlayer,
 	) -> c_int;
 	pub fn pancake_iroh_netlayer_close(netlayer: *mut PancakeIrohNetlayer);
-	pub fn pancake_iroh_netlayer_release(netlayer: *mut PancakeIrohNetlayer);
+	pub fn pancake_iroh_netlayer_release(netlayer: *mut PancakeIrohNetlayer) -> c_int;
 	pub fn pancake_iroh_netlayer_node_id(
 		netlayer: *mut PancakeIrohNetlayer,
 		out: *mut c_uchar,
@@ -70,10 +70,7 @@ extern "C" {
 		request_id: usize,
 		out_conn: *mut *mut PancakeIrohConn,
 	) -> c_int;
-	pub fn pancake_iroh_netlayer_cancel_connect(
-		netlayer: *mut PancakeIrohNetlayer,
-		request_id: usize,
-	) -> c_int;
+	pub fn pancake_iroh_netlayer_cancel_connect(netlayer: *mut PancakeIrohNetlayer, request_id: usize) -> c_int;
 	pub fn pancake_iroh_conn_try_read(
 		conn: *mut PancakeIrohConn,
 		buf: *mut c_uchar,

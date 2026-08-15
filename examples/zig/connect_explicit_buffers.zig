@@ -5,7 +5,7 @@
 //! the same conversation one layer down, where every allocation is visible at
 //! the call site: the caller owns the negotiating `engine.Peer` (and sets its
 //! frame limit), owns both read/write buffers, and passes all three to
-//! `driver.connectTcp` / `driver.acceptTcp`. The buffers size the steady
+//! `driver.connectVia` / `driver.acceptVia`. The buffers size the steady
 //! state, not the largest admissible frame. An inbound frame that outgrows
 //! the read buffer assembles once in the connection's bounded spill, capped by
 //! the peer's `max_frame_bytes`. The reply is observed with the explicit
@@ -50,7 +50,7 @@ const Greeter = struct {
 };
 
 /// The hosting half with the caller owning every piece: the peer, its frame
-/// limit, and both buffers. The keyed handshake completes inside `acceptTcp`.
+/// limit, and both buffers. The keyed handshake completes inside `acceptVia`.
 fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .limits = .{ .max_frame_bytes = frame_cap } });
     defer peer.deinit();
@@ -59,7 +59,7 @@ fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var session = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf, .{
+    var session = try driver.acceptVia(allocator, listener.asNetlayer(), &peer, .ephemeral, read_buf, write_buf, .{
         .handshake = handshake_budget,
         .settle = settle_budget,
     });
@@ -104,26 +104,41 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var session = try driver.connectTcp(allocator, io, &peer, listener.localAddress(), read_buf, write_buf, .{
-        .handshake = handshake_budget,
-        .settle = settle_budget,
-    });
-    const greeter = try session.fetch("greeter");
+    var tcp_resident = tcp.Resident{ .io = io };
+    const netlayers = [_]pancake.net.netlayer.Netlayer{tcp_resident.netlayer()};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    {
+        var session = try driver.connectVia(
+            allocator,
+            &netlayers,
+            &peer,
+            tcp.locatorFromAddress(&designator_buf, listener.localAddress()),
+            .ephemeral,
+            read_buf,
+            write_buf,
+            .{
+                .handshake = handshake_budget,
+                .settle = settle_budget,
+            },
+        );
+        defer session.deinit();
+        const greeter = try session.fetch("greeter");
 
-    var reply = Reply{};
-    const vow = try session.send(greeter, .{
-        .verb = "greet",
-        .args = &.{.{ .string = "world" }},
-    });
-    try session.on(vow, .{ .ctx = &reply, .func = onReply });
-    while (!reply.done) {
-        const progress = try session.step();
-        if (progress == .closed) break;
+        var reply = Reply{};
+        const vow = try session.send(greeter, .{
+            .verb = "greet",
+            .args = &.{.{ .string = "world" }},
+        });
+        try session.on(vow, .{ .ctx = &reply, .func = onReply });
+        while (!reply.done) {
+            const progress = try session.step();
+            if (progress == .closed) break;
+        }
+
+        if (!reply.done or !reply.ok) return error.UnexpectedReply;
     }
 
-    session.deinit();
     try hosting.await(io);
 
-    if (!reply.done or !reply.ok) return error.UnexpectedReply;
     std.debug.print("explicit buffers: the same greeter round-trip with every allocation at the call site\n", .{});
 }

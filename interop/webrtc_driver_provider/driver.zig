@@ -80,6 +80,7 @@ fn newHostLoop(seed: *const [64]u8, advertise: bool) !?*cd.PancakeDriverLoop {
         .wire_buffer_bytes = 16 << 10,
         .max_pending_opens = 256,
         .handshake_ms = 15_000,
+        .listener_setup_ms = 15_000,
         .settle_ms = 15_000,
     };
     try expectOk(cd.pancake_driver_take_host(host, &options, &loop));
@@ -219,7 +220,7 @@ fn requireAuthenticatedTransport(session: ?*ch.PancakeHostSession, expected_desi
 
 const LoopState = struct {
     loop: ?*cd.PancakeDriverLoop,
-    ticket: u64,
+    operation_id: u64,
     session: ?*ch.PancakeHostSession = null,
     failed: bool = false,
     fetch_vow: u64 = 0,
@@ -234,14 +235,14 @@ fn drainEvents(state: *LoopState) !void {
         try expectOk(rc);
         switch (event.kind) {
             cd.PANCAKE_DRIVER_EVENT_OPENED => {
-                if (event.ticket == state.ticket) {
+                if (event.operation_id == state.operation_id) {
                     state.session = event.session;
-                } else return error.UnexpectedOpenTicket;
+                } else return error.UnexpectedOpenOperationId;
             },
             cd.PANCAKE_DRIVER_EVENT_OPEN_FAILED => {
-                if (event.ticket == state.ticket) {
+                if (event.operation_id == state.operation_id) {
                     state.failed = true;
-                } else return error.UnexpectedFailureTicket;
+                } else return error.UnexpectedFailureOperationId;
             },
             cd.PANCAKE_DRIVER_EVENT_COMPLETION => {
                 if (event.action.kind == ch.PANCAKE_HOST_ACTION_SETTLE and
@@ -281,10 +282,10 @@ pub fn main(init: std.process.Init) !void {
 
     var offerer_peer: ?*cw.PancakeWebrtcPeer = null;
     try expectOk(cw.pancake_webrtc_peer_new(offerer_netlayer, 1, &offerer_peer));
-    defer cw.pancake_webrtc_peer_release(offerer_peer);
+    defer _ = cw.pancake_webrtc_peer_release(offerer_peer);
     var answerer_peer: ?*cw.PancakeWebrtcPeer = null;
     try expectOk(cw.pancake_webrtc_peer_new(answerer_netlayer, 0, &answerer_peer));
-    defer cw.pancake_webrtc_peer_release(answerer_peer);
+    defer _ = cw.pancake_webrtc_peer_release(answerer_peer);
 
     // The signaling authority supplies these durable keys before either peer
     // can open. The provider later exposes exactly this authorized key as
@@ -324,8 +325,8 @@ pub fn main(init: std.process.Init) !void {
         &answerer_ticket,
     ));
 
-    var offerer = LoopState{ .loop = offerer_loop, .ticket = offerer_ticket };
-    var answerer = LoopState{ .loop = answerer_loop, .ticket = answerer_ticket };
+    var offerer = LoopState{ .loop = offerer_loop, .operation_id = offerer_ticket };
+    var answerer = LoopState{ .loop = answerer_loop, .operation_id = answerer_ticket };
     var published = false;
     var rounds: usize = 0;
     while (!offerer.fetch_settled and rounds < 4_000) : (rounds += 1) {

@@ -13,8 +13,8 @@
 // This is the composition ADR-0089 left open: a `desc:handoff-give` whose
 // exporter locator names a `webrtc` designator, redeemed end to end. The
 // locator carries no signaling route; the dialing host's authority is the
-// directory it already reaches (`Host.setSignaling`), the same configured
-// posture the rendezvous cold dial holds.
+// directory it already reaches, installed as `webrtc.connector`'s signaling,
+// the same configured posture the rendezvous cold dial holds.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the native archives
 // (serve.ts's room server is native), and a Playwright Chromium
@@ -122,6 +122,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -161,7 +162,7 @@ try {
 	console.log(
 		"PASS: two browser tabs direct-messaged over a WebRTC DataChannel — the give's " +
 			"exporter locator named a bare webrtc designator, the redeeming host signaled " +
-			"through the room directory (Host.setSignaling), the keyed session opened over the " +
+			"through the room directory (webrtc.connector), the keyed session opened over the " +
 			"DataChannel off-room, and the reply rode back over the same arriving connection",
 	);
 } finally {

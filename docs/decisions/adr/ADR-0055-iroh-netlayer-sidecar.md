@@ -99,7 +99,7 @@ one library without colliding. They are split by prefix and by artifact name:
 
 The three hand-written copies of the seam (Rust definitions, the seam header,
 the Zig externs) are held to one shape by the `pancake_iroh_sidecar_` ABI parity
-check in `tools/check/meta_check.zig`. Nothing about the transport's behavior changed;
+check in `tools/check/source_check.zig`. Nothing about the transport's behavior changed;
 this is a naming boundary that makes the private/public split legible and
 link-safe.
 

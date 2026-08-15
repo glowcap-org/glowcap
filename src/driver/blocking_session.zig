@@ -7,9 +7,8 @@
 //! reads — `net.TcpLoop` at the byte tier, or `completion.Loop(iroh.Backend, iroh.DialResolver)`
 //! over the sidecar.
 //!
-//! The constructors bind a `BlockingSession` over a transport: `connectTcp` and
-//! `acceptTcp` name tcp explicitly; `connectVia`, `acceptVia`, and `connectUri`
-//! dispatch on the locator's transport symbol against a
+//! The constructors bind a `BlockingSession` over a transport: `connectVia`,
+//! `acceptVia`, and `connectUri` dispatch on the locator's transport symbol against a
 //! `[]const net.netlayer.Netlayer`. The owning, one-call `Session`/`Server`
 //! surface lives in `session.zig`. The serve core and the shared vocabulary
 //! (`Error`, `Identity`, `Capability`, `Settled`) live in `driver_core`; the
@@ -48,6 +47,7 @@ pub const BlockingSession = struct {
     pub const Options = struct {
         handshake: Budget,
         settle: Budget,
+        transport: net.OperationOptions = .inherit,
     };
 
     vat: actors.Vat,
@@ -405,71 +405,6 @@ fn sessionOpenPred(peer: *engine.Peer) bool {
     return peer.sessionIsOpen();
 }
 
-/// Open a TCP connection to `address`, bind a vat to a fresh-wired peer, and
-/// return the connected vat. The transport is named here, at the constructor;
-/// the returned type is the transport-neutral `BlockingSession`. The caller owns
-/// `read_buf` / `write_buf` and the `peer`: the buffers size the steady state,
-/// not the largest admissible frame. An inbound frame larger than `read_buf`
-/// assembles once in the connection's bounded spill (ADR-0041); an outbound
-/// frame larger than `write_buf` streams straight through.
-///
-/// `options` requires both blocking budgets up front because the keyed
-/// handshake completes before this returns and answer waits happen afterward.
-/// An `.unbounded` handshake means a partner that finishes connect and then
-/// goes silent parks this call forever.
-pub fn connectTcp(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    peer: *engine.Peer,
-    address: std.Io.net.IpAddress,
-    read_buf: []u8,
-    write_buf: []u8,
-    options: BlockingSession.Options,
-) !BlockingSession {
-    // Same spine as `connectVia`: netlayer dial + Identity.ephemeral hello.
-    // The Resident only needs to outlive the dial call; the connection owns
-    // the stream afterward.
-    var resident = net.tcp.plain.Resident{ .io = io };
-    const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
-    var designator_buf: [net.tcp.plain.designator_buf_len]u8 = undefined;
-    return connectVia(
-        allocator,
-        &netlayers,
-        peer,
-        net.tcp.plain.locator(&designator_buf, address),
-        .ephemeral,
-        read_buf,
-        write_buf,
-        options,
-    );
-}
-
-/// Accept one TCP partner on `listener`, bind a vat to a fresh-wired peer, and
-/// return the connected vat: the server-side counterpart of `connectTcp`. Buffer
-/// sizing follows the same contract. The keyed responder handshake (fresh random
-/// session key) completes before this returns, signing the listener's bound
-/// address — the address a partner can actually dial. A host that must reuse the
-/// session identity (a three-party handoff recipient) builds the vat with
-/// `BlockingSession.over` and calls `startKeyedSessionWithSecret` itself.
-///
-/// The handshake budget matters more here than on the dialing side: the
-/// accepting peer does not choose who connects to it, so `.unbounded` means a
-/// stranger who completes the TCP connect and then says nothing parks this
-/// accept for as long as it likes. That is the slowloris ADR-0081 bounds.
-/// Like `connectTcp`, both wait budgets are supplied before construction.
-pub fn acceptTcp(
-    allocator: std.mem.Allocator,
-    peer: *engine.Peer,
-    listener: *net.tcp.plain.Listener,
-    read_buf: []u8,
-    write_buf: []u8,
-    options: BlockingSession.Options,
-) !BlockingSession {
-    // Same spine as `acceptVia`: contract listener + AcceptIdentity.ephemeral.
-    // The typed tcp.Listener is borrowed for the call; the caller still owns it.
-    return acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf, options);
-}
-
 /// Dial a locator through the netlayer contract, signing the keyed handshake
 /// with `identity`. The transport-neutral dialer: the locator's `transport`
 /// symbol selects the netlayer that hosts it in `netlayers` at runtime, failing
@@ -478,7 +413,7 @@ pub fn acceptTcp(
 /// unreachable-client placeholder as its own designator, and `.keyed` signs
 /// with a caller-held key over the dialer's own designator. The caller owns
 /// `peer`, `read_buf`, and `write_buf`; `netlayers` must outlive the returned
-/// vat. `connectTcp` is the tcp-named convenience over this same path.
+/// vat.
 /// `options.handshake` bounds each handshake read; see `BlockingSession.handshake`
 /// (ADR-0081).
 pub fn connectVia(
@@ -507,7 +442,12 @@ pub fn connectVia(
             return error.InvalidAddress;
         peer.demandPartnerDurableKey(expected);
     }
-    const conn = try nl.dial(peer, locator, .{ .read = read_buf, .write = write_buf });
+    const conn = try nl.dial(
+        peer,
+        locator,
+        .{ .read = read_buf, .write = write_buf },
+        options.transport,
+    );
     var vat = BlockingSession.over(allocator, peer, conn, options);
     errdefer vat.deinit();
     // A dialer signs no dial-address hint of its own: an ephemeral one has no
@@ -551,8 +491,8 @@ pub fn connectUri(
 
 /// Accept one partner through a contract `net.netlayer.Listener`, bind a vat, and
 /// complete the responder handshake signing with `identity`: the
-/// transport-neutral hosting counterpart of `connectVia`. `acceptTcp` is the
-/// tcp-named convenience. A host is always reachable, so the signed designator
+/// transport-neutral hosting counterpart of `connectVia`. A host is always
+/// reachable, so the signed designator
 /// names this listener; what that designator *is* follows the listener's
 /// scheme. On an `.address` listener it is the bound address, and `identity`
 /// chooses only the signing key (`.ephemeral` fresh random, `.keyed` a

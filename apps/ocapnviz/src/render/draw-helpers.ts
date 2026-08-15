@@ -17,12 +17,7 @@
  */
 
 import type { Graphics, StrokeStyle, Text } from "pixi.js";
-import {
-  bezierAt,
-  bezierTangent,
-  SESSION_BUNDLE_SPACING,
-  type SessionCurve,
-} from "../engine/session-geometry.ts";
+import { bezierAt, bezierTangent, SESSION_BUNDLE_SPACING, type SessionCurve } from "../engine/session-geometry.ts";
 import type { ThemedColors } from "./palette.ts";
 import type { LabelPill } from "./stage-labels.ts";
 import type { HaloTier, PeerActivity } from "./types.ts";
@@ -274,9 +269,7 @@ export function positionEdgeLabel(
     const chord = Math.hypot(curve.bx - curve.ax, curve.by - curve.ay);
     const want = lane * EDGE_LABEL_LANE_STRIDE;
     const reach = chord * EDGE_LABEL_REACH_FRACTION;
-    const walk = want <= reach
-      ? want
-      : reach + (want - reach) * EDGE_LABEL_REACH_CREEP;
+    const walk = want <= reach ? want : reach + (want - reach) * EDGE_LABEL_REACH_CREEP;
     alongX = (-bowY / bow) * walk;
     alongY = (bowX / bow) * walk;
   }

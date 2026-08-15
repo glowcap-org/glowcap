@@ -96,10 +96,10 @@ test "a reservation survives the drain that happens before it is spent" {
     // Past the steady byte bound, which is where a reclaiming drain would
     // actually shed: the host reaches this with a few dozen live vows, since
     // its action rows are far wider than these.
-    const rows = 2 * engine.fifo_steady_bytes / @sizeOf(u64);
+    const rows = 2 * engine.testing.queue_retain_bytes / @sizeOf(u64);
     try fifo.reserve(allocator, rows);
     const reserved = fifo.list.capacity;
-    try std.testing.expect(reserved * @sizeOf(u64) > engine.fifo_steady_bytes);
+    try std.testing.expect(reserved * @sizeOf(u64) > engine.testing.queue_retain_bytes);
 
     // Drain to empty, the state the embedder leaves behind on every loop.
     try std.testing.expectEqual(@as(?u64, null), fifo.pop(allocator));
@@ -1398,6 +1398,64 @@ test "dial failure settles every waiter when diagnostics cannot allocate" {
     try std.testing.expect(node.pendingDial(dial.dial.pending) == null);
 }
 
+test "owner cancellation settles every queued dial waiter without allocation" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var node = Node.init(allocator, [_]u8{0x44} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const locator = "ocapn://127.0.0.1%3A9050.tcp";
+    try node.acceptGive(recipient, 21, "give-one", locator);
+    try node.acceptGive(recipient, 22, "give-two", locator);
+
+    failing.fail_index = failing.alloc_index;
+    var cancellations = node.requestDialCancellations();
+    try std.testing.expect(cancellations.next() == null);
+    try std.testing.expectEqual(@as(usize, 0), node.pendingDialCount());
+
+    // The queued dial is now stale. Its two terminal consequences still follow
+    // in admission order and required no close-time allocation.
+    try std.testing.expect(node.nextAction().? == .dial);
+    const first = node.nextAction().?;
+    const second = node.nextAction().?;
+    try std.testing.expectEqual(@as(u64, 21), first.fail.answer);
+    try std.testing.expectEqual(@as(u64, 22), second.fail.answer);
+    try std.testing.expectEqualStrings("handoff redeem failed: host closing", first.fail.reason.bytes());
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "owner cancellation settles in-flight dial waiters once before physical join" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{0x45} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const locator = "ocapn://127.0.0.1%3A9050.tcp";
+    try node.acceptGive(recipient, 31, "give-one", locator);
+    try node.acceptGive(recipient, 32, "give-two", locator);
+    const dial = node.nextAction().?;
+    const ticket = dial.dial.pending;
+    try std.testing.expect(node.beginDialEffect(ticket));
+
+    var cancellations = node.requestDialCancellations();
+    try std.testing.expectEqual(ticket, cancellations.next().?);
+    try std.testing.expect(cancellations.next() == null);
+    try std.testing.expectEqual(@as(usize, 1), node.pendingDialCount());
+    try std.testing.expect(node.pendingDial(ticket) == null);
+
+    const first = node.nextAction().?;
+    const second = node.nextAction().?;
+    try std.testing.expectEqual(@as(u64, 31), first.fail.answer);
+    try std.testing.expectEqual(@as(u64, 32), second.fail.answer);
+    try std.testing.expect(node.nextAction() == null);
+
+    node.dialCancelled(ticket);
+    node.dialCancelled(ticket);
+    try std.testing.expectEqual(@as(usize, 0), node.pendingDialCount());
+    try std.testing.expect(node.nextAction() == null);
+}
+
 test "acceptGive materializes dial view once for pendingDial" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{4} ** crypto.SEED_BYTES);
@@ -2315,6 +2373,41 @@ test "enrollForeign gives one import one token, and forgets it when the import g
     try std.testing.expect(after_reuse.far.import_position.int() != first.far.import_position.int());
 }
 
+test "a prepared foreign enrollment rolls back before publication" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{31} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    const position = model.ImportPosition.from(7);
+    try node.peer(home).?.session_state.registerImport(position);
+
+    const prepared = try node.prepareForeignEnrollment(home, .{ .far = model.FarRef.object(position.int()) });
+    const rollback = prepared.rollback orelse return error.MissingRollbackAuthority;
+    try std.testing.expectEqual(@as(usize, 1), node.foreign_imports.count());
+    try std.testing.expectEqual(rollback.token, node.peer(home).?.session_state.foreignTokenFor(position).?);
+    try std.testing.expect(node.foreign_active);
+
+    node.rollbackForeignEnrollment(rollback);
+    try std.testing.expectEqual(@as(usize, 0), node.foreign_imports.count());
+    try std.testing.expect(node.peer(home).?.session_state.foreignTokenFor(position) == null);
+    try std.testing.expect(node.routeToken(rollback.token) == null);
+    try std.testing.expect(!node.foreign_active);
+}
+
+test "foreign enrollment requires a live import row" {
+    var node = Node.init(std.testing.allocator, [_]u8{32} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    try std.testing.expectError(
+        error.UnknownImport,
+        node.prepareForeignEnrollment(home, .{ .far = model.FarRef.object(7) }),
+    );
+    try std.testing.expectEqual(@as(usize, 0), node.foreign_imports.count());
+    try std.testing.expect(!node.foreign_active);
+}
+
 test "a released import retires its node route before the partner reuses the position" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{24} ** crypto.SEED_BYTES);
@@ -2376,10 +2469,10 @@ test "a re-enroll under the other kind is answered with the kind the row holds" 
     try std.testing.expectEqual(model.RefKind.promise, disagreeing.far.kind);
     try std.testing.expectEqual(@as(usize, 1), node.foreign_imports.count());
 
-    // The tier above turns that disagreement into a refusal
-    // (`driver_core.Host.enrollCapability`), so a caller never has to notice
-    // that what came back is not what it asked for. This is the node's half:
-    // report the row, never the request.
+    // Host capability lifting turns that disagreement into
+    // `ImportKindConflict`, so an owning-tier caller never receives a handle
+    // whose kind differs from the observation that produced it. This is the
+    // node's half: report the row, never the request.
 }
 
 test "a churning node holds live sessions, not every session it ever registered" {
@@ -2748,7 +2841,7 @@ test "a relayed resolution carrying a routing token emits the wire import positi
     // A raw-open fixture peer adopted by the node: an open session (so an
     // injected listen is accepted) that still carries node services, which is
     // what makes the lowering under test run at all.
-    var relaying_storage = engine.Peer.initRawOpenFixture(allocator);
+    var relaying_storage = engine.testing.initRawOpenPeer(allocator);
     defer relaying_storage.deinit();
     const relaying_id = try node.registerPeerOver(&relaying_storage);
     const relaying = &relaying_storage;
@@ -2769,7 +2862,7 @@ test "a relayed resolution carrying a routing token emits the wire import positi
     try relaying.session_state.exports.retain(allocator, relayed_export);
     const relayed_position = model.ImportPosition.from(relayed_export.int());
     try relaying.session_state.installThirdPartyImport(relayed_position, "exporter");
-    var partner = engine.Peer.initRawOpenFixture(allocator);
+    var partner = engine.testing.initRawOpenPeer(allocator);
     defer partner.deinit();
     try partner.session_state.registerImport(.from(relayed_export.int()));
     try partner.session_state.registerExport(.from(9));

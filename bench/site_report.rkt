@@ -307,9 +307,9 @@
 
 ;; snapshot / restore comparison. p = pancake hash, g = goblins hash. Rows align
 ;; by index across both. Snapshot and restore are shown in microseconds by actor
-;; count. Measured natively (pancake Zig, Goblins Racket), so the bars show the
-;; *shape* of each cost, not a cross-runtime speed race: both runtimes snapshot
-;; in O(objects) and flat in object size.
+;; count. Measured natively (pancake Zig, Goblins Racket), so absolute times are
+;; not directly comparable. Both runtimes snapshot in O(objects) and stay flat
+;; as object size grows.
 (define (snapshot-region p g)
   (define (us ns) (/ ns 1000.0))
   (define p-obj (hash-ref p 'by_objects))
@@ -334,7 +334,7 @@
    (html-table '("actors" "pancake snapshot µs" "Goblins snapshot µs" "pancake restore µs" "Goblins restore µs")
                (for/list ([pr (in-list p-obj)] [gr (in-list g-obj)])
                  (list (car pr) (r1 (us (cadr pr))) (r1 (us (cadr gr))) (r1 (us (caddr pr))) (r1 (us (caddr gr))))))
-   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. These run natively (pancake in Zig, Goblins in Racket), so the absolute times reflect the runtime, not a better algorithm; read the shape, not the race. On restore, pancake frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
+   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. The runtimes differ, so their absolute times are not directly comparable; the shared O(objects) trend is the result. On restore, pancake frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
            (r1 (us (cadr small))) (car small)
            (r1 (us (cadr big))) (car big))))
 

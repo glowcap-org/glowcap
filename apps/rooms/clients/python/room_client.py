@@ -30,16 +30,16 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path()
 
-from pancake import (  # noqa: E402
+from pancake import (
+    tcp,  # noqa: E402
     Host,
     Session,
-    connect,
+    Runtime,
     designator_host_port,
     parse_locator,
-    tcp_locator,
 )
 from pancake._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
-from pancake.iroh import Reachability  # noqa: E402
+from pancake.iroh import IrohConfig, Reachability, provider as iroh_provider  # noqa: E402
 
 DIRECTORY = "directory"
 OPEN, ENTER, LIST, WATCH = "open", "enter", "list", "watch"
@@ -96,9 +96,13 @@ async def _dial(locator: str) -> Session:
             )
         hints = loc.hints.get(HINT_DIRECT_ADDRESSES, "")
         reach = Reachability.DIRECT if hints else Reachability.DISCOVERY
-        return await connect(locator, reach, rooms_host())
+        runtime = await Runtime.open(
+            provider=iroh_provider(IrohConfig(reach)), adopt_host=rooms_host()
+        )
+        return runtime, await runtime.connect(loc)
     host, port = designator_host_port(locator)
-    return await connect(tcp_locator(host, port), host=rooms_host())
+    runtime = await Runtime.open(provider=tcp.provider(), adopt_host=rooms_host())
+    return runtime, await runtime.connect(tcp.locator(host, port))
 
 
 class Directory:
@@ -107,16 +111,21 @@ class Directory:
     reference to that room. Both mirror the wire: ``open`` raises if the name is
     taken, ``enter`` raises if there is no such room."""
 
-    def __init__(self, session: Session, directory) -> None:
+    def __init__(self, session: Session, directory, runtime: Runtime) -> None:
         self.session = session
         self._directory = directory
+        self._runtime = runtime
 
     @classmethod
     async def connect(cls, locator: str) -> "Directory":
-        session = await _dial(locator)
+        runtime, session = await _dial(locator)
         session.serve()  # start the inbound loop before fetching
         directory = await session.fetch(DIRECTORY)
-        return cls(session, directory)
+        return cls(session, directory, runtime)
+
+    async def close(self) -> None:
+        await self.session.close()
+        await self._runtime.close()
 
     async def open(self, name: str):
         """Create a new room and return a reference to it. Raises if taken."""

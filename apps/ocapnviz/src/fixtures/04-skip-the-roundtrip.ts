@@ -41,42 +41,33 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       id: "client-joins",
       t: 0,
       kind: "peer-joined",
-      peerId:
-        "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
+      peerId: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
       label: "Email client",
       profile: "pancake",
-      designator:
-        "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
+      designator: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
     },
     {
       id: "server-joins",
       t: 0,
       kind: "peer-joined",
-      peerId:
-        "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
+      peerId: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
       label: "Mail server",
       profile: "pancake",
-      designator:
-        "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
+      designator: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
     },
     {
       id: "session-opens",
       t: 0,
       kind: "session-opened",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       a: {
-        peer:
-          "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
-        designator:
-          "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
+        peer: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
+        designator: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
         attributedBy: "self-reported",
       },
       b: {
-        peer:
-          "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
-        designator:
-          "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
+        peer: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
+        designator: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
         attributedBy: "authenticated-transport",
       },
       transport: "iroh",
@@ -89,8 +80,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       t: 200,
       kind: "message-sent",
       messageId: "ss-out",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       from: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
       to: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
       arrivalT: 400,
@@ -108,8 +98,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       t: 500,
       kind: "message-sent",
       messageId: "ss-back",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       from: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
       to: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
       arrivalT: 700,
@@ -126,8 +115,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       id: "session-open",
       t: 700,
       kind: "session-state-changed",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       state: "open",
     },
     {
@@ -135,8 +123,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       t: 1100,
       kind: "message-sent",
       messageId: "fetch",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       from: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
       to: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
       arrivalT: 1500,
@@ -147,8 +134,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       t: 1150,
       kind: "message-sent",
       messageId: "mark-read",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       from: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
       to: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
       arrivalT: 1550,
@@ -171,8 +157,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       t: 1900,
       kind: "message-sent",
       messageId: "fetch-resolve",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       from: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
       to: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
       arrivalT: 2300,
@@ -189,8 +174,7 @@ export const skipTheRoundtrip = TimelineDocument.parse({
       t: 2400,
       kind: "message-sent",
       messageId: "drain-fire",
-      sessionId:
-        "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
+      sessionId: "332f4138c6990da916bec312c33424116cb5091816660df8c595e969606d1d73",
       from: "b7e0432fa15c98d6e3170b4a8c2f5d91e6407a3bd58cf12e094a7b3d6f815c2a",
       to: "4f1c9e2a7b3d5086c1a4f7e29b0d6538a2c7e14b90f3d68a5c2b7e04f19d3a6c",
       arrivalT: 2700,

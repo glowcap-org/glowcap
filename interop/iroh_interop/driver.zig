@@ -50,6 +50,17 @@ const engine = pancake.ocapn.engine;
 const driver = pancake.driver;
 const net = pancake.net;
 
+fn listenReady(layer: net.netlayer.Netlayer, allocator: std.mem.Allocator) !net.netlayer.Listener {
+    var result = switch (layer.listen(allocator, .{ .designator = "" })) {
+        .admitted => |result| result,
+        .failed => |failure| return failure.cause,
+    };
+    return switch (result.requireReady()) {
+        .ready => |listener| listener,
+        .failed => |failure| failure.cause,
+    };
+}
+
 const frame_cap: usize = 4096;
 const greeting = "hello over iroh";
 
@@ -239,11 +250,8 @@ fn restartCycle(
     const s_entries = [_]net.netlayer.Netlayer{server.netlayer()};
     const c_entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
-    var listener = try net.netlayer.resolve(&s_entries, iroh.transport_name).?.listen(allocator, .{
-        .designator = "",
-        .hints = model.Hints.emptyFalse(),
-    });
-    defer listener.close();
+    var listener = try listenReady(net.netlayer.resolve(&s_entries, iroh.transport_name).?, allocator);
+    defer std.debug.assert(listener.close() == null);
 
     var host = try io.concurrent(hostOnce, .{ listener, allocator, server_secret });
     const client_result = callByIdOnly(&c_entries, dial_id, allocator);
@@ -288,11 +296,8 @@ pub fn main(init: std.process.Init) !void {
     const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
     const client_entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
-    var listener = try net.netlayer.resolve(&server_entries, iroh.transport_name).?.listen(allocator, .{
-        .designator = "",
-        .hints = model.Hints.emptyFalse(),
-    });
-    defer listener.close();
+    var listener = try listenReady(net.netlayer.resolve(&server_entries, iroh.transport_name).?, allocator);
+    defer std.debug.assert(listener.close() == null);
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator, main_server_secret });
     const client_result = callOnce(&client_entries, server_id, server_addrs, allocator);
@@ -316,12 +321,12 @@ pub fn main(init: std.process.Init) !void {
             .transport = iroh.transport_name,
             .designator = "not-a-node-id",
             .hints = model.Hints.emptyFalse(),
-        }, bufs)) |_| return error.UnexpectedDial else |err| if (err != error.InvalidAddress) return err;
+        }, bufs, .inherit)) |_| return error.UnexpectedDial else |err| if (err != error.InvalidAddress) return err;
         if (nl.dial(&peer, .{
             .transport = iroh.transport_name,
             .designator = server_id,
             .hints = model.Hints.emptyFalse(),
-        }, bufs)) |_| return error.UnexpectedDial else |err| if (err != error.InvalidAddress) return err;
+        }, bufs, .inherit)) |_| return error.UnexpectedDial else |err| if (err != error.InvalidAddress) return err;
         std.debug.print("iroh-interop: address defects refused as InvalidAddress before touching the network\n", .{});
     }
 
@@ -356,11 +361,8 @@ pub fn main(init: std.process.Init) !void {
         const d_server_entries = [_]net.netlayer.Netlayer{d_server.netlayer()};
         const d_client_entries = [_]net.netlayer.Netlayer{d_client.netlayer()};
 
-        var d_listener = try net.netlayer.resolve(&d_server_entries, iroh.transport_name).?.listen(allocator, .{
-            .designator = "",
-            .hints = model.Hints.emptyFalse(),
-        });
-        defer d_listener.close();
+        var d_listener = try listenReady(net.netlayer.resolve(&d_server_entries, iroh.transport_name).?, allocator);
+        defer std.debug.assert(d_listener.close() == null);
 
         var d_host = try io.concurrent(hostOnce, .{ d_listener, allocator, d_server_secret });
         const d_client_result = callByIdOnly(&d_client_entries, d_server_id, allocator);
@@ -394,11 +396,8 @@ pub fn main(init: std.process.Init) !void {
         const u_server_entries = [_]net.netlayer.Netlayer{u_server.netlayer()};
         const u_client_entries = [_]net.netlayer.Netlayer{u_client.netlayer()};
 
-        var u_listener = try net.netlayer.resolve(&u_server_entries, iroh.transport_name).?.listen(allocator, .{
-            .designator = "",
-            .hints = model.Hints.emptyFalse(),
-        });
-        defer u_listener.close();
+        var u_listener = try listenReady(net.netlayer.resolve(&u_server_entries, iroh.transport_name).?, allocator);
+        defer std.debug.assert(u_listener.close() == null);
 
         var u_host = try io.concurrent(hostUnified, .{ u_listener, allocator, server_secret, u_client_id });
         const u_client_result = callUnified(&u_client_entries, u_server_id, u_client_id, client_secret, allocator);

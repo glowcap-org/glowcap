@@ -11,8 +11,7 @@
 ;; during the park.
 (require ffi/unsafe
          ffi/unsafe/define
-         "ffi-shared.rkt"
-         "lib-resolve.rkt")
+         "ffi-shared.rkt"         "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_inproc_netlayer_new*
                      pancake_inproc_connect*
@@ -29,8 +28,7 @@
   (_fun _pointer -> _int32)
   #:c-id pancake_inproc_netlayer_new)
 (define pancake_inproc_netlayer_new (wrap-out1 pancake_inproc_netlayer_new* _pointer #f))
-(define-pancake-inproc pancake_inproc_netlayer_release
-  (_fun #:blocking? #t _pointer -> _void))
+(define-pancake-inproc pancake_inproc_netlayer_release (_fun #:blocking? #t _pointer -> _void))
 (define-pancake-inproc pancake_inproc_connect*
   (_fun _pointer _pointer _size _uint32 _size _pointer -> _int32)
   #:c-id pancake_inproc_connect)
@@ -42,18 +40,16 @@
 (define-pancake-inproc pancake_inproc_listener_readiness_fd*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_inproc_listener_readiness_fd)
-(define pancake_inproc_listener_readiness_fd
-  (wrap-out1 pancake_inproc_listener_readiness_fd* _int32 0))
+(define pancake_inproc_listener_readiness_fd (wrap-out1 pancake_inproc_listener_readiness_fd* _int32 0))
 (define-pancake-inproc pancake_inproc_accept*
   (_fun #:blocking? #t _pointer _uint32 _size _pointer -> _int32)
   #:c-id pancake_inproc_accept)
 (define pancake_inproc_accept (wrap-out1 pancake_inproc_accept* _pointer #f))
 (define-pancake-inproc pancake_inproc_conn_read_frame
-  (_fun #:blocking? #t _pointer _PancakeManagedFrame-pointer -> _int32))
+  (_fun #:blocking? #t _pointer (_or-null _PancakeManagedFrame-pointer) -> _int32))
 (define-pancake-inproc pancake_inproc_conn_write_frame
-  (_fun #:blocking? #t _pointer _PancakeFrame-pointer -> _int32))
+  (_fun #:blocking? #t _pointer (_or-null _PancakeFrame-pointer) -> _int32))
 (define-pancake-inproc pancake_inproc_conn_shutdown (_fun _pointer -> _void))
 (define-pancake-inproc pancake_inproc_conn_release (_fun #:blocking? #t _pointer -> _void))
 (define-pancake-inproc pancake_inproc_listener_shutdown (_fun _pointer -> _void))
-(define-pancake-inproc pancake_inproc_listener_release
-  (_fun #:blocking? #t _pointer -> _void))
+(define-pancake-inproc pancake_inproc_listener_release (_fun #:blocking? #t _pointer -> _int32))

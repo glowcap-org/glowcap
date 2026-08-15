@@ -1,7 +1,7 @@
 //! The application surface over the byte-fed host (`libpancake_host`,
 //! ADR-0072): [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
 //! `publish`/`enliven`/`serve`/`close`), plus mint/handshake (`establish_*`).
-//! The dial executor (plan + channel open + [`connect`]) lives in
+//! The managed dial executor (provider selection + channel open + [`Runtime::connect`]) lives in
 //! [`crate::dial`]; [`Server`] / [`listen`] live in [`crate::listen`]. The
 //! [`RemotePromise`] handle lives in [`crate::promise`]. CapTP action
 //! decode+execute lives in [`crate::action`].
@@ -21,9 +21,13 @@
 use std::rc::Rc;
 use std::time::Duration;
 
+#[cfg(any(test, feature = "iroh"))]
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::host::{check_host, Host, HostShared};
+#[cfg(any(test, feature = "iroh"))]
+use crate::host::HostShared;
+use crate::host::{check_host, try_spawn_local_handle, Host};
+use crate::lifecycle::PendingWork;
 use crate::session_shared::{Caretaker, SessionShared};
 use crate::sys::host as ffi;
 use crate::trampoline::outcome_behavior;
@@ -33,13 +37,11 @@ use crate::{sys, Argument, Error, Locator, Result};
 
 use crate::promise::{AsSendTarget, RemotePromise};
 
-pub(crate) use crate::session_shared::io_err;
-
-#[cfg(test)]
+#[cfg(all(test, feature = "tcp"))]
 pub(crate) type DesignatorScheme = u32;
 
 /// How long a partner has to finish the keyed handshake once the byte channel
-/// is open, on both halves: what [`connect`](crate::connect) allows a dialed
+/// is open, on both halves: what [`Runtime::connect`](crate::Runtime::connect) allows a dialed
 /// partner, and what a listener allows an accepted one.
 ///
 /// Matches the CLI's own product default. Something finite is the point: this
@@ -48,33 +50,19 @@ pub(crate) type DesignatorScheme = u32;
 /// the handshake alone, never opening the channel: a TCP connect keeps the
 /// OS's own timeout, and an iroh dial-by-id keeps its discovery retry budget
 /// (ADR-0082), both of which finish before the handshake starts.
-pub const HANDSHAKE_TIMEOUT: Duration =
-	Duration::from_millis(crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u64);
+pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u64);
 
 /// A live CapTP session with one OCapN partner — the one object an application
 /// holds, over one byte-fed `PancakeHostSession` the shared [`Host`] minted.
 /// `!Send` by construction; use it on a single task inside a `LocalSet`.
-/// Dropping the handle closes the session, with one exception named on
-/// [`SendRedeemingResult::via`]: a handle onto a session the host itself owns is a view,
-/// and dropping the view leaves the connection running.
+/// A dial or accept returns an owning handle whose drop closes the session.
+/// Host-retained views, such as `send_redeeming`'s `via`, do not close on drop;
+/// explicit [`close`](Session::close) still closes the session they name.
 pub struct Session {
 	shared: Rc<SessionShared>,
-	// The ownership axis both teardown paths read. True for the handle that
-	// dialed or accepted the session and is its owner: its `drop` and its
-	// `close` end that one connection. Sweeping the host's redeemed exporter
-	// connections is a separate axis, `owns_host` below. False for a view onto
-	// a session the host owns and keeps
-	// alive on its own account — an exporter connection a redeem dialed, handed
-	// out by [`Session::send_redeeming`]. A view's `drop` closes nothing and its
-	// `close` reaches no further than the one connection it names; sweeping
-	// there would sever the very capability the caller asked for, along with
-	// every other redeem in flight on the same host.
+	// Production handles own one alias. The false arm exists only for focused
+	// lifecycle tests that need to observe the last-owner transition in-turn.
 	owns_session: bool,
-	// Set when this session created the host it runs on, which `connect` does
-	// when the caller passes none. Such a host has no other reachable owner,
-	// so closing the session takes it down; a caller-supplied host is never
-	// closed here, because sibling sessions may still be using it.
-	owns_host: bool,
 }
 
 /// What [`Session::send_redeeming`] settles with: the partner's reply, and the
@@ -97,12 +85,10 @@ pub struct SendRedeemingResult {
 	/// a capability a three-party-handoff redeem brought in; `None` for an
 	/// ordinary far reply, or when that exporter session has already gone.
 	///
-	/// It is a view, not an owner: dropping it leaves the exporter session
-	/// open, because the host owns that session and the reply capability
-	/// depends on it. Calling [`close`](Session::close) on it is an explicit
-	/// close of that one exporter session, which severs the reply capability
-	/// beside it. It reaches no further: the session you sent on, and every
-	/// other exporter session the host dialed, keep running.
+	/// The Host retains this view and the reply capability independently of the
+	/// returned Rust value, so dropping `via` does not close the exporter.
+	/// Calling [`close`](Session::close) closes that exporter explicitly. It
+	/// reaches neither the session you sent on nor another exporter session.
 	pub via: Option<Session>,
 }
 
@@ -178,17 +164,11 @@ impl Session {
 	// The owning handle over a session this side dialed or accepted: dropping
 	// it closes the connection.
 	pub(crate) fn owning(shared: Rc<SessionShared>) -> Session {
+		shared.owner_handles.set(shared.owner_handles.get() + 1);
 		Session {
 			shared,
 			owns_session: true,
-			owns_host: false,
 		}
-	}
-
-	// Mark this session as the owner of the host it runs on: `connect` sets it
-	// when it had to make one, and nothing else does.
-	pub(crate) fn set_owns_host(&mut self, owns: bool) {
-		self.owns_host = owns;
 	}
 
 	// A view onto a session the host owns, for a caller that needs to spawn and
@@ -197,20 +177,20 @@ impl Session {
 		Session {
 			shared,
 			owns_session: false,
-			owns_host: false,
 		}
 	}
 
-	/// Mint the dialing half from an already-parsed locator (`transport` +
-	/// `designator`), matching a DIAL action's pieces. The handshake is bounded
-	/// by `handshake_timeout` ([`HANDSHAKE_TIMEOUT`] on every dial the binding
-	/// performs; `None` or a zero budget waits unbounded), and overrunning it
-	/// fails with [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut).
-	/// Binding-internal.
+	/// Mint the dialing half over a byte channel the caller already realized
+	/// for `locator`. The locator travels whole; the host retains its own dial
+	/// default for the transport, so no locator policy lives here. The
+	/// handshake is bounded by `handshake_timeout` ([`HANDSHAKE_TIMEOUT`] on
+	/// every dial the binding performs; `None` or a zero budget waits
+	/// unbounded), and overrunning it fails with
+	/// [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut). Binding-internal.
+	#[cfg(any(test, feature = "iroh"))]
 	pub(crate) async fn establish_dialed_locator<S>(
 		host: Rc<HostShared>,
-		transport: &str,
-		designator: &str,
+		locator: &crate::Locator,
 		stream: S,
 		handshake_timeout: Option<Duration>,
 		verified_channel_key: Option<&str>,
@@ -218,24 +198,11 @@ impl Session {
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
-		host.guard_open()?;
-		check_host(unsafe {
-			ffi::pancake_host_ensure_advertised_locator(
-				host.raw(),
-				transport.as_ptr(),
-				transport.len(),
-			)
-		})?;
+		host.guard_handle()?;
+		let owned = OwnedLocator::new(locator)?;
 		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
 		check_host(unsafe {
-			ffi::pancake_host_session_open_dialed_locator(
-				host.raw(),
-				transport.as_ptr(),
-				transport.len(),
-				designator.as_ptr(),
-				designator.len(),
-				&mut ptr,
-			)
+			ffi::pancake_host_session_open_dialed_locator(host.raw(), owned.borrow_view()?, &mut ptr)
 		})?;
 		let session = Session::owning(SessionShared::new(ptr, host, stream));
 		// Before the first partner byte, which is the only window a realizer's
@@ -249,14 +216,15 @@ impl Session {
 	/// Mint the accepting half over a connection the caller's own listener
 	/// produced. `server_designator` is the listener's signing designator (key
 	/// for keyed-tcp/iroh; unused for tcp); `accepted_local_addr` is what
-	/// accept reported. Signing designator/hint come from
-	/// `pancake_host_plan_accept` (ADR-0078). The handshake is bounded by
+	/// accept reported. The host resolves what this accept signs and retains
+	/// it without displacing an explicitly selected advertised locator
+	/// (ADR-0078); no locator policy lives in this binding. The handshake is bounded by
 	/// `handshake_timeout` ([`HANDSHAKE_TIMEOUT`] in every accept loop here;
 	/// `None` or a zero budget waits unbounded, which a caller with no inline
 	/// accept loop of its own may want), and overrunning it fails with
 	/// [`ErrorKind::TimedOut`](crate::ErrorKind::TimedOut), which an accept loop
 	/// skips like any other bad partner. Binding-internal.
-	#[cfg(test)]
+	#[cfg(all(test, feature = "tcp"))]
 	pub(crate) async fn establish_accepted<S>(
 		host: Rc<HostShared>,
 		transport_name: &str,
@@ -270,76 +238,18 @@ impl Session {
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
-		host.guard_open()?;
-		let mut plan = ffi::PancakeAcceptPlan {
-			designator: core::ptr::null(),
-			designator_len: 0,
-			direct_addresses_hint: core::ptr::null(),
-			direct_addresses_hint_len: 0,
-		};
-		check_host(unsafe {
-			ffi::pancake_host_plan_accept(
-				designator_scheme,
-				server_designator.as_ptr(),
-				server_designator.len(),
-				accepted_local_addr.as_ptr(),
-				accepted_local_addr.len(),
-				&mut plan,
-			)
-		})?;
-		let designator = unsafe {
-			if plan.designator_len == 0 {
-				&[][..]
-			} else {
-				core::slice::from_raw_parts(plan.designator, plan.designator_len)
-			}
-		};
-		let hint = unsafe {
-			if plan.direct_addresses_hint_len == 0 {
-				&[][..]
-			} else {
-				core::slice::from_raw_parts(
-					plan.direct_addresses_hint,
-					plan.direct_addresses_hint_len,
-				)
-			}
-		};
-		let designator = std::str::from_utf8(designator).map_err(|_| {
-			Error::with_detail(
-				sys::ERR_INVALID_ARGUMENT,
-				"host returned a non-UTF-8 accepted locator designator".to_string(),
-			)
-		})?;
-		let mut hints = std::collections::BTreeMap::new();
-		if !hint.is_empty() {
-			let direct_addresses = std::str::from_utf8(hint).map_err(|_| {
-				Error::with_detail(
-					sys::ERR_INVALID_ARGUMENT,
-					"host returned a non-UTF-8 direct-addresses hint".to_string(),
-				)
-			})?;
-			hints.insert(
-				crate::abi_constants::HINT_DIRECT_ADDRESSES.to_string(),
-				crate::HintValue::String(direct_addresses.to_string()),
-			);
-		}
-		let locator = Locator {
-			transport: transport_name.to_string(),
-			designator: designator.to_string(),
-			hints,
-			hint_wire_form: if hint.is_empty() {
-				crate::HintWireForm::BooleanFalse
-			} else {
-				crate::HintWireForm::Map
-			},
-		};
-		host.set_advertised_locator(&locator)?;
+		host.guard_handle()?;
 		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
 		check_host(unsafe {
 			ffi::pancake_host_session_open_accepted(
 				host.raw(),
 				transport_name.as_ptr(),
 				transport_name.len(),
+				designator_scheme,
+				server_designator.as_ptr(),
+				server_designator.len(),
+				accepted_local_addr.as_ptr(),
+				accepted_local_addr.len(),
 				&mut ptr,
 			)
 		})?;
@@ -367,6 +277,7 @@ impl Session {
 	// elapsed budget takes the same abandon path a failed handshake does:
 	// dropping the handshake future drops the read half, and the teardown below
 	// releases the half-built session and closes the transport.
+	#[cfg(any(test, feature = "iroh"))]
 	async fn establish(self, handshake_timeout: Option<Duration>) -> Result<Session> {
 		let handshake = crate::pump::run_handshake(&self.shared);
 		let outcome = match handshake_timeout.filter(|budget| !budget.is_zero()) {
@@ -428,9 +339,7 @@ impl Session {
 			Some(value) => value.borrow_view()?,
 			None => core::ptr::null(),
 		};
-		check_host(unsafe {
-			ffi::pancake_host_session_set_exporter_location(self.shared.ptr.get(), view)
-		})?;
+		check_host(unsafe { ffi::pancake_host_session_set_exporter_location(self.shared.ptr.get(), view) })?;
 		Ok(())
 	}
 
@@ -463,9 +372,7 @@ impl Session {
 			locator_record_len: 0,
 			provenance: sys::DURABLE_PROVENANCE_UNAUTHENTICATED,
 		};
-		check_host(unsafe {
-			ffi::pancake_host_session_partner_identity(self.shared.ptr.get(), &mut out)
-		})?;
+		check_host(unsafe { ffi::pancake_host_session_partner_identity(self.shared.ptr.get(), &mut out) })?;
 		// Session-owned views, valid only until the session is released, so
 		// every field is copied before it leaves this call.
 		let (session_key, designator, locator_record) = unsafe {
@@ -546,12 +453,7 @@ impl Session {
 		self.shared.guard_open()?;
 		let mut reference = sys::PancakeReference { id: 0 };
 		let rc = unsafe {
-			ffi::pancake_host_session_published_ref(
-				self.shared.ptr.get(),
-				name.as_ptr(),
-				name.len(),
-				&mut reference,
-			)
+			ffi::pancake_host_session_published_ref(self.shared.ptr.get(), name.as_ptr(), name.len(), &mut reference)
 		};
 		if rc == sys::ERR_NOT_FOUND {
 			return Ok(None);
@@ -738,17 +640,13 @@ impl Session {
 		self.shared.guard_open()?;
 		let reply = self.send(target, verb, args).await?;
 		let via = match Ref::try_from(&reply) {
-			Ok(capability) => self
-				.shared
-				.host
-				.exporter_for(&capability)?
-				.and_then(|home| {
-					if Rc::ptr_eq(&home, &self.shared) {
-						None
-					} else {
-						Some(Session::view(home))
-					}
-				}),
+			Ok(capability) => self.shared.host.exporter_for(&capability)?.and_then(|home| {
+				if Rc::ptr_eq(&home, &self.shared) {
+					None
+				} else {
+					Some(Session::view(home))
+				}
+			}),
 			// Not a capability in hand, so it names no route: a plain value, a
 			// sturdyref, or a broken reference.
 			Err(()) => None,
@@ -767,15 +665,31 @@ impl Session {
 
 	/// Run the inbound event loop in the background (it already runs from
 	/// `connect`); the returned future completes when the connection closes.
-	/// Calling it without awaiting is fine, the loop runs regardless. The
-	/// `Session` handle should stay alive while the loop serves: dropping it
-	/// closes the connection under the partner.
-	pub fn serve(&self) -> impl std::future::Future<Output = ()> {
-		let handle = self.shared.take_serving();
+	/// Calling starts or resumes delivery immediately. Await the future to
+	/// observe admission or task failure and the eventual close; deliberately
+	/// dropping it gives up that observation while delivery continues. Keep the
+	/// `Session` handle alive while serving, because dropping it closes the
+	/// connection under the partner.
+	pub fn serve(&self) -> impl std::future::Future<Output = Result<()>> {
+		// A loop-backed session's inbound is held until its embedder serves;
+		// announce readiness before parking on closure, the byte-fed
+		// serve-resume contract spoken at the loop tier.
+		const CONTEXT: &str = "session serve task failed";
+		let admission = self.shared.attend_inbound();
+		let handle = if admission.is_ok() {
+			self.shared.take_serving()
+		} else {
+			None
+		};
 		async move {
+			admission?;
 			if let Some(handle) = handle {
-				let _ = handle.await;
+				let outcome = handle
+					.await
+					.map_err(|error| Error::with_detail(sys::ERR_INTERNAL, format!("{CONTEXT}: {error}")))?;
+				outcome?;
 			}
+			Ok(())
 		}
 	}
 
@@ -783,52 +697,203 @@ impl Session {
 		self.shared.raw_session()
 	}
 
+	pub(crate) fn close_transport(&self) {
+		self.shared.close_transport();
+	}
+
 	/// Close the session. A running [`serve`](Session::serve) completes; pending
-	/// vows settle broken.
+	/// vows settle closed.
 	///
 	/// This closes the connection it names and nothing else: not a sibling
 	/// session, and not the connections the host dialed by itself to redeem a
 	/// handoff — the `via` from [`send_redeeming`](Session::send_redeeming) is
 	/// one of those. [`Host::close`](crate::Host::close) is what ends those.
 	///
-	/// A session that had to create its own host — the ordinary
-	/// [`connect`](crate::connect) with no host passed — closes that host with
-	/// it, so single-session code needs no host call.
-	pub fn close(&self) {
-		self.shared.closing.set(true);
-		self.shared.close_transport();
-		// A host this session created has no other owner, so it goes too, and
-		// with it every connection it dialed for redeems. A caller-supplied
-		// host stays: sibling sessions on it are still running, and closing
-		// their exporters from here is not this session's call to make.
-		if self.owns_host {
-			self.shared.host.close_host();
+	pub async fn close(&self, pending: PendingWork) -> Result<()> {
+		if self.shared.released.get() {
+			return self.shared.terminal_result();
 		}
+		request_session_close(&self.shared, pending)?;
+		ensure_session_close_driver(&self.shared)?;
+		wait_session_close(&self.shared).await;
+		self.shared.terminal_result()
+	}
+}
+
+fn ensure_session_close_driver(shared: &Rc<SessionShared>) -> Result<()> {
+	if shared.close_task.borrow().is_some() {
+		return Ok(());
+	}
+	let driver = Rc::clone(shared);
+	let Some(task) = try_spawn_local_handle(async move { drive_session_close(driver).await }) else {
+		return Err(Error::with_detail(
+			sys::ERR_INTERNAL,
+			"session close requires a running LocalSet".into(),
+		));
+	};
+	*shared.close_task.borrow_mut() = Some(task);
+	Ok(())
+}
+
+async fn drive_session_close(shared: Rc<SessionShared>) {
+	while !shared.released.get() {
+		if let Some(loop_) = shared.loop_wire.as_ref() {
+			// The loop tier's discipline: progress happens only inside
+			// `pancake_driver_step`, so this driver is the deadline-stepper.
+			// Register the loop-activity waiter before stepping, so a rival
+			// path's step landing between this step and the park still wakes
+			// this driver instead of being lost.
+			let notified = loop_.step_activity();
+			tokio::pin!(notified);
+			notified.as_mut().enable();
+			if let Err(error) = loop_.step_now() {
+				loop_.fail_background(error);
+				return;
+			}
+			if shared.released.get() {
+				break;
+			}
+			// Park on loop activity or on the nearest pending-work deadline
+			// (this session's close grace included). An expiry takes effect
+			// only inside a step, so the timer wake is what applies it; with
+			// no finite deadline pending, readiness-driven steps alone
+			// advance the loop.
+			match loop_.step_wait() {
+				Ok(Some(wait)) => {
+					tokio::select! {
+						() = notified.as_mut() => {}
+						() = tokio::time::sleep(wait) => {}
+					}
+				}
+				Ok(None) => notified.await,
+				Err(error) => {
+					shared.record_close_result(error.code());
+					shared.close_transport();
+					return;
+				}
+			}
+			continue;
+		}
+		// Register the activity waiter before the progress check, so a verb
+		// completing between the check and the await still wakes this loop
+		// instead of being lost.
+		let notified = shared.host.close_activity();
+		tokio::pin!(notified);
+		notified.as_mut().enable();
+		let mut lifecycle = 0;
+		let rc = unsafe { ffi::pancake_host_session_close_progress(shared.ptr.get(), monotonic_ms(), &mut lifecycle) };
+		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
+			shared.record_close_result(rc);
+			shared.close_transport();
+			return;
+		}
+		// Drain what progress queued (this session's release rides an action)
+		// before parking; a productive drain re-signals the registered waiter.
+		if let Err(error) = shared.host.kick_actions().await {
+			shared.record_close_result(error.code());
+			shared.close_transport();
+			return;
+		}
+		if shared.released.get() {
+			break;
+		}
+		// The host-level wait covers every session's FINISH grace deadline,
+		// this one included; with no finite deadline pending, only host
+		// activity can advance terminal progress.
+		match shared.host.close_wait() {
+			Ok(Some(wait)) => {
+				tokio::select! {
+					() = notified.as_mut() => {}
+					() = tokio::time::sleep(wait) => {}
+				}
+			}
+			Ok(None) => notified.await,
+			Err(error) => {
+				shared.record_close_result(error.code());
+				shared.close_transport();
+				return;
+			}
+		}
+	}
+}
+
+async fn wait_session_close(shared: &SessionShared) {
+	while !shared.released.get() {
+		let notified = shared.closed.notified();
+		tokio::pin!(notified);
+		notified.as_mut().enable();
+		if shared.released.get() {
+			break;
+		}
+		notified.await;
+	}
+}
+
+fn monotonic_ms() -> i64 {
+	use std::sync::OnceLock;
+	use std::time::Instant;
+
+	static EPOCH: OnceLock<Instant> = OnceLock::new();
+	let elapsed = EPOCH.get_or_init(Instant::now).elapsed().as_millis();
+	i64::try_from(elapsed).unwrap_or(i64::MAX)
+}
+
+pub(crate) fn session_close_result(code: i32) -> Result<()> {
+	if code == sys::OK {
+		Ok(())
+	} else if code == sys::ERR_TIMEOUT {
+		Err(Error::with_detail(
+			code,
+			"finish close exhausted its grace period".into(),
+		))
+	} else {
+		Err(Error::with_detail(code, "native session close failed".into()))
 	}
 }
 
 impl Drop for Session {
 	fn drop(&mut self) {
-		// A view onto a host-owned session (`SendRedeemingResult::via`) is not the
-		// connection's owner, so its drop is a no-op: closing there would sever
-		// the redeemed capability the caller was handed alongside it.
+		// Focused lifecycle tests use a borrowed handle while dropping the real
+		// owner from inside its callback.
 		if !self.owns_session {
 			return;
 		}
-		// Close just this session (never a sibling's connection — that is the
-		// host's to close, not this session's).
-		self.shared.close_transport();
-		// A host this session created has no other owner. Its sessions hold it
-		// by `Rc` and it holds them back, so without emptying that table the
-		// host, the exporters it dialed, and their sockets all outlive every
-		// handle the application still has. `close` does this; a dropped
-		// session has the same obligation.
-		if self.owns_host {
-			self.shared.host.close_host();
+		let owners = self.shared.owner_handles.get();
+		debug_assert!(owners != 0);
+		self.shared.owner_handles.set(owners - 1);
+		if owners != 1 {
+			return;
+		}
+		if self.shared.released.get() {
+			return;
+		}
+		if request_session_close(&self.shared, PendingWork::Cancel)
+			.and_then(|()| ensure_session_close_driver(&self.shared))
+			.is_err()
+		{
+			self.shared.close_transport();
 		}
 	}
 }
 
-#[cfg(test)]
+pub(crate) fn request_session_close(shared: &Rc<SessionShared>, pending: PendingWork) -> Result<()> {
+	if shared.released.get() {
+		return Ok(());
+	}
+	if let Some(loop_) = shared.loop_wire.as_ref() {
+		loop_.request_session_close(shared.ptr.get(), pending)?;
+	} else {
+		let options = pending.to_ffi()?;
+		check_host(unsafe { ffi::pancake_host_session_close(shared.ptr.get(), &options, monotonic_ms()) })?;
+		// A close request or escalation is close-relevant activity: a driver
+		// parked on a now-superseded wait must re-check progress.
+		shared.host.note_close_activity();
+		shared.host.schedule_kick()?;
+	}
+	shared.closing.set(true);
+	Ok(())
+}
+
+#[cfg(all(test, feature = "tcp"))]
 #[path = "session_tests.rs"]
 mod tests;

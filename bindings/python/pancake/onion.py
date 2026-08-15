@@ -7,6 +7,11 @@ ground neither invented. A locator is ``ocapn://<serviceid>.onion``, and the
 designator this module takes is that bare service id: 56 base32 characters with no
 ``.onion`` suffix.
 
+The product surface is this module's :func:`listen` plus
+:class:`pancake.Runtime` composed with :func:`provider`; both yield ordinary
+:class:`pancake.Session` objects. :class:`OnionNetlayer` remains the explicit raw
+byte-stream embedding surface for callers that own their own loop and framing.
+
 **pancake starts no Tor.** An :class:`OnionNetlayer` names where an already-running
 daemon listens — its SOCKS endpoint to dial, its control endpoint to host — and
 never spawns, supervises, or configures one. Each endpoint is an absolute Unix
@@ -41,25 +46,40 @@ from __future__ import annotations
 import ctypes
 import threading
 import weakref
+from dataclasses import dataclass
 
 from ._codec import _codec_id
+from . import _constants as _c
 from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE
 from ._constants import OK as _OK
 from ._errors import PancakeError
 from ._ffi_ocapn import _copy_managed_frame, _Frame, _ManagedFrame, _read_last_error
 from ._ffi_onion import _onion_lib, _OnionConfig
-from ._native import NativeHandle
+from ._host import Host
+from ._locator import Locator
+from ._native import NativeHandle, _NativeHandleOwner
+from ._server import DriverServer, prepare_driver_loop, _rollback_listener_construction
+from ._transport import Provider, _rollback_failed_provider
 
 __all__ = [
     "AUTH_COOKIE",
     "AUTH_NONE",
     "AUTH_PASSWORD",
+    "OnionConfig",
     "SERVICE_ID_LENGTH",
+    "OnionServer",
     "OnionConnection",
     "OnionListener",
     "OnionNetlayer",
-    "install_provider",
+    "locator",
+    "listen",
+    "provider",
 ]
+
+
+def locator(service_id: str) -> Locator:
+    """Build the standardized hint-free locator for an onion service."""
+    return Locator(_c.TRANSPORT_ONION, service_id, {}, "boolean-false")
 
 #: An unauthenticated control endpoint, which is what a Unix control socket with no
 #: authentication gives and what upstream Goblins assumes.
@@ -74,6 +94,18 @@ AUTH_PASSWORD = 2
 SERVICE_ID_LENGTH = 56
 
 _SERVICE_KEY_CAP = 256
+
+
+@dataclass(frozen=True, slots=True)
+class OnionConfig:
+    """Configuration for one Tor-backed native onion provider."""
+
+    socks: str
+    control: str = ""
+    auth_kind: int = AUTH_NONE
+    auth_secret: str | bytes | None = None
+    service_key: bytes = b""
+    forward: str = ""
 
 
 def _onion_last_error() -> str | None:
@@ -102,14 +134,18 @@ def _release_conn(raw) -> None:
 
 
 def _release_listener(raw) -> None:
-    _onion_lib.pancake_onion_listener_release(raw)
+    _check_onion(_onion_lib.pancake_onion_listener_release(raw))
 
 
 def _release_netlayer(raw) -> None:
-    _onion_lib.pancake_onion_netlayer_release(raw)
+    _check_onion(_onion_lib.pancake_onion_netlayer_release(raw))
 
 
-class OnionConnection:
+def _shutdown_conn(raw) -> None:
+    _check_onion(_onion_lib.pancake_onion_conn_shutdown(raw))
+
+
+class OnionConnection(_NativeHandleOwner):
     """One onion connection carrying one OCapN session, framed on the codec its
     constructor named. Closed on release / context exit."""
 
@@ -118,7 +154,7 @@ class OnionConnection:
         self._native = NativeHandle(
             raw,
             _release_conn,
-            _onion_lib.pancake_onion_conn_shutdown,
+            _shutdown_conn,
             label="onion connection",
             keepalive=netlayer,
         )
@@ -172,7 +208,7 @@ class OnionConnection:
             )
 
 
-class OnionListener:
+class OnionListener(_NativeHandleOwner):
     """A live onion service: the control session keeping it published plus the local
     endpoint Tor forwards it to.
 
@@ -239,7 +275,9 @@ class OnionListener:
             )
         return out.value != 0
 
-    def accept(self, codec: str = "syrup", max_frame_bytes: int = 4096) -> OnionConnection:
+    def accept(
+        self, codec: str = "syrup", max_frame_bytes: int = 4096
+    ) -> OnionConnection:
         """Block until Tor forwards a circuit to this service.
 
         The partner's claimed location is unverified here: Tor tells a hidden service
@@ -254,7 +292,7 @@ class OnionListener:
             return OnionConnection(out, self._netlayer)
 
 
-class OnionNetlayer:
+class OnionNetlayer(_NativeHandleOwner):
     """Owns where Tor listens and the one I/O backend its streams block on; outlives
     the connections and listeners made from it. Released on :meth:`release` / context
     exit.
@@ -311,7 +349,9 @@ class OnionNetlayer:
         )
         # Children retain this owner; weak membership avoids an ownership cycle
         # while still letting explicit release retire them before std.Io.
-        self._children: "weakref.WeakSet[OnionConnection | OnionListener]" = weakref.WeakSet()
+        self._children: "weakref.WeakSet[OnionConnection | OnionListener]" = (
+            weakref.WeakSet()
+        )
         self._children_lock = threading.Lock()
         self._release_lock = threading.Lock()
         self._release_requested = False
@@ -419,35 +459,96 @@ class OnionNetlayer:
             return OnionConnection(out, self)
 
 
-def install_provider(
-    loop,
-    *,
+class OnionServer(DriverServer):
+    """A driver-owned onion listener yielding generic :class:`Session` objects.
+
+    The driver owns Tor provider execution and listener admission. The server
+    only projects the driver's locator and restoration state into the Python
+    API; CapTP remains owned by each yielded session.
+    """
+
+    def __init__(
+        self,
+        driver_loop,
+        listener,
+        service_key: bytes,
+        *,
+        retire_loop: bool,
+    ):
+        super().__init__(driver_loop, listener, retire_loop=retire_loop)
+        self._service_key = bytes(service_key)
+
+    @property
+    def service_key(self) -> bytes:
+        """The provider-owned key that restores this exact onion service."""
+        return self._service_key
+
+    @property
+    def service_id(self) -> str:
+        """The onion service designator without the ``.onion`` suffix."""
+        return self.designator
+
+
+async def listen(
     socks: str,
+    *,
     control: str = "",
     auth_kind: int = AUTH_NONE,
     auth_secret: str | bytes | None = None,
     service_key: bytes = b"",
     forward: str = "",
-) -> None:
-    """Install one configured onion package into a native driver.
+    host: Host | None = None,
+    codec: str | None = None,
+) -> OnionServer:
+    """Bind an onion service through the generic driver listener seam.
 
-    Successful registration retains the native package. This function then
-    drops only the construction reference; shutdown remains the driver's
-    teardown responsibility through its provider lease.
+    ``socks`` and ``control`` name an already-running Tor daemon. The provider
+    archive owns that configuration; the returned server owns neither Tor nor
+    the supplied Host. ``service_key`` restores a prior service when supplied.
+    Tor's control exchange runs synchronously before this function returns.
     """
-    netlayer = OnionNetlayer(
-        socks=socks,
-        control=control,
-        auth_kind=auth_kind,
-        auth_secret=auth_secret,
-        service_key=service_key,
-        forward=forward,
-    )
+    selected_codec = codec if codec is not None else (host.codec if host else "syrup")
+    prepared = prepare_driver_loop(host, selected_codec)
+    loop = prepared.loop
+    listener = None
     try:
-        loop._install_provider(
-            lambda register: register(netlayer._transport_provider())
+        await provider(OnionConfig(
+            socks, control, auth_kind, auth_secret, service_key, forward
+        )).install(loop)
+        listener = loop.listen(_c.TRANSPORT_ONION, "")
+        loop.start()
+        await loop.wait_listener(listener)
+        loop.select_listener(listener)
+        restored_key = loop.listener_restoration_state(listener)
+        return OnionServer(
+            loop,
+            listener,
+            restored_key,
+            retire_loop=host is None,
         )
-    except BaseException:
-        netlayer.release()
+    except BaseException as error:
+        _rollback_listener_construction(error, loop, listener, prepared.owns_loop)
         raise
-    netlayer._relinquish_provider_reference()
+
+
+def provider(config: OnionConfig) -> Provider:
+    """Build the configured native onion provider package."""
+    async def install(loop) -> None:
+        netlayer = OnionNetlayer(
+            socks=config.socks,
+            control=config.control,
+            auth_kind=config.auth_kind,
+            auth_secret=config.auth_secret,
+            service_key=config.service_key,
+            forward=config.forward,
+        )
+        try:
+            loop._install_provider(
+                lambda register: register(netlayer._transport_provider())
+            )
+        except BaseException:
+            _rollback_failed_provider(loop, netlayer.release)
+            raise
+        netlayer._relinquish_provider_reference()
+
+    return Provider(install)

@@ -6,11 +6,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import {
-  buildLaneBundle,
-  laneBundleColorsFromTheme,
-  laneRowLabel,
-} from "./lane-bundle.ts";
+import { buildLaneBundle, laneBundleColorsFromTheme, laneRowLabel } from "./lane-bundle.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { projectFromObservations } from "../../engine/temporal/project-from-observations.ts";
 import { attachedEndpoint, sessionEndpoint } from "../../schema/topology.ts";
@@ -184,9 +180,7 @@ Deno.test("an end attaching is a diamond on the session's row", () => {
     },
   ]);
 
-  const onSession = bundle.sessions.glyphs.filter((g) =>
-    g.eventId === "s-learn"
-  );
+  const onSession = bundle.sessions.glyphs.filter((g) => g.eventId === "s-learn");
   assertEquals(onSession.length, 1);
   // Not "end b": the glyph sits on this session's own row, and nothing the
   // viewer draws labels an end "a" or "b" for a reader to match against.
@@ -199,9 +193,7 @@ Deno.test("an end attaching is a diamond on the session's row", () => {
 
   // And it reaches the session's own row, not just the flat collapsed view.
   assertEquals(
-    bundle.sessions.byEntity.get("w1")?.glyphs.some((g) =>
-      g.eventId === "s-learn"
-    ),
+    bundle.sessions.byEntity.get("w1")?.glyphs.some((g) => g.eventId === "s-learn"),
     true,
   );
 });
@@ -236,9 +228,7 @@ Deno.test("the feed going quiet stays a tick, not a change to the session", () =
   assertEquals(quiet.length, 1);
   assertEquals(quiet[0]?.shape, "tick");
   assertEquals(
-    bundle.sessions.byEntity.get("w1")?.glyphs.some((g) =>
-      g.eventId === "s-gone"
-    ),
+    bundle.sessions.byEntity.get("w1")?.glyphs.some((g) => g.eventId === "s-gone"),
     true,
   );
 });

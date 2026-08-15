@@ -15,7 +15,7 @@
 ;; (`private/seam.rkt`); the core calls come from there. Everything above the
 ;; pump — vat, session-* verbs, events — is the core's; only the transport differs.
 ;;
-;; `connect` in the core dials an iroh locator by loading this module lazily, so a
+;; The product module exposes explicit provider and connector values, so a
 ;; TCP-only program never needs the iroh library. `listen-iroh` registers the
 ;; endpoint as a provider with the native loop; the raw `iroh-endpoint` byte
 ;; path remains for consumers that run their own protocol.
@@ -30,8 +30,11 @@
          "seam.rkt"
          "byte-channel.rkt"
          "host.rkt"
+         "transport.rkt"
+         "finalizer-diagnostics.rkt"
          (only-in "locator.rkt"
-                  parse-locator locator-transport locator-designator locator-hints))
+                  locator parse-locator format-locator-uri
+                  locator-transport locator-designator locator-hints))
 
 (lazy-require
  ["loop.rkt"
@@ -41,6 +44,7 @@
    driver-loop-add-provider!
    driver-loop-host
    loop-listen!
+   loop-listener-ready!
    loop-listener-close!
    loop-listener-locator
    loop-listener-select!
@@ -51,15 +55,20 @@
    loop-server-close!)])
 
 (provide iroh-loop-provider-parts iroh-adopt-loop!
+         iroh-provider iroh-connector
          make-iroh-config (struct-out iroh-config)
          listen-iroh
+         iroh-locator
          IROH-REACH-DIRECT IROH-REACH-DISCOVERY IROH-REACH-DISCOVERY-NO-RELAY IROH-REACH-LOCAL-DISCOVERY
-         iroh-server-node-id iroh-server-direct-addresses
+         iroh-server-locator iroh-server-uri iroh-server-node-id iroh-server-direct-addresses
          iroh-server-host iroh-server-accept iroh-server-close!
          dial-locator-for-relay
+         dial-byte-transport
          open-iroh-endpoint
+         iroh-endpoint-record-failure!
          iroh-endpoint-node-id iroh-endpoint-direct-addresses
          iroh-endpoint-accept iroh-endpoint-dial iroh-endpoint-close!
+         (struct-out failure-event) take-runtime-failures!
          ;; The shape those two answer with, re-provided so a consumer reaching
          ;; the barrel needs no second require for the struct it is handed.
          (struct-out byte-channel))
@@ -70,6 +79,13 @@
 ;; (`private/constants-gen.rkt`, re-provided by `private/constants.rkt`), so
 ;; they cannot drift from the C ABI. The lazy iroh ABI loader behind `iroh-fn`
 ;; lives in `private/ffi-iroh.rkt`.
+
+(define (iroh-locator node-id [direct-addresses #f])
+  (locator TRANSPORT-IROH node-id
+           (if direct-addresses
+               (hash HINT-DIRECT-ADDRESSES direct-addresses)
+               (hash))
+           (if direct-addresses 'map 'boolean-false)))
 
 ;; ── netlayer FFI wrappers ─────────────────────────────────────────────────────
 ;; (iroh-last-error) -> the calling thread's last error message from the iroh
@@ -113,12 +129,6 @@
                           #:idle-timeout-ms [idle-timeout-ms #f]
                           #:worker-threads [worker-threads #f])
   (iroh-config reachability connect-timeout-ms idle-timeout-ms worker-threads))
-
-;; Configuration authority for a loop's registered iroh provider. The native
-;; endpoint is intentionally absent: registration owns its callback context,
-;; and the binding drops its construction reference immediately afterwards.
-(struct loop-iroh-binding (config seed) #:transparent)
-(define loop-iroh-bindings (make-weak-hasheq))
 
 (define (iroh-netlayer-new config [seed #f])
   (define seed* (or seed (crypto-random-bytes 32)))
@@ -172,17 +182,40 @@
    ((iroh-fn 'netlayer-cancel-connect) (iroh-netlayer-handle nl) request-id)))
 
 ;; The archive-owned provider package for a fresh iroh endpoint.
-(define (iroh-loop-provider-parts reachability [seed #f])
+(define (iroh-loop-provider-parts config [seed #f])
   (define-values (netlayer _seed)
-    (iroh-netlayer-new (make-iroh-config reachability) seed))
+    (iroh-netlayer-new config seed))
   (define close! (lambda () (iroh-netlayer-close/release! netlayer)))
-  (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f))
+  (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
   (with-handlers ([(lambda (_) #t) (lambda (e) (close!) (raise e))])
     (check/iroh ((iroh-fn 'transport-provider) (iroh-netlayer-handle netlayer) package)))
   (values netlayer package close!))
 
-;; The iroh companion owns loop configuration and reuse. The generic driver
-;; receives only the archive-owned provider package.
+(define (iroh-provider config)
+  (unless (iroh-config? config)
+    (raise-argument-error 'iroh-provider "iroh-config?" config))
+  (make-driver-provider
+   (lambda (lp host)
+     (iroh-adopt-loop! lp config #:seed (and host (host-seed host))))))
+
+(define (iroh-connector config)
+  (unless (iroh-config? config)
+    (raise-argument-error 'iroh-connector "iroh-config?" config))
+  (make-byte-connector
+   (list TRANSPORT-IROH)
+   (lambda (m loc handshake-timeout-ms)
+     (define-values (transport proof)
+       (dial-byte-transport
+        (locator-designator loc)
+        (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES "")
+        (iroh-config-reachability config)))
+     (establish-dialed-locator-session
+      m loc transport
+      #:verified-channel-key proof
+      #:handshake-timeout-ms handshake-timeout-ms))))
+
+;; Build a candidate endpoint and let the provider-owned equality callback and
+;; generic driver decide whether registration is new, idempotent, or conflicting.
 (define (iroh-adopt-loop! lp config #:seed [seed #f])
   (define seed*
     (bytes->immutable-bytes
@@ -190,34 +223,13 @@
   (unless (= (bytes-length seed*) 32)
     (raise-pancake 'iroh-adopt-loop! ERR-INVALID-ARGUMENT
                    "the iroh provider seed must be 32 bytes"))
-  (define existing (hash-ref loop-iroh-bindings lp #f))
-  (cond
-    [existing
-     (unless (and (equal? (loop-iroh-binding-config existing) config)
-                  (bytes=? (loop-iroh-binding-seed existing) seed*))
-       (raise-pancake 'iroh-adopt-loop! ERR-INVALID-ARGUMENT
-                      "the loop's iroh endpoint configuration or durable seed conflicts"))
-     existing]
-    [else
-     (define-values (netlayer package close!)
-       (iroh-loop-provider-parts (iroh-config-reachability config) seed*))
-     (define binding (loop-iroh-binding config seed*))
-     (with-handlers
-         ([(lambda (_) #t)
-           (lambda (e)
-             (when (eq? (hash-ref loop-iroh-bindings lp #f) binding)
-               (hash-remove! loop-iroh-bindings lp))
-             (close!)
-             (raise e))])
-       ;; Publish only immutable state before registration. If registration
-       ;; fails, the handler removes it and closes the unregistered endpoint.
-       (hash-set! loop-iroh-bindings lp binding)
-       (driver-loop-add-provider! lp package)
-       ;; Registration retained the callback context. Drop only the
-       ;; constructor's reference; shutting the endpoint down would invalidate
-       ;; the provider that the driver now owns.
-       (iroh-netlayer-release-construction! netlayer)
-       binding)]))
+  (define-values (netlayer package close!)
+    (iroh-loop-provider-parts config seed*))
+  (with-handlers ([(lambda (_) #t) (lambda (e) (close!) (raise e))])
+    (driver-loop-add-provider! lp package)
+    ;; Registration retained the callback context. Drop only the constructor's
+    ;; reference; shutting it down would invalidate the provider driver owns.
+    (iroh-netlayer-release-construction! netlayer)))
 
 ;; Close then release the endpoint, nulling the handle FIRST so a second teardown
 ;; — an explicit close racing the finalizer, or the reverse — sees #f and does
@@ -272,7 +284,7 @@
 ;; table, the accept gate (posted on each accept record), a stop event the loop
 ;; thread syncs alongside the fd so a close wakes it at once, and the dedicated
 ;; readiness thread. `buf` is the reused record array the loop drains into.
-(struct iroh-loop (netlayer conns dials [next-request #:mutable] accept-sema stop-sema [accept-closed? #:mutable] [stop? #:mutable] [thread #:mutable] buf))
+(struct iroh-loop (netlayer conns dials [next-request #:mutable] accept-sema stop-sema [accept-closed? #:mutable] [stop? #:mutable] [thread #:mutable] buf failure))
 
 ;; Stable sidecar identity, never the allocation address.
 (define (conn-key conn) ((iroh-fn 'conn-id) conn))
@@ -281,9 +293,22 @@
 ;; arms it at construction), so this only stands up the fd-parking thread.
 (define (make-iroh-loop netlayer)
   (define lp (iroh-loop netlayer (make-hash) (make-hash) 1 (make-semaphore 0) (make-semaphore 0) #f #f #f
-                        (malloc _PancakeIrohReadyEvent DRAIN-READY-CAP 'atomic-interior)))
-  (set-iroh-loop-thread! lp (thread (lambda () (loop-run lp))))
+                        (malloc _PancakeIrohReadyEvent DRAIN-READY-CAP 'atomic-interior)
+                        (box #f)))
+  (set-iroh-loop-thread!
+   lp
+   (thread
+    (lambda ()
+      (with-handlers ([(lambda (error) (not (exn:break? error)))
+                       (lambda (error)
+                         (record-iroh-loop-failure! lp error))])
+        (loop-run lp)))))
   lp)
+
+(define (record-iroh-loop-failure! lp error)
+  (box-cas! (iroh-loop-failure lp) #f error)
+  (wake-all! lp)
+  (unbox (iroh-loop-failure lp)))
 
 (define (loop-dial! lp node-id hints)
   (define request-id (iroh-loop-next-request lp))
@@ -358,23 +383,28 @@
       (release-conn-once! w))
     (hash-clear! (iroh-loop-conns lp))
     (for ([(request-id w) (in-hash (iroh-loop-dials lp))])
-      (with-handlers ([exn? void])
+      (with-handlers ([exn?
+                       (lambda (error)
+                         (box-cas! (iroh-loop-failure lp) #f error))])
         (iroh-netlayer-cancel-connect (iroh-loop-netlayer lp) request-id))
       (set-box! (dial-waiter-result w) (cons 'closed #f))
       (semaphore-post (dial-waiter-sema w)))
     (hash-clear! (iroh-loop-dials lp))
     (define t (iroh-loop-thread lp))
-    (when t (thread-wait t))))
+    (when t (thread-wait t)))
+  (define failure (unbox (iroh-loop-failure lp)))
+  (when failure (raise failure)))
 
 ;; Drain the ready-queue in batches until a short count, posting each record to
-;; its waiter. Returns #f when the endpoint faulted (a negative drain), so the
-;; loop can wind down. A `drain-ready` call also clears the fd's wakeup bytes.
+;; its waiter. An endpoint fault raises the archive's exact diagnostic into the
+;; readiness thread's retained failure path. A `drain-ready` call also clears
+;; the fd's wakeup bytes.
 (define (loop-drain! lp)
   (define buf (iroh-loop-buf lp))
   (let drain ()
     (define-values (rc n) ((iroh-fn 'netlayer-drain-ready) (iroh-netlayer-handle (iroh-loop-netlayer lp)) buf DRAIN-READY-CAP))
     (cond
-      [(not (= rc OK)) #f]
+      [(not (= rc OK)) (check/iroh rc)]
       [(= n 0) #t]
       [else
        (for ([i (in-range n)])
@@ -400,7 +430,6 @@
   (let loop ()
     (cond
       [(iroh-loop-stop? lp) (void)]
-      [(not (loop-drain! lp)) (wake-all! lp)] ; endpoint faulted: wake waiters and exit
       [else
        ;; Drain first, then re-arm the fd readiness so a record enqueued during
        ;; the drain still leaves the fd readable and posts the semaphore at once.
@@ -512,12 +541,15 @@
          (loop-unregister! lp conn)
          (release-conn-once! w)
          (when owns-loop?
-           (loop-stop! lp)
-           (when owned-netlayer
-             (iroh-netlayer-close/release! owned-netlayer))))))))
+           (dynamic-wind
+            void
+            (lambda () (loop-stop! lp))
+            (lambda ()
+              (when owned-netlayer
+                (iroh-netlayer-close/release! owned-netlayer))))))))))
 
 ;; ── dial ─────────────────────────────────────────────────────────────────────
-;; The iroh dial behind the core's `connect`: take an endpoint id and
+;; The byte-fed iroh connector: take an endpoint id and
 ;; direct-address hints, complete the keyed OCapN handshake over the
 ;; encrypted-QUIC transport, and return a ready `connection`. The local endpoint
 ;; is ephemeral (a fresh key) and driven by its own readiness loop, both released
@@ -526,7 +558,7 @@
 ;; The fresh host's session key and its node identity are one and the same
 ;; seed, so the connection's wire identity stays coherent, a handoff this host
 ;; later redeems signs its `desc:handoff-receive` with the very key the gifter
-;; recorded, exactly as `dial-parsed-locator`'s TCP arm does. Delegates to the
+;; recorded, exactly as a runtime TCP dial does. Delegates to the
 ;; node-keyed dial with a fresh host rather than keying the session
 ;; independently of the host it builds.
 ;; Discovery-posture dial retry (ADR-0082): lockstep with PANCAKE_DISCOVERY_DIAL_*.
@@ -565,7 +597,7 @@
 ;; endpoint and bring the connection up under host `m` rather than a fresh
 ;; host, so the redeemed capability and any further handoff it triggers share
 ;; the recipient's one identity, handoff router, and connection table
-;; (ADR-0009/ADR-0100), the iroh sibling of `dial-parsed-locator`'s TCP arm.
+;; (ADR-0009/ADR-0100), the iroh sibling of `dial-exporter`'s TCP arm.
 ;; The core's `dial-exporter` loads it lazily for an iroh give. The keyed
 ;; handshake is the host's (`establish-dialed-locator-session` signs it under
 ;; the host identity and drives it byte-fed over this transport), and
@@ -627,6 +659,24 @@
   (channel-over-transport (iroh-loop-transport lp conn owned-netlayer (and owned-netlayer #t))
                           (conn-verified-remote conn)))
 
+;; Open the byte-fed Host's iroh transport. The transport owns the endpoint and
+;; readiness loop; the second value is the remote endpoint key QUIC proved.
+(define (dial-byte-transport node-id direct-addresses reachability)
+  (define-values (netlayer _seed)
+    (iroh-netlayer-new (make-iroh-config reachability)))
+  (define lp (make-iroh-loop netlayer))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (e)
+                     (loop-stop! lp)
+                     (iroh-netlayer-close/release! netlayer)
+                     (raise e))])
+    (define conn
+      (dial-resolving lp node-id direct-addresses
+                      (propagating-discovery? reachability)))
+    (loop-register! lp conn)
+    (values (iroh-loop-transport lp conn netlayer #t)
+            (conn-verified-remote conn))))
+
 ;; Dial an iroh `ocapn://` locator to a byte channel, completing NO CapTP
 ;; handshake: the relay only pipes bytes, and the two ends key the session end to
 ;; end. This is the Racket sibling of the TypeScript `dialLocatorForRelay` and the
@@ -645,14 +695,12 @@
   (unless (string=? (locator-transport loc) TRANSPORT-IROH)
     (error 'dial-locator-for-relay
            "expected an iroh locator, got transport ~a" (locator-transport loc)))
-  (define-values (netlayer _seed) (iroh-netlayer-new (make-iroh-config reachability)))
-  (define lp (make-iroh-loop netlayer))
-  (with-handlers ([(lambda (_) #t)
-                   (lambda (e) (loop-stop! lp) (iroh-netlayer-close/release! netlayer) (raise e))])
-    (dial-channel-over lp netlayer
-                       (locator-designator loc)
-                       (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES "")
-                       reachability)))
+  (define-values (transport verified-remote)
+    (dial-byte-transport
+     (locator-designator loc)
+     (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES "")
+     reachability))
+  (channel-over-transport transport verified-remote))
 ;; ── the raw byte-channel endpoint ────────────────────────────────────────────
 ;; One bound iroh endpoint whose partners are raw byte channels, in both
 ;; directions: it accepts and it dials, and every connection either way rides its
@@ -679,8 +727,18 @@
   ;; pin the whole graph forever) and the endpoint fd released. The loop thread
   ;; roots only the loop, never `e`, so `e` stays collectable and this fires; the
   ;; close is idempotent, so it is harmless after an explicit one.
-  (register-finalizer e (lambda (q) (iroh-endpoint-close! q)))
+  (register-finalizer
+   e
+   (lambda (q)
+     ;; Collection has no caller to receive the retained loop failure. Explicit
+     ;; close remains its observing barrier; the finalizer only guarantees
+     ;; release and must not raise on the collector's thread.
+     (run-native-finalizer! "iroh-endpoint.finalize" (lambda () (iroh-endpoint-close! q)) #:layer 'transport)))
   e)
+
+;; Internal fault projection used by the resident loop and binding dogfood.
+(define (iroh-endpoint-record-failure! e error)
+  (record-iroh-loop-failure! (iroh-endpoint-loop e) error))
 
 ;; This endpoint's id: the dialable designator an `iroh` locator carries.
 (define (iroh-endpoint-node-id e)
@@ -732,8 +790,10 @@
 ;; Stop accepting, stop the readiness loop (joining its thread and releasing any
 ;; still-registered connection), and release the endpoint. Idempotent.
 (define (iroh-endpoint-close! e)
-  (loop-stop! (iroh-endpoint-loop e))
-  (iroh-netlayer-close/release! (iroh-endpoint-netlayer e)))
+  (dynamic-wind
+   void
+   (lambda () (loop-stop! (iroh-endpoint-loop e)))
+   (lambda () (iroh-netlayer-close/release! (iroh-endpoint-netlayer e)))))
 
 ;; ── host ─────────────────────────────────────────────────────────────────────
 ;; A keyed pancake server: the byte endpoint above, plus the one CapTP host every
@@ -764,22 +824,27 @@
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (when listener (loop-listener-close! lp listener))
-                     (when owns-loop? (driver-loop-abort! lp))
+                     (when (and owns-loop? (not host)) (driver-loop-abort! lp))
                      (raise e))])
     (iroh-adopt-loop! lp config #:seed seed*)
     (set! listener
           (loop-listen! lp TRANSPORT-IROH (designator-from-seed seed*)))
+    (driver-loop-start! lp)
+    (set! listener (loop-listener-ready! listener))
     (define initial (loop-listener-locator lp listener))
     (define node-id (locator-designator initial))
     (loop-listener-select! lp listener)
-    (driver-loop-start! lp)
     (iroh-server node-id (driver-loop-host lp)
-                 (make-loop-server lp listener node-id #f (not host)))))
+                 (make-loop-server lp listener #f (not host)))))
 
 
 (define (iroh-server-direct-addresses s)
   (define loc (loop-server-locator (iroh-server-loop-server s)))
   (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
+(define (iroh-server-locator s)
+  (loop-server-locator (iroh-server-loop-server s)))
+(define (iroh-server-uri s)
+  (format-locator-uri (iroh-server-locator s)))
 (define (iroh-server-accept s)
   (loop-server-accept (iroh-server-loop-server s)))
 (define (iroh-server-close! s)

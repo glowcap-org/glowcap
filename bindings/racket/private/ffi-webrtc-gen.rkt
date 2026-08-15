@@ -19,7 +19,7 @@
    'last-error
    (get-ffi-obj 'pancake_webrtc_last_error L (_fun _pointer _size -> _size))
    'netlayer-new
-   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_new L (_fun _PancakeWebrtcConfig-pointer _pointer -> _int32))
+   (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_new L (_fun (_or-null _PancakeWebrtcConfig-pointer) _pointer -> _int32))
               _pointer #f)
    'netlayer-readiness-fd
    (get-ffi-obj 'pancake_webrtc_netlayer_readiness_fd L (_fun _pointer -> _int32))
@@ -27,7 +27,7 @@
    (wrap-out1 (get-ffi-obj 'pancake_webrtc_netlayer_drain_ready L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
    'netlayer-release
-   (get-ffi-obj 'pancake_webrtc_netlayer_release L (_fun _pointer -> _void))
+   (get-ffi-obj 'pancake_webrtc_netlayer_release L (_fun _pointer -> _int32))
    'peer-new
    (wrap-out1 (get-ffi-obj 'pancake_webrtc_peer_new L (_fun #:blocking? #t _pointer _int32 _pointer -> _int32))
               _pointer #f)
@@ -61,6 +61,6 @@
    'peer-close
    (get-ffi-obj 'pancake_webrtc_peer_close L (_fun _pointer -> _void))
    'peer-release
-   (get-ffi-obj 'pancake_webrtc_peer_release L (_fun _pointer -> _void))
+   (get-ffi-obj 'pancake_webrtc_peer_release L (_fun _pointer -> _int32))
    'transport-provider
-   (get-ffi-obj 'pancake_webrtc_transport_provider L (_fun _pointer _PancakeTransportProvider-pointer -> _int32))))
+   (get-ffi-obj 'pancake_webrtc_transport_provider L (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))))

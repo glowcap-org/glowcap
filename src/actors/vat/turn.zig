@@ -262,17 +262,49 @@ pub fn drainMovedReplies(self: *Vat) void {
 /// arena is reset only when an *outermost* turn opens (depth was 0), so a turn
 /// keeps its scratch live across any near-calls and sends it makes, and the
 /// previous outermost turn's reply stays valid until the next one begins.
-pub fn beginTurn(self: *Vat) std.mem.Allocator {
-    if (self.turn_depth == 0) {
+const TurnBoundary = struct {
+    outermost: bool,
+    /// A right-sized replacement prepared before the boundary commits. This
+    /// makes burst trimming exact and fallible without discarding any prior
+    /// turn lifetime when its allocation is refused.
+    retired_replacement: ?std.ArrayList(*StateBox) = null,
+
+    fn deinit(self: *TurnBoundary, allocator: std.mem.Allocator) void {
+        if (self.retired_replacement) |*replacement| replacement.deinit(allocator);
+        self.* = undefined;
+    }
+};
+
+fn prepareTurnBoundary(self: *Vat) Error!TurnBoundary {
+    if (self.turn_depth != 0) return .{ .outermost = false };
+
+    const live_actor_slots = self.actors.count();
+    const burst_sized = self.retired_boxes.capacity > vat_mod.steady_list_bytes / @sizeOf(*StateBox);
+    if (!burst_sized or self.retired_boxes.capacity <= live_actor_slots) {
+        return .{ .outermost = true };
+    }
+
+    var replacement: std.ArrayList(*StateBox) = .empty;
+    errdefer replacement.deinit(self.allocator);
+    try replacement.ensureTotalCapacityPrecise(self.allocator, live_actor_slots);
+    return .{ .outermost = true, .retired_replacement = replacement };
+}
+
+fn beginTurn(self: *Vat, boundary: *TurnBoundary) std.mem.Allocator {
+    if (boundary.outermost) {
+        // Every allocation the boundary needs succeeded in prepareTurnBoundary,
+        // so the lifetime transition below is one infallible commit.
+        releaseRetiredBoxes(self);
+        if (boundary.retired_replacement) |replacement| {
+            self.retired_boxes.deinit(self.allocator);
+            self.retired_boxes = replacement;
+            boundary.retired_replacement = null;
+        }
         _ = self.turn_arena.reset(.{ .retain_with_limit = vat_mod.steady_turn_arena_bytes });
         // Moved replies share the arena's lifetime, so reclaim the previous
         // outermost turn's moved bytes at the same boundary its scratch
         // resets. A borrowed reply from the last turn is now invalid too.
         drainMovedReplies(self);
-        // Boxes a `become` swapped out share that lifetime too: a reply
-        // borrowing the state a past turn ran as is invalid from here, so the
-        // box behind it can go.
-        drainRetiredBoxes(self);
     }
     self.turn_depth += 1;
     return self.turn_arena.allocator();
@@ -300,10 +332,13 @@ pub fn openTurnFrame(self: *Vat, id: u64) Error!TurnFrame {
     // exceed the cap rather than crashing on a cyclic local graph.
     if (self.turn_depth >= max_near_call_depth) return Error.NearCallTooDeep;
     const cell = self.actors.getPtr(id) orelse return Error.NoSuchActor;
+    var boundary = try prepareTurnBoundary(self);
+    errdefer boundary.deinit(self.allocator);
     try boxed.ensureUnshared(self, cell);
     const box = cell.box;
+    const arena = beginTurn(self, &boundary);
     cell.running += 1;
-    return .{ .box = box, .arena = beginTurn(self), .id = id };
+    return .{ .box = box, .arena = arena, .id = id };
 }
 
 /// Unwind an open turn frame: install any promoted `become` only when this
@@ -412,29 +447,26 @@ fn finishCellRun(self: *Vat, id: u64) void {
     if (cell.roots == 0) retireActorRow(self, id);
 }
 
-/// Retire a zero-rooted, non-running actor row (ADR-0101): reserve the
-/// retired-list slots first, then remove the row and park its box until the
-/// next outermost-turn boundary — the borrowed-reply lifetime, so a reply an
-/// earlier turn handed out never dangles. On reservation failure the row
-/// stays, zero-rooted, until Vat teardown: a bounded leak, never a dangling
-/// box. A staged become can be pending here only while frames still run, and
-/// a running actor is never retired, so the row's box is the only parked one.
+/// Retire a zero-rooted, non-running actor row (ADR-0101): remove the row and
+/// park its box until the next outermost-turn boundary — the borrowed-reply
+/// lifetime, so a reply an earlier turn handed out never dangles. Registration
+/// escrowed one retired-list slot for every live actor; removing this row
+/// releases that exact obligation before the append consumes it, so this path
+/// is allocation-free even in destructor and frame-unwind contexts. A staged
+/// become can be pending here only while frames still run, and a running actor
+/// is never retired, so the row's box is the only parked one.
 pub fn retireActorRow(self: *Vat, id: u64) void {
-    self.retired_boxes.ensureUnusedCapacity(self.allocator, 1) catch return;
     const removed = self.actors.fetchRemove(id) orelse unreachable;
     std.debug.assert(removed.value.running == 0);
     std.debug.assert(removed.value.pending_become == null);
     self.retired_boxes.appendAssumeCapacity(removed.value.box);
 }
 
-/// Drop the vat's reference to every box a `become` swapped out. Called when an
-/// outermost turn begins and at teardown, the same boundary that reclaims moved
-/// replies, so a retired box outlives every reply that can still borrow it. A
-/// snapshot sharing the box keeps it alive past this.
-pub fn drainRetiredBoxes(self: *Vat) void {
+/// Drop the vat's reference to every retired box without changing the backing
+/// reservation. Turn-boundary preparation decides transactionally whether a
+/// burst-sized list should be replaced; teardown needs only this infallible
+/// release. A snapshot sharing a box keeps it alive past the boundary.
+pub fn releaseRetiredBoxes(self: *Vat) void {
     for (self.retired_boxes.items) |box| releaseBox(self.allocator, box);
     self.retired_boxes.clearRetainingCapacity();
-    if (self.retired_boxes.capacity * @sizeOf(*StateBox) > vat_mod.steady_list_bytes) {
-        self.retired_boxes.clearAndFree(self.allocator);
-    }
 }

@@ -8,11 +8,7 @@
  */
 
 import { assertEquals } from "@std/assert";
-import {
-  foldActivityByNode,
-  nodeActivityIn,
-  type PeerActivity,
-} from "./types.ts";
+import { foldActivityByNode, nodeActivityIn, type PeerActivity } from "./types.ts";
 
 function flight(from: string, to: string) {
   return { messageInFlight: { from, to } };

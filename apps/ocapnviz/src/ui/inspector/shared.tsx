@@ -12,10 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StageSelection } from "../../render/types.ts";
-import type {
-  MoveIntent,
-  MoveSpanIntent,
-} from "../../engine/authoring/events.ts";
+import type { MoveIntent, MoveSpanIntent } from "../../engine/authoring/events.ts";
 import type { EngineError, EngineResult } from "../../engine/errors.ts";
 import { FieldError } from "../error/FieldError.tsx";
 import { ClearGlyph, PinGlyph } from "../glyphs.tsx";
@@ -30,20 +27,11 @@ import type {
   SessionState,
   Transport,
 } from "../../schema/topology.ts";
-import {
-  attachedTo,
-  backedBy,
-  PROFILE_OPTIONS,
-} from "../../schema/topology.ts";
+import { attachedTo, backedBy, PROFILE_OPTIONS } from "../../schema/topology.ts";
 import { UNNAMED_END_LABEL } from "../../schema/topology.ts";
 import { c, CONTROL, FONT, PANEL, SIZE, SPACE, WEIGHT } from "../tokens.ts";
 import { Identifier } from "../identifier.tsx";
-import type {
-  PeerProperty,
-  SessionProperty,
-  SessionValue,
-  TrajectoryDisplay,
-} from "../../engine/trajectory.ts";
+import type { PeerProperty, SessionProperty, SessionValue, TrajectoryDisplay } from "../../engine/trajectory.ts";
 import {
   LifecycleChip,
   type LifecycleStatus,
@@ -61,12 +49,7 @@ import {
 // because every inspector panel reads its time vocabulary through
 // this module.
 export { formatTime, formatTimeInput, parseTime } from "../format.ts";
-import {
-  formatCoord,
-  formatTime,
-  formatTimeInput,
-  parseTime,
-} from "../format.ts";
+import { formatCoord, formatTime, formatTimeInput, parseTime } from "../format.ts";
 
 // ───────────────────────── entity picker labels ────────────────────────
 
@@ -74,11 +57,7 @@ import {
 // `./picker-labels.ts`, which is pure and knows nothing of React;
 // re-exported here so a picker reads its label rule from the same module
 // it takes its controls from.
-export {
-  pickerLabelFor,
-  pickerLabels,
-  type PickerOption,
-} from "./picker-labels.ts";
+export { pickerLabelFor, pickerLabels, type PickerOption } from "./picker-labels.ts";
 import { pickerLabelFor, type PickerOption } from "./picker-labels.ts";
 
 // ───────────────────────── editor contract ─────────────────────────────
@@ -301,9 +280,7 @@ export function PanelHeading(
     children: React.ReactNode;
   },
 ) {
-  return (
-    <div style={mono ? headingMono : heading} title={title}>{children}</div>
-  );
+  return <div style={mono ? headingMono : heading} title={title}>{children}</div>;
 }
 
 export const placeholder = {
@@ -419,9 +396,7 @@ export function Field(
       <div style={fieldValueStyle}>
         <div style={fieldLineStyle}>{children}</div>
         {below !== undefined && below !== null && below}
-        {note !== undefined && note !== null && (
-          <div style={fieldNoteStyle}>{note}</div>
-        )}
+        {note !== undefined && note !== null && <div style={fieldNoteStyle}>{note}</div>}
       </div>
     </div>
   );
@@ -1052,13 +1027,9 @@ export function EnumSelect<T extends string>(
       onChange={(e) => onChange(e.target.value as T)}
       aria-label={ariaLabel}
       style={inlineSelectInput}
-      {...(disabledReason !== undefined
-        ? { disabled: true, title: disabledReason }
-        : {})}
+      {...(disabledReason !== undefined ? { disabled: true, title: disabledReason } : {})}
     >
-      {offeredWith(options, value).map((o) => (
-        <option key={o} value={o}>{labelFor ? labelFor(o) : o}</option>
-      ))}
+      {offeredWith(options, value).map((o) => <option key={o} value={o}>{labelFor ? labelFor(o) : o}</option>)}
     </select>
   );
 }
@@ -1414,8 +1385,7 @@ export function PositionRow(
           : (
             <>
               <code style={positionValueStyle}>
-                {at ? `${formatCoord(at.x)}, ${formatCoord(at.y)}` : "—"}{" "}
-                {pinned ? "· pinned" : "· auto"}
+                {at ? `${formatCoord(at.x)}, ${formatCoord(at.y)}` : "—"} {pinned ? "· pinned" : "· auto"}
               </code>
               {!pinned && editing && onPinHere && at && (
                 <button
@@ -1657,9 +1627,7 @@ export function TrajectoryInsert<P extends string>(
       }}
     >
       <option value="">+ state @playhead…</option>
-      {properties.map((property) => (
-        <option key={property} value={property}>{nounOf(property)}</option>
-      ))}
+      {properties.map((property) => <option key={property} value={property}>{nounOf(property)}</option>)}
     </select>
   );
 }
@@ -1819,9 +1787,7 @@ export function ProfileSelect(
       aria-label="Peer profile"
       style={inlineSelectInput}
     >
-      {offeredWith(PROFILE_OPTIONS, value).map((p) => (
-        <option key={p} value={p}>{p}</option>
-      ))}
+      {offeredWith(PROFILE_OPTIONS, value).map((p) => <option key={p} value={p}>{p}</option>)}
     </select>
   );
 }
@@ -1832,9 +1798,7 @@ export function Unknown(
   return (
     <>
       {kind === "peer" && <PeerKindLabel profile="other" />}
-      {kind === "session" && (
-        <SessionKindLabel codec="capnp" captpVersion="v1_0" />
-      )}
+      {kind === "session" && <SessionKindLabel codec="capnp" captpVersion="v1_0" />}
       {kind === "message" && <MessageKindLabel />}
       <div style={placeholder}>
         Unknown {kind} id: <Identifier value={id} />

@@ -24,6 +24,44 @@ const stream_framing = pancake.foundation.stream_framing;
 
 const frame_cap = 4096;
 
+test "operation failure preserves its first cause and later chain" {
+    var failure = driver.OperationFailure.fromError(error.Primary);
+    var cleanup = pancake.foundation.FailureChain.init(error.FirstCleanup);
+    cleanup.note(error.LaterCleanup);
+    failure.noteChain(cleanup);
+    failure.note(error.LastCleanup);
+
+    try std.testing.expectEqual(error.Primary, failure.cause);
+    try std.testing.expectEqual(error.FirstCleanup, failure.secondary_cause.?);
+    try std.testing.expectEqual(@as(u16, 3), failure.secondary_count);
+}
+
+test "peer failure diagnostics retain first and secondary cleanup failures" {
+    var peer = engine.Peer.init(std.testing.allocator);
+    defer peer.deinit();
+
+    peer.recordFailure(error.IngressCancelFailed);
+    peer.recordSecondaryFailure(error.VerbTailFailed);
+    peer.recordSecondaryFailure(error.LaterCleanupFailed);
+
+    const info = peer.lastAbort().?;
+    try std.testing.expectEqualStrings("IngressCancelFailed", info.error_name);
+    try std.testing.expectEqual(error.VerbTailFailed, info.secondary_error.?);
+    try std.testing.expectEqual(@as(u8, 2), info.secondary_error_count);
+
+    for (0..300) |_| peer.recordSecondaryFailure(error.ExcessCleanupFailure);
+    const saturated = peer.lastAbort().?;
+    try std.testing.expectEqual(error.VerbTailFailed, saturated.secondary_error.?);
+    try std.testing.expectEqual(std.math.maxInt(u8), saturated.secondary_error_count);
+}
+
+test "Host action failure detail remains diagnostic when retaining it cannot allocate" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    const retained = driver.core.testing.retainFailureMessage(failing.allocator(), "specific partner refusal");
+    try std.testing.expect(!retained.owned);
+    try std.testing.expectEqualStrings("failure detail unavailable: allocation failed", retained.bytes);
+}
+
 test "Host admission frame cap defaults to the canonical session limit" {
     // Single-source lock: a default-constructed Host admits the same frame size
     // the driver C ABI publishes as PANCAKE_DEFAULT_FRAME_CAP, so a native Zig
@@ -35,6 +73,669 @@ test "Host admission frame cap defaults to the canonical session limit" {
         (engine.SessionLimits{}).max_frame_bytes,
         (Host.Options{}).frameCap(),
     );
+}
+
+test "core host close seals admission and an idle finish closes immediately" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x21} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    host.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, host.lifecyclePhase());
+    try host.progressClose(0);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+    try std.testing.expectError(error.HostClosing, host.openAcceptedAdvertised("tcp"));
+    host.beginClose(.cancel, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+}
+
+test "core host close initiation cannot fail after committing its barrier" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var host = test_host.init(failing.allocator(), [_]u8{0x34} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7081", &.{});
+    while (try host.nextAction()) |_| {}
+    while (try session.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        frame.deinit();
+    }
+    try session.served.port.peer.sendCopying(.{ .abort = .{
+        .kind = .graceful_shutdown,
+        .message = "queued before finish",
+    } });
+    driver.core.testing.markDirty(&host, session.peer_id);
+
+    failing.fail_index = failing.alloc_index;
+    host.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, host.lifecyclePhase());
+
+    try host.progressClose(1);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, host.lifecyclePhase());
+
+    failing.fail_index = std.math.maxInt(usize);
+    const allocations_before_retry = failing.alloc_index;
+    try host.progressClose(2);
+    try std.testing.expect(failing.alloc_index > allocations_before_retry);
+    host.beginClose(.cancel, 3);
+    var saw_close = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => while (try session.takeOutbound()) |frame_value| {
+            var frame = frame_value;
+            frame.deinit();
+        },
+        .close => saw_close = true,
+        else => {},
+    };
+    try host.progressClose(4);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+    try std.testing.expect(saw_close);
+    try host.releaseSession(session);
+}
+
+test "core session close retains terminal drive under post-transition OOM" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var host = test_host.init(failing.allocator(), [_]u8{0x35} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    try host.ensureAdvertisedLocator("tcp");
+    const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7080"));
+    while (try host.nextAction()) |_| {}
+    while (try session.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        frame.deinit();
+    }
+
+    failing.fail_index = failing.alloc_index;
+    try host.beginSessionClose(session, .cancel, 0);
+    try std.testing.expect(session.lifecyclePhase() != .active);
+
+    try host.progressSessionCloses(1);
+    try std.testing.expect(!host.sessionCloseActionDelivered(session));
+
+    failing.fail_index = std.math.maxInt(usize);
+    try host.progressSessionCloses(2);
+    var saw_close = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => while (try session.takeOutbound()) |frame_value| {
+            var frame = frame_value;
+            frame.deinit();
+        },
+        .close => saw_close = true,
+        else => {},
+    };
+    try std.testing.expect(saw_close);
+    try std.testing.expectEqual(driver.core.CloseOutcome.closed, host.sessionCloseOutcome(session, true));
+    try host.releaseSession(session);
+}
+
+test "core close policy validates representation-neutral inputs" {
+    const close = driver.core;
+    try std.testing.expectEqual(close.PendingWork.cancel, try (close.PendingWorkInput{
+        .pending = .cancel,
+        .grace = .unspecified,
+    }).resolve());
+    try std.testing.expectError(error.CancelGraceSpecified, (close.PendingWorkInput{
+        .pending = .cancel,
+        .grace = .{ .finite_ms = 0 },
+    }).resolve());
+    try std.testing.expectError(error.FinishGraceRequired, (close.PendingWorkInput{
+        .pending = .finish,
+        .grace = .unspecified,
+    }).resolve());
+    try std.testing.expectEqual(close.PendingWork{ .finish = .unbounded }, try (close.PendingWorkInput{
+        .pending = .finish,
+        .grace = .unbounded,
+    }).resolve());
+    try std.testing.expectEqual(close.PendingWork{ .finish = .{ .ms = close.max_finite_close_grace_ms } }, try (close.PendingWorkInput{
+        .pending = .finish,
+        .grace = .{ .finite_ms = close.max_finite_close_grace_ms },
+    }).resolve());
+}
+
+test "core close wait selects and safely clamps the nearest deadline" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x35} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try std.testing.expectEqual(@as(i64, -1), host.closeWaitMs(0));
+
+    try host.ensureAdvertisedLocator("tcp");
+    const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7084"));
+    try host.beginSessionClose(session, .{ .finish = .{ .ms = 50 } }, 100);
+    host.beginClose(.{ .finish = .{ .ms = 100 } }, 100);
+
+    try std.testing.expectEqual(@as(i64, 50), host.closeWaitMs(100));
+    try std.testing.expectEqual(@as(i64, 10), host.closeWaitMs(140));
+    try std.testing.expectEqual(@as(i64, 0), host.closeWaitMs(150));
+    try std.testing.expectEqual(@as(i64, 0), host.closeWaitMs(std.math.maxInt(i64)));
+}
+
+test "core host cancel invalidates a queued redeem dial before external delivery" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x22} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const vow_id = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7086", "widget"));
+    host.beginClose(.cancel, 0);
+
+    const failed = (try host.nextAction()) orelse return error.MissingFailure;
+    try std.testing.expect(failed == .failed);
+    try std.testing.expectEqual(vow_id, failed.failed.vow_id);
+    try std.testing.expectEqual(driver.core.VowFailure.closed, failed.failed.failure);
+    try std.testing.expect((try host.nextAction()) == null);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+}
+
+test "core host finish counts pending gift entropy and cancel retires it without an effect" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x23} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const recipient = try host.node.registerPeer(.{});
+    const exporter = try host.node.registerPeer(.{});
+    try host.node.peer(exporter).?.session_state.registerImport(.from(4));
+    const gift = try host.node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    try std.testing.expect(try host.node.interceptFulfilledRef(recipient, 9, gift.far.import_position.int()));
+
+    host.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, host.lifecyclePhase());
+    try std.testing.expectEqual(@as(usize, 1), host.node.pendingGiftEffects());
+
+    host.beginClose(.cancel, 0);
+    try std.testing.expectEqual(@as(usize, 0), host.node.pendingGiftEffects());
+    try std.testing.expect((try host.nextAction()) == null);
+    try std.testing.expect((try host.nextAction()) == null);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+}
+
+test "core host failures classify at the sans-I/O authority" {
+    const HostFailure = driver.core.HostFailure;
+    try std.testing.expectEqual(HostFailure.Kind.internal, HostFailure.classify(error.OutOfMemory));
+    try std.testing.expectEqual(HostFailure.Kind.not_found, HostFailure.classify(error.TokenRetired));
+    try std.testing.expectEqual(HostFailure.Kind.invalid_argument, HostFailure.classify(error.ForeignArgument));
+    try std.testing.expectEqual(HostFailure.Kind.would_block, HostFailure.classify(error.OutboundBackpressure));
+    try std.testing.expectEqual(HostFailure.Kind.would_block, HostFailure.classify(error.SessionOperationLimitReached));
+    try std.testing.expectEqual(HostFailure.Kind.closed, HostFailure.classify(error.SessionClosing));
+    try std.testing.expectEqual(HostFailure.Kind.session, HostFailure.classify(error.SendRejected));
+    try std.testing.expectEqual(HostFailure.Kind.codec, HostFailure.classify(error.MalformedView));
+    try std.testing.expectEqual(HostFailure.Kind.frame_too_large, HostFailure.classify(error.FrameTooLarge));
+}
+
+test "driver and Host failure tables agree on every name both classify" {
+    // `driver.OperationFailure` extends the sans-I/O `HostFailure` vocabulary
+    // with I/O, timeout, and would-block arms it alone can mint. The names
+    // both tables list explicitly must land in corresponding categories, or an
+    // embedder sees one error change meaning across the two fronts. The two
+    // `else` arms differ on purpose (driver: transport I/O; Host: abort
+    // projection), so only the shared explicit names are held here.
+    const HostFailure = driver.core.HostFailure;
+    const OperationFailure = driver.OperationFailure;
+    const shared = [_]anyerror{
+        error.HostClosing,
+        error.SessionClosing,
+        error.SessionCondemned,
+        error.UnknownTransport,
+        error.TransportSemanticsConflict,
+        error.TransportAlreadyRegistered,
+        error.InvalidTransportName,
+        error.ReenteredHost,
+        error.MissingAdvertisedLocator,
+        error.InvalidArgument,
+        error.OutOfMemory,
+    };
+    for (shared) |cause| {
+        const expected: OperationFailure.Kind = switch (HostFailure.classify(cause)) {
+            .invalid_argument => .invalid_argument,
+            .closed => .closed,
+            .internal => .internal,
+            .would_block => .would_block,
+            .not_found, .session, .codec, .frame_too_large => unreachable,
+        };
+        try std.testing.expectEqual(expected, OperationFailure.classify(cause));
+    }
+}
+
+test "hosted Host-wide publication consumes its context on preflight failure" {
+    const Hosted = struct {
+        fn handle(_: *anyopaque, _: *actors.Turn, _: actors.Message) anyerror!model.Argument {
+            unreachable;
+        }
+
+        fn free(ctx: *anyopaque) void {
+            const freed: *bool = @ptrCast(@alignCast(ctx));
+            freed.* = true;
+        }
+    };
+
+    var host = test_host.init(std.testing.allocator, [_]u8{0x22} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    host.beginClose(.cancel, 0);
+
+    var giftable_freed = false;
+    try std.testing.expectError(error.HostClosing, host.publishHostedGiftable("closed", .{
+        .ctx = &giftable_freed,
+        .handle = Hosted.handle,
+        .free = Hosted.free,
+    }));
+    try std.testing.expect(giftable_freed);
+
+    var durable_freed = false;
+    try std.testing.expectError(error.HostClosing, host.publishHostedDurable(
+        [_]u8{0x23} ** engine.durable_swiss_entropy_len,
+        .{
+            .ctx = &durable_freed,
+            .handle = Hosted.handle,
+            .free = Hosted.free,
+        },
+    ));
+    try std.testing.expect(durable_freed);
+}
+
+test "core host expiry wins over a cancel arriving at the deadline" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x32} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAdvertisedLocator("tcp");
+    const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7083"));
+    host.beginClose(.{ .finish = .{ .ms = 10 } }, 100);
+    host.beginClose(.cancel, 110);
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => while (try session.takeOutbound()) |frame_value| {
+            var frame = frame_value;
+            frame.deinit();
+        },
+        else => {},
+    };
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+    try std.testing.expectEqual(driver.core.CloseOutcome.timed_out, host.closeOutcome(true));
+    host.beginClose(.{ .finish = .unbounded }, 111);
+    try std.testing.expectEqual(driver.core.CloseOutcome.timed_out, host.closeOutcome(true));
+    try host.releaseSession(session);
+}
+
+test "core session expiry wins over a cancel arriving at the deadline" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x33} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAdvertisedLocator("tcp");
+    const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7082"));
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => while (try session.takeOutbound()) |frame_value| {
+            var frame = frame_value;
+            frame.deinit();
+        },
+        else => {},
+    };
+    try host.beginSessionClose(session, .{ .finish = .{ .ms = 10 } }, 100);
+    try host.beginSessionClose(session, .cancel, 110);
+    try std.testing.expectEqual(driver.core.CloseOutcome.pending, host.sessionCloseOutcome(session, false));
+    var saw_flush = false;
+    var saw_close = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => {
+            saw_flush = true;
+            while (try session.takeOutbound()) |frame_value| {
+                var frame = frame_value;
+                frame.deinit();
+            }
+        },
+        .close => {
+            try std.testing.expect(saw_flush);
+            saw_close = true;
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_close);
+    try std.testing.expectEqual(driver.core.CloseOutcome.timed_out, host.sessionCloseOutcome(session, true));
+    try host.releaseSession(session);
+}
+
+test "close policy stamps the partner-visible abort kind" {
+    // The wire artifact of the two close policies: cancel condemns a live
+    // session with `normal_shutdown`, a finish that reaches quiescence with
+    // `graceful_shutdown`. Nothing else pins the label split, so a swap would
+    // otherwise ship silently.
+    const allocator = std.testing.allocator;
+    const codec = pancake.ocapn.codec;
+    const cases = [_]struct {
+        policy: driver.core.PendingWork,
+        kind: model.AbortKind,
+        seed: u8,
+        designator: []const u8,
+    }{
+        .{ .policy = .cancel, .kind = .normal_shutdown, .seed = 0x8c, .designator = "127.0.0.1:7113" },
+        .{ .policy = .{ .finish = .unbounded }, .kind = .graceful_shutdown, .seed = 0x9c, .designator = "127.0.0.1:7114" },
+    };
+    for (cases) |case| {
+        var client = test_host.init(allocator, [_]u8{case.seed} ** 32, Host.Options.withFrameCap(frame_cap));
+        defer client.deinit();
+        var server = test_host.init(allocator, [_]u8{case.seed + 1} ** 32, Host.Options.withFrameCap(frame_cap));
+        defer server.deinit();
+        var dials: std.ArrayList(ParkedDial) = .empty;
+        defer dials.deinit(allocator);
+        const pair = try openPair(allocator, &client, &server, case.designator, &dials);
+
+        client.beginClose(case.policy, 0);
+        var kind: ?model.AbortKind = null;
+        while (try client.nextAction()) |action| switch (action) {
+            .flush => |peer_id| {
+                try std.testing.expectEqual(pair.a.peer_id, peer_id);
+                while (try pair.a.takeOutbound()) |frame_value| {
+                    var frame = frame_value;
+                    defer frame.deinit();
+                    const body = try codec.syrup.decodeBodyForProfile(.v1_0, frame.view());
+                    if (body == .abort) kind = body.abort.kind;
+                }
+            },
+            .close => |peer_id| {
+                try std.testing.expectEqual(pair.a.peer_id, peer_id);
+                try client.releaseSession(pair.a);
+            },
+            else => {},
+        };
+        try std.testing.expectEqual(case.kind, kind orelse return error.MissingAbort);
+    }
+}
+
+test "core host finish waits for an admitted session handshake" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x20} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAdvertisedLocator("tcp");
+    const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7086"));
+    host.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, host.lifecyclePhase());
+
+    // Draining the hello and its FLUSH action does not complete the admitted
+    // open. The partner handshake, not an empty action queue, is the outcome.
+    while (try host.nextAction()) |_| {}
+    while (try session.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        frame.deinit();
+    }
+    try std.testing.expect((try host.nextAction()) == null);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, host.lifecyclePhase());
+
+    host.beginClose(.cancel, 0);
+    try retireClosingSession(&host, session);
+}
+
+test "core host finish observes a negotiating session's terminal release" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAdvertisedLocator("tcp");
+    const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7085"));
+    host.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, host.lifecyclePhase());
+
+    try host.releaseSession(session);
+    while (try host.nextAction()) |_| {}
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+}
+
+test "core host close leaves terminal session shells for explicit release" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAdvertisedLocator("tcp");
+    const session = try host.openDialedLocator(tcpLocator("127.0.0.1:7084"));
+    host.beginClose(.cancel, 0);
+
+    var saw_close = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => while (try session.takeOutbound()) |frame_value| {
+            var frame = frame_value;
+            frame.deinit();
+        },
+        .close => saw_close = true,
+        else => {},
+    };
+
+    try std.testing.expect(saw_close);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+    try host.checkOwnedSession(session);
+    try host.releaseSession(session);
+}
+
+test "core host cancel resumes terminal work across finite scheduler quanta" {
+    const allocator = std.testing.allocator;
+    var first_client = test_host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer first_client.deinit();
+    var second_client = test_host.init(allocator, [_]u8{0x2d} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer second_client.deinit();
+    var host = test_host.init(allocator, [_]u8{0x2e} ** 32, .{
+        .limits = .{ .max_frame_bytes = frame_cap },
+        .host_work_quantum = 1,
+    });
+    defer host.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const first = try openPair(allocator, &first_client, &host, "127.0.0.1:7082", &dials);
+    const second = try openPair(allocator, &second_client, &host, "127.0.0.1:7083", &dials);
+
+    host.beginClose(.cancel, 0);
+    var close_count: usize = 0;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => |peer_id| {
+            const session = host.sessionForPeer(peer_id) orelse continue;
+            while (try session.takeOutbound()) |frame_value| {
+                var frame = frame_value;
+                frame.deinit();
+            }
+        },
+        .close => close_count += 1,
+        else => {},
+    };
+
+    try std.testing.expectEqual(@as(usize, 2), close_count);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+    try host.releaseSession(first.b);
+    try host.releaseSession(second.b);
+}
+
+test "core host finish waits for an admitted vow before closing its session" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x22} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x23} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7089", &dials);
+
+    var outcome = CapturedString{};
+    const vow = try client.fetch(pair.a, "missing-during-close");
+    try client.vowOn(vow, .{ .ctx = &outcome, .func = CapturedString.record });
+    client.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, client.lifecyclePhase());
+    try std.testing.expectError(error.HostClosing, client.fetch(pair.a, "too-late"));
+
+    // Consume the fetch's FLUSH notice without consuming its frame. The vow is
+    // still live, so an empty action queue cannot advance finish yet.
+    while (try client.nextAction()) |_| {}
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, client.lifecyclePhase());
+
+    _ = try shuttleAll(&.{pair});
+    _ = try shuttleAll(&.{pair});
+    try std.testing.expect(outcome.broken);
+    try retireClosingSession(&client, pair.a);
+}
+
+test "core host finish waits for an admitted named-send chain" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x42} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x43} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7095", &dials);
+
+    var pending: driver.PendingSend = undefined;
+    defer pending.deinit();
+    var outcome = CapturedString{};
+    try client.beginSendNamed(
+        pair.a,
+        &pending,
+        "missing-during-close",
+        .{ .verb = "poke", .args = &.{} },
+        .{ .ctx = &outcome, .func = CapturedString.record },
+    );
+    client.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, client.lifecyclePhase());
+
+    while (try client.nextAction()) |_| {}
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, client.lifecyclePhase());
+
+    _ = try shuttleAll(&.{pair});
+    _ = try shuttleAll(&.{pair});
+    try std.testing.expect(outcome.broken);
+    try retireClosingSession(&client, pair.a);
+}
+
+test "core host cancel escalates an in-progress finish" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x24} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x25} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7090", &dials);
+
+    var broken = false;
+    const vow = try client.fetch(pair.a, "never-delivered");
+    try client.vowOn(vow, .{ .ctx = &broken, .func = promise_capture.captureBroken });
+    while (try client.nextAction()) |_| {}
+    while (try pair.a.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        frame.deinit();
+    }
+
+    client.beginClose(.{ .finish = .unbounded }, 0);
+    client.beginClose(.{ .finish = .unbounded }, 1);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, client.lifecyclePhase());
+    client.beginClose(.cancel, 1);
+    try client.progressClose(1);
+
+    try std.testing.expect(broken);
+    try std.testing.expectEqual(Host.LifecyclePhase.terminating, client.lifecyclePhase());
+    client.beginClose(.{ .finish = .unbounded }, 2);
+    client.beginClose(.cancel, 2);
+    try std.testing.expectEqual(Host.LifecyclePhase.terminating, client.lifecyclePhase());
+    try retireClosingSession(&client, pair.a);
+}
+
+test "session finish waits for its admitted work and leaves a sibling open" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var first_server = test_host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer first_server.deinit();
+    var second_server = test_host.init(allocator, [_]u8{0x2d} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer second_server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const first = try openPair(allocator, &client, &first_server, "127.0.0.1:7091", &dials);
+    const second = try openPair(allocator, &client, &second_server, "127.0.0.1:7092", &dials);
+
+    var first_outcome = CapturedString{};
+    const first_vow = try client.fetch(first.a, "missing-on-first");
+    try client.vowOn(first_vow, .{ .ctx = &first_outcome, .func = CapturedString.record });
+    try client.beginSessionClose(first.a, .{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(HostSession.LifecyclePhase.finishing, first.a.lifecyclePhase());
+    try std.testing.expectError(error.SessionClosing, client.fetch(first.a, "too-late"));
+
+    var second_outcome = CapturedString{};
+    const second_vow = try client.fetch(second.a, "missing-on-second");
+    try client.vowOn(second_vow, .{ .ctx = &second_outcome, .func = CapturedString.record });
+
+    var rounds: usize = 0;
+    while (rounds < 16) : (rounds += 1) {
+        if (!try shuttleAll(&.{ first, second })) break;
+    }
+    try std.testing.expect(first_outcome.broken);
+    try std.testing.expect(second_outcome.broken);
+    try std.testing.expect(first.a.isTerminating());
+    try std.testing.expectEqual(HostSession.LifecyclePhase.active, second.a.lifecyclePhase());
+    try retireClosedSession(&client, first.a);
+    try std.testing.expectEqual(Host.LifecyclePhase.active, client.lifecyclePhase());
+}
+
+test "session cancel escalates finish without closing a sibling" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x2e} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var first_server = test_host.init(allocator, [_]u8{0x2f} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer first_server.deinit();
+    var second_server = test_host.init(allocator, [_]u8{0x31} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer second_server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const first = try openPair(allocator, &client, &first_server, "127.0.0.1:7093", &dials);
+    const second = try openPair(allocator, &client, &second_server, "127.0.0.1:7094", &dials);
+
+    var broken = false;
+    const vow = try client.fetch(first.a, "never-delivered");
+    try client.vowOn(vow, .{ .ctx = &broken, .func = promise_capture.captureBroken });
+    try client.beginSessionClose(first.a, .{ .finish = .unbounded }, 0);
+    try client.beginSessionClose(first.a, .cancel, 0);
+    try client.progressSessionCloses(0);
+
+    try std.testing.expect(broken);
+    try std.testing.expect(first.a.isTerminating());
+    try std.testing.expectError(error.SessionCondemned, client.fetch(first.a, "too-late"));
+    try std.testing.expectEqual(HostSession.LifecyclePhase.active, second.a.lifecyclePhase());
+    try retireClosedSession(&client, first.a);
+}
+
+test "core host cancel drops queued application turns before driving terminal work" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x26} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x27} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7088", &dials);
+
+    var hits: usize = 0;
+    const actor = try client.vat.spawn(FairCounter, .{ .hits = &hits });
+    try client.vat.tellFromIngress(pair.a.served.port.ingress, actor, .{ .verb = "hit", .args = &.{} });
+    driver.core.testing.markDirty(&client, pair.a.peer_id);
+    const wake = (try client.nextAction()) orelse return error.MissingFlush;
+    try std.testing.expect(wake == .flush);
+
+    client.beginClose(.cancel, 0);
+    try std.testing.expectEqual(@as(usize, 0), hits);
+    try retireClosingSession(&client, pair.a);
+}
+
+test "core host cancel settles a parked select-or-dial without realizing its ticket" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x28} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const vow_id = try host.enlivenSelectOrDial(tcpSturdyref("127.0.0.1:7087", "widget"));
+    const dial = (try host.nextAction()) orelse return error.MissingDial;
+    try std.testing.expect(dial == .dial);
+    const ticket = dial.dial.ticket;
+    try std.testing.expect(host.pendingDial(ticket) != null);
+
+    host.beginClose(.cancel, 0);
+    try std.testing.expect(host.pendingDial(ticket) == null);
+    try std.testing.expectEqual(Host.LifecyclePhase.terminating, host.lifecyclePhase());
+    const cancel = (try host.nextAction()) orelse return error.MissingDialCancellation;
+    try std.testing.expect(cancel == .cancel_dial);
+    try std.testing.expectEqual(ticket, cancel.cancel_dial.ticket);
+    try std.testing.expectEqual(Host.LifecyclePhase.terminating, host.lifecyclePhase());
+    try host.dialCancelled(ticket);
+    const failed = (try host.nextAction()) orelse return error.MissingFailure;
+    try std.testing.expect(failed == .failed);
+    try std.testing.expectEqual(vow_id, failed.failed.vow_id);
+    try std.testing.expectEqual(driver.core.VowFailure.closed, failed.failed.failure);
+    try std.testing.expectEqualStrings("host closing", failed.failed.message);
+    try std.testing.expect((try host.nextAction()) == null);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
 }
 
 test "core host transport packages publish no prefix before a later conflict" {
@@ -150,7 +851,7 @@ test "core host: a finite quantum resumes round-robin work behind a sibling" {
     // The first dirty row is the sibling. `flushSession(first)` adds the
     // resumed session behind it; one finite quantum must therefore serve the
     // sibling and leave the first session for the next continuation.
-    host.testingMarkDirty(second.peer_id);
+    driver.core.testing.markDirty(&host, second.peer_id);
     try host.flushSession(first);
     try std.testing.expectEqual(@as(usize, 0), first_hits);
     try std.testing.expectEqual(@as(usize, 1), second_hits);
@@ -225,9 +926,9 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     });
     try std.testing.expect(peer.session_state.importedPromiseResolution(relayed) != null);
 
-    host.testingMarkDirty(pair.b.peer_id);
-    host.testingFinishCommittedWork(pair.b);
-    try std.testing.expect(!pair.b.condemned);
+    driver.core.testing.markDirty(&host, pair.b.peer_id);
+    driver.core.testing.finishCommittedWork(&host, pair.b);
+    try std.testing.expect(!pair.b.isTerminating());
     try std.testing.expect((try pair.b.takeOutbound()) == null);
 
     // Popping the first wake clears its dedupe bit. The next drain retries the
@@ -235,7 +936,7 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     // rather than condemning the Host or reporting an empty action queue.
     try std.testing.expectEqual(pair.b.peer_id, (try host.nextAction()).?.flush);
     try std.testing.expectEqual(pair.b.peer_id, (try host.nextAction()).?.flush);
-    try std.testing.expect(!pair.b.condemned);
+    try std.testing.expect(!pair.b.isTerminating());
 
     peer.outbound_budget = std.math.maxInt(usize);
     try std.testing.expectEqual(pair.b.peer_id, (try host.nextAction()).?.flush);
@@ -278,7 +979,7 @@ test "core host: unbounded feed condemns an event consumed before serve OOM" {
     try host.feed(pair.b, frame.view());
     try std.testing.expectEqual(@as(usize, 1), attempts);
     try std.testing.expect(!pair.b.served.port.peer.hasEvent());
-    try std.testing.expect(pair.b.condemned);
+    try std.testing.expect(pair.b.isTerminating());
 
     var saw_close = false;
     while (try host.nextAction()) |action| switch (action) {
@@ -346,10 +1047,13 @@ test "core host: feedBytes retains only the unapplied suffix after mid-chunk pre
     try std.testing.expectEqual(@as(usize, 1), hits);
     try std.testing.expectError(error.OutboundBackpressure, host.feedBytes(pair.b, &.{}));
 
-    while (try pair.b.takeOutbound()) |frame_in| {
-        var frame = frame_in;
-        frame.deinit();
+    while (try pair.b.takeStreamOutbound()) |outbound_value| {
+        var outbound = outbound_value;
+        outbound.payload.deinit();
     }
+    // Draining the first turn is the retry boundary: the core resumes its own
+    // retained tail, so no binding-only empty feed is needed for liveness.
+    try std.testing.expectEqual(@as(usize, 2), hits);
     try host.feedBytes(pair.b, &.{});
     try std.testing.expectEqual(@as(usize, 2), hits);
 
@@ -372,6 +1076,98 @@ const Widget = struct {
         return .{ .string = "poked over fed bytes" };
     }
 };
+
+fn signedGiveForLifecycleTest(allocator: std.mem.Allocator) ![]u8 {
+    const location = try engine.encodePeerLocatorRecord(allocator, .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9099",
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer allocator.free(location);
+    const secret = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
+    return engine.handoff_gifter.buildSignedGive(
+        allocator,
+        secret,
+        &([_]u8{0x01} ** 32),
+        location,
+        &([_]u8{0x02} ** 32),
+        &([_]u8{0x03} ** 32),
+        &([_]u8{0x04} ** 32),
+    );
+}
+
+test "core local capability verbs share admission and publication identity" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x47} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+    const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7098", &.{});
+
+    const published = try host.publish(session, "widget", Widget, .{});
+    const looked_up = (try host.publishedCapability(session, "widget")) orelse
+        return error.MissingPublishedCapability;
+    try std.testing.expect(published.eql(looked_up));
+    try host.releaseCapability(looked_up, 1);
+
+    const spawned = try host.spawn(session, Widget, .{});
+    const exports_before = session.served.port.exports.count();
+    var local_reply = CapturedString{};
+    const local_vow = try host.queueSendCapability(session, spawned, .{ .verb = "poke", .args = &.{} });
+    try host.vowOn(local_vow, .{ .ctx = &local_reply, .func = CapturedString.record });
+    try host.flushSession(session);
+    try std.testing.expectEqualStrings("poked over fed bytes", local_reply.text());
+    try std.testing.expectEqual(exports_before, session.served.port.exports.count());
+    try host.releaseCapability(spawned, 1);
+
+    try host.beginSessionClose(session, .cancel, 0);
+    try std.testing.expectError(error.SessionCondemned, host.publish(session, "late", Widget, .{}));
+    try std.testing.expectError(error.SessionCondemned, host.spawn(session, Widget, .{}));
+    try std.testing.expectError(error.SessionCondemned, host.publishedCapability(session, "widget"));
+    try host.releaseCapability(published, 1);
+}
+
+test "failed application operation leaves a provisional exporter retireable" {
+    const allocator = std.testing.allocator;
+    var failing = std.testing.FailingAllocator.init(allocator, .{});
+    var client = test_host.init(failing.allocator(), [_]u8{0x48} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x49} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7099", &dials);
+
+    const recipient = try client.node.registerPeer(.{});
+    const give = try signedGiveForLifecycleTest(allocator);
+    defer allocator.free(give);
+    try client.node.acceptGive(recipient, 45, give, "ocapn://127.0.0.1%3A7099.tcp");
+    const dial = client.node.nextAction() orelse return error.MissingDial;
+    try std.testing.expect(dial == .dial);
+    try client.node.exporterDialed(dial.dial.pending, pair.a.peer_id);
+    const withdraw_flush = client.node.nextAction() orelse return error.MissingFlush;
+    try std.testing.expect(withdraw_flush == .flush);
+
+    var pending_withdraws = client.node.pending_withdraws.keyIterator();
+    const withdraw = pending_withdraws.next() orelse return error.MissingWithdraw;
+    try std.testing.expect(try client.node.claimResolve(pair.a.peer_id, withdraw.answer, .not_capability));
+    const failure = client.node.nextAction() orelse return error.MissingFailure;
+    try std.testing.expect(failure == .fail);
+
+    failing.fail_index = failing.alloc_index;
+    var pending: driver.core.Served.PendingSend = undefined;
+    try std.testing.expectError(error.OutOfMemory, client.beginSendNamed(
+        pair.a,
+        &pending,
+        "anything",
+        .{ .verb = "call", .args = &.{} },
+        .{ .ctx = null, .func = struct {
+            fn fire(_: ?*anyopaque, _: actors.Resolution) void {}
+        }.fire },
+    ));
+    failing.fail_index = std.math.maxInt(usize);
+
+    const retire = client.node.nextAction() orelse return error.MissingRetirement;
+    try std.testing.expect(retire == .retire_exporter);
+    try std.testing.expect(client.node.claimExporterRetirement(retire.retire_exporter));
+}
 
 const FairCounter = struct {
     hits: *usize,
@@ -569,14 +1365,14 @@ test "core host advertised locator: explicit dial default publishes once" {
     try std.testing.expectEqualSlices(u8, &own_key, iroh.designator);
     try std.testing.expectEqualStrings("tcp", host.acceptableLocator().?.transport);
 
-    try std.testing.expect(host.selectAdvertisedLocator("iroh"));
+    try std.testing.expect(try host.selectAdvertisedLocator("iroh"));
     try std.testing.expectEqualStrings("iroh", host.acceptableLocator().?.transport);
-    try std.testing.expect(!host.selectAdvertisedLocator("missing"));
+    try std.testing.expect(!try host.selectAdvertisedLocator("missing"));
     try std.testing.expectEqualStrings("iroh", host.acceptableLocator().?.transport);
-    host.removeAdvertisedLocator("iroh");
+    try host.removeAdvertisedLocator("iroh");
     try std.testing.expect(host.advertisedLocator("iroh") == null);
     try std.testing.expect(host.acceptableLocator() == null);
-    try std.testing.expect(host.selectAdvertisedLocator("tcp"));
+    try std.testing.expect(try host.selectAdvertisedLocator("tcp"));
     try std.testing.expectEqualStrings("tcp", host.acceptableLocator().?.transport);
 
     try host.setAdvertisedLocator(.{
@@ -589,6 +1385,47 @@ test "core host advertised locator: explicit dial default publishes once" {
         "127.0.0.1:7099",
         host.advertisedLocator("tcp").?.designator,
     );
+}
+
+test "core host advertised locator: an accept keeps an explicitly selected route and its hints" {
+    const allocator = std.testing.allocator;
+    const seed = [_]u8{0x77} ** 32;
+    var host = test_host.init(allocator, seed, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    // The browser rendezvous shape: an explicit keyed-relay route whose
+    // rendezvous-relay hint is what a handoff recipient needs to dial back.
+    const own_key = crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
+    const relay_hint = [_]model.HintEntry{
+        .{ .name = "rendezvous-relay", .value = .{ .string = "ws://relay.example/relay" } },
+    };
+    try host.setAdvertisedLocator(.{
+        .transport = "keyed-relay",
+        .designator = &own_key,
+        .hints = .{ .entries = &relay_hint },
+    });
+
+    // The accept-derived candidate is retained but must not displace policy:
+    // the selection stays keyed-relay and its hint survives.
+    try host.ensureAcceptAdvertisedLocator(.key, &own_key, "", "keyed-relay");
+    const kept = host.acceptableLocator() orelse return error.MissingAdvertisedLocator;
+    try std.testing.expectEqualStrings("keyed-relay", kept.transport);
+    var saw_relay_hint = false;
+    for (kept.hints.entries) |entry| {
+        if (std.mem.eql(u8, entry.name, "rendezvous-relay")) saw_relay_hint = true;
+    }
+    try std.testing.expect(saw_relay_hint);
+}
+
+test "core host advertised locator: an accept with no selection installs its own candidate" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x78} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    try host.ensureAcceptAdvertisedLocator(.address, "", "127.0.0.1:7100", "tcp");
+    const selected = host.acceptableLocator() orelse return error.MissingAdvertisedLocator;
+    try std.testing.expectEqualStrings("tcp", selected.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:7100", selected.designator);
 }
 
 test "core host advertised locator: a cross-transport route survives dial preparation and enters every hello" {
@@ -802,6 +1639,10 @@ fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *std.
                     });
                     did_work = true;
                 },
+                .cancel_dial => |d| {
+                    try host.dialCancelled(d.ticket);
+                    did_work = true;
+                },
                 // An unlistened vow's completion; the tests in this file that
                 // route completions drain `nextAction` by hand instead.
                 .settled, .failed => {},
@@ -854,6 +1695,58 @@ fn openPair(
     try std.testing.expect(dialed.sessionOpen());
     try std.testing.expect(accepted.sessionOpen());
     return pair;
+}
+
+/// Drive a finishing/closing Host through one session's terminal FLUSH/CLOSE
+/// actions and prove their order.
+/// The sans-I/O core names the effects; this helper is the tiny embedding that
+/// drains bytes and releases the shell after the transport-close notice.
+fn retireClosingSession(host: *Host, session: *HostSession) !void {
+    var saw_flush = false;
+    var saw_close = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => |peer_id| {
+            try std.testing.expectEqual(session.peer_id, peer_id);
+            while (try session.takeOutbound()) |frame_value| {
+                var frame = frame_value;
+                frame.deinit();
+            }
+            saw_flush = true;
+        },
+        .close => |peer_id| {
+            try std.testing.expect(saw_flush);
+            try std.testing.expectEqual(session.peer_id, peer_id);
+            try host.releaseSession(session);
+            saw_close = true;
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_close);
+    try std.testing.expectEqual(Host.LifecyclePhase.closed, host.lifecyclePhase());
+}
+
+/// Drain one session's terminal effects without requiring its Host to close;
+/// sibling sessions remain owned by the same Host.
+fn retireClosedSession(host: *Host, session: *HostSession) !void {
+    const closing_peer = session.peer_id;
+    var saw_flush = false;
+    var saw_close = false;
+    while (try host.nextAction()) |action| switch (action) {
+        .flush => |peer_id| if (peer_id == closing_peer) {
+            while (try session.takeOutbound()) |frame_value| {
+                var frame = frame_value;
+                frame.deinit();
+            }
+            saw_flush = true;
+        },
+        .close => |peer_id| if (peer_id == closing_peer) {
+            try std.testing.expect(saw_flush);
+            try host.releaseSession(session);
+            saw_close = true;
+        },
+        else => {},
+    };
+    try std.testing.expect(saw_close);
 }
 
 test "core host: listen refuses a foreign near target before routing" {
@@ -909,7 +1802,7 @@ test "core host: foreign release validates before trace close" {
     var partner = test_host.init(allocator, [_]u8{0x3f} ** 32, Host.Options.withFrameCap(frame_cap));
     defer partner.deinit();
     var caller_log = TraceLog{};
-    caller.setTrace(.{ .ctx = &caller_log, .emit = TraceLog.emit });
+    try caller.setTrace(.{ .ctx = &caller_log, .emit = TraceLog.emit });
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
@@ -1220,6 +2113,7 @@ test "core host: a select-or-dial enliven breaks when its staged dial fails" {
         switch (action) {
             .failed => |f| if (f.vow_id == parked_vow) {
                 try std.testing.expect(f.peer_id == null);
+                try std.testing.expectEqual(driver.core.VowFailure.broken, f.failure);
                 broke = true;
             },
             else => {},
@@ -1270,6 +2164,7 @@ test "core host: a failed pending path reuses its ticket for the next locator" {
     const failed = (try host.nextAction()).?;
     try std.testing.expect(failed == .failed);
     try std.testing.expectEqual(vow_id, failed.failed.vow_id);
+    try std.testing.expectEqual(driver.core.VowFailure.broken, failed.failed.failure);
     try std.testing.expectEqualStrings("alternative unreachable", failed.failed.message);
 }
 
@@ -2150,12 +3045,12 @@ fn runMissingGifterRedeem(adopt_in_failure_listener: bool) !void {
     );
     if (adopt_in_failure_listener) {
         try std.testing.expect(listener.adopted);
-        try std.testing.expect(!dialed.condemned);
+        try std.testing.expect(!dialed.isTerminating());
     } else {
         // The recipient opened r_to_e solely for this redemption. With no
         // capability produced, the Host retires it instead of leaving an
         // application-invisible session cached indefinitely.
-        try std.testing.expect(dialed.condemned);
+        try std.testing.expect(dialed.isTerminating());
     }
 }
 
@@ -2400,6 +3295,57 @@ const ReentryProbe = struct {
     }
 };
 
+/// A callback-time cancel probe: owner intent must become authoritative before
+/// the callback continues, while terminal effects wait for its unwind.
+const SessionCancelProbe = struct {
+    host: *Host,
+    session: *HostSession,
+    token: model.Reference,
+    ran: bool = false,
+    intent_visible: bool = false,
+    effects_deferred: bool = false,
+
+    fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        _ = resolution;
+        const self: *SessionCancelProbe = @ptrCast(@alignCast(ctx.?));
+        self.ran = true;
+        self.host.beginSessionClose(self.session, .cancel, 0) catch return;
+        self.intent_visible = if (self.host.send(self.session, self.token, .{ .verb = "too-late", .args = &.{} })) |_| false else |err| err == driver.core.HostError.SessionCondemned;
+        self.effects_deferred = self.session.lifecyclePhase() == .cancel_pending and
+            !self.session.ingressCancelled() and self.session.lastAbort() == null;
+    }
+};
+
+test "core host: callback-time session cancel records intent and defers teardown to unwind" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x1a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x1b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7061", &dials);
+    _ = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
+
+    var fetched = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    const widget_ref = try fetched.require();
+
+    var probe = SessionCancelProbe{ .host = &client, .session = pair.a, .token = widget_ref };
+    const vow = try client.send(pair.a, widget_ref, .{ .verb = "poke", .args = &.{} });
+    try client.vowOn(vow, .{ .ctx = &probe, .func = SessionCancelProbe.fire });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    try std.testing.expect(probe.ran);
+    try std.testing.expect(probe.intent_visible);
+    try std.testing.expect(probe.effects_deferred);
+    try std.testing.expect(pair.a.isTerminating());
+    try std.testing.expect(pair.a.ingressCancelled());
+    try client.releaseSession(pair.a);
+}
+
 test "core host: inside a callback every top-level verb refuses and every enqueueing verb lands at the unwind" {
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
@@ -2453,8 +3399,8 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
     var hello = (try b_dialed.takeOutbound()) orelse return error.MissingHello;
     defer hello.deinit();
     try a.feed(a_accepted, hello.view());
-    const condemned = if (a_accepted.condemned) a_accepted else a_dialed;
-    try std.testing.expect(condemned.condemned);
+    const condemned = if (a_accepted.isTerminating()) a_accepted else a_dialed;
+    try std.testing.expect(condemned.isTerminating());
 
     // Every verb that rides the condemned connection refuses, uniformly.
     const target = model.Reference{ .far = model.FarRef.object(1) };
@@ -2493,6 +3439,23 @@ test "core host: a second dial to the same partner refuses SessionPairExists" {
     try host.releaseSession(first);
     const again = try host.openDialedLocator(tcpLocator(designator));
     try host.releaseSession(again);
+}
+
+test "core host: transport loss unindexes a retained session before reconnect" {
+    const allocator = std.testing.allocator;
+    var host = test_host.init(allocator, [_]u8{0x6c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer host.deinit();
+
+    const designator = "127.0.0.1:7013";
+    try host.ensureAdvertisedLocator("tcp");
+    const lost = try host.openDialedLocator(tcpLocator(designator));
+    try host.transportClosed(lost, "transport gone");
+
+    // The wrapper may retain the dead shell until it drains CLOSE. Physical
+    // loss must nevertheless release the dial authority immediately.
+    const reconnected = try host.openDialedLocator(tcpLocator(designator));
+    try host.releaseSession(reconnected);
+    try host.releaseSession(lost);
 }
 
 test "core host: equal designators on different transports remain distinct dials" {
@@ -2537,7 +3500,7 @@ test "core host: accepted tcp session's declared designator does not squat dial 
     // Post-handshake partner-key refuse settles the duplicate when the new
     // session's start-session arrives (ADR-0012).
     const back = try server.openDialedLocator(tcpLocator("127.0.0.1:7013"));
-    try std.testing.expect(!back.condemned);
+    try std.testing.expect(!back.isTerminating());
     try client.releaseSession(pair.a);
     try server.releaseSession(pair.b);
     try server.releaseSession(back);
@@ -2595,10 +3558,10 @@ test "core host: dual accept settlement condemns the second session to the same 
     var hello = (try peer_dialed.takeOutbound()) orelse return error.MissingHello;
     defer hello.deinit();
     try host.feed(first, hello.view());
-    try std.testing.expect(!first.condemned);
+    try std.testing.expect(!first.isTerminating());
     try std.testing.expect(first.sessionOpen());
     try host.feed(second, hello.view());
-    try std.testing.expect(second.condemned);
+    try std.testing.expect(second.isTerminating());
     try std.testing.expect(!second.sessionOpen());
     try host.releaseSession(first);
     try host.releaseSession(second);
@@ -2621,7 +3584,7 @@ test "core host: partner-side index empties after enroll, learn, condemn, and re
     try host.feed(first, hello.view());
     try std.testing.expectEqual(@as(usize, 1), host.partner_by_side.count());
     try host.feed(second, hello.view());
-    try std.testing.expect(second.condemned);
+    try std.testing.expect(second.isTerminating());
     try host.releaseSession(second);
     try std.testing.expectEqual(@as(usize, 1), host.partner_by_side.count());
     try host.releaseSession(first);
@@ -2670,7 +3633,7 @@ test "core host: a burst of accepts before any start-session indexes every partn
         defer hello.deinit();
         try host.feed(accepted[i], hello.view());
         try std.testing.expect(accepted[i].sessionOpen());
-        try std.testing.expect(!accepted[i].condemned);
+        try std.testing.expect(!accepted[i].isTerminating());
     }
     try std.testing.expectEqual(@as(usize, n), host.partner_by_side.count());
 
@@ -2741,13 +3704,13 @@ test "session identity: crossed-hello ordering is per session over one advertise
     // surviving dialed half may consume its partner's accepted hello.
     try b.feed(b_accept, a_hello.view());
     try a.feed(a_accept, b_hello.view());
-    if (!b_dialed.condemned) try b.feed(b_dialed, a_accept_hello.view());
-    if (!a_dialed.condemned) try a.feed(a_dialed, b_accept_hello.view());
+    if (!b_dialed.isTerminating()) try b.feed(b_dialed, a_accept_hello.view());
+    if (!a_dialed.isTerminating()) try a.feed(a_dialed, b_accept_hello.view());
 
-    try std.testing.expect(a_accept.condemned != a_dialed.condemned);
-    try std.testing.expect(b_accept.condemned != b_dialed.condemned);
-    try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
-    try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
+    try std.testing.expect(a_accept.isTerminating() != a_dialed.isTerminating());
+    try std.testing.expect(b_accept.isTerminating() != b_dialed.isTerminating());
+    try std.testing.expectEqual(a_accept.isTerminating(), b_dialed.isTerminating());
+    try std.testing.expectEqual(a_dialed.isTerminating(), b_accept.isTerminating());
 
     try a.releaseSession(a_accept);
     try a.releaseSession(a_dialed);
@@ -2793,13 +3756,13 @@ test "core host: crossed hellos match the advertised route across different chan
 
     try a.feed(a_accept, b_hello.view());
     try b.feed(b_accept, a_hello.view());
-    if (!a_dialed.condemned) try a.feed(a_dialed, b_accept_hello.view());
-    if (!b_dialed.condemned) try b.feed(b_dialed, a_accept_hello.view());
+    if (!a_dialed.isTerminating()) try a.feed(a_dialed, b_accept_hello.view());
+    if (!b_dialed.isTerminating()) try b.feed(b_dialed, a_accept_hello.view());
 
-    try std.testing.expect(a_accept.condemned != a_dialed.condemned);
-    try std.testing.expect(b_accept.condemned != b_dialed.condemned);
-    try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
-    try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
+    try std.testing.expect(a_accept.isTerminating() != a_dialed.isTerminating());
+    try std.testing.expect(b_accept.isTerminating() != b_dialed.isTerminating());
+    try std.testing.expectEqual(a_accept.isTerminating(), b_dialed.isTerminating());
+    try std.testing.expectEqual(a_dialed.isTerminating(), b_accept.isTerminating());
 
     try a.releaseSession(a_accept);
     try a.releaseSession(a_dialed);
@@ -2875,14 +3838,14 @@ fn expectFreshKeyCrossedPair(transport: []const u8, proof: CrossedPairProof) !vo
 
     switch (proof) {
         .none => {
-            try std.testing.expect(!a_accept.condemned and !a_dialed.condemned);
-            try std.testing.expect(!b_accept.condemned and !b_dialed.condemned);
+            try std.testing.expect(!a_accept.isTerminating() and !a_dialed.isTerminating());
+            try std.testing.expect(!b_accept.isTerminating() and !b_dialed.isTerminating());
         },
         .authenticated_channel => {
-            try std.testing.expect(a_accept.condemned != a_dialed.condemned);
-            try std.testing.expect(b_accept.condemned != b_dialed.condemned);
-            try std.testing.expectEqual(a_accept.condemned, b_dialed.condemned);
-            try std.testing.expectEqual(a_dialed.condemned, b_accept.condemned);
+            try std.testing.expect(a_accept.isTerminating() != a_dialed.isTerminating());
+            try std.testing.expect(b_accept.isTerminating() != b_dialed.isTerminating());
+            try std.testing.expectEqual(a_accept.isTerminating(), b_dialed.isTerminating());
+            try std.testing.expectEqual(a_dialed.isTerminating(), b_accept.isTerminating());
         },
     }
 
@@ -3092,6 +4055,7 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
             .flush => {},
             .failed => |f| {
                 try std.testing.expectEqual(parked, f.vow_id);
+                try std.testing.expectEqual(driver.core.VowFailure.broken, f.failure);
                 try std.testing.expect(std.mem.indexOf(u8, f.message, "transport gone") != null);
                 fail_count += 1;
             },
@@ -3132,6 +4096,64 @@ test "core host: an unlistened fetch completion carries the node-enrolled token"
     const reference = token orelse return error.FetchDidNotSettle;
     try std.testing.expect(reference == .far);
     try std.testing.expect(reference.far.import_position.int() >= pancake.ocapn.engine.Node.REDEEMED_TOKEN_BASE);
+}
+
+test "core host: transport loss retires session authority and refuses later work" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x7a} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x7b} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7001", &dials);
+
+    const parked = try client.fetch(pair.a, "never-answered");
+    try client.transportClosed(pair.a, "transport gone");
+    try std.testing.expect(pair.a.isTerminating());
+    try std.testing.expectError(driver.core.HostError.SessionCondemned, client.fetch(pair.a, "too-late"));
+
+    var failed = false;
+    while (try client.nextAction()) |action| switch (action) {
+        .flush, .close => {},
+        .failed => |failure| {
+            try std.testing.expectEqual(parked, failure.vow_id);
+            try std.testing.expectEqual(driver.core.VowFailure.closed, failure.failure);
+            try std.testing.expect(std.mem.indexOf(u8, failure.message, "transport gone") != null);
+            failed = true;
+        },
+        else => return error.UnexpectedAction,
+    };
+    try std.testing.expect(failed);
+
+    // Repeated physical-close reports are idempotent until explicit release.
+    try client.transportClosed(pair.a, "transport gone again");
+}
+
+test "core host: direct session release classifies its pending vows as closed" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x7c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x7d} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7002", &dials);
+
+    const parked = try client.fetch(pair.a, "never-answered");
+    try client.releaseSession(pair.a);
+
+    var failed = false;
+    while (try client.nextAction()) |action| switch (action) {
+        .failed => |failure| {
+            try std.testing.expectEqual(parked, failure.vow_id);
+            try std.testing.expectEqual(driver.core.VowFailure.closed, failure.failure);
+            failed = true;
+        },
+        .flush, .resume_work => {},
+        else => return error.UnexpectedAction,
+    };
+    try std.testing.expect(failed);
 }
 
 test "core host: a burst of unlistened settles never strands — every completion lands on the reserved queue" {
@@ -3483,11 +4505,11 @@ test "queueUniqueSessionAction keeps one flush and one close per session" {
     const b_session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7102", &.{});
     const a = a_session.peer_id;
     const b = b_session.peer_id;
-    try host.testingQueueUniqueSessionAction(.flush, a);
-    try host.testingQueueUniqueSessionAction(.flush, a);
-    try host.testingQueueUniqueSessionAction(.close, a);
-    try host.testingQueueUniqueSessionAction(.close, a);
-    try host.testingQueueUniqueSessionAction(.flush, b);
+    try driver.core.testing.queueUniqueSessionAction(&host, .flush, a);
+    try driver.core.testing.queueUniqueSessionAction(&host, .flush, a);
+    try driver.core.testing.queueUniqueSessionAction(&host, .close, a);
+    try driver.core.testing.queueUniqueSessionAction(&host, .close, a);
+    try driver.core.testing.queueUniqueSessionAction(&host, .flush, b);
     var flushes: usize = 0;
     var closes: usize = 0;
     while (try host.nextAction()) |action| {
@@ -3517,8 +4539,8 @@ test "reserved session notifications remain allocation-free after mint" {
     // protocol ownership has moved. Mint reserved these two slots; neither
     // enqueue may consult the allocator in that irreversible window.
     failing.fail_index = failing.alloc_index;
-    try host.testingQueueUniqueSessionAction(.flush, session.peer_id);
-    try host.testingQueueUniqueSessionAction(.close, session.peer_id);
+    try driver.core.testing.queueUniqueSessionAction(&host, .flush, session.peer_id);
+    try driver.core.testing.queueUniqueSessionAction(&host, .close, session.peer_id);
     try std.testing.expect(!failing.has_induced_failure);
 
     failing.fail_index = std.math.maxInt(usize);
@@ -3530,7 +4552,7 @@ test "reserved session notifications remain allocation-free after mint" {
     // reaching appendAssumeCapacity at the physical end of the backing.
     failing.fail_index = failing.alloc_index;
     for (0..256) |_| {
-        try host.testingQueueUniqueSessionAction(.flush, session.peer_id);
+        try driver.core.testing.queueUniqueSessionAction(&host, .flush, session.peer_id);
         try std.testing.expect((try host.takeAction()).? == .flush);
     }
     try std.testing.expect(!failing.has_induced_failure);
@@ -3545,9 +4567,9 @@ test "abort encode OOM still closes authority and exposes close notification" {
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(
         error.OutOfMemory,
-        host.testingCondemn(session, .resource_exhausted, "allocation pressure"),
+        driver.core.testing.condemn(&host, session, .resource_exhausted, "allocation pressure"),
     );
-    try std.testing.expect(session.condemned);
+    try std.testing.expect(session.isTerminating());
     try std.testing.expectEqual(pancake.ocapn.session.State.closed, session.served.port.peer.session_state.state);
 
     failing.fail_index = std.math.maxInt(usize);
@@ -3589,8 +4611,8 @@ test "partner abort immediately retires a byte-fed session without an echo" {
     defer abort_frame.deinit();
 
     try client.feed(pair.a, abort_frame.view());
-    try std.testing.expect(pair.a.condemned);
-    try std.testing.expect(pair.a.ingress_cancelled);
+    try std.testing.expect(pair.a.isTerminating());
+    try std.testing.expect(pair.a.ingressCancelled());
     try std.testing.expect(captured.broken);
     try std.testing.expectEqualStrings(diagnostic, captured.reason_buf[0..captured.reason_len]);
     try std.testing.expect((try pair.a.takeOutbound()) == null);
@@ -3624,8 +4646,8 @@ test "partner abort before start-session retires an accepted session without an 
     defer abort_frame.deinit();
 
     try host.feed(session, abort_frame.view());
-    try std.testing.expect(session.condemned);
-    try std.testing.expect(session.ingress_cancelled);
+    try std.testing.expect(session.isTerminating());
+    try std.testing.expect(session.ingressCancelled());
     try std.testing.expect(!session.sessionOpen());
     try std.testing.expect((try session.takeOutbound()) == null);
 
@@ -3646,7 +4668,7 @@ test "release cleanup OOM remains resumable through the action drain" {
         .kind = .graceful_shutdown,
         .message = "queued before release",
     } });
-    host.testingMarkDirty(remaining.peer_id);
+    driver.core.testing.markDirty(&host, remaining.peer_id);
 
     // `releaseSession` has committed the other shell before its cleanup pump.
     // Encode OOM is therefore swallowed, but the dirty row must survive for
@@ -4012,7 +5034,7 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
     // Crossed-hello matching does not treat a key-shaped designator as a peer
     // identity unless it is the session key that signed the hello, so this
     // unproved claim cannot condemn the dial to the real victim.
-    try std.testing.expect(!our_dial.condemned);
+    try std.testing.expect(!our_dial.isTerminating());
 
     try us.releaseSession(our_accepted);
     try us.releaseSession(our_dial);
@@ -4046,8 +5068,8 @@ test "core host: a key-shaped address remains an address for crossed hellos" {
     );
     defer hello.deinit();
     try us.feed(accepted, hello.view());
-    try std.testing.expect(dialed.condemned);
-    try std.testing.expect(!accepted.condemned);
+    try std.testing.expect(dialed.isTerminating());
+    try std.testing.expect(!accepted.isTerminating());
 
     try us.releaseSession(accepted);
     try us.releaseSession(dialed);
@@ -4401,294 +5423,7 @@ test "partner identity: a session whose partner has not spoken yet reports no id
     try std.testing.expectError(error.HandshakeIncomplete, server.partnerIdentity(accepted));
 }
 
-test "enroll: only a capability this session actually holds gets a routing token" {
-    const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer server.deinit();
-    var dials: std.ArrayList(ParkedDial) = .empty;
-    defer dials.deinit(allocator);
-
-    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7601", &dials);
-    const widget = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
-    _ = try pair.b.served.publish(&pair.b.host.vat, "vendor", Vendor, .{ .widget = widget.nearRef() });
-
-    // Come by a capability the way `fetch` does not cover: ask for one and
-    // hold what the reply hands back.
-    var vendor = CapturedRef{};
-    try client.vowOn(try client.fetch(pair.a, "vendor"), .{ .ctx = &vendor, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
-    var made = CapturedRef{};
-    const make_vow = try client.send(pair.a, try vendor.require(), .{ .verb = "make", .args = &.{} });
-    try client.vowOn(make_vow, .{ .ctx = &made, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
-
-    const raw = try made.require();
-    try std.testing.expect(raw == .far);
-    const position = raw.far.import_position.int();
-    try std.testing.expect(model.ImportName.classify(position) == .wire);
-
-    const token = try client.enrollCapability(pair.a, position, .object);
-    try std.testing.expect(model.ImportName.classify(token) == .token);
-
-    // Idempotent per import: one object keeps one identity, so a caller that
-    // enrolls twice cannot hand two tokens for the same capability to two
-    // recipients and have them compare unequal.
-    try std.testing.expectEqual(token, try client.enrollCapability(pair.a, position, .object));
-
-    // A token is already routable. Enrolling it again would double-wrap it
-    // into a reference no session can lower, so it passes through unchanged.
-    try std.testing.expectEqual(token, try client.enrollCapability(pair.a, token, .object));
-
-    // A position with no import row names nothing here. Minting a token for it
-    // would route a later gift to a capability the partner never exported, and
-    // there would be nowhere to remember the token, so a second enroll would
-    // mint a second identity for one object.
-    try std.testing.expectError(error.ForeignArgument, client.enrollCapability(pair.a, 9_999, .object));
-
-    // The rule is the row, not reachability. The partner's bootstrap is
-    // addressable on a session that has never fetched, and is still refused
-    // there; the fetch above is what gave *this* session its row for it, and
-    // that same position enrolls fine here.
-    var stranger = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer stranger.deinit();
-    const fresh = try openPair(allocator, &client, &stranger, "127.0.0.1:7602", &dials);
-    try std.testing.expectError(error.ForeignArgument, client.enrollCapability(fresh.a, 0, .object));
-    try std.testing.expect(try client.enrollCapability(pair.a, 0, .object) != 0);
-}
-
-test "enroll: the kind the caller names is what routing reads off the token" {
-    // A partner can hand over a promise it has not settled, and only as a
-    // delivered argument or a reply — the position arrives with no record of
-    // being unsettled, because a far reference goes on the wire the same way
-    // either way. So the kind is the caller's to supply, and this is what
-    // depends on it: the introducing-session proxy claims a fulfilled *promise*
-    // token and declines everything else, so a promise enrolled as an object
-    // would reach a third party as a bare position it cannot wait on.
-    const allocator = std.testing.allocator;
-    var introducer_host = test_host.init(allocator, [_]u8{0x1a} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer introducer_host.deinit();
-    var exporter = test_host.init(allocator, [_]u8{0x1b} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer exporter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x1c} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer recipient.deinit();
-    const hosts = [_]*Host{ &introducer_host, &exporter, &recipient };
-    var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
-
-    // Two distinct capabilities on one session, so the two enrollments differ
-    // in kind rather than in position.
-    const i_to_e = try openPair(allocator, &introducer_host, &exporter, "127.0.0.1:7621", &dials);
-    const first = try i_to_e.b.served.publish(&i_to_e.b.host.vat, "first", Widget, .{});
-    const second = try i_to_e.b.served.publish(&i_to_e.b.host.vat, "second", Widget, .{});
-    _ = try i_to_e.b.served.publish(&i_to_e.b.host.vat, "vend-first", Vendor, .{ .widget = first.nearRef() });
-    _ = try i_to_e.b.served.publish(&i_to_e.b.host.vat, "vend-second", Vendor, .{ .widget = second.nearRef() });
-
-    var as_promise = CapturedRef{};
-    try introducer_host.vowOn(
-        try introducer_host.fetch(i_to_e.a, "vend-first"),
-        .{ .ctx = &as_promise, .func = CapturedRef.record },
-    );
-    var as_object = CapturedRef{};
-    try introducer_host.vowOn(
-        try introducer_host.fetch(i_to_e.a, "vend-second"),
-        .{ .ctx = &as_object, .func = CapturedRef.record },
-    );
-    try pumpToQuiescence(allocator, &hosts, &.{i_to_e}, &dials);
-
-    var promise_held = CapturedRef{};
-    try introducer_host.vowOn(
-        try introducer_host.send(i_to_e.a, try as_promise.require(), .{ .verb = "make", .args = &.{} }),
-        .{ .ctx = &promise_held, .func = CapturedRef.record },
-    );
-    var object_held = CapturedRef{};
-    try introducer_host.vowOn(
-        try introducer_host.send(i_to_e.a, try as_object.require(), .{ .verb = "make", .args = &.{} }),
-        .{ .ctx = &object_held, .func = CapturedRef.record },
-    );
-    try pumpToQuiescence(allocator, &hosts, &.{i_to_e}, &dials);
-
-    const promise_token = try introducer_host.enrollCapability(
-        i_to_e.a,
-        (try promise_held.require()).far.import_position.int(),
-        .promise,
-    );
-    const object_token = try introducer_host.enrollCapability(
-        i_to_e.a,
-        (try object_held.require()).far.import_position.int(),
-        .object,
-    );
-
-    // A recipient session to introduce onto: the proxy needs a session that is
-    // not the capability's home.
-    const r_to_i = try openPair(allocator, &recipient, &introducer_host, "127.0.0.1:7622", &dials);
-
-    // The promise-kind token is claimed and rewritten to a near promise the
-    // recipient can listen on; the object-kind token is left for the gifter
-    // intercept beside it.
-    const proxied = try introducer_host.node.proxyForeignPromiseFulfill(r_to_i.b.peer_id, promise_token);
-    try std.testing.expect(proxied != null);
-    try std.testing.expect(proxied.? == .near);
-    try std.testing.expectEqual(model.RefKind.promise, proxied.?.near.kind);
-    try std.testing.expect(try introducer_host.node.proxyForeignPromiseFulfill(r_to_i.b.peer_id, object_token) == null);
-}
-
-test "enroll: one position cannot be enrolled under both kinds" {
-    // Enrolling is idempotent per import, so a second enroll of one position is
-    // answered with the first one's token. The kind, though, lives on the row
-    // that token names, and routing reads it there. So a second caller naming
-    // the same position with the other kind cannot be given what it asked for,
-    // and it must not be handed the row's kind under its own spelling either:
-    // that would tell an application its promise had been enrolled as a promise
-    // when the row says object, and the introducing-session proxy would then
-    // decline the token it was told to expect a settlement through. The
-    // disagreement is refused instead.
-    const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer client.deinit();
-    var server = test_host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer server.deinit();
-    var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
-
-    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7631", &dials);
-    const widget = try pair.b.served.publish(&pair.b.host.vat, "widget", Widget, .{});
-    _ = try pair.b.served.publish(&pair.b.host.vat, "vendor", Vendor, .{ .widget = widget.nearRef() });
-    var vendor = CapturedRef{};
-    try client.vowOn(try client.fetch(pair.a, "vendor"), .{ .ctx = &vendor, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
-    var made = CapturedRef{};
-    try client.vowOn(
-        try client.send(pair.a, try vendor.require(), .{ .verb = "make", .args = &.{} }),
-        .{ .ctx = &made, .func = CapturedRef.record },
-    );
-    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
-    const position = (try made.require()).far.import_position.int();
-
-    // A fresh enroll cannot conflict: the row is created with the kind asked
-    // for, so the first call decides what this position is.
-    const token = try client.enrollCapability(pair.a, position, .promise);
-
-    // Same position, same kind: still idempotent, still one token.
-    try std.testing.expectEqual(token, try client.enrollCapability(pair.a, position, .promise));
-
-    // Same position, the other kind: refused, and typed, so an embedder can
-    // tell this apart from a position it does not hold.
-    try std.testing.expectError(
-        error.EnrolledKindConflict,
-        client.enrollCapability(pair.a, position, .object),
-    );
-
-    // The refusal changed nothing. The row still holds the kind it was created
-    // with, and the token still answers to it.
-    try std.testing.expectEqual(token, try client.enrollCapability(pair.a, position, .promise));
-
-    // A token passes through unchanged whatever kind accompanies it: it is
-    // already routable, and the row it was minted from holds the kind, so there
-    // is nothing here to record or to disagree with.
-    try std.testing.expectEqual(token, try client.enrollCapability(pair.a, token, .object));
-}
-
-test "enroll: a capability from a call reply gifts once it is enrolled" {
-    const allocator = std.testing.allocator;
-    var exporter = test_host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer exporter.deinit();
-    var gifter = test_host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer gifter.deinit();
-    var recipient = test_host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
-    defer recipient.deinit();
-    const hosts = [_]*Host{ &exporter, &gifter, &recipient };
-    var dials: std.ArrayList(ParkedDial) = .empty;
-    defer {
-        for (dials.items) |parked| allocator.free(parked.designator);
-        dials.deinit(allocator);
-    }
-
-    // The exporter hosts a widget and a vendor that hands it out. The gifter
-    // reaches the widget through an ordinary call to the vendor, which is the
-    // shape `fetch` does not cover: a capability returned from a call, or
-    // lifted from a delivered argument, arrives with no routing token.
-    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7611", &dials);
-    const hosted = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "widget", Widget, .{});
-    _ = try g_to_e.b.served.publish(&g_to_e.b.host.vat, "vendor", Vendor, .{ .widget = hosted.nearRef() });
-
-    var vendor = CapturedRef{};
-    try gifter.vowOn(try gifter.fetch(g_to_e.a, "vendor"), .{ .ctx = &vendor, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
-    const vendor_ref = try vendor.require();
-
-    var made = CapturedRef{};
-    const make_vow = try gifter.send(g_to_e.a, vendor_ref, .{ .verb = "make", .args = &.{} });
-    try gifter.vowOn(make_vow, .{ .ctx = &made, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
-
-    // The premise this verb exists for, asserted rather than assumed: a call
-    // reply settles with a plain wire position. Nothing recorded its home, so
-    // the gifter intercept has nothing to look it up by.
-    const raw = try made.require();
-    try std.testing.expect(raw == .far);
-    const raw_position = raw.far.import_position.int();
-    try std.testing.expect(model.ImportName.classify(raw_position) == .wire);
-
-    // Enrolling records the home, which is the whole of what was missing.
-    const token = try gifter.enrollCapability(g_to_e.a, raw_position, .object);
-    try std.testing.expect(model.ImportName.classify(token) == .token);
-    const token_arg: model.Reference = .{ .far = model.FarRef.object(token) };
-
-    // From here the existing three-party machinery runs untouched: the
-    // gifter's ordinary reply with a foreign-homed capability becomes a signed
-    // give, and the recipient redeems it.
-    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7612", &dials);
-    _ = try r_to_g.b.served.publish(&r_to_g.b.host.vat, "introducer", Introducer, .{ .widget = token_arg });
-    var introducer = CapturedRef{};
-    try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
-    const introducer_ref = try introducer.require();
-
-    var redeemed = CapturedRef{};
-    const introduce_vow = try recipient.send(r_to_g.a, introducer_ref, .{ .verb = "introduce", .args = &.{} });
-    try recipient.vowOn(introduce_vow, .{ .ctx = &redeemed, .func = CapturedRef.record });
-    try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g }, &dials);
-
-    // One dial, naming the exporter: the give carried a real home because the
-    // enrollment gave it one.
-    try std.testing.expectEqual(@as(usize, 1), dials.items.len);
-    const parked = dials.items[0];
-    try std.testing.expect(parked.host == &recipient);
-
-    const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7611", &.{});
-    _ = try e_accepts_r.served.publish(&e_accepts_r.host.vat, "widget", Widget, .{});
-    const redeem_view = recipient.pendingDial(parked.ticket) orelse return error.MissingPendingDial;
-    const r_to_e = try recipient.openDialedLocator(.{
-        .transport = redeem_view.transport,
-        .designator = redeem_view.designator,
-        .hints = model.Hints.emptyFalse(),
-    });
-    const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
-    const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
-    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
-    try recipient.exporterDialed(parked.ticket, r_to_e);
-    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
-
-    // The capability the recipient ends up holding reaches the exporter's own
-    // object, over the recipient's own connection. That is the claim: a
-    // capability that never came from `fetch` was handed to a third party.
-    const redeemed_ref = try redeemed.require();
-    var poked = CapturedString{};
-    const poke_vow = try recipient.send(r_to_g.a, redeemed_ref, .{ .verb = "poke", .args = &.{} });
-    try recipient.vowOn(poke_vow, .{ .ctx = &poked, .func = CapturedString.record });
-    try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
-    try std.testing.expectEqualStrings("poked over fed bytes", poked.buf[0..poked.len]);
-}
-
-test "enroll: forgetting to enroll breaks the one reply, not the whole session" {
+test "wire-shaped callback: a foreign-session reply breaks one vow, not the session" {
     const allocator = std.testing.allocator;
     var exporter = test_host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
@@ -4715,9 +5450,9 @@ test "enroll: forgetting to enroll breaks the one reply, not the whole session" 
     try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
     const raw = try made.require();
 
-    // The introducer replies with the capability *without* enrolling it, so
-    // the node was never told its home and the gifter intercept declines. The
-    // reply is then a position that means nothing on the recipient's session.
+    // This deliberately stays below the owning Host-value boundary: the raw
+    // actor replies with a position from another session. With no Host identity
+    // carrying its home, the gifter intercept declines it.
     const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7622", &dials);
     _ = try r_to_g.b.served.publish(&r_to_g.b.host.vat, "introducer", Introducer, .{ .widget = raw });
     var introducer = CapturedRef{};
@@ -4734,7 +5469,7 @@ test "enroll: forgetting to enroll breaks the one reply, not the whole session" 
     try std.testing.expectEqual(@as(usize, 0), dials.items.len);
 
     // The session survives it. Refusing the one reply is what keeps a
-    // forgotten enrollment from becoming an `InvalidReference` that tears the
+    // foreign raw reply from becoming an `InvalidReference` that tears the
     // whole session down: the next call on that session still works.
     try std.testing.expect(r_to_g.a.sessionOpen());
     var poked = CapturedString{};
@@ -4881,6 +5616,8 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     // open: the deferral holds it for the resolver.
     try std.testing.expect(minted_resolver != 0);
     try std.testing.expect(reply.len == 0 and !reply.broken);
+    server.beginClose(.{ .finish = .unbounded }, 0);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, server.lifecyclePhase());
 
     // Direct Zig callers obey the same plain-data boundary as the C binding
     // and worker mailbox. Rejection happens before settlement, so the one-shot
@@ -4905,14 +5642,52 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
         server.resolverFulfill(minted_resolver, .{ .handoff = &handoff }),
     );
 
-    // The worker completes: the settle re-enters at the top level, the
-    // deferred wire answer resolves, and the partner hears it.
+    // The already-admitted worker completes during finish. Its answer flushes
+    // to the partner before the Host starts terminal session close.
     try server.resolverFulfill(minted_resolver, .{ .string = "computed" });
-    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expectEqual(Host.LifecyclePhase.finishing, server.lifecyclePhase());
+    const answer_flush = (try server.nextAction()) orelse return error.MissingFlush;
+    try std.testing.expect(answer_flush == .flush);
+    _ = try shuttleAll(&.{pair});
     try std.testing.expectEqualStrings("computed", reply.text());
+    try retireClosingSession(&server, pair.b);
 
     // One attempt: the resolver and its hidden vow row are consumed.
     try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(minted_resolver, "late"));
+}
+
+test "core session release cancels a deferred answer before freeing its Port" {
+    const allocator = std.testing.allocator;
+    var client = test_host.init(allocator, [_]u8{0x2c} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer client.deinit();
+    var server = test_host.init(allocator, [_]u8{0x2d} ** 32, Host.Options.withFrameCap(frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(ParkedDial) = .empty;
+    defer dials.deinit(allocator);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7824", &dials);
+
+    var resolver_id: u64 = 0;
+    _ = try pair.b.served.publish(&server.vat, "worker", Deferring, .{
+        .host = &server,
+        .session = pair.b,
+        .out_resolver = &resolver_id,
+    });
+    var worker = CapturedRef{};
+    try client.vowOn(try client.fetch(pair.a, "worker"), .{ .ctx = &worker, .func = CapturedRef.record });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+    _ = try client.send(pair.a, try worker.require(), .{ .verb = "work", .args = &.{} });
+    try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
+
+    try std.testing.expect(resolver_id != 0);
+    try std.testing.expectEqual(@as(usize, 1), server.pending_operations);
+    try std.testing.expectEqual(@as(usize, 1), server.resolver_index.count());
+    try server.releaseSession(pair.b);
+
+    try std.testing.expectEqual(@as(usize, 0), server.pending_operations);
+    try std.testing.expectEqual(@as(usize, 0), server.resolver_index.count());
+    try std.testing.expectEqual(@as(usize, 0), server.vows.count());
+    try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(resolver_id, "late"));
+    try client.releaseSession(pair.a);
 }
 
 test "core host: local and foreign deferrals publish no Host or Vat authority" {
@@ -5214,8 +5989,8 @@ test "core host: the live trace reports open, both message directions, and close
     defer server.deinit();
     var client_log = TraceLog{};
     var server_log = TraceLog{};
-    client.setTrace(.{ .ctx = &client_log, .emit = TraceLog.emit });
-    server.setTrace(.{ .ctx = &server_log, .emit = TraceLog.emit });
+    try client.setTrace(.{ .ctx = &client_log, .emit = TraceLog.emit });
+    try server.setTrace(.{ .ctx = &server_log, .emit = TraceLog.emit });
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
@@ -5262,7 +6037,7 @@ test "core host: deinit closes every traced open exactly once" {
     defer peer.deinit();
     var host = test_host.init(allocator, [_]u8{0x41} ** 32, Host.Options.withFrameCap(frame_cap));
     var log = TraceLog{};
-    host.setTrace(.{ .ctx = &log, .emit = TraceLog.emit });
+    try host.setTrace(.{ .ctx = &log, .emit = TraceLog.emit });
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
@@ -5402,7 +6177,7 @@ test "core host: the live trace reports each session's settled profile, not the 
     defer baseline_peer.deinit();
 
     var hub_log = TraceLog{};
-    hub.setTrace(.{ .ctx = &hub_log, .emit = TraceLog.emit });
+    try hub.setTrace(.{ .ctx = &hub_log, .emit = TraceLog.emit });
 
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -5442,9 +6217,9 @@ test "core host: both peers of one session report the same wire name" {
     var client_log = TraceLog{};
     var server_log = TraceLog{};
     var third_log = TraceLog{};
-    client.setTrace(.{ .ctx = &client_log, .emit = TraceLog.emit });
-    server.setTrace(.{ .ctx = &server_log, .emit = TraceLog.emit });
-    third.setTrace(.{ .ctx = &third_log, .emit = TraceLog.emit });
+    try client.setTrace(.{ .ctx = &client_log, .emit = TraceLog.emit });
+    try server.setTrace(.{ .ctx = &server_log, .emit = TraceLog.emit });
+    try third.setTrace(.{ .ctx = &third_log, .emit = TraceLog.emit });
 
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -5594,8 +6369,8 @@ test "core host: both ends of a wire tag one message identically" {
 
     var client_log = DigestLog{};
     var server_log = DigestLog{};
-    client.setTrace(.{ .ctx = &client_log, .emit = DigestLog.emit });
-    server.setTrace(.{ .ctx = &server_log, .emit = DigestLog.emit });
+    try client.setTrace(.{ .ctx = &client_log, .emit = DigestLog.emit });
+    try server.setTrace(.{ .ctx = &server_log, .emit = DigestLog.emit });
 
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);

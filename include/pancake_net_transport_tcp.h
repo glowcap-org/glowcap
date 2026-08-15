@@ -46,13 +46,29 @@ typedef struct PancakeTcpConn PancakeTcpConn;
 /* A bound TCP listener. Created by pancake_tcp_listen; released by
    pancake_tcp_listener_release. */
 typedef struct PancakeTcpListener PancakeTcpListener;
+/* Per-stream TCP policy. A zeroed value disables keepalive. Otherwise
+   every field is required and positive. */
+typedef struct PancakeTcpStreamOptions {
+  uint32_t keepalive_idle_sec;
+  uint32_t keepalive_interval_sec;
+  uint32_t keepalive_count;
+} PancakeTcpStreamOptions;
+/* Defaults inherited by connections from this netlayer. */
+typedef struct PancakeTcpConfig {
+  PancakeTcpStreamOptions stream;
+} PancakeTcpConfig;
+/* Per-operation override carried through PancakeTransportOperationOptions. */
+typedef struct PancakeTcpOperationOptions {
+  PancakeTcpStreamOptions stream;
+} PancakeTcpOperationOptions;
 /* Create the netlayer handle that owns the blocking I/O backend, allocating
-   through the library allocator. Release with pancake_tcp_netlayer_release
-   after releasing every endpoint made from it. */
-int32_t pancake_tcp_netlayer_new(PancakeTcpNetlayer **out_netlayer);
+   through the library allocator. `config` is required and supplies inherited
+   stream defaults. Release with pancake_tcp_netlayer_release after releasing
+   every endpoint made from it. */
+int32_t pancake_tcp_netlayer_new(const PancakeTcpConfig *config, PancakeTcpNetlayer **out_netlayer);
 /* Create a netlayer whose backend and per-connection buffers allocate through
-   `context`. */
-int32_t pancake_tcp_netlayer_new_in(PancakeContext *context, PancakeTcpNetlayer **out_netlayer);
+   `context`, with the same required configuration. */
+int32_t pancake_tcp_netlayer_new_in(PancakeContext *context, const PancakeTcpConfig *config, PancakeTcpNetlayer **out_netlayer);
 /* Fill out_provider with this runtime's complete TCP package: tcp, keyed-tcp,
    and noise-tcp. Install it once with pancake_driver_add_provider. The driver
    acquires the provider lease through retain and releases it after all transport
@@ -67,16 +83,17 @@ void pancake_tcp_netlayer_shutdown(PancakeTcpNetlayer *netlayer);
    embedding's operation leases; release must not race call initiation. */
 void pancake_tcp_netlayer_release(PancakeTcpNetlayer *netlayer);
 /* Connect to host:port and return an owned connection framing on `codec`,
-   refusing inbound frames over max_frame_bytes. Blocking; `host` is borrowed.
-   PANCAKE_ERR_INVALID_ARGUMENT for a bad codec, a zero frame cap, or an
-   unparseable address; PANCAKE_ERR_IO (see pancake_tcp_last_error) when the
-   dial fails. Release with pancake_tcp_conn_release. */
-int32_t pancake_tcp_connect(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn);
+   refusing inbound frames over max_frame_bytes. `options == NULL` inherits the
+   netlayer's stream defaults; a nonnull zeroed value disables keepalive for this
+   connection. Blocking; `host` is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a
+   bad option, codec, frame cap, or address; PANCAKE_ERR_IO (see
+   pancake_tcp_last_error) when the dial fails. Release with pancake_tcp_conn_release. */
+int32_t pancake_tcp_connect(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn);
 /* The same operation as its unsuffixed sibling, plus an atomic diagnostic
    capture for runtimes that dispatch native calls to worker threads. out_error_len
    is required and receives the full diagnostic length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_tcp_connect_with_diagnostic(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_tcp_connect_with_diagnostic(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Bind and listen on host:port (port 0 picks an OS-chosen port; read it back
    with pancake_tcp_listener_port). Release with pancake_tcp_listener_release. */
 int32_t pancake_tcp_listen(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, PancakeTcpListener **out_listener);
@@ -88,13 +105,13 @@ int32_t pancake_tcp_listener_port(PancakeTcpListener *listener, uint16_t *out_po
    not close it or use it after pancake_tcp_listener_release. */
 int32_t pancake_tcp_listener_readiness_fd(PancakeTcpListener *listener, int32_t *out_fd);
 /* Block until a client connects, returning an owned connection framing on
-   `codec`. Same argument and release contract as pancake_tcp_connect. */
-int32_t pancake_tcp_accept(PancakeTcpListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn);
+   `codec`. `options` has the same inherit-or-override contract as pancake_tcp_connect. */
+int32_t pancake_tcp_accept(PancakeTcpListener *listener, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn);
 /* The same operation as its unsuffixed sibling, plus an atomic diagnostic
    capture for runtimes that dispatch native calls to worker threads. out_error_len
    is required and receives the full diagnostic length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_tcp_accept_with_diagnostic(PancakeTcpListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_tcp_accept_with_diagnostic(PancakeTcpListener *listener, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Block for one whole frame as an owned managed frame. Returns PANCAKE_ERR_CLOSED
    on graceful EOF, PANCAKE_ERR_IO on a socket fault. */
 int32_t pancake_tcp_conn_read_frame(PancakeTcpConn *conn, PancakeManagedFrame *out_frame);
@@ -113,14 +130,16 @@ int32_t pancake_tcp_conn_write_frame(PancakeTcpConn *conn, const PancakeFrame *f
 int32_t pancake_tcp_conn_write_frame_with_diagnostic(PancakeTcpConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal native admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
-   Idempotent and best-effort. */
-void pancake_tcp_conn_shutdown(PancakeTcpConn *conn);
-/* After stopping new calls, invoking shutdown, and joining the embedding's
-   operation leases, close and free the handle. Release must not race call initiation. */
-void pancake_tcp_conn_release(PancakeTcpConn *conn);
+   Idempotent. Returns PANCAKE_ERR_IO when the socket cannot be interrupted; the
+   transport last-error slot names the cause. */
+int32_t pancake_tcp_conn_shutdown(PancakeTcpConn *conn);
+/* After stopping new calls, invoke shutdown, join admitted operations, and free
+   the handle. Returns the shutdown outcome after completing the ownership sweep.
+   Release must not race call initiation. */
+int32_t pancake_tcp_conn_release(PancakeTcpConn *conn);
 /* Seal native accept admission and interrupt a blocked accept without freeing the
    listener. May race operations; join the embedding's leases before release.
-   Idempotent and best-effort. */
+   Idempotent; the listener's pre-opened wake channel makes this operation infallible. */
 void pancake_tcp_listener_shutdown(PancakeTcpListener *listener);
 /* After stopping new calls, invoking shutdown, and joining the embedding's
    operation leases, close and free the listener. Release must not race call initiation. */

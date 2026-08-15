@@ -32,7 +32,7 @@ const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
  *
  *  Which netlayers exist, and which of them name a peer by key, are Zig's:
  *  `driver_core.vocab.designatorSchemeForTransport` and each resident's own
- *  `designator_scheme` declaration, which `zig build meta-check` already holds
+ *  `designator_scheme` declaration, which `zig build source-check` already holds
  *  against each other. Nothing holds this copy against either, so a netlayer
  *  added there is added here by hand. */
 const DESIGNATOR_SHAPE: Record<string, RegExp> = {
@@ -111,9 +111,7 @@ Deno.test("every session end says what it claims and what backed the claim", () 
       // A producer reporting a session is the thing doing the talking,
       // so one of the two ends is always its own report and no session
       // is loose at both ends.
-      const selves = SESSION_SIDES.filter((s) =>
-        ev[s].attributedBy === "self-reported"
-      );
+      const selves = SESSION_SIDES.filter((s) => ev[s].attributedBy === "self-reported");
       assertEquals(
         selves.length,
         1,
@@ -272,9 +270,7 @@ Deno.test("no shipped message comes from a peer its session cannot name yet", ()
     };
     for (const ev of observationsOf(doc) as readonly TimelineEvent[]) {
       if (ev.kind !== "message-sent") continue;
-      const ends = SESSION_SIDES.map((side) =>
-        nodeAt(ev.sessionId, side, ev.t)
-      );
+      const ends = SESSION_SIDES.map((side) => nodeAt(ev.sessionId, side, ev.t));
       // A message on a session the recording never opened is a different
       // defect and not this check's business.
       if (ends.every((e) => e === undefined)) continue;

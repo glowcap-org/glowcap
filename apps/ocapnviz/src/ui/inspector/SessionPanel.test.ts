@@ -86,9 +86,7 @@ function valueOf(
   property: SessionProperty,
 ): string | undefined {
   const offer = offers.find((o) => o.property === property);
-  return offer === undefined
-    ? undefined
-    : SESSION_TRAJECTORY[offer.property].stated(offer.value);
+  return offer === undefined ? undefined : SESSION_TRAJECTORY[offer.property].stated(offer.value);
 }
 
 Deno.test("an offer proposes what the session already carries", () => {

@@ -14,7 +14,7 @@ The check is one function rather than a hand-written comparison per module
 because that is where the coverage used to leak: a struct declared below its
 module's pin was simply never checked, and the trace record spent an ABI
 change reading a field set the library had stopped sending. There is nothing
-to forget here except the call itself, and ``meta-check`` holds that.
+to forget here except the call itself, and ``source-check`` holds that.
 
 A plain ``raise`` rather than ``assert``, so ``python -O`` cannot strip the
 gate.

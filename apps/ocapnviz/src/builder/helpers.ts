@@ -13,10 +13,7 @@ import { findNode } from "../engine/world.ts";
 import { authoredPins } from "../engine/event-helpers.ts";
 import { observationsOf } from "../engine/temporal/recording-access.ts";
 import { TimelineDocument } from "../engine/timeline.ts";
-import {
-  selectionPhrase,
-  tallyByKind,
-} from "../ui/inspector/selection-summary.ts";
+import { selectionPhrase, tallyByKind } from "../ui/inspector/selection-summary.ts";
 import type { AppAction } from "../state/app-state.ts";
 import {
   attachedEndpoint,
@@ -36,10 +33,7 @@ import {
   type SelectionAction,
   type SelectionDocSnapshot,
 } from "../interactions/types.ts";
-import {
-  type NodeKind,
-  toolAcceptsNode,
-} from "../interactions/gesture-resolver.ts";
+import { type NodeKind, toolAcceptsNode } from "../interactions/gesture-resolver.ts";
 
 /**
  * Run `body`'s dispatches as one undo step.
@@ -135,9 +129,7 @@ export function twoClickAccepts(
   // end nothing has attributed at either side, the only session that can
   // carry it is the one that end already belongs to.
   if (!isLoose(armedNodeId) && !isLoose(target.id)) return "takes";
-  return findOpenSessionBetween(engine, armedNodeId, target.id) === null
-    ? "refuses"
-    : "takes";
+  return findOpenSessionBetween(engine, armedNodeId, target.id) === null ? "refuses" : "takes";
 }
 
 /** Commit step of the two-click open-session / send-message tools.
@@ -200,12 +192,8 @@ export function advanceTwoClick(
       a: attachedEndpoint(firstPickNodeId),
       b: attachedEndpoint(clickedNodeId),
       ...(options?.codec !== undefined ? { codec: options.codec } : {}),
-      ...(options?.captpVersion !== undefined
-        ? { captpVersion: options.captpVersion }
-        : {}),
-      ...(options?.initialState !== undefined
-        ? { initialState: options.initialState }
-        : {}),
+      ...(options?.captpVersion !== undefined ? { captpVersion: options.captpVersion } : {}),
+      ...(options?.initialState !== undefined ? { initialState: options.initialState } : {}),
     });
     dispatch({ type: "set-first-pick", nodeId: null });
     if (sessionId) {
@@ -240,12 +228,8 @@ export function advanceTwoClick(
       // whether they explicitly opened one or are sending a message
       // that opens one inline.
       ...(options?.codec !== undefined ? { codec: options.codec } : {}),
-      ...(options?.captpVersion !== undefined
-        ? { captpVersion: options.captpVersion }
-        : {}),
-      ...(options?.initialState !== undefined
-        ? { initialState: options.initialState }
-        : {}),
+      ...(options?.captpVersion !== undefined ? { captpVersion: options.captpVersion } : {}),
+      ...(options?.initialState !== undefined ? { initialState: options.initialState } : {}),
     });
     if (sessionId) {
       engine.dispatch({
@@ -257,9 +241,7 @@ export function advanceTwoClick(
             options.messageLabel.length > 0
           ? { label: options.messageLabel }
           : {}),
-        ...(options?.flightMs !== undefined && Number.isFinite(options.flightMs)
-          ? { flightMs: options.flightMs }
-          : {}),
+        ...(options?.flightMs !== undefined && Number.isFinite(options.flightMs) ? { flightMs: options.flightMs } : {}),
       });
     }
   });
@@ -308,12 +290,8 @@ export function openSessionToNewEnd(
       a: attachedEndpoint(fromPeerId),
       b: unattributedEndpoint(),
       ...(options?.codec !== undefined ? { codec: options.codec } : {}),
-      ...(options?.captpVersion !== undefined
-        ? { captpVersion: options.captpVersion }
-        : {}),
-      ...(options?.initialState !== undefined
-        ? { initialState: options.initialState }
-        : {}),
+      ...(options?.captpVersion !== undefined ? { captpVersion: options.captpVersion } : {}),
+      ...(options?.initialState !== undefined ? { initialState: options.initialState } : {}),
     });
     if (sessionId !== undefined) {
       engine.dispatch({

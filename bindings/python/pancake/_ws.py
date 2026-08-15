@@ -57,6 +57,7 @@ class _WebSocketTransport:
 
     def __init__(self, ws) -> None:
         self._ws = ws
+        self._close_task: Optional[asyncio.Task[None]] = None
 
     async def read(self) -> Optional[bytes]:
         import websockets
@@ -88,9 +89,21 @@ class _WebSocketTransport:
             await self._ws.send(data[offset : offset + _WS_MESSAGE_HIGH_WATER])
 
     def close(self) -> None:
+        if self._close_task is not None:
+            return
         with contextlib.suppress(RuntimeError):
             loop = asyncio.get_running_loop()
-            task = loop.create_task(self._ws.close())
-            # The close handshake owns its own lifetime; the reference keeps the
-            # task from being collected mid-flight.
-            task.add_done_callback(lambda _t: None)
+            # Session's generic transport barrier calls `wait_closed`, which
+            # joins this exact task and propagates its result. Retaining it here
+            # also keeps an implicit close alive until the adapter is released.
+            self._close_task = loop.create_task(self._ws.close())
+
+    async def wait_closed(self) -> None:
+        self.close()
+        task = self._close_task
+        if task is None:
+            raise PancakeError(
+                _abi.ERR_INTERNAL,
+                "keyed-relay WebSocket close requires a running event loop",
+            )
+        await asyncio.shield(task)

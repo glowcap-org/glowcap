@@ -13,11 +13,7 @@ import {
   CODEC_REFERENCE_OPTIONS,
   UNNAMED_PROFILE,
 } from "../schema/topology.ts";
-import {
-  endpointSwatchStyle,
-  NEUTRAL_BODY_COLOR,
-  peerBodySwatchStyle,
-} from "./EntityChips.tsx";
+import { endpointSwatchStyle, NEUTRAL_BODY_COLOR, peerBodySwatchStyle } from "./EntityChips.tsx";
 import { HelpGlyph } from "./glyphs.tsx";
 import { c, FONT, PANEL, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";
 
@@ -92,9 +88,7 @@ const lineSwatch = (
   ({
     width: 28,
     height: 0,
-    borderTop: `${width}px ${style} ${
-      typeof color === "number" ? hex(color) : color
-    }`,
+    borderTop: `${width}px ${style} ${typeof color === "number" ? hex(color) : color}`,
   }) satisfies React.CSSProperties;
 
 function hex(color: number): string {

@@ -1,5 +1,5 @@
-//! Shared host-action drain: one `while (takeAction) switch` over the seven
-//! arms, with per-embedder behavior injected through a comptime executor.
+//! Shared host-action drain: one `while (takeAction) switch` over every arm,
+//! with per-embedder behavior injected through a comptime executor.
 //! Both Zig embedders ride it — `driver.Bridge` at the loop tier and the
 //! owning `driver.HostRuntime` face at the blocking tier (ADR-0090) — supplying only
 //! the arms that differ; `need_gift_id` lives here so a new action kind is a
@@ -23,6 +23,10 @@ pub const DrainResult = enum { drained, yielded };
 /// - `dial(d: HostAction.dial) !void` — ticket only; view via `pendingDial`.
 ///   On failure it must have published no external connection, or must have
 ///   rolled that connection back before returning: the ticket is requeued.
+/// - `cancelDial(d: HostAction.cancel_dial) !void` — interrupt and join the
+///   external effect, then acknowledge it through `Host.dialCancelled`.
+/// - optionally, `prepare(action: HostAction) !void` — acquire adapter-owned
+///   publication capacity while the action is still parked and unconsumed.
 /// - `complete(action: HostAction) !void` — owns `.settled` / `.failed` (adopt
 ///   or `host.freeAction`; the skeleton does not free them)
 pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
@@ -32,6 +36,7 @@ pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
         // must not consume the only ticket that can finish the handoff.
         var gift_id: [32]u8 = undefined;
         if (next == .need_gift_id) try io.randomSecure(&gift_id);
+        if (@hasDecl(@TypeOf(exec), "prepare")) try exec.prepare(next);
 
         const action = (try host.takeAction()) orelse unreachable;
         switch (action) {
@@ -44,6 +49,10 @@ pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
                 };
             },
             .dial => |d| exec.dial(d) catch |err| {
+                host_action.retryEffect(host, action);
+                return err;
+            },
+            .cancel_dial => |d| exec.cancelDial(d) catch |err| {
                 host_action.retryEffect(host, action);
                 return err;
             },

@@ -10,6 +10,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -72,7 +73,7 @@ fn fetchOnce(nl: net.netlayer.Netlayer, designator: []const u8, allocator: std.m
         .designator = designator,
         .hints = model.Hints.emptyMap(),
     };
-    var conn = try nl.dial(&peer, locator, .{ .read = read_buf, .write = write_buf });
+    var conn = try nl.dial(&peer, locator, .{ .read = read_buf, .write = write_buf }, .inherit);
     defer conn.deinit();
 
     try fetch_pump.handshakeToOpen(&peer, &conn, startSession("client"));
@@ -103,8 +104,8 @@ test "netlayer contract loopback: dial + accept through the vtable, handshake + 
     var resident = tcp.Resident{ .io = io };
     const nl = resident.netlayer();
 
-    var listener = try nl.listen(allocator, .{ .designator = "127.0.0.1:0", .hints = model.Hints.emptyFalse() });
-    defer listener.close();
+    var listener = try netlayer_test.listenBlocking(nl, allocator, .{ .designator = "127.0.0.1:0" });
+    defer netlayer_test.close(listener);
 
     const locator = try listener.localLocator(allocator);
     defer model.freePeerLocator(allocator, locator);

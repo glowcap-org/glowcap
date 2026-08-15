@@ -13,7 +13,7 @@ Canonical home for agent-facing guidance in this Zig repository.
 └── hooks/      # shared hook scripts, see the Hooks table
 ```
 
-The tables below enumerate the contents and `zig build meta-check` holds them to
+The tables below enumerate the contents and `zig build source-check` holds them to
 the directories in both directions, so the tree shows shape only and cannot
 drift behind a file the tables already gate. Named people and person-named
 slugs live only in user XDG (`$XDG_CONFIG_HOME/agents/personas/`), never here.
@@ -29,10 +29,10 @@ guidance:
 - Codex reads `AGENTS.md` and `.agents/skills` directly; `.codex/README.md`
   records that no `.codex/skills` mirror is needed.
 
-`zig build meta-check` verifies this topology and every scaffolding claim it can
+`zig build source-check` verifies this topology and every scaffolding claim it can
 reach mechanically, symlink shape, the rule and skill indexes, Markdown links,
 documented build steps, the living-state registry, and more.
-[`tools/check/meta_check.zig`](../tools/check/meta_check.zig) is the authoritative
+[`tools/check/source_check.zig`](../tools/check/source_check.zig) is the authoritative
 inventory; update it in the same change as any intentional scaffolding move.
 
 ## Rules
@@ -44,11 +44,9 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [cli](rules/cli.md)                                 | Zig gates, generated state, git posture, live CapTP via pancake-cli, product CapTP wait budgets        |
 | [debugging](rules/debugging.md)                     | A failure is data: evidence before theory, ordered suspects, halved search, a fix that explains it     |
 | [doc-drift](rules/doc-drift.md)                     | Living-state docs must match current code or drop the state claim                                      |
-| [described-vs-built](rules/described-vs-built.md)   | A comment describing a mechanism reads as one that exists; the indicative is for what the code does    |
 | [doc-voice](rules/doc-voice.md)                     | Human-readable prose for first-read docs and public examples                                           |
 | [memory](rules/memory.md)                           | Frame ownership, bounded borrows, copy budget, allocator discipline                                    |
 | [prerelease](rules/prerelease.md)                   | No compatibility debt yet, so the default verdict is fix the root now, not defer it                    |
-| [prerelease-language](rules/prerelease-language.md) | Current-state prose; no transition narrative in first-read surfaces                                    |
 | [project-values](rules/project-values.md)           | Explicit systems design, polished library surface, and no hidden costs                                 |
 | [resilience](rules/resilience.md)                   | Attacker-controlled bytes, parse limits, and layer-owned refusal policy                                |
 | [serena-mcp](rules/serena-mcp.md)                   | When to use Serena symbol tools vs. host file tools for Zig code                                       |

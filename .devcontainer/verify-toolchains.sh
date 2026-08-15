@@ -13,6 +13,7 @@ dir="${PANCAKE_DEVCONTAINER_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 # shellcheck source=lib.sh
 source "${dir}/lib.sh"
 pancake_devcontainer_init "${dir}"
+pancake_require_devcontainer "verify-toolchains"
 
 failures=()
 
@@ -67,40 +68,66 @@ expect_on_path() {
     done
 }
 
-expect_equals "zig" "${ZIG_VERSION}" zig version
-expect_equals "zls" "${ZLS_VERSION}" zls --version
+# Every pin is read through require_pin (directly or via expect_pin_*), because
+# this script also runs against the pins.sh baked into the image
+# (PANCAKE_DEVCONTAINER_DIR), which is one image build behind the repository
+# whenever a pin is being added. Under `set -u` a bare reference to the new pin
+# would abort the whole run on that skew, which is the tripwire behavior this
+# file exists to avoid; reported as a failure, it says what is missing and the
+# checks below it still run.
+require_pin() {
+    local label="$1"
+    local var="$2"
+    if [[ -z "${!var:-}" ]]; then
+        fail "${label}: ${var} is not set by this run's pins.sh (a baked pins.sh runs one image build behind while a pin lands; rebuild, or run against the repository's .devcontainer)"
+        return 1
+    fi
+}
 
-expect_contains "racket" "${RACKET_VERSION}" racket --version
+expect_pin_equals() {
+    local label="$1"
+    local var="$2"
+    shift 2
+    require_pin "${label}" "${var}" || return 0
+    expect_equals "${label}" "${!var}" "$@"
+}
+
+expect_pin_contains() {
+    local label="$1"
+    local var="$2"
+    shift 2
+    require_pin "${label}" "${var}" || return 0
+    expect_contains "${label}" "${!var}" "$@"
+}
+
+expect_pin_equals "zig" ZIG_VERSION zig version
+expect_pin_equals "zls" ZLS_VERSION zls --version
+
+expect_pin_contains "racket" RACKET_VERSION racket --version
 expect_on_path raco
 
-export PLTUSERHOME
-expect_ok "goblins" racket -e '(require goblins)'
-expect_contains "goblins" "${GOBLINS_CHECKSUM}" raco pkg show --long goblins
+if require_pin "goblins" PLTUSERHOME; then
+    export PLTUSERHOME
+    expect_ok "goblins" racket -e '(require goblins)'
+    expect_pin_contains "goblins" GOBLINS_CHECKSUM raco pkg show --long goblins
+fi
 
-expect_contains "deno" "${DENO_VERSION}" deno --version
-expect_contains "node" "v${NODE_VERSION}" node --version
+expect_pin_contains "deno" DENO_VERSION deno --version
+expect_pin_contains "node" NODE_VERSION node --version
 expect_on_path npm
-expect_contains "bun" "${BUN_VERSION}" bun --version
-expect_contains "claude" "${CLAUDE_CODE_VERSION}" claude --version
-expect_contains "opencode" "${OPENCODE_VERSION}" opencode --version
+expect_pin_contains "bun" BUN_VERSION bun --version
+expect_pin_contains "claude" CLAUDE_CODE_VERSION claude --version
+expect_pin_contains "opencode" OPENCODE_VERSION opencode --version
+expect_pin_contains "codex" CODEX_VERSION codex --version
 
 # The browser proofs launch both Chromium binaries Playwright installs, so both
 # are checked, and running each one proves more than a file test would: it needs
 # the apt libraries too, and (during post-create, which runs as vscode) it needs
 # the image's root-installed files to be readable. Playwright picks the browser
-# build number, so the check globs it rather than restating it here.
-#
-# The path is read defensively rather than as `${PLAYWRIGHT_BROWSERS_PATH}`,
-# because this script also runs against the pins.sh baked into the image
-# (`PANCAKE_DEVCONTAINER_DIR`), which is one image build behind the repository
-# whenever a pin is being added. Under `set -u` a bare reference would abort the
-# whole run on that skew, which is the tripwire behavior this file exists to
-# avoid; reported as a failure, it says what is missing and the checks below it
-# still run.
-browsers_path="${PLAYWRIGHT_BROWSERS_PATH:-}"
-if [[ -z "${browsers_path}" ]]; then
-    fail "playwright: pins.sh declares no PLAYWRIGHT_BROWSERS_PATH, so there is nowhere to look for a browser"
-else
+# build number, so the check globs it rather than restating it here. The path
+# pin is read through the same skew guard as every version pin above.
+if require_pin "playwright" PLAYWRIGHT_BROWSERS_PATH; then
+    browsers_path="${PLAYWRIGHT_BROWSERS_PATH}"
     shopt -s nullglob
     playwright_bins=(
         "${browsers_path}"/chromium-*/chrome-linux/chrome
@@ -116,14 +143,16 @@ else
     fi
 fi
 
-expect_contains "rustc" "${RUST_VERSION}" rustc --version
-expect_contains "cargo" "${RUST_VERSION}" cargo --version
+expect_pin_contains "rustc" RUST_VERSION rustc --version
+expect_pin_contains "cargo" RUST_VERSION cargo --version
 expect_ok "rustfmt" rustfmt --version
 expect_ok "clippy" cargo clippy --version
-expect_contains "uv" "${UV_VERSION}" uv --version
-expect_contains "ocapn-conformance-python" "${OCAPN_CONFORMANCE_PYTHON}" \
-    uv python find "${OCAPN_CONFORMANCE_PYTHON}"
-expect_contains "serena" "${SERENA_AGENT_VERSION}" serena --version
+expect_pin_contains "uv" UV_VERSION uv --version
+if require_pin "ocapn-conformance-python" OCAPN_CONFORMANCE_PYTHON; then
+    expect_contains "ocapn-conformance-python" "${OCAPN_CONFORMANCE_PYTHON}" \
+        uv python find "${OCAPN_CONFORMANCE_PYTHON}"
+fi
+expect_pin_contains "serena" SERENA_AGENT_VERSION serena --version
 
 # Tor is presence-only like the other apt packages, and it is checked by running
 # the binary rather than testing the path: the Debian package installs it under
@@ -132,7 +161,8 @@ expect_contains "serena" "${SERENA_AGENT_VERSION}" serena --version
 expect_on_path tor
 expect_ok "tor" tor --version
 
-expect_on_path gdb lldb strace valgrind perf hyperfine jq nc
+expect_on_path gdb lldb strace valgrind perf hyperfine jq nc shellcheck
+expect_ok "shellcheck" shellcheck --version
 expect_ok "gdb" gdb --version
 expect_ok "lldb" lldb --version
 expect_ok "strace" strace --version

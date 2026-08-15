@@ -179,7 +179,7 @@ the next agent inherits a higher floor.
 ## On this codebase
 
 - **Gate:** `zig build check` (includes alloc/footprint budgets and
-  `perf-check`). Focused: `zig build test`, `arch-check`, `meta-check`,
+  `perf-check`). Focused: `zig build test`, `arch-check`, `source-check`,
   `fmt-check`.
 - **Live CapTP while editing:** [pancake-mcp](../pancake-mcp/SKILL.md) ·
   [pancake-cli](../pancake-cli/SKILL.md) · [rooms-peer](../rooms-peer/SKILL.md)

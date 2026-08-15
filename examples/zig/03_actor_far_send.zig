@@ -1,17 +1,14 @@
 //! 03 — Actor far-send with a vow.
 //!
-//! A caller's `Vat` eventual-sends to a host's published actor over a paired
+//! A caller's vat eventual-sends to a host's published actor over a paired
 //! session and observes the vow. One vat publishes an object, the other
 //! imports it and calls it, and the answer comes back as a settled vow,
 //! the same exchange chapter 01's `call` drives over a real socket.
 //!
-//! One layer down from chapter 01, the `actors.Vat` is what runs that
-//! exchange: `send` queues the `op:deliver` with a fresh answer, `serve`
-//! dispatches the inbound deliver and resolves it, and `on` fires the listener
-//! when the resolution arrives. The OCapN V1.0 resolver-callback translation
-//! (no wire `op:resolve`) is invisible; chapter 05 shows the raw `Peer`-level
-//! deliver/resolve underneath all of it. Sessions open via
-//! `pairing.pairedV1_0Syrup` (authenticated `"1.0"` / Syrup).
+//! One layer down from chapter 01, the vat is what runs that exchange: `send`
+//! queues the deliver with a fresh answer, `serve` dispatches the inbound
+//! deliver and resolves it, and `on` fires the listener when the resolution
+//! arrives. Sessions open already authenticated on CapTP 1.0 over Syrup.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

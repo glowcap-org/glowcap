@@ -219,9 +219,7 @@ function nearestMoment(
       best = { eventId: ev.id, ownerId, t: ev.t, dPx };
     }
   }
-  return best === null
-    ? null
-    : { eventId: best.eventId, ownerId: best.ownerId, t: best.t };
+  return best === null ? null : { eventId: best.eventId, ownerId: best.ownerId, t: best.t };
 }
 
 /** Compute the set of entity refs whose painted spans intersect a

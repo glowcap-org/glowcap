@@ -11,11 +11,33 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const netlayer_test = @import("../support/netlayer.zig");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const net = pancake.net;
+
+test "key-addressed profiles build borrowed direct-address locators" {
+    const designator = "0000000000000000000000000000000000000000000000000000000000000000";
+    const direct_addresses = "127.0.0.1:9099";
+    var keyed_hint_storage: [1]model.HintEntry = undefined;
+    var noise_hint_storage: [1]model.HintEntry = undefined;
+
+    const keyed = net.tcp.keyed.locator(designator, direct_addresses, &keyed_hint_storage);
+    try std.testing.expectEqualStrings(net.tcp.keyed.transport_name, keyed.transport);
+    try std.testing.expectEqualStrings(designator, keyed.designator);
+    try std.testing.expectEqual(@as(usize, 1), keyed.hints.entries.len);
+    try std.testing.expect(@intFromPtr(keyed.hints.entries.ptr) == @intFromPtr(&keyed_hint_storage[0]));
+    try std.testing.expectEqualStrings(net.netlayer.hint_direct_addresses, keyed.hints.entries[0].name);
+    try std.testing.expectEqualStrings(direct_addresses, keyed.hints.entries[0].value.string);
+
+    const noise = net.tcp.noise.locator(designator, direct_addresses, &noise_hint_storage);
+    try std.testing.expectEqualStrings(net.tcp.noise.transport_name, noise.transport);
+    try std.testing.expect(!std.mem.eql(u8, noise.transport, keyed.transport));
+    try std.testing.expect(@intFromPtr(noise.hints.entries.ptr) == @intFromPtr(&noise_hint_storage[0]));
+    try std.testing.expectEqualStrings(direct_addresses, noise.hints.entries[0].value.string);
+}
 
 test "toDesignator/fromDesignator round-trip byte-for-byte" {
     const secret = crypto.SecretKey.fromSeed([_]u8{0x5a} ** crypto.SEED_BYTES);
@@ -72,7 +94,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
         .transport = net.tcp.keyed.transport_name,
         .designator = "127.0.0.1:9999",
         .hints = model.Hints.emptyFalse(),
-    }, bufs));
+    }, bufs, .inherit));
 
     // A canonical key with no direct-addresses hint has nowhere to dial:
     // refused loud instead of timing out (TCP has no discovery).
@@ -81,7 +103,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
         .transport = net.tcp.keyed.transport_name,
         .designator = designator[0..],
         .hints = model.Hints.emptyFalse(),
-    }, bufs));
+    }, bufs, .inherit));
 
     // A malformed hint value (the address grammar is tcp's) also refuses.
     const bad_hint = [_]model.HintEntry{.{
@@ -92,7 +114,7 @@ test "keyed-tcp dial refuses a non-key designator and a hint-less key designator
         .transport = net.tcp.keyed.transport_name,
         .designator = designator[0..],
         .hints = .{ .entries = &bad_hint },
-    }, bufs));
+    }, bufs, .inherit));
 }
 
 test "plain tcp designator grammar is untouched by the keyed sibling" {
@@ -115,12 +137,12 @@ test "keyed-tcp listener close wakes and joins a blocked readiness wait" {
 
     const secret = crypto.SecretKey.fromSeed([_]u8{0x5d} ** crypto.SEED_BYTES);
     var resident = net.tcp.keyed.Resident{ .io = io };
-    const listener = try resident.netlayer().listen(allocator, .{
+    const listener = try netlayer_test.listenBlocking(resident.netlayer(), allocator, .{
         .designator = "127.0.0.1:0",
         .identity = secret.publicKey(),
     });
     var waiter = try io.concurrent(waitUntilKeyedListenerClose, .{listener});
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
-    listener.close();
+    netlayer_test.close(listener);
     try waiter.await(io);
 }

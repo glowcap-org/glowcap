@@ -1,11 +1,17 @@
-(require "pancake.rkt")
+(require "pancake.rkt"
+         "pancake-tcp.rkt")
 
 ;; Key designator, cleartext CapTP. Persist the seed to keep the same key.
 (define seed (make-bytes 32 7)) ; Replace with durable secret bytes.
 (define server (listen-keyed-tcp "127.0.0.1" 9099 #:seed seed))
-(printf "~a\n" (keyed-tcp-server-uri server)) ; Hand this locator to partners.
-(define session (accept server))
-(session-publish session "greeter"
-                 (lambda (verb args)
-                   (format "hello, ~a" (car args))))
-(session-serve session)
+(printf "~a\n" (server-uri server)) ; hand this locator to partners
+(define host (server-host server))
+(define (accept-session) (accept server))
+;; From here, the CapTP workflow is transport-independent.
+(host-publish-giftable host "greeter"
+  (methods [(greet who)
+            (format "Hello, ~a" who)]))
+(let loop ()
+  (define session (accept-session))
+  (thread (lambda () (session-serve session)))
+  (loop))

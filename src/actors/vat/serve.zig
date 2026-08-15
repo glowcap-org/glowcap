@@ -48,15 +48,16 @@ pub const ForwardReservation = union(enum) {
 pub fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
     const fc: *ForwardContext = @ptrCast(@alignCast(ctx.?));
     defer fc.vat.allocator.destroy(fc);
-    // Best-effort: a failed resolve strands the partner's answer until teardown
-    // (the same class as a refused GC release), never a fault on this side.
+    // A listener has no return channel. Project a forwarding refusal through
+    // the destination Peer instead: its typed failure remains readable and its
+    // terminal abort/close follows the same path as an inbound dispatch fault.
     switch (resolution) {
-        .fulfilled => |value| resolveFulfill(fc.port, fc.answer, value) catch {},
-        .broken => |message| resolveBreak(fc.port, fc.answer, message) catch {},
+        .fulfilled => |value| resolveFulfill(fc.port, fc.answer, value) catch |err| fc.port.peer.emitFailure(err),
+        .broken => |message| resolveBreak(fc.port, fc.answer, message) catch |err| fc.port.peer.emitFailure(err),
         // A give is addressed to THIS vat's session key; a forwarded copy
         // could never be redeemed by the partner, so the honest relay is a
         // break naming why.
-        .give => resolveBreak(fc.port, fc.answer, "introduction not forwardable") catch {},
+        .give => resolveBreak(fc.port, fc.answer, "introduction not forwardable") catch |err| fc.port.peer.emitFailure(err),
     }
 }
 
@@ -276,11 +277,12 @@ fn serveDeliver(self: *Vat, port: *Port, ingress: vat_mod.IngressId, deliver: mo
 
 /// The no-listener drop shared by the two far-settle spines: remember the
 /// answer (bounded) so a late `on` for this vow is refused
-/// `AlreadySettled` instead of parking forever. A `put` failure or a full
-/// set only forgoes that guard for this one answer, never a fault.
-fn noteServedDrop(port: *Port, answer: model.AnswerPosition) void {
+/// `AlreadySettled` instead of parking forever. Allocation refusal propagates:
+/// forgetting this answer would let a later listener park on a vow that can
+/// never settle.
+fn noteServedDrop(port: *Port, answer: model.AnswerPosition) Error!void {
     if (port.served_dropped_far.count() < vat_mod.max_served_dropped_far_answers) {
-        port.served_dropped_far.put(port.allocator, answer, {}) catch {};
+        try port.served_dropped_far.put(port.allocator, answer, {});
     }
 }
 
@@ -334,7 +336,7 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
     // fires, preserving the remove-before-fire order a listener that
     // registers a new far vow relies on.
     const listener = port.far_listeners.get(resolve.answer) orelse {
-        noteServedDrop(port, resolve.answer);
+        try noteServedDrop(port, resolve.answer);
         return false;
     };
     switch (resolve.resolution) {
@@ -385,7 +387,10 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
 /// them, and the narrower type makes that contract unrepresentable rather
 /// than a runtime trap an external caller could hit.
 pub fn settleFar(self: *Vat, port: *Port, answer: model.AnswerPosition, outcome: FarOutcome) Error!void {
-    const listener = port.far_listeners.get(answer) orelse return noteServedDrop(port, answer);
+    const listener = port.far_listeners.get(answer) orelse {
+        try noteServedDrop(port, answer);
+        return;
+    };
     switch (outcome) {
         .fulfilled => |value| try fireFulfilledFar(self, port, answer, listener, value),
         .broken => |reason| fireBrokenFar(port, answer, listener, reason),

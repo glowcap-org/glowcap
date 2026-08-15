@@ -97,8 +97,7 @@ export const wireFrames = {
   resolveFulfillFar: {
     source: "test/oracle/corpus/op_resolve_fulfill_far.bin",
     codec: "syrup",
-    bytesB64:
-      "PDEwJ29wOnJlc29sdmU3KzwxNSdyZXNvbHZlOmZ1bGZpbGw8MTEnZGVzYzpleHBvcnQ1Kz4+Pg==",
+    bytesB64: "PDEwJ29wOnJlc29sdmU3KzwxNSdyZXNvbHZlOmZ1bGZpbGw8MTEnZGVzYzpleHBvcnQ1Kz4+Pg==",
   },
 
   /** An `op:gc-exports` dropping two export positions, with the
@@ -131,8 +130,7 @@ export const wireFrames = {
   deliverWithResolveMeDesc: {
     source: "test/oracle/corpus/op_deliver_v1_0_with_resolve_me_desc.bin",
     codec: "syrup",
-    bytesB64:
-      "PDEwJ29wOmRlbGl2ZXI8MTEnZGVzYzpleHBvcnQ3Kz5bNTpoZWxsb100Mis8MTgnZGVzYzppbXBvcnQtb2JqZWN0OTkrPj4=",
+    bytesB64: "PDEwJ29wOmRlbGl2ZXI8MTEnZGVzYzpleHBvcnQ3Kz5bNTpoZWxsb100Mis8MTgnZGVzYzppbXBvcnQtb2JqZWN0OTkrPj4=",
   },
 
   /** The gifter's `deposit-gift` deliver, in Cap'n Proto. This is

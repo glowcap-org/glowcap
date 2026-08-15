@@ -1,6 +1,6 @@
-// The browser runtime adapter (ADR-0070): the stack's FFI seam implemented
+// The browser runtime adapter (ADR-0070): the runtime's FFI seam implemented
 // over a WebAssembly instance of `pancake_host.wasm`, and its socket seam
-// implemented over WebSocket. Installed by `mod.ts`'s `init` before the stack
+// implemented over WebSocket. Installed by `mod.ts`'s `init` before the runtime
 // loads, so `internal/ffi/runtime.ts` resolves this adapter instead of probing
 // for Deno or Bun.
 //
@@ -29,13 +29,13 @@ import type {
 	RuntimeNet,
 	SymbolDef,
 	Symbols,
-} from "../stack/internal/ffi/runtime.ts";
-import { type AbiLayout, layoutFromWasmDescriptor } from "../stack/internal/layout.ts";
-import { webSocketChannel } from "../stack/ws_channel.ts";
+} from "../runtime/internal/ffi/runtime.ts";
+import { type AbiLayout, layoutFromWasmDescriptor } from "../runtime/internal/layout.ts";
+import { webSocketChannel } from "../runtime/websocket.ts";
 import { INVALID_ARGUMENT } from "@pancake/abi";
 
 /** The wasm exports the adapter itself drives; every `pancake_*` symbol the
- * stack asks for is looked up dynamically on the same exports object. */
+ * runtime asks for is looked up dynamically on the same exports object. */
 type WasmExports = {
 	memory: WebAssembly.Memory;
 	pancake_wasm_alloc: (len: number) => number;
@@ -51,7 +51,7 @@ export type WsUrl = (host: string, port: number) => string;
 
 const defaultWsUrl: WsUrl = (host, port) => `ws://${host}:${port}/`;
 
-/** What `makeWebAdapter` hands back: the stack adapter, plus the function the
+/** What `makeWebAdapter` hands back: the runtime adapter, plus the function the
  * module's `env.pancake_behavior_trampoline` import must forward to (`mod.ts`
  * wires the import's late-bound slot to it after instantiation). */
 export interface WebAdapter {
@@ -149,11 +149,11 @@ export function makeWebAdapter(
 
 	// The one callback seam: the wasm module imports exactly
 	// `env.pancake_behavior_trampoline`, and `mod.ts` wires that import to this
-	// slot. `makeCallback` fills it with the stack's shared trampoline.
+	// slot. `makeCallback` fills it with the runtime's shared trampoline.
 	let behaviorTrampoline: ((...args: unknown[]) => unknown) | null = null;
 
 	/** The import the instantiation supplies: convert the raw i32s to the
-	 * `bigint` pointer vocabulary the stack's trampoline expects and forward. */
+	 * `bigint` pointer vocabulary the runtime's trampoline expects and forward. */
 	function trampolineImport(
 		ctx: number,
 		turn: number,
@@ -323,7 +323,7 @@ export function makeWebAdapter(
 }
 
 /** Open a WebSocket carrying raw OCapN frame bytes and adapt it to the
- * stack's byte-channel seam. Each binary message is one inbound chunk; the
+ * runtime's byte-channel seam. Each binary message is one inbound chunk; the
  * host's stream delimiter owns framing, exactly as over TCP. */
 function connectWebSocket(url: string): Promise<{
 	read(): Promise<Uint8Array | null>;

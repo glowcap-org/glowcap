@@ -106,6 +106,10 @@ pub fn Bridge(comptime LoopT: type) type {
         /// A finite Host quantum left work for the next loop turn. The Loop's
         /// pre-poll hook consumes one continuation per reactor turn.
         resume_pending: bool = false,
+        /// First failure crossing a void completion-loop callback. The next
+        /// adapter turn returns it through `Loop.run` / `runUntil`; teardown
+        /// callers can inspect it through `terminalFailure` after draining.
+        terminal_failure: ?anyerror = null,
         /// The off-turn settle mailbox this bridge applies on wake (ADR-0102
         /// stage 4); borrowed, armed by `attachSettleMailbox`.
         mailbox: ?*settle_mailbox.SettleMailbox = null,
@@ -237,8 +241,17 @@ pub fn Bridge(comptime LoopT: type) type {
             return self.transport orelse &.{};
         }
 
-        fn drainBestEffort(self: *Self) void {
-            self.drainActions() catch {};
+        fn recordTerminalFailure(self: *Self, err: anyerror) void {
+            if (self.terminal_failure == null) self.terminal_failure = err;
+            self.resume_pending = true;
+        }
+
+        pub fn terminalFailure(self: *const Self) ?anyerror {
+            return self.terminal_failure;
+        }
+
+        fn drainOrRecord(self: *Self) void {
+            self.drainActions() catch |err| self.recordTerminalFailure(err);
         }
 
         /// Attach the off-turn settle mailbox (ADR-0102 stage 4): the loop's
@@ -257,9 +270,13 @@ pub fn Bridge(comptime LoopT: type) type {
         fn applySettleWake(ctx: ?*anyopaque) void {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
             const mb = self.mailbox orelse return;
-            mb.drainWake();
-            mb.apply(self.io, self.host);
-            self.drainBestEffort();
+            mb.drainWake() catch |err| {
+                self.recordTerminalFailure(err);
+            };
+            mb.apply(self.io, self.host) catch |err| {
+                self.recordTerminalFailure(err);
+            };
+            self.drainOrRecord();
         }
 
         /// Submit an application outbound dial the bridge will adopt as
@@ -322,6 +339,21 @@ pub fn Bridge(comptime LoopT: type) type {
             }
         }
 
+        /// Interrupt a redeem connection that has not yet published a Host
+        /// session. An already-adopted leg is closed by the core's ordinary
+        /// session `close` action; its `freeConnCtx` sends the same terminal
+        /// acknowledgement after the physical slot retires.
+        fn cancelDial(self: *Self, ticket: engine.Node.PendingId) void {
+            var it = self.pending_connects.iterator();
+            while (it.next()) |entry| switch (entry.value_ptr.*) {
+                .redeem => |pending| if (pending == ticket) {
+                    self.loop.closeSlot(entry.key_ptr.*);
+                    return;
+                },
+                .app_dial => {},
+            };
+        }
+
         /// Whether `slot` is an application dial whose connection completed
         /// but whose Host adoption has not committed. An embedder replacing
         /// `on_close` uses this before forwarding to `Bridge.onClose`, because
@@ -359,9 +391,10 @@ pub fn Bridge(comptime LoopT: type) type {
             if (shell.leg == .redeem) {
                 const ticket = shell.leg.redeem;
                 self.host.exporterDialed(ticket, shell.session) catch |err| {
-                    self.host.dialFailed(ticket, @errorName(err)) catch {};
+                    self.host.dialFailed(ticket, @errorName(err)) catch |report_err|
+                        self.recordTerminalFailure(report_err);
                     shell.leg = .redeem_done;
-                    self.drainBestEffort();
+                    self.drainOrRecord();
                     return err;
                 };
                 shell.leg = .redeem_open;
@@ -449,7 +482,7 @@ pub fn Bridge(comptime LoopT: type) type {
             const shell: *Slot = @ptrCast(@alignCast(conn_ctx.?));
             const self = shell.bridge;
             self.host.serveEvent(shell.session, event) catch |err| {
-                self.drainBestEffort();
+                self.drainOrRecord();
                 return err;
             };
             try self.fireOpen(shell);
@@ -463,7 +496,11 @@ pub fn Bridge(comptime LoopT: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
             const shell: *Slot = @ptrCast(@alignCast(conn_ctx orelse return));
             if (shell.leg == .redeem) {
-                self.host.dialFailed(shell.leg.redeem, "ConnectionClosed") catch {};
+                const ticket = shell.leg.redeem;
+                self.host.dialFailed(ticket, "ConnectionClosed") catch |err|
+                    self.recordTerminalFailure(err);
+                self.host.dialCancelled(ticket) catch |err|
+                    self.recordTerminalFailure(err);
                 shell.leg = .redeem_done;
             }
             // Loop teardown calls this exactly once for a published context.
@@ -471,11 +508,11 @@ pub fn Bridge(comptime LoopT: type) type {
             // The loop calls this after the serve hook has returned, on the
             // owning thread. A refusal would leave Host authority borrowing a
             // peer the loop is about to free, so it is an invariant violation,
-            // never best-effort cleanup.
+            // never optional cleanup.
             self.host.releaseSession(shell.session) catch unreachable;
             // During Loop.closeAndDrain, draining would re-enter dial/arm and
             // prevent the in-flight ops from retiring.
-            if (!(self.loop.shutting_down or self.loop.tearing_down)) self.drainBestEffort();
+            if (!(self.loop.shutting_down or self.loop.tearing_down)) self.drainOrRecord();
             self.allocator.destroy(shell);
         }
 
@@ -483,17 +520,22 @@ pub fn Bridge(comptime LoopT: type) type {
         /// never publishes a shell, so the pending dial row is the only place
         /// the ticket lives — report `dialFailed` and free it. Teardowns with a
         /// published context are handled by `freeConnCtx`.
-        pub fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: net.completion.CloseReason) void {
-            _ = reason;
+        pub fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: net.completion.CloseReport) void {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
             if (conn_ctx != null) return;
-            _ = opened;
             const pending = (self.pending_connects.fetchRemove(slot) orelse return).value;
             defer pending.deinit(self.allocator);
             switch (pending) {
                 .redeem => |t| {
-                    self.host.dialFailed(t, "ConnectionRefused") catch {};
-                    self.drainBestEffort();
+                    const failure = if (report.failure) |cause| cause.error_name else if (report.opened)
+                        "ConnectionClosed"
+                    else
+                        "ConnectionRefused";
+                    self.host.dialFailed(t, failure) catch |err|
+                        self.recordTerminalFailure(err);
+                    self.host.dialCancelled(t) catch |err|
+                        self.recordTerminalFailure(err);
+                    self.drainOrRecord();
                 },
                 .app_dial => {},
             }
@@ -514,8 +556,10 @@ pub fn Bridge(comptime LoopT: type) type {
         /// share the owner thread with Host work.
         fn onLoopTurn(ctx: ?*anyopaque) anyerror!bool {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
+            if (self.terminal_failure) |err| return err;
             if (!self.resume_pending) return false;
             try self.drainActions();
+            if (self.terminal_failure) |err| return err;
             return true;
         }
 
@@ -581,6 +625,10 @@ pub fn Bridge(comptime LoopT: type) type {
                         }) catch @errorName(err);
                         try bridge.host.dialFailed(d.ticket, reason);
                     };
+                }
+
+                pub fn cancelDial(e: @This(), d: @FieldType(driver_core.HostAction, "cancel_dial")) !void {
+                    e.bridge.cancelDial(d.ticket);
                 }
 
                 pub fn complete(e: @This(), action: driver_core.HostAction) !void {

@@ -12,8 +12,9 @@
 // conversation before.
 
 import { memo, type ReactNode, type Ref, useMemo } from "react";
-import type { Conv, Item, Unread } from "./types.ts";
+import type { ChatItem, Conv, Item, Unread } from "./types.ts";
 import { dayKey, dayLabel, GROUP_WINDOW_MS } from "./text.ts";
+import { actionIn, noticeIn } from "./commands.ts";
 import { type Group, MessageGroup } from "./Message.tsx";
 import { usePeer } from "./peer.ts";
 
@@ -32,7 +33,7 @@ type Block =
  *
  * A day heading, a banner, or the unread rule ends whatever row was open, which
  * is what keeps a stack of bubbles from spanning a divider. */
-function blocksOf(history: readonly Item[], rule: number | null): Block[] {
+function blocksOf(history: readonly Item[], rule: number | null, ignored: ReadonlySet<string>): Block[] {
 	const blocks: Block[] = [];
 	let day = "";
 	let open: Group | null = null;
@@ -44,6 +45,11 @@ function blocksOf(history: readonly Item[], rule: number | null): Block[] {
 	};
 
 	for (const item of history) {
+		// Somebody this window is not drawing. Skipped here rather than filtered
+		// out of the history, because the history is what the room said and this is
+		// a decision about what to look at — the lines are still there, and
+		// unignoring shows them without asking the room for anything.
+		if (item.kind !== "sys" && ignored.has(item.from.toLowerCase())) continue;
 		if (item.id === rule) {
 			blocks.push({ kind: "unread", key: "unread" });
 			breakRow();
@@ -72,10 +78,26 @@ function blocksOf(history: readonly Item[], rule: number | null): Block[] {
 			action(item.text);
 			continue;
 		}
-		// `/me waves` is written as a chat line and read as an action, so a member
-		// can send one from any client without the room needing to know.
-		if (item.text.startsWith("/me ")) {
-			action(item.text.slice(4));
+		// The command rides as text, so any client can send it without the room
+		// knowing. Parsing is shared with the composer rather than reimplemented.
+		const carried = actionIn(item.text);
+		if (carried !== null) {
+			action(carried);
+			continue;
+		}
+		// A notice keeps its author, because it is somebody speaking rather than
+		// something happening. It is drawn the way every IRC client has drawn one
+		// since before this app existed, which is also what tells a reader why it
+		// arrived without lighting anything up.
+		const quiet = noticeIn(item.text);
+		if (quiet !== null) {
+			blocks.push({
+				kind: "banner",
+				key: "n-" + item.id,
+				className: "sys notice",
+				text: "-" + item.from + "- " + quiet,
+			});
+			breakRow();
 			continue;
 		}
 		if (open && open.from === item.from && item.at - openAt < GROUP_WINDOW_MS) {
@@ -116,14 +138,19 @@ function introBody(conv: Conv): string {
 		? "This line is direct. The room introduced the two of you and then stepped " +
 			"out of the path, so these messages travel peer to peer and the room never " +
 			"sees them."
-		: "The room is introducing you. Once that introduction is redeemed, this line " +
-			"runs peer to peer and the room drops out of the path.";
+		: "This line is not open yet. Sending the first message opens it: the room " +
+			"introduces the two of you, the introduction is redeemed, and the room then " +
+			"drops out of the path so what you say travels peer to peer.";
 }
 
 function drawBlock(
 	block: Block,
 	nick: string,
+	convKey: string,
 	onRetry: (id: number) => void,
+	onStop: (id: number) => void,
+	onEdit: (item: ChatItem) => void,
+	onWithdraw: (id: number) => void,
 	onMention: (who: string) => void,
 ): ReactNode {
 	switch (block.kind) {
@@ -151,7 +178,11 @@ function drawBlock(
 					key={block.key}
 					group={block.group}
 					nick={nick}
+					convKey={convKey}
 					onRetry={onRetry}
+					onStop={onStop}
+					onEdit={onEdit}
+					onWithdraw={onWithdraw}
 					onMention={onMention}
 				/>
 			);
@@ -159,10 +190,14 @@ function drawBlock(
 }
 
 function LogPane(
-	{ conv, nick, hidden, ref }: {
+	{ conv, nick, hidden, ignored, ref }: {
 		conv: Conv | null;
 		nick: string;
 		hidden: boolean;
+		/** Names this window is not drawing. Passed rather than read here so the
+		 * log keeps being a function of its props, and so unignoring somebody
+		 * repaints for the same reason an arriving line does. */
+		ignored: ReadonlySet<string>;
 		ref: Ref<HTMLElement>;
 	},
 ) {
@@ -171,8 +206,8 @@ function LogPane(
 	// coming online). The rows below memoise on their own group, so an arriving
 	// line repaints the newest row alone.
 	const blocks = useMemo(
-		() => (conv ? blocksOf(conv.history, rulePlace(conv.unread)) : []),
-		[conv?.history, conv?.unread],
+		() => (conv ? blocksOf(conv.history, rulePlace(conv.unread), ignored) : []),
+		[conv?.history, conv?.unread, ignored],
 	);
 	// Bound once per conversation, so the rows below keep comparing equal while
 	// you type. The verb table never changes, so this only moves when the
@@ -180,6 +215,24 @@ function LogPane(
 	const peer = usePeer();
 	const retry = useMemo(
 		() => (id: number) => conv && peer.retry(conv.key, id),
+		[conv?.key, peer],
+	);
+	// Memoised like the retry beside it, and for the same reason: the message
+	// group is memoised on these being the same function between renders.
+	const stop = useMemo(
+		() => (id: number) => conv && peer.stopSend(conv.key, id),
+		[conv?.key, peer],
+	);
+	// Changing a line puts its words back in the composer, which is where text
+	// is written, and names the line they came from. The name is the part that
+	// matters: `/edit` changes the most recent line, and a pencil pressed on an
+	// older one has to change that one.
+	const edit = useMemo(
+		() => (item: ChatItem) => peer.changeLine(item.id, item.text),
+		[peer],
+	);
+	const withdraw = useMemo(
+		() => (id: number) => conv && peer.withdraw(conv.key, id),
 		[conv?.key, peer],
 	);
 	return (
@@ -190,7 +243,7 @@ function LogPane(
 						<h2>{conv.type === "room" ? "#" + conv.id : conv.id}</h2>
 						<p>{introBody(conv)}</p>
 					</div>
-					{blocks.map((block) => drawBlock(block, nick, retry, peer.mention))}
+					{blocks.map((block) => drawBlock(block, nick, conv.key, retry, stop, edit, withdraw, peer.mention))}
 				</>
 			)}
 		</section>

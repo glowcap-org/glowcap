@@ -96,7 +96,7 @@ fn exporterHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.acceptTcp(allocator, &sig_peer, listener, read_buf, write_buf, .{
+        var sig = try driver.acceptVia(allocator, listener.asNetlayer(), &sig_peer, .ephemeral, read_buf, write_buf, .{
             .handshake = handshake_budget,
             .settle = handshake_budget,
         });
@@ -158,7 +158,11 @@ fn recipientHalf(
         const write_buf = try allocator.alloc(u8, sig_frame_cap);
         defer allocator.free(write_buf);
 
-        var sig = try driver.connectTcp(allocator, io, &sig_peer, address, read_buf, write_buf, .{
+        const tcp_provider = try tcp.Provider.create(allocator, io, .{});
+        defer tcp_provider.destroy(allocator);
+        const netlayers = tcp_provider.netlayers();
+        var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+        var sig = try driver.connectVia(allocator, &netlayers, &sig_peer, tcp.locatorFromAddress(&designator_buf, address), .ephemeral, read_buf, write_buf, .{
             .handshake = handshake_budget,
             .settle = handshake_budget,
         });
@@ -228,9 +232,9 @@ pub fn main(init: std.process.Init) !void {
 
     // The recipient offers (it initiates the reach); the exporter answers.
     var offerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer offerer_resident.deinit();
+    defer offerer_resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var answerer_resident = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
-    defer answerer_resident.deinit();
+    defer answerer_resident.deinit() catch |err| std.log.err("WebRTC teardown failed: {s}", .{@errorName(err)});
     var offerer = try offerer_resident.newPeer(true);
     defer offerer.deinit();
     var answerer = try answerer_resident.newPeer(false);

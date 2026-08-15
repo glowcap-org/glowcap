@@ -29,13 +29,13 @@ package-local metadata.
 
 1. **`bindings/c-abi-resolve.json` is the machine contract** for URL templates,
    cache layout, markers, and `abi_version`. Identical copies ship inside each
-   binding package path listed in `package_copies`; `tools/check/meta_check.zig` fails
+   binding package path listed in `package_copies`; `tools/check/source_check.zig` fails
    if any copy drifts from the canonical file or from `PANCAKE_VERSION_*` in
    `include/pancake_ocapn.h`. Env truthy values are the fixed set `1` / `true` /
    `yes` in each loader (not a contract field). Env *names* live in
    `bindings/PACKAGING.md`. Host target triples for release-pack are `{arch}-{os}`
    with zig names; `tools/c-abi/c-abi-host-aliases.json` lists host aliases and is
-   wired into `meta_check` (every alias must appear in the non-cargo ports).
+   wired into `source_check` (every alias must appear in the non-cargo ports).
    Rust uses `CARGO_CFG_TARGET_ARCH` / `CARGO_CFG_TARGET_OS`, which already emit
    those names; Python, TypeScript, Racket, and `tools/c-abi/fetch-c-abi.sh` normalize
    aliases (`amd64`/`x64`, `arm64`, `darwin`/`macosx`). Release-pack OS list is
@@ -72,7 +72,7 @@ package-local metadata.
    - Cap transfer size (`max_tarball_bytes` in the contract).
    - Prefer absolute `dlopen`/`LoadLibrary` paths; refuse bare DLL names on
      Windows (search-order plant risk). Python, TypeScript, and Racket all
-     refuse; `tools/check/meta_check.zig` requires the refuse message in each
+     refuse; `tools/check/source_check.zig` requires the refuse message in each
      shared-lib loader.
 
 ## Consequences

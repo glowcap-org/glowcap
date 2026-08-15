@@ -22,7 +22,7 @@ path can do.
 | `iroh` | Production | Native peers that need discovery or NAT traversal; also Goblins via this repository's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
 | `webrtc` | Production | Browsers talking directly | The DataChannel is encrypted. Who the peer is comes from the signaling authority that introduced it. |
 | `noise-tcp` | Production | Pancake peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. Pancake to pancake only. |
-| `noise-relay` | Production | Pancake peers through a relay, sealed, in native and browser wasm runtimes | Same Noise handshake peer to peer; the relay only forwards ciphertext. |
+| `noise-relay` | Production | Native pancake peers through a relay, sealed | Same Noise handshake peer to peer; the relay only forwards ciphertext. |
 | `onion` | Production | Meeting unmodified Goblins on the standardized path | Tor proves the dialed service and hides both ends' network location. CapTP does not treat that as a channel-authenticated peer proof. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
 | `keyed-relay` | Trusted network only | Native peers through a relay, cleartext | Same key demand; the relay reads every frame, and nothing proves who is on the far side. |
@@ -37,7 +37,9 @@ repository's iroh adapter. Prefer `noise-tcp` when two pancake peers already
 share a TCP route and only need the stream sealed. Reach for plain `tcp` only
 for cleartext Goblins testing.
 
-`noise-relay` seals the relay path for native providers and browser wasm.
+`noise-relay` seals the relay path for native providers. The browser's current
+managed composition supports cleartext `keyed-relay`; its WebRTC connector is
+the browser-side sealed path.
 [What you can depend on]($link.page('stability')) lists the checks.
 
 ## Browser traffic

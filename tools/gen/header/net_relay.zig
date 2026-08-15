@@ -15,6 +15,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_relay_runtime_new_in",
     "pancake_relay_transport_provider",
     "pancake_relay_runtime_release",
+    "pancake_relay_runtime_release_with_diagnostic",
     "pancake_relay_last_error",
     "pancake_relay_clear_last_error",
 };
@@ -77,6 +78,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_relay_runtime_new_in", &.{ "context", "config", "out_runtime" }, "Create a relay runtime whose owned state uses `context`.");
     try emitFn(&b, gpa, "pancake_relay_transport_provider", &.{ "runtime", "out_provider" }, "Fill `out_provider` with the shared keyed-relay/noise-relay multiplexed package.\nInstall it once with pancake_driver_add_provider; the driver retains its lease.");
     try emitFn(&b, gpa, "pancake_relay_runtime_release", &.{"runtime"}, "Release the caller's runtime reference. The provider lease keeps the runtime\nalive until its driver is released.");
+    try emitFn(&b, gpa, "pancake_relay_runtime_release_with_diagnostic", &.{ "runtime", "out_error", "error_cap", "out_error_len" }, "The same release barrier, additionally copying the worker thread's exact\ndiagnostic into caller-owned storage before return.");
     try emitFn(&b, gpa, "pancake_relay_last_error", &.{ "out_buf", "cap" }, "Copy this archive's calling-thread diagnostic, NUL-terminating when cap is\nnonzero. NULL or zero capacity queries the full length.");
     try emitFn(&b, gpa, "pancake_relay_clear_last_error", &.{}, "Clear this archive's calling-thread diagnostic.");
 

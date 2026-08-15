@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // The browser entry the rooms browser peer is built on. A real page loads a
 // bundle of this — the `@pancake/web` wasm Host,
 // no dlopen — and drives the room directory as a capability, dialing every
@@ -8,6 +9,7 @@
 // `ui/net.ts`'s JSON client with exactly these calls.
 
 import { init } from "@pancake/web";
+import { CAPTP_VERSION, CODEC } from "../lib/protocol.ts";
 
 const params = new URLSearchParams(location.search);
 const relay = params.get("relay") ?? location.host; // host:port of serve.ts's /relay
@@ -15,11 +17,13 @@ const roomHost = params.get("roomHost") ?? "127.0.0.1";
 const roomPort = Number(params.get("roomPort") ?? "0");
 
 async function main(status: HTMLElement): Promise<void> {
-	const stack = await init({
+	const runtime = await init({
 		wasm: fetch("/pancake_host.wasm"),
 		wsUrl: (host, port) => `ws://${relay}/relay?target=${host}:${port}`,
+		codec: CODEC,
+		captpVersion: CAPTP_VERSION,
 	});
-	const session = await stack.connect(stack.tcpLocator(roomHost, roomPort));
+	const session = await runtime.connect(tcp.locator(roomHost, roomPort));
 	session.serve().catch(() => {});
 	try {
 		const directory = await session.fetch("directory");

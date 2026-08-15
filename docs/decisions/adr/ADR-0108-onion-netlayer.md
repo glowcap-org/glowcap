@@ -22,6 +22,11 @@ amended_by: []
 > demo-rooms-onion` runs Rooms over one hosted onion service with two independent
 > clients. Live Tor scale remains unmeasured; `docs/boundaries.md` owns that
 > limit.
+> Native Zig and every native binding also compose the onion provider into the
+> generic driver and expose ordinary application-facing Sessions. The raw
+> Netlayer remains the explicit embedding surface. The driver exposes opaque
+> listener restoration bytes without naming Tor; only the onion package calls
+> those bytes a service key.
 
 ## Context
 
@@ -117,7 +122,7 @@ beside `iroh`: documented, present in every binding, and covered by live
 Goblins and upstream OCapN checks. The generic driver and binding loops do not
 name it.
 
-Four pieces carry it.
+Five pieces carry it.
 
 - **A Tor client in `net`.** `src/net/transport/onion/` owns two conversations.
   Outbound, a SOCKS5 connect to
@@ -146,6 +151,22 @@ Four pieces carry it.
   materialized transport provider archive, its build row is `.graph = false`
   and outside the layer DAG. It links no foreign code, so its checks ride the
   ordinary Zig build with no cargo on the path.
+- **One product listener seam.** Native Zig and every native binding install
+  the onion provider into the generic driver, read the driver-owned canonical
+  locator, and accept ordinary Sessions. Provider-owned restoration state is a
+  size-query/caller-buffer contract shared by every listener shape. It stays
+  out of the locator and the generic driver never interprets it; the onion
+  package alone presents those bytes as Tor's service key. The archive's raw
+  frame handles remain for embedders that deliberately own the pump.
+
+The raw Netlayer keeps an explicitly blocking listener constructor for
+embedders that own that execution context. The generic provider starts Tor
+control-plane setup on its operation owner and reports terminal
+`LISTENER_READY` or `LISTENER_FAILED` events through the driver; no binding
+event-loop thread performs that exchange. Accept and dial completion use the
+same host-runtime progress model. Each high-level binding's onion module owns
+one `listen` and one configured `connect`; both are asynchronous where they
+perform I/O and return the same Server and Session roles as other transports.
 
 The archive has the same source dependency posture as TCP: it imports `model`,
 `net`, and `c_abi/shared`, never the `c_abi/ocapn` archive. Product composition
@@ -509,8 +530,8 @@ same posture `iroh-reachability` has held since ADR-0055.
 - An onion session runs the `1.0` profile in both directions, so `onion` is the
   one transport in the tree over which two pancake peers cannot reach
   `pancake-next`. `docs/boundaries.md` carries the row.
-- Each binding gains a config mirror and a generated FFI row, held by the
-  existing `gen-binding-*` checks.
+- Each binding gains a config mirror, a high-level Session listener, and a
+  generated FFI row, held by the existing `gen-binding-*` checks.
 - The transport tables in the architecture rule, `site/content/transports.smd`,
   and `docs/boundaries.md` gain a row. Its peer proof is Tor's rendezvous
   handshake on the dialing side and nothing on the accepting side, its channel is

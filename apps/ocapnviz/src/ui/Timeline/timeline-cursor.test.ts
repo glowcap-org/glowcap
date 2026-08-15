@@ -14,15 +14,8 @@ import { projectFromObservations } from "../../engine/temporal/project-from-obse
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { iterateRows, type RowDescriptor, RULER_HEIGHT } from "./row-layout.ts";
 import { type LaneKind, type TimelineView } from "./state.ts";
-import {
-  overviewHitAt,
-  scrubberHoverAt,
-  timelineCursor,
-} from "./timeline-cursor.ts";
-import type {
-  BuilderTool,
-  SurfaceGestureCtx,
-} from "../../interactions/types.ts";
+import { overviewHitAt, scrubberHoverAt, timelineCursor } from "./timeline-cursor.ts";
+import type { BuilderTool, SurfaceGestureCtx } from "../../interactions/types.ts";
 
 // Same geometry the Scrubber's own hit-test tests use: a 232 px host whose
 // 104 px gutter and two 4 px pads leave a 120 px plot over t = [0, 1000].
@@ -225,9 +218,7 @@ Deno.test("a row scrolled into view is pointed at where it is drawn", () => {
   const hovered = hoverAt(152, 4, { events, rows, scrollY });
   assertEquals(hovered.hit?.surface, "timeline-lane-event");
   assertEquals(
-    hovered.hit?.surface === "timeline-lane-event"
-      ? hovered.hit.entityRef.id
-      : null,
+    hovered.hit?.surface === "timeline-lane-event" ? hovered.hit.entityRef.id : null,
     last.kind === "entity-row" ? last.entityId : null,
     "the row scrolled to the top of the lanes was not the row hit",
   );

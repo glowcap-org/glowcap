@@ -35,7 +35,13 @@ pub const DialPolicy = struct {
 pub fn isTransient(err: DialError) bool {
     return switch (err) {
         error.NetworkUnreachable, error.TimedOut, error.ConnectionLost => true,
-        error.InvalidAddress, error.ConnectionRefused, error.OutOfMemory => false,
+        error.InvalidAddress,
+        error.InvalidOptions,
+        error.ConnectionRefused,
+        error.SocketConfigurationFailed,
+        error.WakeNudgeFailed,
+        error.OutOfMemory,
+        => false,
     };
 }
 

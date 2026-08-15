@@ -64,7 +64,7 @@ fn hostServe(args: HostArgs) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var vat = try driver.acceptTcp(allocator, &peer, args.listener, read_buf, write_buf, .{
+    var vat = try driver.acceptVia(allocator, args.listener.asNetlayer(), &peer, .ephemeral, read_buf, write_buf, .{
         .handshake = handshake_budget,
         .settle = .{ .ms = 10_000 },
     });
@@ -186,7 +186,7 @@ pub fn main(init: std.process.Init) !void {
         .last_subject = &last_subject,
     }});
 
-    // Caller side. `connectTcp` completes the keyed handshake before returning.
+    // Caller side. `connectVia` completes the keyed handshake before returning.
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -196,7 +196,11 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf, .{
+    const tcp_provider = try tcp.Provider.create(allocator, io, .{});
+    defer tcp_provider.destroy(allocator);
+    const netlayers = tcp_provider.netlayers();
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    var cv = try driver.connectVia(allocator, &netlayers, &peer, tcp.locatorFromAddress(&designator_buf, address), .ephemeral, read_buf, write_buf, .{
         .handshake = handshake_budget,
         .settle = .{ .ms = 10_000 },
     });

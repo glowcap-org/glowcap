@@ -84,7 +84,21 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_inproc_conn_shutdown" },
     .{ .name = "pancake_inproc_conn_release", .blocking = true, .nonblocking = true },
     .{ .name = "pancake_inproc_listener_shutdown" },
-    .{ .name = "pancake_inproc_listener_release", .blocking = true, .nonblocking = true },
+    .{
+        .name = "pancake_inproc_listener_release",
+        .blocking = true,
+        .nonblocking = true,
+        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
+    },
+    .{
+        .name = "pancake_inproc_listener_release_with_diagnostic",
+        .out_params = &.{ 1, 3 },
+        .blocking = true,
+        .nonblocking = true,
+        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
+        .python_omit = shared.symbols.diagnosed.python_uses_tls,
+        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
+    },
     // The rows below are omitted from the TypeScript table, each for the
     // reason on its row.
     .{

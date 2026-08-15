@@ -3,18 +3,9 @@
 //! A phone calls `speaker.queue("Hot Knife")` on the kitchen speaker. This is
 //! the basic CapTP move: invoke a method on a remote object and read the
 //! answer back. This chapter sits one layer below everything chapters 01–04 ride:
-//! `engine.Peer`, with manual exports and imports, explicit `step`, and
-//! hand-shuttled frames.
-//!
-//! `pairing.pairedV1_0Syrup` runs both `op:start-session` halves in-process and
-//! leaves both sessions open on authenticated CapTP v1.0 over Syrup. That is
-//! the interop floor a live Goblins peer speaks. (Real peers do the same
-//! handshake over a netlayer.)
-//! V1.0 has no wire `op:resolve`. When a deliver carries an `answer`, the
-//! runtime attaches a resolver, and the partner's reply comes back as an
-//! ordinary `op:deliver` to that resolver. `Event.view()` re-projects that
-//! callback as the semantic `Resolve`. (`pairing.paired` is the pancake-forward
-//! job: `pancake-next` over Cap'n Proto.)
+//! the protocol peer, with manual exports and imports, explicit `step`, and
+//! hand-shuttled frames. Sessions open already authenticated on CapTP 1.0 over
+//! Syrup, the interop floor a live Goblins peer speaks.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

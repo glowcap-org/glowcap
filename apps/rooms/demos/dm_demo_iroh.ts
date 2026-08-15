@@ -3,9 +3,10 @@
 // Sibling of `dm_demo.ts` over encrypted QUIC; the handoff choreography is
 // shared in `runDmHandoff`. Run by `zig build demo-rooms-dm-iroh`.
 
-import { listenIroh, Reachability } from "@pancake/iroh";
+import * as iroh from "@pancake/iroh";
 import { runDmHandoff, waitUntil } from "../lib/dm_handoff.ts";
 import { roomsHost } from "../lib/locator.ts";
+import { openRoomsRuntime } from "../lib/runtime.ts";
 
 // An iroh endpoint is dialable by direct address only once it has learned one.
 const DIRECT_ADDRESSES_MS = 20_000;
@@ -23,26 +24,38 @@ runDmHandoff({
 	async startMember(who) {
 		const seed = crypto.getRandomValues(new Uint8Array(32));
 		const host = roomsHost(seed);
-		const member = await listenIroh({ reachability: Reachability.Direct }, seed, host);
+		const member = await iroh.listen({ reachability: iroh.Reachability.Direct }, { host });
+		const runtime = await openRoomsRuntime({
+			host,
+			iroh: { reachability: iroh.Reachability.Direct },
+		});
 		await waitUntil(
 			() => member.directAddresses.length > 0,
 			DIRECT_ADDRESSES_MS,
 			`${who} direct addresses`,
 		);
-		return { host, sessions: member, locator: member.uri, close: () => member.close() };
+		return {
+			host,
+			runtime,
+			sessions: member,
+			locator: member.uri,
+			async close() {
+				member.close();
+				await runtime.close();
+			},
+		};
 	},
 	async startRoom() {
 		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const room = await listenIroh(
-			{ reachability: Reachability.Direct },
-			seed,
-			roomsHost(seed),
+		const room = await iroh.listen(
+			{ reachability: iroh.Reachability.Direct },
+			{ host: roomsHost(seed) },
 		);
 		await waitUntil(
 			() => room.directAddresses.length > 0,
 			DIRECT_ADDRESSES_MS,
 			"Room direct addresses",
 		);
-		return { listener: room, locator: room.uri, close: () => room.close() };
+		return { host: room.host, listener: room, locator: room.uri, close: () => room.close() };
 	},
 });

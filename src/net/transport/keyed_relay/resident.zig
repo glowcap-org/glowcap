@@ -141,6 +141,7 @@ fn readUpgradeResponse(
     rs: *RelayStream,
     expected_accept: *const [28]u8,
     deadline_ms: i64,
+    stop_requested: ?*const std.atomic.Value(bool),
 ) UpgradeError!void {
     var total: usize = 0;
     var line: [protocol.max_upgrade_response_bytes]u8 = undefined;
@@ -150,6 +151,7 @@ fn readUpgradeResponse(
     while (true) {
         if (total >= protocol.max_upgrade_response_bytes) return error.UpgradeRefused;
         while (rs.reader.interface.bufferedLen() == 0) {
+            if (stop_requested) |flag| if (flag.load(.acquire)) return error.ConnectionLost;
             std.Io.checkCancel(rs.io) catch return error.ConnectionLost;
             const remaining = deadline_ms - clock.nowMs(rs.io);
             if (remaining <= 0) return error.UpgradeTimedOut;
@@ -644,6 +646,7 @@ fn upgrade(
     relay: RelayUrl,
     query_key: []const u8,
     designator: []const u8,
+    stop_requested: ?*const std.atomic.Value(bool),
 ) UpgradeError!void {
     var key_bytes: [16]u8 = undefined;
     rs.mask_rng.random().bytes(&key_bytes);
@@ -661,7 +664,7 @@ fn upgrade(
     var expected: [28]u8 = undefined;
     acceptKey(&expected, &key_b64);
     const deadline_ms = clock.nowMs(rs.io) + upgrade_timeout_ms;
-    try readUpgradeResponse(rs, &expected, deadline_ms);
+    try readUpgradeResponse(rs, &expected, deadline_ms, stop_requested);
 }
 
 // --- Dial ------------------------------------------------------------------
@@ -674,6 +677,7 @@ fn openLeg(
     relay: RelayUrl,
     query_key: []const u8,
     designator: []const u8,
+    stop_requested: ?*const std.atomic.Value(bool),
 ) netlayer.DialError!*RelayStream {
     const address = tcp.parseHostPort(relay.host, relay.port) catch return error.InvalidAddress;
     var seed: [std.Random.DefaultCsprng.secret_seed_length]u8 = undefined;
@@ -686,7 +690,7 @@ fn openLeg(
         return error.OutOfMemory;
     stream_owned = false;
     errdefer rs.destroy();
-    upgrade(rs, relay, query_key, designator) catch |err| switch (err) {
+    upgrade(rs, relay, query_key, designator, stop_requested) catch |err| switch (err) {
         error.UpgradeRefused => return error.ConnectionRefused,
         error.ConnectionLost => return error.ConnectionLost,
         error.UpgradeTimedOut => return error.TimedOut,
@@ -861,6 +865,21 @@ pub const Resident = struct {
         self.* = undefined;
     }
 
+    /// Whether two resident packages express the same deployment policy.
+    /// Runtime state and Host identity are deliberately outside this comparison.
+    pub fn sameConfiguration(self: *const Resident, other: *const Resident) bool {
+        if (self.profile != other.profile or
+            !std.mem.eql(u8, self.relay_url_text, other.relay_url_text)) return false;
+        return switch (self.registration) {
+            .dial_only => other.registration == .dial_only,
+            .registered => |left| switch (other.registration) {
+                .registered => |right| std.mem.eql(u8, left.url_text, right.url_text) and
+                    std.meta.eql(left.public_key, right.public_key),
+                else => false,
+            },
+        };
+    }
+
     /// This resident as a `Netlayer`. `self` must outlive every dial/listen call
     /// through the returned vtable. Minted connections and listeners own the
     /// state their later I/O needs.
@@ -875,6 +894,25 @@ pub const Resident = struct {
     /// archives use this byte seam; the Host above them owns framing and any
     /// sealed channel selected by the profile.
     pub fn dialRaw(self: *Resident, locator: model.PeerLocator) DialError!RawConnection {
+        return self.dialRawWithCancellation(locator, null);
+    }
+
+    /// Provider-worker form of `dialRaw`. The task's `std.Io` cancellation
+    /// interrupts socket operations; `stop_requested` also bounds the raw-poll
+    /// upgrade loop, which is not a `std.Io` cancellation point.
+    pub fn dialRawCancelable(
+        self: *Resident,
+        locator: model.PeerLocator,
+        stop_requested: *const std.atomic.Value(bool),
+    ) DialError!RawConnection {
+        return self.dialRawWithCancellation(locator, stop_requested);
+    }
+
+    fn dialRawWithCancellation(
+        self: *Resident,
+        locator: model.PeerLocator,
+        stop_requested: ?*const std.atomic.Value(bool),
+    ) DialError!RawConnection {
         if (!std.mem.eql(u8, locator.transport, self.profile.transportName()) or
             crypto.PeerKey.fromDesignator(locator.designator) == null)
             return error.InvalidAddress;
@@ -885,6 +923,7 @@ pub const Resident = struct {
             relay,
             rendezvous_query,
             locator.designator,
+            stop_requested,
         ) };
     }
 
@@ -933,7 +972,6 @@ pub const Resident = struct {
             .wake = wake,
             .registrations = undefined,
             .registration = undefined,
-            .registration_retry_at_ms = 0,
         };
         box.registration = .{ .box = box };
         box.registrations.init(self.io) catch return error.BindFailed;
@@ -1013,8 +1051,8 @@ pub const RawConnection = struct {
 pub const RawListener = struct {
     box: *ListenerBox,
 
-    pub fn waitReady(self: RawListener, timeout_ms: i32) netlayer.AcceptError!bool {
-        return listenerWait(self.box, timeout_ms, .registered);
+    pub fn waitEstablished(self: RawListener, timeout_ms: i32) netlayer.AcceptError!bool {
+        return listenerWait(self.box, timeout_ms, .established);
     }
 
     pub fn waitAcceptable(self: RawListener, timeout_ms: i32) netlayer.AcceptError!bool {
@@ -1047,18 +1085,20 @@ pub const RawListener = struct {
         _ = try listenerWaitLocked(box, -1, .acceptable);
         var stream = box.ready orelse return error.ConnectionLost;
         box.ready = null;
-        box.registration_ready = false;
         errdefer stream.destroy();
         box.startRegistration() catch |err| switch (err) {
             error.Closing => return error.ConnectionLost,
-            error.ConcurrencyUnavailable => box.scheduleRegistrationRetry(),
+            // The accepted stream remains useful, but without a worker the
+            // listener cannot promise recovery. Its next observation reports
+            // the terminal loss instead of making observation drive retries.
+            error.ConcurrencyUnavailable => {},
         };
         stream = try stream.moveToAllocator(allocator);
         return .{ .stream = stream };
     }
 
-    pub fn close(self: RawListener) void {
-        listenerClose(self.box);
+    pub fn close(self: RawListener) ?netlayer.ListenerCloseFailure {
+        return listenerClose(self.box);
     }
 };
 
@@ -1104,7 +1144,7 @@ const noise_resident_vtable: Netlayer.VTable = residentVtable(.noise);
 fn residentVtable(comptime profile: ChannelProfile) Netlayer.VTable {
     return .{
         .profile = profile.known().metadata(),
-        .dial = residentDial,
+        .dial = .{ .blocking = residentDial },
         .listen = residentListen,
         .io = resident_ctx.io,
     };
@@ -1115,7 +1155,9 @@ fn residentDial(
     peer: *engine.Peer,
     loc: model.PeerLocator,
     bufs: Buffers,
+    options: netlayer.OperationOptions,
 ) netlayer.DialError!Connection {
+    try options.requireInherited();
     const self = resident_ctx.of(ctx);
     var raw = try self.dialRaw(loc);
     errdefer raw.close();
@@ -1127,13 +1169,54 @@ fn residentListen(
     ctx: *anyopaque,
     allocator: std.mem.Allocator,
     config: netlayer.ListenConfig,
-) netlayer.ListenError!NetLayerListener {
+) netlayer.ListenStartOutcome {
+    return .{ .admitted = residentListenFallible(ctx, allocator, config) catch |err|
+        return .{ .failed = .init(err) } };
+}
+
+fn residentListenFallible(
+    ctx: *anyopaque,
+    allocator: std.mem.Allocator,
+    config: netlayer.ListenConfig,
+) netlayer.ListenError!netlayer.ListenResult {
+    try config.options.requireInherited();
     const self = resident_ctx.of(ctx);
     const raw = try self.listenRaw(allocator, config);
-    return .{ .ctx = raw.box, .vtable = switch (self.profile) {
+    return .{ .pending = .{
+        .owner = self,
+        .attempt = raw.box,
+        .finish_fn = finishListen,
+        .cancel_fn = cancelListen,
+        .readiness_fd = raw.readinessFd(),
+    } };
+}
+
+fn finishListen(
+    owner: *anyopaque,
+    attempt: *anyopaque,
+    allocator: std.mem.Allocator,
+) netlayer.ListenFinishOutcome {
+    _ = allocator;
+    const self: *Resident = @ptrCast(@alignCast(owner));
+    const ready = listenerWait(attempt, 0, .established) catch |err| return failedFinishedListen(attempt, switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => error.BindFailed,
+    });
+    if (!ready) return failedFinishedListen(attempt, error.BindFailed);
+    return .{ .ready = .{ .ctx = attempt, .vtable = switch (self.profile) {
         .keyed => &keyed_listener_vtable,
         .noise => &noise_listener_vtable,
-    } };
+    } } };
+}
+
+fn failedFinishedListen(attempt: *anyopaque, cause: anyerror) netlayer.ListenFinishOutcome {
+    var failure = netlayer.ListenFailure.init(cause);
+    if (listenerClose(attempt)) |cleanup| failure.noteChain(cleanup);
+    return .{ .failed = failure };
+}
+
+fn cancelListen(_: *anyopaque, attempt: *anyopaque) ?netlayer.ListenerCloseFailure {
+    return listenerClose(attempt);
 }
 
 /// The registered half: one background-owned registration socket, replaced as
@@ -1156,34 +1239,26 @@ const ListenerBox = struct {
     /// Serializes listener state and the readiness wait. The registration task
     /// communicates only through its fixed job record plus the wake channel.
     wake: wake_channel.WakeChannel,
+    wake_failure: wake_channel.FailureLatch = .{},
     /// Registration tasks perform TCP connect, HTTP upgrade, and parked
     /// WebSocket control handling. Close seals, cancels, and joins this owner.
     registrations: operation_owner.OperationOwner,
     registration: RegisterJob,
     registration_active: bool = false,
-    /// The relay currently owns a live registration for this listener. This is
-    /// deliberately not monotonic: after a replacement leg fails, advertising
-    /// the old key would publish a locator that no relay can redeem.
-    registration_ready: bool = false,
-    /// Distinguishes a first registration failure from a replacement failure.
-    /// Once a relay has accepted this key, later transient losses are retried.
-    ever_registered: bool = false,
-    /// A replacement is retried only at this deadline. The fixed, bounded delay
-    /// avoids a reconnect storm while keeping the listener self-healing.
-    registration_retry_at_ms: i64 = 0,
+    /// Construction crossed its first successful registration. Every later
+    /// registration is repair work and owns transient retry from its first leg.
+    listener_established: bool = false,
     operation_gate: std.Io.Mutex = .init,
     stopping: std.atomic.Value(bool) = .init(false),
 
     fn registerOne(box: *ListenerBox) netlayer.DialError!*RelayStream {
         const hex = box.public_key.toDesignator();
-        return openLeg(box.io, box.allocator, box.register_url, register_query, hex[0..]);
+        return openLeg(box.io, box.allocator, box.register_url, register_query, hex[0..], &box.stopping);
     }
 
     fn startRegistration(box: *ListenerBox) error{ Closing, ConcurrencyUnavailable }!void {
         std.debug.assert(!box.registration_active);
-        box.registration.reset();
-        box.registration_ready = false;
-        box.registration_retry_at_ms = 0;
+        box.registration.reset(box.listener_established);
         box.registration_active = true;
         box.registrations.start(RegisterJob.run, .{&box.registration}) catch |err| {
             box.registration_active = false;
@@ -1191,46 +1266,17 @@ const ListenerBox = struct {
         };
     }
 
-    fn scheduleRegistrationRetry(box: *ListenerBox) void {
-        box.registration_ready = false;
-        box.registration_retry_at_ms = clock.nowMs(box.io) + registration_retry_delay_ms;
-        box.wake.nudge();
-    }
-
-    /// Publish a finished registration task into `ready`, or schedule a
-    /// replacement after a leg that was already registered is lost. Called
-    /// under `operation_gate`; the acquire pairs with the task's release store.
+    /// Publish a finished registration task into `ready`. Called under
+    /// `operation_gate`; the acquire pairs with the task's release store.
     fn collectRegistration(box: *ListenerBox) netlayer.AcceptError!void {
         if (!box.registration_active or !box.registration.done.load(.acquire)) return;
         box.registration_active = false;
-        if (box.registration.err != null) {
-            const had_registration = box.ever_registered or
-                box.registration_ready or
-                box.registration.registered.load(.acquire);
-            if (!had_registration) return error.ConnectionLost;
-            box.ever_registered = true;
-            box.scheduleRegistrationRetry();
-            return;
-        }
+        if (box.registration.err != null) return error.ConnectionLost;
         box.ready = box.registration.result orelse return error.ConnectionLost;
         box.registration.result = null;
+        box.listener_established = true;
         // The relay spent this registration when it paired the socket with a
         // dialer. It is acceptable now, but no longer a cold-dial route.
-        box.registration_ready = false;
-        box.ever_registered = true;
-        box.registration_retry_at_ms = 0;
-    }
-
-    /// Fold the task's release-published state into the listener-owned state.
-    /// This is shared by waits and designator queries so a completed failed
-    /// replacement cannot remain advertised merely because nobody called a
-    /// readiness method first.
-    fn refreshRegistration(box: *ListenerBox) netlayer.AcceptError!void {
-        try box.collectRegistration();
-        if (box.registration_active and box.registration.registered.load(.acquire)) {
-            box.registration_ready = true;
-            box.ever_registered = true;
-        }
     }
 };
 
@@ -1238,45 +1284,67 @@ const RegisterJob = struct {
     box: *ListenerBox,
     result: ?*RelayStream = null,
     err: ?netlayer.DialError = null,
-    /// The WebSocket registration upgrade completed. The task continues to
-    /// own the parked socket until dialer data arrives.
-    registered: std.atomic.Value(bool) = .init(false),
+    /// The first WebSocket registration upgrade completed. Construction is
+    /// monotonic after this edge even while the task repairs a transient leg.
+    established: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
 
-    fn reset(job: *RegisterJob) void {
+    retry_initial_failure: bool = false,
+
+    fn reset(job: *RegisterJob, retry_initial_failure: bool) void {
         job.result = null;
         job.err = null;
-        job.registered.store(false, .monotonic);
+        job.retry_initial_failure = retry_initial_failure;
+        job.established.store(false, .monotonic);
         job.done.store(false, .monotonic);
     }
 
     fn run(job: *RegisterJob) std.Io.Cancelable!void {
         const wake = job.box.wake;
+        const wake_failure = &job.box.wake_failure;
         defer {
             job.done.store(true, .release);
             // The acquire-side collector may reset and resubmit `job` as soon
             // as `done` is visible. This worker must not touch the reusable
             // record after the release store; `wake` is the local copy captured
             // above, and nudging it afterward prevents a lost completion wake.
-            wake.nudge();
+            _ = wake.nudge() catch |err| wake_failure.record(err);
         }
-        const rs = job.box.registerOne() catch |err| {
-            job.err = err;
-            return;
-        };
-        job.registered.store(true, .release);
-        wake.nudge();
-        const has_data = rs.nextDataFrame() catch {
+        var has_registered = job.retry_initial_failure;
+        while (true) {
+            const rs = job.box.registerOne() catch |err| {
+                if (!has_registered) {
+                    job.err = err;
+                    return;
+                }
+                if (job.box.stopping.load(.acquire)) return;
+                try std.Io.checkCancel(job.box.io);
+                try std.Io.sleep(
+                    job.box.io,
+                    std.Io.Duration.fromMilliseconds(registration_retry_delay_ms),
+                    .real,
+                );
+                continue;
+            };
+            has_registered = true;
+            if (!job.established.swap(true, .release))
+                _ = wake.nudge() catch |err| wake_failure.record(err);
+
+            const has_data = rs.nextDataFrame() catch false;
+            if (has_data) {
+                job.result = rs;
+                return;
+            }
+
             rs.destroy();
-            job.err = error.ConnectionLost;
-            return;
-        };
-        if (!has_data) {
-            rs.destroy();
-            job.err = error.ConnectionLost;
-            return;
+            if (job.box.stopping.load(.acquire)) return;
+            try std.Io.checkCancel(job.box.io);
+            try std.Io.sleep(
+                job.box.io,
+                std.Io.Duration.fromMilliseconds(registration_retry_delay_ms),
+                .real,
+            );
         }
-        job.result = rs;
     }
 };
 
@@ -1290,7 +1358,6 @@ fn listenerVtable(comptime profile: ChannelProfile) NetLayerListener.VTable {
         .sealed_channel = profile.known().metadata().sealed_channel,
         .accept = listenerAccept,
         .waitAcceptable = listenerWaitAcceptable,
-        .waitReady = listenerWaitReady,
         .localLocator = listenerLocalLocator,
         .canonicalizeLocator = listenerCanonicalizeLocator,
         .close = listenerClose,
@@ -1307,15 +1374,11 @@ fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError
     return listenerWait(ctx, timeout_ms, .acceptable);
 }
 
-fn listenerWaitReady(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
-    return listenerWait(ctx, timeout_ms, .registered);
-}
-
-const ListenerWaitTarget = enum { registered, acceptable };
+const ListenerWaitTarget = enum { established, acceptable };
 
 /// The one deadline/poll loop for the listener's two distinct readiness
-/// questions. Registration means the locator is publishable; acceptable means
-/// a dialer has delivered application bytes and `accept` will not park. The
+/// questions. Established means the first registration succeeded; acceptable
+/// means a dialer has delivered application bytes and `accept` will not park. The
 /// background task owns connect, upgrade, and control-frame I/O; this function
 /// owns only the wake descriptor, so zero and finite timeouts are hard bounds.
 fn listenerWait(ctx: *anyopaque, timeout_ms: i32, target: ListenerWaitTarget) netlayer.AcceptError!bool {
@@ -1332,36 +1395,21 @@ fn listenerWaitLocked(
 ) netlayer.AcceptError!bool {
     const started_at = if (timeout_ms > 0) clock.nowMs(box.io) else 0;
     while (true) {
+        try box.wake_failure.check();
         if (box.stopping.load(.acquire)) return error.ConnectionLost;
 
-        // Collect before observing readiness. A completed failed job may have
-        // set its registered flag earlier; that flag is not current readiness.
-        try box.refreshRegistration();
+        try box.collectRegistration();
 
         if (target == .acceptable and box.ready != null) return true;
 
-        if (target == .registered and box.registration_ready) return true;
-
-        // A dialer spent the registration that produced this acceptable leg.
-        // `ready` is the listener's sole handoff slot, and only `accept` may
-        // consume it and start the replacement. Starting one here would both
-        // advertise a route too early and let its result overwrite the live
-        // socket waiting in that slot.
-        if (target == .registered and box.ready != null) return false;
-
-        if (!box.registration_active and timeout_ms != 0) {
-            const now = clock.nowMs(box.io);
-            if (box.registration_retry_at_ms == 0 or now >= box.registration_retry_at_ms) {
-                box.startRegistration() catch |err| switch (err) {
-                    error.Closing => return error.ConnectionLost,
-                    error.ConcurrencyUnavailable => {
-                        if (!box.ever_registered) return error.ConnectionLost;
-                        box.scheduleRegistrationRetry();
-                    },
-                };
-                continue;
-            }
+        if (target == .established and (box.ready != null or
+            (box.registration_active and box.registration.established.load(.acquire))))
+        {
+            box.listener_established = true;
+            return true;
         }
+
+        if (!box.registration_active) return error.ConnectionLost;
 
         if (timeout_ms == 0) return false;
 
@@ -1372,14 +1420,7 @@ fn listenerWaitLocked(
             if (elapsed >= timeout_ms) return false;
             break :blk @intCast(@as(i64, timeout_ms) - elapsed);
         };
-        const poll_timeout: i32 = if (box.registration_retry_at_ms > 0) blk: {
-            const retry_remaining = box.registration_retry_at_ms - clock.nowMs(box.io);
-            if (retry_remaining <= 0) continue;
-            break :blk @min(remaining, @as(i32, @intCast(@min(
-                retry_remaining,
-                @as(i64, listener_poll_slice_ms),
-            ))));
-        } else @min(remaining, listener_poll_slice_ms);
+        const poll_timeout = @min(remaining, listener_poll_slice_ms);
 
         std.Io.checkCancel(box.io) catch return error.ConnectionLost;
         var fds = [_]std.posix.pollfd{.{
@@ -1390,7 +1431,11 @@ fn listenerWaitLocked(
         if ((poll.wait(&fds, poll_timeout) catch return error.ConnectionLost) == 0 and
             timeout_ms > 0 and clock.nowMs(box.io) - started_at >= timeout_ms)
             return false;
-        box.wake.drain();
+        try box.wake_failure.check();
+        box.wake.drain() catch |err| {
+            box.wake_failure.record(err);
+            return err;
+        };
     }
 }
 
@@ -1430,14 +1475,11 @@ fn probeParked(rs: *RelayStream) FrameError!ParkVerdict {
 }
 
 /// The dialable designator is the registered identity key's canonical hex.
-/// Publish the provider's relay endpoint as routing advice so a recipient can
-/// cold-dial this listener even when its deployment default is another relay.
+/// The locator describes the stable route the listener repairs; it is not a
+/// reachability probe for the current registration leg.
 fn listenerLocalLocator(ctx: *anyopaque, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    box.operation_gate.lockUncancelable(box.io);
-    defer box.operation_gate.unlock(box.io);
-    box.refreshRegistration() catch return error.BindFailed;
-    if (box.stopping.load(.acquire) or !box.registration_ready) return error.BindFailed;
+    if (box.stopping.load(.acquire)) return error.BindFailed;
     const hex = box.public_key.toDesignator();
     const hints = [_]model.HintEntry{.{
         .name = rendezvous_relay_hint,
@@ -1465,10 +1507,10 @@ fn listenerCanonicalizeLocator(
     );
 }
 
-fn listenerClose(ctx: *anyopaque) void {
+fn listenerClose(ctx: *anyopaque) ?netlayer.ListenerCloseFailure {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     box.stopping.store(true, .release);
-    box.wake.nudge();
+    _ = box.wake.nudge() catch |err| box.wake_failure.record(err);
     box.registrations.shutdown();
     box.operation_gate.lockUncancelable(box.io);
     box.operation_gate.unlock(box.io);
@@ -1478,5 +1520,10 @@ fn listenerClose(ctx: *anyopaque) void {
     box.wake.deinit();
     box.allocator.free(box.register_url_storage);
     box.allocator.free(box.relay_url_storage);
+    const failure = if (box.wake_failure.failure()) |err|
+        netlayer.ListenerCloseFailure.init(err)
+    else
+        null;
     box.allocator.destroy(box);
+    return failure;
 }

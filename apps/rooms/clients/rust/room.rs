@@ -11,7 +11,7 @@
 //!   let mut room = Room::subscribe(dir.session(), dir.enter("general").await?, "alice").await?;
 //!   room.say("hello").await?;
 //!   while let Some(msg) = room.recv().await { println!("{}: {}", msg.from, msg.text); }
-//!   room.leave().await;
+//!   room.leave().await?;
 //!
 //! [`Directory::open`] and [`Directory::enter`] mirror the wire one-to-one and
 //! stay strict. The friendly "enter, opening it if new" behavior is a CLI
@@ -20,9 +20,11 @@
 use std::rc::Rc;
 
 use pancake::{
-	connect, designator_host_port, parse_locator, tcp_locator, Argument, Session,
-	HINT_DIRECT_ADDRESSES, TRANSPORT_IROH,
+	designator_host_port, parse_locator, tcp, Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session,
+	TRANSPORT_IROH,
 };
+#[cfg(feature = "iroh")]
+use pancake::{iroh, HINT_DIRECT_ADDRESSES};
 use tokio::sync::mpsc;
 
 const DIRECTORY: &str = "directory";
@@ -37,9 +39,7 @@ fn room_ref(arg: Argument, verb: &str) -> Result<pancake::Ref, String> {
 /// typed code at the front of the reason (`no-such-room` vs `room-exists`); falls
 /// back to the debug form when the partner gave no message.
 fn reason(err: pancake::Error) -> String {
-	err.message()
-		.map(str::to_string)
-		.unwrap_or_else(|| format!("{err:?}"))
+	err.message().map(str::to_string).unwrap_or_else(|| format!("{err:?}"))
 }
 
 /// The directory of rooms: an open connection plus the directory's reference.
@@ -51,6 +51,7 @@ fn reason(err: pancake::Error) -> String {
 pub struct Directory {
 	session: Rc<Session>,
 	directory: pancake::Ref,
+	_runtime: Runtime,
 }
 
 impl Directory {
@@ -59,12 +60,17 @@ impl Directory {
 		// `dial` spawns the connection's driver task, so inbound events are
 		// already being served, `fetch`, `send`, and inbox callbacks all work
 		// without a separate serve loop.
-		let session = Rc::new(dial(locator).await?);
+		let (runtime, session) = dial(locator).await?;
+		let session = Rc::new(session);
 		let directory = session
 			.fetch(DIRECTORY)
 			.await
 			.map_err(|e| format!("fetch directory: {e:?}"))?;
-		Ok(Directory { session, directory })
+		Ok(Directory {
+			session,
+			directory,
+			_runtime: runtime,
+		})
 	}
 
 	/// The open connection, for subscribing to a room the directory returns.
@@ -94,11 +100,7 @@ impl Directory {
 
 	/// The live rooms — the ones with people in them — as `(name, count)`.
 	pub async fn list(&self) -> Result<Vec<(String, i64)>, String> {
-		let arg = self
-			.session
-			.send(&self.directory, "list", &[])
-			.await
-			.map_err(reason)?;
+		let arg = self.session.send(&self.directory, "list", &[]).await.map_err(reason)?;
 		Ok(parse_rooms(&arg))
 	}
 
@@ -151,38 +153,53 @@ fn parse_rooms(arg: &Argument) -> Vec<(String, i64)> {
 /// over TCP. The room's wire is identical either way; only how a member reaches
 /// it differs. A URI carrying direct-addresses dials those directly (relay-less
 /// Direct); a node-id-only URI resolves the peer through discovery.
-async fn dial(locator: &str) -> Result<Session, String> {
+async fn dial(locator: &str) -> Result<(Runtime, Session), String> {
 	if locator.contains("://") {
-		let loc = parse_locator(locator).map_err(|e| {
-			format!("rooms expected an iroh ocapn:// URI, got parse error for {locator}: {e:?}")
-		})?;
+		let loc = parse_locator(locator)
+			.map_err(|e| format!("rooms expected an iroh ocapn:// URI, got parse error for {locator}: {e:?}"))?;
 		if loc.transport != TRANSPORT_IROH {
 			return Err(format!(
 				"rooms expected an iroh ocapn:// URI, got \"{}\": {locator}",
 				loc.transport
 			));
 		}
-		let hints = loc
-			.hints
-			.get(HINT_DIRECT_ADDRESSES)
-			.map(String::as_str)
-			.unwrap_or("");
-		let reachability = if hints.is_empty() {
-			pancake::Reachability::Discovery
-		} else {
-			pancake::Reachability::Direct
-		};
-		return connect(locator, Some(reachability), Some(rooms_host()))
+		#[cfg(not(feature = "iroh"))]
+		return Err("rooms client was built without iroh support".to_string());
+		#[cfg(feature = "iroh")]
+		{
+			let hints = loc
+				.string_hint(HINT_DIRECT_ADDRESSES)
+				.map_err(|e| format!("rooms iroh locator has invalid direct-addresses: {e:?}"))?
+				.unwrap_or("");
+			let reachability = if hints.is_empty() {
+				iroh::Reachability::Discovery
+			} else {
+				iroh::Reachability::Direct
+			};
+			let runtime = Runtime::open(
+				RuntimeConfig::providers([iroh::provider(iroh::Config::new(reachability))]).adopt_host(&rooms_host()?),
+			)
 			.await
-			.map_err(|e| format!("connect iroh: {e:?}"));
+			.map_err(|e| format!("runtime iroh: {e:?}"))?;
+			let session = runtime
+				.connect(&loc, ConnectOptions::default())
+				.await
+				.map_err(|e| format!("connect iroh: {e:?}"))?;
+			return Ok((runtime, session));
+		}
 	}
-	let (host, port) = designator_host_port(locator).map_err(|e| {
-		format!("rooms locator is neither host:port nor an ocapn:// URI: {locator}: {e:?}")
-	})?;
-	let loc = tcp_locator(&host, port);
-	connect(&loc, None, Some(rooms_host()))
+	let (host, port) = designator_host_port(locator)
+		.map_err(|e| format!("rooms locator is neither host:port nor an ocapn:// URI: {locator}: {e:?}"))?;
+	let loc = tcp::locator(&host, port);
+	let runtime =
+		Runtime::open(RuntimeConfig::providers([tcp::provider(Default::default())]).adopt_host(&rooms_host()?))
+			.await
+			.map_err(|e| format!("runtime: {e:?}"))?;
+	let session = runtime
+		.connect(&loc, ConnectOptions::default())
 		.await
-		.map_err(|e| format!("connect: {e:?}"))
+		.map_err(|e| format!("connect: {e:?}"))?;
+	Ok((runtime, session))
 }
 
 /// Mint a Host for a rooms peer.
@@ -194,12 +211,17 @@ async fn dial(locator: &str) -> Result<Session, String> {
 /// the same configuration. This is the Rust spelling of the pair
 /// `apps/rooms/lib/protocol.ts` carries for the TypeScript peers. Rust's
 /// `connect` takes no profile argument, so the host is what names it.
-fn rooms_host() -> pancake::Host {
+///
+/// Minting one draws the Host's identity seed from the system, which can fail,
+/// so this answers with the failure rather than panicking inside a client whose
+/// callers already carry their own errors.
+fn rooms_host() -> Result<pancake::Host, String> {
 	pancake::Host::with_options(pancake::HostOptions {
 		codec: pancake::Codec::Capnp,
 		captp_version: pancake::CaptpVersion::Next,
 		..Default::default()
 	})
+	.map_err(|e| format!("rooms host: {e:?}"))
 }
 
 /// One line in the room. `system` is true for the room's own announcements (a
@@ -254,20 +276,14 @@ pub struct Room {
 }
 
 fn as_str(arg: Option<&Argument>) -> String {
-	arg.and_then(Argument::as_str)
-		.unwrap_or_default()
-		.to_string()
+	arg.and_then(Argument::as_str).unwrap_or_default().to_string()
 }
 
 impl Room {
 	/// Subscribe to a room you already hold a reference to, on the directory's
 	/// open connection, as `nick`. Call inside a `LocalSet` (the peer is
 	/// `!Send`).
-	pub async fn subscribe(
-		session: Rc<Session>,
-		room: pancake::Ref,
-		nick: &str,
-	) -> Result<Room, String> {
+	pub async fn subscribe(session: Rc<Session>, room: pancake::Ref, nick: &str) -> Result<Room, String> {
 		// The room calls our inbox back with each line; forward it onto a channel.
 		// A system line may carry a structured presence change after its text.
 		let (msg_tx, msg_rx) = mpsc::unbounded_channel::<Message>();
@@ -297,11 +313,7 @@ impl Room {
 			.await
 			.map_err(|e| format!("subscribe: {e:?}"))?;
 
-		Ok(Room {
-			session,
-			room,
-			msg_rx,
-		})
+		Ok(Room { session, room, msg_rx })
 	}
 
 	/// Say a line to everyone in the room. Fails if the room rejects the line or
@@ -321,7 +333,10 @@ impl Room {
 	}
 
 	/// Leave the room: close the connection and let the driver wind down.
-	pub async fn leave(self) {
-		self.session.close();
+	pub async fn leave(self) -> Result<(), String> {
+		self.session
+			.close(PendingWork::Cancel)
+			.await
+			.map_err(|err| format!("leave: {err}"))
 	}
 }

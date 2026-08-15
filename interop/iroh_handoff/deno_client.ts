@@ -27,15 +27,8 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-handoff`.
 
-import {
-	connect,
-	formatPeerUri,
-	HINT_DIRECT_ADDRESSES,
-	Ref,
-	type Session,
-	TRANSPORT_IROH,
-} from "@pancake/stack";
-import { type IrohServer, listenIroh, Reachability } from "@pancake/iroh";
+import { HINT_DIRECT_ADDRESSES, Ref, Runtime, type Session } from "@pancake/runtime";
+import { type IrohServer, listen, locator, provider, Reachability } from "@pancake/iroh";
 import { fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const GATE = "deno-iroh-handoff";
@@ -77,7 +70,7 @@ function greeter(verb: string, args: unknown[]): string | null {
 }
 
 // ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
-const exporter = await listenIroh({ reachability: Reachability.Direct });
+const exporter = await listen({ reachability: Reachability.Direct });
 exporter.host.publishGiftable("greeter", greeter);
 const [exporterId, exporterAddrs] = await dialable(exporter);
 const exporterServed: Session[] = [];
@@ -85,14 +78,14 @@ const exporterAccept = acceptLoopWithServed(exporter, exporterServed);
 console.log(`${GATE}: exporter published greeter on ${exporterId}`);
 
 // ── Gifter: dials the exporter under one identity, re-gifts the greeter ─────
-const gifter = await listenIroh({ reachability: Reachability.Direct });
+const gifter = await listen({ reachability: Reachability.Direct });
 const [gifterId, gifterAddrs] = await dialable(gifter);
-const exporterUri = formatPeerUri(
-	TRANSPORT_IROH,
-	exporterId,
-	new Map([[HINT_DIRECT_ADDRESSES, exporterAddrs]]),
-);
-const toExporter = await connect(exporterUri, Reachability.Direct, gifter.host);
+const exporterLocator = locator(exporterId, exporterAddrs);
+const gifterRuntime = await Runtime.open({
+	providers: [provider({ reachability: Reachability.Direct })],
+	adoptHost: gifter.host,
+});
+const toExporter = await gifterRuntime.connect(exporterLocator);
 const greeterRef = await toExporter.fetch("greeter");
 // The exporter's own signed session record names it by node id alone — not
 // dialable under the relay-less Direct posture — so record its full dialable
@@ -114,12 +107,11 @@ const gifterAccept = acceptLoopWithServed(gifter, gifterServed);
 console.log(`${GATE}: gifter published introducer on ${gifterId}`);
 
 // ── Recipient: dials the gifter, redeems the give by dialing the exporter ───
-const gifterUri = formatPeerUri(
-	TRANSPORT_IROH,
-	gifterId,
-	new Map([[HINT_DIRECT_ADDRESSES, gifterAddrs]]),
-);
-const recipient = await connect(gifterUri, Reachability.Direct);
+const gifterLocator = locator(gifterId, gifterAddrs);
+const recipientRuntime = await Runtime.open({
+	providers: [provider({ reachability: Reachability.Direct })],
+});
+const recipient = await recipientRuntime.connect(gifterLocator);
 const introducerRef = await recipient.fetch("introducer");
 const granted = await recipient.send(introducerRef, "get-greeter", []);
 if (!(granted instanceof Ref)) {
@@ -143,6 +135,8 @@ console.log(
 // no readiness fd reader outlives the endpoint it watches.
 recipient.close();
 toExporter.close();
+await recipientRuntime.close();
+await gifterRuntime.close();
 for (const session of [...exporterServed, ...gifterServed]) session.close();
 exporter.close();
 gifter.close();

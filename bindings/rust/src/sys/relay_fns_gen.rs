@@ -27,7 +27,7 @@ extern "C" {
 		runtime: *mut PancakeRelayRuntime,
 		out_provider: *mut PancakeTransportProvider,
 	) -> c_int;
-	pub fn pancake_relay_runtime_release(runtime: *mut PancakeRelayRuntime);
+	pub fn pancake_relay_runtime_release(runtime: *mut PancakeRelayRuntime) -> c_int;
 	pub fn pancake_relay_runtime_new_in(
 		context: *mut PancakeContext,
 		config: *const PancakeRelayConfig,

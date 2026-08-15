@@ -188,8 +188,7 @@ Deno.test("installRootGuard stops propagation on foreign pointer-down", () => {
 
   const router = new GestureRouter();
   // Stub `surfaceFor` so we don't need a real composedPath/DOM.
-  router.surfaceFor = (ev: Event) =>
-    (ev as unknown as { _tag?: string })._tag ?? null;
+  router.surfaceFor = (ev: Event) => (ev as unknown as { _tag?: string })._tag ?? null;
 
   installRootGuard(doc, router);
   const stage = router.lease("stage");
@@ -231,8 +230,7 @@ Deno.test("an unreleased claim freezes every other surface", () => {
   } as unknown as Document;
 
   const router = new GestureRouter();
-  router.surfaceFor = (ev: Event) =>
-    (ev as unknown as { _tag?: string })._tag ?? null;
+  router.surfaceFor = (ev: Event) => (ev as unknown as { _tag?: string })._tag ?? null;
   installRootGuard(doc, router);
 
   const orphan = router.lease("ui-scrub-input");
@@ -297,8 +295,7 @@ Deno.test("while a modal holds, only its own presses get through", () => {
   } as unknown as Document;
 
   const router = new GestureRouter();
-  router.surfaceFor = (ev: Event) =>
-    (ev as unknown as { _tag?: string })._tag ?? null;
+  router.surfaceFor = (ev: Event) => (ev as unknown as { _tag?: string })._tag ?? null;
   installRootGuard(doc, router);
 
   const release = holdPointerForModal(

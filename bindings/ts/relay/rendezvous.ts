@@ -12,7 +12,7 @@
 // one, so the peer replenishes on activation. Admission — which identities may
 // register and be dialed — is the embedder's policy, above this registry.
 
-import { type RelayChannel } from "./relay.ts";
+import type { RelayChannel } from "./relay.ts";
 import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "./ws_relay.ts";
 
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;

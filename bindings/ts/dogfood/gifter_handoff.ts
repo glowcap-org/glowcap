@@ -13,7 +13,8 @@
 // separate Carol-to-Bob connection, against one host-wide object identity.
 
 import process from "node:process";
-import { connect, listen, Ref, tcpLocator } from "@pancake/stack";
+import { Ref, Runtime } from "@pancake/runtime";
+import { listen, locator, provider } from "@pancake/tcp";
 
 function fail(message: string): never {
 	console.error(`gifter-handoff: FAIL, ${message}`);
@@ -23,7 +24,7 @@ function fail(message: string): never {
 async function main(): Promise<void> {
 	// ── Exporter (Bob): publishes a host-giftable inbox, listens for dials ───────
 	const inbox: string[] = [];
-	const bob = listen("127.0.0.1", 0);
+	const bob = await listen("127.0.0.1", 0);
 	bob.host.publishGiftable("dm", (verb, args) => {
 		if (verb === "tell") inbox.push(String(args[0]));
 		return null;
@@ -31,11 +32,15 @@ async function main(): Promise<void> {
 	const bobAccept = (async () => {
 		for await (const session of bob) session.serve().catch(() => {});
 	})();
-	const bobPort = await bob.ready();
+	const bobPort = bob.port;
 
 	// ── Gifter (Broker): holds Bob's dm, introduces members to it ────────────────
-	const broker = listen("127.0.0.1", 0);
-	const brokerPort = await broker.ready();
+	const broker = await listen("127.0.0.1", 0);
+	const brokerPort = broker.port;
+	await using brokerRuntime = await Runtime.open({
+		providers: [provider()],
+		adoptHost: broker.host,
+	});
 	const brokerAccept = (async () => {
 		for await (const session of broker) session.serve().catch(() => {});
 	})();
@@ -43,11 +48,7 @@ async function main(): Promise<void> {
 	// The broker dials Bob as a member would — keyed with the broker node's own
 	// identity — and fetches Bob's giftable dm. The fetched ref's home is this
 	// broker-to-Bob connection, which is what lets the broker re-gift it.
-	const brokerToBob = await connect(
-		tcpLocator("127.0.0.1", bobPort),
-		undefined,
-		broker.host,
-	);
+	const brokerToBob = await brokerRuntime.connect(locator("127.0.0.1", bobPort));
 	brokerToBob.serve().catch(() => {});
 	const bobDm = await brokerToBob.fetch("dm");
 
@@ -68,7 +69,8 @@ async function main(): Promise<void> {
 	);
 
 	// ── Recipient (Carol): get introduced, redeem transparently, DM directly ─────
-	const carol = await connect(tcpLocator("127.0.0.1", brokerPort));
+	await using carolRuntime = await Runtime.open({ providers: [provider()] });
+	const carol = await carolRuntime.connect(locator("127.0.0.1", brokerPort));
 	carol.serve().catch(() => {});
 	const introducer = await carol.fetch("introducer");
 	const introduced = await carol.send(introducer, "introduce", []);
@@ -93,10 +95,12 @@ async function main(): Promise<void> {
 	);
 
 	// ── Teardown ─────────────────────────────────────────────────────────────────
-	carol.close(); // closes Carol's dialed exporter connection too
-	brokerToBob.close();
-	broker.close();
-	bob.close();
+	await Promise.all([
+		carol.close(), // closes Carol's dialed exporter connection too
+		brokerToBob.close(),
+		broker.close(),
+		bob.close(),
+	]);
 	await Promise.allSettled([bobAccept, brokerAccept]);
 	process.exit(0);
 }

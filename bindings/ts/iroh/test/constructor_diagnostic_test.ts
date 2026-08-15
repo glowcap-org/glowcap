@@ -1,9 +1,5 @@
-import { Context, Reachability } from "@pancake/stack";
-import {
-	INVALID_ARGUMENT,
-	IROH_CONFIG_REACHABILITY_OFF,
-	IROH_CONFIG_SIZE,
-} from "@pancake/stack/ffi";
+import { Context, Reachability } from "@pancake/runtime";
+import { INVALID_ARGUMENT, IROH_CONFIG_REACHABILITY_OFF, IROH_CONFIG_SIZE } from "@pancake/runtime/ffi";
 import { irohS } from "../ffi.ts";
 import { IrohNetlayer } from "../mod.ts";
 

@@ -50,8 +50,8 @@ the keyed transports. Optional `?key=value` **hints** carry routing help,
 like the socket address for a keyed listener. Hints can only help you reach
 a peer; they carry no authority of their own.
 
-Dialing a locator opens a session, and a fresh session contains exactly one
-usable object: the **bootstrap object**, its front door. You fetch a
+Dialing a locator opens a session. The **bootstrap object** is the one
+capability available at first. You fetch a
 published name from it and get back a live reference. From there you are in
 the reference-passing world and the locator has done its whole job.
 
@@ -111,7 +111,7 @@ The handoff runs in four stages:
 
 In pancake you never see the gift bytes. A call that answers with an
 introduction settles as the introduced capability, inside the wait you were
-already in, so there is no redeem step to write. That holds on every surface:
+already in, so there is no redeem step to write. That holds in every API:
 native Zig, the completion loop, and all four bindings.
 In the rooms chat, the _Message_ button is that introduction: the room hands
 you a live reference to the other member.

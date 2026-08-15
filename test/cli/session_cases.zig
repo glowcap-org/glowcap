@@ -129,7 +129,7 @@ test "dial against silent partner times out (no hang)" {
     const address = listener.localAddress();
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const locator = tcp.locator(&designator_buf, address);
+    const locator = tcp.locatorFromAddress(&designator_buf, address);
     const uri = try model.uri.writePeer(gpa, .{
         .transport = locator.transport,
         .designator = locator.designator,

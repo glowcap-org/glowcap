@@ -41,13 +41,31 @@ test "onion at the host tier: publish, dial, fetch, and call with no Tor" {
         .control_endpoint = daemon.controlText(),
     } };
     var server = try driver.listen(allocator, host_res.netlayer(), .{ .designator = "" }, .ephemeral, dial_opts);
-    defer server.close() catch {};
+    defer server.deinit();
 
     var designator_buf: [128]u8 = undefined;
     const designator = try server.localDesignator(&designator_buf);
     try std.testing.expectEqualStrings(fake.service_id, designator);
 
-    var host_future = try io.concurrent(hostOnce, .{&server});
+    var empty: [0]u8 = .{};
+    try std.testing.expectEqual(
+        @as(?usize, fake.service_key.len),
+        try server.restorationState(&empty),
+    );
+    var short: [fake.service_key.len - 1]u8 = @splat(0xa5);
+    try std.testing.expectEqual(
+        @as(?usize, fake.service_key.len),
+        try server.restorationState(&short),
+    );
+    try std.testing.expectEqualSlices(u8, &([_]u8{0xa5} ** short.len), &short);
+    var restoration_key: [fake.service_key.len]u8 = undefined;
+    try std.testing.expectEqual(
+        @as(?usize, fake.service_key.len),
+        try server.restorationState(&restoration_key),
+    );
+    try std.testing.expectEqualStrings(fake.service_key, &restoration_key);
+
+    var host_future = try io.concurrent(hostOnce, .{server});
     var splice = try io.concurrent(fake.Daemon.spliceDial, .{daemon});
 
     const client_result = clientHalf(allocator, io, daemon.socksText());

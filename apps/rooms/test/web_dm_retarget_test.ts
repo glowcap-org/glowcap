@@ -55,6 +55,7 @@ const web = new Deno.Command("deno", {
 		"run",
 		"--allow-ffi",
 		"--allow-read",
+		"--allow-write",
 		"--allow-net",
 		"--allow-env",
 		"--allow-run",
@@ -140,6 +141,25 @@ try {
 		(document.getElementById("log")?.textContent ?? "").includes("this conversation is closed")
 	);
 	if (!told) fail("the send failed without telling the reader the conversation is closed");
+
+	// And the bubble says so without offering a way to try again. This send can
+	// never go: the room has the name back, and pressing again would either reach
+	// nobody or reach whoever holds it now. A retry here is a control that cannot
+	// succeed, which invites a reader to keep pressing for as long as they are
+	// willing to believe it might.
+	const unsent = await zoe.page.evaluate(() => {
+		const failure = document.querySelector(".delivery-failure");
+		return failure === null ? null : {
+			said: failure.textContent?.trim() ?? "",
+			retries: failure.querySelectorAll("button").length,
+		};
+	});
+	if (unsent === null) fail("a message that could not be sent was not marked unsent at all");
+	else if (!unsent.said.includes("Not sent")) {
+		fail(`the unsent message says ${JSON.stringify(unsent.said)}`);
+	} else if (unsent.retries !== 0) {
+		fail("a message into a closed conversation offers a retry that can never succeed");
+	}
 
 	// One conversation, not a second minted quietly behind the one on screen.
 	const rows = await zoe.page.evaluate(() => document.querySelectorAll("#dmList li").length);

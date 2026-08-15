@@ -44,9 +44,7 @@ const VIEW_MODE_STORAGE_KEY = "ocapnviz:payload-view-mode";
 export function loadPersistedViewMode(): ViewMode {
   const storage = (globalThis as { localStorage?: Storage }).localStorage;
   const raw = storage?.getItem(VIEW_MODE_STORAGE_KEY);
-  return (VIEW_MODES as readonly string[]).includes(raw ?? "")
-    ? raw as ViewMode
-    : "hex";
+  return (VIEW_MODES as readonly string[]).includes(raw ?? "") ? raw as ViewMode : "hex";
 }
 
 function savePersistedViewMode(mode: ViewMode): void {
@@ -199,10 +197,7 @@ export function PayloadViewer(
   // for a state that may carry no bytes. The empty string is that
   // case and nothing reads it.
   const text = useMemo(
-    () =>
-      state.kind === "frame"
-        ? renderPayload(mode, state.b64, state.bytes, codec)
-        : "",
+    () => state.kind === "frame" ? renderPayload(mode, state.b64, state.bytes, codec) : "",
     [mode, state, codec],
   );
   if (state.kind !== "frame") {
@@ -239,8 +234,7 @@ export function PayloadViewer(
       )}
       {truncated && (
         <span style={noteStyle}>
-          Showing the first {bytes.length} of {byteLen}{" "}
-          bytes. The producer recorded no more.
+          Showing the first {bytes.length} of {byteLen} bytes. The producer recorded no more.
         </span>
       )}
       {source !== null && <span style={noteStyle}>{source}</span>}

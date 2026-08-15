@@ -11,6 +11,7 @@
 //! implementation files live under `completion/`; this module is the boundary
 //! that names them as one library.
 
+const std = @import("std");
 const socket_tcp = @import("completion/socket_tcp.zig");
 const keepalive = @import("completion/tcp_keepalive.zig");
 const stream_shim = @import("stream_shim.zig");
@@ -33,6 +34,7 @@ pub const sendNonblocking = socket_tcp.sendNonblocking;
 /// The rationale is NAT hold-open and dead-remote-host reclaim, not reaping a
 /// live orphaned process — see `completion/tcp_keepalive.zig`.
 pub const Keepalive = keepalive.Keepalive;
+pub const ConfigurationError = std.posix.SetSockOptError || keepalive.ApplyError;
 pub const applyKeepalive = keepalive.apply;
 
 /// The stream wrapper a transport-generic `Connection` borrows, pinned so its

@@ -89,7 +89,7 @@ pub fn main(init: std.process.Init) !void {
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
     var session_root: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&session_root) catch return error.HandshakeEntropyFailed;
-    var host = Host.init(allocator, seed, session_root, blk: {
+    var host = try Host.init(allocator, seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
         o.codec = .capnp;
@@ -117,7 +117,7 @@ pub fn main(init: std.process.Init) !void {
     const port = loop.port().?;
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const addr = try tcp.parseHostPort(host_addr, port);
-    const bound = tcp.locator(&designator_buf, addr).designator;
+    const bound = tcp.locatorFromAddress(&designator_buf, addr).designator;
     try bridge.attach(model.transport.Known.tcp.metadata(), bound, &.{});
 
     // Both announce lines go to stderr so the driver reads one stream.

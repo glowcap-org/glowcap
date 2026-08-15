@@ -31,11 +31,12 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import connect, format_peer_uri, TRANSPORT_IROH  # noqa: E402
+from pancake import Runtime, format_peer_uri, TRANSPORT_IROH  # noqa: E402
 from pancake.iroh import (  # noqa: E402
     IrohConfig,
     Reachability,
-    listen_iroh,
+    listen,
+    provider,
 )
 
 NAME = "python-iroh-world"
@@ -61,7 +62,7 @@ async def accept_loop(server, served: list) -> None:
 
 async def run() -> None:
     # ── Server: a giftable greeter, dialable by node id alone over discovery ──────
-    server = await listen_iroh(IrohConfig(Reachability.DISCOVERY))
+    server = await listen(IrohConfig(Reachability.DISCOVERY))
     server.host.publish_giftable("greeter", greeter)
     server_id = server.node_id
     served: list = []
@@ -72,7 +73,8 @@ async def run() -> None:
     )
 
     # ── Client: dial by node id ALONE — empty hints — over real n0 discovery ──────
-    client = await connect(format_peer_uri(TRANSPORT_IROH, server_id), Reachability.DISCOVERY)
+    runtime = await Runtime.open(provider=provider(IrohConfig(Reachability.DISCOVERY)))
+    client = await runtime.connect(format_peer_uri(TRANSPORT_IROH, server_id))
     print("python-iroh-reachability: client dialed by node id alone and opened the keyed session")
 
     greeter_ref = await client.fetch("greeter")
@@ -90,6 +92,7 @@ async def run() -> None:
     # the server, closing a server ends its accept loop, which we await so no
     # readiness fd reader outlives the endpoint it watches.
     await client.close()
+    await runtime.close()
     for session in served:
         await session.close()
     await server.close()

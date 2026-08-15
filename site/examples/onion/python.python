@@ -1,0 +1,19 @@
+from pancake import Argument, onion
+
+# pancake starts no Tor. Name an already-running daemon's SOCKS (and control to host).
+async with await onion.listen("/run/tor/socks", control="/run/tor/control") as server:
+    service_key = server.service_key  # persist securely to restore this service
+    # From here, the CapTP workflow is transport-independent.
+    print(server.uri)  # hand this locator to partners
+
+    def greet(verb: str, args: list[Argument]) -> str:
+        if verb != "greet":
+            raise LookupError("no such method")
+        if len(args) != 1 or not isinstance(args[0], str):
+            raise TypeError("bad invocation")
+        return f"Hello, {args[0]}"
+
+    server.host.publish_giftable("greeter", greet)
+    async for accepted in server:
+        async with accepted as session:
+            await session.serve()

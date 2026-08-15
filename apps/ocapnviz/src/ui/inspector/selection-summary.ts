@@ -113,9 +113,7 @@ export function selectionPhrase(tallies: readonly KindTally[]): string {
 export function deletionPhrase(
   selection: ReadonlySet<EntityRefKey>,
 ): string | null {
-  const takes = tallyByKind(selection).filter((t) =>
-    DELETABLE_KINDS.has(t.kind)
-  );
+  const takes = tallyByKind(selection).filter((t) => DELETABLE_KINDS.has(t.kind));
   return takes.length === 0 ? null : selectionPhrase(takes);
 }
 
@@ -182,9 +180,7 @@ function isOnStage(live: OnStage, key: EntityRefKey): boolean {
   const { kind, id } = parseEntityKey(key);
   if (kind === "peer") return live.peers.has(id);
   if (kind === "message") return live.messages.has(id);
-  const sessionId = kind === "session"
-    ? id
-    : parseEndpointStageId(id)?.sessionId;
+  const sessionId = kind === "session" ? id : parseEndpointStageId(id)?.sessionId;
   return sessionId !== undefined && live.sessions.has(sessionId);
 }
 

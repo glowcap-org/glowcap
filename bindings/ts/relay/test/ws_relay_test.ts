@@ -1,5 +1,6 @@
 import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "../ws_relay.ts";
 import { isRendezvousDesignator, Rendezvous } from "../rendezvous.ts";
+import { relayBytes } from "../relay.ts";
 
 function assertEquals(actual: unknown, expected: unknown): void {
 	if (actual !== expected) {
@@ -62,6 +63,40 @@ class FakeWebSocket {
 		this.onmessage?.({ data: new ArrayBuffer(bytes) } as MessageEvent);
 	}
 }
+
+Deno.test("relayBytes rejects with its exact first I/O failure after teardown", async () => {
+	const ioFailure = new Error("far read failed");
+	const closeFailure = new Error("channel close failed");
+	let sourceClosed = false;
+	const source = {
+		read: () => Promise.reject(ioFailure),
+	};
+	const sink = {
+		write: (_chunk: Uint8Array) => Promise.resolve(),
+	};
+	let finishChannelRead!: (value: Uint8Array | null) => void;
+	const channel = {
+		read: () => new Promise<Uint8Array | null>((resolve) => (finishChannelRead = resolve)),
+		write: (_chunk: Uint8Array) => Promise.resolve(),
+		close: () => {
+			finishChannelRead(null);
+			throw closeFailure;
+		},
+	};
+	try {
+		await relayBytes(source, sink, channel, {
+			idleTimeoutMs: 0,
+			maxBytesPerSession: 0,
+		}, () => {
+			sourceClosed = true;
+		});
+		throw new Error("relay failure disappeared");
+	} catch (error) {
+		assertEquals(error, ioFailure);
+		assertEquals(ioFailure.cause, closeFailure);
+		assertEquals(sourceClosed, true);
+	}
+});
 
 Deno.test("relay webSocketChannel bounds early inbound queue", async () => {
 	const ws = new FakeWebSocket();

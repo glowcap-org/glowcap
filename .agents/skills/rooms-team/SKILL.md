@@ -72,10 +72,6 @@ Default: **lead owns human room replies**; members may answer human DMs.
 clear a member’s copy. “Leave it pending for the lead” is therefore wrong: it
 wedges the member wake while the lead already has (or missed) their own id.
 
-What failed this session: members `dismiss`ed their copies and posted
-`@lead over to you` while the **lead’s** wake was DM-only and never cleared the
-lead’s human room ids — CapTP delivered; nobody composed a public answer.
-
 Rules:
 
 - **Lead:** every wake must clear **your** human `channel=room` ids (answer, or

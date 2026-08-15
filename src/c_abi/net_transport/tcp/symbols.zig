@@ -13,20 +13,20 @@ pub const omitted_families = [_]shared.symbols.OmittedFamily{};
 
 pub const symbols = [_]Symbol{
     .{ .name = "pancake_tcp_last_error", .out_params = &.{0} },
-    .{ .name = "pancake_tcp_netlayer_new", .out_params = &.{0} },
+    .{ .name = "pancake_tcp_netlayer_new", .out_params = &.{1} },
     .{ .name = "pancake_tcp_transport_provider", .out_params = &.{1} },
     .{ .name = "pancake_tcp_netlayer_shutdown" },
     .{ .name = "pancake_tcp_netlayer_release", .blocking = true, .nonblocking = true },
     .{
         .name = "pancake_tcp_connect",
-        .out_params = &.{6},
+        .out_params = &.{7},
         .blocking = true,
         .nonblocking = true,
         .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
     },
     .{
         .name = "pancake_tcp_connect_with_diagnostic",
-        .out_params = &.{ 6, 7, 9 },
+        .out_params = &.{ 7, 8, 10 },
         .blocking = true,
         .nonblocking = true,
         .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
@@ -38,14 +38,14 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_tcp_listener_readiness_fd", .out_params = &.{1} },
     .{
         .name = "pancake_tcp_accept",
-        .out_params = &.{3},
+        .out_params = &.{4},
         .blocking = true,
         .nonblocking = true,
         .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
     },
     .{
         .name = "pancake_tcp_accept_with_diagnostic",
-        .out_params = &.{ 3, 4, 6 },
+        .out_params = &.{ 4, 5, 7 },
         .blocking = true,
         .nonblocking = true,
         .rust_omit = shared.symbols.diagnosed.rust_uses_tls,

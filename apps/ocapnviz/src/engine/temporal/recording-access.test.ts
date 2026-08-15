@@ -1,11 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import type { TimelineDocument } from "../timeline.ts";
 import { TimelineDocument as Doc } from "../timeline.ts";
-import {
-  observationsOf,
-  primaryObservations,
-  sourcesOf,
-} from "./recording-access.ts";
+import { observationsOf, primaryObservations, sourcesOf } from "./recording-access.ts";
 
 function emptyDoc(): TimelineDocument {
   return Doc.parse({

@@ -1,18 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Engine } from "./engine/engine.ts";
 import { docTitle, TimelineDocument } from "./engine/timeline.ts";
-import {
-  selectionActionFor,
-  selectionReducer,
-} from "./interactions/selection-store.ts";
+import { selectionActionFor, selectionReducer } from "./interactions/selection-store.ts";
 import {
   EMPTY_SELECTION,
   entityKey,
@@ -24,11 +13,7 @@ import {
   type SurfaceGestureCtx,
 } from "./interactions/types.ts";
 import { Stage } from "./render/Stage.tsx";
-import type {
-  SelectMode,
-  StageSelection,
-  StageVisibility,
-} from "./render/types.ts";
+import type { SelectMode, StageSelection, StageVisibility } from "./render/types.ts";
 import { UnifiedCanvas } from "./render/UnifiedCanvas.tsx";
 import { TimelinePanel } from "./ui/Timeline/TimelinePanel.tsx";
 import { LegendBody, LegendReferenceButton } from "./ui/Legend.tsx";
@@ -54,12 +39,7 @@ import { claimRecording } from "./engine/live-mode.ts";
 import { ResizeHandle } from "./ui/ResizeHandle.tsx";
 import { StageControls } from "./ui/StageControls.tsx";
 import { ToolPalette } from "./ui/ToolPalette.tsx";
-import {
-  DiscardAllButton,
-  ToolCommandRow,
-  UndoAllButton,
-  UnpinAllButton,
-} from "./ui/ToolCommands.tsx";
+import { DiscardAllButton, ToolCommandRow, UndoAllButton, UnpinAllButton } from "./ui/ToolCommands.tsx";
 import { ToolDraftStore, ToolOptionsBar } from "./ui/ToolOptionsBar.tsx";
 import { BusErrorModal } from "./ui/error/ErrorModal.tsx";
 import { ConfirmDialog } from "./ui/ConfirmDialog.tsx";
@@ -71,20 +51,8 @@ import { importError } from "./engine/errors.ts";
 import { observationsOf } from "./engine/temporal/recording-access.ts";
 import type { ClipboardPayload } from "./engine/schema/clipboard.ts";
 import type { IdRemap } from "./engine/schema/paste.ts";
-import {
-  ModeToggle,
-  SaveOpenControls,
-  UndoRedoControls,
-} from "./ui/topbar.tsx";
-import {
-  c,
-  FONT,
-  PANEL,
-  SIZE,
-  SPACE,
-  type Theme,
-  WEIGHT,
-} from "./ui/tokens.ts";
+import { ModeToggle, SaveOpenControls, UndoRedoControls } from "./ui/topbar.tsx";
+import { c, FONT, PANEL, SIZE, SPACE, type Theme, WEIGHT } from "./ui/tokens.ts";
 import { nextVisCycleStep } from "./engine/visibility.ts";
 import { scenarios } from "./fixtures/index.ts";
 import {
@@ -134,10 +102,8 @@ function appShellStyle(
 ): React.CSSProperties {
   return {
     display: "grid",
-    gridTemplateColumns:
-      `${sizes.leftPaneWidth}px 1fr ${sizes.rightPaneWidth}px`,
-    gridTemplateRows:
-      `${TOP_BAR_HEIGHT}px minmax(0, 1fr) ${bottomPaneHeight}px`,
+    gridTemplateColumns: `${sizes.leftPaneWidth}px 1fr ${sizes.rightPaneWidth}px`,
+    gridTemplateRows: `${TOP_BAR_HEIGHT}px minmax(0, 1fr) ${bottomPaneHeight}px`,
     width: "100vw",
     height: "100vh",
     fontFamily: FONT.sans,
@@ -361,8 +327,7 @@ export function App() {
   // Timeline surface so both halves of the selection bus speak the
   // same store actions.
   const handleSetSelection = useCallback(
-    (entities: ReadonlySet<EntityRefKey>) =>
-      dispatchSelection({ kind: "set-selection", entities }),
+    (entities: ReadonlySet<EntityRefKey>) => dispatchSelection({ kind: "set-selection", entities }),
     [],
   );
   // Single `rename-entity` dispatch — see `selection-store.ts`
@@ -415,9 +380,7 @@ export function App() {
     // `BOTTOM_PANE_DEFAULT` first and the auto-size effect shrinks
     // to intrinsic on the next tick, producing a visible flash
     // (most obvious in Live mode where intrinsic ≪ 220).
-    const fittedBottom = timelineIntrinsic > 0
-      ? Math.max(timelineIntrinsic, bottomPaneMin)
-      : undefined;
+    const fittedBottom = timelineIntrinsic > 0 ? Math.max(timelineIntrinsic, bottomPaneMin) : undefined;
     resetSizes(
       fittedBottom !== undefined ? { bottomPaneHeight: fittedBottom } : {},
     );
@@ -649,9 +612,7 @@ export function App() {
           dispatch({ type: "set-mode", mode: "play" });
         }
       } catch (caught) {
-        const message = caught instanceof Error
-          ? caught.message
-          : String(caught);
+        const message = caught instanceof Error ? caught.message : String(caught);
         pushError({
           error: importError(
             `${file.name} could not be read: ${message}`,
@@ -685,9 +646,7 @@ export function App() {
       }),
     [],
   );
-  const engine = state.mode === "live"
-    ? captureEngine ?? idleLiveEngine
-    : bufferEngine;
+  const engine = state.mode === "live" ? captureEngine ?? idleLiveEngine : bufferEngine;
 
   // Forward engine errors onto the app-wide error bus so the
   // top-level <ErrorToast /> and <ErrorModal /> can render them.
@@ -1002,15 +961,12 @@ function AppView({
         discardsWork &&
         !await requestConfirm({
           title: "Discard unsaved changes?",
-          detail:
-            "Switching source replaces what is loaded, so anything unsaved " +
+          detail: "Switching source replaces what is loaded, so anything unsaved " +
             "in it goes.",
           confirmLabel: "Switch source",
         })
       ) {
-        picker.value = sourceInfo?.kind !== "builtin"
-          ? CURRENT_SOURCE_OPTION
-          : state.scenarioId;
+        picker.value = sourceInfo?.kind !== "builtin" ? CURRENT_SOURCE_OPTION : state.scenarioId;
         return;
       }
       // Picking a fixture explicitly clears anything that would
@@ -1088,9 +1044,7 @@ function AppView({
       // still clears the selection under every other tool. Escape cancels the
       // flow, switching tools cancels it, and re-clicking the armed node
       // cancels inside `advanceTwoClick`.
-      const twoClickTool = state.mode === "build" && isTwoClickTool(state.tool)
-        ? state.tool
-        : null;
+      const twoClickTool = state.mode === "build" && isTwoClickTool(state.tool) ? state.tool : null;
       if (twoClickTool !== null) {
         // Whether this tool takes this node is asked in one place, the same
         // one the cursor and the hover ring read. A refused node is inert
@@ -1108,9 +1062,7 @@ function AppView({
           // front of them at that second click is the one they
           // meant.
           const drafts = toolDrafts.read();
-          const parsedFlight = drafts.messageFlightMs.length > 0
-            ? Number(drafts.messageFlightMs)
-            : NaN;
+          const parsedFlight = drafts.messageFlightMs.length > 0 ? Number(drafts.messageFlightMs) : NaN;
           advanceTwoClick(
             engine,
             twoClickTool,
@@ -1122,12 +1074,8 @@ function AppView({
               codec: drafts.sessionCodec,
               captpVersion: drafts.sessionCaptpVersion,
               initialState: drafts.sessionInitialState,
-              ...(drafts.messageLabel.length > 0
-                ? { messageLabel: drafts.messageLabel }
-                : {}),
-              ...(Number.isFinite(parsedFlight)
-                ? { flightMs: parsedFlight }
-                : {}),
+              ...(drafts.messageLabel.length > 0 ? { messageLabel: drafts.messageLabel } : {}),
+              ...(Number.isFinite(parsedFlight) ? { flightMs: parsedFlight } : {}),
             },
           );
         }
@@ -1300,45 +1248,29 @@ function AppView({
   // focus session so a typing burst becomes one undo step.
   const builderEditor = useMemo<EditorBindings>(
     () => ({
-      onUpdatePeer: (peerId, patch) =>
-        engine.dispatch({ kind: "update-peer", peerId, patch }),
-      onRepositionPeer: (peerId, position) =>
-        engine.dispatch({ kind: "reposition-peer", peerId, position }),
-      onUnpinPeer: (peerId) =>
-        engine.dispatch({ kind: "clear-peer-position", peerId }),
+      onUpdatePeer: (peerId, patch) => engine.dispatch({ kind: "update-peer", peerId, patch }),
+      onRepositionPeer: (peerId, position) => engine.dispatch({ kind: "reposition-peer", peerId, position }),
+      onUnpinPeer: (peerId) => engine.dispatch({ kind: "clear-peer-position", peerId }),
       onRepositionEndpoint: (endpointId, position) =>
         engine.dispatch({ kind: "reposition-endpoint", endpointId, position }),
-      onUnpinEndpoint: (endpointId) =>
-        engine.dispatch({ kind: "clear-endpoint-position", endpointId }),
-      onUpdateSession: (sessionId, patch) =>
-        engine.dispatch({ kind: "update-session", sessionId, patch }),
-      onUpdateMessage: (messageId, patch) =>
-        engine.dispatch({ kind: "update-message", messageId, patch }),
+      onUnpinEndpoint: (endpointId) => engine.dispatch({ kind: "clear-endpoint-position", endpointId }),
+      onUpdateSession: (sessionId, patch) => engine.dispatch({ kind: "update-session", sessionId, patch }),
+      onUpdateMessage: (messageId, patch) => engine.dispatch({ kind: "update-message", messageId, patch }),
       onMoveEvent: (move) => engine.dispatch({ kind: "move-event", move }),
-      onMoveEntitySpan: (move) =>
-        engine.dispatch({ kind: "move-entity-span", move }),
-      onSetPeerDuration: (peerId, duration) =>
-        engine.dispatch({ kind: "set-peer-duration", peerId, duration }),
-      onClearPeerEnd: (peerId) =>
-        engine.dispatch({ kind: "clear-peer-end", peerId }),
-      onSetPeerStart: (peerId, t) =>
-        engine.dispatch({ kind: "set-peer-start", peerId, t }),
-      onClearPeerStart: (peerId) =>
-        engine.dispatch({ kind: "clear-peer-start", peerId }),
-      onSetSessionStart: (sessionId, t) =>
-        engine.dispatch({ kind: "set-session-start", sessionId, t }),
-      onClearSessionStart: (sessionId) =>
-        engine.dispatch({ kind: "clear-session-start", sessionId }),
-      onSetMessageStart: (messageId, t) =>
-        engine.dispatch({ kind: "set-message-start", messageId, t }),
-      onClearMessageStart: (messageId) =>
-        engine.dispatch({ kind: "clear-message-start", messageId }),
+      onMoveEntitySpan: (move) => engine.dispatch({ kind: "move-entity-span", move }),
+      onSetPeerDuration: (peerId, duration) => engine.dispatch({ kind: "set-peer-duration", peerId, duration }),
+      onClearPeerEnd: (peerId) => engine.dispatch({ kind: "clear-peer-end", peerId }),
+      onSetPeerStart: (peerId, t) => engine.dispatch({ kind: "set-peer-start", peerId, t }),
+      onClearPeerStart: (peerId) => engine.dispatch({ kind: "clear-peer-start", peerId }),
+      onSetSessionStart: (sessionId, t) => engine.dispatch({ kind: "set-session-start", sessionId, t }),
+      onClearSessionStart: (sessionId) => engine.dispatch({ kind: "clear-session-start", sessionId }),
+      onSetMessageStart: (messageId, t) => engine.dispatch({ kind: "set-message-start", messageId, t }),
+      onClearMessageStart: (messageId) => engine.dispatch({ kind: "clear-message-start", messageId }),
       onSetMessageDuration: (messageId, duration) =>
         engine.dispatch({ kind: "set-message-duration", messageId, duration }),
       onSetSessionDuration: (sessionId, duration) =>
         engine.dispatch({ kind: "set-session-duration", sessionId, duration }),
-      onClearSessionEnd: (sessionId) =>
-        engine.dispatch({ kind: "clear-session-end", sessionId }),
+      onClearSessionEnd: (sessionId) => engine.dispatch({ kind: "clear-session-end", sessionId }),
       onSetSessionKeyframe: (sessionId, property, t, value) =>
         engine.dispatch({
           kind: "set-session-keyframe",
@@ -1369,8 +1301,7 @@ function AppView({
           property,
           value,
         }),
-      onRemovePeerUpdate: (peerId, t, property) =>
-        engine.dispatch({ kind: "remove-peer-update", peerId, t, property }),
+      onRemovePeerUpdate: (peerId, t, property) => engine.dispatch({ kind: "remove-peer-update", peerId, t, property }),
       onSetSessionInitialState: (sessionId, state) =>
         engine.dispatch({
           kind: "set-session-initial-state",
@@ -1379,8 +1310,7 @@ function AppView({
         }),
       beginEdit: (label) => engine.beginTransaction(label),
       endEdit: () => engine.endTransaction(),
-      validateRename: (kind, oldId, newId) =>
-        engine.validate({ kind: `rename-${kind}`, oldId, newId }),
+      validateRename: (kind, oldId, newId) => engine.validate({ kind: `rename-${kind}`, oldId, newId }),
       onRename: (kind, oldId, newId) => {
         // Pre-flight so we don't go through dispatch's bus path
         // for the inline-shown case. The Inspector renders the
@@ -1592,9 +1522,7 @@ function AppView({
   // Same selection → same key → no remount → no fade. Different
   // selection → remount → `ocv-inspector-swap` runs. Keyed on what is SHOWN, so
   // the fade runs when the pane's content actually changes.
-  const inspectorKey = shown.anchor
-    ? `${shown.anchor.kind}:${shown.anchor.id}`
-    : "none";
+  const inspectorKey = shown.anchor ? `${shown.anchor.kind}:${shown.anchor.id}` : "none";
 
   return (
     <div
@@ -1692,8 +1620,7 @@ function AppView({
             liveConnected={liveConnected}
             liveRecording={liveRecording}
             onScenarioChange={handleScenarioChange}
-            onLiveSturdyrefChange={(sturdyref) =>
-              dispatch({ type: "set-live-sturdyref", sturdyref })}
+            onLiveSturdyrefChange={(sturdyref) => dispatch({ type: "set-live-sturdyref", sturdyref })}
             editor={state.mode === "build" ? builderEditor : undefined}
           />
         </Section>
@@ -1712,8 +1639,7 @@ function AppView({
           edge="right"
           label="Left panel width"
           title="Drag or use the left and right arrow keys to resize"
-          onDelta={(d) =>
-            onResize((s) => ({ ...s, leftPaneWidth: s.leftPaneWidth + d }))}
+          onDelta={(d) => onResize((s) => ({ ...s, leftPaneWidth: s.leftPaneWidth + d }))}
         />
       </aside>
 
@@ -1814,8 +1740,7 @@ function AppView({
           edge="left"
           label="Right panel width"
           title="Drag or use the left and right arrow keys to resize"
-          onDelta={(d) =>
-            onResize((s) => ({ ...s, rightPaneWidth: s.rightPaneWidth - d }))}
+          onDelta={(d) => onResize((s) => ({ ...s, rightPaneWidth: s.rightPaneWidth - d }))}
         />
         {
           /* Section title swaps: "DETAILS" when nothing is
@@ -1923,15 +1848,9 @@ function AppView({
             onSelectEvent={handleSelect}
             focusedEventId={focusedEventId}
             onFocusEvent={setFocusedEventId}
-            onMoveEvent={state.mode === "build"
-              ? builderEditor.onMoveEvent
-              : undefined}
-            onMoveEntitySpan={state.mode === "build"
-              ? builderEditor.onMoveEntitySpan
-              : undefined}
-            beginEdit={state.mode === "build"
-              ? builderEditor.beginEdit
-              : undefined}
+            onMoveEvent={state.mode === "build" ? builderEditor.onMoveEvent : undefined}
+            onMoveEntitySpan={state.mode === "build" ? builderEditor.onMoveEntitySpan : undefined}
+            beginEdit={state.mode === "build" ? builderEditor.beginEdit : undefined}
             endEdit={state.mode === "build" ? builderEditor.endEdit : undefined}
             cycleRowVisibility={engine
               ? (category, entityId) => {
@@ -2000,16 +1919,14 @@ function AppView({
             onIntrinsicHeightChange={onTimelineIntrinsicChange}
             onMinHeightChange={onTimelineMinHeightChange}
             autoSizeTimeline={state.autoSizeTimeline}
-            onSetAutoSizeTimeline={(value) =>
-              dispatch({ type: "set-auto-size-timeline", value })}
+            onSetAutoSizeTimeline={(value) => dispatch({ type: "set-auto-size-timeline", value })}
             disabled={state.mode === "live"}
             live={state.mode === "live"
               ? {
                 connected: liveConnected,
                 recording: liveRecording,
-                bufferHasContent:
-                  (bufferEngine ? observationsOf(bufferEngine.doc).length : 0) >
-                    0,
+                bufferHasContent: (bufferEngine ? observationsOf(bufferEngine.doc).length : 0) >
+                  0,
                 onStartRecord,
                 onStopRecord,
                 onDiscardRecording,
@@ -2023,9 +1940,7 @@ function AppView({
                 // naturally via the engine's own no-op guard.
                 asOneEdit(
                   engine,
-                  entities.size === 1
-                    ? "Delete entity"
-                    : `Delete ${entities.size} entities`,
+                  entities.size === 1 ? "Delete entity" : `Delete ${entities.size} entities`,
                   () => {
                     for (const key of entities) {
                       const ref = parseEntityKey(key);

@@ -65,7 +65,13 @@ fn rktParamType(comptime T: type, comptime specials: []const Special) []const u8
         if (T == s.T) return s.spelling;
     }
     return switch (@typeInfo(T)) {
-        .optional => |o| rktParamType(o.child, specials),
+        .optional => |o| switch (@typeInfo(o.child)) {
+            .pointer => |p| if (p.size == .one and @typeInfo(p.child) == .@"struct")
+                "(_or-null _" ++ baseName(p.child) ++ "-pointer)"
+            else
+                rktParamType(o.child, specials),
+            else => rktParamType(o.child, specials),
+        },
         .pointer => |p| blk: {
             if (p.child == u8 or p.child == anyopaque) break :blk "_pointer";
             switch (@typeInfo(p.child)) {
@@ -134,9 +140,10 @@ fn slotCell(comptime T: type) ?Cell {
                         u32 => "_uint32",
                         u64 => "_uint64",
                         usize => "_size",
-                        // A signed out-slot: the readiness descriptor the onion
-                        // archive hands back.
+                        // Signed out-slots: the readiness descriptor the onion
+                        // archive hands back, and the close-wait budget.
                         i32 => "_int32",
+                        i64 => "_int64",
                         else => @compileError("unmapped scalar slot width"),
                     },
                     .init = "0",
@@ -216,6 +223,7 @@ const EagerConfig = struct {
     /// from; only needed when the archive has multi-out rows.
     header_path: ?[]const u8 = null,
     specials: []const Special = &.{},
+    extra_require: ?[]const u8 = null,
 };
 
 fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
@@ -244,6 +252,9 @@ fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
         \\(require ffi/unsafe
         \\         ffi/unsafe/define
         \\         "ffi-shared.rkt"
+    );
+    if (cfg.extra_require) |path| try out.print(gpa, "\n         \"{s}\"\n", .{path});
+    try out.appendSlice(gpa,
         \\         "lib-resolve.rkt")
         \\
     );
@@ -269,7 +280,7 @@ fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
             const sig = comptime funSig(cfg.M, row, cfg.specials);
             switch (comptime rowClass(cfg.M, row, cfg.hand_wrapped)) {
                 .plain => {
-                    if (cfg.definer.len + row.name.len + sig.len + 10 <= 100) {
+                    if (cfg.definer.len + row.name.len + sig.len + 10 <= 120) {
                         try out.print(gpa, "({s} {s} {s})\n", .{ cfg.definer, row.name, sig });
                     } else {
                         try out.print(gpa, "({s} {s}\n  {s})\n", .{ cfg.definer, row.name, sig });
@@ -283,7 +294,7 @@ fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
                     const cell = comptime slotCell(info.params[info.params.len - 1].type.?).?;
                     try out.print(gpa, "({s} {s}*\n  {s}\n  #:c-id {s})\n", .{ cfg.definer, row.name, sig, row.name });
                     const wrap_width = 10 + row.name.len + 12 + row.name.len + 1 + cell.ctype.len + cell.init.len + 4;
-                    if (wrap_width <= 100) {
+                    if (wrap_width <= 120) {
                         try out.print(gpa, "(define {s} (wrap-out1 {s}* {s} {s}))\n", .{ row.name, row.name, cell.ctype, cell.init });
                     } else {
                         try out.print(gpa, "(define {s}\n  (wrap-out1 {s}* {s} {s}))\n", .{ row.name, row.name, cell.ctype, cell.init });
@@ -441,6 +452,7 @@ fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
         .archive = "pancake_net_transport_tcp",
         .lib_var = "tcp-lib",
         .definer = "define-pancake-tcp",
+        .extra_require = "ffi-tcp-types.rkt",
         .note =
         \\;; The raw `ffi/unsafe` table of libpancake_net_transport_tcp. The
         \\;; hand-written sibling (`ffi-tcp.rkt`) owns the prose and re-provides this

@@ -1,3 +1,4 @@
+import * as tcp from "@pancake/tcp";
 // Live interop proof for the Deno binding: a peer built on `libpancake`'s C ABI
 // holds a *keyed* OCapN conversation with a real Spritely Goblins vat over TCP —
 // driven through the *same* `connect`/`enliven`/`send` application surface the
@@ -11,7 +12,7 @@
 // (cache hit, no second bootstrap). Needs `racket` + `goblins` on PATH;
 // `zig build deno-goblins-interop`.
 
-import { connect, tcpLocator } from "@pancake/stack";
+import { formatLocatorUri, Runtime } from "@pancake/runtime";
 import { fail, readSturdyrefPath } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -49,8 +50,9 @@ try {
 
 	// `connect` completes the keyed handshake; reaching here means Goblins accepted
 	// our signed start-session and we accepted its.
-	const locator = tcpLocator(HOST, PORT);
-	const session = await connect(locator);
+	const locator = tcp.locator(HOST, PORT);
+	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
+	const session = await runtime.connect(locator);
 	console.log(
 		"deno-goblins-interop: session open, keyed start-session accepted by goblins",
 	);
@@ -60,7 +62,7 @@ try {
 	// A sturdyref names a peer, and the enliven checks that peer against the
 	// session it rides (ADR-0098). Build it from the very locator this session
 	// dialed, so the two cannot drift apart.
-	const sturdyref = `${locator}/s/${sturdyrefPath}`;
+	const sturdyref = `${formatLocatorUri(locator)}/s/${sturdyrefPath}`;
 	const echo = await session.enliven(sturdyref);
 	console.log("deno-goblins-interop: enlivened goblins echo cap, calling it");
 

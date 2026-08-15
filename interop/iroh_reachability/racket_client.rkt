@@ -9,7 +9,7 @@
 ;; an empty hint set, so a session that opens proves the dial was resolved over
 ;; real discovery infrastructure and carried over a real relay / hole-punched
 ;; path — not hinted, not loopback-booked. The client's dial rides the
-;; `connect` DISCOVERY retry that settles while the publish propagates.
+;; iroh provider's DISCOVERY retry that settles while the publish propagates.
 ;;
 ;; Not a hermetic gate. This step touches public n0 infrastructure
 ;; (`*.relay.iroh.network`, `dns.iroh.link`), and discovery-propagation timing
@@ -54,11 +54,16 @@
         server-id)
 
 ;; ── Client: dial by node id ALONE — empty hints — over real n0 discovery ───────
+(define client-runtime
+  (open-runtime
+   #:providers (list (iroh-provider (make-iroh-config IROH-REACH-DISCOVERY)))))
 (with-handlers ([(lambda (_) #t)
                  (lambda (e)
+                   (runtime-close! client-runtime)
                    (iroh-server-close! server)
                    (raise e))])
-  (define client (connect (format-peer-uri TRANSPORT-IROH server-id) IROH-REACH-DISCOVERY))
+  (define client
+    (runtime-connect client-runtime (iroh-locator server-id)))
   (printf "racket-iroh-reachability: client dialed by node id alone and opened the keyed session\n")
 
   (define greeter (session-fetch client "greeter"))
@@ -77,6 +82,7 @@
   ;; The accepted connections share that loop and netlayer, so they are never
   ;; closed by hand; their serve threads end on the EOF and are joined here.
   (session-close! client)
+  (runtime-close! client-runtime)
   (iroh-server-close! server)
   (thread-wait server-accept)
   (for ([t (unbox server-serves)])

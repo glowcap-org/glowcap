@@ -1,5 +1,7 @@
-/* Frame ownership over the C ABI: a borrowed PancakeFrame view over caller-owned
-   bytes, the same shape as examples/zig/frame_view.zig. */
+/* Frame ownership over the C ABI: a borrowed PancakeFrame view over
+   caller-owned bytes. The C ABI has no owned-frame constructor; an owned
+   frame is a PancakeManagedFrame from pancake_host_session_take_outbound,
+   as the host embedder example shows. */
 
 #include "pancake_ocapn.h"
 

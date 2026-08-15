@@ -13,8 +13,9 @@ amended_by: [ADR-0113]
 # ADR-0107 A sealed byte channel for the cleartext netlayers
 
 `noise-tcp` and `noise-relay` ship through the native Host tiers, the generic C
-driver, and all four native bindings. Browser wasm peers use `noise-relay`
-through the rendezvous path and report authenticated transport provenance.
+driver, and all four native bindings. Browser wasm peers do not compose the
+`noise-relay` provider: they use WebRTC for an authenticated channel, or
+cleartext `keyed-relay` rendezvous.
 
 ## Context
 
@@ -287,12 +288,6 @@ Each item names what carries it, or says plainly that nothing does yet.
    both hold this for their plaintext probes. The C driver repeats the live
    registered-provider path in
    [`test/c_abi/driver_loop_test.zig`](../../../test/c_abi/driver_loop_test.zig).
-7. **A browser holds one.** Browser wasm peers complete `noise-relay` sessions
-   through the reference relay in the Rooms direct-message proofs. A real
-   Chromium peer reads `authenticated_transport` through
-   `Session.partnerIdentity()` before fetching a capability under
-   `zig build rooms-web-noise-relay-provenance`.
-
 Items 2 and 4 are the load-bearing identity claims: the channel reports a
 stronger fact only after proving the exact key it reports.
 

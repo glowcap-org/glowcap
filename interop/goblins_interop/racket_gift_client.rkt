@@ -24,6 +24,7 @@
 ;; `zig build racket-goblins-gift`.
 
 (require "../../bindings/racket/pancake.rkt"
+         "../../bindings/racket/pancake-tcp.rkt"
          racket/port
          racket/string
          "../_common/racket/helpers.rkt")
@@ -98,7 +99,9 @@
   ;; Fetch a vendor, then lift Bob's greeter from an ordinary call reply. The
   ;; reply ref's home is this gifter↔Bob connection, so pancake can re-gift it
   ;; without an enrollment verb.
-  (define to-bob (connect (tcp-locator HOST PORT) #:host gifter-host))
+  (define runtime
+    (open-runtime #:providers (list (tcp-provider)) #:adopt-host gifter-host))
+  (define to-bob (runtime-connect runtime (tcp-locator HOST PORT)))
   (define vendor (session-fetch to-bob VENDOR-SWISS))
   (define greeter (session-send to-bob vendor (string->symbol "")))
   (unless (ref? greeter) (gift-fail "the vendor reply was not a capability"))
@@ -116,7 +119,7 @@
   ;; for the greeter, redeems pancake's give, and calls Bob directly.
   (define-values (carol carol-out carol-in carol-err)
     (subprocess #f #f #f RACKET RECIPIENT-SCRIPT
-                (socket-addr-designator HOST gifter-port) INTRODUCER-SWISS
+                (tcp-address-designator HOST gifter-port) INTRODUCER-SWISS
                 (number->string (+ PORT 1))))
   (track-child! carol)
   (close-output-port carol-in)
@@ -138,6 +141,7 @@
   (printf "racket-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n")
 
   (session-close! to-bob)
+  (runtime-close! runtime)
   (server-close! gifter)
   (kill-children!)
   (exit 0))

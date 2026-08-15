@@ -91,33 +91,37 @@ fn validateStartSession(
     if (ss.captp_version != model.Preference.baseline.captp_version) {
         return Error.CaptpVersionMismatch;
     }
-    try validateStartSessionHints(ss);
+    _ = try parsePreferenceHints(ss.acceptable_location.hints);
 }
 
-fn validateStartSessionHints(ss: anytype) Error!void {
-    const hints = ss.acceptable_location.hints;
+/// CapTP preference encoded in start-session location hints. Absent names mean
+/// the baseline. Duplicate names, a non-string value, or an unreadable token is
+/// `MalformedMessage`. Session owns this parse so hello validation, apply, and
+/// advertised-profile checks cannot drift.
+pub fn parsePreferenceHints(hints: anytype) Error!model.Preference {
     try validateHintNamesUnique(hints);
-    if (try startSessionHintValue(hints, model.transport.hint_captp_version)) |value| {
-        const text = switch (value) {
-            .string => |s| s,
-            else => return Error.MalformedMessage,
-        };
-        if (model.CaptpVersion.fromWireString(text) == null) return Error.MalformedMessage;
+    var out = model.Preference.baseline;
+    if (try preferenceHintString(hints, model.transport.hint_captp_version)) |text| {
+        out.captp_version = model.CaptpVersion.fromWireString(text) orelse
+            return Error.MalformedMessage;
     }
-    if (try startSessionHintValue(hints, model.transport.hint_codec)) |value| {
-        const text = switch (value) {
-            .string => |s| s,
-            else => return Error.MalformedMessage,
-        };
-        _ = std.fmt.parseInt(u16, text, 10) catch return Error.MalformedMessage;
+    if (try preferenceHintString(hints, model.transport.hint_codec)) |text| {
+        const id = std.fmt.parseInt(u16, text, 10) catch return Error.MalformedMessage;
+        out.codec = @enumFromInt(id);
     }
-    if (try startSessionHintValue(hints, model.transport.hint_features)) |value| {
-        const text = switch (value) {
-            .string => |s| s,
-            else => return Error.MalformedMessage,
-        };
-        if (model.FeatureSet.fromWireString(text) == null) return Error.MalformedMessage;
+    if (try preferenceHintString(hints, model.transport.hint_features)) |text| {
+        out.features = model.FeatureSet.fromWireString(text) orelse
+            return Error.MalformedMessage;
     }
+    return out;
+}
+
+fn preferenceHintString(hints: anytype, name: []const u8) Error!?[]const u8 {
+    const value = (try startSessionHintValue(hints, name)) orelse return null;
+    return switch (value) {
+        .string => |s| s,
+        else => return Error.MalformedMessage,
+    };
 }
 
 fn validateHintNamesUnique(hints: anytype) Error!void {
@@ -125,11 +129,7 @@ fn validateHintNamesUnique(hints: anytype) Error!void {
         hints.validateUniqueNames() catch return Error.MalformedMessage;
         return;
     }
-    for (hints.entries, 0..) |entry, i| {
-        for (hints.entries[0..i]) |seen| {
-            if (std.mem.eql(u8, seen.name, entry.name)) return Error.MalformedMessage;
-        }
-    }
+    if (model.firstDuplicateHintName(hints.entries) != null) return Error.MalformedMessage;
 }
 
 fn startSessionHintValue(hints: anytype, name: []const u8) Error!?model.HintValue {
