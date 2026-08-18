@@ -15,6 +15,8 @@ import {
 	DESIGNATOR_SCHEME_ADDRESS,
 	DESIGNATOR_SCHEME_KEY,
 	DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT,
+	DURABLE_PROVENANCE_UNAUTHENTICATED,
+	INTERNAL,
 } from "@pancake/abi";
 import {
 	attenuateProxy,
@@ -46,7 +48,7 @@ import { type AbortDetail, checkHost, PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
 import { CLOSED, HANDSHAKE_TIMEOUT_MS, INVALID_ARGUMENT, NOT_FOUND, OK, TIMEOUT } from "@pancake/abi";
 import { type Locator, withOwnedLocator } from "./locator.ts";
-import { type CloseOptions, encodeCloseOptions, monotonicNowMs } from "./lifecycle.ts";
+import { type CloseOptions, encodeCloseOptions, lifecycleClosed, monotonicNowMs } from "./lifecycle.ts";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
@@ -107,8 +109,10 @@ export function provenanceFromAbi(raw: number): DurableProvenance {
 	switch (raw) {
 		case DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT:
 			return "authenticated-transport";
-		default:
+		case DURABLE_PROVENANCE_UNAUTHENTICATED:
 			return "unauthenticated";
+		default:
+			throw new PancakeError(INTERNAL, `pancake ABI returned unknown durable provenance ${raw}`);
 	}
 }
 
@@ -339,7 +343,7 @@ export class Session {
 			get ptr() {
 				return s.#ptr;
 			},
-			vowMinted: (vow) => s.#host.vowMinted(vow),
+			vowMinted: (vow, trackGc = false) => s.#host.vowMinted(vow, trackGc && s.#gcEnabled),
 			attend: () => s.#attendInbound(),
 			awaitVow: (vow) => s.#host.awaitVow(vow),
 			kickActions: () => s.#host.kickActions(),
@@ -354,7 +358,7 @@ export class Session {
 			attend: () => s.#attendInbound(),
 			awaitVow: (vow) => s.#host.awaitVow(vow),
 			kickActions: () => s.#host.kickActions(),
-			vowMinted: (vow) => s.#host.vowMinted(vow),
+			vowMinted: (vow, trackGc = false) => s.#host.vowMinted(vow, trackGc && s.#gcEnabled),
 			get hostRaw() {
 				return s.#host.raw;
 			},
@@ -731,6 +735,7 @@ export class Session {
 					ab(state),
 				);
 				if (rc !== 0 && rc !== TIMEOUT) checkHost(rc);
+				lifecycleClosed(new DataView(state.buffer).getUint32(0, true));
 				// Drain what the progress call queued (a spent grace escalates
 				// into teardown actions). A drain that ran work signals the
 				// armed waiter, so the wait below returns at once and the loop
@@ -767,8 +772,8 @@ export class Session {
 
 	/** Commit wrapper retirement after the native owner released the whole Host
 	 * or loop. No per-session native call is valid beyond this boundary. */
-	nativeOwnerDidRelease(): void {
-		if (this.#released) return;
+	nativeOwnerDidRelease(): Promise<void> {
+		if (this.#released) return this.#transportClose ?? Promise.resolve();
 		this.#closing = true;
 		this.#released = true;
 		this.#releasePending = false;
@@ -781,8 +786,9 @@ export class Session {
 			} catch (error) {
 				this.#transportClose = Promise.reject(error);
 			}
-			void this.#transportClose.catch(() => {});
+			this.#host.trackSessionRetirement(this.#transportClose);
 		}
+		return this.#transportClose;
 	}
 
 	/** Project one native SESSION_CLOSED event onto this wrapper before release.
@@ -815,6 +821,7 @@ export class Session {
 			} catch (error) {
 				this.#transportClose = Promise.reject(error);
 			}
+			this.#host.trackSessionRetirement(this.#transportClose);
 			void this.#transportClose.catch(() => {});
 		}
 		const transportClose = this.#transportClose;
@@ -979,8 +986,9 @@ export class Session {
 			swiss,
 			name,
 			hostS.pancake_host_session_fetch,
+			true,
 		);
-		return this.#gcEnabled ? this.#host.trackGcImport(ref) : ref;
+		return ref;
 	}
 
 	/** Enliven a sturdyref against this session (ADR-0098): bring the
@@ -1001,7 +1009,14 @@ export class Session {
 			utf8Encoder.encode(sturdyref),
 			sturdyref,
 			hostS.pancake_host_session_enliven,
+			false,
 		);
+	}
+
+	/** Apply this Session's opt-in to a native-projected application value.
+	 * Binding-internal: the trampoline uses it for delivered arguments. */
+	trackGcArgument(value: Argument): Argument {
+		return this.#gcEnabled ? this.#host.trackGcArgument(value) : value;
 	}
 
 	/** Eventual-send `verb(args)` to `target` and return a `RemotePromise` for
@@ -1207,16 +1222,14 @@ export class Session {
 
 	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
 
-	/** Opt this session into distributed GC (ADR-0063), off by default. Once
-	 * on, a far capability returned by {@link fetch} releases its import to the
-	 * partner — a single `op:gc-exports` delta, routed through the host to the
-	 * import's home connection — when the runtime reclaims the last `Ref` to
-	 * it, so the partner can release the matching export. Collection is
-	 * scheduled by the JS `FinalizationRegistry`; once a release is parked it
-	 * remains Host-owned until native commit. Capabilities
-	 * lifted elsewhere (a `send` reply, a delivered argument, an `enliven`
-	 * result the dedup cache owns) are outside this seam. Returns `this` for
-	 * chaining. */
+	/** Opt this session into distributed GC (ADR-0063), off by default. Every
+	 * capability occurrence projected through {@link fetch}, a fulfilled far
+	 * operation, or a recursively nested delivered argument releases its Host
+	 * retain when the runtime reclaims its `Ref`. The Host routes any required
+	 * `op:gc-exports` to the import's actual home. Collection is scheduled by
+	 * `FinalizationRegistry`; once parked, a release remains Host-owned until
+	 * native commit. An `enliven` result stays owned by its dedup cache. Returns
+	 * `this` for chaining. */
 	withGc(): this {
 		this.#gcEnabled = true;
 		return this;
@@ -1227,10 +1240,9 @@ export class Session {
 	 *
 	 * Releases one application retain. For a remote capability the Host emits
 	 * any required `op:gc-exports`; a local capability needs no wire message.
-	 * {@link withGc} does this too, but only for a {@link fetch} result and
-	 * only when the runtime gets round to it; this is deterministic and works
-	 * for any far capability this session holds, including one lifted from a
-	 * delivered argument or a reply.
+	 * {@link withGc} does this best-effort for every capability occurrence
+	 * projected by an opted-in session; this is deterministic and also works
+	 * for a handle outside that automatic seam.
 	 *
 	 * `ref` is spent afterwards and every use of it throws. The Host generation
 	 * makes the stale id fail closed; the binding rejects it before crossing the

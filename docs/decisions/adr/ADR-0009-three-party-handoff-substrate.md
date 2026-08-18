@@ -14,6 +14,7 @@ tags: [
 decision: Three-party handoff works end to end. Ed25519 signatures over OCapN-canonical `desc:*` records, a session-owned gift table with deposit / withdraw, recipient-match and monotonic handoff-count replay rejection, and cross-peer routing in caller-orchestrated free functions outside the per-peer dispatcher. Signature verification is an injected hook; signatures cover decoded fields, so a re-encode does not invalidate them.
 supersedes: []
 superseded_by: [ADR-0056]
+amended_by: [ADR-0116]
 ---
 
 # ADR-0009 Three-party handoff substrate
@@ -119,11 +120,11 @@ The engine exposes that seam (`installThirdPartyImport`,
 `Peer.applyRelayedResolution`). `engine.Node` owns the introducing-session
 promise proxy; `driver_core.Host` drives it when an answer would fulfill with a
 foreign **promise** token (`proxyForeignPromiseFulfill` /
-`claimProxyListenerFire`). Foreign **object** fulfills stay on
-`interceptFulfilledRef` gift redeem. Stamp/GC races (enroll-stamped `row_id`
+`projectProxyListenerFire`). Foreign **object** fulfills stay on
+`interceptFulfilledRoute` gift redeem. Stamp/GC races (enroll-stamped `row_id`
 applied after session mutation) live in
-`test/engine/relay_resolution_test.zig`; Node end-to-end proxy scenarios live in
-`test/engine/node_test.zig`.
+`test/engine/relay_resolution_test.zig`; Node end-to-end proxy scenarios live under
+`test/engine/node/` (`proxy_test.zig`, `relay_test.zig`).
 
 Implemented choreography:
 
@@ -136,12 +137,12 @@ Implemented choreography:
    (shared across recipient introduces of that wire); refused with
    `session_not_open` when the home peer is not yet open (CapTP break reason
    via `@errorName`).
-4. **Forward once.** `consumeProxyListenerFire` takes the Host-owned
-   resolution as fire owner, settles every recipient store (N=1 **moves**;
-   N>1 each store materializes via `materializeResolutionForStore`), and
-   tears the proxy down after settle. Matches memory.md: one home listen,
-   named materialize into N session stores, not N listens and not a public
-   `cloneResolution` spine.
+4. **Project once per recipient.** The Host lifts the consumed home fire to
+   opaque identity once. `projectProxyListenerFire` lowers that complete value
+   independently for each recipient through `stageInlinePassable`, then tears
+   down the proxy. There is one home listen and one bounded recipient
+   materialization—not N home listens, raw position forwarding, or a second
+   recursive projection walker.
 
 ### Signature verification and gifter-key provenance
 
@@ -155,7 +156,7 @@ canonical envelopes, not the gift-id field alone. It resolves the signed side
 and session name through the Host's authenticated live-session directory, then
 uses that Gifter–Exporter Peer's handshake key for the give and the give's
 recipient key for the receive. No gift row copies a gifter key.
-`test/engine/cross_peer_test.zig` proves the real-Ed25519 path and refuses a
+`test/engine/cross_peer/authority_test.zig` proves the real-Ed25519 path and refuses a
 certificate signed by another key.
 
 The live boundary now includes a three-party handoff against Goblins with
@@ -168,7 +169,7 @@ the bootstrap handoff registry used by the OCapN conformance peer.
 ## Scope (what this does not decide)
 
 - Cross-codec handoff re-encode and re-verify ship
-  (`test/engine/cross_peer_test.zig`; see also `docs/boundaries.md`), including
+  (`test/engine/cross_peer/`; see also `docs/boundaries.md`), including
   Cap'n Proto structural exporter locators (`#f` / `direct-addresses`). That
   Cap'n Proto path is pancake-to-pancake completeness, not a Goblins parity
   claim.
@@ -220,7 +221,7 @@ the bootstrap handoff registry used by the OCapN conformance peer.
   mismatch covers Zig scenarios, the upstream OCapN suite's
   `third_party_handoffs`, and live Goblins object handoff/gift. Relayed
   resolution / introducing-session promise proxy is proven by Zig scenarios
-  (`test/engine/relay_resolution_test.zig`, `test/engine/node_test.zig`) and
+  (`test/engine/relay_resolution_test.zig`, `test/engine/node/relay_test.zig`) and
   Host intercept; it is not covered by live `goblins-handoff` /
   `goblins-gift` (those prove object redeem/mint) nor by oracle fixtures.
 

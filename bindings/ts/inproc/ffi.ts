@@ -13,18 +13,21 @@
 // thread-local last-error read through `pancake_inproc_last_error`.
 
 import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+import { INPROC_ARCHIVE_FINGERPRINT } from "@pancake/abi";
 
 const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void";
+	V = "void",
+	U64 = "u64";
 
 export const inprocS = lazySymbols(() => libPath("pancake_net_transport_inproc"), {
+	pancake_inproc_archive_fingerprint: { parameters: [], result: U64 },
 	pancake_inproc_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 	pancake_inproc_netlayer_new: { parameters: [B], result: I, outBuffers: [0] },
 	pancake_inproc_netlayer_release: { parameters: [P], result: V, nonblocking: true },
-	pancake_inproc_connect_with_diagnostic: {
+	pancake_inproc_connect: {
 		parameters: [P, B, U, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [5, 6, 8],
@@ -32,31 +35,25 @@ export const inprocS = lazySymbols(() => libPath("pancake_net_transport_inproc")
 	},
 	pancake_inproc_listen: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_inproc_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_inproc_accept_with_diagnostic: {
+	pancake_inproc_accept: {
 		parameters: [P, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [3, 4, 6],
 		nonblocking: true,
 	},
-	pancake_inproc_conn_read_frame_with_diagnostic: {
+	pancake_inproc_conn_read_frame: {
 		parameters: [P, B, B, U, B],
 		result: I,
 		outBuffers: [1, 2, 4],
 		nonblocking: true,
 	},
-	pancake_inproc_conn_write_frame_with_diagnostic: {
-		parameters: [P, B, B, U, B],
-		result: I,
-		outBuffers: [2, 4],
-		nonblocking: true,
-	},
+	pancake_inproc_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
 	pancake_inproc_conn_shutdown: { parameters: [P], result: V },
 	pancake_inproc_conn_release: { parameters: [P], result: V, nonblocking: true },
 	pancake_inproc_listener_shutdown: { parameters: [P], result: V },
-	pancake_inproc_listener_release_with_diagnostic: {
-		parameters: [P, B, U, B],
-		result: I,
-		outBuffers: [1, 3],
-		nonblocking: true,
-	},
+	pancake_inproc_listener_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+}, {
+	symbol: "pancake_inproc_archive_fingerprint",
+	expected: INPROC_ARCHIVE_FINGERPRINT,
+	archive: "pancake_net_transport_inproc",
 });

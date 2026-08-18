@@ -70,8 +70,7 @@ import { explicitBound, implicitBound } from "./bound.ts";
 import type { Keyframe, KeyframeTrack } from "./keyframes.ts";
 import { observationsOf } from "./recording-access.ts";
 import { isDerived, markDerived, type TimeSpan } from "./time-span.ts";
-import type { EndpointAttachment } from "../../schema/topology.ts";
-import { SESSION_SIDES, type SessionSide } from "../../schema/topology.ts";
+import { type EndpointAttachment, SESSION_SIDES, type SessionSide } from "../../schema/session-end.ts";
 import {
   PEER_PROPERTIES,
   PEER_TRAJECTORY,

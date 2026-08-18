@@ -108,7 +108,9 @@ typedef struct PancakeWebrtcConfig {
   size_t ice_servers_len;
   uint32_t include_loopback_candidates;
   uint32_t worker_threads;
-} PancakeWebrtcConfig;/* Create the shared WebRTC runtime/readiness endpoint. Release it after every peer
+} PancakeWebrtcConfig;/* Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT before any other call. */
+uint64_t pancake_webrtc_archive_fingerprint(void);
+/* Create the shared WebRTC runtime/readiness endpoint. Release it after every peer
    created from it has been released. config carries the endpoint's settings; a
    NULL one is PANCAKE_ERR_NULL_POINTER. */
 int32_t pancake_webrtc_netlayer_new(const PancakeWebrtcConfig *config, PancakeWebrtcNetlayer **out_netlayer);
@@ -180,7 +182,7 @@ int32_t pancake_webrtc_transport_provider(PancakeWebrtcNetlayer *netlayer, Panca
    per-thread slot. A pancake_webrtc_* call that returns PANCAKE_ERR_IO records its
    concrete cause here. Copies at most cap-1 bytes and NUL-terminates when cap>0;
    out_buf NULL or cap 0 queries the length. Returns the full message length, or 0
-   when none is set. */
+   when none is set. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_webrtc_last_error(uint8_t *out_buf, size_t cap);
 /* Clear the calling thread's webrtc-transport last-error slot. */
 void pancake_webrtc_clear_last_error(void);

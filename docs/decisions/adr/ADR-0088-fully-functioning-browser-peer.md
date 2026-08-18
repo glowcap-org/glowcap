@@ -124,30 +124,24 @@ hosted on the very session the call travels on. That is a real constraint, not
 an accident, and it is the sharp edge of the redeemed-handoff case.
 
 An OCapN near reference names an export position on one specific session's peer.
-The host fails a send closed (`ForeignArgument` / a rejected near export) rather
-than mis-encode a capability that belongs to a different session onto the wire —
-the resilience contract that keeps a partner from being handed a reference it
-cannot interpret. So a reply capability handed over a **redeemed handoff give**
-does not route: `session.send(redeemedGive, "dm", [text, replyCap])` addresses
-the exporter session the give resolved to, while `replyCap` (a
-`session.spawn` export) lives on the caller's *directory* session. The near
-position is not a live export in the exporter session, and the core refuses
-the send. This is verified behavior, characterized here so it is not
-rediscovered: the receiver-side `currentSession()` primitive is complete, and
-the remaining work is entirely on the sender side.
+A raw model send still fails closed rather than writing that position onto a
+different session. Owning Host values now take the sender-side completion from
+ADR-0116: a foreign object becomes a signed inline give whose delayed
+transaction retains the capability until publication. The raw refusal remains
+the correct lower-tier contract; it is no longer a binding limitation.
 
 **The completion, now shipped: surface the redeemed direct session.** A
 three-party-handoff give is redeemed *eagerly* — the moment the introduce
 answer's give resolves, the node stages the exporter dial, so the direct
 exporter session is born while the introduce send is still in flight, before the
 send's reply settles. `Session.sendRedeeming` awaits the introduce reply and
-returns both it and the direct exporter `Session` (`via`) the redeemed token
+returns both it and the direct exporter `Session` (`via`) the redeemed route
 routes to. The application hosts its reply inbox on `via` and sends the DM over
 `via`, so the reply capability is a valid near export in the session the
-redeemed token routes to, and the member answers over that session's connection
+redeemed route points to, and the member answers over that session's connection
 with no dial back.
 `via` is resolved from the reply's own token, not from watching which dial ran
-during the send: `pancake_host_reference_exporter` maps the redeemed token to
+during the send: `pancake_host_reference_exporter` maps the redeemed route to
 the exporter session the node's routing table already holds. That makes the
 attribution deterministic — it is correct with several redeems in flight at
 once, and it resolves the exporter even when the reply reused a session a prior

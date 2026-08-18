@@ -4,10 +4,13 @@
 		<meta charset="utf-8" />
 		<meta name="viewport"
 			content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+		<!-- Locators and host:port strings are not phone numbers. Without this,
+		     iOS turns them into tel: links. -->
+		<meta name="format-detection" content="telephone=no" />
 		<title>pancake rooms</title>
 		<link rel="preload" as="font" type="font/woff2"
-			href="fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
-		<link rel="stylesheet" href="tokens.css" />
+			href="/fonts/ibm-plex-sans-latin-wght-normal.woff2" crossorigin />
+		<link rel="stylesheet" href="/tokens.css" />
 		<script>
 		// Two things are stamped here rather than left to the module, and for the
 		// same reason: this runs while the head is being parsed, so it lands
@@ -31,7 +34,7 @@
 			if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
 		} catch (_) { /* private mode: the stylesheet's media query answers */ }
 		</script>
-		<link rel="stylesheet" href="page.css" />
+		<link rel="stylesheet" href="/page.css" />
 	</head>
 	<body>
 		<!-- The interface is drawn by page.js and lives entirely under this
@@ -46,8 +49,10 @@
 		     bundle itself. -->
 		<div id="boot" class="boot">
 			<div class="boot-wait">
-				<div class="boot-mark" aria-hidden="true"></div>
-				<p class="boot-name">pancake rooms</p>
+				<div class="boot-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i
+					class="mark-piece mark-cake-2"
+				></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></div>
+				<p class="boot-name wordmark"><span>pancake</span><small>rooms</small></p>
 				<p class="boot-note">Opening a peer in your browser…</p>
 			</div>
 			<div class="boot-explain">
@@ -61,7 +66,7 @@
 					script did not load. Reloading is worth a try.</p>
 			</div>
 		</div>
-		<script id="pageScript" type="module" src="page.js"></script>
+		<script id="pageScript" type="module" src="/page.js"></script>
 		<script>
 		// A page that draws itself owes a reader an explanation when it cannot,
 		// and there are two ways it cannot: the bundle never arrives, or it

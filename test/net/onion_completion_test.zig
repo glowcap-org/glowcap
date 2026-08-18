@@ -35,7 +35,7 @@ const ScriptBackend = struct {
     recycled_tokens: std.ArrayList(u32) = .empty,
     recv_chunks: []const []const u8 = &.{},
     recv_index: usize = 0,
-    next_token: u32 = 1,
+    next_route_id: u32 = 1,
     next_fd: Fd = 20,
     pending_recv_ud: ?u64 = null,
     pending_connect_ud: ?u64 = null,
@@ -95,13 +95,12 @@ const ScriptBackend = struct {
         }
         const bytes = self.recv_chunks[self.recv_index];
         self.recv_index += 1;
-        const token = self.next_token;
-        self.next_token += 1;
+        const token = self.next_route_id;
+        self.next_route_id += 1;
         try self.ready.append(self.allocator, .{
             .user_data = user_data,
             .result = @intCast(bytes.len),
-            .recv_bytes = bytes,
-            .recv_token = token,
+            .borrowed = .recv(bytes, token),
         });
     }
 
@@ -155,8 +154,8 @@ const ScriptBackend = struct {
         self.closed_fds.append(self.allocator, fd) catch unreachable;
     }
 
-    pub fn recycleRecv(self: *ScriptBackend, comp: completion.Completion) void {
-        self.recycled_tokens.append(self.allocator, comp.recv_token) catch unreachable;
+    pub fn recycleBorrowed(self: *ScriptBackend, comp: completion.Completion) void {
+        self.recycled_tokens.append(self.allocator, comp.borrowed.token) catch unreachable;
     }
 
     pub fn verifiedChannelKey(_: *ScriptBackend, _: Fd) ?[32]u8 {
@@ -310,9 +309,9 @@ test "onion completion finishes fragmented SOCKS before lending coalesced applic
     const recycled_before = backend.inner.recycled_tokens.items.len;
     try backend.submitRecv(101, fd);
     const recv = try waitFor(&backend, 101);
-    try std.testing.expectEqualStrings("app", recv.recv_bytes.?);
-    try std.testing.expect(completion.AdapterNamespace(ScriptBackend).ownsRecvToken(recv.recv_token));
-    backend.recycleRecv(recv);
+    try std.testing.expectEqualStrings("app", recv.borrowed.recvBytes().?);
+    try std.testing.expect(completion.AdapterNamespace(ScriptBackend).ownsBorrowToken(recv.borrowed.token));
+    backend.recycleBorrowed(recv);
     try std.testing.expectEqual(recycled_before + 1, backend.inner.recycled_tokens.items.len);
 
     const payload = "caller-owned";
@@ -388,11 +387,11 @@ test "onion completion retains a closing connection until its borrowed receive r
     const fd = try openDial(&backend, 450);
     try backend.submitRecv(451, fd);
     const recv = try waitFor(&backend, 451);
-    try std.testing.expectEqualStrings("x", recv.recv_bytes.?);
+    try std.testing.expectEqualStrings("x", recv.borrowed.recvBytes().?);
 
     try backend.submitClose(452, fd);
     try std.testing.expect((try pollOne(&backend)) == null);
-    backend.recycleRecv(recv);
+    backend.recycleBorrowed(recv);
     const closed = try waitFor(&backend, 452);
     try std.testing.expectEqual(@as(i32, 0), closed.result);
 }

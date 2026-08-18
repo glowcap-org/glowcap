@@ -24,7 +24,9 @@ import {
   type SessionValue,
 } from "../../engine/trajectory.ts";
 import { peerLabelAt, sessionPropertyValueAt } from "../../engine/temporal/doc-resolver.ts";
-import { type EditorBindings, Field, OptionalTimeRow, TrajectoryInsert, TrajectoryValue } from "./shared.tsx";
+import type { EditorBindings } from "./bindings.ts";
+import { Field } from "./fields.tsx";
+import { OptionalTimeRow, TrajectoryInsert, TrajectoryValue } from "./trajectory.tsx";
 
 /** What the "state a property here" control offers at `t`, and the value each
  *  offer would insert.

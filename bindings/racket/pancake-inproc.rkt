@@ -26,6 +26,7 @@
          ffi/unsafe/port
          "private/constants.rkt"
          "private/ffi-inproc.rkt"
+         "private/finalizer-diagnostics.rkt"
          "private/locator.rkt"
          "private/native-parent.rkt"
          "private/seam.rkt"
@@ -108,11 +109,23 @@
          (pancake_inproc_listen parent-handle (pin-immobile bs) (bytes-length bs)))
        (check/inproc rc)
        (define-values (fd-rc fd) (pancake_inproc_listener_readiness_fd h))
-       (with-handlers ([exn? (lambda (e) (pancake_inproc_listener_release h) (raise e))])
+       (with-handlers
+           ([exn?
+             (lambda (e)
+               (define cleanup
+                 (with-handlers ([exn? values])
+                   (check/inproc (pancake_inproc_listener_release h))
+                   #f))
+               (raise (if cleanup (retain-cleanup-failure e cleanup) e)))])
          (check/inproc fd-rc))
        (inproc-listener h fd (make-semaphore 1) (make-semaphore 0) nl))
      inproc-listener-release!))
-  (register-finalizer lst (lambda (q) (inproc-listener-release! q)))
+  (register-finalizer
+   lst
+   (lambda (q)
+     (run-native-finalizer! "inproc-listener.finalize"
+                            (lambda () (inproc-listener-release! q))
+                            #:layer 'transport)))
   lst)
 
 (define (inproc-netlayer-connect nl designator [codec 'syrup] [max-frame 4096])

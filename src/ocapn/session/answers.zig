@@ -178,9 +178,9 @@ pub const AnswerPayload = struct {
     resolution: ?model.Resolution = null,
 };
 
-/// Answer row as Slot binding + cold payload. Status is derived from binding.
+/// One answer row plus its lazily allocated consequence payload.
 pub const AnswerCell = struct {
-    binding: slot.Slot,
+    answer_status: AnswerStatus = .pending,
     /// Instance stamp from `Session.store_stamp_counter` (partner may reuse positions).
     row_id: u64,
     /// Wire-delta count per ADR-0008 `op:gc-answers`.
@@ -194,29 +194,23 @@ pub const AnswerCell = struct {
     settling_index: usize = 0,
     has_settling_target: bool = false,
 
-    pub fn initPending(position: model.AnswerPosition, row_id: u64) AnswerCell {
-        return .{
-            .binding = pendingInboundSlot(position),
-            .row_id = row_id,
-        };
+    pub fn initPending(row_id: u64) AnswerCell {
+        return .{ .row_id = row_id };
     }
 
-    /// CapTP answer status from the Slot binding (remote mint only).
+    /// CapTP answer status.
     pub fn status(self: *const AnswerCell) AnswerStatus {
-        return switch (self.binding) {
-            .remote_unresolved => .pending,
-            .remote_value => .fulfilled,
-            .broken => .broken,
-            .local_unresolved, .local_value => unreachable,
-        };
+        return self.answer_status;
     }
 
     pub fn fulfill(self: *AnswerCell) slot.TransitionError!void {
-        self.binding = try slot.fulfill(self.binding);
+        if (self.answer_status != .pending) return error.NotUnresolved;
+        self.answer_status = .fulfilled;
     }
 
     pub fn breakCell(self: *AnswerCell) slot.TransitionError!void {
-        self.binding = try slot.breakSlot(self.binding);
+        if (self.answer_status != .pending) return error.NotUnresolved;
+        self.answer_status = .broken;
     }
 };
 
@@ -246,58 +240,65 @@ pub const AnswerView = struct {
     }
 };
 
-/// Position-keyed answer table. Rows are `AnswerCell` (Slot binding + payload).
-pub const AnswerTable = struct {
-    rows: std.AutoHashMapUnmanaged(u64, AnswerCell) = .empty,
+/// Typed-name-keyed answer table. Inbound rows preserve wire-versus-virtual
+/// provenance; outbound rows carry only real wire answer positions.
+pub fn AnswerTable(comptime IdType: type) type {
+    return struct {
+        rows: std.AutoHashMapUnmanaged(IdType, AnswerCell) = .empty,
 
-    pub const Id = model.AnswerPosition;
-    pub const empty: AnswerTable = .{};
+        pub const Id = IdType;
+        const Self = @This();
+        pub const empty: Self = .{};
 
-    pub fn deinit(self: *AnswerTable, allocator: std.mem.Allocator) void {
-        var it = self.rows.valueIterator();
-        while (it.next()) |cell| deinitAnswerCell(allocator, cell);
-        self.rows.deinit(allocator);
-    }
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            var it = self.rows.valueIterator();
+            while (it.next()) |cell| deinitAnswerCell(allocator, cell);
+            self.rows.deinit(allocator);
+        }
 
-    /// Mutable borrow of the row for `position`, or null when absent. Valid
-    /// until the next insert into this table (a `put` may rehash and move rows).
-    pub fn getPtr(self: *AnswerTable, position: Id) ?*AnswerCell {
-        return self.rows.getPtr(position.int());
-    }
+        /// Mutable borrow of the row for `position`, or null when absent. Valid
+        /// until the next insert into this table (a `put` may rehash and move rows).
+        pub fn getPtr(self: *Self, position: Id) ?*AnswerCell {
+            return self.rows.getPtr(position);
+        }
 
-    pub fn contains(self: *const AnswerTable, position: Id) bool {
-        return self.rows.contains(position.int());
-    }
+        pub fn contains(self: *const Self, position: Id) bool {
+            return self.rows.contains(position);
+        }
 
-    /// Refcount of `position`, or 0 if the answer is not held.
-    pub fn count(self: *const AnswerTable, position: Id) u64 {
-        if (self.rows.getPtr(position.int())) |cell| return cell.count;
-        return 0;
-    }
+        /// Refcount of `position`, or 0 if the answer is not held.
+        pub fn count(self: *const Self, position: Id) u64 {
+            if (self.rows.getPtr(position)) |cell| return cell.count;
+            return 0;
+        }
 
-    /// Number of live answer rows, the value the inbound-answer cap bounds.
-    pub fn len(self: *const AnswerTable) usize {
-        return self.rows.count();
-    }
+        /// Number of live answer rows, the value the inbound-answer cap bounds.
+        pub fn len(self: *const Self) usize {
+            return self.rows.count();
+        }
 
-    pub fn put(self: *AnswerTable, allocator: std.mem.Allocator, position: Id, cell: AnswerCell) !void {
-        try self.rows.put(allocator, position.int(), cell);
-    }
+        pub fn put(self: *Self, allocator: std.mem.Allocator, position: Id, cell: AnswerCell) !void {
+            try self.rows.put(allocator, position, cell);
+        }
 
-    pub fn ensureUnusedCapacity(self: *AnswerTable, allocator: std.mem.Allocator, additional: u32) !void {
-        try self.rows.ensureUnusedCapacity(allocator, additional);
-    }
+        pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, additional: u32) !void {
+            try self.rows.ensureUnusedCapacity(allocator, additional);
+        }
 
-    pub fn putAssumeCapacity(self: *AnswerTable, position: Id, cell: AnswerCell) void {
-        self.rows.putAssumeCapacity(position.int(), cell);
-    }
+        pub fn putAssumeCapacity(self: *Self, position: Id, cell: AnswerCell) void {
+            self.rows.putAssumeCapacity(position, cell);
+        }
 
-    pub fn remove(self: *AnswerTable, position: Id) void {
-        // idempotent: this wrapper's contract is ensure-gone; callers remove a
-        // position without knowing (or caring) whether a row was present.
-        _ = self.rows.remove(position.int());
-    }
-};
+        pub fn remove(self: *Self, position: Id) void {
+            // idempotent: this wrapper's contract is ensure-gone; callers remove a
+            // position without knowing (or caring) whether a row was present.
+            _ = self.rows.remove(position);
+        }
+    };
+}
+
+pub const InboundAnswerTable = AnswerTable(model.AnswerName);
+pub const OutboundAnswerTable = AnswerTable(model.AnswerPosition);
 
 /// Borrow the answer's payload, allocating it on first use.
 pub fn ensureAnswerPayload(allocator: std.mem.Allocator, cell: *AnswerCell) !*AnswerPayload {

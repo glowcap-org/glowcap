@@ -44,7 +44,7 @@ pub const Preference = struct {
 
     /// The profile every conforming peer speaks, and so what a peer has
     /// told us by telling us nothing.
-    pub const baseline: Preference = .{};
+    pub const baseline: Preference = .{ .features = FeatureSet.baseline() };
 };
 
 /// CapTP version spoken on a session. Two jobs, one axis:
@@ -94,6 +94,11 @@ pub const FeatureSet = struct {
     handoff: bool = false,
     wire_delta: bool = false,
     sturdyref: bool = false,
+    /// The peer explicitly advertises that it accepts outbound `op:untag`.
+    /// Inbound `op:untag` remains part of OCapN 1.0 and is accepted regardless
+    /// of this bit. The distinction lets a pancake peer avoid sending the
+    /// operation to Goblins, whose absent feature hint means the baseline set.
+    untag: bool = false,
 
     pub const wire_string_max_len = blk: {
         var len: usize = 0;
@@ -109,6 +114,18 @@ pub const FeatureSet = struct {
     /// The minimal set: Deliver, Resolve, and Abort only.
     pub fn minimum() FeatureSet {
         return .{};
+    }
+
+    /// Capabilities an OCapN 1.0 peer can be assumed to support when it sends
+    /// no pancake feature hint. This is intentionally not `full`: the pinned
+    /// draft includes `op:untag`, but Goblins does not implement it.
+    pub fn baseline() FeatureSet {
+        return .{
+            .pipelining = true,
+            .handoff = true,
+            .wire_delta = true,
+            .sturdyref = true,
+        };
     }
 
     /// Full pancake-native feature set: every feature field, driven off the
@@ -142,8 +159,8 @@ pub const FeatureSet = struct {
 
     /// Stable hint representation: enabled field names, comma-separated in
     /// declaration order. Callers omit the hint when the offered set is the
-    /// full baseline; if the hint is present, the minimum set is the empty
-    /// string.
+    /// compatibility baseline; if the hint is present, the minimum set is the
+    /// empty string.
     pub fn toWireString(self: FeatureSet, buf: []u8) error{NoSpace}![]const u8 {
         var len: usize = 0;
         var first = true;

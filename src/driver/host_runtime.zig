@@ -35,7 +35,10 @@ const driver_core = @import("driver_core");
 pub const default_wire_buffer_bytes: usize = 16 << 10;
 pub const default_max_pending_opens: usize = 256;
 pub const default_listener_setup_ms: i64 = 10_000;
+const default_transport_close_ms: i32 = 5_000;
 const settle_mailbox = @import("settle_mailbox.zig");
+const runtime_contract = @import("host_runtime/contract.zig");
+const stream_wire = @import("host_runtime/stream_wire.zig");
 
 const crypto = foundation.crypto;
 
@@ -44,25 +47,11 @@ const Error = driver_core.Error;
 const AdmissionError = Error || error{ProviderContract};
 const Identity = driver_core.Identity;
 const OperationFailure = @import("operation_failure.zig").OperationFailure;
-
-/// Expand a provider's portable locator claim at the driver authority that
-/// composes transport realization with Host semantics. Known transports gain
-/// their canonical dial metadata here; extensions retain their declared
-/// metadata after symbol validation.
-fn canonicalProviderProfile(profile: model.transport.Metadata) !model.transport.Metadata {
-    if (model.transport.parseKnown(profile.symbol) == null) {
-        model.transport.validateSymbol(profile.symbol) catch return error.InvalidTransportName;
-        return profile;
-    }
-    return model.transport.metadataFromClaim(
-        profile.symbol,
-        profile.designator_scheme,
-        profile.sealed_channel,
-    ) catch |err| switch (err) {
-        error.InvalidTransportSymbol => error.InvalidTransportName,
-        error.TransportSemanticsConflict => error.TransportSemanticsConflict,
-    };
-}
+const Contract = runtime_contract.Vocabulary(
+    default_wire_buffer_bytes,
+    default_max_pending_opens,
+    default_listener_setup_ms,
+);
 
 /// The owning face over one `driver_core.Host`: the core, the netlayer slice
 /// it dials through, and one wire per live session. One thread drives one
@@ -227,79 +216,16 @@ pub const HostRuntime = struct {
     /// may take over. Compiled out with the debug thread-affinity checks.
     driver_depth: usize = 0,
 
-    /// Options for the owning face and its `connect`/`listen` views.
-    /// `frame_cap` is protocol admission; `wire_buffer_bytes` is steady-state
-    /// transport staging. A frame larger than the read buffer assembles once
-    /// in bounded spill, and a larger write streams through, so admission does
-    /// not force every live wire to retain maximum-frame storage. `codec` is
-    /// the wire grammar the negotiating peer encodes in. There is deliberately
-    /// no `verify_partner` knob: the application tier always verifies.
-    ///
-    /// The two wait budgets are `driver.Budget` and have no default: every
-    /// other option has a wrong value that costs memory or speed, but a wait
-    /// budget has a wrong value that costs the process, so the question is
-    /// asked where it cannot be skipped. A caller that genuinely means
-    /// forever — an in-process pair, a harness driving both ends — spells
-    /// `.unbounded`.
-    pub const Options = struct {
-        frame_cap: usize = 1 << 16,
-        /// Bytes retained for each stream read and write buffer, and for an
-        /// multiplexed resident's read staging. Independent of `frame_cap`.
-        wire_buffer_bytes: usize = default_wire_buffer_bytes,
-        /// Maximum transport connects and CapTP handshakes admitted at once.
-        /// This bounds pre-open session and wire memory across dial, accept,
-        /// external adoption, and redeem through one shared authority.
-        max_pending_opens: usize = default_max_pending_opens,
-        codec: model.CodecId = model.Preference.baseline.codec,
-        /// The CapTP profile this host offers in `op:start-session`, beside
-        /// the codec above. The two fields name one offered profile, and a
-        /// host normally sets them together, but they are negotiated as
-        /// independent axes: `engine.negotiation` settles the version and the
-        /// codec separately, so a partner can follow this host on one axis and
-        /// not the other (ADR-0003). Both default to
-        /// `model.Preference.baseline`, the profile every conforming peer
-        /// speaks. A pancake-to-pancake fleet sets `.next` here and `.capnp`
-        /// above; a partner that cannot follow settles each axis back to the
-        /// baseline on its own session (ADR-0103).
-        captp_version: model.CaptpVersion = model.Preference.baseline.captp_version,
-        /// Per-read deadline for the keyed handshake, and for each redeem
-        /// dial's handshake inside a wait. Breaks with
-        /// `Error.HandshakeTimedOut` when a partner connects then goes
-        /// silent (ADR-0081).
-        handshake: Budget,
-        /// Wall-clock deadline for listener construction that waits on an
-        /// external daemon, rendezvous registration, or scheduler.
-        listener_setup: Budget = .{ .ms = default_listener_setup_ms },
-        /// Wall-clock deadline for blocking answer-waits after the session
-        /// is open (`settle` / `call` / `fetch`).
-        settle: Budget,
-        /// Recipient for failures produced only by implicit destruction, where
-        /// no return value survives. Explicit close/deinit barriers return the
-        /// same `OperationFailure` instead and never call this observer.
-        unhandled_failure: ?FailureObserver = null,
-    };
-
-    pub const FailureObserver = struct {
-        ctx: *anyopaque,
-        report: *const fn (ctx: *anyopaque, failure: OperationFailure) void,
-    };
-
-    /// Runtime-only controls for adopting an existing byte-fed Host. Core
-    /// protocol and frame settings come from that Host, so an adapter cannot
-    /// accidentally construct a second configuration authority.
-    pub const AdoptionOptions = struct {
-        wire_buffer_bytes: usize = default_wire_buffer_bytes,
-        max_pending_opens: usize = default_max_pending_opens,
-        handshake: Budget,
-        listener_setup: Budget = .{ .ms = default_listener_setup_ms },
-        settle: Budget,
-    };
-
-    /// What an owning close does with work admitted before its barrier. A
-    /// finite finish budget starts when the first finish begins; repeated
-    /// finish calls observe that same deadline. Cancel may escalate finish.
-    pub const PendingWork = driver_core.PendingWork;
-    pub const CloseOutcome = driver_core.CloseOutcome;
+    /// The public options and result vocabulary live in one I/O-free contract
+    /// leaf; aliases keep HostRuntime as the supported namespace.
+    pub const Options = Contract.Options;
+    pub const FailureObserver = Contract.FailureObserver;
+    pub const AdoptionOptions = Contract.AdoptionOptions;
+    pub const ProviderRegistrationError = Contract.ProviderRegistrationError;
+    pub const InitError = Contract.InitError;
+    pub const AdoptionInitError = Contract.AdoptionInitError;
+    pub const PendingWork = Contract.PendingWork;
+    pub const CloseOutcome = Contract.CloseOutcome;
 
     pub const DeferredSessionRelease = struct {
         session: *driver_core.HostSession,
@@ -498,6 +424,11 @@ pub const HostRuntime = struct {
         }
     };
 
+    pub const PrepareListenerLocatorOutcome = union(enum) {
+        ready: PreparedListenerLocator,
+        failed: net.netlayer.ListenFailure,
+    };
+
     pub const MultiplexedRegistration = struct {
         profile: model.transport.Metadata,
         resident: net.MultiplexedResident,
@@ -532,7 +463,7 @@ pub const HostRuntime = struct {
 
         fn overlaps(self: InstalledProviderPackage, candidate: []const ProviderRegistration) !bool {
             for (self.profiles) |installed| for (candidate) |registration| {
-                const profile = try canonicalProviderProfile(registration.profile());
+                const profile = try runtime_contract.canonicalProviderProfile(registration.profile());
                 if (std.mem.eql(u8, installed.symbol, profile.symbol)) return true;
             };
             return false;
@@ -542,7 +473,7 @@ pub const HostRuntime = struct {
             if (self.profiles.len != candidate.len) return false;
             for (self.profiles) |installed| {
                 for (candidate) |registration| {
-                    if (installed.eql(try canonicalProviderProfile(registration.profile()))) break;
+                    if (installed.eql(try runtime_contract.canonicalProviderProfile(registration.profile()))) break;
                 } else return false;
             }
             return true;
@@ -780,7 +711,7 @@ pub const HostRuntime = struct {
         netlayers: []const net.netlayer.Netlayer,
         identity: Identity,
         opts: Options,
-    ) (std.mem.Allocator.Error || Error || driver_core.HostInitError)!HostRuntime {
+    ) InitError!HostRuntime {
         if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)
             return Error.InvalidBufferConfiguration;
         const seed: [foundation.crypto.SEED_BYTES]u8 = switch (identity) {
@@ -811,12 +742,7 @@ pub const HostRuntime = struct {
             .opts = opts,
         };
         errdefer runtime.deinit();
-        runtime.registerNetlayers(netlayers) catch |err| switch (err) {
-            // Initial construction has not exposed or armed a readiness set,
-            // so provider registration cannot perform a kernel-set update.
-            error.ReadinessUpdateFailed => unreachable,
-            else => return @errorCast(err),
-        };
+        try runtime.registerNetlayers(netlayers);
         return runtime;
     }
 
@@ -831,7 +757,7 @@ pub const HostRuntime = struct {
         core: *driver_core.Host,
         netlayers: []const net.netlayer.Netlayer,
         adoption: AdoptionOptions,
-    ) (std.mem.Allocator.Error || Error || driver_core.Host.RuntimeAdoptionError)!HostRuntime {
+    ) AdoptionInitError!HostRuntime {
         const opts = Options{
             .frame_cap = core.opts.limits.max_frame_bytes,
             .wire_buffer_bytes = adoption.wire_buffer_bytes,
@@ -854,16 +780,11 @@ pub const HostRuntime = struct {
             .owns_core = false,
         };
         errdefer runtime.deinitAfterFailedAdoption();
-        runtime.registerNetlayers(netlayers) catch |err| switch (err) {
-            // Initial construction has not exposed or armed a readiness set,
-            // so provider registration cannot perform a kernel-set update.
-            error.ReadinessUpdateFailed => unreachable,
-            else => return @errorCast(err),
-        };
+        try runtime.registerNetlayers(netlayers);
         return runtime;
     }
 
-    fn registerNetlayers(self: *HostRuntime, netlayers: []const net.netlayer.Netlayer) !void {
+    fn registerNetlayers(self: *HostRuntime, netlayers: []const net.netlayer.Netlayer) ProviderRegistrationError!void {
         if (netlayers.len == 0) return;
         const registrations = try self.allocator.alloc(ProviderRegistration, netlayers.len);
         defer self.allocator.free(registrations);
@@ -872,15 +793,7 @@ pub const HostRuntime = struct {
         for (netlayers, registrations) |netlayer, *registration| {
             registration.* = .{ .stream = netlayer };
         }
-        self.addProvidersAfterAdmission(registrations, resident_indices) catch |err| switch (err) {
-            // A fresh HostRuntime has no armed readiness set, and the non-empty
-            // netlayer slice satisfies the package shape by construction.
-            error.InvalidProviderPackage,
-            error.ReadinessDescriptorConflict,
-            error.ReadinessUnavailable,
-            => unreachable,
-            else => |e| return e,
-        };
+        try self.addProvidersAfterAdmission(registrations, resident_indices);
     }
 
     /// Register one listener-capable stream provider. The vtable is copied;
@@ -888,22 +801,6 @@ pub const HostRuntime = struct {
     pub fn addNetlayer(self: *HostRuntime, nl: net.netlayer.Netlayer) !void {
         var index: [1]?usize = undefined;
         try self.addProviders(&.{.{ .stream = nl }}, &index);
-    }
-
-    /// Initialize `out` with one stream provider. Kept as the construction
-    /// spelling used by `Server`; provider dispatch itself is the same registry
-    /// entry used by `init` and `addNetlayer`.
-    pub fn initWithOwnNetlayer(
-        out: *HostRuntime,
-        allocator: std.mem.Allocator,
-        io: std.Io,
-        nl: net.netlayer.Netlayer,
-        identity: Identity,
-        opts: Options,
-    ) !void {
-        out.* = try init(allocator, io, &.{}, identity, opts);
-        errdefer out.deinit();
-        try out.addNetlayer(nl);
     }
 
     /// Adopt one profile realized by a multiplexed runtime (ADR-0112). Several
@@ -950,7 +847,7 @@ pub const HostRuntime = struct {
         try self.provider_packages.ensureUnusedCapacity(self.allocator, 1);
         try self.addProvidersAfterAdmission(package.registrations, resident_indices);
         for (package.registrations, profiles) |registration, *profile| {
-            profile.* = try canonicalProviderProfile(registration.profile());
+            profile.* = try runtime_contract.canonicalProviderProfile(registration.profile());
             profile.symbol = self.transportName(profile.symbol).?;
         }
         self.provider_packages.appendAssumeCapacity(.{
@@ -995,7 +892,7 @@ pub const HostRuntime = struct {
         defer self.allocator.free(profiles);
         var new_resident_count: usize = 0;
         for (registrations, prepared, 0..) |registration, *plan, i| {
-            const profile = try canonicalProviderProfile(registration.profile());
+            const profile = try runtime_contract.canonicalProviderProfile(registration.profile());
             if (self.hasTransport(profile.symbol)) return error.TransportAlreadyRegistered;
             for (prepared[0..i]) |prior| {
                 if (std.mem.eql(u8, prior.profile.symbol, profile.symbol)) return error.TransportAlreadyRegistered;
@@ -1216,17 +1113,20 @@ pub const HostRuntime = struct {
                     &host_designator
                 else
                     requested_designator;
-                var result = acceptor.listen(
+                var result = switch (acceptor.listen(
                     route_id,
                     provider.transport,
                     effective_designator,
                     options,
-                ) catch |err| {
-                    self.releaseListenerProfile(provider.transport);
-                    profile_owned = false;
-                    observation_owned = false;
-                    self.reportObservedFailure(observer, tag, err);
-                    return;
+                )) {
+                    .admitted => |admitted| admitted,
+                    .failed => |failure| {
+                        self.releaseListenerProfile(provider.transport);
+                        profile_owned = false;
+                        observation_owned = false;
+                        self.reportObservedFailureChain(observer, tag, failure);
+                        return;
+                    },
                 };
                 switch (result) {
                     .ready => |listener| {
@@ -1341,48 +1241,61 @@ pub const HostRuntime = struct {
     /// Materialize the complete locator an active listener publishes. The
     /// provider owns transport-specific hints; the driver validates the
     /// dispatch symbol and takes ownership of the returned model value.
-    pub fn listenerLocator(self: *const HostRuntime, listener: *const TransportListener) !model.PeerLocator {
-        const locator = switch (listener.source) {
-            .stream => |stream| try stream.handle.localLocator(self.allocator),
-            .resident => |resident| try resident.listener.localLocator(self.allocator),
+    pub fn listenerLocatorOutcome(
+        self: *const HostRuntime,
+        listener: *const TransportListener,
+    ) net.netlayer.ListenerLocatorOutcome {
+        const outcome = switch (listener.source) {
+            .stream => |stream| stream.handle.localLocatorOutcome(self.allocator),
+            .resident => |resident| resident.listener.localLocatorOutcome(self.allocator),
         };
-        errdefer model.freePeerLocator(self.allocator, locator);
-        if (!std.mem.eql(u8, locator.transport, listener.transportName()) or locator.designator.len == 0)
-            return error.ProviderContract;
-        return locator;
+        const locator = switch (outcome) {
+            .locator => |locator| locator,
+            .failed => |failure| return .{ .failed = failure },
+        };
+        if (!std.mem.eql(u8, locator.transport, listener.transportName()) or locator.designator.len == 0) {
+            model.freePeerLocator(self.allocator, locator);
+            return .{ .failed = .init(error.ProviderContract) };
+        }
+        return .{ .locator = locator };
     }
 
     /// Query or copy opaque provider state that restores this listener's local
     /// transport address. Null means the transport has no restoration state;
     /// otherwise the result is the complete size and a short output is untouched.
-    pub fn listenerRestorationState(
+    pub fn listenerRestorationStateOutcome(
         self: *const HostRuntime,
         listener: *const TransportListener,
         out: []u8,
-    ) net.netlayer.RestorationStateError!?usize {
+    ) net.netlayer.ListenerRestorationOutcome {
         _ = self;
         return switch (listener.source) {
-            .stream => |stream| try stream.handle.restorationState(out),
-            .resident => |resident| try resident.listener.restorationState(out),
+            .stream => |stream| stream.handle.restorationStateOutcome(out),
+            .resident => |resident| resident.listener.restorationStateOutcome(out),
         };
     }
 
     /// Validate and canonicalize a replacement locator through the provider
     /// that owns this active listener. The caller owns the returned value.
-    pub fn canonicalizeListenerLocator(
+    pub fn canonicalizeListenerLocatorOutcome(
         self: *const HostRuntime,
         listener: *const TransportListener,
         locator: model.PeerLocator,
-    ) !model.PeerLocator {
-        try self.admitApplicationOperation();
-        const canonical = switch (listener.source) {
-            .stream => |stream| try stream.handle.canonicalizeLocator(self.allocator, locator),
-            .resident => |resident| try resident.listener.canonicalizeLocator(self.allocator, locator),
+    ) net.netlayer.ListenerLocatorOutcome {
+        self.admitApplicationOperation() catch |err| return .{ .failed = .init(err) };
+        const outcome = switch (listener.source) {
+            .stream => |stream| stream.handle.canonicalizeLocatorOutcome(self.allocator, locator),
+            .resident => |resident| resident.listener.canonicalizeLocatorOutcome(self.allocator, locator),
         };
-        errdefer model.freePeerLocator(self.allocator, canonical);
-        if (!std.mem.eql(u8, canonical.transport, listener.transportName()) or canonical.designator.len == 0)
-            return error.ProviderContract;
-        return canonical;
+        const canonical = switch (outcome) {
+            .locator => |canonical| canonical,
+            .failed => |failure| return .{ .failed = failure },
+        };
+        if (!std.mem.eql(u8, canonical.transport, listener.transportName()) or canonical.designator.len == 0) {
+            model.freePeerLocator(self.allocator, canonical);
+            return .{ .failed = .init(error.ProviderContract) };
+        }
+        return .{ .locator = canonical };
     }
 
     /// Publish the caller's listener observation after all fallible
@@ -1424,13 +1337,18 @@ pub const HostRuntime = struct {
 
     /// Prepare the exact complete locator this listener will publish. The
     /// result is not authoritative until `activateOwnedListener` consumes it.
-    pub fn prepareListenerLocator(
+    pub fn prepareListenerLocatorOutcome(
         self: *HostRuntime,
         listener: *const TransportListener,
-    ) !PreparedListenerLocator {
-        const local = try self.listenerLocator(listener);
+    ) PrepareListenerLocatorOutcome {
+        const local = switch (self.listenerLocatorOutcome(listener)) {
+            .locator => |locator| locator,
+            .failed => |failure| return .{ .failed = failure },
+        };
         defer model.freePeerLocator(self.allocator, local);
-        return .{ .value = try self.core.prepareAdvertisedLocator(self.allocator, local) };
+        const prepared = self.core.prepareAdvertisedLocator(self.allocator, local) catch |err|
+            return .{ .failed = .init(err) };
+        return .{ .ready = .{ .value = prepared } };
     }
 
     /// Transfer one prepared listener and locator into Runtime ownership.
@@ -1462,28 +1380,35 @@ pub const HostRuntime = struct {
         return (self.active_listeners.get(tag) orelse return null).locator;
     }
 
-    pub fn ownedListenerRestorationState(
+    pub fn ownedListenerRestorationStateOutcome(
         self: *const HostRuntime,
         tag: u64,
         out: []u8,
-    ) !?usize {
-        try self.admitApplicationOperation();
-        const listener = self.active_listeners.get(tag) orelse return error.ListenerNotActive;
-        return self.listenerRestorationState(&listener.transport, out);
+    ) net.netlayer.ListenerRestorationOutcome {
+        self.admitApplicationOperation() catch |err| return .{ .failed = .init(err) };
+        const listener = self.active_listeners.get(tag) orelse
+            return .{ .failed = .init(error.ListenerNotActive) };
+        return self.listenerRestorationStateOutcome(&listener.transport, out);
     }
 
     /// Prepare a replacement locator through the owning provider and Host
     /// profile. Commit is separate so an adapter can reserve its projection
     /// before the authoritative route changes.
-    pub fn prepareOwnedListenerAdvertisement(
+    pub fn prepareOwnedListenerAdvertisementOutcome(
         self: *HostRuntime,
         tag: u64,
         locator: model.PeerLocator,
-    ) !PreparedListenerLocator {
-        const listener = self.active_listeners.get(tag) orelse return error.ListenerNotActive;
-        const canonical = try self.canonicalizeListenerLocator(&listener.transport, locator);
+    ) PrepareListenerLocatorOutcome {
+        const listener = self.active_listeners.get(tag) orelse
+            return .{ .failed = .init(error.ListenerNotActive) };
+        const canonical = switch (self.canonicalizeListenerLocatorOutcome(&listener.transport, locator)) {
+            .locator => |canonical| canonical,
+            .failed => |failure| return .{ .failed = failure },
+        };
         defer model.freePeerLocator(self.allocator, canonical);
-        return .{ .value = try self.core.prepareAdvertisedLocator(self.allocator, canonical) };
+        const prepared = self.core.prepareAdvertisedLocator(self.allocator, canonical) catch |err|
+            return .{ .failed = .init(err) };
+        return .{ .ready = .{ .value = prepared } };
     }
 
     pub fn commitOwnedListenerAdvertisement(
@@ -1533,12 +1458,17 @@ pub const HostRuntime = struct {
     fn failActiveListener(self: *HostRuntime, tag: u64, primary: OperationFailure) void {
         const removed = self.active_listeners.fetchRemove(tag) orelse return;
         var listener = removed.value;
-        const observation = self.activeListenerObservation(&listener.transport) orelse unreachable;
+        const observation = self.activeListenerObservation(&listener.transport);
         self.core.retireAdvertisedLocator(listener.transport.transportName());
         var failure = primary;
         if (self.closeListener(&listener.transport)) |cleanup| failure.noteFailure(cleanup);
         model.freePeerLocator(self.allocator, listener.locator);
-        observation.observer.failed(observation.observer.ctx, observation.tag, failure);
+        if (observation) |value| {
+            value.observer.failed(value.observer.ctx, value.tag, failure);
+        } else {
+            failure.note(error.ProviderContract);
+            self.retainAndReportUnhandledFailure(failure);
+        }
     }
 
     /// Stop a listener operation by its Runtime tag, whether setup is still
@@ -1569,7 +1499,7 @@ pub const HostRuntime = struct {
         };
         const observation = stream.observation orelse return error.ListenerNotActive;
         if (!self.pendingOpenSlotAvailable()) return 0;
-        const acceptable = switch (stream.handle.waitAcceptableDetailed(0)) {
+        const acceptable = switch (stream.handle.waitAcceptableOutcome(0)) {
             .ready => |ready| ready,
             .failed => |failure| {
                 self.failActiveListener(observation.tag, OperationFailure.fromAcceptFailure(failure));
@@ -1809,7 +1739,10 @@ pub const HostRuntime = struct {
     /// Leave one native driver operation, transferring the core only when the
     /// outermost call has stopped dispatching work.
     pub fn leaveDriver(self: *HostRuntime) void {
-        std.debug.assert(self.driver_depth > 0);
+        if (self.driver_depth == 0) {
+            self.retainAndReportUnhandledFailure(.fromError(error.ProviderContract));
+            return;
+        }
         self.driver_depth -= 1;
         if (self.driver_depth != 0 or self.draining_session_releases) return;
         if (self.drainDeferredSessionReleases()) return;
@@ -1819,8 +1752,8 @@ pub const HostRuntime = struct {
     /// Release the current thread's quiescent driver claim. The next driver
     /// operation claims it again; this permits sequential, never concurrent,
     /// handover between host threads.
-    pub fn detachThread(self: *HostRuntime) void {
-        std.debug.assert(self.driver_depth == 0);
+    pub fn detachThread(self: *HostRuntime) error{HostNotQuiescent}!void {
+        if (self.driver_depth != 0) return error.HostNotQuiescent;
         self.core.releaseDriverOwnership();
     }
 
@@ -1859,7 +1792,15 @@ pub const HostRuntime = struct {
         while (request) |current| {
             const next = current.next;
             const wire = self.wires.get(current.session.peer_id);
-            if (wire == null or wire.?.session != current.session) unreachable;
+            if (wire == null or wire.?.session != current.session) {
+                current.next = null;
+                current.queued = false;
+                const failure = OperationFailure.fromError(error.ProviderContract);
+                self.retainAndReportUnhandledFailure(failure);
+                if (current.complete(current.ctx)) return true;
+                request = next;
+                continue;
+            }
             if (!wire.?.closed) {
                 current.next = self.deferred_session_releases;
                 self.deferred_session_releases = current;
@@ -1944,6 +1885,13 @@ pub const HostRuntime = struct {
         while (self.sessionCloseOutcome(session) == .pending)
             _ = try self.stepAnyToward(-1, .{ .session_close = session });
         if (self.sessionCloseOutcome(session) == .timed_out) return Error.CloseTimedOut;
+        if (self.wires.get(session.peer_id)) |wire| switch (wire.link) {
+            .stream => |*stream| if (stream.conn.closeGracefully(default_transport_close_ms)) |failure| {
+                self.noteTerminalOperationFailure(OperationFailure.fromChain(failure));
+                return failure.cause;
+            },
+            .resident => {},
+        };
     }
 
     pub fn sessionCloseOutcome(self: *const HostRuntime, session: *const driver_core.HostSession) CloseOutcome {
@@ -2121,11 +2069,11 @@ pub const HostRuntime = struct {
         for (self.pending_opens.items) |row| switch (row.stage) {
             .stream_dial => {
                 if (row.stage.stream_dial.deinit()) |failure| self.noteTerminalFailureChain(failure);
-                self.core.releaseSession(row.session) catch unreachable;
+                if (self.releaseCoreSession(row.session)) |failure| self.noteTerminalFailureChain(failure);
             },
             .resident_dial => {
                 if (row.stage.resident_dial.attempt.deinit()) |failure| self.noteTerminalFailureChain(failure);
-                self.core.releaseSession(row.session) catch unreachable;
+                if (self.releaseCoreSession(row.session)) |failure| self.noteTerminalFailureChain(failure);
             },
             .handshake => {},
         };
@@ -2138,7 +2086,7 @@ pub const HostRuntime = struct {
                 self.claimed_session_handles -= 1;
             }
             self.freeWire(wire);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |failure| self.noteTerminalFailureChain(failure);
         }
         std.debug.assert(self.open_wire_count == 0);
         std.debug.assert(self.claimed_session_handles == 0);
@@ -2228,7 +2176,7 @@ pub const HostRuntime = struct {
         const session = try self.core.openDialedLocator(locator);
         errdefer {
             self.dropWire(session.peer_id);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |failure| self.noteTerminalFailureChain(failure);
         }
         try self.bindWire(session, locator, options);
         try self.pumpHandshake(session, self.opts.handshake);
@@ -2295,7 +2243,8 @@ pub const HostRuntime = struct {
             },
         };
         defer if (claimed.deinit()) |failure| self.noteTerminalFailureChain(failure);
-        const key = try runtime.connRemoteKey(claimed.borrow()) orelse return error.InvalidAddress;
+        const conn_id = claimed.borrow() orelse return error.ProviderContract;
+        const key = try runtime.connRemoteKey(conn_id) orelse return error.InvalidAddress;
 
         var designator_storage: [crypto.PeerKey.designator_len]u8 = undefined;
         const session = switch (role) {
@@ -2312,7 +2261,7 @@ pub const HostRuntime = struct {
         };
         errdefer {
             self.dropWire(session.peer_id);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |failure| self.noteTerminalFailureChain(failure);
         }
         session.served.port.peer.bindVerifiedChannelKey(key);
         try self.adoptResidentConn(session, resident_index, &claimed);
@@ -2366,7 +2315,7 @@ pub const HostRuntime = struct {
         };
         errdefer {
             self.dropWire(session.peer_id);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |failure| self.noteTerminalFailureChain(failure);
         }
         const row = try self.allocator.create(PendingOpen);
         errdefer self.allocator.destroy(row);
@@ -2444,7 +2393,19 @@ pub const HostRuntime = struct {
                         .outcome = outcome,
                     };
                 } else {
-                    try self.bindStreamWire(session, locator, nl, options);
+                    if (try self.bindStreamWireOutcome(session, locator, nl, options)) |failure| {
+                        row.* = .{
+                            .admission = admission,
+                            .session = session,
+                            .stage = .handshake,
+                            .deadline_ms = deadline_ms,
+                            .outcome = outcome,
+                        };
+                        self.pending_opens.appendAssumeCapacity(row);
+                        self.removePendingRow(row);
+                        try self.failPendingOpenFailure(row, .fromDialFailure(failure));
+                        return;
+                    }
                     row.* = .{
                         .admission = admission,
                         .session = session,
@@ -2524,11 +2485,14 @@ pub const HostRuntime = struct {
                 };
             },
             .resident => |*pending| blk: {
-                const resident_listener = pending.attempt.finish() catch |err| {
-                    self.releaseListenerProfile(transport);
-                    self.allocator.destroy(row);
-                    self.reportObservedFailure(observation.observer, observation.tag, err);
-                    return;
+                const resident_listener = switch (pending.attempt.finish()) {
+                    .ready => |listener| listener,
+                    .failed => |failure| {
+                        self.releaseListenerProfile(transport);
+                        self.allocator.destroy(row);
+                        self.reportObservedFailureChain(observation.observer, observation.tag, failure);
+                        return;
+                    },
                 };
                 break :blk .{
                     .transport = transport,
@@ -2621,17 +2585,18 @@ pub const HostRuntime = struct {
         const session = try self.core.openAcceptedAdvertised(transport);
         errdefer {
             self.dropWire(session.peer_id);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |failure| self.noteTerminalFailureChain(failure);
         }
         const row = try self.allocator.create(PendingOpen);
         errdefer self.allocator.destroy(row);
         try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
-        if (try self.bindAcceptedWireDetailed(session, listener)) |failure| {
+        if (try self.bindAcceptedWireOutcome(session, listener)) |accept_failure| {
+            var failure = OperationFailure.fromAcceptFailure(accept_failure);
             self.allocator.destroy(row);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |cleanup| failure.noteChain(cleanup);
             admission.release();
             observer.release(observer.ctx, tag);
-            self.failActiveListener(tag, OperationFailure.fromAcceptFailure(failure));
+            self.failActiveListener(tag, failure);
             return;
         }
         row.* = .{
@@ -2793,7 +2758,12 @@ pub const HostRuntime = struct {
             .handshake => {},
         }
         self.dropWire(row.session.peer_id);
-        self.core.releaseSession(row.session) catch unreachable;
+        if (self.releaseCoreSession(row.session)) |release_failure| {
+            if (cleanup) |*first|
+                first.noteChain(release_failure)
+            else
+                cleanup = release_failure;
+        }
         return .{ .admission = admission, .cleanup = cleanup };
     }
 
@@ -2868,6 +2838,15 @@ pub const HostRuntime = struct {
             self.terminal_failure = OperationFailure.fromChain(chain);
     }
 
+    /// Retire one Runtime-owned core shell without turning a violated core
+    /// ownership precondition into process policy. Callers with a narrower
+    /// operation outcome attach the returned chain; callerless rollback and
+    /// teardown retain it at the Runtime barrier.
+    fn releaseCoreSession(self: *HostRuntime, session: *driver_core.HostSession) ?foundation.FailureChain {
+        self.core.releaseSession(session) catch |err| return .init(err);
+        return null;
+    }
+
     pub fn noteTerminalOperationFailure(self: *HostRuntime, later: OperationFailure) void {
         if (self.terminal_failure) |*failure|
             failure.noteFailure(later)
@@ -2879,6 +2858,11 @@ pub const HostRuntime = struct {
     /// The process owner chooses the observer; the library never terminates.
     pub fn reportUnhandledFailure(self: *HostRuntime, failure: OperationFailure) void {
         if (self.opts.unhandled_failure) |observer| observer.report(observer.ctx, failure);
+    }
+
+    fn retainAndReportUnhandledFailure(self: *HostRuntime, failure: OperationFailure) void {
+        self.noteTerminalOperationFailure(failure);
+        self.reportUnhandledFailure(failure);
     }
 
     /// Record a provider callback contract violation at the driver boundary.
@@ -2968,7 +2952,11 @@ pub const HostRuntime = struct {
             },
         };
         defer if (conn.deinit()) |failure| self.noteTerminalFailureChain(failure);
-        const remote_key = resident.connRemoteKey(conn.borrow()) catch |err| {
+        const conn_id = conn.borrow() orelse {
+            self.removePendingRow(row);
+            return self.failPendingOpen(row, error.ProviderContract);
+        };
+        const remote_key = resident.connRemoteKey(conn_id) catch |err| {
             self.removePendingRow(row);
             return self.failPendingOpen(row, err);
         };
@@ -2991,16 +2979,12 @@ pub const HostRuntime = struct {
     fn adoptPendingStreamDial(self: *HostRuntime, row: *PendingOpen) !void {
         std.debug.assert(row.stage == .stream_dial);
         self.removeReadyFd(row.stage.stream_dial.readinessFd());
-        const bufs = self.allocBufs() catch |err| {
+        var buffers = stream_wire.Buffers.init(self.allocator, self.opts.wire_buffer_bytes) catch |err| {
             self.removePendingRow(row);
             return self.failPendingOpen(row, err);
         };
-        var owns_bufs = true;
-        defer if (owns_bufs) self.freeBufs(bufs);
-        const conn = switch (row.stage.stream_dial.finish(row.session.served.port.peer, .{
-            .read = bufs.read,
-            .write = bufs.write,
-        })) {
+        defer buffers.deinit();
+        const conn = switch (row.stage.stream_dial.finish(row.session.served.port.peer, buffers.view())) {
             .connected => |conn| conn,
             .failed => |failure| {
                 row.stage = .handshake;
@@ -3008,12 +2992,13 @@ pub const HostRuntime = struct {
                 return self.failPendingOpenFailure(row, .fromDialFailure(failure));
             },
         };
+        var prepared = buffers.attach(conn);
+        defer prepared.deinit();
         row.stage = .handshake;
-        self.adoptConn(row.session, conn, bufs) catch |err| {
+        self.adoptConn(row.session, &prepared) catch |err| {
             self.removePendingRow(row);
             return self.failPendingOpen(row, err);
         };
-        owns_bufs = false;
         // The hello flush drained before the wire existed. Push it now.
         const wire = self.wires.get(row.session.peer_id).?;
         self.writeOutbound(wire) catch |err| self.closeWire(wire, err);
@@ -3074,47 +3059,29 @@ pub const HostRuntime = struct {
         const session = try self.core.openAcceptedAdvertised(transport);
         errdefer {
             self.dropWire(session.peer_id);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |failure| self.noteTerminalFailureChain(failure);
         }
-        try self.bindAcceptedWire(session, listener);
+        if (try self.bindAcceptedWireOutcome(session, listener)) |failure|
+            return failure.classification;
         try self.pumpHandshake(session, self.opts.handshake);
         return session;
     }
 
-    /// The accept half of `bindWire`, in its own frame so buffer ownership
-    /// transfers atomically: once `adoptConn` succeeds the wire owns the
-    /// buffers, and a later handshake failure must unwind through `dropWire`
-    /// alone — a still-armed buffer errdefer there was a double free.
-    fn bindAcceptedWire(self: *HostRuntime, session: *driver_core.HostSession, listener: net.netlayer.Listener) !void {
-        const bufs = try self.allocBufs();
-        errdefer self.freeBufs(bufs);
-        const conn = try listener.accept(session.served.port.peer, .{ .read = bufs.read, .write = bufs.write });
-        try self.adoptConn(session, conn, bufs);
-    }
-
-    fn bindAcceptedWireDetailed(self: *HostRuntime, session: *driver_core.HostSession, listener: net.netlayer.Listener) !?net.netlayer.AcceptFailure {
-        const bufs = try self.allocBufs();
-        errdefer self.freeBufs(bufs);
-        const conn = switch (listener.acceptDetailed(session.served.port.peer, .{ .read = bufs.read, .write = bufs.write })) {
-            .accepted => |conn| conn,
+    /// Keep buffers and the accepted connection in one rollback transaction
+    /// until `adoptConn` commits them to the Host wire table.
+    fn bindAcceptedWireOutcome(self: *HostRuntime, session: *driver_core.HostSession, listener: net.netlayer.Listener) !?net.netlayer.AcceptFailure {
+        var prepared = switch (try stream_wire.accept(
+            self.allocator,
+            self.opts.wire_buffer_bytes,
+            listener,
+            session.served.port.peer,
+        )) {
+            .prepared => |prepared| prepared,
             .failed => |failure| return failure,
         };
-        try self.adoptConn(session, conn, bufs);
+        defer prepared.deinit();
+        try self.adoptConn(session, &prepared);
         return null;
-    }
-
-    const Bufs = struct { read: []u8, write: []u8 };
-
-    fn allocBufs(self: *HostRuntime) !Bufs {
-        const read = try self.allocator.alloc(u8, self.opts.wire_buffer_bytes);
-        errdefer self.allocator.free(read);
-        const write = try self.allocator.alloc(u8, self.opts.wire_buffer_bytes);
-        return .{ .read = read, .write = write };
-    }
-
-    fn freeBufs(self: *HostRuntime, bufs: Bufs) void {
-        self.allocator.free(bufs.read);
-        self.allocator.free(bufs.write);
     }
 
     /// Resolve and dial `locator` through the one provider registry, then adopt
@@ -3130,7 +3097,8 @@ pub const HostRuntime = struct {
         switch (provider.source) {
             .stream => |nl| {
                 if (!nl.supportsDial()) return Error.UnknownTransport;
-                try self.bindStreamWire(session, locator, nl, options);
+                if (try self.bindStreamWireOutcome(session, locator, nl, options)) |failure|
+                    return failure.classification;
             },
             .resident => |resident_index| {
                 const dialer = self.residents.items[resident_index].resident.dialer() orelse
@@ -3140,24 +3108,27 @@ pub const HostRuntime = struct {
         }
     }
 
-    /// The stream arm of `bindWire`, on its own for the staged dial path,
-    /// whose resident arm binds later, at the `ev_connect` record.
-    fn bindStreamWire(
+    fn bindStreamWireOutcome(
         self: *HostRuntime,
         session: *driver_core.HostSession,
         locator: model.PeerLocator,
         nl: net.netlayer.Netlayer,
         options: net.OperationOptions,
-    ) !void {
-        const bufs = try self.allocBufs();
-        errdefer self.freeBufs(bufs);
-        const conn = try nl.dial(
+    ) !?net.netlayer.DialFailure {
+        var prepared = switch (try stream_wire.dial(
+            self.allocator,
+            self.opts.wire_buffer_bytes,
+            nl,
             session.served.port.peer,
             locator,
-            .{ .read = bufs.read, .write = bufs.write },
             options,
-        );
-        try self.adoptConn(session, conn, bufs);
+        )) {
+            .prepared => |prepared| prepared,
+            .failed => |failure| return failure,
+        };
+        defer prepared.deinit();
+        try self.adoptConn(session, &prepared);
+        return null;
     }
 
     /// The resident half of `bindWire`: begin the dial, pump readiness until
@@ -3188,7 +3159,8 @@ pub const HostRuntime = struct {
         defer if (attempt.deinit()) |failure| self.noteTerminalFailureChain(failure);
         var conn = try self.awaitResidentConnect(resident_index, &attempt, self.opts.handshake);
         defer if (conn.deinit()) |failure| self.noteTerminalFailureChain(failure);
-        if (try resident.connRemoteKey(conn.borrow())) |key| {
+        const conn_id = conn.borrow() orelse return error.ProviderContract;
+        if (try resident.connRemoteKey(conn_id)) |key| {
             session.served.port.peer.bindVerifiedChannelKey(key);
         }
         try self.adoptResidentConn(session, resident_index, &conn);
@@ -3205,7 +3177,7 @@ pub const HostRuntime = struct {
         attempt: *net.multiplexed_resident.DialAttempt,
         budget: Budget,
     ) !net.multiplexed_resident.ClaimedConnection {
-        const request_id = attempt.id();
+        const request_id = attempt.id() orelse return error.ProviderContract;
         const key = ResidentRequestKey{ .resident = resident_index, .request = request_id };
         var wait = ResidentDialWait{};
         try self.pending_resident_dials.put(self.allocator, key, &wait);
@@ -3239,10 +3211,8 @@ pub const HostRuntime = struct {
         }
     }
 
-    fn adoptConn(self: *HostRuntime, session: *driver_core.HostSession, conn: net.Connection, bufs: Bufs) !void {
-        var owned_conn = conn;
-        errdefer owned_conn.deinit();
-        const handle = owned_conn.socketHandle() orelse return Error.TransportNotPollable;
+    fn adoptConn(self: *HostRuntime, session: *driver_core.HostSession, prepared: *stream_wire.Prepared) !void {
+        const handle = prepared.connection().socketHandle() orelse return Error.TransportNotPollable;
         if (handle < 0) return Error.TransportNotPollable;
         if (self.descriptorInUse(handle)) return error.ReadinessDescriptorConflict;
         if (self.ready_set) |*rs| try rs.add(handle);
@@ -3251,8 +3221,9 @@ pub const HostRuntime = struct {
         errdefer if (self.close_observer) |observer| observer.release(observer.ctx);
         try self.wires.ensureUnusedCapacity(self.allocator, 1);
         const wire = try self.allocator.create(Wire);
+        const parts = prepared.take();
         wire.* = .{
-            .link = .{ .stream = .{ .conn = owned_conn, .read_buf = bufs.read, .write_buf = bufs.write } },
+            .link = .{ .stream = .{ .conn = parts.conn, .read_buf = parts.read, .write_buf = parts.write } },
             .session = session,
             .close_event_reserved = self.close_observer != null,
         };
@@ -3267,7 +3238,7 @@ pub const HostRuntime = struct {
         resident_index: usize,
         claimed: *net.multiplexed_resident.ClaimedConnection,
     ) !void {
-        const conn = claimed.borrow();
+        const conn = claimed.borrow() orelse return error.ProviderContract;
         const read_buf = try self.allocator.alloc(u8, self.opts.wire_buffer_bytes);
         errdefer self.allocator.free(read_buf);
         if (self.close_observer) |observer| try observer.reserve(observer.ctx);
@@ -3293,13 +3264,20 @@ pub const HostRuntime = struct {
     /// row; the resident routing row leaves here, with the link it routes.
     fn freeWire(self: *HostRuntime, wire: *Wire) void {
         if (wire.close_event_reserved) {
-            const observer = self.close_observer orelse unreachable;
-            observer.release(observer.ctx);
+            if (self.close_observer) |observer| {
+                observer.release(observer.ctx);
+            } else {
+                const failure = OperationFailure.fromError(error.ProviderContract);
+                self.retainAndReportUnhandledFailure(failure);
+            }
             wire.close_event_reserved = false;
         }
         if (!wire.closed) {
-            std.debug.assert(self.open_wire_count != 0);
-            self.open_wire_count -= 1;
+            if (self.open_wire_count == 0) {
+                self.retainAndReportUnhandledFailure(.fromError(error.ProviderContract));
+            } else {
+                self.open_wire_count -= 1;
+            }
         }
         switch (wire.link) {
             .stream => |*stream| {
@@ -3474,7 +3452,7 @@ pub const HostRuntime = struct {
             return err;
         };
         return switch (capture.outcome orelse return driver_core.Error.ConnectionClosed) {
-            .capability => |far_ref| self.core.liftCapability(hs, .{ .far = far_ref }),
+            .capability => |captured| self.core.liftCapability(hs, captured.reference()),
             .broken => driver_core.Error.FetchBroken,
             .not_a_capability => driver_core.Error.FetchNotACapability,
         };
@@ -4131,7 +4109,7 @@ pub const HostRuntime = struct {
                 .resident = resident_index,
                 .route = event.subject,
             }) orelse return 0;
-            var conn = switch (listener.listener.finishAcceptDetailed()) {
+            var conn = switch (listener.listener.finishAcceptOutcome()) {
                 .connection => |conn| conn orelse return 0,
                 .failed => |failure| {
                     self.failActiveListener(listener.observation.tag, OperationFailure.fromAcceptFailure(failure));
@@ -4169,7 +4147,12 @@ pub const HostRuntime = struct {
         const wire = self.resident_wires.get(.{
             .resident = resident_index,
             .conn = event.subject,
-        }) orelse return 0;
+        }) orelse {
+            if (event.events & er.ev_closed != 0)
+                if (self.residents.items[resident_index].resident.connClose(event.subject)) |failure|
+                    self.noteTerminalFailureChain(failure);
+            return 0;
+        };
         if (wire.closed) return 0;
         if (event.events & er.ev_writable != 0) {
             self.writeOutbound(wire) catch |err| self.closeWire(wire, err);
@@ -4208,12 +4191,13 @@ pub const HostRuntime = struct {
         const session = try self.core.openAcceptedAdvertised(transport);
         errdefer {
             self.dropWire(session.peer_id);
-            self.core.releaseSession(session) catch unreachable;
+            if (self.releaseCoreSession(session)) |failure| self.noteTerminalFailureChain(failure);
         }
         const row = try self.allocator.create(PendingOpen);
         errdefer self.allocator.destroy(row);
         try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
-        if (try resident.connRemoteKey(conn.borrow())) |key| {
+        const conn_id = conn.borrow() orelse return error.ProviderContract;
+        if (try resident.connRemoteKey(conn_id)) |key| {
             session.served.port.peer.bindVerifiedChannelKey(key);
         }
         try self.adoptResidentConn(session, resident_index, conn);

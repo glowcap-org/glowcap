@@ -23,7 +23,7 @@
  *
  * # The view a document carries
  *
- * Where a document opens is `initialView` on `TimelineDocument`, and `Stage.tsx`
+ * Where a document opens is `initialView` on `TimelineDocument`, and the stage scene
  * reads it once when it builds the viewport. A document with nothing stored opens
  * at `DEFAULT_STAGE_VIEW`, the middle of the world at 1:1, which is also where the
  * controls' home button goes.

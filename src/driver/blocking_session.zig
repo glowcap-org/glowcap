@@ -295,7 +295,10 @@ pub const BlockingSession = struct {
         const vow = try self.beginFetch(name);
         try self.awaitVow(vow, .{ .ctx = &state, .func = driver.FetchCapture.record });
         return switch (state.outcome orelse return Error.ConnectionClosed) {
-            .capability => |far_ref| .{ .far = far_ref },
+            .capability => |captured| switch (captured) {
+                .far => |far_ref| .{ .far = far_ref },
+                .routed => Error.FetchNotACapability,
+            },
             .broken => Error.FetchBroken,
             .not_a_capability => Error.FetchNotACapability,
         };
@@ -442,6 +445,10 @@ pub fn connectVia(
             return error.InvalidAddress;
         peer.demandPartnerDurableKey(expected);
     }
+    // The handed pancake form of an onion address is partner knowledge on
+    // this tier exactly as on the Host tiers (ADR-0118): recorded before the
+    // hello below, so the stamp may state a configured preference.
+    if (engine.Peer.dialedLocatorIdentifiesPancake(locator)) peer.noteKnownPancakePartner();
     const conn = try nl.dial(
         peer,
         locator,

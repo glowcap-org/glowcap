@@ -292,10 +292,10 @@ typedef struct PancakeHostPumpHooks {
    the PANCAKE_FEATURE_* bitmask this host offers. The signed hello carries those
    preferences as locator hints; each session settles version and codec with its
    partner, falling back to v1.0/Syrup when needed, and runs only the intersection
-   of the two offered feature sets. An absent feature hint means PANCAKE_FEATURE_FULL.
-   PANCAKE_CAPTP_V1_0 with PANCAKE_CODEC_SYRUP and PANCAKE_FEATURE_FULL is the
-   interop floor a Goblins vat speaks; a pancake-to-pancake fleet normally names
-   PANCAKE_CAPTP_NEXT with PANCAKE_CODEC_CAPNP and PANCAKE_FEATURE_FULL.
+   of the two offered feature sets. An absent feature hint means the baseline set,
+   which excludes PANCAKE_FEATURE_UNTAG because Goblins does not implement it.
+   PANCAKE_CAPTP_V1_0 with PANCAKE_CODEC_SYRUP remains the interop floor; two
+   Pancake peers may advertise PANCAKE_FEATURE_FULL on that same wire version.
    local_turn_budget is 0 = unbounded (same default as Zig Host + Bridge);
    nonzero caps local-turn amplification per drive (ADR-0076).
    *out_host receives the handle; release with pancake_host_release. */
@@ -303,7 +303,7 @@ int32_t pancake_host_new(const uint8_t *seed, size_t seed_len, size_t frame_cap,
 /* pancake_host_new allocating every byte the host owns through context's host
    allocator (pancake_context_new_with_allocator). */
 int32_t pancake_host_new_in(PancakeContext *context, const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, PancakeHost **out_host);
-/* Return the Host's stable identity in its owning Context's diagnostic namespace. The context-less compatibility constructor reports zero. */
+/* Return the Host's stable identity in its owning Context's diagnostic namespace. The context-less convenience constructor reports zero because it has no Context diagnostic namespace to allocate from. */
 int32_t pancake_host_diagnostic_id(PancakeHost *host, uint64_t *out_id);
 /* Seal application admission and begin or escalate terminal Host close. now_ms is
    a reading from the embedder's monotonic millisecond clock. FINISH keeps
@@ -769,12 +769,13 @@ int32_t pancake_host_turn_spawn(PancakeHostTurn *turn, PancakeHostBehavior behav
 int32_t pancake_host_turn_break(PancakeHostTurn *turn, const uint8_t *message, size_t message_len);
 /* Release delta application retains on one opaque Host capability. The Host
    resolves the owning session and emits any required op:gc-exports itself; the
-   caller never pairs a capability with a session-local wire position. A stale or
-   foreign-Host identity is refused. A non-OK return commits no release, so the
-   same (ref, delta) may be retried. OK consumes the release; any later pump
-   cleanup failure becomes typed session close and must not invite a duplicate
-   release. Single-thread affinity applies: never call this from a finalizer
-   thread. */
+   caller never pairs a capability with a session-local wire position. If that
+   session already closed, its already-issued application units remain releaseable
+   as wire-free success; every other use is stale. A fully released or foreign-Host
+   identity is refused. A non-OK return commits no release, so the same (ref, delta)
+   may be retried. OK consumes the release; any later pump cleanup failure becomes
+   typed session close and must not invite a duplicate release. Single-thread
+   affinity applies: never call this from a finalizer thread. */
 int32_t pancake_host_ref_release(PancakeHost *host, const PancakeReference *ref, uint64_t delta);
 /* Write to *out_ref the opaque Host-scoped capability currently published under
    name, or return PANCAKE_ERR_NOT_FOUND when the Host has no such alias. The actor
@@ -877,7 +878,7 @@ int32_t pancake_host_session_bind_verified_channel_key(PancakeHostSession *sessi
 /* Copy the calling thread's last pancake_host_* error into out_buf, the host
    sibling of pancake_last_error, reading this archive's own per-thread slot.
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap
-   0 queries the length. Returns the full message length, or 0 when none is set. */
+   0 queries the length. Returns the full message length, or 0 when none is set. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_host_last_error(uint8_t *out_buf, size_t cap);
 /* Clear the calling thread's pancake_host_* last-error slot. */
 void pancake_host_clear_last_error(void);

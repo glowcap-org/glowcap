@@ -27,7 +27,7 @@ amended_by: []
 A three-party handoff starts when an application replies to a call with a
 capability that lives on another connection. The node notices, claims the
 reply, and turns it into a signed give. That noticing is
-`Node.interceptFulfilledRef`, and it works by looking the reply's capability up
+`Node.interceptFulfilledRoute`, and it works by looking the reply's capability up
 by token to find the connection it is homed on.
 
 Only one path ever minted such a token. `Host.enrollFetched` ran on a vow whose
@@ -141,7 +141,7 @@ broken answer and a live session instead.
 - `Session.holdsImport` becomes the single definition of "an import this session
   holds", asked by both the send-side reference rule and the enrollment check,
   so the two cannot drift.
-- `test/driver/core_host_test.zig` holds the contract, validated by injection:
+- `test/driver/core_host/` holds the contract, validated by injection:
   gifting without enrolling originates no give at all, removing the reply
   refusal turns a broken answer into the session-wide `InvalidReference` it
   exists to prevent, and dropping the kind on the way to the routing row leaves
@@ -157,5 +157,5 @@ broken answer and a live session instead.
 The send-side rule this leans on is
 [ADR-0009](ADR-0009-three-party-handoff-substrate.md)'s handoff machinery reached through
 [ADR-0069](ADR-0069-node-unique-foreign-import-identity.md)'s node-local tokens, which is
-where `enrollForeign` and the token range live. The deliberate-release sibling
+where `enrollForeign` and the route namespace live. The deliberate-release sibling
 it sits beside is [ADR-0063](ADR-0063-finalizer-driven-distributed-gc.md)'s.

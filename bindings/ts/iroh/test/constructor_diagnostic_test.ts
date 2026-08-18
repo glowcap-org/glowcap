@@ -35,7 +35,7 @@ Deno.test("allocator-aware iroh construction returns its worker diagnostic", asy
 		const out = new Uint8Array(8);
 		const error = new Uint8Array(257);
 		const errorLen = new Uint8Array(8);
-		const code = await irohS().pancake_iroh_netlayer_new_with_diagnostic_in(
+		const code = await irohS().pancake_iroh_netlayer_new_in(
 			context.pointer,
 			seed,
 			BigInt(seed.length),

@@ -399,7 +399,10 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !
     defer {
         signals.requestStop();
         caps_future.await(ctx.io);
-        ctx.closeSession();
+        if (ctx.closeSession(.cancel)) |failure| ctx.logErr(
+            "mcp close: {s} (and {d} later failure(s))",
+            .{ failure.primaryName(), failure.secondary_count },
+        );
     }
 
     var read_buf: [65536]u8 = undefined;

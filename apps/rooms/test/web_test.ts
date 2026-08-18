@@ -124,9 +124,10 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 		target: string,
 		roomPort: number,
 		peers: TcpPeer[] = [],
+		roomOnion: string | null = null,
 	): boolean => {
 		try {
-			return relayAllowed(classifyRelayTarget(target), roomPort, peers);
+			return relayAllowed(classifyRelayTarget(target), roomPort, peers, roomOnion);
 		} catch {
 			return false;
 		}
@@ -165,6 +166,22 @@ Deno.test("the relay allow-list and origin check refuse what they must", () => {
 	assert(
 		!admits(`ocapn://${key}.keyed-tcp?direct-addresses=10.0.0.8:9099`, 9099),
 		"a keyed-tcp URI naming a non-room address should be refused",
+	);
+	// An onion target is allowed only when it names the room server this
+	// process supervises; the relay holds no Tor client, so a foreign service
+	// is not reachable through it at all.
+	const serviceId = "a".repeat(56);
+	assert(
+		admits(`ocapn://${serviceId}.onion`, 9099, [], serviceId),
+		"the supervised room's own onion service should be allowed",
+	);
+	assert(
+		!admits(`ocapn://${"b".repeat(56)}.onion`, 9099, [], serviceId),
+		"a foreign onion service should be refused",
+	);
+	assert(
+		!admits(`ocapn://${serviceId}.onion`, 9099),
+		"an onion target should be refused when the room is not an onion service",
 	);
 
 	// An operator names the cleartext-TCP peers a browser may direct-message —
@@ -321,7 +338,7 @@ Deno.test("the web front reports a room server that cannot start, and stops", as
 		const proc = new Deno.Command("deno", {
 			args: [...DENO_FLAGS, `--allow-write=${dir}`, WEB, String(freePort()), String(freePort())],
 			cwd: ROOT,
-			env: { ROOMS_STATE: dir },
+			env: { PANCAKE_ROOMS_STATE: dir },
 			stdout: "piped",
 			stderr: "piped",
 		}).spawn();

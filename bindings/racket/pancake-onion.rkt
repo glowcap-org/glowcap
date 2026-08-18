@@ -380,7 +380,14 @@
                                key-buf SERVICE-KEY-CAP))
        (check/onion rc)
        (define-values (fd-rc fd) (pancake_onion_listener_readiness_fd h))
-       (with-handlers ([exn? (lambda (e) (pancake_onion_listener_release h) (raise e))])
+       (with-handlers
+           ([exn?
+             (lambda (e)
+               (define cleanup
+                 (with-handlers ([exn? values])
+                   (check/onion (pancake_onion_listener_release h))
+                   #f))
+               (raise (if cleanup (retain-cleanup-failure e cleanup) e)))])
          (check/onion fd-rc))
        (onion-listener h
                        (bytes->string/utf-8 (bytes<-c id-buf id-len))
@@ -541,6 +548,7 @@
     ;; Shutdown interrupts either full-duplex half. Release then takes both gates,
     ;; proving no native call can still touch the payload it is about to free.
     (define shutdown-failure #f)
+    (define release-failure #f)
     (with-handlers ([(lambda (_) #t)
                      (lambda (raised) (set! shutdown-failure raised))])
       (check/onion (pancake_onion_conn_shutdown (onion-connection-handle cn))))
@@ -551,7 +559,9 @@
         (onion-connection-write-gate cn)
         (lambda ()
           (when (onion-connection-handle cn)
-            (pancake_onion_conn_release (onion-connection-handle cn))
+            (with-handlers ([(lambda (_) #t)
+                             (lambda (raised) (set! release-failure raised))])
+              (check/onion (pancake_onion_conn_release (onion-connection-handle cn))))
             (set-onion-connection-handle! cn #f)
             (onion-netlayer-forget! (onion-connection-netlayer cn) cn))))))
-    (when shutdown-failure (raise shutdown-failure))))
+    (raise-retained-failures shutdown-failure release-failure)))

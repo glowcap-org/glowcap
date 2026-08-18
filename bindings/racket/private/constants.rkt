@@ -13,7 +13,8 @@
 
 (provide (all-from-out "constants-gen.rkt")
          FORWARD-CYCLE-MESSAGE
-         provenance<-abi)
+         provenance<-abi
+         lifecycle-closed?)
 
 ;; The ADR-0097 provenance symbol for one reflected ABI value.
 ;;
@@ -25,7 +26,25 @@
 (define (provenance<-abi raw)
   (cond
     [(= raw DURABLE-PROVENANCE-AUTHENTICATED-TRANSPORT) 'authenticated-transport]
-    [else 'unauthenticated]))
+    [(= raw DURABLE-PROVENANCE-UNAUTHENTICATED) 'unauthenticated]
+    [else (error 'pancake "ABI returned unknown durable provenance: ~a" raw)]))
+
+;; A future/corrupted lifecycle word is not ordinary unfinished progress: that
+;; interpretation would park forever waiting for a state this ABI cannot name.
+(define (lifecycle-closed? raw)
+  (cond
+    [(or (= raw LIFECYCLE-ACTIVE)
+         (= raw LIFECYCLE-FINISHING)
+         (= raw LIFECYCLE-TERMINATING)) #f]
+    [(= raw LIFECYCLE-CLOSED) #t]
+    [else (error 'pancake "ABI returned unknown lifecycle state: ~a" raw)]))
 
 ;; Cycle break message when a local Forward chain exceeds the hop cap.
 (define FORWARD-CYCLE-MESSAGE "forward cycle: the local forward chain never terminates")
+
+(module+ test
+  (require rackunit)
+  (check-false (lifecycle-closed? LIFECYCLE-ACTIVE))
+  (check-true (lifecycle-closed? LIFECYCLE-CLOSED))
+  (check-exn exn:fail? (lambda () (lifecycle-closed? #xffffffff)))
+  (check-exn exn:fail? (lambda () (provenance<-abi #xffffffff))))

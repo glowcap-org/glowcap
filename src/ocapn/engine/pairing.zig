@@ -273,16 +273,22 @@ pub fn pairedWithKeys(
     const p1_loc = defaultLocator("p1");
     const p2_loc = defaultLocator("p2");
 
-    const p1_signed = try codec.signed.locationBytes(allocator, p1_loc);
+    var p1_hints: Peer.HelloHints = .{};
+    defer p1_hints.deinit(allocator);
+    const p1_advertised = try p1.advertisedLocator(p1_loc, &p1_hints);
+    const p1_signed = try codec.signed.locationBytes(allocator, p1_advertised);
     defer allocator.free(p1_signed);
-    const p2_signed = try codec.signed.locationBytes(allocator, p2_loc);
+    var p2_hints: Peer.HelloHints = .{};
+    defer p2_hints.deinit(allocator);
+    const p2_advertised = try p2.advertisedLocator(p2_loc, &p2_hints);
+    const p2_signed = try codec.signed.locationBytes(allocator, p2_advertised);
     defer allocator.free(p2_signed);
 
     const p1_sig = crypto.sign(&p1_secret, p1_signed);
     const p2_sig = crypto.sign(&p2_secret, p2_signed);
 
-    try sendStartSession(&p1, p1_loc, p1_pub.asBytes(), p1_sig.asBytes());
-    try sendStartSession(&p2, p2_loc, p2_pub.asBytes(), p2_sig.asBytes());
+    try queueStartSession(&p1, p1_advertised, p1_pub.asBytes(), p1_sig.asBytes());
+    try queueStartSession(&p2, p2_advertised, p2_pub.asBytes(), p2_sig.asBytes());
 
     if (try shuttleUntilQuiescent(&p1, &p2) != .quiescent) {
         return Error.HandshakeDidNotQuiesce;
@@ -303,6 +309,15 @@ fn sendStartSession(
     var hint_storage: Peer.HelloHints = .{};
     defer hint_storage.deinit(peer.allocator);
     const advertised = try peer.advertisedLocator(locator, &hint_storage);
+    return queueStartSession(peer, advertised, pubkey, sig);
+}
+
+fn queueStartSession(
+    peer: *Peer,
+    advertised: model.PeerLocator,
+    pubkey: []const u8,
+    sig: []const u8,
+) !void {
     try peer.sendCopying(.{
         .start_session = .{
             // The baseline, like every hello: the preference rides the hints

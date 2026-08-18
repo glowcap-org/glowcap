@@ -15,7 +15,7 @@
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App.tsx";
+import { RoomsRouter } from "./router.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { handOffWhenReady } from "./boot.ts";
 import * as net from "./net.ts";
@@ -31,29 +31,71 @@ const peer: Peer = {
 	showRail: store.showRail,
 	pickRoom: net.pickRoom,
 	leaveRoom: net.leaveRoom,
-	addDirectory: net.addDirectory,
+	reachFor: net.reachFor,
+	openPrivateRoom: (dir, label) => {
+		void net.openPrivateRoom(dir, label).then((why) => {
+			if (why !== "") store.toast("failure", why);
+		});
+	},
+	acceptInvite: (id) => {
+		void net.acceptInvite(id).then((why) => {
+			if (why !== "") store.toast("failure", why);
+		});
+	},
+	declineInvite: net.declineInvite,
+	setStanding: net.setStanding,
+	setDirStanding: net.setDirStanding,
+	setRoomStanding: net.setRoomStanding,
 	aboutDirectory: net.aboutDirectory,
 	leaveDirectory: net.leaveDirectory,
 	openConv: store.switchTo,
 	closeDm: net.closeDm,
 	banner: store.setBanner,
+	toast: store.toast,
 	showRoster: store.showRoster,
 	endConv: net.endConversation,
 	setTheme: store.setTheme,
 	toggleNotify: net.toggleNotify,
 	openSettings: store.openSettings,
 	closeSettings: store.closeSettings,
+	setSettingsTab: store.setSettingsTab,
 	applySettings: prefs.apply,
 	selfLocator: net.selfLocator,
 	directoryLocator: net.directoryLocator,
+	dirAddress: net.dirAddress,
+	directoryId: net.directoryId,
+	openHelp: store.openHelp,
+	closeHelp: store.closeHelp,
+	openOperations: store.openOperations,
+	closeOperations: store.closeOperations,
+	openOpsTake: store.openOpsTake,
+	closeOpsTake: store.closeOpsTake,
+	// The drop clears that capability's rows, and possession is derived from
+	// the rows, so the toggle falls off in the same store change.
+	dropOpsCap: (cap) => {
+		if (cap === "diagnostics") net.dropDiagnosticCap();
+		else if (cap === "viz") net.dropVizCap();
+		else net.dropListenersCap();
+	},
+	setOpsTab: store.setOpsTab,
+	takeDiagnosticCap: net.takeDiagnosticCap,
+	refreshDiagnostics: net.refreshDiagnostics,
+	takeListenersCap: net.takeListenersCap,
+	refreshListeners: net.refreshListeners,
+	takeVizCap: net.takeVizCap,
+	listenerUp: net.requestListenerUp,
+	listenerDown: net.requestListenerDown,
 	startDm: net.startDm,
 	retry: net.retrySend,
 	stopSend: net.stopSend,
 	withdraw: net.withdraw,
 	changeLine: store.startChange,
+	changeFiles: store.startRefile,
+	dropKeptFile: store.dropKeptFile,
 	cancelChange: store.cancelChange,
 	mention: net.mention,
 	setDraft: net.setDraft,
+	recallLastSent: net.recallLastSent,
 	send: net.send,
 	addFiles: net.addFiles,
 	removeFile: store.removeDraftFile,
@@ -62,7 +104,7 @@ const peer: Peer = {
 	stepViewer: net.stepViewer,
 	closeViewer: store.closeViewer,
 	setTyping: net.setTyping,
-	setJoinDraft: store.setDrafts,
+	editJoin: store.editJoin,
 	join: net.joinRoom,
 };
 
@@ -82,7 +124,7 @@ createRoot(mount, {
 	<StrictMode>
 		<ErrorBoundary part="page">
 			<PeerProvider value={peer}>
-				<App />
+				<RoomsRouter />
 			</PeerProvider>
 		</ErrorBoundary>
 	</StrictMode>,

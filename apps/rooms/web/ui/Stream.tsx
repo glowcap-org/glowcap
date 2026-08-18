@@ -9,13 +9,15 @@
 
 import type React from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import type { Banner, Conv, DirId, DirView, SessionPhase } from "./types.ts";
+import type { AttachmentView, Banner, Conv, DirId, DirView, SessionPhase } from "./types.ts";
+import type { JoinAnswers } from "./joining.ts";
 import { Log } from "./Log.tsx";
 import { Composer } from "./Composer.tsx";
 import { JoinCard } from "./JoinCard.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { RichText } from "./RichText.tsx";
 import { usePeer } from "./peer.ts";
+import { Icon } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
 
 // How close to the end still counts as "reading the newest message".
@@ -29,10 +31,10 @@ export function Stream(
 		draft,
 		draftFiles,
 		changing,
+		draftKeeping,
 		liveRooms,
-		draftRoom,
-		draftLocator,
-		draftNick,
+		reachable,
+		join,
 		dirs,
 		homeDir,
 		composerEnabled,
@@ -46,20 +48,25 @@ export function Stream(
 		draft: string;
 		draftFiles: readonly File[];
 		/** Whether the composer is rewriting a line already posted. */
-		changing: boolean;
+		/** The line being rewritten: the composer says so, and the log marks it. */
+		changing: number | undefined;
+		/** The kept files of a file line being changed, when the change is to one.
+		 * Present turns the composer into a view of that line's files. */
+		draftKeeping: readonly AttachmentView[] | undefined;
 		liveRooms: ReadonlyMap<string, number>;
-		draftRoom: string;
-		draftLocator: string;
+		reachable: ReadonlySet<string>;
+		/** Every join-card field with the evidence behind it, resolved from the
+		 * act the reader arrived by. */
+		join: JoinAnswers;
 		/** Passed straight through to the join card, which offers the directories
 		 * this tab already holds under its locator field. */
 		dirs: ReadonlyMap<DirId, DirView>;
 		homeDir: DirId | null;
-		draftNick: string;
 		composerEnabled: boolean;
 		/** What the conversation's directory is doing, for the field to say when it
 		 * cannot be used. */
 		composerPhase: SessionPhase;
-		/** Names this window is not drawing, straight through to the log. */
+		/** Names this window is not showing, straight through to the log. */
 		ignored: ReadonlySet<string>;
 		mobile: boolean;
 	},
@@ -200,11 +207,23 @@ export function Stream(
 			<div id="dropHint" className="drop-hint" aria-hidden="true">
 				<span>Drop to post</span>
 			</div>
+			{
+				/* Session status for this conversation — reconnecting, and the
+			    like. It lives in the column because it is about the session the
+			    reader is in. A copy, a refused name, anything that answers for
+			    a moment and then should get out of the way, is a toast instead,
+			    above every layer of the page. */
+			}
 			<div
 				id="banner"
 				className={banner === null ? "banner" : `banner ${banner.kind} show`}
 				role={banner?.kind === "error" ? "alert" : "status"}
 			>
+				{banner?.kind === "error" && (
+					<span className="banner-mark" aria-hidden="true">
+						<Icon name="fail" size={16} />
+					</span>
+				)}
 				{banner?.text}
 			</div>
 			{
@@ -220,9 +239,9 @@ export function Stream(
 			    ability to, and for nobody else. Not a permission being checked:
 			    the button is drawn from what this membership was answered with,
 			    which is the same reason `/topic` is on their list of commands and
-			    missing from somebody else's. It writes the command rather than
-			    opening a field of its own, so a topic is amended where text is
-			    written and there is one path to changing it rather than two. */
+			    missing from somebody else's. Both buttons write the command rather than
+			    acting on their own, so a topic is amended, or taken down, where text is
+			    written, and there is one path rather than two. */
 			}
 			{conv?.type === "room" && conv.topic !== undefined && conv.topic !== "" && (
 				<div id="topic" className="topic">
@@ -230,13 +249,23 @@ export function Stream(
 						<RichText text={conv.topic} nick={nick} />
 					</span>
 					{conv.grants.has("topic") && (
-						<IconButton
-							icon="pencil"
-							label="Change the topic"
-							size="small"
-							variant="ghost"
-							onClick={() => peer.setDraft(`/topic ${conv.topic}`)}
-						/>
+						<>
+							<IconButton
+								icon="pencil"
+								label="Change the topic"
+								size="small"
+								variant="ghost"
+								onClick={() => peer.setDraft(`/topic ${conv.topic}`)}
+							/>
+							<IconButton
+								icon="close"
+								label="Take the topic down"
+								size="small"
+								variant="ghost"
+								onClick={() =>
+									peer.setDraft("/topic -")}
+							/>
+						</>
 					)}
 				</div>
 			)}
@@ -246,14 +275,13 @@ export function Stream(
 					conv={conv}
 					nick={nick}
 					ignored={ignored}
+					changing={changing}
 					hidden={conv === null}
 				/>
 			</ErrorBoundary>
 			<JoinCard
 				shown={conv === null}
-				room={draftRoom}
-				locator={draftLocator}
-				nick={draftNick}
+				answers={join}
 				dirs={dirs}
 				homeDir={homeDir}
 			/>
@@ -272,7 +300,9 @@ export function Stream(
 				draft={draft}
 				draftFiles={draftFiles}
 				changing={changing}
+				draftKeeping={draftKeeping}
 				liveRooms={liveRooms}
+				reachable={reachable}
 				mobile={mobile}
 				enabled={composerEnabled}
 				phase={composerPhase}

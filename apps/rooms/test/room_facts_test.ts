@@ -10,8 +10,19 @@
 // reader types is characters, everything a limit downstream counts is bytes,
 // and the two disagree the moment anybody writes an emoji.
 
-import { lineCost, lineRoom } from "../web/ui/text.ts";
-import { readLineBytes, readRoomFacts, readTopic } from "../lib/room_client.ts";
+import { lineNotShowable, lineRoom } from "../web/ui/text.ts";
+import {
+	lineCost,
+	MAX_LINE,
+	MAX_NICK,
+	MAX_ROOM,
+	MAX_SIGNAL_CANDIDATE,
+	MAX_SIGNAL_ID,
+	MAX_SIGNAL_SDP,
+	MAX_TOPIC,
+	relayedSignalFits,
+} from "../lib/limits.ts";
+import { readLineBytes, readPresence, readRoomEvent, readRoomFacts, readTopic } from "../lib/room_client.ts";
 import { assertEquals } from "./assert.ts";
 
 const APP_MAX = 8192;
@@ -67,6 +78,30 @@ Deno.test("a room states its topic in the same tail", () => {
 	// as "nothing said" would make clearing one impossible.
 	assertEquals(readTopic(["alice", "welcome", "topic", ""]), "", "cleared on purpose");
 	assertEquals(readTopic(["alice", "hi"]), undefined, "an ordinary line says nothing about it");
+	// A room that states a topic longer than a topic may be has said something
+	// this cannot show, and a topic sits on screen for as long as the room is
+	// open. Read the way a malformed cap is: it said nothing, which leaves the
+	// last topic a reader could actually read in place.
+	assertEquals(
+		readTopic(["alice", "welcome", "topic", "t".repeat(MAX_TOPIC + 1)]),
+		undefined,
+		"a room stated a topic longer than one may be and it was taken",
+	);
+	assertEquals(readTopic(["alice", "welcome", "topic", "t".repeat(MAX_TOPIC)]), "t".repeat(MAX_TOPIC));
+
+	// The roster draws a row per name it is given, so a name longer than any this
+	// protocol grants is dropped rather than drawn.
+	const roster = readPresence(["room", "", "roster", "ada", "n".repeat(MAX_NICK + 1), "bo"]);
+	assertEquals(
+		roster?.kind === "roster" && roster.names.join(","),
+		"ada,bo",
+		"the roster took a name that is not one",
+	);
+	assertEquals(
+		readPresence(["room", "", "join", "n".repeat(MAX_NICK + 1)]),
+		undefined,
+		"somebody joined under a name longer than one may be",
+	);
 	assertEquals(readTopic(["alice", "hi", "roster", "bob"]), undefined, "nor does a roster");
 	// A topic that is not text is a room saying something malformed, which reads
 	// as having said nothing rather than as a topic of "undefined".
@@ -91,4 +126,79 @@ Deno.test("a line carries whichever facts the room put on it, and nothing otherw
 	// A topic taken down is a fact, so it survives the "did this line say
 	// anything" question rather than being read as silence.
 	assertEquals(readRoomFacts(["room", "welcome", "topic", ""]), { topic: "" }, "a topic cleared");
+});
+
+Deno.test("a line from somebody else is held to what this app will show", () => {
+	// A room holds its members to its cap, and a room is not the only source: a
+	// direct line has no room in its path, and a room is whatever answered the
+	// address a reader typed. What arrives is drawn into the log and walked by the
+	// rich-text pass, so an unbounded line is an unbounded amount of both.
+	assertEquals(lineNotShowable("bo", "an ordinary thing to say"), null);
+	assertEquals(lineNotShowable("bo", "x".repeat(MAX_LINE)), null, "a line exactly at the cap is showable");
+	const long = lineNotShowable("bo", "x".repeat(MAX_LINE + 1));
+	// Refused rather than cut, and it says whose line is missing rather than this
+	// app finishing somebody's sentence for them.
+	assertEquals(long !== null && long.includes("bo"), true, `the line nobody can show said ${long}`);
+
+	// Counted in bytes, the way the wire and the room count. In JavaScript's own
+	// units this line is inside the cap; on the wire it is four times it.
+	assertEquals(
+		lineNotShowable("bo", "🚀".repeat(MAX_LINE / 2)) !== null,
+		true,
+		"an emoji line was measured in the wrong units",
+	);
+
+	// And a line nobody can attribute is not shown either: no name this room
+	// grants is that long, so the sentence cannot repeat it back.
+	const nameless = lineNotShowable("n".repeat(MAX_NICK + 1), "hello");
+	assertEquals(nameless !== null && !nameless.includes("nnnn"), true, `an unnamed line said ${nameless}`);
+});
+
+Deno.test("a directory's live feed is read the way its other claims are", () => {
+	// This is the feed a directory keeps open, and every event on it names
+	// something and counts something. A kind nobody knows used to fall through to
+	// the room list, a name longer than one may be was kept for as long as the tab
+	// held that directory, and a count that is not a count was drawn as it stood.
+	assertEquals(readRoomEvent(["opened", "lobby", 1n]), { kind: "opened", name: "lobby", count: 1 });
+	assertEquals(readRoomEvent(["registered", "ada", 1n]), { kind: "registered", name: "ada", count: 1 });
+
+	assertEquals(readRoomEvent(["gossip", "lobby", 1n]), null, "a kind nobody knows was taken as one");
+	assertEquals(readRoomEvent(["opened", "", 1n]), null, "an unnamed room was taken");
+	assertEquals(readRoomEvent(["count", "r".repeat(MAX_ROOM + 1), 1n]), null, "a room name past its ceiling was kept");
+	assertEquals(
+		readRoomEvent(["registered", "n".repeat(MAX_NICK + 1), 1n]),
+		null,
+		"a member name past its ceiling was kept",
+	);
+	// A member event and a room event are two different things wearing one field,
+	// so each is held to its own ceiling rather than to the looser of the two.
+	assertEquals(readRoomEvent(["count", "r".repeat(MAX_ROOM), 2n])?.name.length, MAX_ROOM);
+
+	assertEquals(readRoomEvent(["count", "lobby", "many"]), null, "a count that is not a count was drawn");
+	assertEquals(readRoomEvent(["count", "lobby", -1n]), null, "a room with fewer than nobody in it was drawn");
+});
+
+Deno.test("a relayed bring-up is held to a size at both ends of the relay", () => {
+	// The directory carries an offer, an answer, and every candidate between two
+	// members as they stand, so their size is the room's to bound rather than a
+	// sender's to choose. A member holds what arrives to the same size, because a
+	// directory is whatever answered the address they typed and what it relays is
+	// only as bounded as it felt like being — and on that side the id becomes a
+	// map key and the payload is parsed before anything else looks at it.
+	assertEquals(relayedSignalFits("description", "x1", "v=0\r\no=- 1 1 IN IP4 0.0.0.0"), true);
+	assertEquals(relayedSignalFits("candidate", "x1", '{"candidate":"a=candidate:1 1 udp"}'), true);
+
+	assertEquals(relayedSignalFits("description", "x1", "v".repeat(MAX_SIGNAL_SDP + 1)), false);
+	assertEquals(relayedSignalFits("candidate", "x1", "c".repeat(MAX_SIGNAL_CANDIDATE + 1)), false);
+	// A candidate is a line, a description is a document: the looser bound is not
+	// the one a candidate gets.
+	assertEquals(relayedSignalFits("candidate", "x1", "c".repeat(MAX_SIGNAL_SDP)), false);
+
+	assertEquals(relayedSignalFits("description", "", "v=0"), false, "an exchange with no handle was acted on");
+	assertEquals(
+		relayedSignalFits("description", "x".repeat(MAX_SIGNAL_ID + 1), "v=0"),
+		false,
+		"a handle longer than one may be became a key",
+	);
+	assertEquals(relayedSignalFits("candidate", "x1", ""), false, "an empty candidate was acted on");
 });

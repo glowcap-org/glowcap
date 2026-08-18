@@ -23,11 +23,14 @@ const model = @import("model");
 const session = @import("session");
 
 pub const abort_projection = @import("abort_projection.zig");
+const abort_info = @import("abort_info.zig");
+pub const AbortInfo = abort_info.AbortInfo;
 pub const bootstrap = @import("bootstrap.zig");
 pub const cross_peer = @import("cross_peer.zig");
 pub const events = @import("events.zig");
 pub const fetch = @import("fetch.zig");
 pub const handoff_gifter = @import("handoff_gifter.zig");
+const hello = @import("hello.zig");
 pub const handoff_recipient = @import("handoff_recipient.zig");
 pub const handoff_names = @import("handoff_names.zig");
 /// Asking the partner how a promise we hold settles (CapTP `op:listen`), the
@@ -364,45 +367,12 @@ fn frameByteLen(frame: *const foundation.Frame) usize {
     return frame.bytes().len;
 }
 
-/// The typed cause of a locally-detected failure, kept readable on the peer so
-/// an adapter-level consumer can diagnose a refusal without bypassing the
-/// adapter (a `PumpError.ProtocolAbort` names only the family; this names the
-/// member). Every field is plain data or a static string from the projection
-/// table / `@errorName`, so holding one allocates nothing and frees nothing.
-/// This is strictly the *locally projected* side: a partner's `op:abort`
-/// arrives as an `Event` of kind `.abort` and is not recorded here.
-pub const AbortInfo = struct {
-    /// Whether the codec, the session, or a host-internal (`foreign`) failure
-    /// refused the dispatch.
-    domain: abort_projection.Domain,
-    /// The `op:abort` kind projected onto the wire, or null when the failure
-    /// surfaces without one (`SessionClosed`, host-internal errors).
-    kind: ?model.AbortKind,
-    /// The static diagnostic the projected abort carried ("" when none).
-    message: []const u8,
-    /// `@errorName` of the originating Zig error.
-    error_name: []const u8,
-    /// Failure encoding or queueing the projected abort.
-    /// Null means no abort applied or its terminal frame was published.
-    abort_delivery_error: ?anyerror = null,
-    /// The first cleanup or consequence failure after `error_name`. This is
-    /// separate from `abort_delivery_error`, whose meaning is specifically
-    /// failure to publish an `op:abort`.
-    secondary_error: ?anyerror = null,
-    /// Number of secondary failures observed. The first name is retained;
-    /// this count saturates at 255 rather than wrapping if a broken owner
-    /// reports more consequences than the bounded diagnostic can name. The
-    /// compact counter uses padding already paid by every Peer, so richer
-    /// failure reporting does not tax the 500k-session footprint budget.
-    secondary_error_count: u8 = 0,
-};
-
 /// One inbound `withdraw-gift` parked until its gift is deposited (ADR-0100).
 /// Owns `handoff` (always the `.receive` arm); freed when the withdraw settles
 /// or at `Peer.deinit`.
 const PendingWithdraw = struct {
     receive: bootstrap.PendingReceive,
-    answer: model.AnswerPosition,
+    answer: model.AnswerName,
 };
 
 /// All parked receives for one scheduler identity. The exact signed gift id
@@ -516,8 +486,10 @@ pub const Peer = struct {
     /// set are independent axes; both peers of a pair must carry the same
     /// negotiated values so neither exercises a version, codec, or capability
     /// the other did not advertise. The defaults are read from
-    /// `model.Preference.baseline` rather than restated, so moving what
-    /// pancake speaks by default is one edit and cannot leave a tier behind.
+    /// Version and codec default to `model.Preference.baseline`, while a new
+    /// Pancake peer offers every implemented optional feature. A silent
+    /// partner is still interpreted as `Preference.baseline` when its hello is
+    /// parsed; local capability and remote compatibility are separate facts.
     pub const NegotiatingOptions = struct {
         captp_version: model.CaptpVersion = model.Preference.baseline.captp_version,
         codec: model.CodecId = model.Preference.baseline.codec,
@@ -796,6 +768,31 @@ pub const Peer = struct {
 
     pub const PendingReservation = struct { charge: usize };
 
+    pub const InlinePassableStagingReservation = struct { charge: usize };
+
+    /// Admit one complete outbound message retained outside `pending_send`
+    /// while its foreign Passable references are projected. Bytes share the
+    /// ordinary outbound accounting domain, so later producers observe the
+    /// parked work without re-walking its tree.
+    pub fn reserveInlinePassableStaging(
+        self: *Peer,
+        charge: usize,
+    ) !InlinePassableStagingReservation {
+        if (charge > self.outbound_budget) return error.OutboundBackpressure;
+        try self.checkOutboundWaterline();
+        self.pending_send_bytes = std.math.add(usize, self.pending_send_bytes, charge) catch
+            return error.OutboundBackpressure;
+        return .{ .charge = charge };
+    }
+
+    pub fn cancelInlinePassableStaging(
+        self: *Peer,
+        reservation: InlinePassableStagingReservation,
+    ) void {
+        std.debug.assert(self.pending_send_bytes >= reservation.charge);
+        self.pending_send_bytes -= reservation.charge;
+    }
+
     /// One authority transaction that may stage several outbound carriers.
     /// The transaction is one producer for waterline purposes: admission is
     /// checked before its first reservation, while its cumulative retained
@@ -1032,6 +1029,23 @@ pub const Peer = struct {
         return self.send(owned);
     }
 
+    /// Borrowed boundary for settling an inbound answer whose identity may be
+    /// wire-selected or session-local. The owned queue/store spine consumes the
+    /// clone on every outcome.
+    pub fn sendAnswerResolutionCopying(
+        self: *Peer,
+        answer: model.AnswerName,
+        resolution: model.Resolution,
+    ) !void {
+        const owned: model.Resolution = switch (resolution) {
+            .fulfill => |value| .{ .fulfill = try model.cloneArgument(self.allocator, value) },
+            .@"break" => |reason| .{ .@"break" = .{
+                .message = try self.allocator.dupe(u8, reason.message),
+            } },
+        };
+        return outbound.enqueueAnswerResolutionOwned(self, answer, owned);
+    }
+
     /// Commit a prepared `withdraw-gift` settlement. Preparation already owns
     /// the one outbound clone and carries the accepted replay count. `send`
     /// either owns the message or refuses before the
@@ -1040,7 +1054,7 @@ pub const Peer = struct {
     pub fn sendWithdrawSettled(self: *Peer, prepared_in: bootstrap.PreparedWithdraw) !void {
         var prepared = prepared_in;
         defer prepared.deinit(self.allocator);
-        try self.send(prepared.takeMessage());
+        try outbound.enqueueAnswerResolutionOwned(self, prepared.answer, try prepared.takeResolution());
         prepared.apply(self.allocator, self.localObjectProjection(), self.giftRegistry());
     }
 
@@ -1051,7 +1065,7 @@ pub const Peer = struct {
     pub fn parkPendingWithdraw(
         self: *Peer,
         receive: bootstrap.PendingReceive,
-        answer: model.AnswerPosition,
+        answer: model.AnswerName,
         gifter_peer_id: PeerId,
     ) !void {
         if (receive.retainedBytes() > self.session_state.limits.max_frame_bytes -| self.pending_withdraw_bytes)
@@ -1090,72 +1104,19 @@ pub const Peer = struct {
         self.pending_handoff_change = dependency;
     }
 
-    /// Queue a keyed `op:start-session` advertising `locator`. The canonical
-    /// signing input for `<my-location …>` is profile-defined and lives in the
-    /// codec, so this is the one place that builds it: it assembles the hints
-    /// the hello carries, signs the canonical bytes with `session_secret`, then
-    /// enqueues a `start_session` carrying the session public key, the
-    /// locator, and the signature. A negotiating peer drives this to an open
-    /// session once the partner's own start-session arrives. The signed
-    /// locator is what the partner verifies, so `locator` must be the one the
-    /// partner expects (for a Goblins partner, a `tcp` transport with
-    /// `#f`-encoded empty hints). Borrowed inputs are cloned into the outbound
-    /// queue, exactly as `sendCopying` documents.
-    pub fn sendKeyedStartSession(
-        self: *Peer,
-        locator: model.PeerLocator,
-        session_secret: foundation.crypto.SecretKey,
-    ) !void {
-        var hint_storage: HelloHints = .{};
-        defer hint_storage.deinit(self.allocator);
-        const advertised = try self.advertisedLocator(locator, &hint_storage);
-        return self.sendKeyedStartSessionExact(advertised, session_secret);
-    }
-
-    /// Queue a keyed `op:start-session` for an already-complete advertised
-    /// locator. The caller owns profile materialization. Transport wire rules
-    /// are still canonicalized here: onion has exactly one interoperable
-    /// spelling, with `#f` hints, so no entry point can sign an undialable
-    /// hinted onion location.
-    pub fn sendKeyedStartSessionExact(
-        self: *Peer,
-        advertised: model.PeerLocator,
-        session_secret: foundation.crypto.SecretKey,
-    ) !void {
-        if (!codec.registry.contains(self.session_state.preferred.codec))
-            return error.UnknownCodec;
-        const canonical = canonicalAdvertisedLocator(advertised);
-        try validateExactAdvertisedProfile(
-            canonical,
-            advertisedPreference(canonical.transport, self.session_state.preferred),
-        );
-        const session_pubkey = session_secret.publicKey();
-        const signed = try codec.signed.locationBytes(self.allocator, canonical);
-        defer self.allocator.free(signed);
-        const sig = foundation.crypto.sign(&session_secret, signed);
-        try self.sendCopying(.{
-            .start_session = .{
-                // Always the baseline, never `version`: see `validateStartSession`.
-                // The caller's preference is in the hints this peer just stamped.
-                .captp_version = model.Preference.baseline.captp_version,
-                .session_pubkey = .{ .bytes = session_pubkey.asBytes() },
-                .acceptable_location = canonical,
-                .acceptable_location_sig = .{ .bytes = sig.asBytes() },
-            },
-        });
-    }
-
-    fn validateExactAdvertisedProfile(
-        advertised: model.PeerLocator,
-        expected: model.Preference,
-    ) session.Error!void {
-        // A named repeat of the one preference parse: the stamp above and
-        // `validateSend` each read the hints again. Session-open only, zero
-        // allocation; folding the three reads would thread parse state through
-        // the send path for a cost the wire never sees.
-        const actual = try session.parsePreferenceHints(advertised.hints);
-        if (!std.meta.eql(actual, expected)) return session.Error.MalformedMessage;
-    }
+    // ── The keyed hello (`hello.zig`) ────────────────────────────────────────
+    // `op:start-session` assembly: hint stamping, transport canonicalization,
+    // signing, the partner-knowledge seams (ADR-0118), and the profile
+    // settle. `hello.zig` owns the bodies behind these aliases.
+    pub const sendKeyedStartSession = hello.sendKeyedStartSession;
+    pub const sendKeyedStartSessionAdvertised = hello.sendKeyedStartSessionAdvertised;
+    pub const sendKeyedStartSessionExact = hello.sendKeyedStartSessionExact;
+    pub const noteKnownPancakePartner = hello.noteKnownPancakePartner;
+    pub const dialedLocatorIdentifiesPancake = hello.dialedLocatorIdentifiesPancake;
+    pub const answerDeferredHello = hello.answerDeferredHello;
+    pub const advertisedLocator = hello.advertisedLocator;
+    pub const HelloHints = hello.HelloHints;
+    pub const settleNegotiatedProfile = hello.settleNegotiatedProfile;
 
     /// Queue the recipient half of a three-party handoff. Body lives in
     /// `handoff_recipient.sendWithdrawGift` — the one withdraw deliver shape.
@@ -1175,7 +1136,7 @@ pub const Peer = struct {
 
     /// Resolve `answer` with a signed `desc:handoff-give`. Body lives in
     /// `handoff_gifter.sendResolveHandoffGive`.
-    pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerPosition, give_bytes: []const u8) !void {
+    pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerName, give_bytes: []const u8) !void {
         return handoff_gifter.sendResolveHandoffGive(self, answer, give_bytes);
     }
 
@@ -1225,182 +1186,6 @@ pub const Peer = struct {
     /// settled by negotiation.
     pub fn codecId(self: *const Peer) model.CodecId {
         return self.session_state.codec;
-    }
-
-    /// This peer's hello locator: the caller's plus the preference hints this
-    /// peer stamps when the transport admits them. Onion stays hintless and
-    /// therefore advertises the baseline profile (ADR-0108).
-    ///
-    /// Every hello passes through here, and it has to be *before* the caller
-    /// signs, because the hints are inside the signed location record. That is
-    /// the whole reason this is a shared verb rather than something each
-    /// assembler does: there are several of them, and a hello that forgets is
-    /// read by its partner as "this peer wants the baseline", a downgrade
-    /// nobody reports.
-    pub fn advertisedLocator(
-        self: *const Peer,
-        locator: model.PeerLocator,
-        storage: *HelloHints,
-    ) HelloHints.Error!model.PeerLocator {
-        return storage.extend(self.allocator, locator, self.session_state.preferred);
-    }
-
-    /// Scratch for the hint entries a hello adds to its caller's locator.
-    /// The returned locator borrows this storage until `sendCopying` clones it;
-    /// callers initialize with `.{}` and call `deinit` afterward.
-    pub const HelloHints = struct {
-        inline_entries: [inline_hint_entries]model.HintEntry = undefined,
-        allocated_entries: ?[]model.HintEntry = null,
-        codec_digits: [8]u8 = undefined,
-        feature_bytes: [model.FeatureSet.wire_string_max_len]u8 = undefined,
-
-        pub fn deinit(self: *HelloHints, allocator: std.mem.Allocator) void {
-            if (self.allocated_entries) |entries| allocator.free(entries);
-            self.* = .{};
-        }
-
-        /// A locator's own hints plus this peer's transport-admissible
-        /// preference. A peer that prefers the baseline, or any peer
-        /// advertising onion, adds nothing and signs the byte-identical bare
-        /// locator.
-        pub const Error = error{
-            /// The caller's hint count cannot be extended without overflowing
-            /// the address space.
-            TooManyHints,
-            /// The caller supplied a hint this peer stamps itself.
-            ReservedHintName,
-            /// Hints are a dictionary; signing duplicates produces a hello a
-            /// conforming receiver must reject.
-            DuplicateHintName,
-            /// The peer preference names an open wire id with no implementation
-            /// in this build; advertising it would promise a codec we cannot use.
-            UnknownCodec,
-        } || std.mem.Allocator.Error;
-
-        pub fn extend(
-            self: *HelloHints,
-            allocator: std.mem.Allocator,
-            supplied: model.PeerLocator,
-            preference: model.Preference,
-        ) Error!model.PeerLocator {
-            std.debug.assert(self.allocated_entries == null);
-            if (!codec.registry.contains(preference.codec)) return Error.UnknownCodec;
-            const locator = canonicalAdvertisedLocator(supplied);
-            const carried = locator.hints.entries;
-            // Every silent path out of here is a downgrade: a partner reads a
-            // missing hint as "this peer wants the baseline" and is right to,
-            // so quietly dropping the preference weakens the session with
-            // nothing reported anywhere. So the refusals below are returned
-            // rather than asserted. The list is caller-supplied and this verb
-            // is reachable from outside the engine, through
-            // `driver.BlockingSession.startKeyedSessionWithSecret`, so an
-            // assertion would hold only in a safe build: `perf-check` and
-            // `release-pack` compile it out. The overflow and allocation paths
-            // are reported, as is a second profile claim in one hello.
-            if (model.firstDuplicateHintName(carried) != null) return Error.DuplicateHintName;
-            for (carried) |entry| {
-                // A caller that supplied the profile itself keeps its encoding:
-                // replacing it would change the bytes the partner verifies the
-                // signature over. No caller in this tree does, and this refuses
-                // rather than letting a future one downgrade in silence.
-                for ([_][]const u8{
-                    model.transport.hint_captp_version,
-                    model.transport.hint_codec,
-                    model.transport.hint_features,
-                }) |reserved| {
-                    if (std.mem.eql(u8, entry.name, reserved)) return Error.ReservedHintName;
-                }
-            }
-            // Onion's standardized locator is deliberately hintless: the
-            // Goblins dialer accepts only the `#f`-hints shape, so profile
-            // negotiation over onion is the baseline even between two pancake
-            // peers (ADR-0108). Every other transport advertises the peer's
-            // configured preference.
-            const effective = advertisedPreference(locator.transport, preference);
-            // Only a preference that differs from the baseline is worth
-            // stating. `model.Preference.baseline` rather than literals, so
-            // changing the baseline is one edit.
-            const baseline = model.Preference.baseline;
-            const stamped_count = @as(usize, @intFromBool(effective.captp_version != baseline.captp_version)) +
-                @as(usize, @intFromBool(effective.codec != baseline.codec)) +
-                @as(usize, @intFromBool(!std.meta.eql(effective.features, baseline.features)));
-            if (stamped_count == 0) return locator;
-            const count = std.math.add(usize, carried.len, stamped_count) catch
-                return Error.TooManyHints;
-            const entries = if (count <= self.inline_entries.len)
-                self.inline_entries[0..count]
-            else blk: {
-                const allocated = try allocator.alloc(model.HintEntry, count);
-                self.allocated_entries = allocated;
-                break :blk allocated;
-            };
-            @memcpy(entries[0..carried.len], carried);
-            var write = carried.len;
-            if (effective.captp_version != baseline.captp_version) {
-                entries[write] = .{
-                    .name = model.transport.hint_captp_version,
-                    .value = .{ .string = effective.captp_version.wireString() },
-                };
-                write += 1;
-            }
-            if (effective.codec != baseline.codec) {
-                // A `u16` in decimal fits five digits; the buffer holds eight.
-                const digits = std.fmt.bufPrint(&self.codec_digits, "{d}", .{@intFromEnum(effective.codec)}) catch unreachable;
-                entries[write] = .{ .name = model.transport.hint_codec, .value = .{ .string = digits } };
-                write += 1;
-            }
-            if (!std.meta.eql(effective.features, baseline.features)) {
-                const text = effective.features.toWireString(&self.feature_bytes) catch unreachable;
-                entries[write] = .{ .name = model.transport.hint_features, .value = .{ .string = text } };
-                write += 1;
-            }
-            std.debug.assert(write == count);
-            return .{
-                .transport = locator.transport,
-                .designator = locator.designator,
-                .hints = .{ .entries = entries },
-            };
-        }
-    };
-
-    fn advertisedPreference(
-        transport: []const u8,
-        configured: model.Preference,
-    ) model.Preference {
-        if (std.mem.eql(u8, transport, model.transport.onion))
-            return model.Preference.baseline;
-        return configured;
-    }
-
-    fn canonicalAdvertisedLocator(locator: model.PeerLocator) model.PeerLocator {
-        if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return locator;
-        return .{
-            .transport = locator.transport,
-            .designator = locator.designator,
-            .hints = model.Hints.emptyFalse(),
-        };
-    }
-
-    /// The common locator has at most one routing hint plus the three profile
-    /// entries this peer may stamp. Larger OCapN hint maps spill to exact-sized
-    /// scratch rather than imposing a protocol limit on a stack optimization.
-    const inline_hint_entries = 4;
-
-    /// Settle this session's active profile from the two preferences, once the
-    /// partner's hello has stated its own.
-    ///
-    /// The session records the claims; this decides with them, because the
-    /// decision is the engine's. Both peers hold the same two preferences and
-    /// `negotiate` is symmetric, so they reach the same pair with no further
-    /// round trip.
-    pub fn settleNegotiatedProfile(self: *Peer) void {
-        const settled = negotiation.settle(
-            self.session_state.preferred,
-            self.session_state.partner_preference,
-        );
-        self.session_state.captp_version = settled.captp_version;
-        self.session_state.codec = settled.codec;
-        self.session_state.features = settled.features;
     }
 
     /// The codec an arriving frame is in, which is not the session's codec
@@ -1501,7 +1286,7 @@ pub const Peer = struct {
     /// The inbound answer a V1.0 resolver import was installed for (ADR-0065).
     /// The vat uses it to route a resolver-only deliver's reply when the wire
     /// carried no answer position.
-    pub fn answerForResolverImport(self: *const Peer, resolver_import: model.ImportPosition) ?model.AnswerPosition {
+    pub fn answerForResolverImport(self: *const Peer, resolver_import: model.ImportPosition) ?model.AnswerName {
         return self.session_state.answerForResolverImport(resolver_import);
     }
 
@@ -1511,7 +1296,7 @@ pub const Peer = struct {
     /// deliver's reply reaches the partner without `actors` decoding the CapTP
     /// resolver descriptor. It is generic over the borrowed `model.view.Deliver`
     /// and the owned `model.Deliver` (see `bootstrap.answerForDeliver`).
-    pub fn answerForDeliver(self: *const Peer, deliver: anytype) ?model.AnswerPosition {
+    pub fn answerForDeliver(self: *const Peer, deliver: anytype) ?model.AnswerName {
         return bootstrap.answerForDeliver(deliver, &self.session_state);
     }
 
@@ -1530,7 +1315,7 @@ pub const Peer = struct {
     /// carrier whose encode borrows the stored value, no clone anywhere.
     /// Store-then-fire, not fire-then-store, because the carriers must find a
     /// durable owner already in place when `step` encodes them. Production
-    /// caller: `Node.consumeProxyListenerFire` (enroll-stamped `row_id`).
+    /// caller: `Node.RelayRecipient.adopt` (enroll-stamped `row_id`).
     ///
     /// The application supplies this resolution directly — it never funnels
     /// through `send`'s lowering chokepoint — so any node-local foreign-import
@@ -1688,21 +1473,23 @@ pub const Peer = struct {
     /// Classify `err` and keep it readable through `lastAbort`. Overwritten by
     /// the next failure at the same error boundary that calls this.
     pub fn recordFailure(self: *Peer, err: anyerror) void {
-        const classified = abort_projection.classify(err);
-        self.last_abort = .{
-            .domain = classified.domain,
-            .kind = if (classified.abort) |a| a.kind else null,
-            .message = if (classified.abort) |a| a.message else "",
-            .error_name = @errorName(err),
-        };
+        abort_info.record(&self.last_abort, err);
+    }
+
+    /// Record one exact primary plus its bounded cleanup consequences without
+    /// replaying them through scalar mutation calls.
+    pub fn recordFailureChain(self: *Peer, chain: foundation.FailureChain) void {
+        abort_info.recordChain(&self.last_abort, chain);
     }
 
     /// Attach the consequence that prevented a projected abort from reaching
     /// outbound. The originating failure remains authoritative in `lastAbort`;
-    /// this second name prevents its delivery failure from disappearing.
+    /// this second name prevents its delivery failure from disappearing. A
+    /// direct embedder that reports delivery failure without first recording
+    /// an origin still gets a truthful primary failure instead of a process
+    /// trap; there is no earlier cause for it to displace in that case.
     pub fn recordAbortDeliveryFailure(self: *Peer, err: anyerror) void {
-        const info = &(self.last_abort orelse unreachable);
-        info.abort_delivery_error = err;
+        abort_info.recordAbortDelivery(&self.last_abort, err);
     }
 
     /// Attach a cleanup or consequence failure without replacing the first
@@ -1710,12 +1497,7 @@ pub const Peer = struct {
     /// callers therefore cannot accidentally manufacture a secondary-only
     /// diagnostic.
     pub fn recordSecondaryFailure(self: *Peer, err: anyerror) void {
-        const info = &(self.last_abort orelse {
-            self.recordFailure(err);
-            return;
-        });
-        if (info.secondary_error == null) info.secondary_error = err;
-        info.secondary_error_count +|= 1;
+        abort_info.recordSecondary(&self.last_abort, err);
     }
 
     fn stepInner(self: *Peer) !StepOutcome {

@@ -27,6 +27,7 @@ import {
 	denoTcpChannel,
 	isRendezvousDesignator,
 	type RelayConfig,
+	relayFailureLogger,
 	Rendezvous,
 	webSocketRelay,
 } from "@pancake/relay";
@@ -58,7 +59,44 @@ const max_registrations = 64;
 const max_registrations_per_identity = 4;
 const shutdown = new AbortController();
 const activeRelaySockets = new Set<WebSocket>();
+const logRelayFailure = relayFailureLogger();
 let relayShuttingDown = false;
+const plaintextCanaryText = Deno.env.get("PANCAKE_RELAY_PLAINTEXT_CANARY");
+if (plaintextCanaryText?.length === 0) {
+	throw new Error("PANCAKE_RELAY_PLAINTEXT_CANARY must not be empty");
+}
+const plaintextCanary = plaintextCanaryText == null ? null : new TextEncoder().encode(plaintextCanaryText);
+const canaryPrefix = plaintextCanary == null ? null : (() => {
+	const prefix = new Uint32Array(plaintextCanary.length);
+	for (let i = 1, matched = 0; i < plaintextCanary.length; i++) {
+		while (matched > 0 && plaintextCanary[i] !== plaintextCanary[matched]) matched = prefix[matched - 1];
+		if (plaintextCanary[i] === plaintextCanary[matched]) matched++;
+		prefix[i] = matched;
+	}
+	return prefix;
+})();
+let auditedBinaryMessages = 0;
+let plaintextCanaryMatches = 0;
+
+/** Test-process evidence only: when the browser gate supplies a canary, scan
+ * exactly the binary messages arriving at the relay without retaining them.
+ * The default relay installs no listener and pays no per-message branch. */
+function auditRelaySocket(socket: WebSocket): void {
+	if (plaintextCanary == null || canaryPrefix == null) return;
+	let matched = 0;
+	socket.addEventListener("message", (event) => {
+		if (!(event.data instanceof ArrayBuffer)) return;
+		auditedBinaryMessages++;
+		for (const byte of new Uint8Array(event.data)) {
+			while (matched > 0 && byte !== plaintextCanary[matched]) matched = canaryPrefix[matched - 1];
+			if (byte !== plaintextCanary[matched]) continue;
+			matched++;
+			if (matched !== plaintextCanary.length) continue;
+			plaintextCanaryMatches++;
+			matched = canaryPrefix[matched - 1];
+		}
+	});
+}
 
 function runRelay(
 	socket: WebSocket,
@@ -71,9 +109,11 @@ function runRelay(
 	}
 	activeRelaySockets.add(socket);
 	webSocketRelay(socket, getChannel, dialFailReason, relayConfig).catch((err) => {
-		console.error(
-			`relay: unexpected error: ${err instanceof Error ? err.message : String(err)}`,
-		);
+		// Process shutdown closes every admitted socket below. That deliberately
+		// interrupts the pump's pending read and has the signal handler as its
+		// recipient; it is not an unexpected serving failure.
+		if (relayShuttingDown) return;
+		logRelayFailure(err);
 	}).finally(() => activeRelaySockets.delete(socket));
 }
 
@@ -132,13 +172,23 @@ function relay(socket: WebSocket, query: URLSearchParams): void {
 }
 
 const listenPort = Number(Deno.args[0] ?? "0");
+const tlsCertPath = Deno.env.get("PANCAKE_RELAY_TLS_CERT");
+const tlsKeyPath = Deno.env.get("PANCAKE_RELAY_TLS_KEY");
+if ((tlsCertPath == null) !== (tlsKeyPath == null)) {
+	throw new Error("PANCAKE_RELAY_TLS_CERT and PANCAKE_RELAY_TLS_KEY must be set together");
+}
+const tls = tlsCertPath == null ? null : {
+	cert: await Deno.readTextFile(tlsCertPath),
+	key: await Deno.readTextFile(tlsKeyPath!),
+};
 
-Deno.serve({
+const serveOptions: Deno.ServeTcpOptions = {
 	hostname: "127.0.0.1",
 	port: listenPort,
 	signal: shutdown.signal,
 	onListen: ({ port }) => console.log(`DENO-RELAY-READY ${port}`),
-}, (req) => {
+};
+const handler = (req: Request): Response => {
 	const url = new URL(req.url);
 	// RFC 6455 makes the Upgrade token case-insensitive, and clients disagree
 	// on the casing (net/rfc6455 sends "WebSocket").
@@ -157,7 +207,11 @@ Deno.serve({
 		) {
 			return new Response("rendezvous capacity exceeded", { status: 503 });
 		}
-		const { socket, response } = Deno.upgradeWebSocket(req);
+		// The relay's result-bearing byte pump owns the explicit idle timeout and
+		// pair-atomic teardown. Disable Deno's independent WebSocket ping timer so
+		// it cannot preempt that owner with an uncorrelated transport close.
+		const { socket, response } = Deno.upgradeWebSocket(req, { idleTimeout: 0 });
+		auditRelaySocket(socket);
 		// Register at once, not at onopen: the wrap buffers the accept side's
 		// early hello from the instant the socket exists (ADR-0088).
 		if (!rendezvous.register(id, socket)) {
@@ -168,14 +222,20 @@ Deno.serve({
 	if (url.pathname !== "/relay") {
 		return new Response("relay only", { status: 404 });
 	}
-	const { socket, response } = Deno.upgradeWebSocket(req);
+	const { socket, response } = Deno.upgradeWebSocket(req, { idleTimeout: 0 });
+	auditRelaySocket(socket);
 	socket.onopen = () => relay(socket, url.searchParams);
 	return response;
-});
+};
+if (tls == null) Deno.serve(serveOptions, handler);
+else Deno.serve({ ...serveOptions, ...tls }, handler);
 
 function stop(): void {
 	if (relayShuttingDown) return;
 	relayShuttingDown = true;
+	if (plaintextCanary != null) {
+		console.log(`DENO-RELAY-AUDIT ${auditedBinaryMessages} ${plaintextCanaryMatches}`);
+	}
 	shutdown.abort();
 	rendezvous.close();
 	for (const socket of activeRelaySockets) {

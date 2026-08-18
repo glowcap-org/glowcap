@@ -32,7 +32,8 @@ const discriminant_consts = [_][]const u8{
     "PANCAKE_CODEC_CAPNP",          "PANCAKE_CAPTP_V1_0",
     "PANCAKE_CAPTP_NEXT",           "PANCAKE_FEATURE_PIPELINING",
     "PANCAKE_FEATURE_HANDOFF",      "PANCAKE_FEATURE_WIRE_DELTA",
-    "PANCAKE_FEATURE_STURDYREF",    "PANCAKE_FEATURE_MINIMUM",
+    "PANCAKE_FEATURE_STURDYREF",    "PANCAKE_FEATURE_UNTAG",
+    "PANCAKE_FEATURE_MINIMUM",      "PANCAKE_FEATURE_BASELINE",
     "PANCAKE_FEATURE_FULL",         "PANCAKE_FRAME_SHAPE_BYTE",
     "PANCAKE_FRAME_SHAPE_WORD",     "PANCAKE_ARG_INTEGER",
     "PANCAKE_ARG_FLOAT64",          "PANCAKE_ARG_BOOLEAN",
@@ -41,6 +42,7 @@ const discriminant_consts = [_][]const u8{
     "PANCAKE_ARG_REFERENCE",        "PANCAKE_ARG_LIST",
     "PANCAKE_ARG_SET",              "PANCAKE_ARG_TAGGED",
     "PANCAKE_ARG_KEYWORD",          "PANCAKE_ARG_BIG_INTEGER",
+    "PANCAKE_ARG_STRUCT",           "PANCAKE_ARG_ERROR",
     "PANCAKE_RESOLUTION_FULFILL",   "PANCAKE_RESOLUTION_BREAK",
     "PANCAKE_RESOLUTION_HANDOFF",   "PANCAKE_ABORT_DOMAIN_CODEC",
     "PANCAKE_ABORT_DOMAIN_SESSION", "PANCAKE_ABORT_DOMAIN_FOREIGN",
@@ -250,10 +252,12 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitDoc(&b, gpa,
         \\PancakeArgument is the pass-by-copy value tree used by PancakeHost.
         \\Byte views and child arrays are borrowed on input and alias the owning
-        \\Host result arena on output.
+        \\Host result arena on output. PANCAKE_ARG_STRUCT uses an even-length
+        \\items array of alternating PANCAKE_ARG_STRING keys and values; keys
+        \\must be unique.
     );
     try emitStruct(&b, gpa, c.PancakeReference, "PancakeReference", &.{
-        "opaque Host capability identity",
+        "opaque process-unique Host capability identity; compare ids for Target equality",
     });
     try emitStruct(&b, gpa, c.PancakeArgument, "PancakeArgument", &.{
         "PANCAKE_ARG_*", "boolean or big-integer sign", "integer",              "float",
@@ -269,7 +273,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
 
     try section(&b, gpa, "Per-thread last error");
-    try emitFn(&b, gpa, "pancake_last_error", &.{ "out_buf", "cap" }, "Read this archive's calling-thread error message. NULL or cap 0 queries its length.");
+    try emitFn(&b, gpa, "pancake_last_error", &.{ "out_buf", "cap" }, "Read this archive's calling-thread error message. NULL or cap 0 queries its length." ++ header_emit.last_error_freshness_doc);
     try emitFn(&b, gpa, "pancake_clear_last_error", &.{}, "Clear this archive's calling-thread error message.");
 
     try section(&b, gpa, "OCapN locators");

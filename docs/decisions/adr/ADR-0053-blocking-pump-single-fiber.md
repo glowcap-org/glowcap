@@ -66,7 +66,7 @@ duplex runtime, not two.
   and architecture doc state the contract split rather than an open split.
 - The completion loop is the only place a non-draining partner is a supported
   workload, and its park/resume behavior stays pinned by
-  `test/net/completion_loop_test.zig`.
+  `test/net/completion_loop_backpressure_test.zig`.
 
 ## Notes
 

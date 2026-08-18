@@ -7,7 +7,7 @@ decision: "The cross-connection handoff router is sunk into a sans-io `engine.No
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0079, ADR-0100, ADR-0113]
+amended_by: [ADR-0079, ADR-0100, ADR-0113, ADR-0116]
 ---
 
 # ADR-0066 The cross-connection handoff router is a sans-io node
@@ -94,7 +94,7 @@ data. The binding registers a connection (`registerConn`), which returns a
 socket with the existing per-connection peer surface (`pancake_peer_*` /
 `net.Connection`), so the node adds no second framing path. The router layers on
 top: it mints the recipient withdraw (`sendWithdraw`), enrolls a redeemed cap
-under a token (`enrollRedeemed`), resolves a send to a redeemed token's exporter
+under a route id (`enrollRedeemed`), resolves a send to that route's exporter
 or a foreign home (`routeReference` / `foreignHome`) before the binding addresses
 it, and records a fetched import's home (`recordForeignHome`).
 
@@ -109,7 +109,7 @@ The router was projected through the C ABI as pancake_node_* in
 `libpancake_ocapn` at acceptance ([ADR-0059](ADR-0059-composable-c-abi-archives.md);
 that C waist is deleted: see banner). The
 router is removed from each binding `Machine`: the redeemed-token table, the
-foreign-home table, the `next_token` counter, the retained-identity authority,
+foreign-home table, the `next_route_id` counter, the retained-identity authority,
 and the then-shared gift registry sink into the node. ADR-0100 later moves that
 registry into each Peer. What survives binding-side is a
 thin `Machine` over a node handle: host-idiom residue the sans-io core cannot
@@ -119,7 +119,7 @@ hold: the dialed-exporter cache (I/O lifetime), the `conn_id`-to-command-channel
 policy). Each connection sources its node-owned peer from `register_conn` (a
 non-owning peer wrapper the node frees), pumps it, and runs its vat addressed by
 `conn_id`. Python and TypeScript drop their `Ref.home` field for the token model
-(a redeemed cap is a synthetic far id `>= 2^60`, disjoint from any wire import,
+(a redeemed cap is an explicit node-local routed reference, disjoint by type from every wire import,
 routed by the node), which is the precondition that makes every route pure data.
 
 The vat stays in the binding. This is the recorded boundary, on mechanism, not
@@ -241,15 +241,13 @@ current public binding surface.
   it deposits the gift on the exporter, builds the signed `desc:handoff-give`, and
   queues its resolution on the recipient. Each binding's origination interceptor
   shrinks to that call plus its own flush; the duplicated build-and-sign glue is
-  deleted. Native proof is hermetic (`test/engine/node_test.zig`) plus the live
+  deleted. Native proof is hermetic (`test/engine/node/`) plus the live
   `*-goblins-gift` matrix and the native `demo-rooms-dm`.
-- **The send-argument routability guard is one predicate.** Refusing to pass a
-  capability that lives on another connection as a `send`/`tell` argument is the
-  node's verdict, `engine.Node.argIsForeign` (at acceptance also
-  pancake_node_arg_is_foreign): it folds the redeemed-token range and the
-  foreign-home lookup into one call each binding makes, so the four bindings'
-  fail-closed guards are one semantics, not four hand-rolled copies of the rule.
-  `test/engine/node_test.zig` asserts that predicate directly.
+- **The raw send-argument routability guard is one predicate.**
+  `engine.Node.argIsForeign` remains the refusal authority for model-tier calls
+  that cannot transfer a Host capability retain. ADR-0116 routes owning binding
+  values through recursive inline handoff, so bindings no longer duplicate or
+  project this predicate.
 - **The dial-posture rule deliberately stays binding-side.** It was *not* sunk:
   `Reachability` is iroh-transport vocabulary, kept out of the sans-io
   `libpancake_ocapn` core (ADR-0055), and the rule reduces to "when the locator

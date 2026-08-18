@@ -39,8 +39,8 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
-const intrusive_queue = @import("../completion/intrusive_queue.zig");
 const completion = @import("../completion/loop.zig");
+const completion_state = @import("noise_completion/state.zig");
 
 const crypto = foundation.crypto;
 const sealed = foundation.sealed;
@@ -92,6 +92,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
     return struct {
         const Self = @This();
         const Namespace = completion.AdapterNamespace(Inner);
+        const Types = completion_state.Types(Inner);
         pub const Fd = Inner.Fd;
         pub const adapter_depth = Namespace.depth;
         pub const ListenerAddress = Inner.ListenerAddress;
@@ -100,123 +101,11 @@ pub fn CompletionBackend(comptime Inner: type) type {
         /// backend's own target for the byte pipe, the responder key the
         /// designator named, and the transport symbol (a `model.transport`
         /// constant, so no owned bytes) both prologues must agree on.
-        pub const SealedTarget = struct {
-            inner: Inner.ConnectTarget,
-            remote: crypto.PeerKey,
-            transport: []const u8,
-        };
-
-        pub const ConnectTarget = union(enum) {
-            plain: Inner.ConnectTarget,
-            sealed: SealedTarget,
-        };
-
-        const ConnId = u32;
-        const InternalOp = enum(u3) { connect, recv, send, close };
-        const RetryLinks = intrusive_queue.Links(ConnId);
-
-        const InternalPending = struct {
-            connect: bool = false,
-            recv: bool = false,
-            send: bool = false,
-
-            fn get(p: InternalPending, op: InternalOp) bool {
-                return switch (op) {
-                    .connect => p.connect,
-                    .recv => p.recv,
-                    .send => p.send,
-                    .close => unreachable,
-                };
-            }
-
-            fn arm(p: *InternalPending, op: InternalOp) void {
-                std.debug.assert(!p.get(op));
-                switch (op) {
-                    .connect => p.connect = true,
-                    .recv => p.recv = true,
-                    .send => p.send = true,
-                    .close => unreachable,
-                }
-            }
-
-            fn retire(p: *InternalPending, op: InternalOp) void {
-                std.debug.assert(p.get(op));
-                switch (op) {
-                    .connect => p.connect = false,
-                    .recv => p.recv = false,
-                    .send => p.send = false,
-                    .close => unreachable,
-                }
-            }
-
-            fn count(p: InternalPending) usize {
-                return @intFromBool(p.connect) + @intFromBool(p.recv) + @intFromBool(p.send);
-            }
-        };
-
-        const NoiseConn = struct {
-            id: ConnId,
-            inner_fd: Inner.Fd,
-            state: enum { connecting, handshaking, open, closing } = .connecting,
-            channel: sealed.SealedChannel,
-            /// The responder key the handshake proved, published through
-            /// `verifiedChannelKey` once the channel opens and never before.
-            proven: ?[crypto.PEER_KEY_BYTES]u8 = null,
-            external_connect_ud: ?u64,
-            external_recv_ud: ?u64 = null,
-            external_send_ud: ?u64 = null,
-            external_send_len: i32 = 0,
-            /// The caller-owned plaintext remains borrowed until its external
-            /// send completion. Only one record is sealed and staged at a
-            /// time, so a large frame cannot become a frame-sized ciphertext
-            /// allocation inside the adapter.
-            external_send_bytes: []const u8 = &.{},
-            external_send_off: usize = 0,
-            external_close_ud: ?u64 = null,
-            /// An inner completion whose receive-buffer borrow still carries
-            /// unread ciphertext. Keeping the transport borrow avoids a second
-            /// ciphertext buffer for coalesced records and handshake data.
-            inner_recv_bytes: []const u8 = &.{},
-            inner_recv_off: u32 = 0,
-            inner_recv_token: u32 = 0,
-            pending: InternalPending = .{},
-            inner_close: enum { open, in_flight, failed, closed } = .open,
-            /// Receive-buffer starvation cannot progress until some wrapped
-            /// buffer is recycled. Submission refusal is independently
-            /// actionable on the next poll; its bitset can carry simultaneous
-            /// handshake send and receive debt in one FIFO membership.
-            recv_starvation: RetryLinks = .{},
-            submission_retry: RetryLinks = .{},
-            submission_retry_mask: u8 = 0,
-            /// The frozen half of the ciphertext staging: the inner backend
-            /// borrows `ct_front.items[ct_front_off..]` until its send
-            /// completes, so nothing may resize it meanwhile.
-            ct_front: std.ArrayList(u8) = .empty,
-            ct_front_off: usize = 0,
-            /// The open half: handshake messages and freshly sealed records
-            /// append here and swap in when the frozen half drains.
-            ct_back: std.ArrayList(u8) = .empty,
-            /// Whether the channel's record-plaintext scratch is currently
-            /// lent to the caller's recv seat (until `recycleRecv`).
-            lend_active: bool = false,
-
-            fn deinit(c: *NoiseConn, allocator: std.mem.Allocator) void {
-                std.debug.assert(c.inner_recv_bytes.len == 0);
-                c.channel.deinit(allocator);
-                c.ct_front.deinit(allocator);
-                c.ct_back.deinit(allocator);
-            }
-
-            fn pendingCiphertext(c: *const NoiseConn) usize {
-                return (c.ct_front.items.len - c.ct_front_off) + c.ct_back.items.len;
-            }
-
-            fn externalSeatCount(c: *const NoiseConn) usize {
-                return @as(usize, @intFromBool(c.external_connect_ud != null)) +
-                    @as(usize, @intFromBool(c.external_recv_ud != null)) +
-                    @as(usize, @intFromBool(c.external_send_ud != null));
-            }
-        };
+        pub const SealedTarget = Types.SealedTarget;
+        pub const ConnectTarget = Types.ConnectTarget;
+        const ConnId = Types.ConnId;
+        const InternalOp = Types.InternalOp;
+        const NoiseConn = Types.NoiseConn;
 
         /// Heap-resident adapter state added by one sealed leg, excluding
         /// buffer capacity and hash-table bucket overhead. Pinned by
@@ -224,31 +113,14 @@ pub fn CompletionBackend(comptime Inner: type) type {
         /// unnoticed.
         pub const connection_state_bytes = @sizeOf(NoiseConn);
 
-        const ConnMap = std.AutoHashMapUnmanaged(ConnId, *NoiseConn);
-
-        fn recvStarvationLinks(c: *NoiseConn) *RetryLinks {
-            return &c.recv_starvation;
-        }
-
-        fn submissionRetryLinks(c: *NoiseConn) *RetryLinks {
-            return &c.submission_retry;
-        }
-
-        const RecvStarvationQueue = intrusive_queue.Queue(ConnId, NoiseConn, recvStarvationLinks);
-        const SubmissionRetryQueue = intrusive_queue.Queue(ConnId, NoiseConn, submissionRetryLinks);
+        const ConnMap = Types.ConnMap;
+        const RecvStarvationQueue = Types.RecvStarvationQueue;
+        const SubmissionRetryQueue = Types.SubmissionRetryQueue;
 
         /// The dialing identity and entropy a sealed dial needs. Absent on a
         /// backend built with plain `init`, whose sealed dials fail closed —
         /// the keyed-relay adapter's no-relay-configured posture.
-        const Sealing = struct {
-            identity: crypto.SecretKey,
-            rng: std.Random.DefaultCsprng,
-
-            fn deinit(self: *Sealing) void {
-                std.crypto.secureZero(u8, std.mem.asBytes(&self.identity));
-                std.crypto.secureZero(u8, std.mem.asBytes(&self.rng));
-            }
-        };
+        const Sealing = Types.Sealing;
 
         allocator: std.mem.Allocator,
         inner: Inner,
@@ -545,9 +417,9 @@ pub fn CompletionBackend(comptime Inner: type) type {
             self.inner.closeFd(fd);
         }
 
-        pub fn recycleRecv(self: *Self, comp: completion.Completion) void {
-            if (Namespace.ownsRecvToken(comp.recv_token)) {
-                const id: ConnId = @intCast(Namespace.recvTokenPayload(comp.recv_token));
+        pub fn recycleBorrowed(self: *Self, comp: completion.Completion) void {
+            if (Namespace.ownsBorrowToken(comp.borrowed.token)) {
+                const id: ConnId = @intCast(Namespace.borrowTokenPayload(comp.borrowed.token));
                 if (self.conns.get(id)) |c| {
                     std.debug.assert(c.lend_active);
                     c.lend_active = false;
@@ -556,7 +428,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
                 }
                 return;
             }
-            self.inner.recycleRecv(comp);
+            self.inner.recycleBorrowed(comp);
             self.recv_recycle_progress = true;
         }
 
@@ -601,7 +473,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
         fn dispatchInternal(self: *Self, comp: completion.Completion) !void {
             const id = internalId(comp.user_data);
             const c = self.conns.get(id) orelse {
-                if (comp.recv_bytes != null) self.inner.recycleRecv(comp);
+                if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
                 return;
             };
             const op = internalOp(comp.user_data);
@@ -617,26 +489,26 @@ pub fn CompletionBackend(comptime Inner: type) type {
                         if (c.state != .closing) self.oweRecvStarvation(c);
                     } else {
                         if (comp.result < 0) {
-                            if (comp.recv_bytes != null) self.inner.recycleRecv(comp);
+                            if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
                             self.failNoise(c);
                         } else if (comp.result == 0) {
-                            if (comp.recv_bytes != null) self.inner.recycleRecv(comp);
+                            if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
                             self.endNoise(c, if (c.state == .open) 0 else -1);
-                        } else if (comp.recv_bytes != null) {
+                        } else if (comp.borrowed.recvBytes() != null) {
                             if (c.state == .closing) {
-                                self.inner.recycleRecv(comp);
+                                self.inner.recycleBorrowed(comp);
                             } else {
-                                const recv_bytes = comp.recv_bytes.?;
+                                const recv_bytes = comp.borrowed.recvBytes().?;
                                 const result_len: u32 = @intCast(comp.result);
                                 if (recv_bytes.len != result_len) {
-                                    self.inner.recycleRecv(comp);
+                                    self.inner.recycleBorrowed(comp);
                                     self.failNoise(c);
                                     return;
                                 }
                                 std.debug.assert(c.inner_recv_bytes.len == 0);
                                 c.inner_recv_bytes = recv_bytes;
                                 c.inner_recv_off = 0;
-                                c.inner_recv_token = comp.recv_token;
+                                c.inner_recv_token = comp.borrowed.token;
                                 try self.driveInbound(c);
                             }
                         } else {
@@ -744,8 +616,7 @@ pub fn CompletionBackend(comptime Inner: type) type {
                         self.ready.appendAssumeCapacity(.{
                             .user_data = ud,
                             .result = @intCast(plain.len),
-                            .recv_bytes = plain,
-                            .recv_token = Namespace.recvToken(c.id),
+                            .borrowed = .recv(plain, Namespace.borrowToken(c.id)),
                         });
                         return;
                     },
@@ -758,13 +629,12 @@ pub fn CompletionBackend(comptime Inner: type) type {
             const held = completion.Completion{
                 .user_data = internalUd(.recv, c.id),
                 .result = @intCast(c.inner_recv_bytes.len),
-                .recv_bytes = c.inner_recv_bytes,
-                .recv_token = c.inner_recv_token,
+                .borrowed = .recv(c.inner_recv_bytes, c.inner_recv_token),
             };
             c.inner_recv_bytes = &.{};
             c.inner_recv_off = 0;
             c.inner_recv_token = 0;
-            self.inner.recycleRecv(held);
+            self.inner.recycleBorrowed(held);
             self.recv_recycle_progress = true;
         }
 
@@ -967,8 +837,8 @@ pub fn CompletionBackend(comptime Inner: type) type {
             self.allocator.destroy(c);
         }
 
-        fn fdFromId(id: ConnId) Fd {
-            return Namespace.fdFromId(id) catch unreachable;
+        fn fdFromId(id: ConnId) error{AdapterHandleExhausted}!Fd {
+            return Namespace.fdFromId(id);
         }
 
         fn idFromFd(fd: Fd) ?ConnId {

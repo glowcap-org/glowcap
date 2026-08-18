@@ -23,7 +23,7 @@
 
 import type { TimelineDocument } from "../engine/timeline.ts";
 import { peerLabelAt, sessionEndpointPlaceAt } from "../engine/temporal/doc-resolver.ts";
-import { type SessionSide, UNNAMED_END_LABEL } from "../schema/topology.ts";
+import { type SessionSide, UNNAMED_END_LABEL } from "../schema/session-end.ts";
 import { elideIdentifier } from "./elide.ts";
 
 /** What one end of a session is called, and which kind of name that is.

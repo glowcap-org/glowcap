@@ -7,7 +7,8 @@
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { hostS } from "./internal/ffi/host.ts";
 import { readErrorSlot } from "./internal/seam.ts";
-import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_SESSION, BROKEN, OK } from "@pancake/abi";
+import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_FOREIGN, ABORT_DOMAIN_SESSION, BROKEN, INTERNAL, OK } from "@pancake/abi";
+import type { CarrierFailure } from "./carrier_failure.ts";
 
 /** The calling thread's last core-archive (`pancake_*`) error message, or null
  * when there is none. */
@@ -45,7 +46,8 @@ export function abortDomainLabel(
 ): AbortDetail["domain"] {
 	if (domainNum === ABORT_DOMAIN_CODEC) return "codec";
 	if (domainNum === ABORT_DOMAIN_SESSION) return "session";
-	return "foreign";
+	if (domainNum === ABORT_DOMAIN_FOREIGN) return "foreign";
+	throw new PancakeError(INTERNAL, `pancake ABI returned unknown abort domain ${domainNum}`);
 }
 
 export class PancakeError extends Error {
@@ -53,6 +55,8 @@ export class PancakeError extends Error {
 	readonly detail: string | null;
 	/** The typed abort cause, attached when a peer refused an inbound frame. */
 	abort: AbortDetail | null = null;
+	/** Native carrier phase and engine detail when the failure originated there. */
+	carrierFailure: CarrierFailure | null = null;
 	constructor(public readonly code: number, detail?: string) {
 		// For a code an FFI call returned, capture the thread-local message now.
 		// A client-side validation throw passes an explicit `detail` instead, so it

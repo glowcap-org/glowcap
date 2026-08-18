@@ -231,9 +231,9 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
 
     var child_env = try init.environ_map.clone(gpa);
     defer child_env.deinit();
-    // ROOMS_PEER_SUPERVISED is set only on this detached child, so `peer` refuses
+    // PANCAKE_ROOMS_PEER_SUPERVISED is set only on this detached child, so `peer` refuses
     // any other launch path.
-    try child_env.put("ROOMS_PEER_SUPERVISED", "1");
+    try child_env.put("PANCAKE_ROOMS_PEER_SUPERVISED", "1");
 
     // Always `pancake app rooms-peer peer` — the `rooms-peer` install name is a thin
     // exec shim (cli/rooms_peer_shim.zig), so `selfExe` is the product binary.

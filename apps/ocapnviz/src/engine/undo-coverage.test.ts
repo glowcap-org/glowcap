@@ -22,8 +22,9 @@
 
 import { assert, assertEquals } from "@std/assert";
 import { TimelineDocument } from "./timeline.ts";
-import { type BuilderIntent, Engine } from "./engine.ts";
-import { attachedEndpoint } from "../schema/topology.ts";
+import { Engine } from "./engine.ts";
+import type { BuilderIntent } from "./intents.ts";
+import { attachedEndpoint } from "../schema/session-end.ts";
 
 function engineTest(name: string, fn: () => void): void {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });

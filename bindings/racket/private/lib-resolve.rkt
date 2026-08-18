@@ -13,7 +13,23 @@
          racket/runtime-path
          racket/string
          racket/system)
-(provide open-pancake-archive)
+(provide open-pancake-archive
+         require-archive-fingerprint!)
+
+(define (require-archive-fingerprint! who read expected)
+  (define actual (read))
+  (unless (= actual expected)
+    (error who
+           "callable surface does not match this binding (expected ~x, got ~x); rebuild the native libraries"
+           expected actual)))
+
+(module+ test
+  (require rackunit)
+  (check-not-exn
+   (lambda () (require-archive-fingerprint! 'test (lambda () #x1234) #x1234)))
+  (check-exn
+   #rx"callable surface does not match.*rebuild the native libraries"
+   (lambda () (require-archive-fingerprint! 'test (lambda () #x5678) #x1234))))
 
 ;; Package-local contract (ADR-0077). Ships with the binding; not the monorepo.
 (define-runtime-path resolve-contract "c-abi-resolve.json")

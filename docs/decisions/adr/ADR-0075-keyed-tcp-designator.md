@@ -26,7 +26,7 @@ posture at all. For cleartext TCP that check is the entire security story: the
 channel authenticates nothing, so only the `op:start-session` signature says who
 answered. This engages the first principles "production APIs make the correct
 path the easy path" and "session state is authoritative"; the conformance
-evidence is the keyed-handshake scenarios in `test/engine/pairing_test.zig` and
+evidence is the keyed-handshake scenarios in `test/engine/pairing/` and
 the live `iroh-interop` capstones.
 
 ## Decision
@@ -113,7 +113,7 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
   so designator, session key, and netlayer identity stay one value; a byte-fed
   dial by node id pins the handshake the same way keyed TCP does, and a
   squatter key is refused with `PartnerKeyMismatch` (proven in
-  `test/driver/core_host_test.zig`).
+  `test/driver/core_host/`).
 
 ## Alternatives Considered
 
@@ -136,6 +136,6 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
 - Grammar units live in `test/net/keyed_tcp_test.zig`; the loopback proof,
   happy path, key-squatter refusal, and the same-seed-fresh-port restart,
   lives in `test/driver/keyed_tcp_restart_test.zig`; the engine pin's units sit
-  beside the other handshake scenarios in `test/engine/pairing_test.zig`.
+  beside the other handshake scenarios in `test/engine/pairing/`.
 - The iroh harnesses and rooms demo servers sign with their endpoint keys, so
   every in-tree iroh responder satisfies the invariant the dial pin enforces.

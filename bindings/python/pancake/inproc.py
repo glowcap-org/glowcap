@@ -34,7 +34,7 @@ import threading
 import weakref
 from typing import Optional
 
-from ._codec import _codec_id
+from ._abi_value import _codec_id
 from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK, TRANSPORT_INPROC
 from ._errors import PancakeError
 from ._ffi_ocapn import _copy_managed_frame, _Frame, _ManagedFrame, _read_last_error, _str_buf
@@ -71,7 +71,7 @@ def _release_conn(raw) -> None:
 
 
 def _release_listener(raw) -> None:
-    _check_inproc(_inproc_lib.pancake_inproc_listener_release(raw))
+    _check_inproc(_inproc_lib.pancake_inproc_listener_release(raw, None, 0, None))
 
 
 def _release_netlayer(raw) -> None:
@@ -113,7 +113,9 @@ class InprocConnection(_NativeHandleOwner):
         with self._reads, self._native.lease() as raw:
             frame = _ManagedFrame()
             _check_inproc(
-                _inproc_lib.pancake_inproc_conn_read_frame(raw, ctypes.byref(frame))
+                _inproc_lib.pancake_inproc_conn_read_frame(
+                    raw, ctypes.byref(frame), None, 0, None
+                )
             )
             return _copy_managed_frame(frame)
 
@@ -122,7 +124,9 @@ class InprocConnection(_NativeHandleOwner):
         f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
         with self._writes, self._native.lease() as raw:
             _check_inproc(
-                _inproc_lib.pancake_inproc_conn_write_frame(raw, ctypes.byref(f))
+                _inproc_lib.pancake_inproc_conn_write_frame(
+                    raw, ctypes.byref(f), None, 0, None
+                )
             )
 
 
@@ -161,7 +165,13 @@ class InprocListener(_NativeHandleOwner):
             out = ctypes.c_void_p()
             _check_inproc(
                 _inproc_lib.pancake_inproc_accept(
-                    raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out)
+                    raw,
+                    _codec_id(codec),
+                    max_frame_bytes,
+                    ctypes.byref(out),
+                    None,
+                    0,
+                    None,
                 )
             )
             return InprocConnection(out, self._netlayer)
@@ -249,6 +259,9 @@ class InprocNetlayer(_NativeHandleOwner):
                     _codec_id(codec),
                     max_frame_bytes,
                     ctypes.byref(out),
+                    None,
+                    0,
+                    None,
                 )
             )
             return InprocConnection(out, self)

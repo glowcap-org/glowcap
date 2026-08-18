@@ -48,6 +48,8 @@ typedef struct PancakeInprocConn PancakeInprocConn;
    by pancake_inproc_listener_release. */
 typedef struct PancakeInprocListener PancakeInprocListener;
 
+/* Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_INPROC_ARCHIVE_FINGERPRINT before any other call. */
+uint64_t pancake_inproc_archive_fingerprint(void);
 /* Create the in-process netlayer handle that owns the switchboard and its I/O
    backend, allocating through the library allocator. Release with
    pancake_inproc_netlayer_release after releasing every endpoint made from it. */
@@ -61,14 +63,14 @@ void pancake_inproc_netlayer_release(PancakeInprocNetlayer *netlayer);
 /* Dial the listener bound at `designator` and return an owned connection
    framing on `codec`, refusing inbound frames over max_frame_bytes.
    `designator` is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a bad codec or a
-   zero frame cap; PANCAKE_ERR_IO (see pancake_inproc_last_error) when no listener
-   is bound there. Release with pancake_inproc_conn_release. */
-int32_t pancake_inproc_connect(PancakeInprocNetlayer *netlayer, const uint8_t *designator, size_t designator_len, uint32_t codec, size_t max_frame_bytes, PancakeInprocConn **out_conn);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   zero frame cap; PANCAKE_ERR_IO when no listener is bound there. Release with
+   pancake_inproc_conn_release.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_inproc_connect_with_diagnostic(PancakeInprocNetlayer *netlayer, const uint8_t *designator, size_t designator_len, uint32_t codec, size_t max_frame_bytes, PancakeInprocConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_inproc_connect(PancakeInprocNetlayer *netlayer, const uint8_t *designator, size_t designator_len, uint32_t codec, size_t max_frame_bytes, PancakeInprocConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Bind an in-process listener on `designator` (any opaque token; borrowed).
    PANCAKE_ERR_INVALID_ARGUMENT for an empty or already-bound designator. Release
    with pancake_inproc_listener_release. */
@@ -78,29 +80,29 @@ int32_t pancake_inproc_listen(PancakeInprocNetlayer *netlayer, const uint8_t *de
    do not close it or use it after pancake_inproc_listener_release. */
 int32_t pancake_inproc_listener_readiness_fd(PancakeInprocListener *listener, int32_t *out_fd);
 /* Block until a dialer connects, returning an owned connection framing on
-   `codec`. Same argument and release contract as pancake_inproc_connect. */
-int32_t pancake_inproc_accept(PancakeInprocListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeInprocConn **out_conn);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   `codec`. Same argument and release contract as pancake_inproc_connect.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_inproc_accept_with_diagnostic(PancakeInprocListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeInprocConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_inproc_accept(PancakeInprocListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeInprocConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Block for one whole frame as an owned managed frame. Returns
-   PANCAKE_ERR_CLOSED on graceful EOF. */
-int32_t pancake_inproc_conn_read_frame(PancakeInprocConn *conn, PancakeManagedFrame *out_frame);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   PANCAKE_ERR_CLOSED on graceful EOF.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_inproc_conn_read_frame_with_diagnostic(PancakeInprocConn *conn, PancakeManagedFrame *out_frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_inproc_conn_read_frame(PancakeInprocConn *conn, PancakeManagedFrame *out_frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Write one frame's borrowed bytes into the partner's pipe. Returns
-   PANCAKE_ERR_CLOSED after shutdown begins. */
-int32_t pancake_inproc_conn_write_frame(PancakeInprocConn *conn, const PancakeFrame *frame);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   PANCAKE_ERR_CLOSED after shutdown begins.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_inproc_conn_write_frame_with_diagnostic(PancakeInprocConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_inproc_conn_write_frame(PancakeInprocConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal native admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
    Idempotent. */
@@ -112,19 +114,20 @@ void pancake_inproc_conn_release(PancakeInprocConn *conn);
    listener. May race operations; join the embedding's leases before release. Idempotent. */
 void pancake_inproc_listener_shutdown(PancakeInprocListener *listener);
 /* After stopping new calls, invoking shutdown, and joining the embedding's
-   operation leases, close and free the listener. Release must not race call initiation. */
-int32_t pancake_inproc_listener_release(PancakeInprocListener *listener);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   operation leases, close and free the listener. Release must not race call
+   initiation.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_inproc_listener_release_with_diagnostic(PancakeInprocListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_inproc_listener_release(PancakeInprocListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy the calling thread's last in-process-transport error into out_buf, the
    inproc sibling of pancake_last_error, reading this archive's own per-thread
    slot. A pancake_inproc_* call that returns a cause-bearing code records it
    here. Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or
    cap 0 queries the length. Returns the full message length, or 0 when none is
-   set. */
+   set. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_inproc_last_error(uint8_t *out_buf, size_t cap);
 /* Clear the calling thread's in-process-transport last-error slot. */
 void pancake_inproc_clear_last_error(void);

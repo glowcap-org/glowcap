@@ -79,9 +79,11 @@ pub fn openSocket(comptime os: Os) !i32 {
 }
 
 /// Bind+listen on `127.0.0.1:port` with `SO_REUSEADDR` so a pinned-port restart
-/// can reclaim a socket still in TIME_WAIT (matching blocking `tcp.Listener`).
-/// Darwin also marks the listener nonblocking so a stale readiness never parks
-/// the loop in `accept(2)`.
+/// can reclaim a socket still in TIME_WAIT. Do not set `SO_REUSEPORT`: a
+/// listener represents one identity-bearing OCapN Host, so concurrent address
+/// sharing would let the kernel route dials to different peers. Darwin also
+/// marks the listener nonblocking so stale readiness never parks the loop in
+/// `accept(2)`.
 pub fn openListener(comptime os: Os, port: u16) !i32 {
     const fd = try openStream(os);
     errdefer closeFd(os, fd);
@@ -93,6 +95,46 @@ pub fn openListener(comptime os: Os, port: u16) !i32 {
     try bind(os, fd, &addr);
     try listen(os, fd, completion.listen_backlog);
     return fd;
+}
+
+/// A bound, listening IPv4 fd plus the resolved local port (for `bind(0)`).
+pub const BoundListener = struct { fd: i32, port: u16 };
+
+/// Bind+listen on `ip4` with `SO_REUSEADDR` alone and blocking semantics, for
+/// the blocking TCP tier. `SO_REUSEPORT` stays off for `openListener`'s
+/// identity reason. `SO_REUSEADDR` here is a restart contract with two
+/// generations: the kernel lets a bind reclaim a port whose previous owner
+/// left sockets in TIME_WAIT only when the old and the new listener both set
+/// the option, so every blocking-tier listener sets it unconditionally. A
+/// predecessor without it parks the port for the full TIME_WAIT minute, which
+/// is how a stateful server restarted onto its pinned port used to fail
+/// under load. The fd stays blocking on both platforms: the blocking tier
+/// wants `accept(2)` to park its caller.
+pub fn openListenerReuseAddr(comptime os: Os, ip4: Ip4, backlog: u31) !BoundListener {
+    const fd = try openStream(os);
+    errdefer closeFd(os, fd);
+    try setReuseAddr(os, fd);
+    var addr = sockaddrIn4(os, ip4);
+    try bind(os, fd, &addr);
+    try listen(os, fd, backlog);
+    return .{ .fd = fd, .port = try boundPort(os, fd) };
+}
+
+/// The local port of a bound socket, resolving a `bind(0)` draw.
+fn boundPort(comptime os: Os, fd: i32) !u16 {
+    var out: SockaddrIn(os) = undefined;
+    switch (os) {
+        .darwin => {
+            const c = std.c;
+            var len: c.socklen_t = @sizeOf(SockaddrIn(os));
+            if (c.getsockname(fd, @ptrCast(&out), &len) < 0) return error.SocketFailed;
+        },
+        .linux => {
+            var len: u32 = @sizeOf(SockaddrIn(os));
+            try checkLinux(linux.getsockname(fd, @ptrCast(&out), &len), error.SocketFailed);
+        },
+    }
+    return std.mem.bigToNative(u16, out.port);
 }
 
 /// Set `O_NONBLOCK` on an fd. Every fd the kqueue backend submits on must be
@@ -117,6 +159,30 @@ pub fn setNoSigpipe(fd: i32) bool {
 }
 
 pub const SendError = error{ WouldBlock, SendFailed };
+pub const ReceiveError = error{ WouldBlock, ReceiveFailed };
+
+/// Receive one nonblocking prefix. A zero count is the peer's transport EOF;
+/// transient pressure remains distinct from terminal failure.
+pub fn receiveNonblocking(fd: i32, bytes: []u8) ReceiveError!usize {
+    while (true) {
+        if (builtin.os.tag == .linux) {
+            const rc = linux.recvfrom(fd, bytes.ptr, bytes.len, linux.MSG.DONTWAIT, null, null);
+            return switch (linux.errno(rc)) {
+                .SUCCESS => @intCast(rc),
+                .AGAIN => error.WouldBlock,
+                .INTR => continue,
+                else => error.ReceiveFailed,
+            };
+        }
+        const rc = std.c.recv(fd, bytes.ptr, bytes.len, std.c.MSG.DONTWAIT);
+        if (rc >= 0) return @intCast(rc);
+        return switch (std.c.errno(rc)) {
+            .AGAIN => error.WouldBlock,
+            .INTR => continue,
+            else => error.ReceiveFailed,
+        };
+    }
+}
 
 /// Send one nonblocking prefix without allowing a torn-down socket to raise
 /// SIGPIPE. Platform syscall details stay in the socket layer; transport
@@ -197,7 +263,13 @@ fn bind(comptime os: Os, fd: i32, addr: *SockaddrIn(os)) !void {
     switch (os) {
         .darwin => {
             const c = std.c;
-            if (c.bind(fd, @ptrCast(addr), @sizeOf(SockaddrIn(os))) < 0) return error.BindFailed;
+            if (c.bind(fd, @ptrCast(addr), @sizeOf(SockaddrIn(os))) < 0) {
+                // Name the one actionable fault, exactly as the Linux arm
+                // does: a caller retrying a pinned-port restart must tell
+                // "held" from a fatal misconfig.
+                if (c._errno().* == @intFromEnum(c.E.ADDRINUSE)) return error.AddressInUse;
+                return error.BindFailed;
+            }
         },
         .linux => {
             try checkLinux(linux.bind(fd, @ptrCast(addr), @sizeOf(SockaddrIn(os))), error.BindFailed);

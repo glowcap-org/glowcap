@@ -30,6 +30,18 @@ const net = @import("net");
 // (ADR-0059 companion split, generalized from the iroh companion).
 const c = @import("c_abi_shared");
 
+/// Exact callable-surface identity checked before a separately loaded TCP
+/// archive receives any arguments. Derived from this archive and the shared
+/// provider ABI; never hand-bumped.
+pub const PANCAKE_TCP_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    @embedFile("mod.zig"),
+    @embedFile("symbols.zig"),
+);
+
+pub export fn pancake_tcp_archive_fingerprint() u64 {
+    return PANCAKE_TCP_ARCHIVE_FINGERPRINT;
+}
+
 /// The netlayer handle owns the one I/O backend the endpoints run on. Created
 /// and released explicitly by the host; it must outlive every connection and
 /// listener made from it.
@@ -63,7 +75,6 @@ const PancakeFrame = c.PancakeFrame;
 const PancakeManagedFrame = c.PancakeManagedFrame;
 
 const setLastError = c.setLastError;
-const clearLastError = c.lastErrorClear;
 const codecFromC = c.codecFromC;
 
 const PANCAKE_OK = c.PANCAKE_OK;
@@ -393,19 +404,19 @@ fn providerFinishConnect(
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
     };
     const claimed = attempt.completion.claim() catch |err| {
-        attempt.owner.tasks.reap(&attempt.operation);
+        _ = attempt.owner.tasks.reap(&attempt.operation);
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
     };
     if (!claimed) return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
     attempt.completion.wake.drain() catch |err| {
-        attempt.owner.tasks.reap(&attempt.operation);
+        _ = attempt.owner.tasks.reap(&attempt.operation);
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
     };
     const result = attempt.result;
     attempt.result = .pending;
     switch (result) {
         .failure => |err| {
-            attempt.owner.tasks.reap(&attempt.operation);
+            _ = attempt.owner.tasks.reap(&attempt.operation);
             return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
         },
         .pending => unreachable,
@@ -413,13 +424,13 @@ fn providerFinishConnect(
             const conn = attempt.owner.allocator.create(RawConn) catch |err| {
                 var owned = connection;
                 owned.close();
-                attempt.owner.tasks.reap(&attempt.operation);
+                _ = attempt.owner.tasks.reap(&attempt.operation);
                 return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, err);
             };
             conn.* = .{ .connection = connection, .owner = attempt.owner };
             slot.* = conn;
             fd_slot.* = connection.readinessFd();
-            attempt.owner.tasks.reap(&attempt.operation);
+            _ = attempt.owner.tasks.reap(&attempt.operation);
             return PANCAKE_OK;
         },
     }
@@ -428,9 +439,9 @@ fn providerFinishConnect(
 fn providerCancelConnect(attempt_raw: ?*anyopaque, _: ?*c.PancakeProviderFailure) callconv(.c) i32 {
     const attempt: *ProviderDialAttempt = @ptrCast(@alignCast(attempt_raw orelse return PANCAKE_OK));
     if (attempt.completion.cancel())
-        attempt.owner.tasks.reap(&attempt.operation)
+        _ = attempt.owner.tasks.reap(&attempt.operation)
     else
-        attempt.owner.tasks.cancel(&attempt.operation);
+        _ = attempt.owner.tasks.cancel(&attempt.operation);
     return PANCAKE_OK;
 }
 
@@ -515,6 +526,7 @@ fn providerListenerLocator(
     listener_raw: ?*anyopaque,
     sink_ctx: ?*anyopaque,
     sink: c.PancakeLocatorSinkFn,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]c.PancakeLocatorHintView = undefined;
@@ -522,7 +534,7 @@ fn providerListenerLocator(
         listener.owner.allocator,
         listener.locator,
         &hint_stack,
-    ) catch |err| return c.locatorAdapterErrorCode(err);
+    ) catch |err| return c.transport_provider.failProvider(out_failure, c.locatorAdapterErrorCode(err), err);
     defer projection.deinit(listener.owner.allocator);
     return sink(sink_ctx, &projection.view);
 }
@@ -532,19 +544,21 @@ fn providerListenerAdvertise(
     locator_view: ?*const c.PancakeLocatorView,
     sink_ctx: ?*anyopaque,
     sink: c.PancakeLocatorSinkFn,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
-    const view = locator_view orelse return PANCAKE_ERR_NULL_POINTER;
+    const view = locator_view orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = c.locator_adapter.BorrowedLocator.init(
         listener.owner.allocator,
         view,
         &hint_stack,
-    ) catch |err| return c.locatorAdapterErrorCode(err);
+    ) catch |err| return c.transport_provider.failProvider(out_failure, c.locatorAdapterErrorCode(err), err);
     defer borrowed.deinit(listener.owner.allocator);
     listener.listener.validateLocator(borrowed.value) catch |err| {
         c.setLastError("tcp listener advertise: {s}", .{@errorName(err)});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, err);
     };
     return sink(sink_ctx, view);
 }
@@ -641,7 +655,7 @@ pub export fn pancake_tcp_netlayer_new(
     config: ?*const PancakeTcpConfig,
     out_netlayer: ?*?*PancakeTcpNetlayer,
 ) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const stream_options = streamOptionsFromC((config orelse return PANCAKE_ERR_NULL_POINTER).stream, "tcp netlayer_new") catch
         return PANCAKE_ERR_INVALID_ARGUMENT;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
@@ -655,7 +669,7 @@ pub export fn pancake_tcp_netlayer_new_in(
     config: ?*const PancakeTcpConfig,
     out_netlayer: ?*?*PancakeTcpNetlayer,
 ) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const stream_options = streamOptionsFromC((config orelse return PANCAKE_ERR_NULL_POINTER).stream, "tcp netlayer_new_in") catch
         return PANCAKE_ERR_INVALID_ARGUMENT;
@@ -692,6 +706,7 @@ pub export fn pancake_tcp_transport_provider(
     netlayer: ?*PancakeTcpNetlayer,
     out_provider: ?*c.PancakeTransportProvider,
 ) i32 {
+    c.lastErrorClear();
     const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_provider orelse return PANCAKE_ERR_NULL_POINTER;
     slot.* = payload.provider;
@@ -769,7 +784,7 @@ const ConnectJob = struct {
 
 /// Connect to `host:port` and return an owned connection handle framing on
 /// `codec`. Blocking. Runs on `netlayer`'s I/O backend.
-pub export fn pancake_tcp_connect(
+fn tcpConnect(
     netlayer: ?*PancakeTcpNetlayer,
     host: ?[*]const u8,
     host_len: usize,
@@ -779,7 +794,6 @@ pub export fn pancake_tcp_connect(
     max_frame_bytes: usize,
     out_conn: ?*?*PancakeTcpConn,
 ) i32 {
-    clearLastError();
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!nl.calls.acquire(nl.io())) return PANCAKE_ERR_CLOSED;
     defer nl.calls.release(nl.io());
@@ -822,7 +836,9 @@ pub export fn pancake_tcp_connect(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_tcp_connect_with_diagnostic(
+/// Connect and optionally copy this call's diagnostic into caller-owned
+/// storage before an off-thread runtime regains control.
+pub export fn pancake_tcp_connect(
     netlayer: ?*PancakeTcpNetlayer,
     host: ?[*]const u8,
     host_len: usize,
@@ -835,15 +851,15 @@ pub export fn pancake_tcp_connect_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_tcp_connect(netlayer, host, host_len, port, options, codec, max_frame_bytes, out_conn),
+        tcpConnect(netlayer, host, host_len, port, options, codec, max_frame_bytes, out_conn),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -856,7 +872,7 @@ pub export fn pancake_tcp_listen(
     port: u16,
     out_listener: ?*?*PancakeTcpListener,
 ) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!nl.calls.acquire(nl.io())) return PANCAKE_ERR_CLOSED;
     defer nl.calls.release(nl.io());
@@ -887,7 +903,7 @@ pub export fn pancake_tcp_listen(
 
 /// The OS-resolved local port of a listener (useful after binding to port 0).
 pub export fn pancake_tcp_listener_port(listener: ?*PancakeTcpListener, out_port: ?*u16) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const payload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!payload.operations.acquire(payload.io)) return PANCAKE_ERR_CLOSED;
     defer payload.operations.release(payload.io);
@@ -902,7 +918,7 @@ pub export fn pancake_tcp_listener_port(listener: ?*PancakeTcpListener, out_port
 /// so serialize consumers when the reactor must not park. The listener owns the
 /// fd; do not close it or use it after `pancake_tcp_listener_release`.
 pub export fn pancake_tcp_listener_readiness_fd(listener: ?*PancakeTcpListener, out_fd: ?*i32) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const payload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!payload.operations.acquire(payload.io)) return PANCAKE_ERR_CLOSED;
     defer payload.operations.release(payload.io);
@@ -913,14 +929,13 @@ pub export fn pancake_tcp_listener_readiness_fd(listener: ?*PancakeTcpListener, 
 
 /// Block until a client connects, returning an owned connection handle framing
 /// on `codec`.
-pub export fn pancake_tcp_accept(
+fn tcpAccept(
     listener: ?*PancakeTcpListener,
     options: ?*const PancakeTcpStreamOptions,
     codec: u32,
     max_frame_bytes: usize,
     out_conn: ?*?*PancakeTcpConn,
 ) i32 {
-    clearLastError();
     const lpayload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!lpayload.operations.acquire(lpayload.io)) return PANCAKE_ERR_CLOSED;
     defer lpayload.operations.release(lpayload.io);
@@ -943,7 +958,9 @@ pub export fn pancake_tcp_accept(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_tcp_accept_with_diagnostic(
+/// Accept and optionally copy this call's diagnostic into caller-owned
+/// storage before an off-thread runtime regains control.
+pub export fn pancake_tcp_accept(
     listener: ?*PancakeTcpListener,
     options: ?*const PancakeTcpStreamOptions,
     codec: u32,
@@ -953,15 +970,15 @@ pub export fn pancake_tcp_accept_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_tcp_accept(listener, options, codec, max_frame_bytes, out_conn),
+        tcpAccept(listener, options, codec, max_frame_bytes, out_conn),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -970,71 +987,85 @@ pub export fn pancake_tcp_accept_with_diagnostic(
 /// session). Returns `_CLOSED` on graceful EOF, `_IO` on a
 /// socket fault (see `pancake_tcp_last_error`), `_MALFORMED` / `_FRAME_TOO_LARGE`
 /// for a bad frame.
-pub export fn pancake_tcp_conn_read_frame(conn: ?*PancakeTcpConn, out_frame: ?*PancakeManagedFrame) i32 {
-    clearLastError();
+fn tcpConnReadFrame(conn: ?*PancakeTcpConn, out_frame: ?*PancakeManagedFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
     return conn_frame_ops.readFrame(payload, slot, onReadConnectionLost);
 }
 
-pub export fn pancake_tcp_conn_read_frame_with_diagnostic(
+/// Read and optionally copy this call's diagnostic into caller-owned storage.
+pub export fn pancake_tcp_conn_read_frame(
     conn: ?*PancakeTcpConn,
     out_frame: ?*PancakeManagedFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_tcp_conn_read_frame(conn, out_frame),
+        tcpConnReadFrame(conn, out_frame),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
 /// Write one frame's *borrowed* bytes and flush. Returns `_IO` on a socket fault.
-pub export fn pancake_tcp_conn_write_frame(conn: ?*PancakeTcpConn, frame_in: ?*const PancakeFrame) i32 {
-    clearLastError();
+fn tcpConnWriteFrame(conn: ?*PancakeTcpConn, frame_in: ?*const PancakeFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
     return conn_frame_ops.writeFrame(payload, borrowed, onWriteErr);
 }
 
-pub export fn pancake_tcp_conn_write_frame_with_diagnostic(
+/// Write and optionally copy this call's diagnostic into caller-owned storage.
+pub export fn pancake_tcp_conn_write_frame(
     conn: ?*PancakeTcpConn,
     frame_in: ?*const PancakeFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_tcp_conn_write_frame(conn, frame_in),
+        tcpConnWriteFrame(conn, frame_in),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
 /// Interrupt blocked reads and writes and seal new operation admission without
 /// freeing the connection. Release joins every admitted operation.
 pub export fn pancake_tcp_conn_shutdown(conn: ?*PancakeTcpConn) i32 {
+    c.lastErrorClear();
     const payload = connFromOpaque(conn) orelse return PANCAKE_OK;
     conn_lifecycle.shutdown(payload) catch |err| return c.failIo("tcp connection shutdown", err);
     return PANCAKE_OK;
 }
 
-pub export fn pancake_tcp_conn_release(conn: ?*PancakeTcpConn) i32 {
+fn tcpConnRelease(conn: ?*PancakeTcpConn) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_OK;
     destroyConn(payload) catch |err| return c.failIo("tcp connection release", err);
     return PANCAKE_OK;
+}
+
+pub export fn pancake_tcp_conn_release(
+    conn: ?*PancakeTcpConn,
+    out_error: ?[*]u8,
+    error_cap: usize,
+    out_error_len: ?*usize,
+) i32 {
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
+        return PANCAKE_ERR_NULL_POINTER;
+    }
+    return c.captureCallError(tcpConnRelease(conn), out_error, error_cap, out_error_len);
 }
 
 /// Interrupt a blocked accept without freeing the listener. Release joins any

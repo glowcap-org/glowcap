@@ -102,15 +102,12 @@ pub const Preference = negotiated.Preference;
 /// wire/ABI boundary with `ExportPosition.from` / `.int` and friends.
 pub const ExportPosition = position.ExportPosition;
 pub const ImportPosition = position.ImportPosition;
-/// An id this node minted for a redeemed-handoff capability (ADR-0069), and
-/// the union that says which of the two kinds an import id is (ADR-0091).
-pub const REDEEMED_TOKEN_BASE = position.REDEEMED_TOKEN_BASE;
-pub const RedeemedToken = position.RedeemedToken;
-pub const ImportName = position.ImportName;
+/// An id this node minted for a routed capability (ADR-0069). This is a
+/// separate namespace from every wire import position (ADR-0091).
+pub const CapabilityRouteId = position.CapabilityRouteId;
 pub const AnswerPosition = position.AnswerPosition;
-/// An answer the session synthesized for a V1.0 resolver-only call (ADR-0010),
-/// and the union that says which of the two kinds an answer id is (ADR-0091).
-pub const VIRTUAL_INBOUND_ANSWER_BASE = position.VIRTUAL_INBOUND_ANSWER_BASE;
+/// An answer the session synthesized for a V1.0 resolver-only call (ADR-0010)
+/// and the explicit inbound-answer name sum (ADR-0091).
 pub const VirtualAnswer = position.VirtualAnswer;
 pub const AnswerName = position.AnswerName;
 
@@ -176,6 +173,15 @@ pub const FarRef = struct {
     }
 };
 
+/// A node-local capability route. Unlike `FarRef`, its id has no wire meaning;
+/// the Node must lower it to the real session-scoped reference before a codec
+/// sees it. Keeping this as its own arm preserves the complete `u64` import
+/// namespace for a partner and makes accidental wire emission fail closed.
+pub const RoutedRef = struct {
+    id: CapabilityRouteId,
+    kind: RefKind = .object,
+};
+
 /// One step along a promise pipeline path.
 ///
 /// A `call` works in both codecs. Syrup can't carry a multi-hop path on the
@@ -223,6 +229,7 @@ pub const BrokenRef = BreakReason;
 pub const Reference = union(enum) {
     near: NearRef,
     far: FarRef,
+    routed: RoutedRef,
     promise: PromiseRef,
     // Boxed, like `Argument.handoff`, and for the same reason. A `SturdyRef` is a
     // `PeerLocator` plus a swissnum, ~72 bytes, so inline it sets the width of the
@@ -240,7 +247,7 @@ pub const Reference = union(enum) {
     /// The raw wire position this reference names: a near export's
     /// `export_position` or a far import's `import_position`, collapsed to the
     /// one `u64` integer space they share on the wire. Null for a reference that
-    /// names no position (promise / sturdy / broken). This is the escape hatch
+    /// names no wire position (routed / promise / sturdy / broken). This is the escape hatch
     /// for code that genuinely wants the bare integer; prefer `exportPosition`
     /// when you mean "the local export this names," so the type keeps an import
     /// id out of an export-keyed lookup.

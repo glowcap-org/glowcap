@@ -1,0 +1,11 @@
+{
+  global:
+    pancake_webrtc_archive_*;
+    pancake_webrtc_clear_*;
+    pancake_webrtc_last_*;
+    pancake_webrtc_netlayer_*;
+    pancake_webrtc_peer_*;
+    pancake_webrtc_transport_*;
+  local:
+    *;
+};

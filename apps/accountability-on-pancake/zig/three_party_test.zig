@@ -21,6 +21,7 @@ const crypto = pancake.foundation.crypto;
 const syrup = pancake.ocapn.codec.syrup;
 
 const identity = @import("identity.zig");
+const said = @import("said.zig");
 const accountable = @import("accountable.zig");
 const affordance = @import("affordance.zig");
 const log = @import("log.zig");
@@ -186,10 +187,6 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     // A introduces B to C. After the handoff, B reaches C's Affordance
     // through a direct session. C's Episode must attribute B, not A.
 
-    var gifter = engine.Peer.init(allocator);
-    defer gifter.deinit();
-    var recipient_from_gifter = engine.Peer.init(allocator);
-    defer recipient_from_gifter.deinit();
     var recipient_to_exporter = engine.Peer.init(allocator);
     defer recipient_to_exporter.deinit();
     var exporter_from_gifter = engine.Peer.init(allocator);
@@ -210,7 +207,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
 
     // C publishes the Affordance.
     var served: usize = 0;
-    var last_subject = [_]u8{0} ** identity.SAID_LEN;
+    var last_subject = [_]u8{0} ** said.SAID_LEN;
     var c_vat = actors.Vat.init(allocator);
     defer c_vat.deinit();
     var c_port = actors.Port.init(allocator, &exporter);
@@ -236,6 +233,12 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     const recipient_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** 32);
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
+    var gifter_recipient = try engine.pairing.pairedWithKeys(
+        allocator,
+        [_]u8{0x51} ** 32,
+        [_]u8{0x52} ** 32,
+    );
+    defer gifter_recipient.deinit();
     // B names the side it really is on the session it withdraws over.
     const recipient_side = try engine.handoff_recipient.sideName(recipient_pub.asBytes());
 
@@ -255,8 +258,8 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
 
     // A deposits the gift in its A-C session and delivers the give certificate
     // to B. The row carries no copied session key.
-    try deliverGive(&gifter, &recipient_from_gifter, &exporter_from_gifter, give);
-    drainEvents(&recipient_from_gifter);
+    try deliverGive(&gifter_recipient.p1, &gifter_recipient.p2, &exporter_from_gifter, give);
+    drainEvents(&gifter_recipient.p2);
     drainEvents(&exporter);
 
     // B builds the receive over the signed give and signs it with its own key.
@@ -323,7 +326,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
 
     // C attributes the attested caller, B, not the introducer, A.
     try std.testing.expect(served == 1);
-    try std.testing.expectEqualSlices(u8, b_id.aidSlice(), last_subject[0..identity.SAID_LEN]);
+    try std.testing.expectEqualSlices(u8, b_id.aidSlice(), last_subject[0..said.SAID_LEN]);
 
     // The Episode is verifiable and the transparency log is stable.
     const audited = try c_store.auditAll();

@@ -17,17 +17,12 @@ import { assert, assertEquals } from "@std/assert";
 import { Container } from "pixi.js";
 import { Engine } from "../engine/engine.ts";
 import type { TimelineDocument } from "../engine/timeline.ts";
-import { attachedEndpoint } from "../schema/topology.ts";
+import { attachedEndpoint } from "../schema/session-end.ts";
 import { installHeadlessCanvas } from "./headless-canvas.fixture.ts";
 import { themedColors } from "./palette.ts";
 import { EdgeStrokeBatch } from "./edge-stroke-batch.ts";
-import {
-  type EdgeSprite,
-  type EndpointSprite,
-  type MessageSprite,
-  type PeerSprite,
-  renderFrame,
-} from "./render-frame.ts";
+import { renderFrame } from "./render-frame.ts";
+import type { EdgeSprite, EndpointSprite, MessageSprite, PeerSprite } from "./sprites/types.ts";
 import type { PeerActivity } from "./types.ts";
 
 installHeadlessCanvas();

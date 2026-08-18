@@ -127,7 +127,7 @@ Fresh session keys are normally distinct from durable locator keys.
   it fell through to `PANCAKE_ERR_INTERNAL` while the generated header for
   ADR-0092's `pancake_host_session_release_import` promised
   `PANCAKE_ERR_INVALID_ARGUMENT`. The mapping now matches the header.
-- `test/driver/core_host_test.zig` holds the report contract: signature
+- `test/driver/core_host/identity_test.zig` holds the report contract: signature
   verification gates success, the canonical comparison remains literal, raw
   keyed-TCP locator claims stay unauthenticated, and matching channel proof
   supplies authenticated provenance without equating session and durable keys.

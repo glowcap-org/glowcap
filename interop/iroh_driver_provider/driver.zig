@@ -33,6 +33,37 @@ fn expectOk(rc: i32) !void {
     return error.CAbiCallFailed;
 }
 
+fn reportCleanup(label: []const u8, rc: i32) void {
+    expectOk(rc) catch |err| std.log.err("{s}: {s}", .{ label, @errorName(err) });
+}
+
+fn reportDriverFailure(label: []const u8, rc: i32, failure: cdrv.PancakeDriverFailure) void {
+    if (rc == cs.PANCAKE_OK) return;
+    const primary = if (failure.primary_name) |name| name[0..failure.primary_name_len] else "missing failure";
+    std.log.err("{s}: {s} ({d})", .{ label, primary, rc });
+    if (failure.secondary_name) |name| {
+        std.log.err("{s}: cleanup: {s} ({d} consequences)", .{
+            label,
+            name[0..failure.secondary_name_len],
+            failure.secondary_count,
+        });
+    }
+}
+
+fn addDriverProvider(loop: ?*cdrv.PancakeDriverLoop, provider: *const cs.PancakeTransportProvider) !void {
+    var failure = cdrv.PancakeDriverFailure.init();
+    const rc = cdrv.pancake_driver_add_provider(loop, provider, &failure);
+    reportDriverFailure("iroh driver provider installation failed", rc, failure);
+    try expectOk(rc);
+}
+
+fn releaseDriver(label: []const u8, loop: ?*cdrv.PancakeDriverLoop) void {
+    var failure = cdrv.PancakeDriverFailure.init();
+    const rc = cdrv.pancake_driver_release(loop, &failure);
+    reportDriverFailure(label, rc, failure);
+    reportCleanup(label, rc);
+}
+
 fn expectStep(rc: i32) !void {
     if (rc == cs.PANCAKE_OK or rc == cs.PANCAKE_ERR_WOULD_BLOCK) return;
     return expectOk(rc);
@@ -46,6 +77,8 @@ const Drained = struct {
     dial_failed: bool = false,
     accepted_session: ?*cd.PancakeHostSession = null,
     accepted_listener: u64 = 0,
+    listener_ready: bool = false,
+    ready_listener: u64 = 0,
     settle_ticket: u64 = 0,
     fail_ticket: u64 = 0,
 };
@@ -70,6 +103,10 @@ fn drainEvents(loop: ?*cdrv.PancakeDriverLoop, into: *Drained) !void {
             cdrv.PANCAKE_DRIVER_EVENT_ACCEPTED => {
                 into.accepted_session = event.session;
                 into.accepted_listener = event.listener_id;
+            },
+            cdrv.PANCAKE_DRIVER_EVENT_LISTENER_READY => {
+                into.listener_ready = true;
+                into.ready_listener = event.listener_id;
             },
             cdrv.PANCAKE_DRIVER_EVENT_SESSION_CLOSED => {},
             cdrv.PANCAKE_DRIVER_EVENT_COMPLETION => switch (event.action.kind) {
@@ -113,7 +150,7 @@ fn newNetlayer(seed: *const [32]u8) !?*ci.PancakeIrohNetlayer {
         .idle_timeout_ms = 0,
         .worker_threads = 0,
     };
-    try expectOk(ci.pancake_iroh_netlayer_new(seed, seed.len, &config, &netlayer));
+    try expectOk(ci.pancake_iroh_netlayer_new(seed, seed.len, &config, &netlayer, null, 0, null));
     return netlayer;
 }
 
@@ -133,7 +170,7 @@ fn newLoop(seed_byte: u8) !?*cdrv.PancakeDriverLoop {
         0,
         &host,
     ));
-    errdefer _ = cd.pancake_host_release(host);
+    errdefer reportCleanup("iroh driver-provider host rollback failed", cd.pancake_host_release(host));
     var loop: ?*cdrv.PancakeDriverLoop = null;
     const options: cdrv.PancakeDriverOptions = .{
         .abi_version = cdrv.PANCAKE_DRIVER_OPTIONS_ABI_VERSION,
@@ -157,24 +194,33 @@ pub fn main(init: std.process.Init) !void {
     const server_seed: [32]u8 = @splat(0x51);
     const client_seed: [32]u8 = @splat(0x52);
     const server_netlayer = try newNetlayer(&server_seed);
-    defer ci.pancake_iroh_netlayer_release(server_netlayer);
+    defer reportCleanup("iroh server netlayer teardown failed", ci.pancake_iroh_netlayer_release(server_netlayer, null, 0, null));
     const client_netlayer = try newNetlayer(&client_seed);
-    defer ci.pancake_iroh_netlayer_release(client_netlayer);
+    defer reportCleanup("iroh client netlayer teardown failed", ci.pancake_iroh_netlayer_release(client_netlayer, null, 0, null));
 
     const server_loop = try newLoop(0x51);
-    defer _ = cdrv.pancake_driver_release(server_loop);
+    defer releaseDriver("iroh server driver teardown failed", server_loop);
     const client_loop = try newLoop(0x52);
-    defer _ = cdrv.pancake_driver_release(client_loop);
+    defer releaseDriver("iroh client driver teardown failed", client_loop);
 
     var server_provider: cs.PancakeTransportProvider = undefined;
     try expectOk(ci.pancake_iroh_transport_provider(server_netlayer, &server_provider));
-    try expectOk(cdrv.pancake_driver_add_provider(server_loop, &server_provider));
+    try addDriverProvider(server_loop, &server_provider);
     var client_provider: cs.PancakeTransportProvider = undefined;
     try expectOk(ci.pancake_iroh_transport_provider(client_netlayer, &client_provider));
-    try expectOk(cdrv.pancake_driver_add_provider(client_loop, &client_provider));
+    try addDriverProvider(client_loop, &client_provider);
 
     var listener: u64 = 0;
     try expectOk(cdrv.pancake_driver_listen(server_loop, model.transport.iroh.ptr, model.transport.iroh.len, null, 0, null, &listener));
+    var server_seen = Drained{};
+    var listener_rounds: usize = 0;
+    while (!server_seen.listener_ready and listener_rounds < 4000) : (listener_rounds += 1) {
+        try expectStep(cdrv.pancake_driver_step(server_loop, 1));
+        try drainEvents(server_loop, &server_seen);
+    }
+    if (!server_seen.listener_ready or server_seen.ready_listener != listener)
+        return error.ListenerNeverReady;
+    try expectOk(cdrv.pancake_driver_listener_select(server_loop, listener));
     const locator = try readListenerLocator(server_loop, listener);
     defer model.freePeerLocator(std.heap.page_allocator, locator);
     std.debug.print("iroh-driver-provider: generic listener published {s}\n", .{locator.designator});
@@ -185,9 +231,9 @@ pub fn main(init: std.process.Init) !void {
     defer projection.deinit(std.heap.page_allocator);
     try expectOk(cdrv.pancake_driver_dial(client_loop, &projection.view, null, &operation_id));
 
-    var server_seen = Drained{};
     var client_seen = Drained{};
     var greeter_published = false;
+    var sessions_served = false;
     var fetch_vow: u64 = 0;
     var rounds: usize = 0;
     while (client_seen.settle_ticket == 0 and rounds < 4000) : (rounds += 1) {
@@ -207,7 +253,12 @@ pub fn main(init: std.process.Init) !void {
         try drainEvents(client_loop, &client_seen);
         if (client_seen.dial_failed) return error.DialFailed;
         if (client_seen.fail_ticket != 0) return error.FetchFailed;
-        if (client_seen.dialed_session != null and fetch_vow == 0 and server_seen.accepted_session != null) {
+        if (!sessions_served and client_seen.dialed_session != null and server_seen.accepted_session != null) {
+            try expectOk(cdrv.pancake_driver_session_serve(client_loop, client_seen.dialed_session));
+            try expectOk(cdrv.pancake_driver_session_serve(server_loop, server_seen.accepted_session));
+            sessions_served = true;
+        }
+        if (sessions_served and fetch_vow == 0) {
             if (client_seen.dialed_operation_id != operation_id) return error.OperationIdMismatch;
             try expectOk(cd.pancake_host_session_fetch(client_seen.dialed_session, "greeter", 7, &fetch_vow));
         }
@@ -218,6 +269,7 @@ pub fn main(init: std.process.Init) !void {
 
     try expectOk(cdrv.pancake_driver_session_release(client_loop, client_seen.dialed_session));
     try expectOk(cdrv.pancake_driver_session_release(server_loop, server_seen.accepted_session));
-    try expectOk(cdrv.pancake_driver_listener_close(server_loop, listener));
+    var listener_close_failure = cdrv.PancakeDriverFailure.init();
+    try expectOk(cdrv.pancake_driver_listener_close(server_loop, listener, &listener_close_failure));
     std.debug.print("iroh-driver-provider: OK — generic dial and listen both crossed the multiplexed-transport table\n", .{});
 }

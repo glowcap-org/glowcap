@@ -17,6 +17,7 @@ use crate::sys::driver::PancakeTransportProvider;
 use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
 
 extern "C" {
+	pub fn pancake_tcp_archive_fingerprint() -> u64;
 	pub fn pancake_tcp_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_tcp_netlayer_new(
 		config: *const PancakeTcpConfig,
@@ -37,6 +38,9 @@ extern "C" {
 		codec: c_uint,
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeTcpConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_tcp_listen(
 		netlayer: *mut PancakeTcpNetlayer,
@@ -53,11 +57,31 @@ extern "C" {
 		codec: c_uint,
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeTcpConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_tcp_conn_read_frame(conn: *mut PancakeTcpConn, out_frame: *mut PancakeManagedFrame) -> c_int;
-	pub fn pancake_tcp_conn_write_frame(conn: *mut PancakeTcpConn, frame: *const PancakeFrame) -> c_int;
+	pub fn pancake_tcp_conn_read_frame(
+		conn: *mut PancakeTcpConn,
+		out_frame: *mut PancakeManagedFrame,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
+	pub fn pancake_tcp_conn_write_frame(
+		conn: *mut PancakeTcpConn,
+		frame: *const PancakeFrame,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_tcp_conn_shutdown(conn: *mut PancakeTcpConn) -> c_int;
-	pub fn pancake_tcp_conn_release(conn: *mut PancakeTcpConn) -> c_int;
+	pub fn pancake_tcp_conn_release(
+		conn: *mut PancakeTcpConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_tcp_listener_shutdown(listener: *mut PancakeTcpListener);
 	pub fn pancake_tcp_listener_release(listener: *mut PancakeTcpListener);
 	pub fn pancake_tcp_clear_last_error();

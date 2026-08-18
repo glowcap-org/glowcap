@@ -2,7 +2,10 @@
 
 Author CapTP first-call snippets here once; `zig build gen-site-examples`
 assembles them into SuperMD `code-tabs` blocks on the binding, Start, and
-transport pages.
+transport pages. The numbered Zig chapters and C programs live under
+[`examples/`](../../examples/README.md); this directory is only the
+per-transport first-call matrix. The site's Rooms & examples page is the
+runnable inventory: rooms, chapters, C, and the demo apps.
 
 A binding page already names the language, so its tabs name transports. The
 tabs contain only transport-specific setup. The generator renders the common
@@ -34,10 +37,9 @@ transport-independent." in its language's comment syntax. The generator uses
 that line as the split and rejects different continuations within one language
 and direction.
 
-The Examples page has one tab for every transport in
-`model.transport.Known`. It chooses a language that exposes the transport
-truthfully; the managed binding pages retain only the combinations they
-support. The CapTP Session dial/listen tabs shared by those binding pages are:
+Start building and the binding pages share one CapTP Session dial/listen tab
+set. The managed binding pages retain only the combinations they support.
+Those shared tabs are:
 
 | Tab | Why it earns a place |
 | --- | --- |

@@ -71,12 +71,6 @@ const registered = [_]Table{
         .epoch = "The import row owns both identities and drops them when it goes; the Host target also carries a monotonic incarnation, so a reused position cannot revive either old handle.",
     },
     .{
-        .file = "ocapn/session/answers.zig",
-        .name = "rows",
-        .owner = "Reached only through AnswerTable, whose Id type is distinct; positions are the partner's to choose within one session.",
-        .epoch = "Every row carries a row_id from the session's stamp counter, and queued fires and projections compare it before settling.",
-    },
-    .{
         .file = "ocapn/session/mod.zig",
         .name = "bootstrap",
         .owner = "Swissnums this session published; the map is per session, so another partner's names are not in it.",
@@ -114,21 +108,9 @@ const registered = [_]Table{
     },
     .{
         .file = "ocapn/engine/node.zig",
-        .name = "foreign_imports",
-        .owner = "Node-minted tokens above REDEEMED_TOKEN_BASE, drawn from one counter, so no session can name another's row.",
-        .epoch = "Tokens are never reused. The row is swept when its home session is removed; a token whose home is gone routes to nothing rather than to a later session.",
-    },
-    .{
-        .file = "ocapn/engine/node.zig",
         .name = "advertised_locators",
         .owner = "Transport names in this node's own publication registry; callers cannot select another node because the map is a Node field.",
         .epoch = "Replacement atomically swaps the owned snapshot for that transport, removal deletes it, and the complete registry dies with the Node.",
-    },
-    .{
-        .file = "ocapn/engine/node.zig",
-        .name = "redeemed",
-        .owner = "Node-minted tokens from the same counter as foreign_imports.",
-        .epoch = "Never reused. Rows for a dead session are deliberately kept so routing reads the missing peer and fails the token closed.",
     },
     .{
         .file = "ocapn/engine/node.zig",
@@ -281,7 +263,7 @@ const registered = [_]Table{
         .epoch = "Stable and never reused during the resident lifetime, so queued readiness for a released peer cannot name its replacement.",
     },
     .{
-        .file = "c_abi/net_transport/webrtc/mod.zig",
+        .file = "c_abi/net_transport/webrtc/ownership.zig",
         .name = "peers",
         .owner = "Peer subjects minted by this WebRTC netlayer resident; callers can submit only an id returned by this same endpoint's peer handle.",
         .epoch = "Stable and never reused during the netlayer lifetime. A row remains while either the caller handle or the provider claim owns a reference, and stale readiness resolves to nothing.",

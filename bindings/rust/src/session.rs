@@ -142,11 +142,26 @@ impl DurableProvenance {
 	/// Two surfaces report the same provenance fact about the same partner —
 	/// this identity query and the live trace's session-open — so the mapping
 	/// lives here once rather than being spelled at each of them.
-	pub(crate) fn from_abi(raw: u32) -> Self {
+	pub(crate) fn from_abi(raw: u32) -> Result<Self> {
 		match raw {
-			sys::DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT => Self::AuthenticatedTransport,
-			_ => Self::Unauthenticated,
+			sys::DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT => Ok(Self::AuthenticatedTransport),
+			sys::DURABLE_PROVENANCE_UNAUTHENTICATED => Ok(Self::Unauthenticated),
+			other => Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				format!("pancake ABI returned unknown durable provenance {other}"),
+			)),
 		}
+	}
+}
+
+#[cfg(test)]
+mod provenance_tests {
+	use super::*;
+
+	#[test]
+	fn unknown_native_provenance_is_a_returned_failure() {
+		let error = DurableProvenance::from_abi(u32::MAX).unwrap_err();
+		assert_eq!(error.kind(), crate::ErrorKind::Internal);
 	}
 }
 
@@ -382,7 +397,7 @@ impl Session {
 				crate::owned_from_view(out.locator_record, out.locator_record_len),
 			)
 		};
-		let provenance = DurableProvenance::from_abi(out.provenance);
+		let provenance = DurableProvenance::from_abi(out.provenance)?;
 		Ok(PartnerIdentity {
 			session_key,
 			designator: String::from_utf8_lossy(&designator).into_owned(),
@@ -423,13 +438,12 @@ impl Session {
 	}
 
 	/// Opt this session into distributed GC (ADR-0063), off by default. Once
-	/// on, a far capability returned by [`fetch`](Session::fetch) releases its
-	/// import to the partner — a single `op:gc-exports` delta, routed through the
-	/// host to the import's home connection — when the last `Ref` to it is
-	/// dropped, so the partner can release the matching export. Capabilities
-	/// lifted elsewhere (a `send` reply, a delivered argument via `Ref::try_from`,
-	/// an `enliven` result the dedup cache owns) are outside this seam. Returns
-	/// `self` for chaining after `connect`.
+	/// on, every capability occurrence projected by this session through
+	/// [`fetch`](Session::fetch), a fulfilled far operation, or a recursively
+	/// nested delivered argument releases its Host retain when the last clone of
+	/// that `Ref` drops. The Host routes any required `op:gc-exports` to the
+	/// import's actual home. An `enliven` result remains owned by its dedup cache.
+	/// Returns `self` for chaining after `connect`.
 	pub fn with_gc(self) -> Session {
 		self.shared.gc.set(true);
 		self
@@ -470,9 +484,9 @@ impl Session {
 	///
 	/// Releases one application retain. For a remote capability the Host emits
 	/// any required `op:gc-exports`; a local capability needs no wire message.
-	/// [`with_gc`](Session::with_gc) does this too, but only for a
-	/// [`fetch`](Session::fetch) result; this works for any far capability this
-	/// session holds, including one lifted from a delivered argument or a reply.
+	/// [`with_gc`](Session::with_gc) does this best-effort for every capability
+	/// occurrence projected by an opted-in session; this verb is deterministic
+	/// and also works for a handle outside that automatic seam.
 	///
 	/// `cap` is taken by value, so the handle you released is gone. A clone
 	/// made earlier reads [`Ref::released`] as true and is a caller error to
@@ -550,7 +564,6 @@ impl Session {
 			name,
 			ffi::pancake_host_session_fetch,
 			true,
-			|reference| crate::gc::track_import(&self.shared, reference),
 		)
 		.await
 	}
@@ -571,7 +584,6 @@ impl Session {
 			"enliven",
 			ffi::pancake_host_session_enliven,
 			false,
-			|reference| crate::gc::track_import(&self.shared, reference),
 		)
 		.await
 	}

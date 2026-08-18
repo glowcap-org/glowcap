@@ -376,7 +376,7 @@ test "session forEach export import answer views" {
         n: *usize,
         fn visit(c: *@This(), v: session.AnswerRowView) void {
             c.n.* += 1;
-            std.debug.assert(v.position.int() == 11);
+            std.debug.assert(v.position == .wire and v.position.wire.int() == 11);
         }
     };
     var ac = A{ .n = &answer_seen };

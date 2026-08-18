@@ -18,6 +18,7 @@ use crate::sys::driver::PancakeTransportProvider;
 use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
 
 extern "C" {
+	pub fn pancake_onion_archive_fingerprint() -> u64;
 	pub fn pancake_onion_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_onion_transport_provider(
 		netlayer: *mut PancakeOnionNetlayer,
@@ -28,7 +29,12 @@ extern "C" {
 		out_netlayer: *mut *mut PancakeOnionNetlayer,
 	) -> c_int;
 	pub fn pancake_onion_netlayer_shutdown(netlayer: *mut PancakeOnionNetlayer);
-	pub fn pancake_onion_netlayer_release(netlayer: *mut PancakeOnionNetlayer) -> c_int;
+	pub fn pancake_onion_netlayer_release(
+		netlayer: *mut PancakeOnionNetlayer,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_onion_connect(
 		netlayer: *mut PancakeOnionNetlayer,
 		service_id: *const c_uchar,
@@ -36,6 +42,9 @@ extern "C" {
 		codec: c_uint,
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeOnionConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_onion_listen(
 		netlayer: *mut PancakeOnionNetlayer,
@@ -46,11 +55,17 @@ extern "C" {
 		out_service_key_cap: usize,
 		out_service_key_len: *mut usize,
 		out_listener: *mut *mut PancakeOnionListener,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_onion_listener_wait(
 		listener: *mut PancakeOnionListener,
 		timeout_ms: c_int,
 		out_ready: *mut u32,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_onion_listener_readiness_fd(listener: *mut PancakeOnionListener, out_fd: *mut i32) -> c_int;
 	pub fn pancake_onion_conn_readiness_fd(conn: *mut PancakeOnionConn, out_fd: *mut i32) -> c_int;
@@ -59,13 +74,38 @@ extern "C" {
 		codec: c_uint,
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeOnionConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_onion_conn_read_frame(conn: *mut PancakeOnionConn, out_frame: *mut PancakeManagedFrame) -> c_int;
-	pub fn pancake_onion_conn_write_frame(conn: *mut PancakeOnionConn, frame: *const PancakeFrame) -> c_int;
+	pub fn pancake_onion_conn_read_frame(
+		conn: *mut PancakeOnionConn,
+		out_frame: *mut PancakeManagedFrame,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
+	pub fn pancake_onion_conn_write_frame(
+		conn: *mut PancakeOnionConn,
+		frame: *const PancakeFrame,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_onion_conn_shutdown(conn: *mut PancakeOnionConn) -> c_int;
-	pub fn pancake_onion_conn_release(conn: *mut PancakeOnionConn) -> c_int;
+	pub fn pancake_onion_conn_release(
+		conn: *mut PancakeOnionConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_onion_listener_shutdown(listener: *mut PancakeOnionListener);
-	pub fn pancake_onion_listener_release(listener: *mut PancakeOnionListener) -> c_int;
+	pub fn pancake_onion_listener_release(
+		listener: *mut PancakeOnionListener,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_onion_clear_last_error();
 	pub fn pancake_onion_netlayer_new_in(
 		context: *mut PancakeContext,

@@ -1,6 +1,9 @@
 /**
  * What a document says about itself, and what editing it costs.
  *
+ * The writes live in `document-fields.ts`. These tests walk through the engine
+ * because undo, notify, and the clock bound are what editing costs.
+ *
  * Every claim below was wrong once in a way nothing else here would have caught:
  *
  *   - Text is stored exactly as typed. These setters run per keystroke against a
@@ -14,9 +17,8 @@
  *     putting `metadata` into `DocSnapshot` is for.
  *   - A duration will not go below the last thing on the timeline, because the
  *     scrubber cannot travel past the end and the event would be unreachable.
- *   - The opening view is document data that is not an undo step, so it needs its
- *     own answer to "has this changed": `changedSinceLoad`, which the panel's
- *     edited badge reads.
+ *   - The opening view is an ordinary undoable edit. Looking around is not,
+ *     which is why the camera never writes it.
  */
 
 import { assert, assertEquals } from "@std/assert";

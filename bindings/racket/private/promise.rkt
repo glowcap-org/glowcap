@@ -15,14 +15,15 @@
          "errors.rkt"
          "host.rkt"
          "value.rkt"
-         "codec.rkt")
+         "abi-value.rkt")
 
 ;; `session-host` / pump / guard live in session/pump. Lazy-require breaks the
 ;; session ↔ promise and promise ↔ pump cycles (session eagerly requires this
 ;; module; pump lazy-requires session).
 (lazy-require
  ["session.rkt" (session-host session-ptr guard-open session-flush!)]
- ["pump.rkt" (pump-until)])
+ ["pump.rkt" (pump-until)]
+ ["gc.rkt" (session-gc-enabled? track-argument!)])
 
 (provide (struct-out session-vow)
          listen-far
@@ -45,7 +46,7 @@
 ;; still settles from the recorded state (the binding's spelling of the
 ;; resolution stash the other bindings keep), and no settle callback ever
 ;; crosses the C boundary.
-(struct session-vow (session id [state #:mutable] [listeners #:mutable]) #:transparent)
+(struct session-vow (session id [state #:mutable] [listeners #:mutable] track-gc?) #:transparent)
 
 ;; Register a freshly minted vow so the drain can route its completion.
 ;; Caller holds the host lock, so no drain can pop the completion first.
@@ -64,11 +65,17 @@
   (cond
     [v
      (hash-remove! (host-vows m) id)
-     (set-session-vow-state! v outcome)
+     (define tracked
+       (if (and (eq? (car outcome) 'ok)
+                (session-vow-track-gc? v)
+                (session-vow-session v))
+           (cons 'ok (track-argument! (session-vow-session v) (cdr outcome)))
+           outcome))
+     (set-session-vow-state! v tracked)
      (define ls (session-vow-listeners v))
      (set-session-vow-listeners! v '())
      (for/list ([l (in-list (reverse ls))])
-       (lambda () (l (cdr outcome) (not (eq? (car outcome) 'ok)))))]
+       (lambda () (l (cdr tracked) (not (eq? (car tracked) 'ok)))))]
     [else '()]))
 
 ;; Register `(listener value broken?)` on a far vow: fire now from the recorded
@@ -118,7 +125,7 @@
       (define-values (rc id) (mint m (session-vow-id a-vow)))
       (check/host rc)
       (define home (session-vow-session a-vow))
-      (define v (session-vow home id 'pending '()))
+      (define v (session-vow home id 'pending '() (session-gc-enabled? home)))
       (register-vow! m v)
       v)))
 
@@ -146,14 +153,16 @@
 ;; drops, and the pump drains its SETTLE/FAIL completion off the action queue.
 ;; Classify: only a live Host reference fulfills; a partner break raises
 ;; typed ERR-BROKEN; the disconnect's own break raises typed ERR-CLOSED.
-(define (blocking-fetch c who what label mint!)
+(define (blocking-fetch c who what label mint! #:track-gc? [track-gc? #f])
   (define m (session-host c))
   (define v
     (call-with-host m
       (lambda ()
         (define-values (rc id) (mint!))
         (check/host rc)
-        (define fresh (session-vow c id 'pending '()))
+        (define fresh
+          (session-vow c id 'pending '()
+                       (and track-gc? (session-gc-enabled? c))))
         (register-vow! m fresh)
         fresh)))
   ;; Fetch/enliven mint outside `session-far-send`; flush before the await.
@@ -197,7 +206,7 @@
       (define-values (rc id)
         (pancake_host_session_listen (session-ptr c) (ref->c target)))
       (check/host rc)
-      (define v (session-vow c id 'pending '()))
+      (define v (session-vow c id 'pending '() (session-gc-enabled? c)))
       (register-vow! m v)
       v)))
 
@@ -218,7 +227,7 @@
              (pancake_host_vow_send (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt))
            (check/host rc)
            (define home (session-vow-session target))
-           (define v (session-vow home id 'pending '()))
+           (define v (session-vow home id 'pending '() (session-gc-enabled? home)))
            (register-vow! m v)
            (if answer? v (void))]
           [(ref? target)
@@ -227,7 +236,7 @@
               (define-values (rc id)
                 (pancake_host_session_send (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
               (check/host rc)
-              (define v (session-vow c id 'pending '()))
+              (define v (session-vow c id 'pending '() (session-gc-enabled? c)))
               (register-vow! m v)
               v]
              [else

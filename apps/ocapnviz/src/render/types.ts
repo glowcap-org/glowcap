@@ -1,11 +1,11 @@
 /**
  * Canonical render-layer types.
  *
- * Stage.tsx is a React host with a Pixi runtime, so importing types
+ * Stage.tsx is a React host, so importing types
  * from it pulls in Pixi + React for any consumer that just wants a
  * `StageSelection` shape. This module is the single home for those
  * pure-data types (selection, visibility, the modifier→mode helper)
- * so peers like `render-frame.ts`, the timeline panels, the inspector,
+ * so the renderer, the timeline panels, the inspector,
  * and `app-state.ts` can depend on them without dragging the host in.
  */
 

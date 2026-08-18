@@ -23,6 +23,27 @@ class PendingWork(str, Enum):
 _UNSET: Final = object()
 
 
+def _release_consumed(code: int) -> bool:
+    """Whether final native release crossed its ownership boundary."""
+    return code != _abi.ERR_INVALID_ARGUMENT
+
+
+def _lifecycle_closed(raw: int) -> bool:
+    """Decode native progress without letting an unknown state become a hang."""
+    if raw in (
+        _abi.LIFECYCLE_ACTIVE,
+        _abi.LIFECYCLE_FINISHING,
+        _abi.LIFECYCLE_TERMINATING,
+    ):
+        return False
+    if raw == _abi.LIFECYCLE_CLOSED:
+        return True
+    raise PancakeError(
+        _abi.ERR_INTERNAL,
+        f"pancake ABI returned unknown lifecycle state {raw}",
+    )
+
+
 def _monotonic_ms() -> int:
     return time.monotonic_ns() // 1_000_000
 

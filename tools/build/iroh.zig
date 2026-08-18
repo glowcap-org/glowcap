@@ -1,0 +1,361 @@
+//! The iroh companion archive's module and installed public C ABI.
+
+const std = @import("std");
+const common = @import("common.zig");
+const addRootedSystemCommand = common.addRootedSystemCommand;
+const addInstalledSystemRun = common.addInstalledSystemRun;
+const irohDriverModule = common.irohDriverModule;
+const linkIrohSidecar = common.linkIrohSidecar;
+const AbiImport = common.AbiImport;
+const root_build = @import("../../build.zig");
+const gen_build = @import("gen.zig");
+const irohAbiModule = gen_build.irohAbiModule;
+const layerIndex = root_build.layerIndex;
+
+pub fn abiModule(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    model_mod: *std.Build.Module,
+    net_mod: *std.Build.Module,
+    c_abi_shared_mod: *std.Build.Module,
+    resident_mod: *std.Build.Module,
+) *std.Build.Module {
+    return common.transportAbiModule(b, target, optimize, "src/c_abi/net_transport/iroh/mod.zig", &.{
+        .{ .name = "model", .module = model_mod },
+        .{ .name = "net", .module = net_mod },
+        .{ .name = "iroh", .module = resident_mod },
+        .{ .name = "c_abi_shared", .module = c_abi_shared_mod },
+    });
+}
+
+pub const AbiContext = struct {
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    version: std.SemanticVersion,
+    model_mod: *std.Build.Module,
+    net_mod: *std.Build.Module,
+    c_abi_shared_mod: *std.Build.Module,
+    resident_mod: *std.Build.Module,
+    sidecar_step: *std.Build.Step,
+};
+
+pub const AbiRegistration = struct {
+    install: *std.Build.Step.InstallArtifact,
+    step: *std.Build.Step,
+};
+
+/// Build the public frame-level companion around the private Rust byte-level
+/// sidecar. The ELF map is a correctness boundary: leaking the sidecar's Rust
+/// runtime can interpose on a Rust consumer's own panic runtime.
+pub fn registerAbi(ctx: AbiContext) AbiRegistration {
+    const b = ctx.b;
+    const link_mod = abiModule(
+        b,
+        ctx.target,
+        ctx.optimize,
+        ctx.model_mod,
+        ctx.net_mod,
+        ctx.c_abi_shared_mod,
+        ctx.resident_mod,
+    );
+    common.linkIrohSidecar(b, link_mod, ctx.target);
+    const shared = b.addLibrary(.{
+        .name = "pancake_net_transport_iroh",
+        .linkage = .dynamic,
+        .root_module = link_mod,
+        .version = ctx.version,
+    });
+    if (ctx.target.result.ofmt == .elf) {
+        shared.version_script = b.path("tools/build/exports/iroh.map");
+    }
+    shared.step.dependOn(ctx.sidecar_step);
+
+    const install = b.addInstallArtifact(shared, .{});
+    const header = b.addInstallHeaderFile(
+        b.path("include/pancake_net_transport_iroh.h"),
+        "pancake_net_transport_iroh.h",
+    );
+    const step = b.step("iroh-abi", "Build libpancake_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)");
+    step.dependOn(&install.step);
+    step.dependOn(&header.step);
+
+    if (ctx.target.result.ofmt == .elf) {
+        const export_check = common.addRootedSystemCommand(b, &.{ "bash", "tools/check/sidecar-exports.sh" });
+        export_check.addFileArg(shared.getEmittedBin());
+        export_check.addArg("pancake_iroh_");
+        export_check.addArg("pancake_iroh_sidecar_");
+        step.dependOn(&export_check.step);
+    }
+    return .{ .install = install, .step = step };
+}
+
+/// The whole iroh family above the ABI companion: the sidecar's cargo
+/// steps, the injected resident with its hermetic check object, the live
+/// driver table, the ADR-0112 seam proof, the site snippet compiles and the
+/// locator suite that ride the site's Zig example check, the companion
+/// registration, and its deno-driven ABI test.
+pub const StepsContext = struct {
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    abi_version: std.SemanticVersion,
+    lib_mod: *std.Build.Module,
+    host_mods: []*std.Build.Module,
+    host_abi_mod: *std.Build.Module,
+    driver_abi_mod: *std.Build.Module,
+    interop_harness_mod: *std.Build.Module,
+    check_step: *std.Build.Step,
+    site_zig_examples_check: *std.Build.Step,
+};
+
+pub const StepsRegistration = struct {
+    resident_mod: *std.Build.Module,
+    lib_step: *std.Build.Step,
+    abi_step: *std.Build.Step,
+    abi_test_step: *std.Build.Step,
+};
+
+pub fn registerSteps(ctx: StepsContext) StepsRegistration {
+    const b = ctx.b;
+    const target = ctx.target;
+    const optimize = ctx.optimize;
+    const abi_version = ctx.abi_version;
+    const lib_mod = ctx.lib_mod;
+    const host_mods = ctx.host_mods;
+    const host_abi_mod = ctx.host_abi_mod;
+    const driver_abi_mod = ctx.driver_abi_mod;
+    const interop_harness_mod = ctx.interop_harness_mod;
+    const check_step = ctx.check_step;
+
+    // ── iroh netlayer (external siblings, plus one offline check object) ────
+    // The iroh netlayer sidecar (ADR-0055): cargo builds the
+    // `libpancake_iroh_sidecar.a` staticlib, and the live gate runs two pancake
+    // peers — each with its own
+    // real iroh endpoint — through the keyed handshake, a bootstrap fetch, and
+    // a deliver/resolve over an encrypted QUIC stream, dialed by endpoint id
+    // with direct-address hints. The staticlib is also linked by hermetic CLI
+    // tests under `check`, so its build is offline there; live sidecar tests
+    // remain sibling steps with their own external-runtime posture.
+    const iroh_lib = addRootedSystemCommand(b, &.{
+        "cargo", "build", "--offline", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
+    });
+    const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
+    iroh_lib_step.dependOn(&iroh_lib.step);
+
+    // The sidecar's own Rust unit tests, chief among them the positive-fire proof
+    // that a caller-set connect timeout trips fast against a bound-but-silent UDP
+    // black hole. Needs cargo, so it is a sibling step like `iroh-lib`.
+    const iroh_sidecar_test = addRootedSystemCommand(b, &.{
+        "cargo", "test", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
+    });
+    const iroh_sidecar_test_step = b.step("iroh-sidecar-test", "Run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof (needs cargo)");
+    iroh_sidecar_test_step.dependOn(&iroh_sidecar_test.step);
+
+    // The resident compiles as its own module over the same layer-module
+    // instances, *outside* the `pancake` root namespace: its externs resolve
+    // only when the staticlib links, and the api-surface test references every
+    // exported `pancake` declaration recursively, exporting it would drag the
+    // Rust sidecar into every gate.
+    const iroh_resident_mod = b.createModule(.{
+        .root_source_file = b.path("src/net/transport/iroh.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    iroh_resident_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
+    iroh_resident_mod.addImport("model", host_mods[layerIndex("model")]);
+    iroh_resident_mod.addImport("engine", host_mods[layerIndex("engine")]);
+    iroh_resident_mod.addImport("net", host_mods[layerIndex("net")]);
+    // CapTP serving for the scale path is `driver.Bridge` + `driver_core.Host`
+    // in the interop drivers; the resident only supplies the netlayer and the
+    // completion `Backend` (ADR-0076).
+
+    // The iroh driver family, table-driven. Each row is both a runnable sibling
+    // of `check` (linking the sidecar through `linkIrohSidecar`, so it needs
+    // cargo) and a hermetic compile-only object that rides `check`: *compiling*
+    // a driver's Zig is cargo-free because externs stay unresolved and nothing
+    // links, so a core or model API change cannot silently rot a driver only the
+    // cargo-gated steps run. Per-row posture:
+    //   iroh-interop  — live encrypted conversation, two pancake peers over real
+    //                   iroh endpoints, dialed by id with direct-address hints.
+    //   iroh-reachability — Milestone 1: dial by node id alone over n0's public
+    //                   relays and DNS/pkarr discovery, no hints. Touches public
+    //                   discovery infrastructure with propagation timing, so it
+    //                   is opt-in and never a hermetic gate.
+    //   iroh-loop     — Milestone 3 (ADR-0057): many concurrent connections
+    //                   served from one thread through the event-driven sidecar
+    //                   superset. Deterministic.
+    //   iroh-bridge-redeem — ADR-0076: recipient on Loop(iroh.Backend, iroh.DialResolver) redeems
+    //                   a handoff via Loop.dialLocator. Deterministic.
+    //   goblins-iroh  — the one row whose partner is not pancake: a real Spritely
+    //                   Goblins vat over the iroh netlayer this repository wrote
+    //                   for it, both directions. Needs racket + goblins as well
+    //                   as cargo, so it is the family's only Racket-spawning row.
+    //   bench-iroh    — round-trip latency/throughput over real keyed QUIC vs a
+    //                   same-machine cleartext TCP baseline; reports numbers,
+    //                   gates none, and forwards `-- <args>`. `bench-site-report`
+    //                   runs it to refresh the performance page.
+    const iroh_drivers = [_]struct {
+        step_name: []const u8,
+        description: []const u8,
+        exe_name: []const u8,
+        root_source: []const u8,
+        forwards_args: bool = false,
+    }{
+        .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)", .exe_name = "pancake-iroh-interop", .root_source = "interop/iroh_interop/driver.zig" },
+        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "pancake-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig" },
+        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "pancake-iroh-loop", .root_source = "interop/iroh_loop/driver.zig" },
+        .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "pancake-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig" },
+        .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a pancake peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "pancake-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig" },
+        .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "pancake-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true },
+    };
+    for (iroh_drivers) |drv| {
+        // Hermetic compile-only object (no sidecar), rides `check`.
+        const compile_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
+        compile_mod.addImport("interop_harness", interop_harness_mod);
+        const compile_obj = b.addObject(.{ .name = b.fmt("{s}-compile", .{drv.exe_name}), .root_module = compile_mod });
+        check_step.dependOn(&compile_obj.step);
+
+        // Runnable sibling of `check`: links the sidecar and runs from the root.
+        const run_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
+        run_mod.addImport("interop_harness", interop_harness_mod);
+        linkIrohSidecar(b, run_mod, target);
+        const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
+        exe.step.dependOn(&iroh_lib.step);
+        const run = b.addRunArtifact(exe);
+        run.setCwd(b.path("."));
+        run.has_side_effects = true;
+        if (drv.forwards_args) {
+            if (b.args) |args| run.addArgs(args);
+        }
+        b.step(drv.step_name, drv.description).dependOn(&run.step);
+    }
+
+    // ── ADR-0112 seam proof: the driver archive drives iroh through the C
+    // multiplexed-transport table. Bespoke wiring rather than an `iroh_drivers` row,
+    // because the driver composes the C archives (`c_abi_driver` carrying the
+    // whole host family, plus the iroh C ABI) beside the Zig server half; the
+    // module instances are shared with the archives so every export lands in
+    // the executable exactly once.
+    {
+        const seam_source = "interop/iroh_driver_provider/driver.zig";
+        const seam_imports = [_]AbiImport{
+            .{ .name = "pancake", .module = lib_mod },
+            .{ .name = "iroh", .module = iroh_resident_mod },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+            .{ .name = "c_abi_host", .module = host_abi_mod },
+            .{ .name = "c_abi_driver", .module = driver_abi_mod },
+        };
+
+        // Hermetic compile-only object (no sidecar), rides `check`.
+        const seam_compile_mod = b.createModule(.{
+            .root_source_file = b.path(seam_source),
+            .target = target,
+            .optimize = optimize,
+        });
+        for (seam_imports) |imp| seam_compile_mod.addImport(imp.name, imp.module);
+        seam_compile_mod.addImport("interop_harness", interop_harness_mod);
+        seam_compile_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
+        const seam_compile = b.addObject(.{ .name = "pancake-iroh-driver-provider-compile", .root_module = seam_compile_mod });
+        check_step.dependOn(&seam_compile.step);
+
+        // Runnable sibling of `check`: links the sidecar and runs from the root.
+        const seam_run_mod = b.createModule(.{
+            .root_source_file = b.path(seam_source),
+            .target = target,
+            .optimize = optimize,
+        });
+        for (seam_imports) |imp| seam_run_mod.addImport(imp.name, imp.module);
+        seam_run_mod.addImport("interop_harness", interop_harness_mod);
+        seam_run_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
+        linkIrohSidecar(b, seam_run_mod, target);
+        const seam_exe = b.addExecutable(.{ .name = "pancake-iroh-driver-provider", .root_module = seam_run_mod });
+        seam_exe.step.dependOn(&iroh_lib.step);
+        const seam_run = b.addRunArtifact(seam_exe);
+        seam_run.setCwd(b.path("."));
+        seam_run.has_side_effects = true;
+        b.step("iroh-driver-provider", "Live ADR-0112 seam proof: the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)").dependOn(&seam_run.step);
+    }
+
+    // Hermetic type-check of the resident: compile it to an object, where its
+    // externs need no definition, so plain `zig build check` catches resident
+    // rot without cargo on PATH. Linking and running stay in `iroh-interop`.
+    const iroh_resident_check = b.addObject(.{
+        .name = "iroh-resident-check",
+        .root_module = iroh_resident_mod,
+    });
+    check_step.dependOn(&iroh_resident_check.step);
+
+    const site_iroh_examples = [_]struct { name: []const u8, path: []const u8 }{
+        .{ .name = "site-example-dial-iroh", .path = "site/examples/dial/iroh.zig" },
+        .{ .name = "site-example-listen-iroh", .path = "site/examples/listen/iroh.zig" },
+    };
+    for (site_iroh_examples) |example| {
+        const example_mod = b.createModule(.{
+            .root_source_file = b.path(example.path),
+            .target = target,
+            .optimize = optimize,
+        });
+        example_mod.addImport("pancake", lib_mod);
+        example_mod.addImport("iroh", iroh_resident_mod);
+        const example_test = b.addTest(.{
+            .name = b.fmt("{s}-compile", .{example.name}),
+            .root_module = example_mod,
+        });
+        ctx.site_zig_examples_check.dependOn(&example_test.step);
+    }
+
+    const iroh_locator_test_mod = b.createModule(.{
+        .root_source_file = b.path("test/net/iroh_locator_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    iroh_locator_test_mod.addImport("iroh", iroh_resident_mod);
+    iroh_locator_test_mod.addImport("model", host_mods[layerIndex("model")]);
+    iroh_locator_test_mod.addImport("iroh_sidecar_stub", b.createModule(.{
+        .root_source_file = b.path("tools/gen/stub/iroh_sidecar.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    const iroh_locator_test = b.addTest(.{
+        .name = "iroh-locator",
+        .root_module = iroh_locator_test_mod,
+    });
+    const run_iroh_locator_test = b.addRunArtifact(iroh_locator_test);
+    ctx.site_zig_examples_check.dependOn(&run_iroh_locator_test.step);
+
+    const iroh_abi = registerAbi(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .version = abi_version,
+        .model_mod = host_mods[layerIndex("model")],
+        .net_mod = host_mods[layerIndex("net")],
+        .c_abi_shared_mod = host_mods[layerIndex("c_abi_shared")],
+        .resident_mod = iroh_resident_mod,
+        .sidecar_step = &iroh_lib.step,
+    });
+    const iroh_abi_install = iroh_abi.install;
+    const iroh_abi_step = iroh_abi.step;
+
+    const iroh_constructor_diagnostic = addRootedSystemCommand(b, &.{
+        "deno",                                                 "test", "--allow-ffi", "--allow-read", "--allow-env", "--unstable-ffi",
+        "bindings/ts/iroh/test/constructor_diagnostic_test.ts",
+    });
+    iroh_constructor_diagnostic.step.dependOn(&iroh_abi_install.step);
+    iroh_constructor_diagnostic.step.dependOn(b.getInstallStep());
+    iroh_constructor_diagnostic.setEnvironmentVariable(
+        "PANCAKE_LIB_DIR",
+        b.pathFromRoot("zig-out/lib"),
+    );
+    const iroh_abi_test_step = b.step("iroh-abi-test", "Test the iroh C ABI, including off-thread constructor diagnostics (needs cargo + deno)");
+    iroh_abi_test_step.dependOn(&iroh_constructor_diagnostic.step);
+
+    return .{
+        .resident_mod = iroh_resident_mod,
+        .lib_step = &iroh_lib.step,
+        .abi_step = iroh_abi_step,
+        .abi_test_step = iroh_abi_test_step,
+    };
+}

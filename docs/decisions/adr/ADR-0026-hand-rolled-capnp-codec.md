@@ -116,7 +116,7 @@ the seam.
 - **Cross-codec parity.** A claim that Syrup and Cap'n Proto preserve the
   same semantic state machine across the whole scenario surface needs a
   scenario matrix exercising both; the live-session parity tests in
-  [`test/engine/pairing_test.zig`](../../../test/engine/pairing_test.zig)
+  [`test/engine/pairing/offers_test.zig`](../../../test/engine/pairing/offers_test.zig)
   (authenticated handshake, deliver, and the V1.0 resolver-callback round-trip
   over Cap'n Proto) are the first such coverage, not the full matrix.
 

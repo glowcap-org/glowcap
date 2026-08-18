@@ -97,7 +97,7 @@ the bytes and raise the budget deliberately, in the constant and in
 | `@sizeOf(Peer)` comptime (`peer_session_struct_budget_bytes`, 1136) | one session's struct |
 | `test/engine/footprint_budget_test.zig` | a warmed session's core state at or under 2 KiB |
 | `@sizeOf(Conn) - @sizeOf(engine.Peer)` comptime in `src/net/completion/loop.zig` | the loop wrapper's own bookkeeping at exactly `conn_slot_overhead_bytes` (128). An equality, so a field added to `Conn` fails the build rather than spending headroom nobody is watching |
-| `CompletionBackend.connection_state_bytes` in `test/net/keyed_relay_test.zig` | one completion-backed keyed-relay leg's heap-resident adapter state at exactly 264 bytes. Mask entropy belongs to the single-owner backend RNG, not a 520-byte CSPRNG copied into every connection |
+| `CompletionBackend.connection_state_bytes` / `secure_connection_state_bytes` in `test/net/keyed_relay_completion*_test.zig` | the completion-backed keyed-relay adapter state at exactly 248 bytes for a clear leg; WSS alone adds a sparse 37,216-byte TLS state including its two fixed 18 KiB record windows. Clear legs pay none of it. Mask entropy belongs to the single-owner backend RNG, not a 520-byte CSPRNG copied into every connection |
 | `@sizeOf(HostSession)` comptime in `src/driver/core/host.zig` | the byte-fed host shell. The Host session ceiling is 528 bytes (ADR-0107's sealed-channel pointer is the last eight); narrower targets may be smaller. The Host owns one shared Vat, so the 448-byte Vat is charged once per Host rather than per session, and a `Peer` lives behind a pointer |
 | `test/actors/vat_footprint_budget_test.zig` | a burst-then-quiescent Vat back under the arena and one-spare bounds |
 | `test/engine/deliver_set_scratch_budget_test.zig` | a big-set frame's recv scratch under its bound |
@@ -196,17 +196,24 @@ pointing it at nothing.
   with listeners. No clone anywhere on the single-store path; held by behavior
   tests rather than a budget test.
 - **Proxy fan-out** — `Node.proxyForeignPromiseFulfill`,
-  `materializeResolutionForStore`. One home `op:listen` per home wire shared
-  across recipients, never N listens; N=1 moves, above that each recipient store
-  materializes. Admission owns one fixed diagnostic per recipient as terminal
-  settlement escrow: after the one home fire is consumed, clone, signing, or
-  entropy failure moves that buffer into a break without allocating and can
-  never strand the relayed promise. The Node reserves one future action seat
-  beside each escrow, moves both into a pending gift, and spends the seat on the
-  recipient flush; teardown releases both. Success frees it. A bare far object takes the handoff arm
-  (`Node.giftRelayedCapability`) at one give per recipient, because a give is
-  signed for one recipient's session key. Bounded by
-  `Node.max_proxy_recipients`.
+  `Node.stageInlinePassable`. One home `op:listen` is shared across recipients,
+  never N listens. The Host lifts the fire once; each recipient owns one bounded
+  materialization because its references, gives, and promise positions differ.
+  Admission owns one fixed terminal-break buffer and action seat per recipient,
+  so projection, signing, entropy, or teardown failure cannot strand it.
+  Object occurrences mint one recipient-addressed give each; promise
+  occurrences share the existing home-listener machinery. Bounded by
+  `Node.max_proxy_recipients` and the recipient queue cap.
+- **Inline Passable projection staging** — `Node.stageOutbound`,
+  `Peer.reserveInlinePassableStaging`. One complete owned message waits outside
+  the ordinary outbound queue while object projections receive gift ids and
+  promise projections prepare their shared home listener plus recipient
+  escrows. No partial rewrite, exporter deposit, proxy listener, or recipient
+  import becomes visible. Its measured model bytes remain charged to the
+  recipient's ordinary outbound waterline, total staged capability occurrences
+  remain under that session's queue cap, and every same-exporter deposit is
+  admitted as one cumulative batch. The message moves into the ordinary queue
+  at commit; it is never cloned a second time.
 - **Projection anchors** — `Peer.respondToProjection`. One dupe of the field name
   or tag, because the projection outlives the view that carried it. `op:index`
   dupes nothing. Bounded per answer by `max_listeners_per_target` (ADR-0050).
@@ -251,6 +258,13 @@ pointing it at nothing.
 - **Crypto fixed-width materialization** — `crypto.PeerKey.fromSlice`,
   `crypto.Signature.fromParts`. `std.crypto` takes fixed arrays and offers no
   allocator pattern; the wire has slices.
+- **Give-location dialable form** — `handoff_gifter.dialableExporterLocation`.
+  One decode-and-re-encode per give whose *onion* exporter hello carried
+  `pancake/*` profile hints and whose recipient is not known to be pancake
+  (ADR-0118); every other give — every non-onion transport, every Goblins
+  exporter — takes the null path allocation-free and embeds the verbatim
+  hello bytes its receiver's withdrawal keying matches. The derivation lives
+  at the declaration.
 - **Handoff canonicalization** — one owned signing-domain buffer per certificate.
   An immediate withdrawal never owns the inbound tree. A Syrup-forwarded give
   carries its exact signed envelope, so receive bypasses typed hints; Cap'n
@@ -382,7 +396,7 @@ pointing it at nothing.
   independent 64 KiB default is replaceable without changing admission or pool
   sizing.
 - **Completion-adapter transport staging** — iroh `enqueue_outbound` and
-  keyed-relay `queueWsFrame` (ADRs 0057 and 0088). The Loop's submitted send is
+  keyed-relay `queueFrame` (ADRs 0057 and 0088). The Loop's submitted send is
   a borrow, while both foreign async engines must own bytes past the call: iroh
   copies the admitted prefix into one queue whose queued plus in-flight bytes
   share `NB_BUFFER_BOUND`; keyed-relay keeps the external write borrowed through
@@ -393,17 +407,22 @@ pointing it at nothing.
   Iroh retains at most one `NB_STEADY_BYTES` spare after a drained burst; relay
   send staging retains at most `RelayOptions.send_staging_bytes`, 4 KiB by
   default including the frame header. A larger override is an explicit
-  per-connection memory commitment, not a frame-admission limit.
+  per-connection memory commitment, not a frame-admission limit. WSS copies
+  ciphertext once into its fixed TLS record window and writes decrypted bytes
+  directly into that same WebSocket staging path; refused TLS sends retry from
+  allocation-free intrusive links in bounded turns, never by cloning the
+  application payload or adding a per-connection thread.
 - **iroh provider connection-id table** — `LoopAdapter`
   (`src/c_abi/net_transport/iroh/mod.zig`, ADR-0112). One POD row per live
   loop connection, mapping the sidecar's stable id to its handle, because
   drained records carry ids while the sidecar verbs take handles. Rows enter
   at `finish_connect`, free precisely at `conn_close`, and netlayer release
   sweeps stragglers; no byte payload crosses the table.
-- **Keyed-relay resident configuration** — `keyed_relay.Resident` copies its
-  dial and registration URLs into one block because parsed `RelayUrl` fields are
-  views retained across background registration work. One copy per resident,
-  freed by `Resident.deinit`; no per-dial configuration copy.
+- **Keyed-relay configuration and carrier lease** — `keyed_relay.Resident`
+  copies both URLs into one block because parsed `RelayUrl` fields are retained
+  views. One heap `carrier_runtime.Lease` state owns I/O per resident; each
+  listener and admitted channel retains one pointer-sized lease, making the
+  last release follow their close barriers. There is no per-dial config copy.
 - **Keyed-relay receive projection** — the completion adapter lends ordinary
   WebSocket payload directly from the wrapped backend's shared recv buffer,
   preserving its token so recycle returns to the actual owner. Only a split

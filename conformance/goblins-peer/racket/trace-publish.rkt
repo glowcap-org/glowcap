@@ -32,7 +32,7 @@
 ;; vanished from. The worker therefore syncs on the connection itself, not on
 ;; `ws-conn-closed?`, which a socket nobody reads can never flip.
 ;;
-;; Nothing is published unless an endpoint is configured. `ROOMS_VIZ_URL` names
+;; Nothing is published unless an endpoint is configured. `PANCAKE_ROOMS_VIZ_URL` names
 ;; one; with the variable unset the vat holds no socket and emits no record.
 
 (require json
@@ -54,7 +54,7 @@
 (define publish-path "publish")
 
 ;; The environment variable that names the endpoint.
-(define trace-endpoint-variable "ROOMS_VIZ_URL")
+(define trace-endpoint-variable "PANCAKE_ROOMS_VIZ_URL")
 
 ;; What this producer answers when a record asks what it runs. A constant and
 ;; not an argument: the vat behind this publisher is a Goblins vat, and letting

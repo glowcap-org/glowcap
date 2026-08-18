@@ -31,14 +31,15 @@
 //! but it is a dependence, not an absence of one, and the readers that carry
 //! it should say so:
 //!
-//! - `ImportTable.tokens` keeps a node-unique token per import row, and drops
-//!   it when the row goes, so a reused position gets a fresh token rather than
+//! - `ImportTable.identities` keeps a node-unique capability-route id per
+//!   import row, and drops it when the row goes, so a reused position gets a
+//!   fresh id rather than
 //!   the previous object's.
 //! - `Session.sturdyref_cache` drops every row for an import when its count
 //!   reaches zero.
-//! - `engine.Node.foreign_imports` validates its token against the token kept
+//! - `engine.Node.foreign_imports` validates its route id against the id kept
 //!   on the live import row, and the Host release path retires the route. A
-//!   released or reused position therefore fails an old token closed even if a
+//!   released or reused position therefore fails an old id closed even if a
 //!   low-level embedder has not reclaimed the stale map row yet.
 
 const std = @import("std");
@@ -222,7 +223,7 @@ pub const ExportTable = struct {
 pub const ImportTable = struct {
     slots: SlotTable = .empty,
     /// Optional identities attached to live import rows: the Node routing
-    /// token (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
+    /// route id (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
     /// with the import row, so partner reuse of one numeric position cannot
     /// revive either identity. One optional map preserves the one-word empty
     /// session cost while the two layer-specific identities coexist; the map
@@ -232,7 +233,7 @@ pub const ImportTable = struct {
     const Identity = struct {
         // Both namespaces reserve zero, so scalar sentinels avoid optional-u64
         // tags; the third word accounts claimed Host/wire retains.
-        node_token: u64 = 0,
+        node_route_id: u64 = 0,
         host_ref: u64 = 0,
         /// Number of this row's wire retains already surfaced as Host handles.
         /// Lift may consume each wire retain once; local copies of one borrowed
@@ -259,33 +260,33 @@ pub const ImportTable = struct {
         }
     }
 
-    /// The node-unique token `position` was enrolled under, or null.
-    pub fn tokenOf(self: *const ImportTable, position: Id) ?u64 {
+    /// The node-unique capability route `position` was enrolled under, or null.
+    pub fn routeIdOf(self: *const ImportTable, position: Id) ?model.CapabilityRouteId {
         const map = self.identities orelse return null;
-        const token = (map.get(position.int()) orelse return null).node_token;
-        return if (token == 0) null else token;
+        const id = (map.get(position.int()) orelse return null).node_route_id;
+        return if (id == 0) null else .from(id);
     }
 
-    /// Record the token `position` was enrolled under. A row that is not held
-    /// records nothing: a token outliving its row is the staleness this table
-    /// keeps the tokens to avoid, so the caller mints a fresh one next time
+    /// Record the route id `position` was enrolled under. A row that is not held
+    /// records nothing: an id outliving its row is the staleness this table
+    /// keeps the ids to avoid, so the caller mints a fresh one next time
     /// rather than reading one back for a capability that is gone.
-    pub fn noteToken(self: *ImportTable, allocator: std.mem.Allocator, position: Id, token: u64) !void {
+    pub fn noteRouteId(self: *ImportTable, allocator: std.mem.Allocator, position: Id, route_id: model.CapabilityRouteId) !void {
         if (!self.slots.contains(position.int())) return;
         const map = try self.identityMap(allocator);
         const gop = try map.getOrPut(allocator, position.int());
         if (!gop.found_existing) gop.value_ptr.* = .{};
-        gop.value_ptr.node_token = token;
+        gop.value_ptr.node_route_id = route_id.int();
     }
 
-    /// Undo a token enrollment that never became observable. The import row
-    /// remains authoritative and any Host identity attached beside the token
+    /// Undo a route enrollment that never became observable. The import row
+    /// remains authoritative and any Host identity attached beside the route id
     /// is preserved. Retained map capacity is intentional high-water storage.
-    pub fn abandonToken(self: *ImportTable, position: Id, token: u64) void {
+    pub fn abandonRouteId(self: *ImportTable, position: Id, route_id: model.CapabilityRouteId) void {
         const map = self.identities orelse unreachable;
         const identity = map.getPtr(position.int()) orelse unreachable;
-        std.debug.assert(identity.node_token == token);
-        identity.node_token = 0;
+        std.debug.assert(identity.node_route_id == route_id.int());
+        identity.node_route_id = 0;
         if (identity.host_ref == 0 and identity.lifted_retains == 0)
             std.debug.assert(map.remove(position.int()));
     }
@@ -338,14 +339,14 @@ pub const ImportTable = struct {
     }
 
     /// Remove the Host identity only if it is still the expected incarnation.
-    /// A Node token sharing the row remains intact.
+    /// A Node route id sharing the row remains intact.
     pub fn forgetHostRef(self: *ImportTable, position: Id, host_ref: u64) void {
         const map = self.identities orelse return;
         const identity = map.getPtr(position.int()) orelse return;
         if (identity.host_ref != host_ref) return;
         identity.host_ref = 0;
         identity.lifted_retains = 0;
-        if (identity.node_token == 0) std.debug.assert(map.remove(position.int()));
+        if (identity.node_route_id == 0) std.debug.assert(map.remove(position.int()));
     }
 
     pub fn len(self: *const ImportTable) usize {

@@ -31,6 +31,15 @@ const net = @import("net");
 // (ADR-0059 companion split).
 const c = @import("c_abi_shared");
 
+pub const PANCAKE_INPROC_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    @embedFile("mod.zig"),
+    @embedFile("symbols.zig"),
+);
+
+pub export fn pancake_inproc_archive_fingerprint() u64 {
+    return PANCAKE_INPROC_ARCHIVE_FINGERPRINT;
+}
+
 /// The netlayer handle owns the in-process switchboard and the one `std.Io`
 /// backend its pipes block on. Created and released explicitly by the host; it
 /// must outlive every connection and listener made from it.
@@ -47,7 +56,6 @@ const PancakeFrame = c.PancakeFrame;
 const PancakeManagedFrame = c.PancakeManagedFrame;
 
 const setLastError = c.setLastError;
-const clearLastError = c.lastErrorClear;
 
 const PANCAKE_OK = c.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
@@ -127,7 +135,7 @@ const conn_frame_ops = c.ConnFrameOps(InprocConnPayload);
 /// Release it with `pancake_inproc_netlayer_release` after closing every
 /// endpoint made from it.
 pub export fn pancake_inproc_netlayer_new(out_netlayer: ?*?*PancakeInprocNetlayer) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     return netlayerNewIn(c.library_allocator, slot);
 }
@@ -136,7 +144,7 @@ pub export fn pancake_inproc_netlayer_new(out_netlayer: ?*?*PancakeInprocNetlaye
 /// buffers all allocate through `context`. Released with
 /// `pancake_inproc_netlayer_release`.
 pub export fn pancake_inproc_netlayer_new_in(context: ?*PancakeContext, out_netlayer: ?*?*PancakeInprocNetlayer) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     return netlayerNewIn(c_ctx.allocator(), slot);
@@ -167,7 +175,7 @@ pub export fn pancake_inproc_netlayer_release(netlayer: ?*PancakeInprocNetlayer)
 
 /// Dial the in-process listener bound at `designator` and return an owned
 /// connection handle framing on `codec`. Non-blocking on the dial itself.
-pub export fn pancake_inproc_connect(
+fn inprocConnect(
     netlayer: ?*PancakeInprocNetlayer,
     designator: ?[*]const u8,
     designator_len: usize,
@@ -175,7 +183,6 @@ pub export fn pancake_inproc_connect(
     max_frame_bytes: usize,
     out_conn: ?*?*PancakeInprocConn,
 ) i32 {
-    clearLastError();
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!nl.calls.acquire(nl.io())) return PANCAKE_ERR_CLOSED;
     defer nl.calls.release(nl.io());
@@ -194,7 +201,7 @@ pub export fn pancake_inproc_connect(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_inproc_connect_with_diagnostic(
+pub export fn pancake_inproc_connect(
     netlayer: ?*PancakeInprocNetlayer,
     designator: ?[*]const u8,
     designator_len: usize,
@@ -205,15 +212,15 @@ pub export fn pancake_inproc_connect_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_inproc_connect(netlayer, designator, designator_len, codec, max_frame_bytes, out_conn),
+        inprocConnect(netlayer, designator, designator_len, codec, max_frame_bytes, out_conn),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -224,7 +231,7 @@ pub export fn pancake_inproc_listen(
     designator_len: usize,
     out_listener: ?*?*PancakeInprocListener,
 ) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!nl.calls.acquire(nl.io())) return PANCAKE_ERR_CLOSED;
     defer nl.calls.release(nl.io());
@@ -250,7 +257,7 @@ pub export fn pancake_inproc_listen(
 /// fd, so this is its wake channel, nudged when a dial is queued.
 /// Park on it before calling `pancake_inproc_accept`; the listener owns it.
 pub export fn pancake_inproc_listener_readiness_fd(listener: ?*PancakeInprocListener, out_fd: ?*i32) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const payload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!payload.operations.acquire(payload.io)) return PANCAKE_ERR_CLOSED;
     defer payload.operations.release(payload.io);
@@ -261,13 +268,12 @@ pub export fn pancake_inproc_listener_readiness_fd(listener: ?*PancakeInprocList
 
 /// Block until a dialer connects, returning an owned connection handle framing
 /// on `codec`.
-pub export fn pancake_inproc_accept(
+fn inprocAccept(
     listener: ?*PancakeInprocListener,
     codec: u32,
     max_frame_bytes: usize,
     out_conn: ?*?*PancakeInprocConn,
 ) i32 {
-    clearLastError();
     const lpayload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!lpayload.operations.acquire(lpayload.io)) return PANCAKE_ERR_CLOSED;
     defer lpayload.operations.release(lpayload.io);
@@ -285,7 +291,7 @@ pub export fn pancake_inproc_accept(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_inproc_accept_with_diagnostic(
+pub export fn pancake_inproc_accept(
     listener: ?*PancakeInprocListener,
     codec: u32,
     max_frame_bytes: usize,
@@ -294,71 +300,69 @@ pub export fn pancake_inproc_accept_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_inproc_accept(listener, codec, max_frame_bytes, out_conn),
+        inprocAccept(listener, codec, max_frame_bytes, out_conn),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
 /// Block until one whole frame arrives, writing it as an *owned* managed frame
 /// into `out_frame`. `_CLOSED` on graceful EOF, `_MALFORMED` / `_FRAME_TOO_LARGE`
 /// for a bad frame.
-pub export fn pancake_inproc_conn_read_frame(conn: ?*PancakeInprocConn, out_frame: ?*PancakeManagedFrame) i32 {
-    clearLastError();
+fn inprocConnReadFrame(conn: ?*PancakeInprocConn, out_frame: ?*PancakeManagedFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
     return conn_frame_ops.readFrame(payload, slot, onReadConnectionLost);
 }
 
-pub export fn pancake_inproc_conn_read_frame_with_diagnostic(
+pub export fn pancake_inproc_conn_read_frame(
     conn: ?*PancakeInprocConn,
     out_frame: ?*PancakeManagedFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_inproc_conn_read_frame(conn, out_frame),
+        inprocConnReadFrame(conn, out_frame),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
 /// Write one frame's *borrowed* bytes into the partner's pipe.
-pub export fn pancake_inproc_conn_write_frame(conn: ?*PancakeInprocConn, frame_in: ?*const PancakeFrame) i32 {
-    clearLastError();
+fn inprocConnWriteFrame(conn: ?*PancakeInprocConn, frame_in: ?*const PancakeFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
     return conn_frame_ops.writeFrame(payload, borrowed, onWriteErr);
 }
 
-pub export fn pancake_inproc_conn_write_frame_with_diagnostic(
+pub export fn pancake_inproc_conn_write_frame(
     conn: ?*PancakeInprocConn,
     frame_in: ?*const PancakeFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_inproc_conn_write_frame(conn, frame_in),
+        inprocConnWriteFrame(conn, frame_in),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -381,8 +385,7 @@ pub export fn pancake_inproc_listener_shutdown(listener: ?*PancakeInprocListener
     if (payload.operations.beginShutdown(payload.io)) payload.listener.shutdown();
 }
 
-pub export fn pancake_inproc_listener_release(listener: ?*PancakeInprocListener) i32 {
-    clearLastError();
+fn inprocListenerRelease(listener: ?*PancakeInprocListener) i32 {
     const payload = listenerFromOpaque(listener) orelse return PANCAKE_OK;
     pancake_inproc_listener_shutdown(listener);
     payload.operations.wait(payload.io);
@@ -396,21 +399,21 @@ pub export fn pancake_inproc_listener_release(listener: ?*PancakeInprocListener)
     return PANCAKE_OK;
 }
 
-pub export fn pancake_inproc_listener_release_with_diagnostic(
+pub export fn pancake_inproc_listener_release(
     listener: ?*PancakeInprocListener,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_inproc_listener_release(listener),
+        inprocListenerRelease(listener),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 

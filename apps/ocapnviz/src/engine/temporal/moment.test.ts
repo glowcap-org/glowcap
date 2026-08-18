@@ -14,7 +14,7 @@ import { momentEffective } from "./doc-resolver.ts";
 import { projectFromObservations } from "./project-from-observations.ts";
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { momentOf } from "../event-helpers.ts";
-import { attachedEndpoint } from "../../schema/topology.ts";
+import { attachedEndpoint } from "../../schema/session-end.ts";
 
 function docFor(events: readonly TimelineEvent[]): TimelineDocument {
   return projectFromObservations({

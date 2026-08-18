@@ -18,6 +18,11 @@
 
 const std = @import("std");
 
+/// Shared freshness rule for every archive-local diagnostic reader. Keeping
+/// this sentence here prevents one header from promising sticky diagnostics
+/// while the entrypoint gate enforces per-call facts everywhere.
+pub const last_error_freshness_doc = " Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail.";
+
 pub const Buf = std.ArrayList(u8);
 
 pub fn line(b: *Buf, gpa: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
@@ -164,7 +169,7 @@ pub fn Emit(comptime Spec: type) type {
                     }
                 }
             }
-            const value = @field(c, name);
+            const value = comptime if (@hasDecl(Spec, "constant")) Spec.constant(name) else @field(c, name);
             const negative = comptime blk: {
                 const T = @TypeOf(value);
                 if (@typeInfo(T) != .int) break :blk false;

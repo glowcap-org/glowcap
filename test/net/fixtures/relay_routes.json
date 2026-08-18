@@ -1,0 +1,37 @@
+{
+  "designator": "abababababababababababababababababababababababababababababababab",
+  "accepted": [
+    {
+      "route": "wss://Relay.Example.test/bridge?second=%2f&first=one",
+      "request_target": "/bridge?second=%2f&first=one&rendezvous=abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "route": "ws://127.0.0.1:8000/relay",
+      "request_target": "/relay?rendezvous=abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "route": "ws://[::1]:9000/relay?deployment=one",
+      "request_target": "/relay?deployment=one&rendezvous=abababababababababababababababababababababababababababababababab"
+    },
+    {
+      "route": "wss://localhost/",
+      "request_target": "/?rendezvous=abababababababababababababababababababababababababababababababab"
+    }
+  ],
+  "rejected": [
+    "",
+    "https://relay.example.test/",
+    "ws://user:secret@relay.example.test/",
+    "ws://relay.example.test:0/",
+    "ws://bad_host.example.test/",
+    "ws://::1:9000/relay",
+    "ws://relay.example.test/a path",
+    "ws://relay.example.test/relay#local",
+    "ws://relay.example.test/relay?broken=%",
+    "ws://relay.example.test/relay?rendezvous=shadow",
+    "ws://relay.example.test/relay?x=1&id=shadow",
+    "ws://relay.example.test/relay?%72endezvous=shadow",
+    "ws://relay.example.test/relay?%69%64=shadow",
+    "ws://relay.example.test/ሴ"
+  ]
+}

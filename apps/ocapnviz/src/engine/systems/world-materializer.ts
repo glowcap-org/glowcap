@@ -14,7 +14,8 @@
  * — KeyframeLayoutSystem owns positions and runs after.
  */
 
-import { endpointStageId, SESSION_SIDES, type SessionState } from "../../schema/topology.ts";
+import type { SessionState } from "../../schema/topology.ts";
+import { endpointStageId, SESSION_SIDES } from "../../schema/session-end.ts";
 import { containsTime } from "../temporal/range.ts";
 import {
   messageEffective,

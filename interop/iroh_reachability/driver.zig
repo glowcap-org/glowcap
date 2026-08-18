@@ -153,12 +153,12 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-reachability: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer server.deinit();
+    defer server.deinit() catch |err| std.log.err("iroh server teardown failed: {s}", .{@errorName(err)});
     var client = iroh.Resident.init(io, null, .{ .reachability = .discovery }) catch |err| {
         std.debug.print("iroh-reachability: client endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer client.deinit();
+    defer client.deinit() catch |err| std.log.err("iroh client teardown failed: {s}", .{@errorName(err)});
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);

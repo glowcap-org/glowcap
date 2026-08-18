@@ -95,7 +95,7 @@ whose reply patterns want a different trade.
 - Evidence: a scripted fake backend journals every submit and the test asserts
   the exact park/resume order: the send release strictly precedes the next
   armed read, twice (accept-time and mid-conversation): with no sockets and no
-  timing, on every platform (`test/net/completion_loop_test.zig`).
+  timing, on every platform (`test/net/completion_loop_backpressure_test.zig`).
 
 ## Notes
 

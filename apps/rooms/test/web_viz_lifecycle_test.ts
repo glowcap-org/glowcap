@@ -32,9 +32,9 @@
 // and a Playwright Chromium (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web_viz_lifecycle_test.ts`.
 
-import { type Browser, chromium, type Page } from "playwright";
-import { connectVizViewer, scrapeVizSturdyref } from "./viz_viewer.ts";
-
+import { type Browser, chromium } from "playwright";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
+import { endConversation, fail, joinAs, openConv, openDmTo, say, seesLine } from "./viz_drive.ts";
 /** One record off the endpoint, as the converter takes it, and the shape of
  * one event it produces. Both are open records here: this file states no
  * structure of its own for either, and reads a converted event only through
@@ -58,7 +58,7 @@ type StageEvent = Record<string, unknown>;
 // its timeline events are, and every kind this file switches on is confirmed to
 // be one the schema still declares before the browsers start.
 const { makeBaseEventConverter } = await import(
-	new URL("../../ocapnviz/src/engine/live-feed.ts", import.meta.url).href
+	new URL("../../ocapnviz/src/engine/live/feed.ts", import.meta.url).href
 ) as { makeBaseEventConverter: () => (ev: FeedRecord) => unknown[] };
 const { Observation } = await import(
 	new URL("../../ocapnviz/src/engine/temporal/recording.ts", import.meta.url).href
@@ -128,11 +128,6 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 const ROOM = "general";
 const NICK1 = "nick1";
 const NICK2 = "nick2";
-
-function fail(message: string): never {
-	console.error(`FAIL: ${message}`);
-	Deno.exit(1);
-}
 
 function freePort(): number {
 	const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
@@ -360,59 +355,6 @@ function pause(ms = 2_500): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── The tabs ─────────────────────────────────────────────────────────────────
-
-async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
-	const context = await browser.newContext();
-	const tab = await context.newPage();
-	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
-	await tab.goto(`http://127.0.0.1:${port}/`);
-	await tab.fill("#nick", nick);
-	await tab.fill("#room", ROOM);
-	await tab.click("#joinBtn");
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 }).catch(async () => {
-		const status = await tab.textContent("#status").catch(() => "?");
-		fail(`${nick} never joined; status="${status}"`);
-	});
-	return tab;
-}
-
-async function openDmTo(tab: Page, peer: string): Promise<void> {
-	const button = tab.locator(`#members li:has-text("${peer}") button.dm-btn`);
-	await button.waitFor({ state: "visible", timeout: 60_000 });
-	await button.click();
-	await tab.waitForSelector("#line:not([disabled])", { timeout: 10_000 });
-}
-
-async function say(tab: Page, text: string): Promise<void> {
-	await tab.fill("#line", text);
-	await tab.press("#line", "Enter");
-}
-
-async function seesLine(tab: Page, text: string, who: string): Promise<void> {
-	await tab.waitForFunction(
-		(t) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(t)),
-		text,
-		{ timeout: 30_000 },
-	).catch(() => fail(`${who} never saw "${text}"`));
-}
-
-/** Bring a conversation up from the rail. Leaving a room puts the join card
- * back, which can take the rail with it, so the rail is asked for first. */
-async function openConv(tab: Page, open: string): Promise<void> {
-	const row = tab.locator(open).first();
-	if (!await row.isVisible()) await tab.locator("#backBtn").click();
-	await row.waitFor({ state: "visible", timeout: 20_000 });
-	await row.click();
-}
-
-/** Switch to a conversation, then end it with the title's mark — the one
- * control that leaves a room and closes a direct line. */
-async function endConversation(tab: Page, open: string): Promise<void> {
-	await openConv(tab, open);
-	await tab.locator("#leaveBtn").click();
-}
-
 // Before anything is launched: every kind the reader above switches on is one
 // the viewer's schema still declares. This is the check that would have caught
 // the drift this file once carried, where two of its cases named kinds ocapnviz
@@ -448,7 +390,7 @@ const web = new Deno.Command("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
-	env: { ROOMS_VIZ_PORT: String(vizPort) },
+	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",
 	stderr: "piped",
 }).spawn();
@@ -460,11 +402,14 @@ let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
 	const picture = await watch(vizPort, await vizRef);
+	// The endpoint admits only capability-presenting sockets, so each tab is
+	// seeded with the remembered viz swiss a reader would have kept.
+	const seed = vizMemorySeed(vizPort, await vizRef);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	// ── Two members in one room: three peers, two sessions ──
-	const tab1 = await joinAs(browser, httpPort, NICK1);
-	const tab2 = await joinAs(browser, httpPort, NICK2);
+	const tab1 = await joinAs(browser, httpPort, NICK1, ROOM, seed);
+	const tab2 = await joinAs(browser, httpPort, NICK2, ROOM, seed);
 	await settles(
 		picture,
 		"two members in a room are three peers and two sessions",

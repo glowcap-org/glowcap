@@ -10,6 +10,7 @@
 // against.
 
 import { designatorHostPort, Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
+import { vizCapUrl } from "../lib/viz_publish.ts";
 
 export type VizRecord = Record<string, unknown>;
 
@@ -54,6 +55,24 @@ export function vizPortOf(sturdyref: string): number {
 	return designatorHostPort(parseSturdyRef(sturdyref, "v1_0").locator.designator).port;
 }
 
+/** The viz capability inside the announcement: the sturdyref's swissnum is
+ * the same swiss the endpoint requires of every socket, so a holder of the
+ * announcement needs no second secret. */
+export function vizCapOf(sturdyref: string): string {
+	return new TextDecoder().decode(parseSturdyRef(sturdyref, "v1_0").swissnum);
+}
+
+/** The localStorage row that arms a rooms tab's publishing from first load:
+ * the remembered-swiss auto-redeem is production code, and a proof seeds it
+ * the way a reader who checked "Remember on this device" would have. The key
+ * is the ops-memory key for the viz capability on the page's own endpoint. */
+export function vizMemorySeed(vizPort: number, sturdyref: string): { key: string; value: string } {
+	return {
+		key: `rooms.ops-swiss.viz.ws://127.0.0.1:${vizPort}/`,
+		value: vizCapOf(sturdyref),
+	};
+}
+
 /** Connect one viewer and feed every record to `apply`, replay included,
  * exactly as production ocapnviz consumes the endpoint. The returned close
  * releases the session and its Host; the proofs exit explicitly, so leaving
@@ -64,7 +83,7 @@ export async function connectVizViewer(
 	apply: (record: VizRecord) => void,
 ): Promise<{ close(): Promise<void> }> {
 	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
+	const socket = new WebSocket(vizCapUrl(`ws://127.0.0.1:${port}/`, vizCapOf(sturdyref)));
 	await new Promise<void>((resolve, reject) => {
 		socket.onopen = () => resolve();
 		socket.onerror = () => reject(new Error("the live timeline endpoint would not accept a viewer"));

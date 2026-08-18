@@ -112,6 +112,10 @@ fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
             h.update(std.mem.asBytes(&x.import_position.int()));
             h.update(std.mem.asBytes(&@intFromEnum(x.kind)));
         },
+        .routed => |x| {
+            h.update(std.mem.asBytes(&x.id.int()));
+            h.update(std.mem.asBytes(&@intFromEnum(x.kind)));
+        },
         .promise => |x| h.update(std.mem.asBytes(&x.answer_position.int())),
         .sturdy => |x| {
             h.update(x.peer.transport);
@@ -311,6 +315,7 @@ fn viewReferencesEqualDepth(
     return switch (a) {
         .near => |x| b == .near and x.export_position == b.near.export_position and x.kind == b.near.kind,
         .far => |x| b == .far and x.import_position == b.far.import_position and x.kind == b.far.kind,
+        .routed => |x| b == .routed and x.id == b.routed.id and x.kind == b.routed.kind,
         .promise => |x| blk: {
             if (b != .promise or x.answer_position != b.promise.answer_position) break :blk false;
             break :blk try viewPipelinePathsEqualDepth(x.path, b.promise.path, depth, ctx);

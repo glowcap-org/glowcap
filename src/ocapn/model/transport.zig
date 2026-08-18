@@ -193,9 +193,10 @@ pub const hint_alt_locators = "alt-locators";
 ///
 /// They ride the locator a hello signs — the sender's own `acceptable_location`
 /// — beside `direct-addresses`, so a peer states its profile the same way it
-/// states its addresses, and both ends do it symmetrically. Not the locator a
-/// dialer was handed: nothing reads these there, because the handshake is the
-/// baseline whatever the dialer knew and the settle runs off the two hellos.
+/// states its addresses, and both ends do it symmetrically. On the locator a
+/// dialer was handed they are read once, as knowledge rather than as a
+/// preference: their presence on an onion address marks the acceptor as
+/// pancake (ADR-0118), and the settle still runs off the two hellos alone.
 ///
 /// Three names because the axes are independent: a peer that understands one
 /// settles that axis and takes the baseline on the other.

@@ -130,4 +130,4 @@ paste locators without quotes. `PANCAKE_REPL_QUIET=1` /
 | Human walkthrough | [`docs/cli.md`](../../../docs/cli.md) |
 | Product boundary | [ADR-0084](../../../docs/decisions/adr/ADR-0084-pancake-cli-product-boundary.md) |
 | Project MCP (Cursor/Claude) | [pancake-mcp](../pancake-mcp/SKILL.md) |
-| Portable MCP stub (`pancake` on PATH) | [`docs/examples/pancake-mcp.json`](../../../docs/examples/pancake-mcp.json) |
+| Portable MCP stub (`pancake` on PATH) | [`docs/pancake-mcp.json`](../../../docs/pancake-mcp.json) |

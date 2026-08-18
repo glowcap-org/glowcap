@@ -23,7 +23,8 @@ Spritely Goblins.
   drift fails loud.
 - [`generate.py`](generate.py) — the same pancake record shapes serialized via
   the **upstream Python Syrup encoder** (`syrup.py`), a by-hand cross-check (the
-  devcontainer does not install `syrup.py`).
+  devcontainer does not install `syrup.py`). Its record builders live beside it
+  in [`records.py`](records.py).
 - [`stage0_abort.trace`](stage0_abort.trace) — the canonical observable trace
   that [`scenario_trace_test.zig`](scenario_trace_test.zig) asserts a driven
   Stage-0 abort produces.

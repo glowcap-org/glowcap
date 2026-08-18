@@ -45,7 +45,7 @@
 ;; `abort-info` naming the member (built by `abort-info<-c` below); `abort` is
 ;; #f everywhere else.
 (struct exn:fail:pancake exn:fail
-  (code abort secondary-code secondary-name secondary-count))
+  (code abort carrier-failure secondary-code secondary-name secondary-count))
 
 ;; Raise a typed pancake failure for a non-OK `code`, reading the human-readable
 ;; cause through `read-error` (a thunk that returns the message string or #f).
@@ -61,7 +61,7 @@
             (if msg
                 (format "pancake error ~a: ~a" code msg)
                 (format "pancake error ~a" code))
-            (current-continuation-marks) code #f #f #f 0))))
+            (current-continuation-marks) code #f #f #f #f 0))))
 
 (define (check code) (check-with code last-error))
 
@@ -74,6 +74,13 @@
 ;; `check` for the pancake_host_* family: same typed exn, read from the host
 ;; archive's own last-error slot.
 (define (check/host code) (check-with code host-last-error))
+
+;; Whether a final native release crossed its ownership boundary. The Host and
+;; driver release contracts share one pre-commit refusal: INVALID-ARGUMENT.
+;; Every other result is a teardown outcome and names an already-consumed
+;; handle, even when `check/host` or `check/driver` must still raise it.
+(define (release-consumed? code)
+  (not (= code ERR-INVALID-ARGUMENT)))
 
 ;; Preserve the first pancake failure while attaching the first later cleanup
 ;; failure and its total count. Racket exceptions are immutable values, so the
@@ -94,6 +101,17 @@
                    (min #xffffffff
                         (add1 (exn:fail:pancake-secondary-count primary)))])]
     [else primary]))
+
+;; Raise the first lifecycle failure after cleanup has completed, attaching a
+;; later failure when both are pancake errors. This is the common close-barrier
+;; tail for native releases that consume their handle even when they report an
+;; error.
+(define (raise-retained-failures primary cleanup)
+  (cond
+    [(and primary cleanup) (raise (retain-cleanup-failure primary cleanup))]
+    [primary (raise primary)]
+    [cleanup (raise cleanup)]
+    [else (void)]))
 
 ;; Project the core-issued FAIL result into the promise outcome vocabulary.
 ;; No wrapper state participates: an unknown result is an ABI contract break,
@@ -118,7 +136,9 @@
    (let ([domain (PancakeLastAbort-domain out)])
      (cond [(= domain ABORT-DOMAIN-CODEC) 'codec]
            [(= domain ABORT-DOMAIN-SESSION) 'session]
-           [else 'foreign]))
+           [(= domain ABORT-DOMAIN-FOREIGN) 'foreign]
+           [else (raise-pancake 'pancake ERR-INTERNAL
+                                "ABI returned unknown abort domain: ~a" domain)]))
    (and (not (zero? (PancakeLastAbort-has-kind out)))
         (str (PancakeLastAbort-kind-name out) (PancakeLastAbort-kind-name-len out)))
    (or (str (PancakeLastAbort-message out) (PancakeLastAbort-message-len out)) "")
@@ -133,16 +153,19 @@
 ;; yield a capability): same exn family, no abort detail.
 (define (raise-pancake who code fmt . args)
   (raise (exn:fail:pancake (format "~a: ~a" who (apply format fmt args))
-                           (current-continuation-marks) code #f #f #f 0)))
+                           (current-continuation-marks) code #f #f #f #f 0)))
 
 (module+ test
   (require rackunit)
+  (check-false (release-consumed? ERR-INVALID-ARGUMENT))
+  (check-true (release-consumed? OK))
+  (check-true (release-consumed? ERR-IO))
   (define primary
     (exn:fail:pancake "primary" (current-continuation-marks)
-                      ERR-INVALID-ARGUMENT #f #f #f 0))
+                      ERR-INVALID-ARGUMENT #f #f #f #f 0))
   (define cleanup
     (exn:fail:pancake "cleanup" (current-continuation-marks)
-                      ERR-IO #f #f #f 0))
+                      ERR-IO #f #f #f #f 0))
   (define retained (retain-cleanup-failure primary cleanup))
   (check-equal? (exn-message retained) "primary")
   (check-equal? (exn:fail:pancake-code retained) ERR-INVALID-ARGUMENT)

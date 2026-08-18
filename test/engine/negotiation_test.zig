@@ -6,7 +6,7 @@ const negotiation = pancake.ocapn.engine.negotiation;
 
 test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     const a = model.FeatureSet.full();
-    const b = model.FeatureSet.pipeliningAndHandoff(); // no sturdyref
+    const b = model.FeatureSet.pipeliningAndHandoff(); // no sturdyref or untag
 
     const ab = a.intersect(b);
     const ba = b.intersect(a);
@@ -18,6 +18,7 @@ test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     try std.testing.expect(ab.handoff);
     try std.testing.expect(ab.wire_delta);
     try std.testing.expect(!ab.sturdyref);
+    try std.testing.expect(!ab.untag);
 }
 
 test "intersect with minimum yields minimum" {
@@ -30,13 +31,24 @@ test "FeatureSet wire hint round-trips and rejects ambiguous spellings" {
 
     try std.testing.expectEqualStrings("", try model.FeatureSet.minimum().toWireString(&buf));
     const full = try model.FeatureSet.full().toWireString(&buf);
-    try std.testing.expectEqualStrings("pipelining,handoff,wire_delta,sturdyref", full);
+    try std.testing.expectEqualStrings("pipelining,handoff,wire_delta,sturdyref,untag", full);
     try std.testing.expectEqual(model.FeatureSet.full(), model.FeatureSet.fromWireString(full).?);
     try std.testing.expectEqual(model.FeatureSet.minimum(), model.FeatureSet.fromWireString("").?);
 
     try std.testing.expect(model.FeatureSet.fromWireString("pipelining,pipelining") == null);
     try std.testing.expect(model.FeatureSet.fromWireString("pipelining,") == null);
     try std.testing.expect(model.FeatureSet.fromWireString("sturdy") == null);
+}
+
+test "an absent feature hint never grants outbound untag" {
+    const local = model.Preference{};
+    try std.testing.expect(local.features.untag);
+    const negotiated = negotiation.settle(local, model.Preference.baseline);
+    try std.testing.expect(!model.Preference.baseline.features.untag);
+    try std.testing.expect(!negotiated.features.untag);
+
+    const pancake_peer = negotiation.settle(local, local);
+    try std.testing.expect(pancake_peer.features.untag);
 }
 
 test "negotiate picks the most-preferred shared codec and intersects features" {

@@ -113,7 +113,7 @@ Acceptance evidence is:
    and Host/Vat footprint deltas under empty, ordinary, and pressure traffic.
 
 Items 1, 2, 4, and 5 are held by
-[`test/actors/vat_test.zig`](../../../test/actors/vat_test.zig); the allocator
+[`test/actors/vat/ingress_test.zig`](../../../test/actors/vat/ingress_test.zig); the allocator
 half of items 4 and 6 is held by
 [`test/actors/vat_alloc_budget_test.zig`](../../../test/actors/vat_alloc_budget_test.zig)
 and [`test/actors/vat_footprint_budget_test.zig`](../../../test/actors/vat_footprint_budget_test.zig).

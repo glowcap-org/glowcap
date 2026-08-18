@@ -17,7 +17,7 @@ amended_by: []
 Accepted and implemented. ADR-0003 named hint-carried offers across the network
 as its present boundary; this closes it. The settle path is
 `model.Preference`, `engine.negotiation.settle`, and
-`engine.Peer.settleNegotiatedProfile`; `test/driver/core_host_test.zig` holds
+`engine.Peer.settleNegotiatedProfile`; `test/driver/core_host/trace_test.zig` holds
 one host on two profiles at once.
 
 ## Context
@@ -87,9 +87,12 @@ discovery, and no agreement arranged in advance.
 Only the preference, never the accepted set: a pancake peer speaks the baseline
 by construction, so what it accepts is derivable from what it prefers. A hello
 that carries none of the preference hints has said "the baseline", which is
-exactly what an implementation that never heard of these names is saying, and
-it is the right reading. A preference equal to the baseline states nothing, so
-a baseline peer signs the byte-identical hello it always did.
+exactly what an implementation that never heard of these names is saying. The
+baseline feature set names behavior proven against Goblins and therefore
+excludes outbound `op:untag`, even though 1.0 inbound support remains mandatory.
+Two Pancake peers advertise the additional `untag` bit without inventing
+another wire version. A compatibility-default peer still signs the
+byte-identical hello it always did.
 
 `session.Session` records both sides' claims and `engine.negotiation.settle`
 decides with them when the partner's hello lands, falling back to the baseline

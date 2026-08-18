@@ -16,7 +16,7 @@
 import { chromium } from "playwright";
 
 import { recordingReplyDm } from "../lib/dm_reply.ts";
-import { inboxOfferer } from "../lib/dm_inbox.ts";
+import { inboxPublisher } from "../lib/dm_inbox.ts";
 import * as iroh from "@pancake/iroh";
 import { Directory, Room } from "../lib/room_client.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
@@ -124,7 +124,7 @@ try {
 	bobDirectory = bobDir;
 	const bobRoomRef = await enterOrOpen(bobDir, ROOM);
 	await Room.subscribe(bobDir.session, bobRoomRef, "bob");
-	const bobOfferer = inboxOfferer({ host: bobHost, dir: () => bobDir, behaviorFor: dmFor });
+	const bobOfferer = inboxPublisher(bobHost).offerer({ dir: () => bobDir, behaviorFor: dmFor });
 	await bobDir.register("bob", bobLocator, bobOfferer.offer);
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });

@@ -18,6 +18,6 @@
 		"lineWidth": 120,
 		"semiColons": true,
 		"singleQuote": false,
-		"include": ["*.ts", "*.tsx", "page.css", "page.html"]
+		"include": ["*.ts", "*.tsx", "*.css", "page.html"]
 	}
 }

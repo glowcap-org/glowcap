@@ -37,7 +37,7 @@
  *   - zero-duration is legal (point-in-time entity)
  *   - end is never stored. Gestures pick their own end-semantics at
  *     the intent layer (rigid move keeps duration, right-resize keeps
- *     start, etc); see `authoring/events.ts` and the gesture-shaped
+ *     start, etc); see `authoring/moves.ts` and the gesture-shaped
  *     rewrites at the bottom of this module.
  *
  * # Gesture rewrites (`translateSpan` / `setSpanEndAt` /

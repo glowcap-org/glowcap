@@ -71,7 +71,7 @@ pub fn sourceIsHeld(self: *const Session, resolver: model.ExportPosition) bool {
     const source = switch (purpose) {
         .shortening_pending => |source| source,
         .shortening_complete => |source| source,
-        .application_answer, .node_settling, .retired => return false,
+        .application_answer, .local_promise_answer, .node_settling, .retired => return false,
     };
     return incarnationIsHeld(self, source);
 }
@@ -91,7 +91,7 @@ pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?
     return switch (purpose) {
         .shortening_pending => |source| .{ .pending = source },
         .shortening_complete => .complete,
-        .application_answer, .node_settling, .retired => null,
+        .application_answer, .local_promise_answer, .node_settling, .retired => null,
     };
 }
 
@@ -103,7 +103,7 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
     const source = switch (purpose) {
         .shortening_pending => |incarnation| incarnation,
         .shortening_complete => return session.Error.UnexpectedMessage,
-        .application_answer, .node_settling, .retired => unreachable,
+        .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
     };
     if (!incarnationIsCurrent(self, source)) return;
     var current = target.import_position;
@@ -187,7 +187,7 @@ pub fn releaseResolverExport(self: *Session, resolver: model.ExportPosition) voi
             break :blk incarnation;
         },
         .shortening_complete => |incarnation| incarnation,
-        .application_answer, .node_settling, .retired => return,
+        .application_answer, .local_promise_answer, .node_settling, .retired => return,
     };
 
     self.releaseUnsharedExport(resolver);

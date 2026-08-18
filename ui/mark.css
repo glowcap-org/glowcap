@@ -1,0 +1,148 @@
+/* The pancake mark and its one landing. Shared by rooms and the documentation
+   site. The rooms boot screen's loop lives in boot.css and replays these same
+   pieces; the rules here own the pieces themselves, the hover replay, and the
+   logotype lockup. */
+
+/* The mark is its four pieces layered in one box — the butter and three
+   cakes, each masked from its own token in ui/tokens.css — so a surface can
+   drop them into place one at a time while the resting union stays exactly
+   the `--mark-stack` silhouette. Each piece squashes about its own height
+   when it lands, which is what the transform origins hold. */
+.icon-mark {
+	position: relative;
+	display: block;
+	flex: none;
+	/* Colour belongs to the mark. A wrapping control stays a neutral toggle:
+	   hover and held state are the button's; the stack stays brand amber. */
+	color: var(--accent);
+}
+.mark-piece {
+	position: absolute;
+	inset: 0;
+	background: currentColor;
+}
+.mark-butter {
+	-webkit-mask: var(--mark-butter) center/contain no-repeat;
+	mask: var(--mark-butter) center/contain no-repeat;
+	transform-origin: 50% 20%;
+}
+.mark-cake-1 {
+	-webkit-mask: var(--mark-cake-1) center/contain no-repeat;
+	mask: var(--mark-cake-1) center/contain no-repeat;
+	transform-origin: 50% 37%;
+}
+.mark-cake-2 {
+	-webkit-mask: var(--mark-cake-2) center/contain no-repeat;
+	mask: var(--mark-cake-2) center/contain no-repeat;
+	transform-origin: 50% 58%;
+}
+.mark-cake-3 {
+	-webkit-mask: var(--mark-cake-3) center/contain no-repeat;
+	mask: var(--mark-cake-3) center/contain no-repeat;
+	transform-origin: 50% 78%;
+}
+/* Hovering the mark's parent replays the boot screen's fall, and it is the
+   SAME landing, not a cousin: a piece's exact timeline — 160ms fall, 64ms
+   squish, 48ms held squash, 240ms spring — as one 560ms run with the boot's
+   own 48ms staggers (each cake ~96ms behind the last, the butter a further
+   beat late, as on the boot screen), minus only the boot's fade and loop.
+   Retime the two together.
+
+   The parent is whoever directly wraps `.icon-mark`: rooms' mark button, the
+   site's header lockup. Pointer surfaces only — touch sticks :hover. */
+@keyframes mark-fall-butter {
+	from {
+		opacity: 0;
+		transform: translateY(-120%);
+	}
+	31.25% {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+		animation-timing-function: ease-out;
+	}
+	43.75%,
+	53.125% {
+		transform: translateY(1.5%) scaleX(1.12) scaleY(.66);
+		animation-timing-function: cubic-bezier(.25, .7, .35, 1);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+	}
+}
+@keyframes mark-fall {
+	from {
+		opacity: 0;
+		transform: translateY(-120%);
+	}
+	28.5% {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+		animation-timing-function: ease-out;
+	}
+	40%,
+	48.5% {
+		transform: translateY(10%) scaleX(1.1) scaleY(.7);
+		animation-timing-function: cubic-bezier(.4, 0, .2, 1);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+	}
+}
+@media (hover: hover) {
+	:has(> .icon-mark):hover .mark-cake-3 {
+		animation: mark-fall .56s ease-out backwards;
+	}
+	:has(> .icon-mark):hover .mark-cake-2 {
+		animation: mark-fall .56s ease-out .096s backwards;
+	}
+	:has(> .icon-mark):hover .mark-cake-1 {
+		animation: mark-fall .56s ease-out .192s backwards;
+	}
+	:has(> .icon-mark):hover .mark-butter {
+		animation: mark-fall-butter .512s ease-out .504s backwards;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.mark-piece {
+		animation: none !important;
+	}
+}
+
+/* The logotype lockup: "pancake" and an optional small-caps product name, one
+   drawn unit. Every metric here is a fixed pixel, on purpose — the lockup
+   used to borrow the global type ramp, and each ramp tweak silently knocked
+   the caps off pancake's lowercase body. A logotype is not typography; it is
+   a drawing whose parts may never move relative to each other. Colours stay
+   tokens so the lockup themes; sizes, gaps, and the optical lift do not.
+   The caps size is tuned against the title's x-height band by eye and pinned
+   by the rooms browser proof. Rooms' rail and boot screen, and the site
+   header, take the class; a new home does too, never a copy of these numbers. */
+.wordmark {
+	display: flex;
+	align-items: baseline;
+	justify-content: center;
+	min-width: 0;
+	overflow: hidden;
+	font-weight: 800;
+	font-size: 17px;
+	letter-spacing: -.17px;
+	line-height: 0;
+	gap: 4.8px;
+	color: var(--ink);
+}
+.wordmark span,
+.wordmark small {
+	line-height: 1;
+}
+.wordmark small {
+	font-weight: 600;
+	font-size: 13px;
+	letter-spacing: 1.56px;
+	text-transform: uppercase;
+	color: var(--accent-ink);
+	/* Baseline-true: the caps share pancake's baseline, feet level, the
+	   classic logotype seat. Every lifted variant — centred on the x-height
+	   band, then a half pixel under it — still read as floating. */
+}

@@ -1,5 +1,5 @@
 ---
-.title = "Examples & demo apps",
+.title = "Rooms & examples",
 .description = "Choose a runnable example: rooms, Zig API chapters, handoff or pipelining, or embedding from C.",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
@@ -7,9 +7,30 @@
 .draft = false,
 ---
 
-Start with [Start building]($link.page('start')) or chapter 01 for a first
-call. The rooms app and the other demos below are complete programs on the
-same API.
+Every program below uses the same CapTP API. For a first call in code, use
+[Start building]($link.page('start')) or chapter 01.
+
+## Rooms: pancake as a chat
+
+The rooms app is the fullest demonstration: several language bindings, a
+browser UI, live chat, and direct messages created by a three-party handoff.
+
+```sh
+zig build rooms-web
+```
+
+Open `http://localhost:8000`, pick a member, and choose **Message**. The room
+introduces the two members and then leaves their conversation path.
+
+Native peer-to-peer traffic rides encrypted
+[iroh]($link.page('transports/iroh')) there, so the command needs Cargo for the
+transport sidecar as well as Deno. There is a Deno-only
+`zig build rooms-web-tcp` that serves the same page over cleartext TCP, which
+authenticates no peer and carries CapTP in the clear. For the standardized
+Goblins path over Tor, `zig build demo-rooms-onion` runs one hosted service and
+two independent clients (needs Deno, Tor, and outbound network).
+
+The cross-language room without a browser is `zig build demo-rooms`.
 
 ## Learn the Zig API
 
@@ -31,44 +52,15 @@ Two later chapters isolate the capability moves that are easiest to miss:
   interface.
 
 The [complete example guide](https://github.com/jimisaacs/pancake/blob/main/examples/README.md)
-continues down through actors, bootstrap lookup, and the raw engine.
+continues down through actors, bootstrap lookup, the raw engine, and the
+buffer-explicit and many-session helpers.
 [Concepts]($link.page('concepts')) explains the handoff and pipelining behavior
 used by these examples; [The modules]($link.page('modules')) shows which API
 level each chapter exercises.
 
-## See the whole system
-
-The rooms app is the fullest demonstration: several language bindings, a
-browser UI, live chat, and direct messages created by a three-party handoff.
-
-```sh
-zig build rooms-web-iroh
-```
-
-Open `http://localhost:8000`, pick a member, and choose **Message**. The room
-introduces the two members and then leaves their conversation path.
-
-Native peer-to-peer traffic rides encrypted
-[iroh]($link.page('transports/iroh')) there, so the command needs Cargo for the
-transport sidecar as well as Deno. There is a Deno-only
-`zig build rooms-web-tcp` that serves the same page over cleartext TCP, which
-authenticates no peer and carries CapTP in the clear. For the standardized
-Goblins path over Tor, `zig build demo-rooms-onion` runs one hosted service and
-two independent clients (needs Deno, Tor, and outbound network).
-
-## Dial over any transport
-
-Each transport reaches the same `Session` API. The setup changes because each
-transport needs different authority: a socket address, a peer key, a relay, Tor,
-or a signaling capability. The `inproc` tab uses Zig because it shares an
-in-process switchboard directly; the other tabs use the managed TypeScript
-surface. The common contract begins once that authority has opened a channel;
-[Choosing a transport]($link.page('transports/choosing')) covers the different
-deployment and trust contracts.
-
-Each binding page owns its Dial and Listen matrix, while transport-family
-pages show the inverse view. This page keeps the runnable applications rather
-than a third snippet list.
+The same `Session` API on every transport is on
+[Start building]($link.page('start')) and
+[Choosing a transport]($link.page('transports/choosing')).
 
 ## Embed from C
 

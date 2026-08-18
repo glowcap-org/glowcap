@@ -1,0 +1,489 @@
+/* ── One row, both lists ──────────────────────────────────────────────────
+   The rail draws one object twice: a mark, a name, the marks that end the row,
+   and a caption under the name saying which directory it is on. That geometry
+   is stated here once for both lists, and each list adds only its own colour,
+   its own mark, and its own badge.
+
+   Stating it once is not tidiness. A reset and a placement have to be the same
+   declaration, because `all: unset` clears grid placement too. While each list
+   carried its own copy of this rule, the direct list's copy sat far enough down
+   the file to wipe the placement written for it up here, and the mark that
+   closes a direct line came to rest a whole line above the row it ends. */
+
+/* The row is a container, and the button inside it is what opens the thing named
+   on it; on the one you are reading, a second button sits beside it to leave.
+   Nesting one inside the other would be a control within a control, which no
+   assistive software can announce.
+
+   So the row is one cell, and those two buttons share it. Leaving takes the
+   badge's own slot rather than a slot of its own: the row gives up no width to
+   hold it, and no name is cut short to make space for a mark that is not
+   showing. Sharing the cell is also what puts that mark on the line the badge is
+   on rather than on the row's full height — the same point until a directory
+   caption adds a second line, and eight pixels apart after it. Arithmetic here
+   would restate the row's padding and its line height and drift the next time
+   either moved. */
+#roomList li,
+#dmList li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	/* The row is what the bar marking the one being read is positioned against. */
+	position: relative;
+	/* Rows sit apart rather than stacking flush. Two pixels is enough to read as
+	   separate things once each row can be two lines tall. */
+	margin-bottom: 2px;
+	border-radius: var(--radius-control);
+	color: var(--ink);
+	transition: background-color .12s ease;
+}
+/* The bar marking the row being read. Its height is the row's, less a little at
+   each end, rather than a number of its own: a row is one line tall until it
+   names its directory and then it is two, and a fixed bar that read as half the
+   height of a short row read as a third of a tall one. Stated once for both
+   lists — each says only what colour it is — because two copies of a geometry
+   is how the two rails come to disagree.
+
+   A real bar rather than an inset shadow, which would follow the pill's corner
+   radius and curve, reading as a bevel rather than as a mark. */
+#roomList li.here::before,
+#dmList li.here::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 7px;
+	bottom: 7px;
+	width: 3px;
+	border-radius: 0 3px 3px 0;
+}
+#roomList .room-open,
+#dmList .dm-open {
+	all: unset;
+	grid-area: 1 / 1;
+	box-sizing: border-box;
+	display: grid;
+	/* The last column is at least as wide as the leave mark, so the count and the
+	   mark that replaces it are centred on the same point. Aligning their right
+	   edges instead leaves the two a few pixels apart, and a mark that shifts as
+	   it appears reads as the row twitching under the pointer. */
+	grid-template-columns: auto minmax(0, 1fr) minmax(var(--icon-button-small), auto);
+	grid-template-areas: "mark name marks";
+	align-items: center;
+	column-gap: var(--mark-gap);
+	width: 100%;
+	/* Even above and below. Padded 8 over 1, the button puts its own contents 3px
+	   below the centre of the cell it shares with the leave mark, and the mark
+	   then sits visibly off the count it replaced. The row closes at the bottom
+	   with its caption instead. */
+	padding: 6px var(--mark-inset) 6px var(--row-pad);
+	border-radius: var(--radius-control);
+	cursor: pointer;
+	color: inherit;
+}
+/* One template row, always. The caption is a sibling of that button and never a
+   child of it — a control cannot live inside a control — so a second row here
+   would hold nothing and add its own height to every captioned row. */
+#roomList .hash,
+#dmList .avatar-presence {
+	/* The rail gradient's base tone: the pip's ring is a box-shadow, and a
+	   shadow takes a colour, not a gradient. */
+	--presence-ring: var(--paper-raised);
+}
+#dmList .avatar-chip {
+	grid-area: mark;
+}
+/* A name is a name. Left to inherit, a person's would come out at the page's own
+   fifteen while a room's was stated at fourteen, so one rail gave the same kind
+   of thing two sizes — visible as a half-step in weight down a list that is
+   meant to read as one column. */
+#roomList .rname,
+#dmList .rname {
+	grid-area: name;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--type-body);
+}
+/* Centred in the slot rather than pushed to its end, so the mark that replaces
+   them arrives on the same point instead of a few pixels to the left.
+
+   They are labels, never controls, and none of them may take a press. They fade
+   to nothing when that mark takes their slot, and an element at zero opacity is
+   still perfectly good at swallowing clicks — the mark ended up visible,
+   enabled, correctly placed, and unpressable through its own middle, because
+   what it had just replaced was still lying on top of it. */
+#roomList .rcount,
+#dmList .dm-marks {
+	grid-area: marks;
+	justify-self: center;
+	pointer-events: none;
+	transition: opacity .12s ease;
+}
+#roomList .room-leave,
+#dmList .room-leave {
+	grid-area: 1 / 1;
+	justify-self: end;
+	align-self: center;
+	margin-right: var(--mark-inset);
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+#roomList li:hover .rcount,
+#roomList li:focus-within .rcount,
+#dmList li:hover .dm-marks,
+#dmList li:focus-within .dm-marks {
+	opacity: 0;
+}
+#roomList li:hover .room-leave,
+#roomList li:focus-within .room-leave,
+#dmList li:hover .room-leave,
+#dmList li:focus-within .room-leave {
+	opacity: 1;
+}
+/* A finger cannot hover, so where there is no pointer the mark takes a place of
+   its own beside the count instead of borrowing its slot: this rail is a screen
+   of its own on a phone and has the width to hold both. The desktop trade — one
+   slot, revealed under the pointer — is what a 264px rail can afford, and it
+   stays as it is. */
+@media (hover: none) {
+	#roomList li,
+	#dmList li {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+	#roomList li .room-leave,
+	#dmList li .room-leave {
+		grid-area: 1 / 2;
+		opacity: 1;
+	}
+	/* The caption runs under both columns rather than under the name alone, so a
+	   long locator is not squeezed into whatever the mark beside it left over. */
+	#roomList li .rwhere,
+	#dmList li .rwhere {
+		grid-area: 2 / 1 / 3 / 3;
+	}
+	#roomList li .rcount,
+	#dmList li .dm-marks {
+		opacity: 1;
+	}
+	/* And the slot they sit in is their own width, not a mark's. On the pointer
+	   side that column is held open to the width of the leave mark so the two are
+	   centred on the same point as one replaces the other; here nothing replaces
+	   anything — the mark has a column of its own beside this one — so holding it
+	   open leaves the count floating in nine pixels of slack at each side, with
+	   the mark a further gap beyond that. The row is 326 pixels wide on a phone
+	   and was spending a quarter of them on two small marks. */
+	#roomList .room-open,
+	#dmList .dm-open {
+		grid-template-columns: auto minmax(0, 1fr) auto;
+	}
+}
+/* Every row here is a room you are in, so the rail draws no membership tint:
+   with nothing to contrast against, a "you are a member" ground says nothing and
+   only costs the row on screen some of its own contrast. One distinction is
+   left — the room you are reading — carried by a bar and a fill together.
+   Membership is a distinction again in the browse list, where rooms you are not
+   in also appear, and it is drawn there.
+
+   The ink here is deeper than the accent ink the rest of the rail uses, because
+   the ground is deeper too. That token is stated to clear small text on paper,
+   and this row is paper with a sixth of the accent poured into it — so the ink
+   has to move away from the colour it is standing in rather than sit in it, the
+   same move the count badge and the selected direct line make. Taken an eighth
+   of the way toward the page's plain ink it clears the 4.5 small text needs in
+   both appearances and the hue is still amber, which the contrast check in the
+   browser proof holds. */
+#roomList li.here {
+	background: color-mix(in srgb, var(--accent) 16%, transparent);
+	color: color-mix(in srgb, var(--accent-ink) 85%, var(--ink));
+}
+/* At full strength on a selected row, in both lists. These two grounds are the
+   only ones in the rail with no headroom to turn anything down: turned to the
+   usual four fifths on either of them, the caption falls under the 4.5 small
+   text needs. So it keeps the row's own ink and lets its size be the whole of
+   the difference, which is where the two grounds agree even though their inks do
+   not.
+
+   The contrast check in the browser proof measures the amber one directly, in
+   both appearances, and the teal one follows from what else it measures rather
+   than from a scenario nobody can build. No proof can put a caption on a teal
+   row — that wants a tab holding two directories and an open direct line at
+   once, and none does — but a caption needs no measurement of its own here. At
+   full strength it wears the row's ink on the row's ground, which is what the
+   name beside it is, and that name is measured. Turned down on an ordinary row
+   it wears the page's ink on the rail's fill, because neither list paints a row
+   at rest, which is what the rooms list's own caption is, and that is measured
+   too. Same ink, same ground, and contrast does not know what size the text
+   is. */
+#roomList li.here .rwhere-said,
+#dmList li.here .rwhere-said {
+	opacity: 1;
+}
+#roomList li.here:hover {
+	background: color-mix(in srgb, var(--accent) 21%, transparent);
+}
+#roomList li.here::before {
+	background: var(--accent);
+}
+/* The sigil is the room row's directory mark: it is the only thing on the row
+   not already spoken for, and it costs no width. Quiet when nothing is marked —
+   a coloured sigil means "this fact", and with one directory there is no fact.
+   It does not warm with the row either, and that is deliberate: which directory
+   a room is on must not change because a pointer passed over it. */
+#roomList .hash,
+.newroom .hash {
+	width: var(--mark-col);
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	font-weight: 700;
+}
+#roomList .hash {
+	color: var(--dir-mark, var(--accent));
+}
+/* The badge stands on a wash of its own colour, so its ink has to move away from
+   that colour rather than sit in it. In syrup the readable teal *is* the teal,
+   which leaves ink and ground the same hue and the wash lifting the ground
+   toward the ink: measured, the count came out at 4.46 to 1 against the 4.5
+   small text needs. A sixth of the way toward the page's plain ink clears it in
+   both appearances and the badge is still teal — the same move the selected row
+   makes for the same reason, and held by the contrast check in the browser
+   proof. */
+#roomList .rcount {
+	font-size: var(--type-tiny);
+	background: color-mix(in srgb, var(--teal) 16%, transparent);
+	color: color-mix(in srgb, var(--teal-ink) 84%, var(--ink));
+	padding: 1px 6px;
+	border-radius: var(--radius-chip);
+	min-width: 18px;
+	text-align: center;
+	font-weight: 600;
+}
+#roomList li.here .rcount {
+	background: color-mix(in srgb, var(--accent) 24%, transparent);
+	color: var(--accent-ink);
+}
+/* Two facts share one slot, so they must not look alike. How many people are in
+   a room is a standing fact and stays in the quiet teal the badge has always
+   worn; unread is something waiting for you, so it takes the accent and full
+   weight. A reader glancing down the rail should be able to find the rooms that
+   want them without reading a single number. */
+#roomList .rcount.unread {
+	background: color-mix(in srgb, var(--accent) 24%, transparent);
+	color: var(--accent-ink);
+	font-weight: 700;
+}
+#roomList .empty {
+	padding: 6px var(--row-pad);
+	color: var(--ink-soft);
+	font-size: var(--type-ui);
+	cursor: default;
+}
+/* The room you are about to be in, drawn as one of the rooms you are in.
+   It is the same item: a mark, a name, and a line under the name saying which
+   directory it belongs to — except the name is still being typed and the line is
+   still yours to change. Reading it as an item is what makes the whole panel one
+   thing rather than a field with two notes stacked under it, and it is why the
+   field below carries no border of its own. The container is the object here;
+   everything inside it is content. */
+.newroom {
+	display: none;
+	margin: 4px 0 0;
+	/* The row's insets, because this is a row: text on the left at the width a
+	   word takes, marks on the right at the narrower one a box takes. */
+	padding: 8px var(--mark-inset) 8px var(--row-pad);
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--accent) 7%, transparent);
+	/* It arrives over the rows it pushes down, so it floats the way the page's
+	   other menus float: `--shadow`, the same token the line menu and the
+	   standing menu carry. A small lift reads as a row with an edge; this is a
+	   panel that opened over the list. */
+	box-shadow: var(--shadow);
+	/* Sigil, the name being typed, and the mark that decides what kind of room
+	   it will be — the third column is empty in the section that has no such
+	   choice, and an empty `auto` column takes no width. */
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	column-gap: var(--mark-gap);
+	row-gap: 1px;
+	align-items: center;
+}
+.newroom.show {
+	display: grid;
+}
+/* Focus belongs to the panel, not to the field inside it. There is only one
+   thing to type in here, so a ring around the field would draw a second box
+   inside a box that is already the object. */
+.newroom:focus-within {
+	box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.newroom .hash {
+	color: var(--dir-mark, var(--ink-soft));
+}
+.newroom input {
+	width: 100%;
+	font: inherit;
+	font-size: var(--type-body);
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--ink);
+}
+.newroom input:focus {
+	outline: none;
+}
+.newroom input::placeholder {
+	color: var(--ink-soft);
+}
+/* The same line a room carries, spanning this panel's whole content box the way
+   it spans a row's. The panel's own padding is what insets it here, so unlike a
+   room row's caption it needs no margins: this one really is inside the columns
+   it lines up with. */
+/* Beside the field, on its row: the choice belongs to the name being typed,
+   and left to the grid's own placing it dropped onto a row of its own and made
+   the panel taller than the thing it is part of. */
+.newroom-private {
+	grid-row: 1;
+	grid-column: 3;
+}
+/* Where the room being named will land, and the way to somewhere else. It sits
+   where a room row carries its own directory line and reads like one, because
+   it is saying the same thing; the difference is that this one is not a control
+   at rest. A row's line is pressable and means "tell me about this directory".
+   Here nothing can be told, so only the word that acts is a button, and the
+   destination beside it is text. */
+.newwhere {
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	padding-block: 2px;
+}
+.newwhere .icon-svg {
+	flex: none;
+	color: var(--dir-mark, currentColor);
+}
+/* Never squeezed out by a long directory name: the name ellipsises, the way
+   out does not. Sized to the line it sits on rather than to the interface's
+   ordinary word, because it is a remark at the end of a caption. */
+.newwhere-change {
+	flex: none;
+	margin-inline-start: 4px;
+	font-size: var(--type-caption);
+	padding-inline: 0;
+}
+
+/* One mark per held directory, handed out in order by the store. The applied
+   property is `--dir-mark`, so a surface that wears one names it once and the
+   palette above stays the single place the colours live. This page's own
+   directory is not a slot in that ramp: it is the product, and it wears teal. */
+[data-dir="home"] {
+	--dir-mark: var(--teal);
+}
+[data-dir="1"] {
+	--dir-mark: var(--dir-mark-1);
+}
+[data-dir="2"] {
+	--dir-mark: var(--dir-mark-2);
+}
+[data-dir="3"] {
+	--dir-mark: var(--dir-mark-3);
+}
+[data-dir="4"] {
+	--dir-mark: var(--dir-mark-4);
+}
+[data-dir="5"] {
+	--dir-mark: var(--dir-mark-5);
+}
+/* A row names its directory in a quiet second line under the name, drawn
+   whenever the mark beside it is and never without it: the colour is the glance,
+   and this is what a reader who cannot use colour reads instead.
+
+   It is a line rather than a word, spanning the row's whole content box from the
+   mark column on the left to the edge the count and the leave mark stand on.
+   That is what makes it a target a pointer can find without aiming — the room
+   above it is a full-width control, and the line under it answers the same way.
+
+   What sits in that box is a pair, centred: the directory's glyph and the words
+   naming it, together. It followed the columns above at first, the glyph under
+   the room's sigil and the words under the room's name, which lined the two
+   lines up but left the glyph flat against the left edge of its own rectangle
+   with nothing on the side a reader meets first. A pair in the middle is inset
+   by the whole of what the line does not need, and reads as one thing to press
+   rather than as two column entries that happen to share a row.
+
+   Only the box and what is in it are here. How the line is drawn — its size,
+   how it answers a pointer — belongs to the caption variant of the button
+   family, which is what this class stopped duplicating once that variant
+   existed. The rectangle at rest is this class's own, because it is what the
+   centring needs and no other caption is placed this way. */
+.rwhere {
+	/* The family's box is inline; this one is a line spanning its row. */
+	display: flex;
+	min-width: 0;
+}
+/* The glyph is the directory's own colour, the same one the sigil above it
+   wears, so the two lines of a row are marked as one thing by one colour rather
+   than each explaining itself. */
+.rwhere .icon-svg {
+	flex: none;
+	color: var(--dir-mark, currentColor);
+}
+/* Placed in the second column rather than left to flow into the first. A
+   caption that carries no glyph — a directory you are on with nothing open says
+   only why it is there — would otherwise start its words in the mark column and
+   sit a mark's width left of the name above it. Placing them says the two
+   columns are the row's, not a consequence of what happens to be in them.
+
+   Quieter than the name above by two means: size, and this. Turning it down
+   rather than diluting the ink, because dilution has to name a colour and the
+   only colour worth naming here is the row's own — and `currentColor` inside a
+   `color-mix` does not survive the appearance changing. It freezes at the light
+   arm of every `light-dark` token it reaches, so in syrup this caption went on
+   wearing a dark brown against a dark rail, 1.08 to 1, while the name above it
+   turned cream. Naming the token directly is fine; reaching it through
+   `currentColor` is not. Opacity composites at paint time and cannot freeze. */
+.rwhere-said {
+	/* Shrinks before the mark does, so a long directory name ends in an ellipsis
+	   rather than pushing the glyph it belongs to off the line. */
+	flex: 0 1 auto;
+	min-width: 0;
+	opacity: .72;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* Inset to the row's content box, so its two columns line up with the two above
+   it and its right edge stands where the count and the leave mark stand. The
+   caption cannot be inside the button that opens the room — a control inside a
+   control announces as neither — so it is a sibling, and a sibling has to be
+   told where that box is rather than being placed by the same grid. What it is
+   told is the row's own measurements, each named once above and only referred to
+   here, so moving the mark column, the gap, or either inset moves this line with
+   them instead of leaving it behind.
+
+   Its own box hugs its line, and the space under it belongs to the row. Taking
+   the row's bottom padding into this box instead made the rectangle run to the
+   pill's edge, which reads as the target being the bottom of the row rather than
+   the line on it. Two pixels above and below is enough for the ground to clear
+   the words without becoming a band. */
+#roomList .rwhere,
+#dmList .rwhere {
+	grid-area: 2 / 1;
+	margin: 0 var(--mark-inset) 0 var(--row-pad);
+	padding-block: 2px;
+}
+/* The row is one line until it has a directory to name, then two, and the space
+   under that second line is the row's to give. Affordable because these lists
+   are what you are in rather than everything a directory advertises, so they are
+   short by construction. */
+#roomList li:has(.rwhere),
+#dmList li:has(.rwhere) {
+	padding-bottom: 6px;
+}
+/* A direct line wears its directory on the avatar's rim. An outline rather than a
+   ring of box-shadows, so the gap shows the row's actual ground in every state
+   instead of a hardcoded one that is wrong on a raised or selected row. */
+#dmList li[data-dir] .avatar-chip {
+	outline: 1px solid var(--dir-mark);
+	outline-offset: 2px;
+}

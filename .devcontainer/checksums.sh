@@ -60,6 +60,12 @@ opencode_sha256() {
         "dcb1b5ec5687b43f87749560021f9203f3809e0ce5ae44ff9be8ae17083fe4ba"
 }
 
+cursor_agent_sha256() {
+    pick_by_arch cursor_agent_sha256 \
+        "bfff4bf6f4e9dd30c1d0ef0a70b6077b074015dd2948e4c50685d53afdcfce5a" \
+        "ea13f92e295f523a99ce8d8f57d6894d21e5d1e2d030ffad718ccd5955ca2eed"
+}
+
 uv_sha256() {
     pick_by_arch uv_sha256 \
         "c8c60f47e6f88d18dbf6f33d7279fb1fbf7ae76631768152cf5578c3d65729b4" \

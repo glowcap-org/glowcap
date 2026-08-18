@@ -188,7 +188,7 @@ export function drawCategoryHeader(
       {
         // Tiny gutter label (SIZE.xs). Per the typography rule's
         // size-first default, tiny → mono; matches the sibling
-        // "overview" gutter label in `Overview.tsx` and the tick
+        // "overview" gutter label in `overview-paint.ts` and the tick
         // labels below.
         //
         // `colors.text` (full strength) — the category header is

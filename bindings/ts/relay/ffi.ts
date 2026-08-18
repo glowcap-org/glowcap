@@ -10,21 +10,24 @@
 // Nothing here is public; `transport/relay.ts` is the ergonomic surface.
 
 import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+import { RELAY_ARCHIVE_FINGERPRINT } from "@pancake/abi";
 const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void";
+	V = "void",
+	U64 = "u64";
 
 export const relayS = lazySymbols(() => libPath("pancake_net_transport_relay"), {
+	pancake_relay_archive_fingerprint: { parameters: [], result: U64 },
 	pancake_relay_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 	pancake_relay_clear_last_error: { parameters: [], result: V },
 	pancake_relay_runtime_new: { parameters: [B, B], result: I, outBuffers: [1] },
+	pancake_relay_runtime_trust_summary: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_relay_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_relay_runtime_release_with_diagnostic: {
-		parameters: [P, B, U, B],
-		result: I,
-		outBuffers: [1, 3],
-		nonblocking: true,
-	},
+	pancake_relay_runtime_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+}, {
+	symbol: "pancake_relay_archive_fingerprint",
+	expected: RELAY_ARCHIVE_FINGERPRINT,
+	archive: "pancake_net_transport_relay",
 });

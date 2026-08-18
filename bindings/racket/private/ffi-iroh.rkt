@@ -83,6 +83,8 @@
                       "iroh transport unavailable: could not load libpancake_net_transport_iroh from "
                       "PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. "
                       "Build it with `zig build iroh-abi` (needs cargo).")))))
-  (iroh-ffi-table L _PancakeIrohConfig-pointer))
+  (define table (iroh-ffi-table L _PancakeIrohConfig-pointer))
+  (require-archive-fingerprint! 'iroh (hash-ref table 'archive-fingerprint) IROH-ARCHIVE-FINGERPRINT)
+  table)
 
 (define (iroh-fn key) (hash-ref (iroh-ffi) key))

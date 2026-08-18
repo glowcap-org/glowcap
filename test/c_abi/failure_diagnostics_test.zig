@@ -2,10 +2,49 @@ const std = @import("std");
 const testing = std.testing;
 const diagnostics = @import("c_abi_shared").failure_diagnostics;
 const shared = @import("c_abi_shared");
+const foundation = @import("pancake").foundation;
 const c = @import("c_abi");
 
 fn cBytes(ptr: ?[*]const u8, len: usize) []const u8 {
     return if (ptr) |p| p[0..len] else &.{};
+}
+
+fn providerResult(cause: anyerror) i32 {
+    return switch (cause) {
+        error.CleanupDenied => shared.PANCAKE_ERR_CLOSED,
+        else => shared.PANCAKE_ERR_IO,
+    };
+}
+
+test "provider failure projection preserves one neutral chain exactly" {
+    var failure = foundation.FailureChain.initNamed(error.ProviderProxy, "ProviderRefusedByName");
+    failure.noteNamed(error.CleanupDenied, "SocketUnlinkRefused");
+    failure.note(error.LaterCleanup);
+
+    var report = shared.transport_provider.emptyProviderFailure();
+    try testing.expectEqual(
+        shared.PANCAKE_ERR_IO,
+        shared.transport_provider.failProviderChain(
+            &report,
+            shared.PANCAKE_ERR_IO,
+            failure,
+            providerResult,
+        ),
+    );
+    try testing.expectEqual(shared.PANCAKE_ERR_IO, report.result);
+    try testing.expectEqualStrings("ProviderRefusedByName", cBytes(report.primary_name, report.primary_name_len));
+    try testing.expectEqual(shared.PANCAKE_ERR_CLOSED, report.secondary_result);
+    try testing.expectEqualStrings("SocketUnlinkRefused", cBytes(report.secondary_name, report.secondary_name_len));
+    try testing.expectEqual(@as(u32, 2), report.secondary_count);
+
+    shared.lastErrorClear();
+    shared.setLastErrorChain("provider release", failure);
+    var message: [256]u8 = undefined;
+    const len = shared.lastErrorRead(&message, message.len);
+    try testing.expectEqualStrings(
+        "provider release: ProviderRefusedByName; cleanup: SocketUnlinkRefused (2 secondary failures)",
+        message[0..len],
+    );
 }
 
 test "Context lifecycle identities are stable nonzero and do not wrap" {
@@ -30,39 +69,39 @@ test "failure diagnostics preserve typed cause identity and claim once" {
     var journal = try diagnostics.Journal.init(testing.allocator, 2, 256);
     defer journal.deinit(testing.allocator);
     journal.record(.{
-        .layer = .driver,
+        .layer = .transport,
         .operation = "listener.close",
         .scope_kind = .listener,
-        .scope_id = 41,
-        .operation_id = 99,
-        .primary_result = -14,
-        .primary_name = "RemoveFailed",
-        .primary_message = "could not remove onion socket",
-        .secondary_result = -15,
+        .scope_id = 31,
+        .operation_id = 47,
+        .primary_result = c.PANCAKE_ERR_IO,
+        .primary_name = "CloseFailed",
+        .primary_message = "socket refused shutdown",
+        .secondary_result = c.PANCAKE_ERR_INTERNAL,
         .secondary_name = "ReleaseFailed",
-        .secondary_message = "provider refused release",
+        .secondary_message = "descriptor remained live",
         .secondary_count = 2,
     });
 
-    try testing.expectEqual(@as(?usize, 92), journal.nextPayloadLen());
+    try testing.expectEqual(@as(?usize, 85), journal.nextPayloadLen());
     var payload: [256]u8 = undefined;
     var event: diagnostics.Claim = undefined;
     var required: usize = undefined;
     try testing.expect(try journal.pop(&event, &payload, &required));
-    try testing.expectEqual(@as(usize, 92), required);
+    try testing.expectEqual(@as(usize, 85), required);
     try testing.expectEqual(@as(u64, 1), event.sequence);
-    try testing.expectEqual(diagnostics.Layer.driver, event.layer);
+    try testing.expectEqual(diagnostics.Layer.transport, event.layer);
     try testing.expectEqual(diagnostics.ScopeKind.listener, event.scope_kind);
-    try testing.expectEqual(@as(u64, 41), event.scope_id);
-    try testing.expectEqual(@as(u64, 99), event.operation_id);
-    try testing.expectEqual(@as(i32, -14), event.primary_result);
-    try testing.expectEqual(@as(i32, -15), event.secondary_result);
+    try testing.expectEqual(@as(u64, 31), event.scope_id);
+    try testing.expectEqual(@as(u64, 47), event.operation_id);
+    try testing.expectEqual(c.PANCAKE_ERR_IO, event.primary_result);
+    try testing.expectEqual(c.PANCAKE_ERR_INTERNAL, event.secondary_result);
     try testing.expectEqual(@as(u32, 2), event.secondary_count);
     try testing.expectEqualStrings("listener.close", event.operation);
-    try testing.expectEqualStrings("RemoveFailed", event.primary_name);
-    try testing.expectEqualStrings("could not remove onion socket", event.primary_message);
+    try testing.expectEqualStrings("CloseFailed", event.primary_name);
+    try testing.expectEqualStrings("socket refused shutdown", event.primary_message);
     try testing.expectEqualStrings("ReleaseFailed", event.secondary_name);
-    try testing.expectEqualStrings("provider refused release", event.secondary_message);
+    try testing.expectEqualStrings("descriptor remained live", event.secondary_message);
     try testing.expect(!try journal.pop(&event, &payload, &required));
 }
 
@@ -194,25 +233,26 @@ test "C Context rejects non-UTF-8 diagnostic text" {
     try testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_context_report_failure(context, &report));
 }
 
-test "C Context reports and atomically claims one structured failure" {
+test "C Context reports and atomically claims the cross-language failure vector" {
     var context: ?*c.PancakeContext = null;
     try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new(&context));
     defer c.pancake_context_release(context);
 
-    const operation = "trace.sink";
-    const primary_name = "CallbackFailed";
-    const primary_message = "observer threw";
+    const operation = "listener.close";
+    const primary_name = "CloseFailed";
+    const primary_message = "socket refused shutdown";
     const secondary_name = "ReleaseFailed";
+    const secondary_message = "descriptor remained live";
     var report = c.PancakeFailureReport{
         .abi_version = c.PANCAKE_FAILURE_EVENT_ABI_VERSION,
         .struct_size = @sizeOf(c.PancakeFailureReport),
-        .layer = c.PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER,
-        .scope_kind = c.PANCAKE_FAILURE_SCOPE_CONTEXT,
-        .scope_id = 7,
-        .operation_id = 11,
-        .primary_result = c.PANCAKE_ERR_INTERNAL,
-        .secondary_result = c.PANCAKE_ERR_IO,
-        .secondary_count = 1,
+        .layer = c.PANCAKE_FAILURE_LAYER_TRANSPORT,
+        .scope_kind = c.PANCAKE_FAILURE_SCOPE_LISTENER,
+        .scope_id = 31,
+        .operation_id = 47,
+        .primary_result = c.PANCAKE_ERR_IO,
+        .secondary_result = c.PANCAKE_ERR_INTERNAL,
+        .secondary_count = 2,
         .operation = operation.ptr,
         .operation_len = operation.len,
         .primary_name = primary_name.ptr,
@@ -221,8 +261,8 @@ test "C Context reports and atomically claims one structured failure" {
         .primary_message_len = primary_message.len,
         .secondary_name = secondary_name.ptr,
         .secondary_name_len = secondary_name.len,
-        .secondary_message = null,
-        .secondary_message_len = 0,
+        .secondary_message = secondary_message.ptr,
+        .secondary_message_len = secondary_message.len,
     };
     try testing.expectEqual(c.PANCAKE_OK, c.pancake_context_report_failure(context, &report));
 
@@ -241,14 +281,18 @@ test "C Context reports and atomically claims one structured failure" {
     );
     try testing.expectEqual(c.PANCAKE_FAILURE_EVENT_ABI_VERSION, event.abi_version);
     try testing.expectEqual(@as(u64, 1), event.sequence);
-    try testing.expectEqual(c.PANCAKE_FAILURE_LAYER_APPLICATION_OBSERVER, event.layer);
-    try testing.expectEqual(c.PANCAKE_FAILURE_SCOPE_CONTEXT, event.scope_kind);
-    try testing.expectEqual(@as(u64, 7), event.scope_id);
-    try testing.expectEqual(@as(u64, 11), event.operation_id);
+    try testing.expectEqual(c.PANCAKE_FAILURE_LAYER_TRANSPORT, event.layer);
+    try testing.expectEqual(c.PANCAKE_FAILURE_SCOPE_LISTENER, event.scope_kind);
+    try testing.expectEqual(@as(u64, 31), event.scope_id);
+    try testing.expectEqual(@as(u64, 47), event.operation_id);
+    try testing.expectEqual(c.PANCAKE_ERR_IO, event.primary_result);
+    try testing.expectEqual(c.PANCAKE_ERR_INTERNAL, event.secondary_result);
+    try testing.expectEqual(@as(u32, 2), event.secondary_count);
     try testing.expectEqualStrings(operation, cBytes(event.operation, event.operation_len));
     try testing.expectEqualStrings(primary_name, cBytes(event.primary_name, event.primary_name_len));
     try testing.expectEqualStrings(primary_message, cBytes(event.primary_message, event.primary_message_len));
     try testing.expectEqualStrings(secondary_name, cBytes(event.secondary_name, event.secondary_name_len));
+    try testing.expectEqualStrings(secondary_message, cBytes(event.secondary_message, event.secondary_message_len));
     try testing.expectEqual(
         c.PANCAKE_ERR_WOULD_BLOCK,
         c.pancake_context_next_failure(context, &event, &payload, payload.len, &required),

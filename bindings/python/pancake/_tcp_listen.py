@@ -19,7 +19,8 @@ from ._socket_address import address_designator
 from ._server import DriverServer, prepare_driver_loop, _rollback_listener_construction
 
 if TYPE_CHECKING:
-    from ._loop import DriverLoop, ListenerOwner
+    from ._listener import ListenerOwner
+    from ._loop import DriverLoop
     from .tcp import Config
 
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT

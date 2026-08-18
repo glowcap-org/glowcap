@@ -35,6 +35,7 @@ use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
 use crate::trampoline::{
 	ctx_free, current_turn_for, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline, ActorCell,
+	InternalBehavior,
 };
 use crate::uri::OwnedLocator;
 use crate::PendingWork;
@@ -160,12 +161,15 @@ pub(crate) fn drain_pending_releases() {
 			// the allocation policy the raw native Host still borrows.
 			PendingRelease::HostRaw { host, context } => {
 				crate::trace::detach_host(host);
-				if unsafe { ffi::pancake_host_release(host) } != sys::OK {
-					// A leaked native Host still borrows its allocation policy. A
-					// destructor cannot report the refusal, so leak the policy too
-					// rather than turn the native leak into use-after-free.
-					if let Some(context) = context {
-						core::mem::forget(context);
+				let rc = unsafe { ffi::pancake_host_release(host) };
+				if !crate::lifecycle::release_consumed(rc) {
+					PENDING_RELEASES
+						.with(|list| list.borrow_mut().push_front(PendingRelease::HostRaw { host, context }));
+					return;
+				}
+				if rc != sys::OK {
+					if let Err(error) = check_host(rc) {
+						crate::record_runtime_failure(crate::FailureLayer::Binding, "host-parked-drop-release", error);
 					}
 				}
 			}
@@ -190,6 +194,9 @@ enum VowState {
 
 struct VowRow {
 	state: VowState,
+	/// Session whose opt-in owns finalizer policy for this application-facing
+	/// outcome. Weak: a late settlement cannot keep a closed Session alive.
+	gc_session: Option<std::rc::Weak<SessionShared>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -369,7 +376,11 @@ impl HostShared {
 		})?;
 		let mut diagnostic_id = 0;
 		if let Err(error) = check_host(unsafe { ffi::pancake_host_diagnostic_id(raw, &mut diagnostic_id) }) {
-			let cleanup = check_host(unsafe { ffi::pancake_host_release(raw) });
+			let cleanup_rc = unsafe { ffi::pancake_host_release(raw) };
+			let cleanup = check_host(cleanup_rc);
+			if !crate::lifecycle::release_consumed(cleanup_rc) {
+				core::mem::forget(context);
+			}
 			return Err(crate::retain_cleanup_failure(error, cleanup));
 		}
 		// The host's own key designator labels the live trace so one peer
@@ -604,6 +615,20 @@ impl HostShared {
 		self.context.as_ref().map(Rc::clone)
 	}
 
+	pub(crate) fn actor_cell(&self, behavior: InternalBehavior) -> Result<*mut ActorCell> {
+		let context = self.retained_context().ok_or_else(|| {
+			Error::with_detail(
+				sys::ERR_CLOSED,
+				"host diagnostic context was released before actor publication".to_string(),
+			)
+		})?;
+		Ok(Box::into_raw(Box::new(ActorCell {
+			behavior: RefCell::new(behavior),
+			context,
+			diagnostic_id: self.diagnostic_id(),
+		})))
+	}
+
 	pub(crate) fn diagnostic_id(&self) -> u64 {
 		self.diagnostic_id
 	}
@@ -680,24 +705,26 @@ impl HostShared {
 		}
 	}
 
-	pub(crate) fn start_owned_task(self: &Rc<Self>) -> OwnedTaskRegistration {
-		self.owned_tasks.set(
-			self.owned_tasks
-				.get()
-				.checked_add(1)
-				.expect("Host-owned task count overflow"),
-		);
-		OwnedTaskRegistration {
+	pub(crate) fn start_owned_task(self: &Rc<Self>) -> Result<OwnedTaskRegistration> {
+		let count = self
+			.owned_tasks
+			.get()
+			.checked_add(1)
+			.ok_or_else(|| Error::with_detail(sys::ERR_INTERNAL, "Host-owned task count exhausted".to_string()))?;
+		self.owned_tasks.set(count);
+		Ok(OwnedTaskRegistration {
 			host: Rc::downgrade(self),
-		}
+		})
 	}
 
 	fn owned_task_finished(self: &Rc<Self>) {
-		let remaining = self
-			.owned_tasks
-			.get()
-			.checked_sub(1)
-			.expect("Host-owned task registration imbalance");
+		let Some(remaining) = self.owned_tasks.get().checked_sub(1) else {
+			self.record_background_failure(Error::with_detail(
+				sys::ERR_INTERNAL,
+				"Host-owned task registration underflow".to_string(),
+			));
+			return;
+		};
 		self.owned_tasks.set(remaining);
 		if remaining == 0 {
 			self.release_notify.notify_waiters();
@@ -708,19 +735,19 @@ impl HostShared {
 	/// Tokio cancellation is the right primitive here: every binding task runs
 	/// on one current-thread LocalSet, so close cannot race a task currently on
 	/// another thread, and `abort` prevents its next poll before native teardown.
-	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, ticket: u64, run: F) -> bool
+	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, ticket: u64, run: F) -> Result<bool>
 	where
 		F: FnOnce(Rc<HostShared>) -> Fut + 'static,
 		Fut: Future<Output = ()> + 'static,
 	{
 		if self.raw.get().is_null() {
-			return false;
+			return Ok(false);
 		}
 		let host = Rc::clone(self);
 		let registration = DialTaskRegistration {
 			host: Rc::downgrade(self),
 			ticket,
-			_owned: self.start_owned_task(),
+			_owned: self.start_owned_task()?,
 		};
 		let Some(task) = try_spawn_local_handle(async move {
 			let _registration = registration;
@@ -747,10 +774,10 @@ impl HostShared {
 				observer.record_background_failure(crate::retain_cleanup_failure(primary, cancellation));
 			}
 		}) else {
-			return false;
+			return Ok(false);
 		};
 		self.dial_tasks.borrow_mut().insert(ticket, task);
-		true
+		Ok(true)
 	}
 
 	pub(crate) async fn cancel_dial_task(&self, ticket: u64) -> Result<()> {
@@ -820,6 +847,13 @@ impl HostShared {
 	/// Stop tracking a released CapTP session shell.
 	pub(crate) fn unregister_session(&self, key: usize) {
 		self.sessions.borrow_mut().remove(&key);
+	}
+
+	/// Resolve the Host-owned session address carried by a callback turn to the
+	/// existing public wrapper. A loop-internal redeem leg may have no wrapper;
+	/// callers preserve their Host-only turn context in that case.
+	pub(crate) fn session_for_ptr(&self, ptr: *mut ffi::PancakeHostSession) -> Option<Rc<SessionShared>> {
+		self.sessions.borrow().get(&(ptr as usize)).cloned()
 	}
 
 	/// The hosted cell behind a Host-scoped local capability.
@@ -959,7 +993,14 @@ impl HostShared {
 				self.fail_close(host_refusal(rc, "advancing host close"));
 				return;
 			}
-			if lifecycle == sys::LIFECYCLE_CLOSED {
+			let closed = match crate::lifecycle_is_closed(lifecycle) {
+				Ok(closed) => closed,
+				Err(error) => {
+					self.fail_close(error);
+					return;
+				}
+			};
+			if closed {
 				break rc;
 			}
 			// Drain what progress queued before parking. A productive drain
@@ -1029,11 +1070,13 @@ impl HostShared {
 		let rc = unsafe { ffi::pancake_host_release(raw) };
 		if rc != sys::OK {
 			let release = host_refusal(rc, "releasing host");
+			if crate::lifecycle::release_consumed(rc) {
+				self.retire_native_host(raw);
+			}
 			self.fail_close(background_failure.map_or(release.clone(), |primary| primary.with_secondary(release)));
 			return;
 		}
-		crate::trace::detach_host(raw);
-		self.raw.set(core::ptr::null_mut());
+		self.retire_native_host(raw);
 		if let Some(error) = background_failure {
 			*self.close_failure.borrow_mut() = Some(error);
 			self.close_barrier.set(CloseBarrierState::Failed);
@@ -1041,6 +1084,11 @@ impl HostShared {
 			self.close_barrier.set(CloseBarrierState::Complete(close_code));
 		}
 		self.release_notify.notify_waiters();
+	}
+
+	fn retire_native_host(&self, raw: *mut ffi::PancakeHost) {
+		crate::trace::detach_host(raw);
+		self.raw.set(core::ptr::null_mut());
 		self.vows.borrow_mut().clear();
 		self.unobserved.borrow_mut().clear();
 		// Native release ran every ctx-free callback. These maps contain only
@@ -1054,11 +1102,16 @@ impl HostShared {
 	/// Record a freshly minted vow so the drain can route its completion. Must
 	/// run in the same synchronous block as the minting FFI call, so no drain
 	/// can pop the completion first.
-	pub(crate) fn vow_minted(&self, vow: u64) {
+	pub(crate) fn vow_minted(&self, vow: u64, gc_session: Option<&Rc<SessionShared>>) {
+		// Finalizer policy belongs to the operation that exposes the value, so
+		// sample the opt-in at mint rather than letting a later toggle rewrite
+		// an already-admitted outcome's ownership contract.
+		let gc_session = gc_session.filter(|session| session.gc.get()).map(Rc::downgrade);
 		self.vows.borrow_mut().insert(
 			vow,
 			VowRow {
 				state: VowState::Minted,
+				gc_session,
 			},
 		);
 	}
@@ -1116,12 +1169,16 @@ impl HostShared {
 	// The drain's settle arms: fire the waiter, or record the outcome for a
 	// late observation (bounded FIFO — an outcome nobody ever awaits is evicted
 	// at the cap). Called from `action::run`'s SETTLE / FAIL arms.
-	pub(crate) fn settle_vow(&self, vow: u64, outcome: Result<Argument>) {
+	pub(crate) fn settle_vow(&self, vow: u64, mut outcome: Result<Argument>) {
 		{
 			let mut vows = self.vows.borrow_mut();
 			let Some(row) = vows.get_mut(&vow) else {
 				return; // an outcome nobody registered for
 			};
+			if let (Ok(value), Some(session)) = (&mut outcome, row.gc_session.as_ref().and_then(std::rc::Weak::upgrade))
+			{
+				crate::gc::track_argument(&session, value);
+			}
 			match std::mem::replace(&mut row.state, VowState::Minted) {
 				VowState::Awaited(waiter) => {
 					vows.remove(&vow);
@@ -1203,7 +1260,7 @@ impl HostShared {
 			self.note_close_activity();
 			return Ok(());
 		}
-		let registration = self.start_owned_task();
+		let registration = self.start_owned_task()?;
 		let host = Rc::clone(self);
 		if !try_spawn_local(async move {
 			let _registration = registration;
@@ -1327,15 +1384,19 @@ impl Drop for HostShared {
 		} else {
 			crate::trace::detach_host(raw);
 			let rc = unsafe { ffi::pancake_host_release(raw) };
-			if rc == sys::OK {
+			if crate::lifecycle::release_consumed(rc) {
 				self.raw.set(core::ptr::null_mut());
-			} else {
+			}
+			if rc != sys::OK {
 				if let Err(error) = check_host(rc) {
 					crate::record_runtime_failure(crate::FailureLayer::Binding, "host-drop-release", error);
 				}
-				if let Some(context) = self.context.take() {
-					// The leaked raw Host still borrows this policy.
-					core::mem::forget(context);
+				if !crate::lifecycle::release_consumed(rc) {
+					let context = self.context.take();
+					if let Some(context) = context {
+						// The leaked raw Host still borrows this policy.
+						core::mem::forget(context);
+					}
 				}
 			}
 		}
@@ -1585,7 +1646,9 @@ impl Host {
 		})?;
 		// The vow may be parked on a dial with no session of its own, which is
 		// exactly the `None` session row the vow table already admits.
-		self.shared.vow_minted(vow);
+		// Host-level enliven is owned by the durable dedup cache, not a
+		// GC-enabled arrival session (ADR-0063).
+		self.shared.vow_minted(vow, None);
 		let settled = self.shared.await_vow(vow);
 		self.shared.kick_actions().await?;
 		match settled.await? {
@@ -1623,11 +1686,9 @@ impl Host {
 		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
 		let mut behavior = make();
-		let cell = Box::into_raw(Box::new(ActorCell {
-			behavior: RefCell::new(outcome_behavior(move |verb, args| behavior(verb, args))),
-			context: self.shared.retained_context().expect("every Host owns a Context"),
-			diagnostic_id: self.shared.diagnostic_id(),
-		}));
+		let cell = self
+			.shared
+			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
 		let rc = unsafe {
 			ffi::pancake_host_publish(
 				self.shared.raw.get(),
@@ -1659,11 +1720,9 @@ impl Host {
 			Error::with_detail(sys::ERR_IO, format!("drawing durable swiss entropy failed: {error}"))
 		})?;
 		let mut behavior = make();
-		let cell = Box::into_raw(Box::new(ActorCell {
-			behavior: RefCell::new(outcome_behavior(move |verb, args| behavior(verb, args))),
-			context: self.shared.retained_context().expect("every Host owns a Context"),
-			diagnostic_id: self.shared.diagnostic_id(),
-		}));
+		let cell = self
+			.shared
+			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
 		let mut swiss = [0u8; 64];
 		let rc = unsafe {
 			ffi::pancake_host_publish_durable(
@@ -1824,10 +1883,13 @@ mod tests {
 			let host = Host::new_host();
 			let dropped = Rc::new(Cell::new(false));
 			let task_dropped = Rc::clone(&dropped);
-			assert!(host.shared.spawn_dial_task(1, move |_host| async move {
-				let _probe = DropProbe(task_dropped);
-				std::future::pending::<()>().await;
-			}));
+			assert!(host
+				.shared
+				.spawn_dial_task(1, move |_host| async move {
+					let _probe = DropProbe(task_dropped);
+					std::future::pending::<()>().await;
+				})
+				.unwrap());
 			tokio::task::yield_now().await;
 
 			host.shared.cancel_dial_task(1).await.unwrap();
@@ -1845,9 +1907,12 @@ mod tests {
 		let local = tokio::task::LocalSet::new();
 		local.block_on(&runtime, async {
 			let host = Host::new_host();
-			assert!(host.shared.spawn_dial_task(1, move |_host| async move {
-				panic!("dial executor panic");
-			}));
+			assert!(host
+				.shared
+				.spawn_dial_task(1, move |_host| async move {
+					panic!("dial executor panic");
+				})
+				.unwrap());
 			tokio::task::yield_now().await;
 			tokio::task::yield_now().await;
 

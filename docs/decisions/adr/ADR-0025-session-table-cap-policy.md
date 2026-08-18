@@ -106,11 +106,12 @@ Two adjacent accumulators are bounded but do **not** project to
   `resource_exhausted` as a public wire kind, distinct from `queue_cap_exceeded`
   and `handoff_replay` ([ADR-0009](ADR-0009-three-party-handoff-substrate.md)).
 - Evidence: per-cap refusals in
-  [`test/session/session_test.zig`](../../../test/session/session_test.zig), the
+  [`test/session/`](../../../test/session/) (`answer_test.zig`,
+  `grant_test.zig`, `resolver_test.zig`), the
   five-error to `resource_exhausted` projection in
   [`test/engine/abort_projection_test.zig`](../../../test/engine/abort_projection_test.zig),
   and the Goblins-aligned `op_abort_resource_exhausted.bin` fixture asserted in
-  [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig).
+  [`test/codec/syrup/oracle_test.zig`](../../../test/codec/syrup/oracle_test.zig).
 
 ## Inbound nesting-depth cap
 

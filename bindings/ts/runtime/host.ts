@@ -22,7 +22,6 @@ import {
 	HOST_DURABLE_SWISS_LEN,
 	INTERNAL,
 	INVALID_ARGUMENT,
-	LIFECYCLE_CLOSED,
 	NOT_FOUND,
 	OK,
 	TIMEOUT,
@@ -40,7 +39,7 @@ import {
 	type FeatureSet,
 	Ref,
 } from "./value.ts";
-import { encodeArgs, refStruct } from "./codec.ts";
+import { encodeArgs, refStruct } from "./abi_value.ts";
 import {
 	type BehaviorEntry,
 	insideTurn,
@@ -55,7 +54,13 @@ import { parkActions, runAction } from "./action.ts";
 import { HostGc } from "./gc.ts";
 import { type Locator, withOwnedLocator } from "./locator.ts";
 import type { Connector } from "./transport.ts";
-import { type CloseOptions, encodeCloseOptions, monotonicNowMs } from "./lifecycle.ts";
+import {
+	type CloseOptions,
+	encodeCloseOptions,
+	lifecycleClosed,
+	monotonicNowMs,
+	releaseConsumed,
+} from "./lifecycle.ts";
 
 // One encoder/decoder pair for the whole module: both are stateless here.
 const utf8Encoder = new TextEncoder();
@@ -87,18 +92,23 @@ function releaseHostState(state: HostFinalizerState, checked = false): void {
 	if (rc !== OK) {
 		// Capture the archive-local diagnostic before reporting can overwrite it.
 		const failure = new PancakeError(rc, hostLastError() ?? `native Host release failed (code ${rc})`);
+		const consumed = releaseConsumed(rc);
 		if (!checked && state.context != null) {
 			recordCallerlessFailure(state.context, {
 				layer: "binding",
 				scope: "host",
 				scopeId: state.diagnosticId,
 				operation: "host.finalizer.release",
-				primaryName: "HostReleaseRefused",
+				primaryName: consumed ? "HostReleaseFailed" : "HostReleaseRefused",
 				primaryResult: rc,
 				primaryMessage: failure.detail ?? failure.message,
 			});
 		}
-		refusedHostFinalizers.add(state);
+		// INVALID_ARGUMENT is the only pre-consumption refusal. Every other
+		// result is the outcome of a completed native teardown, so retaining its
+		// raw pointer would turn an exact cleanup failure into a dangling handle.
+		if (consumed) retireHostFinalizerState(state);
+		else refusedHostFinalizers.add(state);
 		if (checked) throw failure;
 		return;
 	}
@@ -150,6 +160,7 @@ type VowState =
 
 interface VowRow {
 	state: VowState;
+	trackGc: boolean;
 }
 
 /** Cap on stored outcomes whose vow is never awaited, so the store cannot grow
@@ -194,6 +205,10 @@ export class Host {
 	// reachable for teardown, and `exporterFor` maps a redeemed reply's route
 	// (a PancakeHostSession pointer) back to its `Session` wrapper.
 	readonly #sessions = new Map<Ptr, Session>();
+	// Physical channel closes can outlive the native Session pointer that
+	// initiated them. Keep their promises at the Host barrier after the wrapper
+	// unregisters, so Host close cannot lose a late transport refusal.
+	readonly #sessionRetirements = new Set<Promise<void>>();
 	// The vow table the drain's SETTLE/FAIL arms settle.
 	readonly #vows = new Map<bigint, VowRow>();
 	// A loop drive failure outlives table teardown so promises observed after
@@ -609,7 +624,7 @@ export class Host {
 			const rc = hostS.pancake_host_close_progress(raw, monotonicNowMs(), ab(state));
 			if (rc !== OK && rc !== TIMEOUT) checkHost(rc);
 			timedOut ||= rc === TIMEOUT;
-			if (new DataView(state.buffer).getUint32(0, true) === LIFECYCLE_CLOSED) break;
+			if (lifecycleClosed(new DataView(state.buffer).getUint32(0, true))) break;
 			// A spent grace escalates inside the progress call and queues
 			// teardown actions; drain them before parking. A drain that ran
 			// work signals the armed waiter, so the wait below returns at once
@@ -622,8 +637,20 @@ export class Host {
 		// with the host.
 		traceDrainHost(raw);
 		this.drainParkedReleases();
-		if (this.#finalizerState.raw === raw) releaseHostState(this.#finalizerState, true);
-		for (const session of [...this.#sessions.values()]) session.nativeOwnerDidRelease();
+		let failure: unknown | null = timedOut
+			? new PancakeError(TIMEOUT, "finish close exhausted its grace period")
+			: null;
+		if (this.#finalizerState.raw === raw) {
+			try {
+				releaseHostState(this.#finalizerState, true);
+			} catch (error) {
+				// A still-live state means native release refused before consuming
+				// the Host. Preserve every wrapper and session for an explicit retry.
+				if (this.#finalizerState.raw === raw) throw error;
+				failure = failure === null ? error : retainSecondaryFailure(failure, error);
+			}
+		}
+		const sessionRetirements = this.#joinSessionRetirements([...this.#sessions.values()]);
 		this.#sessions.clear();
 		hostFinalizer.unregister(this);
 		traceDetachHost(raw);
@@ -634,7 +661,35 @@ export class Host {
 		this.#displacedGiftables.length = 0;
 		this.hosted.clear();
 		this.#vows.clear();
-		if (timedOut) throw new PancakeError(TIMEOUT, "finish close exhausted its grace period");
+		try {
+			await sessionRetirements;
+		} catch (error) {
+			failure = failure === null ? error : retainSecondaryFailure(failure, error);
+		}
+		if (failure !== null) throw failure;
+	}
+
+	/** Retire every channel the consumed native owner made unreachable. The
+	 * first physical-close failure stays primary and every later one is attached
+	 * in observation order; wrapper retirement itself never short-circuits. */
+	async #joinSessionRetirements(sessions: readonly Session[]): Promise<void> {
+		let failure: unknown | null = null;
+		// Claim the return directly as well as the Host registry. The registry is
+		// what preserves a session that unregistered before this snapshot; the
+		// return is the local authority for every session still present in it.
+		for (const session of sessions) {
+			this.#sessionRetirements.add(session.nativeOwnerDidRelease());
+		}
+		while (this.#sessionRetirements.size !== 0) {
+			const batch = [...this.#sessionRetirements];
+			const outcomes = await Promise.allSettled(batch);
+			for (const retirement of batch) this.#sessionRetirements.delete(retirement);
+			for (const outcome of outcomes) {
+				if (outcome.status !== "rejected") continue;
+				failure = failure === null ? outcome.reason : retainSecondaryFailure(failure, outcome.reason);
+			}
+		}
+		if (failure !== null) throw failure;
 	}
 
 	async #joinActionDrains(): Promise<void> {
@@ -675,12 +730,13 @@ export class Host {
 		traceDrainHost(this.#raw);
 	}
 
-	/** Commit wrapper teardown after the driver released its Host. */
-	finishLoopTeardown(): void {
+	/** Commit wrapper teardown after the driver released its Host, joining every
+	 * loop channel's terminal promise before the driver's close barrier settles. */
+	async finishLoopTeardown(): Promise<void> {
 		if (this.#raw === NULL) return;
 		const raw = this.#raw;
 		traceDetachHost(raw);
-		for (const session of [...this.#sessions.values()]) session.nativeOwnerDidRelease();
+		const sessionRetirements = this.#joinSessionRetirements([...this.#sessions.values()]);
 		this.#sessions.clear();
 		retireHostFinalizerState(this.#finalizerState);
 		this.#vows.clear();
@@ -691,6 +747,7 @@ export class Host {
 		this.#connectors.clear();
 		this.#displacedGiftables.length = 0;
 		this.hosted.clear();
+		await sessionRetirements;
 	}
 
 	async [Symbol.asyncDispose](): Promise<void> {
@@ -938,6 +995,20 @@ export class Host {
 		this.#sessions.set(ptr, session);
 	}
 
+	/** Retain one physical channel-close barrier independently of the native
+	 * Session address. Binding-internal: Session registers exactly once when it
+	 * creates the close promise. */
+	trackSessionRetirement(retirement: Promise<void>): void {
+		// A standalone Session close has its own caller and remains authoritative.
+		// Host/loop teardown starts by setting this latch; only then does the Host
+		// become the surviving owner that must join an unregistered session.
+		if (!this.#releaseStarted) return;
+		this.#sessionRetirements.add(retirement);
+		// The close barrier claims the result below. Mark it handled meanwhile so
+		// a synchronous rejection cannot become a process-global runtime event.
+		void retirement.catch(() => {});
+	}
+
 	/** Stop tracking this released wrapper. Native addresses may be recycled;
 	 * stale teardown must never delete a newer Session registered at the same
 	 * address. Binding-internal. */
@@ -958,6 +1029,13 @@ export class Host {
 		const existing = this.#sessions.get(ptr);
 		if (existing !== undefined) return existing;
 		return this.#driverLoop?.adoptSession(ptr) ?? null;
+	}
+
+	/** Apply the ingress Session's distributed-GC opt-in before application
+	 * behavior receives newly projected arguments. Binding-internal. */
+	trackTurnArguments(session: object | null, args: Argument[]): void {
+		if (!(session instanceof Session)) return;
+		for (const value of args) session.trackGcArgument(value);
 	}
 
 	/** The live `Session` homing remote `ref`, or null for a local, stale,
@@ -1006,8 +1084,8 @@ export class Host {
 	/** Record a freshly minted vow so the drain can route its completion. Must
 	 * run in the same synchronous block as the minting FFI call, so no drain
 	 * can pop the completion first. Binding-internal. */
-	vowMinted(vow: bigint): void {
-		this.#vows.set(vow, { state: { tag: "minted" } });
+	vowMinted(vow: bigint, trackGc = false): void {
+		this.#vows.set(vow, { state: { tag: "minted" }, trackGc });
 	}
 
 	/** The vow's eventual outcome: the fulfilled wire value, or a rejection —
@@ -1043,6 +1121,7 @@ export class Host {
 	settleVow(vow: bigint, outcome: { ok: Argument } | { err: PancakeError }): void {
 		const row = this.#vows.get(vow);
 		if (row === undefined) return; // an outcome nobody registered for
+		if (row.trackGc && "ok" in outcome) this.#gc.trackArgument(outcome.ok);
 		if (row.state.tag === "awaited") {
 			const waiter = row.state.waiter;
 			this.#vows.delete(vow);
@@ -1072,8 +1151,10 @@ export class Host {
 		this.#parkedReleases.push(release);
 	}
 
-	trackGcImport(ref: Ref): Ref {
-		return this.#gc.trackImport(ref);
+	/** Track every newly projected capability occurrence in an application
+	 * value. Binding-internal; Session decides whether its opt-in applies. */
+	trackGcArgument(value: Argument): Argument {
+		return this.#gc.trackArgument(value);
 	}
 
 	drainGc(): void {

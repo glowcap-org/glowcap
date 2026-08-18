@@ -93,7 +93,7 @@ export function dirId(locator: string): DirId {
  * one at all. Two directories sharing a colour asserts a sameness that is not
  * there, and five coloured beside three grey asserts it just as loudly, so the
  * mark is either complete or absent. */
-export const DIR_MARKS = 5;
+const DIR_MARKS = 5;
 
 /** Whether the directories this tab holds wear their marks.
  *
@@ -101,9 +101,25 @@ export const DIR_MARKS = 5;
  * length nothing is marked at all. Asked here rather than counted at each place
  * that draws one, because the rail and the card describing a directory have to
  * agree: a card wearing a colour the rail is not showing would be naming a
- * distinction the reader cannot see anywhere else. */
+ * distinction the reader cannot see anywhere else. Which colour that is, when
+ * they do mark, is `dirMark`. */
 export function dirsAreMarked(dirs: ReadonlyMap<DirId, DirView>): boolean {
 	return dirs.size > 1 && dirs.size <= DIR_MARKS;
+}
+
+/** Which `data-dir` a surface wears for this directory.
+ *
+ * This page's own directory is not a slot in the ramp: it is the product, and
+ * it wears `home` (teal) wherever it is marked. A foreign directory wears its
+ * slot. One function so the rail, the join card, and the directory card cannot
+ * disagree. */
+export function dirMark(
+	dir: DirId,
+	home: DirId | null,
+	slot: number | null | undefined,
+): "home" | string | undefined {
+	if (home !== null && dir === home) return "home";
+	return slot != null ? String(slot) : undefined;
 }
 
 /** One human request to enter a room. `locator` is empty for the directory
@@ -113,7 +129,19 @@ export function dirsAreMarked(dirs: ReadonlyMap<DirId, DirView>): boolean {
 export interface RoomDestination {
 	room: string;
 	locator: string;
+	/** Make the room private: opened by reference, in no list, its name only a
+	 * label. Offered on the join card so a reader can arrive at a directory —
+	 * their own or a foreign one — and go private without first announcing
+	 * themselves in a listed room. */
+	hidden?: boolean;
 }
+
+/** Who a system banner is for.
+ *
+ * `here` is this tab talking to itself — a refused command, `/help`, a send
+ * that never left. `shared` is something everybody in this conversation can
+ * see: a join, a leave, a topic change the room announced. */
+export type SysAudience = "here" | "shared";
 
 /** One message in a conversation's history.
  *
@@ -155,9 +183,36 @@ export type Item =
 		 * ordinary text-only case. */
 		attachments?: readonly AttachmentView[];
 	}
-	| { kind: "sys"; id: number; text: string; at: number }
+	/** A line this tab wrote to itself, or a line the room (or the other
+	 * person on a direct message) said about the conversation. The log draws
+	 * both as banners; `audience` is what tells a reader which is which. */
+	| { kind: "sys"; id: number; text: string; at: number; audience: SysAudience }
 	| { kind: "action"; id: number; from: string; text: string; at: number };
 export type ChatItem = Extract<Item, { kind: "chat" }>;
+
+/** Whether the reader does not hear this line, given who they are ignoring.
+ *
+ * One answer for every consumer — the log's draw filter, the unread count, and
+ * the notification gates — because three copies of this rule drifted apart is
+ * exactly the shape of bug it exists to end: a line that never draws must not
+ * light a badge or ring a bell either.
+ *
+ * Never the reader's own line. Ignoring is about not hearing somebody else,
+ * and a name is a claim a room grants and takes back — so the reader's own
+ * current name can sit in their ignore list, put there against a previous
+ * holder or by a slip, and their own lines still draw, count, and confirm.
+ * Filtering them too is how a tab once became a silent failure: typed, sent,
+ * delivered to everybody else, and invisible only at home. */
+export function silencedByIgnore(item: Item, ignored: ReadonlySet<string>): boolean {
+	if (item.kind === "sys") return false;
+	return silencedFrom(item.from, item.kind === "chat" && item.mine, ignored);
+}
+
+/** The same rule for a consumer holding a sender rather than an item: the
+ * notification gates and the typing indicator ask before any item exists. */
+export function silencedFrom(from: string, mine: boolean, ignored: ReadonlySet<string>): boolean {
+	return !mine && ignored.has(from.toLowerCase());
+}
 
 /** Where a conversation stands with its reader.
  *
@@ -224,6 +279,50 @@ export function membersHere(members: ReadonlyMap<string, Standing>): number {
 	return here;
 }
 
+/** The rooms' word on who has stepped away, and why, per directory.
+ *
+ * A standing is room-scoped on the wire — `away` is something a member says to
+ * a room — so a direct line, which has no roster of its own, can only relay
+ * what the shared rooms on its directory say. Away everywhere they are online
+ * is the nearest observable thing to the person having stepped away; present
+ * in any one room means the person is at their desk, whatever another room
+ * has been told, so a present word beats any reason. Keyed by directory and
+ * then lowercased nick, because the same nick on another directory is a
+ * different person. An entry holds the reason, or null for someone seen
+ * present; a name with no entry has no roster word at all.
+ *
+ * One walk over every roster serves every direct row and the open
+ * conversation's header, so callers derive it once per `convs` value (it is a
+ * new map each store change) rather than re-walking per row. */
+export function awayByPeer(convs: ReadonlyMap<string, Conv>): ReadonlyMap<DirId, ReadonlyMap<string, string | null>> {
+	const dirs = new Map<DirId, Map<string, string | null>>();
+	for (const conv of convs.values()) {
+		if (conv.type !== "room") continue;
+		let words = dirs.get(conv.dir);
+		if (words === undefined) {
+			words = new Map();
+			dirs.set(conv.dir, words);
+		}
+		for (const [member, standing] of conv.members) {
+			if (!standing.online) continue;
+			const name = member.toLowerCase();
+			if (standing.away === "") words.set(name, null);
+			else if (!words.has(name)) words.set(name, standing.away);
+		}
+	}
+	return dirs;
+}
+
+/** One person's word out of `awayByPeer`'s answer: the reason they are away,
+ * or null while they are here or no shared roster says. */
+export function awayOf(
+	words: ReadonlyMap<DirId, ReadonlyMap<string, string | null>>,
+	dir: DirId,
+	name: string,
+): string | null {
+	return words.get(dir)?.get(name.toLowerCase()) ?? null;
+}
+
 export type Conv =
 	| (ConvBase & {
 		type: "room";
@@ -260,6 +359,27 @@ export type Conv =
 		 * can hold different sets and neither client contains a rank. Empty
 		 * against a room that offers none, which is what an older room is. */
 		grants: ReadonlySet<string>;
+		/** Whether this room is reached by a reference this tab holds rather than
+		 * by its name.
+		 *
+		 * A private room has no name anybody can enter, so this conversation
+		 * exists exactly as long as the reference does: it cannot be re-entered
+		 * after the connection carrying it goes, the way a named room is. Its
+		 * `id` is a label two rooms may share, which is why its key is minted
+		 * here rather than derived from the name. */
+		held: boolean;
+		/** This room's own word for where this reader stands, or null while the
+		 * room follows the directory (and through it, the reader).
+		 *
+		 * The innermost of the three levels `standingFor` reads. What the roster
+		 * shows is the room's word, which is right: a standing is the room's to
+		 * state. But a membership is a connection's, so a reconnect hands this
+		 * reader a fresh one with nobody away — they are back in front of everyone
+		 * else while their screen still says they stepped out, and neither side is
+		 * told. This is the intention rather than the standing: kept because it
+		 * outlives the membership that carried it, and said again to the room this
+		 * tab re-enters. */
+		standing: string | null;
 	})
 	| (ConvBase & {
 		type: "dm";
@@ -282,6 +402,18 @@ export type DmConv = Extract<Conv, { type: "dm" }>;
  * treatment, so an error can never accidentally wear a working spinner. */
 export interface Banner {
 	kind: "working" | "notice" | "error";
+	text: string;
+}
+
+/** How a page notice reads. The icon and colour carry the kind; the words do
+ * not restate it. */
+export type ToastKind = "success" | "failure" | "warning";
+
+/** One notice in the page stack. `id` is tab-local and unique for as long as
+ * the notice is up, which is what the stack keys on and what dismiss names. */
+export interface ToastNotice {
+	id: number;
+	kind: ToastKind;
 	text: string;
 }
 
@@ -346,6 +478,98 @@ export interface DirView {
 	 * all — not from the interface, and not from the person who could not reach
 	 * them either. */
 	dmUnreachable: string;
+	/** This directory's own word for where this reader stands, or null while it
+	 * follows the reader's own. The middle of the three levels `standingFor`
+	 * reads, and the one an IRC client would call the whole answer: away is a
+	 * thing you are on a server, in every channel on it at once. */
+	standing: string | null;
+}
+
+/** A room somebody has offered this tab, waiting to be taken up or let go.
+ *
+ * Two ways an offer arrives, told apart by `way` because their lifetimes
+ * differ and the reader deserves the truth about each:
+ *
+ *   `handed`  the room itself, a live reference the sender's runtime carried
+ *             across as a handoff. It lives as long as live references live —
+ *             the sessions under it — so one that has gone stale is reported
+ *             when taking it up fails, and the answer is to ask for another.
+ *             The reference is held in `net.ts` with the connections; this row
+ *             is what the rail draws.
+ *   `link`    durable data the room minted (a sturdyref), which survives every
+ *             connection under it. Taking it up redeems the string.
+ *
+ * Declining a handed room releases the reference; declining a link forgets a
+ * string. */
+export interface Invitation {
+	/** This tab's name for the offer, which is also how it is answered. */
+	id: string;
+	/** The directory whose line it arrived on, which is where it is drawn and
+	 * whose session redeems a link. */
+	dir: DirId;
+	way: "handed" | "link";
+	/** What the person offering it calls the room. A label, not a way in: two
+	 * private rooms may share one. */
+	label: string;
+	/** Who offered it. */
+	from: string;
+	/** The sturdyref that is a `link` offer, and empty for a handed room. */
+	link: string;
+}
+
+import type { DiagnosticRow, ListenerRow } from "../../lib/room_client.ts";
+
+/** One named object the inspect capability reported on this directory. */
+export type { DiagnosticRow } from "../../lib/room_client.ts";
+
+/** One live listener the admin capability reported on this directory. */
+export type { ListenerRow } from "../../lib/room_client.ts";
+
+/** The operations capabilities the page knows how to hold. Advanced keeps one
+ * toggle per capability; the Operations modal draws one pane per held one.
+ * The order here is the tab order when more than one is held. */
+export const OPS_CAPS = ["listeners", "diagnostics", "viz"] as const;
+export type OpsCap = (typeof OPS_CAPS)[number];
+
+/** What this tab knows about its own timeline publishing while it holds the
+ * viz capability: where it publishes, and whether the socket is up right now.
+ * Unlike its two siblings this capability is presented to the timeline
+ * endpoint rather than fetched on the directory session, so it survives a
+ * directory reconnect and dies only by the reader's drop or the endpoint's
+ * refusal. */
+export interface VizPublishState {
+	/** The endpoint this tab publishes to: Settings' URL, or the page's own. */
+	readonly url: string;
+	/** Whether the publish socket is connected; false while it redials. */
+	readonly connected: boolean;
+}
+
+/** Which operations capabilities this tab holds now.
+ *
+ * Never stored: possession's one authority is whether each capability's rows
+ * are in the store, which the data layer sets on take and clears on drop or
+ * reconnect. The Advanced toggles, the Operations control, and the modal's
+ * panes are all derived from this, so none of them can disagree with the
+ * capability actually being in hand. */
+export interface OpsHeld {
+	readonly listeners: boolean;
+	readonly diagnostics: boolean;
+	readonly viz: boolean;
+}
+
+/** Derive possession from the three row fields. */
+export function opsHeldOf(
+	listeners: readonly ListenerRow[] | null,
+	diagnostics: readonly DiagnosticRow[] | null,
+	viz: VizPublishState | null,
+): OpsHeld {
+	return { listeners: listeners !== null, diagnostics: diagnostics !== null, viz: viz !== null };
+}
+
+/** Whether any operations capability is held, which is what makes the
+ * Operations control appear. One reader for the head, the modal, and App. */
+export function anyOpsHeld(held: OpsHeld): boolean {
+	return held.listeners || held.diagnostics || held.viz;
 }
 
 /** How the foot of the sidebar reads the connection.
@@ -355,3 +579,8 @@ export interface DirView {
  * carried in one field, "connecting" was being written over a healthy session
  * and the dot went amber while everything worked. */
 export type SessionPhase = "connecting" | "connected" | "disconnected" | "reconnecting";
+
+/** Which panel Settings is showing. Locators is the ordinary opening; Advanced
+ * holds preferences that save by reload and the operations toggles. Help and
+ * Operations are their own modals, not panels here. */
+export type SettingsTab = "overview" | "settings";

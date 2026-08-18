@@ -7,7 +7,7 @@
 import { formatPeerUri } from "@pancake/runtime";
 import { roomsHost } from "../lib/locator.ts";
 import * as iroh from "@pancake/iroh";
-import { runDmHandoff } from "../lib/dm_handoff.ts";
+import { runDmHandoff } from "./dm_handoff.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 
 runDmHandoff({

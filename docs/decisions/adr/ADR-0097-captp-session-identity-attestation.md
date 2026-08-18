@@ -61,7 +61,7 @@ driver), and every session on those transports installs
 `Peer.requirePartnerAttestation`, so a key-designator location claim without
 a verifying credential is refused at the pre-open chokepoint — before any
 later frame in the same chunk, held byte-fed by the one-chunk scenario in
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig).
+[`test/driver/core_host/`](../../../test/driver/core_host/).
 iroh's dial keeps its designator pin and its accept paths (blocking listener
 and completion backend) read the QUIC-authenticated remote endpoint id from
 the new sidecar export and install `Peer.bindVerifiedTransportKey`: a hello
@@ -93,9 +93,9 @@ authenticated identity) instead of deriving a side name from the durable key
 and asking the session-incarnation index, which is the lookup that would
 silently open a duplicate session per dial once the two identities diverge.
 Evidence: the provenance cases in
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig),
+[`test/driver/core_host/`](../../../test/driver/core_host/),
 the C-tier report in
-[`test/c_abi/host_test.zig`](../../../test/c_abi/host_test.zig), and the
+[`test/c_abi/host/authority_test.zig`](../../../test/c_abi/host/authority_test.zig), and the
 per-binding assertions in the keyed-tcp restart proofs.
 
 Migration steps 4 and 5 ship at the native tier, together because fresh keys
@@ -135,7 +135,7 @@ this decision removes. Every binding supplies a root — Rust through
 through `secrets`, Racket through `crypto-random-bytes` — each at its own
 entropy boundary, because the library has none. Held by the two-session
 byte-fed scenario in
-[`test/c_abi/host_test.zig`](../../../test/c_abi/host_test.zig), which proves
+[`test/c_abi/host/authority_test.zig`](../../../test/c_abi/host/authority_test.zig), which proves
 two sessions on one host sign with different keys and neither is the durable
 identity.
 
@@ -150,7 +150,7 @@ argument, so durable-key reuse is no longer a representable constructor mode. Th
 resolver is also the only path a withdrawal takes to a gift registry, which is
 the whole of "must not consume a new deposit with the same gift id": an
 unresolvable certificate reaches no registry at all. Held by
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig).
+[`test/driver/core_host/`](../../../test/driver/core_host/).
 
 Replaying a whole captured keyed-TCP hello stays outside this guarantee. The
 hello signature covers a static locator claim, so fresh keys isolate honest
@@ -181,7 +181,7 @@ The index is keyed by the durable key's own bytes rather than its hex
 text form, so a row can be written from the borrowed hello view during the
 pre-apply duplicate check without retaining bytes the frame owns. Both halves
 are held by
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig): raw
+[`test/driver/core_host/`](../../../test/driver/core_host/): raw
 keyed-TCP keeps both crossed sessions because the locator claims authenticate
 nothing, while an iroh-shaped pair with channel proof on all four legs collapses
 to the same survivor on both ends. All four connections carry distinct session

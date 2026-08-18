@@ -9,7 +9,7 @@
 
 import { DURABLE_SWISS_ENTROPY_BYTES } from "@pancake/runtime";
 import { ROOM_LINKS_FULL, RoomError } from "../lib/errors.ts";
-import { MAX_ROOM, MAX_ROOM_LINKS } from "../lib/limits.ts";
+import { MAX_DURABLE_ROOM, MAX_ROOM_LINKS } from "../lib/limits.ts";
 
 const FILE = "rooms.json";
 const VERSION = 1;
@@ -55,7 +55,7 @@ function parseState(text: string): DiskState {
 	if (
 		!Array.isArray(row.linkedRooms) ||
 		row.linkedRooms.length > MAX_ROOM_LINKS ||
-		row.linkedRooms.some((name) => typeof name !== "string" || name.length === 0 || name.length > MAX_ROOM)
+		row.linkedRooms.some((name) => typeof name !== "string" || name.length === 0 || name.length > MAX_DURABLE_ROOM)
 	) {
 		throw new Error("rooms state has invalid linked room names");
 	}
@@ -180,7 +180,7 @@ export class RoomServerState {
  * because a sturdyref is redeemed by whoever holds it — including a peer whose
  * session opened after the link was minted, and who never asks the directory
  * anything. The turn the redemption arrives on names the caller. */
-export type PublishRoomLink = (name: string, entropy: Uint8Array) => string;
+type PublishRoomLink = (name: string, entropy: Uint8Array) => string;
 
 /** The stable-name index over RoomServerState: which room names this server has
  * made durable, and the swiss each of them answers to. */
@@ -204,6 +204,17 @@ export class RoomLinks {
 			links.#swiss.set(name.toLowerCase(), publish(name, await state.entropyFor(name)));
 		}
 		return links;
+	}
+
+	/** The durable names this server has published, with the swiss each answers
+	 * to. The inspect capability lists these as real OCapN names, not as labels. */
+	named(): ReadonlyArray<{ name: string; swiss: string }> {
+		const out: { name: string; swiss: string }[] = [];
+		for (const name of this.#state.linkedRooms()) {
+			const swiss = this.#swiss.get(name.toLowerCase());
+			if (swiss !== undefined) out.push({ name, swiss });
+		}
+		return out;
 	}
 
 	/** Persist and publish one room link, answering the same swiss for a name

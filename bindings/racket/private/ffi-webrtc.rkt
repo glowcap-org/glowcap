@@ -55,6 +55,8 @@
                       "webrtc transport unavailable: could not load libpancake_net_transport_webrtc from "
                       "PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. "
                       "Build it with `zig build webrtc-abi` (needs cargo).")))))
-  (webrtc-ffi-table L _PancakeWebrtcConfig-pointer))
+  (define table (webrtc-ffi-table L _PancakeWebrtcConfig-pointer))
+  (require-archive-fingerprint! 'webrtc (hash-ref table 'archive-fingerprint) WEBRTC-ARCHIVE-FINGERPRINT)
+  table)
 
 (define (webrtc-fn key) (hash-ref (webrtc-ffi) key))

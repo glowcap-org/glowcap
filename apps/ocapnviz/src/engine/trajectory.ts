@@ -45,15 +45,13 @@
 import type { PeerDefinition, SessionDefinition, TimelineDocument, TimelineEvent } from "./timeline.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 import type { KeyframeTrack } from "./temporal/keyframes.ts";
+import { PROFILE_OPTIONS, SessionState, UNNAMED_PROFILE } from "../schema/topology.ts";
 import {
   type EndpointAttachment,
   endpointAttachment,
   EndpointAttribution,
-  PROFILE_OPTIONS,
   type SessionSide,
-  SessionState,
-  UNNAMED_PROFILE,
-} from "../schema/topology.ts";
+} from "../schema/session-end.ts";
 
 /** The lanes whose entities can carry single-moment observations,
  *  named as `doc.entities` names its categories. */
@@ -187,7 +185,7 @@ export const PEER_TRAJECTORY: Readonly<
     // The flavor a peer is known by is as temporal as its name: a peer
     // drawn before anyone could say what it runs changes at the moment
     // somebody can, rather than rewriting its whole life. A live feed
-    // reaches that verdict too — `StageLedger.#learnProfile` states one
+    // reaches that verdict too — `LedgerNames.learnProfile` states one
     // when a producer speaks for an end it had been holding a place on.
     // The offer is `PROFILE_OPTIONS`, the same list the Details picker
     // reads, because "what a profile picker offers" is one fact and a
@@ -231,7 +229,7 @@ export type SessionProperty = "state" | SessionSide;
  *  The lifecycle is one word. An end is a PAIR — the peer and what backed
  *  the end attaching to it — because attribution and identity arrive
  *  together and a value that named only the peer would drop half of what
- *  happened (`EndpointAttachment` in `schema/topology.ts` argues it).
+ *  happened (`EndpointAttachment` in `schema/session-end.ts` argues it).
  *
  *  Both spellings live in one union rather than making this table generic,
  *  because the generic readers here take a property they cannot name and a

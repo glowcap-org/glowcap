@@ -1,5 +1,5 @@
 import { TimelineDocument } from "../engine/timeline.ts";
-import { endpointStageId } from "../schema/topology.ts";
+import { endpointStageId } from "../schema/session-end.ts";
 import { payloadOf, wireFrames } from "./wire-frames.ts";
 
 /**

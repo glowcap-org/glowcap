@@ -14,7 +14,6 @@
 const std = @import("std");
 const socket_tcp = @import("completion/socket_tcp.zig");
 const keepalive = @import("completion/tcp_keepalive.zig");
-const stream_shim = @import("stream_shim.zig");
 
 /// Raw IPv4 TCP socket primitives, parameterized on a comptime OS: open a
 /// socket or a bound listener, pack a `sockaddr_in`, mark a fd nonblocking.
@@ -26,8 +25,11 @@ pub const sockaddrIn4 = socket_tcp.sockaddrIn4;
 pub const loopbackIp4 = socket_tcp.loopbackIp4;
 pub const openSocket = socket_tcp.openSocket;
 pub const openListener = socket_tcp.openListener;
+pub const openListenerReuseAddr = socket_tcp.openListenerReuseAddr;
+pub const BoundListener = socket_tcp.BoundListener;
 pub const setNonblocking = socket_tcp.setNonblocking;
 pub const sendNonblocking = socket_tcp.sendNonblocking;
+pub const receiveNonblocking = socket_tcp.receiveNonblocking;
 
 /// Opt-in TCP keepalive. `Keepalive{idle_sec,interval_sec,count}` is required in
 /// full when set (no silent OS default); `applyKeepalive` writes the sockopts.
@@ -36,7 +38,3 @@ pub const sendNonblocking = socket_tcp.sendNonblocking;
 pub const Keepalive = keepalive.Keepalive;
 pub const ConfigurationError = std.posix.SetSockOptError || keepalive.ApplyError;
 pub const applyKeepalive = keepalive.apply;
-
-/// The stream wrapper a transport-generic `Connection` borrows, pinned so its
-/// reader/writer interfaces hold a stable address.
-pub const Shim = stream_shim.Shim;

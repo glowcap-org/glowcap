@@ -19,6 +19,15 @@
 //! The listening bracket: pancake publishes its own onion service and a real
 //! Goblins client (`pancake-onion-caller.rkt`) dials in and calls a Greeter.
 //!
+//! The hinted-hello probe: pancake dials the same vat once more with a hello
+//! whose signed location carries the `pancake/*` profile hints, the exact
+//! bytes a pancake peer handed the pancake form of an onion address sends
+//! (ADR-0118). The pinned `captp.rkt` start-session arm is transport-blind
+//! and stores any claimed node, so the vat must open the session, ignore the
+//! hints, settle the baseline, and answer the echo. This is the live
+//! observation behind the finding that only the Goblins *dial* arm refuses a
+//! hinted onion locator, never the hello.
+//!
 //! Two things about the daemon are decided by the partner rather than by pancake.
 //! Its control endpoint takes no credential, because Goblins sends a bare
 //! `AUTHENTICATE`, so the check runs the narrower of the two peers' capabilities.
@@ -124,9 +133,21 @@ fn dialGoblinsVat(
         reaped = true;
         return err;
     };
+    std.debug.print("goblins-onion: the vat's echo cap answered across a circuit\n", .{});
+
+    probeHintedHello(io, &layers, allocator, service_id, swiss) catch |err| {
+        std.debug.print("goblins-onion: hinted-hello probe failed: {s}\n", .{@errorName(err)});
+        goblins_child.dumpChildStderr(io, "goblins-onion", &child);
+        child.kill(io);
+        reaped = true;
+        return err;
+    };
     child.kill(io);
     reaped = true;
-    std.debug.print("goblins-onion: the vat's echo cap answered across a circuit\n", .{});
+    std.debug.print(
+        "goblins-onion: the vat accepted a pancake-hinted hello, settled the baseline, and answered the echo\n",
+        .{},
+    );
 }
 
 /// Dial the vat's service, fetch its echo cap, and assert the payload survived.
@@ -153,10 +174,14 @@ fn callEcho(
     defer cv.deinit();
     std.debug.print("goblins-onion: session open with the vat over Tor\n", .{});
 
-    const echo = try cv.fetch(swiss);
+    try expectEchoAnswer(&cv, allocator, swiss);
+}
 
-    // The echo actor is `(lambda args args)`, so it answers with its argument
-    // list. Goblins invokes a cap positionally, so the call carries no verb.
+/// Fetch the vat's echo cap and require the payload back. The echo actor is
+/// `(lambda args args)`, so it answers with its argument list; Goblins
+/// invokes a cap positionally, so the call carries no verb.
+fn expectEchoAnswer(cv: *driver.BlockingSession, allocator: std.mem.Allocator, swiss: []const u8) !void {
+    const echo = try cv.fetch(swiss);
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const settled = try cv.call(
@@ -179,6 +204,52 @@ fn callEcho(
         },
         .give => return error.EchoWrongPayload,
     }
+}
+
+/// Dial the vat as though someone handed us the pancake form of its address
+/// — a hinted onion locator naming a partner that is actually Goblins — and
+/// require the full baseline conversation on the session that opens. The
+/// dial mints partner knowledge from the handed form exactly as a real one
+/// would, and the send path refuses a hello whose hints fail to state the
+/// configured preference (`validateExactAdvertisedProfile`), so an open
+/// session is proof the hinted hello reached the vat and was accepted, and
+/// the settled baseline is proof the vat ignored the hints rather than
+/// following them: misapplied knowledge degrades to the baseline, never to
+/// a failure.
+fn probeHintedHello(
+    io: std.Io,
+    netlayers: []const net.netlayer.Netlayer,
+    allocator: std.mem.Allocator,
+    service_id: []const u8,
+    swiss: []const u8,
+) !void {
+    var scaffold = try harness.PeerScaffold.initWith(allocator, frame_cap, .{
+        .captp_version = .next,
+        .codec = .capnp,
+    });
+    defer scaffold.deinit();
+
+    const handed_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_captp_version,
+        .value = .{ .string = model.CaptpVersion.next.wireString() },
+    }};
+    const locator: model.PeerLocator = .{
+        .transport = onion.transport_name,
+        .designator = service_id,
+        .hints = .{ .entries = &handed_hints },
+    };
+    var cv = try connectWhilePublishing(io, allocator, netlayers, &scaffold, locator);
+    defer cv.deinit();
+
+    const state = &scaffold.peer.session_state;
+    if (state.captp_version != .v1_0 or state.codec != .syrup) {
+        std.debug.print(
+            "goblins-onion: hinted-hello probe settled captp={s} codec={s}, expected the baseline\n",
+            .{ @tagName(state.captp_version), @tagName(state.codec) },
+        );
+        return error.HintedHelloSettledOffBaseline;
+    }
+    try expectEchoAnswer(&cv, allocator, swiss);
 }
 
 /// Bracket two: pancake publishes an onion service and the Goblins client dials.

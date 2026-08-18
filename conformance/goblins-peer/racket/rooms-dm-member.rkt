@@ -35,7 +35,7 @@
 ;; member's transport, so the caller picks a member this vat's netlayer speaks
 ;; to; `docs/boundaries.md` states the further limit on a keyed one.
 ;;
-;; Set `ROOMS_VIZ_URL` to a live timeline endpoint and this vat publishes its own
+;; Set `PANCAKE_ROOMS_VIZ_URL` to a live timeline endpoint and this vat publishes its own
 ;; trace there, so each direct-message connection appears beside the room's own
 ;; sessions, and disappears when the conversation is closed from either end.
 

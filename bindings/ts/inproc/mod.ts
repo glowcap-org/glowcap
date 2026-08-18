@@ -28,6 +28,7 @@ import {
 	checkDiagnosedCall,
 	checkedMaxFrameBytes,
 	codecId,
+	consumedReleaseFailure,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
@@ -111,7 +112,7 @@ export class Connection {
 				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
-						inprocS.pancake_inproc_conn_read_frame_with_diagnostic(
+						inprocS.pancake_inproc_conn_read_frame(
 							raw,
 							mf,
 							error,
@@ -134,7 +135,7 @@ export class Connection {
 		return this.#writes.run(frame, (owned) =>
 			this.#native.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
-					inprocS.pancake_inproc_conn_write_frame_with_diagnostic(
+					inprocS.pancake_inproc_conn_write_frame(
 						raw,
 						owned.argument(),
 						error,
@@ -159,12 +160,16 @@ export class Listener {
 			"inproc listener",
 			raw,
 			(p) => inprocS.pancake_inproc_listener_shutdown(p),
-			(p) =>
-				this.#releaseDiagnostic.check(
-					"listener release",
-					(error, cap, errorLen) =>
-						inprocS.pancake_inproc_listener_release_with_diagnostic(p, error, cap, errorLen),
-				),
+			async (p) => {
+				try {
+					await this.#releaseDiagnostic.check(
+						"listener release",
+						(error, cap, errorLen) => inprocS.pancake_inproc_listener_release(p, error, cap, errorLen),
+					);
+				} catch (error) {
+					consumedReleaseFailure(error);
+				}
+			},
 			(retirement) => this.#parent.retire(this, retirement),
 		);
 		if (!parent.adopt(this)) throw new Error("inproc netlayer is released");
@@ -191,7 +196,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
-					inprocS.pancake_inproc_accept_with_diagnostic(
+					inprocS.pancake_inproc_accept(
 						raw,
 						codecId(codec),
 						BigInt(frameLimit),
@@ -261,7 +266,7 @@ export class Netlayer {
 				"inproc",
 				"connect",
 				(error, cap, errorLen) =>
-					inprocS.pancake_inproc_connect_with_diagnostic(
+					inprocS.pancake_inproc_connect(
 						raw,
 						d,
 						BigInt(d.length),

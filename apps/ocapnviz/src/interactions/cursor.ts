@@ -1,5 +1,5 @@
 /**
- * Cursor derivation — implements § 10 of the interaction model.
+ * Cursor derivation — implements `docs/cursor.md`.
  *
  * THE cursor authority. Pure; no DOM access. Nothing else in the app decides
  * what the pointer looks like.
@@ -91,7 +91,7 @@ export type CursorContext = SurfaceGestureCtx & {
  * Injected because it is a fact about the DOCUMENT, and this module is pure
  * over `GestureContext`. With a pick already armed, the legal partners depend
  * on the sessions those two nodes are on, which no gesture context can see.
- * The host supplies `builder/helpers.ts`'s `twoClickAccepts` — the same
+ * The host supplies `builder/two-click.ts`'s `twoClickAccepts` — the same
  * statement the click path consults, so the pointer refuses exactly what the
  * click refuses.
  *
@@ -151,7 +151,7 @@ export function cursorFor(
         return "not-allowed";
       }
     }
-    // The tool's own cursor outranks the verb here — § 10 step 5 before step
+    // The tool's own cursor outranks the verb here — cursor.md step 5 before step
     // 6. The tool is what the user chose, and the node it is about to act on
     // is the last place to stop saying which tool that is: every authoring
     // tool would otherwise read `crosshair` at the exact moment of aiming.

@@ -149,6 +149,8 @@ typedef struct PancakeIrohConfig {
   uint32_t worker_threads;
 } PancakeIrohConfig;
 
+/* Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_IROH_ARCHIVE_FINGERPRINT before any other call. */
+uint64_t pancake_iroh_archive_fingerprint(void);
 /* Create an iroh netlayer (one bound endpoint) allocating through the library
    allocator. secret_seed/secret_seed_len is either a 32-byte Ed25519 secret key
    (borrowed) or empty (secret_seed_len == 0) for a fresh random key; any other
@@ -157,30 +159,35 @@ typedef struct PancakeIrohConfig {
    PANCAKE_ERR_INVALID_ARGUMENT / PANCAKE_ERR_NULL_POINTER) and the optional
    connect_timeout_ms (0 = pancake's own default). Binds the endpoint and arms the
    readiness loop, so the netlayer is immediately driveable through
-   pancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO (see pancake_iroh_last_error)
-   if the endpoint cannot bind or the loop cannot arm. Release with
-   pancake_iroh_netlayer_release after releasing every connection made from it. */
-int32_t pancake_iroh_netlayer_new(const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer);
-/* As pancake_iroh_netlayer_new, additionally copying the constructor thread's
-   last-error detail into caller-owned out_error storage before return. out_error_len
-   is required and receives the full diagnostic length; at most error_cap-1 bytes
-   are copied and NUL-terminated when error_cap is nonzero. Use this companion when
-   a foreign runtime dispatches construction to a worker thread. */
-int32_t pancake_iroh_netlayer_new_with_diagnostic(const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+   pancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO if the endpoint cannot bind or
+   the loop cannot arm. Release with pancake_iroh_netlayer_release after releasing
+   every connection made from it.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_iroh_netlayer_new(const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* As pancake_iroh_netlayer_new, allocating the netlayer, endpoint, and every
-   per-connection buffer through context. */
-int32_t pancake_iroh_netlayer_new_in(PancakeContext *context, const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer);
-/* As pancake_iroh_netlayer_new_in, additionally returning the constructor
-   thread's diagnostic through caller-owned storage; see
-   pancake_iroh_netlayer_new_with_diagnostic. */
-int32_t pancake_iroh_netlayer_new_with_diagnostic_in(PancakeContext *context, const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+   per-connection buffer through context.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_iroh_netlayer_new_in(PancakeContext *context, const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Close the endpoint without releasing the handle: subsequent dials fail and the
    readiness loop winds down. Idempotent. The shutdown lever for a host whose
    readiness wait parks on another thread. */
 void pancake_iroh_netlayer_close(PancakeIrohNetlayer *netlayer);
 /* Release the netlayer, its endpoint, and the runtime. Every connection made
-   from it must already be released. NULL is a no-op. */
-int32_t pancake_iroh_netlayer_release(PancakeIrohNetlayer *netlayer);
+   from it must already be released. NULL is a no-op.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_iroh_netlayer_release(PancakeIrohNetlayer *netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Write this endpoint's id — its Ed25519 public key, the dialable designator —
    into out as lowercase hex, and the byte count into out_len. cap must be at
    least the id length (64) or the call is PANCAKE_ERR_BUFFER_TOO_SMALL. No
@@ -267,7 +274,7 @@ int32_t pancake_iroh_transport_provider(PancakeIrohNetlayer *netlayer, PancakeTr
    sibling of pancake_last_error, reading libpancake_net_transport_iroh's own per-thread slot. A
    pancake_iroh_* call that returns PANCAKE_ERR_IO records its concrete cause here.
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0
-   queries the length. Returns the full message length, or 0 when none is set. */
+   queries the length. Returns the full message length, or 0 when none is set. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_iroh_last_error(uint8_t *out_buf, size_t cap);
 /* Clear the calling thread's iroh-transport last-error slot. */
 void pancake_iroh_clear_last_error(void);

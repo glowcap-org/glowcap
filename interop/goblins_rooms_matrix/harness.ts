@@ -68,7 +68,7 @@ class ChatPeer {
 		this.child = new Deno.Command("racket", {
 			args: ["-y", CHAT, locator, room, nick],
 			cwd: RACKET_DIR,
-			env: { ROOMS_VIZ_URL: vizUrl },
+			env: { PANCAKE_ROOMS_VIZ_URL: vizUrl },
 			stdin: "piped",
 			stdout: "piped",
 			stderr: "piped",
@@ -378,7 +378,7 @@ const web = new Deno.Command("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
-	env: { ROOMS_VIZ_PORT: String(vizPort) },
+	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "null",
 	// Read rather than inherited, because the trace capability is announced on
 	// this stream and a viewer needs it. `scrapeVizSturdyref` tees it onward, so

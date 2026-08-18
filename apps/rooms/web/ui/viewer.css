@@ -1,0 +1,177 @@
+/* ── The media viewer ─────────────────────────────────────────────────── */
+/* Over the whole interface, dismissed by the backdrop the way Settings is —
+   and with none of its chrome. Settings is a panel because it is a form with
+   fields and a title; a picture is the content, and a frame around it would
+   only take space from it. The bar rides a legibility gradient rather than a
+   surface, because the media behind it can be any colour. */
+.viewer {
+	position: fixed;
+	inset: 0;
+	/* Fill the window and stop there. The UA dialog is sized to its contents
+	   and capped just inside the viewport; neither is the right box for a
+	   picture that must fit the window. */
+	width: 100%;
+	height: 100%;
+	max-width: 100%;
+	max-height: 100%;
+	margin: 0;
+	border: 0;
+	color: inherit;
+	overflow: hidden;
+	place-items: stretch;
+	padding: 0;
+	background: color-mix(in srgb, #000 76%, transparent);
+	cursor: default;
+	opacity: 0;
+	transition:
+		opacity .18s ease,
+		overlay .18s ease allow-discrete,
+		display .18s ease allow-discrete;
+}
+.viewer[open] {
+	display: grid;
+	opacity: 1;
+}
+@starting-style {
+	.viewer[open] {
+		opacity: 0;
+	}
+}
+/* The picture rises the way the settings panel does; its ground does not, because
+   that ground is the whole screen and scaling it would show the page around its
+   edges. No blur either: the ground is opaque, so there is nothing behind it left
+   to see. The wait mark and the failure line are left out: one is already turning,
+   and the other is an error, which should arrive rather than make an entrance. */
+.viewer img,
+.viewer video {
+	max-width: 100%;
+	max-height: 100%;
+	width: auto;
+	height: auto;
+	min-width: 0;
+	min-height: 0;
+	object-fit: contain;
+	border-radius: 6px;
+	cursor: default;
+	opacity: 0;
+	transform: scale(.96);
+	transition: opacity .18s ease, transform .18s ease;
+	user-select: none;
+}
+.viewer[open] img,
+.viewer[open] video {
+	opacity: 1;
+	transform: none;
+}
+@starting-style {
+	.viewer[open] img,
+	.viewer[open] video {
+		opacity: 0;
+		transform: scale(.96);
+	}
+}
+.viewer::backdrop {
+	background: #000;
+}
+.viewer-stage {
+	display: grid;
+	/* `auto` tracks will not shrink below the file's own pixels, so
+	   `max-height: 100%` on the picture would be 100% of a box already as
+	   large as the file. `minmax(0, 1fr)` is the stage's size, and the
+	   picture's max then fits inside it. */
+	grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+	place-items: center;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	padding: 56px 20px 28px;
+	box-sizing: border-box;
+	overflow: hidden;
+	cursor: default;
+}
+.viewer-stage.viewer-image {
+	position: relative;
+}
+.viewer-stage.viewer-image img {
+	cursor: default;
+}
+.viewer-stage.viewer-image.is-oversized img {
+	cursor: zoom-in;
+}
+/* Actual size: one file pixel per CSS pixel, scrolled natively. Flex with
+   auto margins is the one layout that both centers a picture smaller than the
+   stage and lets a larger one scroll to every edge. */
+.viewer-stage.viewer-image.is-actual {
+	display: flex;
+	overflow: auto;
+}
+.viewer-stage.viewer-image.is-actual img {
+	max-width: none;
+	max-height: none;
+	min-width: auto;
+	min-height: auto;
+	margin: auto;
+	cursor: zoom-out;
+}
+.viewer-wait {
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	border: 3px solid rgba(255, 255, 255, 0.25);
+	border-top-color: #fff;
+	animation: attach-spin 720ms linear infinite;
+}
+.viewer-failure {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 9px;
+	max-width: 420px;
+	color: rgba(255, 255, 255, 0.92);
+	font-size: var(--type-body);
+	line-height: 1.5;
+	text-align: center;
+}
+@keyframes attach-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.viewer-wait {
+		animation: none;
+	}
+}
+.viewer-bar {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	/* Over the stage, which is positioned so actual size can scroll: without a
+	   layer of its own the stage would take the bar's clicks. */
+	z-index: 1;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 10px 14px 22px;
+	background: linear-gradient(180deg, color-mix(in srgb, #000 62%, transparent), transparent);
+	cursor: default;
+}
+.viewer-bar .name {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--type-ui);
+	color: rgba(255, 255, 255, 0.92);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.viewer-bar .icon-button:focus-visible {
+	outline: 2px solid #fff;
+	outline-offset: 1px;
+}
+
+/* Dropping a file: the whole conversation column is the target, so the hint
+   covers it rather than hanging off one edge. It is inert until a drag is
+   over the column, so it never intercepts a click. */

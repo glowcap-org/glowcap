@@ -184,7 +184,7 @@
        (and (exact-nonnegative-integer? n) (< n 65536) n))]
     [else
      (error 'rooms-client
-            "expected a local port number, got ~v (the viz endpoint is the ROOMS_VIZ_URL environment variable, not an argument)"
+            "expected a local port number, got ~v (the viz endpoint is the PANCAKE_ROOMS_VIZ_URL environment variable, not an argument)"
             raw)]))
 
 ;; The netlayer that reaches `node`, spawned. Which one it is comes from the

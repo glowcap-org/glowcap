@@ -44,6 +44,37 @@ fn expectOk(rc: i32) !void {
     return error.CAbiCallFailed;
 }
 
+fn reportCleanup(label: []const u8, rc: i32) void {
+    expectOk(rc) catch |err| std.log.err("{s}: {s}", .{ label, @errorName(err) });
+}
+
+fn reportDriverFailure(label: []const u8, rc: i32, failure: cd.PancakeDriverFailure) void {
+    if (rc == cs.PANCAKE_OK) return;
+    const primary = if (failure.primary_name) |name| name[0..failure.primary_name_len] else "missing failure";
+    std.log.err("{s}: {s} ({d})", .{ label, primary, rc });
+    if (failure.secondary_name) |name| {
+        std.log.err("{s}: cleanup: {s} ({d} consequences)", .{
+            label,
+            name[0..failure.secondary_name_len],
+            failure.secondary_count,
+        });
+    }
+}
+
+fn addDriverProvider(loop: ?*cd.PancakeDriverLoop, provider: *const cs.PancakeTransportProvider) !void {
+    var failure = cd.PancakeDriverFailure.init();
+    const rc = cd.pancake_driver_add_provider(loop, provider, &failure);
+    reportDriverFailure("WebRTC driver provider installation failed", rc, failure);
+    try expectOk(rc);
+}
+
+fn releaseDriver(label: []const u8, loop: ?*cd.PancakeDriverLoop) void {
+    var failure = cd.PancakeDriverFailure.init();
+    const rc = cd.pancake_driver_release(loop, &failure);
+    reportDriverFailure(label, rc, failure);
+    reportCleanup(label, rc);
+}
+
 fn expectWouldBlock(rc: i32) !void {
     if (rc == cs.PANCAKE_ERR_WOULD_BLOCK) return;
     try expectOk(rc);
@@ -67,7 +98,7 @@ fn newHostLoop(seed: *const [64]u8, advertise: bool) !?*cd.PancakeDriverLoop {
         0,
         &host,
     ));
-    errdefer _ = ch.pancake_host_release(host);
+    errdefer reportCleanup("WebRTC host rollback failed", ch.pancake_host_release(host));
 
     if (advertise) {
         try expectOk(ch.pancake_host_ensure_advertised_locator(host, transport, transport.len));
@@ -276,16 +307,16 @@ pub fn main(init: std.process.Init) !void {
     try expectOk(ch.pancake_host_designator_from_seed(&answerer_seed, 32, &answerer_designator, answerer_designator.len));
 
     const offerer_netlayer = try newNetlayer();
-    defer cw.pancake_webrtc_netlayer_release(offerer_netlayer);
+    defer reportCleanup("WebRTC offerer netlayer teardown failed", cw.pancake_webrtc_netlayer_release(offerer_netlayer));
     const answerer_netlayer = try newNetlayer();
-    defer cw.pancake_webrtc_netlayer_release(answerer_netlayer);
+    defer reportCleanup("WebRTC answerer netlayer teardown failed", cw.pancake_webrtc_netlayer_release(answerer_netlayer));
 
     var offerer_peer: ?*cw.PancakeWebrtcPeer = null;
     try expectOk(cw.pancake_webrtc_peer_new(offerer_netlayer, 1, &offerer_peer));
-    defer _ = cw.pancake_webrtc_peer_release(offerer_peer);
+    defer reportCleanup("WebRTC offerer peer teardown failed", cw.pancake_webrtc_peer_release(offerer_peer));
     var answerer_peer: ?*cw.PancakeWebrtcPeer = null;
     try expectOk(cw.pancake_webrtc_peer_new(answerer_netlayer, 0, &answerer_peer));
-    defer _ = cw.pancake_webrtc_peer_release(answerer_peer);
+    defer reportCleanup("WebRTC answerer peer teardown failed", cw.pancake_webrtc_peer_release(answerer_peer));
 
     // The signaling authority supplies these durable keys before either peer
     // can open. The provider later exposes exactly this authorized key as
@@ -295,16 +326,16 @@ pub fn main(init: std.process.Init) !void {
     try waitForOpen(offerer_netlayer, offerer_peer, answerer_netlayer, answerer_peer);
 
     const offerer_loop = try newHostLoop(&offerer_seed, false);
-    defer _ = cd.pancake_driver_release(offerer_loop);
+    defer releaseDriver("WebRTC offerer driver teardown failed", offerer_loop);
     const answerer_loop = try newHostLoop(&answerer_seed, true);
-    defer _ = cd.pancake_driver_release(answerer_loop);
+    defer releaseDriver("WebRTC answerer driver teardown failed", answerer_loop);
 
     var offerer_provider: cs.PancakeTransportProvider = undefined;
     try expectOk(cw.pancake_webrtc_transport_provider(offerer_netlayer, &offerer_provider));
-    try expectOk(cd.pancake_driver_add_provider(offerer_loop, &offerer_provider));
+    try addDriverProvider(offerer_loop, &offerer_provider);
     var answerer_provider: cs.PancakeTransportProvider = undefined;
     try expectOk(cw.pancake_webrtc_transport_provider(answerer_netlayer, &answerer_provider));
-    try expectOk(cd.pancake_driver_add_provider(answerer_loop, &answerer_provider));
+    try addDriverProvider(answerer_loop, &answerer_provider);
 
     var offerer_ticket: u64 = 0;
     try expectOk(cd.pancake_driver_adopt_external(
@@ -328,6 +359,7 @@ pub fn main(init: std.process.Init) !void {
     var offerer = LoopState{ .loop = offerer_loop, .operation_id = offerer_ticket };
     var answerer = LoopState{ .loop = answerer_loop, .operation_id = answerer_ticket };
     var published = false;
+    var sessions_served = false;
     var rounds: usize = 0;
     while (!offerer.fetch_settled and rounds < 4_000) : (rounds += 1) {
         try expectStep(cd.pancake_driver_step(answerer_loop, 1));
@@ -355,7 +387,12 @@ pub fn main(init: std.process.Init) !void {
         if (offerer.failed) return error.OffererAdoptionFailed;
         if (offerer.session) |session| {
             try requireAuthenticatedTransport(session, &answerer_designator);
-            if (offerer.fetch_vow == 0 and published) {
+            if (!sessions_served and answerer.session != null) {
+                try expectOk(cd.pancake_driver_session_serve(offerer_loop, offerer.session));
+                try expectOk(cd.pancake_driver_session_serve(answerer_loop, answerer.session));
+                sessions_served = true;
+            }
+            if (sessions_served and offerer.fetch_vow == 0 and published) {
                 try expectOk(ch.pancake_host_session_fetch(session, "greeter", 7, &offerer.fetch_vow));
             }
         }

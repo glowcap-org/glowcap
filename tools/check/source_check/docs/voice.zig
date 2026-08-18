@@ -1,0 +1,258 @@
+//! Human doc voice: the banned scaffold needles, habitual em-dash shapes,
+//! connective arrows outside fences, and the prose sentence-length ceiling.
+
+const std = @import("std");
+const util = @import("../util.zig");
+
+const appendViolation = util.appendViolation;
+const bans = @import("../bans.zig");
+
+/// The human-doc-voice phrase and `.agents/` link bans live in
+/// `source_check/bans.zig` (`human_doc_voice`), driven by
+/// `bans.human_doc_voice_scopes`. This walks those same scopes and holds the
+/// one doc-voice ban that needs line and fence structure: the
+/// connective-arrow check.
+pub fn checkHumanDocVoice(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    for (bans.human_doc_voice_scopes) |scope| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        // An unopenable tree already violates through the ban rows; do not
+        // report it a second time here.
+        bans.collectFiles(io, arena, root, scope.where, &files) catch continue;
+        for (files.items) |path| {
+            // A read failure is either an optional file or already reported
+            // by the ban rows; the arrow check stays silent on it.
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try banConnectiveArrowOutsideFences(gpa, violations, path, contents);
+        }
+    }
+
+    // The em-dash overuse rows apply to prose wherever it lives, including the
+    // Zig doc comments the doc-voice audience table counts as human surfaces.
+    for (em_dash_overuse_scopes) |where| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        bans.collectFiles(io, arena, root, where, &files) catch continue;
+        for (files.items) |path| {
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try banHabitualEmDash(gpa, violations, path, contents);
+        }
+    }
+}
+
+/// Where the em-dash overuse check runs. Wider than the human first-read scopes
+/// above, because the habit shows up most in source comments.
+const em_dash_overuse_scopes = [_]bans.Where{
+    .{ .tree = .{ .dir = "src", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "cli", .suffixes = &.{".zig"} } },
+    .{ .tree = .{ .dir = "docs", .suffixes = &.{".md"}, .recursive = false } },
+    .{ .tree = .{ .dir = "site/content", .suffixes = &.{".smd"} } },
+    // The registered living-state pages a reviewer opens before any code.
+    // They carried the least-checked prose on the branch that added most of
+    // it, which is the wrong way round for the first thing anyone reads.
+    .{ .files = &.{ "README.md", "SECURITY.md", "PROVENANCE.md", "CONTRIBUTING.md" } },
+    .{ .tree = .{ .dir = "conformance/ocapn-findings", .suffixes = &.{".md"} } },
+};
+
+/// The em-dash is a strong occasional tool, and doc-voice allows exactly two
+/// uses: a matched pair standing in for parentheses, and a single dash for a
+/// turn a comma cannot carry. It bans the rest by name, and these two spellings
+/// are the ones a writer reaches for out of habit — a relative clause or a
+/// continuation that a comma or a period carries just as well. They are checked
+/// rather than merely written down because habit is what a rule sentence is
+/// worst at stopping.
+fn banHabitualEmDash(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    const habits = [_][]const u8{ "— which", "— and then" };
+    for (habits) |needle| {
+        if (std.mem.indexOf(u8, contents, needle) != null) {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: `{s}` is em-dash overuse (doc-voice) — a comma, a period, or parentheses carry it",
+                .{ path, needle },
+            );
+            return;
+        }
+    }
+}
+
+/// Arrow connective tissue in running prose (`miss→break`, `N→1`) is a doc-voice
+/// tell. Fenced code and ASCII `->` diagrams may keep arrows; Unicode `→`/`⇒`
+/// stay inside fences on human first-read paths.
+fn banConnectiveArrowOutsideFences(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    var in_fence = false;
+    var line_start: usize = 0;
+    var i: usize = 0;
+    while (i <= contents.len) : (i += 1) {
+        const at_end = i == contents.len;
+        const at_nl = !at_end and contents[i] == '\n';
+        if (!at_end and !at_nl) continue;
+        const line = contents[line_start..i];
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (std.mem.startsWith(u8, trimmed, "```")) {
+            in_fence = !in_fence;
+        } else if (!in_fence) {
+            if (std.mem.indexOf(u8, line, "→") != null or std.mem.indexOf(u8, line, "⇒") != null) {
+                try appendViolation(gpa, violations, "{s}: connective arrow in prose — write a verb (`becomes`, `then`, `to`) instead of `→`/`⇒` (doc-voice)", .{path});
+                return;
+            }
+        }
+        line_start = i + 1;
+    }
+}
+
+/// The longest a sentence may run on a page written for people.
+///
+/// The median sentence on these pages is under a hundred characters, so this is
+/// not a style preference dressed as a rule: it is the point past which a
+/// sentence has stopped being one. Every sentence over it that we looked at was
+/// three or four ideas joined by semicolons, usually with a stack of identifiers
+/// and a decision-record number wedged in. doc-voice already asks for one idea
+/// per sentence; this is the part of that a build can hold.
+const max_prose_sentence = 250;
+
+pub fn checkProseSentenceLength(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    for (em_dash_overuse_scopes) |where| {
+        var files: std.ArrayList([]const u8) = .empty;
+        defer files.deinit(arena);
+        bans.collectFiles(io, arena, root, where, &files) catch continue;
+        for (files.items) |path| {
+            if (!std.mem.endsWith(u8, path, ".md") and !std.mem.endsWith(u8, path, ".smd")) continue;
+            const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch continue;
+            try checkSentencesIn(gpa, violations, path, contents);
+        }
+    }
+}
+
+fn isListItem(trimmed: []const u8) bool {
+    if (std.mem.startsWith(u8, trimmed, "- ") or std.mem.startsWith(u8, trimmed, "* ")) return true;
+    // An ordered item: digits then `.` or `)` then a space.
+    var i: usize = 0;
+    while (i < trimmed.len and std.ascii.isDigit(trimmed[i])) i += 1;
+    if (i == 0 or i + 1 >= trimmed.len) return false;
+    return (trimmed[i] == '.' or trimmed[i] == ')') and trimmed[i + 1] == ' ';
+}
+
+fn checkSentencesIn(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    contents: []const u8,
+) !void {
+    var in_fence = false;
+    var line_no: usize = 0;
+    var run: usize = 0;
+    var run_line: usize = 1;
+
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |line| {
+        line_no += 1;
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        // SuperMD `code-tabs` nest fences inside blockquotes (`> ```lang`), so a
+        // leading `>` must not hide the fence from this scanner — otherwise the
+        // tab bodies are read as one enormous prose sentence.
+        const fence_line = blk: {
+            var rest = trimmed;
+            while (std.mem.startsWith(u8, rest, ">")) {
+                rest = std.mem.trimStart(u8, rest[1..], " \t");
+            }
+            break :blk std.mem.startsWith(u8, rest, "```");
+        };
+        if (fence_line) {
+            in_fence = !in_fence;
+            run = 0;
+            continue;
+        }
+        // Not prose: fenced code, headings, and blank lines.
+        if (in_fence or trimmed.len == 0 or trimmed[0] == '#') {
+            run = 0;
+            continue;
+        }
+        // A table row is prose when its cells are sentences. Exempting every
+        // row put the densest paragraphs in the tree — the evidence matrix a
+        // reviewer opens first — outside the only gate that reads for
+        // readability. A row of short labels carries no sentence punctuation
+        // and so cannot trip the bar anyway; a row whose cells argue in
+        // sentences is exactly what the bar is for. Each cell is measured on
+        // its own, because the pipes between them are column boundaries rather
+        // than anything a reader speaks.
+        if (trimmed[0] == '|') {
+            if (std.mem.startsWith(u8, trimmed, "| ---")) {
+                run = 0;
+                continue;
+            }
+            var cells = std.mem.splitScalar(u8, trimmed, '|');
+            while (cells.next()) |cell| {
+                var cell_run: usize = 0;
+                for (std.mem.trim(u8, cell, " \t\r")) |c| {
+                    cell_run += 1;
+                    switch (c) {
+                        '.', '!', '?' => {
+                            if (cell_run > max_prose_sentence) {
+                                try appendViolation(gpa, violations, "{s}:{d}: a {d}-character sentence in a table cell; doc-voice asks for one idea per sentence, and a cell is not exempt from it. Split it.", .{ path, line_no, cell_run });
+                            }
+                            cell_run = 0;
+                        },
+                        else => {},
+                    }
+                }
+                if (cell_run > max_prose_sentence) {
+                    try appendViolation(gpa, violations, "{s}:{d}: a {d}-character table cell with no sentence break at all; doc-voice asks for one idea per sentence. Split it.", .{ path, line_no, cell_run });
+                }
+            }
+            run = 0;
+            continue;
+        }
+        // A list item is a new thought, so it starts a new sentence. Without
+        // this a bulleted list of identifiers, which carries no sentence
+        // punctuation at all, reads as one enormous run-on.
+        if (isListItem(trimmed)) {
+            run = 0;
+            run_line = line_no;
+        }
+        if (run == 0) run_line = line_no;
+
+        for (trimmed) |c| {
+            run += 1;
+            switch (c) {
+                '.', '!', '?' => {
+                    if (run > max_prose_sentence) {
+                        try appendViolation(gpa, violations, "{s}:{d}: a {d}-character sentence; doc-voice asks for one idea per sentence, and this is several. Split it.", .{ path, run_line, run });
+                    }
+                    run = 0;
+                    run_line = line_no;
+                },
+                else => {},
+            }
+        }
+        run += 1; // the newline joining wrapped prose lines
+    }
+}

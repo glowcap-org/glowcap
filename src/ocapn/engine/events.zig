@@ -52,7 +52,7 @@ pub const AnswerOverride = union(enum) {
     resolver_callback: model.AnswerPosition,
     /// Resolver-only deliver carrying its virtual inbound answer
     /// (`Event.tag == .deliver`).
-    virtual_deliver: model.AnswerPosition,
+    virtual_deliver: model.VirtualAnswer,
 };
 
 pub const Event = struct {
@@ -122,18 +122,28 @@ pub const Event = struct {
                 .answer = answer,
                 .resolution = try resolutionFromResolverCallback(wire.deliver.args),
             } },
-            .virtual_deliver => |answer| blk: {
-                var deliver = wire.deliver;
-                deliver.answer = answer;
-                break :blk .{ .deliver = deliver };
-            },
+            .virtual_deliver => wire,
+        };
+    }
+
+    /// The semantic answer an inbound deliver settles. A wire answer remains
+    /// wire-shaped; a V1.0 resolver-only deliver carries its session-local
+    /// virtual identity here without manufacturing a wire position in `view`.
+    pub fn deliverAnswerName(self: *const Event) DecodeError!?model.AnswerName {
+        if (self.tag != .deliver) return null;
+        return switch (self.answer_override) {
+            .virtual_deliver => |answer| .fromVirtual(answer),
+            else => if ((try self.wireView()).deliver.answer) |answer|
+                .fromWire(answer)
+            else
+                null,
         };
     }
 
     /// Materialize an owned codec-neutral message from the retained frame. Only
     /// when the caller needs ownership independent of this event's frame. It is
     /// `view` materialized, structurally: the borrowed projection (with its
-    /// V1.0 resolver-callback translation and answer override) is built once
+    /// V1.0 resolver-callback translation) is built once
     /// and owned once, so the two projections cannot disagree.
     pub fn decodeOwned(self: *const Event, event_allocator: std.mem.Allocator) !model.Message {
         return (try self.view()).toOwned(event_allocator);

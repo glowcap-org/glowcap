@@ -7,7 +7,7 @@
  * Pure function over the intent payload. Tests live alongside.
  */
 
-import type { BuilderIntent } from "./engine.ts";
+import type { BuilderIntent } from "./intents.ts";
 import { PEER_TRAJECTORY, SESSION_TRAJECTORY } from "./trajectory.ts";
 
 /** Forward-direction label for an intent — drives the "Undo X" /

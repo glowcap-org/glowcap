@@ -10,10 +10,10 @@
  * difference is a session authored with the codec the user had
  * selected a moment ago, committed with no error shown.
  *
- * What these tests do not pin: that `AppView` reads through the
- * store rather than through a captured copy. Deno has no DOM, so
- * nothing here renders the app; the reading is one `toolDrafts
- * .read()` per handler in `App.tsx`.
+ * What these tests do not pin: that the canvas click handlers
+ * read through the store rather than through a captured copy. Deno
+ * has no DOM, so nothing here renders the app; the reading is one
+ * `toolDrafts.read()` per handler in `use-stage-build-gestures.ts`.
  */
 
 import { assertEquals } from "@std/assert";

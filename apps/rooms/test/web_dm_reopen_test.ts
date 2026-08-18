@@ -42,7 +42,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_reopen_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
-import { connectVizViewer, scrapeVizSturdyref } from "./viz_viewer.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -160,8 +160,17 @@ async function settles(
 
 // ── The tabs ─────────────────────────────────────────────────────────────────
 
-async function joinAs(browser: Browser, port: number, query: string, nick: string): Promise<Page> {
+async function joinAs(
+	browser: Browser,
+	port: number,
+	query: string,
+	nick: string,
+	seed: { key: string; value: string },
+): Promise<Page> {
 	const context = await browser.newContext();
+	// The endpoint admits only capability-presenting sockets; the tab holds
+	// the swiss the way a reader's "Remember on this device" would have.
+	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), seed);
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	tab.on("console", (m) => {
@@ -231,7 +240,7 @@ const web = new Deno.Command("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
-	env: { ROOMS_VIZ_PORT: String(vizPort) },
+	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",
 	stderr: "piped",
 }).spawn();
@@ -243,11 +252,12 @@ let browser: Browser | null = null;
 try {
 	await waitForHttp(httpPort);
 	const timeline = await watch(vizPort, await vizRef);
+	const seed = vizMemorySeed(vizPort, await vizRef);
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	for (const mode of MODES) {
-		const opener = await joinAs(browser, httpPort, mode.query, mode.first);
-		const other = await joinAs(browser, httpPort, mode.query, mode.second);
+		const opener = await joinAs(browser, httpPort, mode.query, mode.first, seed);
+		const other = await joinAs(browser, httpPort, mode.query, mode.second, seed);
 
 		// The first conversation: the opener redeems the room's introduction, the
 		// line opens, and both directions carry.

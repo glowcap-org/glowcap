@@ -1,0 +1,101 @@
+/* mIRC's sixteen colours, which every IRC client has drawn since the nineties
+   and which a bridged line names by number. They are literal rather than tokens
+   on purpose: these are not this interface's palette and must not drift with it
+   — the author of that line picked colour four, and colour four is red. They
+   only ever appear on text that arrived carrying them. */
+.irc-fg-0 {
+	color: #ffffff;
+}
+.irc-bg-0 {
+	background: #ffffff;
+}
+.irc-fg-1 {
+	color: #000000;
+}
+.irc-bg-1 {
+	background: #000000;
+}
+.irc-fg-2 {
+	color: #00007f;
+}
+.irc-bg-2 {
+	background: #00007f;
+}
+.irc-fg-3 {
+	color: #009300;
+}
+.irc-bg-3 {
+	background: #009300;
+}
+.irc-fg-4 {
+	color: #ff0000;
+}
+.irc-bg-4 {
+	background: #ff0000;
+}
+.irc-fg-5 {
+	color: #7f0000;
+}
+.irc-bg-5 {
+	background: #7f0000;
+}
+.irc-fg-6 {
+	color: #9c009c;
+}
+.irc-bg-6 {
+	background: #9c009c;
+}
+.irc-fg-7 {
+	color: #fc7f00;
+}
+.irc-bg-7 {
+	background: #fc7f00;
+}
+.irc-fg-8 {
+	color: #ffff00;
+}
+.irc-bg-8 {
+	background: #ffff00;
+}
+.irc-fg-9 {
+	color: #00fc00;
+}
+.irc-bg-9 {
+	background: #00fc00;
+}
+.irc-fg-10 {
+	color: #009393;
+}
+.irc-bg-10 {
+	background: #009393;
+}
+.irc-fg-11 {
+	color: #00ffff;
+}
+.irc-bg-11 {
+	background: #00ffff;
+}
+.irc-fg-12 {
+	color: #0000fc;
+}
+.irc-bg-12 {
+	background: #0000fc;
+}
+.irc-fg-13 {
+	color: #ff00ff;
+}
+.irc-bg-13 {
+	background: #ff00ff;
+}
+.irc-fg-14 {
+	color: #7f7f7f;
+}
+.irc-bg-14 {
+	background: #7f7f7f;
+}
+.irc-fg-15 {
+	color: #d2d2d2;
+}
+.irc-bg-15 {
+	background: #d2d2d2;
+}

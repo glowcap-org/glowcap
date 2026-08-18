@@ -1,11 +1,12 @@
 // The accepting half of the cold-dial rendezvous (ADR-0088 capability 5). A
 // peer that opens no listening socket — a browser tab, or any process behind a
 // NAT that declines a listener — cannot be dialed. Instead it registers its
-// keyed identity and a held inbound socket at a relay; a peer that redeems an
+// authenticated identity and a held inbound socket at a relay; a peer that redeems an
 // introduction naming that identity is bridged onto the held socket, and the
-// keyed handshake runs end to end between them — the relay parses nothing and
-// holds no capability. The relay half is `@pancake/relay`'s `Rendezvous`; this
-// is the accepting side, runtime-neutral over the `WebSocket` global.
+// keyed or Noise handshake runs end to end between them — the relay parses
+// nothing and holds no capability. The relay half is `@pancake/relay`'s
+// `Rendezvous`; this is the accepting side, runtime-neutral over the
+// `WebSocket` global.
 //
 // `serveRendezvous` keeps a small pool of registration sockets, each parked in
 // the accept handshake reading its socket until a dialer's bytes arrive through
@@ -26,8 +27,9 @@
 // beside it.
 
 import type { Host } from "./host.ts";
+import { retainSecondaryFailure } from "./errors.ts";
 import { Session } from "./session.ts";
-import { TRANSPORT_KEYED_RELAY } from "./locator.ts";
+import { TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "./locator.ts";
 import type { Locator } from "./locator.ts";
 import { webSocketChannel } from "./websocket.ts";
 import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
@@ -35,7 +37,7 @@ import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 /** The two wire profiles the relay rendezvous can carry. Required at the API
  * boundary so registration, the Host's advertised locator, and accepted
  * sessions cannot silently disagree about whether the byte pipe is sealed. */
-export type RendezvousTransport = typeof TRANSPORT_KEYED_RELAY;
+export type RendezvousTransport = typeof TRANSPORT_KEYED_RELAY | typeof TRANSPORT_NOISE_RELAY;
 
 // How many inbound sockets to hold ready at once, so a burst of cold-dials does
 // not race a window where none is registered. A bridge consumes one; the pool
@@ -47,12 +49,18 @@ const DEFAULT_POOL = 2;
 // hot-looped.
 const REPLENISH_BACKOFF_MS = 1_000;
 
-/** A running rendezvous registration. `stop` ends it and closes every held
- * socket. */
+/** A running rendezvous registration. `stop` is an idempotent barrier: it
+ * cancels pending retries, closes registration sockets, and joins their
+ * establishment work. Sessions already accepted belong to the Host and are
+ * deliberately not closed with the listener. */
 export interface RendezvousHandle {
 	/** The complete locator installed on the Host and advertised to peers. */
 	readonly locator: Locator;
-	stop(): void;
+	/** Settle when at least one registration socket is open. If the listener is
+	 * stopped first, reject instead of leaving initialization parked forever. */
+	ready(): Promise<void>;
+	stop(): Promise<void>;
+	[Symbol.asyncDispose](): Promise<void>;
 }
 
 /** The two URLs a rendezvous owner must distinguish: registration is the
@@ -75,8 +83,12 @@ export function serveRendezvous(
 	route: RendezvousRoute,
 	opts: { pool?: number; onError?: (err: unknown) => void } = {},
 ): RendezvousHandle {
-	if (transport !== TRANSPORT_KEYED_RELAY) {
+	if (transport !== TRANSPORT_KEYED_RELAY && transport !== TRANSPORT_NOISE_RELAY) {
 		throw new TypeError(`unsupported rendezvous transport ${transport}`);
+	}
+	const pool = opts.pool ?? DEFAULT_POOL;
+	if (!Number.isSafeInteger(pool) || pool <= 0) {
+		throw new TypeError("rendezvous pool must be a positive safe integer");
 	}
 	const designator = host.designator();
 	// The registration is the reachability owner, so it publishes the same
@@ -89,10 +101,38 @@ export function serveRendezvous(
 		hintWireForm: "map",
 	};
 	host.setAdvertisedLocator(locator);
-	const pool = opts.pool ?? DEFAULT_POOL;
-	const onError = opts.onError ?? (() => {});
 	let stopped = false;
-	const held = new Set<WebSocket>();
+	let stopPromise: Promise<void> | null = null;
+	const pending = new Set<WebSocket>();
+	const registrations = new Set<Promise<void>>();
+	const retries = new Set<number>();
+	let readyState: "pending" | "ready" | "stopped" = "pending";
+	const readyWaiters: Array<{ resolve(): void; reject(error: Error): void }> = [];
+
+	const publishReady = (): void => {
+		if (readyState !== "pending") return;
+		readyState = "ready";
+		for (const waiter of readyWaiters.splice(0)) waiter.resolve();
+	};
+
+	const report = (operation: string, error: unknown): void => {
+		host.recordCallerlessBindingFailure(operation, error);
+		if (opts.onError == null) return;
+		try {
+			opts.onError(error);
+		} catch (observerError) {
+			host.recordCallerlessFailure("rendezvous.on-error", observerError);
+		}
+	};
+
+	const schedule = (delay: number): void => {
+		if (stopped) return;
+		const timer = setTimeout(() => {
+			retries.delete(timer);
+			registerOne();
+		}, delay) as unknown as number;
+		retries.add(timer);
+	};
 
 	const registerOne = (): void => {
 		if (stopped) return;
@@ -100,70 +140,104 @@ export function serveRendezvous(
 		try {
 			ws = new WebSocket(route.registerUrl(designator));
 		} catch (err) {
-			onError(err);
-			if (!stopped) setTimeout(registerOne, REPLENISH_BACKOFF_MS);
+			report("rendezvous.register.open", err);
+			schedule(REPLENISH_BACKOFF_MS);
 			return;
 		}
-		held.add(ws);
-		let opened = false;
-		const replenish = () => {
-			held.delete(ws);
-			// An idle registration that closed before carrying a session is
-			// replaced (with backoff) so the pool stays full; one that opened
-			// already refilled below.
-			if (!stopped && !opened) setTimeout(registerOne, REPLENISH_BACKOFF_MS);
-		};
-		// Drive the accept handshake only once the register socket is open. As one
-		// half of the crossed hello the accept side sends its own signed
-		// `op:start-session` the moment it opens; writing that frame to a
-		// still-connecting socket throws and drops it, and the dialer then waits
-		// forever for a reply that never comes. The relay buffers this socket's
-		// inbound from the instant it registers, so the accept side's early hello
-		// reaches the relay's held channel even though no dialer is bridged yet.
-		const onOpen = () => {
-			ws.removeEventListener("error", onPreOpenError);
-			// The one accept in this binding that opts out of the handshake bound.
-			// A registration is *meant* to park: it holds an open socket until a
-			// dialer is bridged onto it, which may be minutes away, and there is
-			// no accept loop behind it for a silent partner to block. The pool
-			// replenishes on close, so a dead registration costs one socket, not
-			// a hang.
-			Session.establishAccepted(
-				host,
-				{
-					transport,
-					designatorScheme: DESIGNATOR_SCHEME_KEY,
-					serverDesignator: designator,
-					channel: webSocketChannel(ws),
-				},
-				0,
-			)
-				.then((session) => {
-					opened = true;
-					if (!stopped) registerOne(); // a dial landed; refill the pool
-					return session.serve();
-				})
-				.catch((err) => onError(err))
-				.finally(replenish);
-		};
-		const onPreOpenError = () => {
-			onError(new Error("rendezvous register socket failed to open"));
-			replenish();
-		};
-		ws.addEventListener("open", onOpen, { once: true });
-		ws.addEventListener("error", onPreOpenError, { once: true });
+		pending.add(ws);
+		const work = (async () => {
+			let admitted = false;
+			try {
+				await new Promise<void>((resolve, reject) => {
+					let settled = false;
+					const settle = (fn: () => void) => {
+						if (settled) return;
+						settled = true;
+						ws.removeEventListener("open", onOpen);
+						ws.removeEventListener("close", onClose);
+						ws.removeEventListener("error", onError);
+						fn();
+					};
+					const onOpen = () =>
+						settle(() => {
+							publishReady();
+							resolve();
+						});
+					const onClose = () =>
+						settle(() => reject(new Error("rendezvous register socket closed before open")));
+					const onError = () => settle(() => reject(new Error("rendezvous register socket failed to open")));
+					ws.addEventListener("open", onOpen, { once: true });
+					ws.addEventListener("close", onClose, { once: true });
+					ws.addEventListener("error", onError, { once: true });
+					if (ws.readyState === WebSocket.OPEN) onOpen();
+					else if (ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) onClose();
+				});
+				if (stopped) return;
+				// A registration is meant to park until a dialer is bridged. Once the
+				// handshake succeeds, ownership moves from this listener to the Host:
+				// stopping future admission must not tear down an admitted session.
+				const session = await Session.establishAccepted(
+					host,
+					{
+						transport,
+						designatorScheme: DESIGNATOR_SCHEME_KEY,
+						serverDesignator: designator,
+						channel: webSocketChannel(ws),
+					},
+					0,
+				);
+				admitted = true;
+				pending.delete(ws);
+				if (!stopped) registerOne();
+				void session.serve().catch((error) => report("rendezvous.session.serve", error));
+			} catch (error) {
+				if (!stopped) report("rendezvous.register.accept", error);
+			} finally {
+				pending.delete(ws);
+				if (!stopped && !admitted) schedule(REPLENISH_BACKOFF_MS);
+			}
+		})();
+		registrations.add(work);
+		void work.finally(() => registrations.delete(work));
 	};
 
 	for (let i = 0; i < pool; i++) registerOne();
 	return {
 		locator,
-		stop() {
-			stopped = true;
-			for (const ws of held) {
-				try {
-					ws.close();
-				} catch { /* already closed */ }
+		ready() {
+			if (readyState === "ready") return Promise.resolve();
+			if (readyState === "stopped") {
+				return Promise.reject(new Error("rendezvous stopped before a registration became ready"));
 			}
+			return new Promise<void>((resolve, reject) => readyWaiters.push({ resolve, reject }));
+		},
+		stop() {
+			if (stopPromise != null) return stopPromise;
+			stopped = true;
+			if (readyState === "pending") {
+				readyState = "stopped";
+				const error = new Error("rendezvous stopped before a registration became ready");
+				for (const waiter of readyWaiters.splice(0)) waiter.reject(error);
+			}
+			stopPromise = (async () => {
+				for (const timer of retries) clearTimeout(timer);
+				retries.clear();
+				let failure: unknown = null;
+				for (const ws of pending) {
+					try {
+						ws.close();
+					} catch (error) {
+						if (failure == null) failure = error;
+						else retainSecondaryFailure(failure, error);
+					}
+				}
+				await Promise.all([...registrations]);
+				if (failure != null) throw failure;
+			})();
+			return stopPromise;
+		},
+		[Symbol.asyncDispose]() {
+			return this.stop();
 		},
 	};
 }

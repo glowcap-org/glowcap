@@ -9,7 +9,15 @@
 // own `.` export stays free of these low-level names; a companion reaches for
 // them here on purpose.
 
-export { ffi, lazySymbols, NULL, type Ptr, type Symbols } from "./internal/ffi/runtime.ts";
+export {
+	type ArchiveFingerprint,
+	ffi,
+	lazySymbols,
+	NULL,
+	type Ptr,
+	requireArchiveFingerprint,
+	type Symbols,
+} from "./internal/ffi/runtime.ts";
 export { libFile, libPath } from "./internal/ffi/load.ts";
 export * from "./internal/constants.ts";
 // The binding-internal seam (`./internal/seam.ts`): the pointer and

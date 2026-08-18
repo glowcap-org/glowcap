@@ -35,10 +35,11 @@ lines are fine.
 Unfinished voice on a touched surface is unfinished work, not taste.
 `zig build source-check` (`checkHumanDocVoice`) bans high-signal regressions on
 those paths: the `CapTP sticky note` label, agent-scaffold needles (`Meta
-scaffolding`, `next audit`), self-praise (`deliberately boring` / `boring on
-purpose`), connective `→`/`⇒` outside fenced code, and `.agents/` links on
-product first-read pages (`CONTRIBUTING.md` and `.devcontainer/README.md` may
-still route contributors to executor rules).
+scaffolding`, `next audit`, `visible boundary`, `listen-oriented`),
+contrast-first openers (`This page is not`), self-praise (`deliberately boring` /
+`boring on purpose`), connective `→`/`⇒` outside fenced code, and `.agents/`
+links on product first-read pages (`CONTRIBUTING.md` and `.devcontainer/README.md`
+may still route contributors to executor rules).
 
 ## What This Rule Governs
 

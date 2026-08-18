@@ -7,8 +7,10 @@ globs: src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/
 
 ## Authority runs one direction
 
-Default `1.0` answers to actual Goblins behavior. `pancake-next` tracks current
-OCapN direction, including recorded consensus and live proposals, not only text
+The `1.0` profile answers to the pinned OCapN draft. Goblins compatibility is a
+separate, explicit feature/evidence question; a missing Goblins operation must
+not silently redefine the version. `pancake-next` tracks current OCapN
+direction, including recorded consensus and live proposals, not only text
 already merged into the draft. Before deleting next behavior as non-spec,
 update the conformance submodules and inspect the meeting record plus the open
 issue or PR that owns it. Preserve conflicting proposals as explicit variants
@@ -94,8 +96,10 @@ The split is not obvious from the code. The human page is
 **`onion` is the only symbol here the OCapN draft standardizes**, and the only
 one upstream Goblins ships, so it is where a pancake peer and a Goblins vat meet
 on ground neither invented. Its designator stays an address: the service id names
-the rendezvous service, not the CapTP peer, and an onion locator carries no hints
-because the pinned Goblins refuses a hinted one (ADR-0108). `zig build
+the rendezvous service, not the CapTP peer, and every wire-carried onion locator
+stays bare because the pinned Goblins dial arm refuses a hinted one; a hello may
+state a profile only toward a partner known to be pancake (ADR-0108, ADR-0118).
+`zig build
 goblins-onion` is the meeting the symbol exists for, both directions over real
 circuits. `zig build ocapn-conformance-onion` passes all portable upstream
 modules plus the strict abort probe through the upstream onion netlayer. That

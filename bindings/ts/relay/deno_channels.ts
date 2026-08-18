@@ -6,6 +6,7 @@
 // every partial resource, and the iroh dial loads @pancake/iroh once and lazily.
 
 import type { RelayChannel } from "./relay.ts";
+import { recordProcessBindingFailure, retainCleanupFailures, retainSecondaryFailure } from "@pancake/runtime/transport";
 
 const defaultTcpDialTimeoutMs = 5_000;
 
@@ -40,23 +41,35 @@ export async function denoTcpChannel(
 		// connection). If it already won the race, close the abandoned connect
 		// when it lands late so a slow dial leaks no fd.
 		clearTimeout(dialTimer);
-		if (timedOut) connecting.then((late) => late.close()).catch(() => {});
+		if (timedOut) {
+			void connecting.then(
+				(late) => {
+					try {
+						late.close();
+					} catch (error) {
+						recordProcessBindingFailure("relay.tcp.dial.late-close", error);
+					}
+				},
+				(error) => recordProcessBindingFailure("relay.tcp.dial.late-settlement", error),
+			);
+		}
 	}
 	let reader;
 	try {
 		reader = tcp.readable.getReader();
 	} catch (err) {
-		tcp.close();
-		throw err;
+		throw await retainCleanupFailures(err, [() => tcp.close()]);
 	}
 	let writer;
 	try {
 		writer = tcp.writable.getWriter();
 	} catch (err) {
-		reader.releaseLock();
-		tcp.close();
-		throw err;
+		throw await retainCleanupFailures(err, [
+			() => reader.releaseLock(),
+			() => tcp.close(),
+		]);
 	}
+	let closeBarrier: Promise<void> | null = null;
 	return {
 		read: async () => {
 			const result = await reader.read();
@@ -64,9 +77,26 @@ export async function denoTcpChannel(
 		},
 		write: (chunk) => writer.write(chunk),
 		close: () => {
-			reader.releaseLock();
-			writer.releaseLock();
-			tcp.close();
+			if (closeBarrier != null) return closeBarrier;
+			closeBarrier = Promise.resolve().then(() => {
+				let primary: { readonly error: unknown } | null = null;
+				for (
+					const release of [
+						() => tcp.close(),
+						() => reader.releaseLock(),
+						() => writer.releaseLock(),
+					]
+				) {
+					try {
+						release();
+					} catch (error) {
+						primary = primary == null ? { error } : { error: retainSecondaryFailure(primary.error, error) };
+					}
+				}
+				if (primary != null) throw primary.error;
+			});
+			void closeBarrier.catch(() => {});
+			return closeBarrier;
 		},
 	};
 }

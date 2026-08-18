@@ -45,6 +45,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 IDLE_TIMEOUT_S = float(os.environ.get("PANCAKE_RELAY_IDLE_MS", "60000")) / 1000.0
 MAX_BYTES_PER_SESSION = 1 << 30  # 1 GiB
 READ_CHUNK = 1 << 16  # 64 KiB
+CLOSE_TIMEOUT_S = 5.0
+
+
+def _retain(primary: BaseException | None, error: BaseException) -> BaseException:
+    if primary is None:
+        return error
+    # Keep the reference relay's TCP-only startup dependency-light; the binding
+    # helper loads only when a second failure actually needs attachment.
+    from pancake._errors import _retain_cleanup_failure
+
+    return _retain_cleanup_failure(primary, error)
 
 
 class _TcpChannel:
@@ -54,6 +65,7 @@ class _TcpChannel:
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self._reader = reader
         self._writer = writer
+        self._close_requested = False
 
     async def read(self):
         chunk = await self._reader.read(READ_CHUNK)
@@ -64,10 +76,43 @@ class _TcpChannel:
         await self._writer.drain()  # TCP-leg backpressure
 
     def close(self) -> None:
+        if self._close_requested:
+            return
+        self._close_requested = True
+        self._writer.close()
+
+    async def wait_closed(self) -> None:
+        if not self._close_requested:
+            self.close()
+        await self._writer.wait_closed()
+
+
+async def _close_channel(channel) -> None:
+    """Request one channel close and join its optional managed barrier."""
+    primary = None
+    try:
+        result = channel.close()
+        if result is not None:
+            await result
+    except BaseException as error:
+        primary = error
+    wait_closed = getattr(channel, "wait_closed", None)
+    if wait_closed is not None:
         try:
-            self._writer.close()
-        except OSError:
-            pass  # already closed
+            await asyncio.wait_for(wait_closed(), CLOSE_TIMEOUT_S)
+        except BaseException as error:
+            primary = _retain(primary, error)
+    if primary is not None:
+        raise primary
+
+
+async def _close_pair(channel, websocket) -> tuple[BaseException, ...]:
+    outcomes = await asyncio.gather(
+        _close_channel(channel),
+        asyncio.wait_for(websocket.close(), CLOSE_TIMEOUT_S),
+        return_exceptions=True,
+    )
+    return tuple(outcome for outcome in outcomes if isinstance(outcome, BaseException))
 
 
 async def _open_channel(target_to, target_locator):
@@ -88,19 +133,33 @@ async def _pump(websocket) -> None:
     """Relay one accepted WebSocket to the channel its query names, both
     directions, until either leg ends. Teardown is pair-atomic."""
     query = parse_qs(urlparse(websocket.request.path).query)
-    target_to = (query.get("to") or [None])[0]
-    target_locator = (query.get("locator") or [None])[0]
+    target_to_values = query.get("to")
+    target_locator_values = query.get("locator")
+    target_to = target_to_values[0] if target_to_values else None
+    target_locator = target_locator_values[0] if target_locator_values else None
     if target_locator is None and (not target_to or ":" not in target_to):
-        await websocket.close(1008, "relay requires ?to=host:port or ?locator=<uri>")
+        await asyncio.wait_for(
+            websocket.close(1008, "relay requires ?to=host:port or ?locator=<uri>"),
+            CLOSE_TIMEOUT_S,
+        )
         return
 
     try:
         channel = await _open_channel(target_to, target_locator)
-    except Exception as e:
-        print(f"relay: dial failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+    except BaseException as error:
+        print(
+            f"relay: dial failed: {type(error).__name__}: {error}",
+            file=sys.stderr,
+            flush=True,
+        )
         # 1011 tells the browser the relay leg failed, not the session.
-        await websocket.close(1011, "relay dial failed")
-        return
+        try:
+            await asyncio.wait_for(
+                websocket.close(1011, "relay dial failed"), CLOSE_TIMEOUT_S
+            )
+        except BaseException as cleanup:
+            _retain(error, cleanup)
+        raise error
 
     transferred = 0
     loop = asyncio.get_running_loop()
@@ -111,46 +170,30 @@ async def _pump(websocket) -> None:
         nonlocal last_activity
         last_activity = loop.time()
 
-    async def close_both() -> None:
-        try:
-            channel.close()
-        except Exception:
-            pass  # already closed
-        try:
-            await websocket.close()
-        except websockets.WebSocketException:
-            pass  # already closed
-
     async def ws_to_channel() -> None:
         nonlocal transferred
-        try:
-            async for message in websocket:
-                if isinstance(message, str):
-                    message = message.encode()
-                touch()
-                transferred += len(message)
-                if transferred > MAX_BYTES_PER_SESSION:
-                    return
-                await channel.write(message)
-        except (websockets.WebSocketException, OSError):
-            pass  # leg ended
+        async for message in websocket:
+            if isinstance(message, str):
+                raise TypeError("WebSocket sent text to the byte relay")
+            touch()
+            transferred += len(message)
+            if transferred > MAX_BYTES_PER_SESSION:
+                return
+            await channel.write(message)
 
     async def channel_to_ws() -> None:
         nonlocal transferred
-        try:
-            while True:
-                chunk = await channel.read()
-                if chunk is None:
-                    return
-                touch()
-                transferred += len(chunk)
-                if transferred > MAX_BYTES_PER_SESSION:
-                    return
-                # `websockets.send` awaits its write buffer draining, which is the
-                # browser-bound leg's backpressure the contract mandates.
-                await websocket.send(chunk)
-        except (websockets.WebSocketException, OSError):
-            pass  # leg ended
+        while True:
+            chunk = await channel.read()
+            if chunk is None:
+                return
+            touch()
+            transferred += len(chunk)
+            if transferred > MAX_BYTES_PER_SESSION:
+                return
+            # `websockets.send` awaits its write buffer draining, which is the
+            # browser-bound leg's backpressure the contract mandates.
+            await websocket.send(chunk)
 
     async def idle_watchdog() -> None:
         # Reclaim a stalled pair: return once neither leg has moved a chunk for
@@ -166,13 +209,29 @@ async def _pump(websocket) -> None:
         asyncio.create_task(channel_to_ws()),
         asyncio.create_task(idle_watchdog()),
     )
+    primary: BaseException | None = None
     try:
-        await asyncio.wait(set(legs), return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        await close_both()
+        done, _ = await asyncio.wait(set(legs), return_when=asyncio.FIRST_COMPLETED)
+        # A scheduler may make more than one outcome observable before the wait
+        # resumes. Preserve that observation in stable leg order.
         for leg in legs:
-            leg.cancel()
+            if leg not in done:
+                continue
+            try:
+                leg.result()
+            except BaseException as error:
+                primary = _retain(primary, error)
+    except BaseException as error:
+        primary = _retain(primary, error)
+    finally:
+        for consequence in await _close_pair(channel, websocket):
+            primary = _retain(primary, consequence)
+        for leg in legs:
+            if not leg.done():
+                leg.cancel()
         await asyncio.gather(*legs, return_exceptions=True)
+    if primary is not None:
+        raise primary
 
 
 async def _main() -> None:

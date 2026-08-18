@@ -10,13 +10,25 @@ import {
 	TRANSPORT_NOISE_TCP,
 	TRANSPORT_TCP,
 } from "@pancake/runtime";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { INVALID_ARGUMENT, TRANSPORT_ONION } from "@pancake/abi";
 import { isRendezvousDesignator } from "@pancake/relay";
 
 /** A byte-channel target accepted by the rooms relay. */
 export type RelayTarget =
 	| { readonly kind: "tcp"; readonly hostname: string; readonly port: number }
-	| { readonly kind: "iroh"; readonly locator: string };
+	| { readonly kind: "iroh"; readonly locator: string }
+	| { readonly kind: "onion"; readonly designator: string };
+
+/** The service id an `ocapn://…onion` locator names, or null for anything
+ * else. The relay uses it to recognize the supervised room's own service. */
+export function onionDesignator(locator: string): string | null {
+	try {
+		const parsed = parseLocator(locator);
+		return parsed.transport === TRANSPORT_ONION ? parsed.designator : null;
+	} catch {
+		return null;
+	}
+}
 
 /** Classify one rooms-relay target at the product edge that realizes it. */
 export function classifyRelayTarget(input: string): RelayTarget {
@@ -48,6 +60,12 @@ export function classifyRelayTarget(input: string): RelayTarget {
 	}
 	if (locator.transport === TRANSPORT_TCP) {
 		return { kind: "tcp", ...designatorHostPort(locator.designator) };
+	}
+	// A wire-carried onion locator stays bare (ADR-0118), so the service id is
+	// the whole target; whether it names the supervised room is admission's
+	// question, not classification's.
+	if (locator.transport === TRANSPORT_ONION) {
+		return { kind: "onion", designator: locator.designator };
 	}
 	throw new PancakeError(
 		INVALID_ARGUMENT,

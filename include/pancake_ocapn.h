@@ -60,8 +60,10 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_FEATURE_HANDOFF 2
 #define PANCAKE_FEATURE_WIRE_DELTA 4
 #define PANCAKE_FEATURE_STURDYREF 8
+#define PANCAKE_FEATURE_UNTAG 16
 #define PANCAKE_FEATURE_MINIMUM 0
-#define PANCAKE_FEATURE_FULL 15
+#define PANCAKE_FEATURE_BASELINE 15
+#define PANCAKE_FEATURE_FULL 31
 #define PANCAKE_FRAME_SHAPE_BYTE 0
 #define PANCAKE_FRAME_SHAPE_WORD 1
 #define PANCAKE_ARG_INTEGER 0
@@ -77,6 +79,8 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_ARG_TAGGED 10
 #define PANCAKE_ARG_KEYWORD 11
 #define PANCAKE_ARG_BIG_INTEGER 12
+#define PANCAKE_ARG_STRUCT 13
+#define PANCAKE_ARG_ERROR 14
 #define PANCAKE_RESOLUTION_FULFILL 0
 #define PANCAKE_RESOLUTION_BREAK 1
 #define PANCAKE_RESOLUTION_HANDOFF 2
@@ -243,9 +247,11 @@ void pancake_context_release(PancakeContext *context);
 /* ── Application values ── */
 /* PancakeArgument is the pass-by-copy value tree used by PancakeHost.
    Byte views and child arrays are borrowed on input and alias the owning
-   Host result arena on output. */
+   Host result arena on output. PANCAKE_ARG_STRUCT uses an even-length
+   items array of alternating PANCAKE_ARG_STRING keys and values; keys
+   must be unique. */
 typedef struct PancakeReference {
-    /* opaque Host capability identity */
+    /* opaque process-unique Host capability identity; compare ids for Target equality */
     uint64_t id;
 } PancakeReference;
 typedef struct PancakeArgument {
@@ -298,7 +304,7 @@ typedef struct PancakeLastAbort {
 } PancakeLastAbort;
 
 /* ── Per-thread last error ── */
-/* Read this archive's calling-thread error message. NULL or cap 0 queries its length. */
+/* Read this archive's calling-thread error message. NULL or cap 0 queries its length. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_last_error(uint8_t *out_buf, size_t cap);
 /* Clear this archive's calling-thread error message. */
 void pancake_clear_last_error(void);

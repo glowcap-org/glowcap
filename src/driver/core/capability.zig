@@ -1,4 +1,4 @@
-//! Host-scoped live capability identity (ADR-0096).
+//! Host-scoped capability identity (ADR-0096).
 //!
 //! Wire positions remain session names. This registry gives the composed Host
 //! an opaque name for the target behind one of those positions. Native refs
@@ -6,11 +6,19 @@
 //! source.
 //! A reverse index canonicalizes repeated observations, while an intrusive
 //! per-session list invalidates exactly the rows homed on a closing session.
+//! Invalidated rows keep only their id and outstanding application-retain
+//! count: use fails immediately, but a later language-finalizer release still
+//! has a deterministic recipient.
 
 const std = @import("std");
 
 const model = @import("model");
 const engine = @import("engine");
+
+/// One Host-minted inline handoff promise. The containing Host is the owner
+/// dimension; monotonic issuance is the epoch, and the distinct type keeps
+/// this namespace out of every other Host integer table by construction.
+pub const PromiseId = enum(u64) { _ };
 
 /// An opaque capability in one Host composition. The registry pointer is the
 /// scope proof. A pointer-free projection uses an adapter-injected process-wide
@@ -45,10 +53,14 @@ pub const Target = union(enum) {
         /// old Host row from becoming canonical for the replacement.
         incarnation: u64,
     },
+    /// One Host-owned promise created before its handoff redemption settles.
+    /// The promise row owns its eventual target; this registry owns only the
+    /// opaque application identity and retain count.
+    deferred: PromiseId,
 
     fn peerId(self: Target) ?engine.PeerId {
         return switch (self) {
-            .local => null,
+            .local, .deferred => null,
             .remote => |remote| remote.peer_id,
         };
     }
@@ -62,6 +74,7 @@ pub const Target = union(enum) {
                 .position = remote.far.import_position.int(),
                 .incarnation = remote.incarnation,
             } },
+            .deferred => |id| .{ .deferred = id },
         };
     }
 };
@@ -74,6 +87,7 @@ const Key = union(enum) {
         position: u64,
         incarnation: u64,
     },
+    deferred: PromiseId,
 };
 
 const CapabilityId = enum(u64) { _ };
@@ -102,12 +116,21 @@ const Entry = struct {
     peer_next: ?u32 = null,
 };
 
+const RetiredEntry = struct {
+    id: CapabilityId,
+    retains: u64,
+};
+
 const Slot = struct {
     state: State,
 
     const State = union(enum) {
         free: ?u32,
         live: Entry,
+        /// Its remote home has closed. No capability operation may resolve
+        /// this row, but already-issued handles must still settle their
+        /// release units without manufacturing UnknownCapability failures.
+        retired: RetiredEntry,
     };
 };
 
@@ -122,8 +145,9 @@ comptime {
 }
 
 /// Host-owned canonical capability rows. Storage grows to the high-water mark
-/// of simultaneously live rows. Released slots are reused, but public ids are
-/// never reused by this registry, so stale handles fail the Host-owned `by_id`
+/// of simultaneously live rows plus invalidated rows whose application retains
+/// have not settled yet. Released slots are reused, but public ids are never
+/// reused by this registry, so stale handles fail the Host-owned `by_id`
 /// lookup. Pointer-free projections use opaque ids whose issuer also separates
 /// Hosts; native refs carry the Registry pointer as their scope proof.
 pub const Registry = struct {
@@ -246,40 +270,78 @@ pub const Registry = struct {
         };
     }
 
-    /// Number of application retains on one live capability. Host release uses
-    /// this to validate a delta before committing the corresponding wire GC.
+    /// Number of outstanding application retains on a usable or invalidated
+    /// capability. Host release uses this to validate the whole delta before
+    /// committing any corresponding wire GC.
     pub fn retainCount(self: *const Registry, ref: Ref) ?u64 {
         const slot_index = self.slotFor(ref) orelse return null;
         const slot = &self.slots.items[slot_index];
         return switch (slot.state) {
             .live => |entry| entry.retains,
-            else => null,
+            .retired => |entry| entry.retains,
+            .free => null,
         };
+    }
+
+    /// Reconstitute this registry's scoped handle from an internally retained
+    /// raw id. Invalidated rows remain nameable only so an already-issued
+    /// application handle can release its outstanding unit; `resolve` still
+    /// refuses every use. A fully released or foreign id stays stale.
+    pub fn refForRaw(self: *const Registry, raw: u64) ?Ref {
+        const id: CapabilityId = @enumFromInt(raw);
+        if (!self.by_id.contains(id)) return null;
+        return .{ .registry = self, .id = id };
     }
 
     /// Release `delta` application retains. The final release reclaims the row;
     /// its public id is never reused by this registry even when the slot is.
     pub fn release(self: *Registry, ref: Ref, delta: u64) Error!?Target {
-        const entry = self.entryPtr(ref) orelse return error.UnknownCapability;
-        if (delta == 0) return null;
-        if (delta > entry.retains) return error.ReleaseExceedsRetains;
-        entry.retains -= delta;
-        if (entry.retains != 0) return null;
-        return try self.remove(ref);
+        const slot_index = self.slotFor(ref) orelse return error.UnknownCapability;
+        const slot = &self.slots.items[slot_index];
+        switch (slot.state) {
+            .free => return error.UnknownCapability,
+            .live => |*entry| {
+                if (delta == 0) return null;
+                if (delta > entry.retains) return error.ReleaseExceedsRetains;
+                entry.retains -= delta;
+                if (entry.retains != 0) return null;
+                return try self.remove(ref);
+            },
+            .retired => |*entry| {
+                if (delta == 0) return null;
+                if (delta > entry.retains) return error.ReleaseExceedsRetains;
+                entry.retains -= delta;
+                if (entry.retains != 0) return null;
+                std.debug.assert(self.by_id.remove(entry.id));
+                slot.state = .{ .free = self.free_head };
+                self.free_head = slot_index;
+                return null;
+            },
+        }
     }
 
     /// Invalidate every capability homed on `peer_id` without scanning rows
-    /// belonging to other sessions. Returns the number retired.
+    /// belonging to other sessions. The target and canonical index disappear
+    /// immediately; a release-only row survives until every already-issued
+    /// application retain settles. Returns the number invalidated.
     pub fn invalidatePeer(self: *Registry, peer_id: engine.PeerId) usize {
         var count: usize = 0;
         while (self.peer_heads.get(peer_id)) |slot_index| {
             const slot = &self.slots.items[slot_index];
-            const ref = switch (slot.state) {
-                .live => |entry| Ref{ .registry = self, .id = entry.id },
-                .free => unreachable,
+            const entry = switch (slot.state) {
+                .live => |entry| entry,
+                .free, .retired => unreachable,
             };
-            const removed = self.remove(ref) catch unreachable;
-            std.debug.assert(removed.peerId().? == peer_id);
+            std.debug.assert(entry.target.peerId().? == peer_id);
+            std.debug.assert(entry.peer_prev == null);
+            std.debug.assert(self.by_target.remove(entry.target.key()));
+            if (entry.peer_next) |next| {
+                self.liveEntryAt(next).peer_prev = null;
+                self.peer_heads.putAssumeCapacity(peer_id, next);
+            } else {
+                std.debug.assert(self.peer_heads.remove(peer_id));
+            }
+            slot.state = .{ .retired = .{ .id = entry.id, .retains = entry.retains } };
             count += 1;
         }
         return count;

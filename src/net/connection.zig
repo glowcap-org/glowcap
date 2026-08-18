@@ -41,6 +41,9 @@ const foundation = @import("foundation");
 const engine = @import("engine");
 const frame_stream = @import("frame_stream.zig");
 const poll = @import("poll.zig");
+const clock = @import("clock.zig");
+
+pub const CloseProgress = enum { complete, wait_read, wait_write, failed };
 
 /// One unit of forward progress reported by `pumpOver` / `Connection.pump`.
 pub const Progress = union(enum) {
@@ -101,11 +104,16 @@ pub const PumpError = error{
 const TransportHandle = struct {
     ctx: *anyopaque,
     close_fn: *const fn (ctx: *anyopaque) void,
+    try_close_fn: ?*const fn (ctx: *anyopaque) CloseProgress = null,
     socket_handle_fn: *const fn (ctx: *anyopaque) ?std.Io.net.Socket.Handle,
     take_failure_fn: ?*const fn (ctx: *anyopaque) ?foundation.FailureChain = null,
 
     pub fn close(self: TransportHandle) void {
         self.close_fn(self.ctx);
+    }
+    pub fn tryClose(self: TransportHandle) CloseProgress {
+        const advance = self.try_close_fn orelse return .complete;
+        return advance(self.ctx);
     }
     pub fn socketHandle(self: TransportHandle) ?std.Io.net.Socket.Handle {
         return self.socket_handle_fn(self.ctx);
@@ -209,6 +217,35 @@ pub const Connection = struct {
     /// a claimed failure cannot reappear.
     pub fn takeFailure(self: *Connection) ?foundation.FailureChain {
         return self.transport.takeFailure();
+    }
+
+    /// Join an optional transport-level close transaction. Ordinary byte
+    /// streams have no protocol below CapTP and complete immediately. Framed
+    /// carriers such as WebSocket advance without allocation, waiting only on
+    /// their one pollable descriptor and one caller-owned deadline.
+    pub fn closeGracefully(self: *Connection, timeout_ms: i32) ?foundation.FailureChain {
+        std.debug.assert(timeout_ms >= 0);
+        const deadline = clock.nowMs(self.io) +| timeout_ms;
+        while (true) {
+            switch (self.transport.tryClose()) {
+                .complete => return null,
+                .failed => return self.takeFailure() orelse .init(error.TransportCloseFailed),
+                .wait_read, .wait_write => |progress| {
+                    const now = clock.nowMs(self.io);
+                    if (now >= deadline) return .init(error.CloseTimedOut);
+                    const remaining: i32 = @intCast(@min(
+                        @as(i64, std.math.maxInt(i32)),
+                        deadline - now,
+                    ));
+                    const ready = switch (progress) {
+                        .wait_read => self.waitReadable(remaining),
+                        .wait_write => self.waitWritable(remaining),
+                        else => unreachable,
+                    } catch return self.takeFailure() orelse .init(error.ConnectionLost);
+                    if (!ready) return .init(error.CloseTimedOut);
+                },
+            }
+        }
     }
 
     /// Whether a read would make progress within `timeout_ms` for an fd-backed

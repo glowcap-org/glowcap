@@ -37,32 +37,35 @@
 #
 # Usage: docs-serve.sh <zig-exe> <build-args…>
 #   e.g. docs-serve.sh /usr/local/bin/zig --build-file site/build.zig \
-#          --cache-dir <cache> docs-serve [-Dport=N]
+#          --cache-dir <cache> docs-serve [-Dport=N] [-Dhost=ADDR]
 set -u
 
 zig="${1:?usage: docs-serve.sh <zig-exe> <build-args...>}"
 shift
 
-# Zine defaults to 1990, which is also commonly held by an editor or a
-# devcontainer port forward. Keep the zero-argument command useful by choosing
-# the first free preview port; an explicit -Dport remains exact and fails if
-# its requested port is unavailable.
+# 1990 is the canonical container port Compose publishes. Stay on it unless
+# `-Dport` names another; hopping to 1991 would leave the published mapping
+# pointing at nothing. Loopback is the laptop default so a bare run is not a
+# LAN service; the devcontainer sets `DOCS_SERVE_HOST=0.0.0.0` because a
+# Docker-published port reaches only a wide bind inside the container.
 has_port=false
+has_host=false
 for arg in "$@"; do
   case "${arg}" in
     -Dport=*) has_port=true ;;
+    -Dhost=*) has_host=true ;;
   esac
 done
+if [ "${has_host}" = false ]; then
+  set -- "$@" "-Dhost=${DOCS_SERVE_HOST:-127.0.0.1}"
+fi
 if [ "${has_port}" = false ]; then
   port=1990
-  while [ "${port}" -lt 2000 ] && (printf '' >"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; do
-    port=$((port + 1))
-  done
-  if [ "${port}" -ge 2000 ]; then
-    echo "docs-serve: no free preview port in 1990-1999" >&2
+  if (printf '' >"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+    echo "docs-serve: port ${port} is already in use; pass -Dport=N or stop the process holding it" >&2
     exit 1
   fi
-  echo "docs-serve: using http://127.0.0.1:${port}/" >&2
+  echo "docs-serve: using http://127.0.0.1:${port}/pancake/" >&2
   set -- "$@" "-Dport=${port}"
 fi
 
@@ -83,10 +86,10 @@ examples_stamp() {
 
 # ui/tokens.css is the authority; site/assets/tokens.css is a symlink. Zine
 # watches under site/, and a symlink target edit does not always notify, so
-# nudge style.css (which @imports the tokens) when the authority changes.
-ui_tokens_stamp() {
-  if [ -f ui/tokens.css ]; then
-    cksum <ui/tokens.css
+# nudge style.css (which follows the shared sheets) when the authority changes.
+ui_core_stamp() {
+  if [ -f ui/tokens.css ] && [ -f ui/mark.css ]; then
+    cksum ui/tokens.css ui/mark.css
   else
     printf 'missing\n'
   fi
@@ -98,7 +101,7 @@ ui_tokens_stamp() {
 examples_watch_loop() {
   local stamp tokens
   stamp="$(examples_stamp)"
-  tokens="$(ui_tokens_stamp)"
+  tokens="$(ui_core_stamp)"
   while true; do
     sleep 1
     local next next_tokens
@@ -110,10 +113,10 @@ examples_watch_loop() {
         echo "docs-serve: gen-site-examples failed (preview may be stale)" >&2
       fi
     fi
-    next_tokens="$(ui_tokens_stamp)"
+    next_tokens="$(ui_core_stamp)"
     if [ "${next_tokens}" != "${tokens}" ]; then
       tokens="${next_tokens}"
-      echo "docs-serve: ui/tokens.css changed; nudging site CSS watch…" >&2
+      echo "docs-serve: ui core CSS changed; nudging site CSS watch…" >&2
       touch site/assets/style.css 2>/dev/null || true
     fi
   done
@@ -137,6 +140,11 @@ examples_watcher=$!
 # to the foreground process group, which is this launcher's and not the inner
 # one, so the traps below are still what tears the server down, and a terminal
 # that disappears entirely can now reach the inner group too, which only helps.
+#
+# Zine's first `docs-serve` compiles the `zine` binary. `zig build` prints
+# nothing until that finishes, which looks like a hang. Say so before the
+# quiet stretch, and only once: later runs are cache hits.
+echo "docs-serve: compiling Zine if needed (a cold compile is silent and can take a few minutes)…" >&2
 set -m
 "${zig}" build "$@" &
 inner_pgid=$!

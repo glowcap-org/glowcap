@@ -16,6 +16,7 @@ import {
 	isRendezvousDesignator,
 	type RelayChannel,
 	type RelayConfig,
+	relayFailureLogger,
 	Rendezvous,
 	webSocketRelay,
 } from "@pancake/relay";
@@ -86,6 +87,7 @@ const maxRegistrationsPerIdentity = envCap("PANCAKE_RELAY_MAX_REGISTRATIONS_PER_
 let activeRelaySessions = 0;
 const activeRelaySockets = new Set<WebSocket>();
 let relayShuttingDown = false;
+const logRelayFailure = relayFailureLogger();
 
 /** A cleartext-TCP address the relay may dial, besides the room server. */
 export interface TcpPeer {
@@ -114,13 +116,23 @@ export interface TcpPeer {
  * cleartext TCP — a Goblins vat on a TCP netlayer is the ordinary one — cannot be
  * direct-messaged from a browser until the operator lists it. A member on iroh
  * needs no such listing, which is one more reason `docs/boundaries.md` calls
- * cleartext TCP a testing and interop transport rather than a deployment one. */
+ * cleartext TCP a testing and interop transport rather than a deployment one.
+ *
+ * An onion target is allowed only when it names the room server this process
+ * supervises (`roomOnion`, that room's own service id). The relay holds no Tor
+ * client: an allowed onion target is carried to the service's local forward
+ * endpoint, the same bytes a Tor circuit would deliver there, so a foreign
+ * onion service is not reachable through it at all. */
 export function relayAllowed(
 	target: RelayTarget,
 	roomPort: number,
 	tcpPeers: readonly TcpPeer[] = [],
+	roomOnion: string | null = null,
 ): boolean {
 	if (target.kind === "iroh") return true;
+	if (target.kind === "onion") {
+		return roomOnion !== null && target.designator === roomOnion;
+	}
 	if (target.hostname === "127.0.0.1" && target.port === roomPort) return true;
 	return tcpPeers.some((peer) => peer.hostname === target.hostname && peer.port === target.port);
 }
@@ -201,9 +213,8 @@ function relayViaChannel(
 	activeRelaySockets.add(socket);
 	webSocketRelay(socket, getChannel, dialFailReason, relayConfig).catch(
 		(err) => {
-			console.error(
-				`relay: unexpected error: ${err instanceof Error ? err.message : String(err)}`,
-			);
+			if (relayShuttingDown) return;
+			logRelayFailure(err);
 		},
 	).finally(() => {
 		activeRelaySessions--;
@@ -318,11 +329,16 @@ export function relayToTarget(socket: WebSocket, target: RelayTarget): void {
 				}),
 			"TCP relay target unreachable",
 		);
-	} else {
+	} else if (target.kind === "iroh") {
 		relayViaChannel(
 			socket,
 			() => denoIrohChannel(target.locator, "discovery"),
 			"iroh relay dial failed",
 		);
+	} else {
+		// An admitted onion target is rewritten to the supervised room's local
+		// forward endpoint before this dial (serve_http.ts); this relay holds no
+		// Tor client, so one arriving unrewritten is a caller mistake to refuse.
+		socket.close(1011, "onion target was not resolved to its forward endpoint");
 	}
 }

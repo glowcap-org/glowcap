@@ -6,9 +6,9 @@
 //! moment it is asked for, so the give rides an answer the recipient asked for.
 //! Here the introduction is a promise living on a vat the recipient has never
 //! spoken to, so the give arrives in a *listener fire* instead. That position
-//! rested on pancake's own tests until this step; the draft specification allows
-//! a give wherever a Passable value goes, and this asks a real Goblins vat to
-//! read one there.
+//! rested on pancake's own tests until this step. This scenario asks a real
+//! Goblins vat to read a give specifically from a listener fulfillment; the
+//! recursive container evidence lives in the binding gifter matrix.
 //!
 //! Topology (TCP loopback):
 //!   Bob      (Goblins exporter)  publishes a rendezvous and holds a promise he

@@ -21,7 +21,7 @@
 //      member subscribes names which member that session carries.
 //   4. The vat reports its own end of that session to the same stream, and the
 //      two ends name the session identically. The vat is pointed at the
-//      endpoint with `ROOMS_VIZ_URL`, so the wire it holds is described twice,
+//      endpoint with `PANCAKE_ROOMS_VIZ_URL`, so the wire it holds is described twice,
 //      once from each side. A viewer draws one edge per OCapN Session ID, and
 //      neither end is ever told that name — each derives it from the two
 //      session keys the handshake exchanged. So this is where pancake's
@@ -215,7 +215,9 @@ const server = new Deno.Command("deno", {
 		? [...DENO_FLAGS, `${ROOT}/apps/rooms/server/main.ts`]
 		: [...DENO_FLAGS, `${ROOT}/apps/rooms/server/main.ts`, "0"],
 	cwd: ROOT,
-	env: IROH ? { ROOMS_VIZ_PORT: "0", ROOMS_TRANSPORT: "iroh" } : { ROOMS_VIZ_PORT: "0" },
+	env: IROH
+		? { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: "0", PANCAKE_ROOMS_TRANSPORT: "iroh" }
+		: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: "0" },
 	stdout: "piped",
 	stderr: "piped",
 }).spawn();
@@ -264,7 +266,7 @@ try {
 				PANCAKE_NICK,
 			],
 			ROOT,
-			{ ROOMS_VIZ_URL: publishUrl },
+			{ PANCAKE_ROOMS_VIZ_URL: publishUrl },
 		),
 	]);
 
@@ -301,7 +303,7 @@ try {
 		CAPTP_VERSION_WIRE.next,
 	);
 
-	// The vat is a PRODUCER here, not only a member: `ROOMS_VIZ_URL` above points
+	// The vat is a PRODUCER here, not only a member: `PANCAKE_ROOMS_VIZ_URL` above points
 	// it at the same endpoint the server publishes to, so the wire it holds is
 	// reported from both of its ends. What has to hold is that the two reports
 	// name one wire and not two — a viewer draws one edge per OCapN Session ID,

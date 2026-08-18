@@ -14,6 +14,7 @@
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { handOffNow } from "./boot.ts";
+import { Button } from "./Button.tsx";
 
 interface Props {
 	/** What this boundary protects, in words a reader would use. */
@@ -25,6 +26,21 @@ interface Boundary {
 	failed: Error | null;
 }
 
+/** The card a boundary puts up in place of the part it was protecting. */
+export function CrashCard(
+	{ part, message, onRetry }: { part: string; message: string; onRetry: () => void },
+) {
+	return (
+		<div className="crash" role="alert">
+			<h2>The {part} ran into a problem</h2>
+			<p>
+				{message} Your session is still open, so nothing has been lost.
+			</p>
+			<Button variant="quiet" onClick={onRetry}>Try again</Button>
+		</div>
+	);
+}
+
 export class ErrorBoundary extends Component<Props, Boundary> {
 	override state: Boundary = { failed: null };
 
@@ -34,7 +50,7 @@ export class ErrorBoundary extends Component<Props, Boundary> {
 
 	override componentDidCatch(failed: Error, info: ErrorInfo) {
 		console.error(
-			`rooms: the ${this.props.part} could not be drawn:`,
+			`rooms: the ${this.props.part} ran into a problem:`,
 			failed,
 			info.componentStack,
 		);
@@ -49,17 +65,11 @@ export class ErrorBoundary extends Component<Props, Boundary> {
 		const { failed } = this.state;
 		if (!failed) return this.props.children;
 		return (
-			<div className="crash" role="alert">
-				<h2>The {this.props.part} stopped drawing</h2>
-				<p>
-					{failed.message ||
-						"Something in this part of the page threw while it was being drawn."}{" "}
-					Your session is still open, so nothing has been lost.
-				</p>
-				<button type="button" onClick={() => this.setState({ failed: null })}>
-					Try drawing it again
-				</button>
-			</div>
+			<CrashCard
+				part={this.props.part}
+				message={failed.message || "Something in this part of the page went wrong."}
+				onRetry={() => this.setState({ failed: null })}
+			/>
 		);
 	}
 }

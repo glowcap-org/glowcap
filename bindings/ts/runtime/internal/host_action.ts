@@ -20,11 +20,12 @@ import {
 	HOST_ACTION_NEED_GIFT_ID,
 	HOST_ACTION_RESUME,
 	HOST_ACTION_SETTLE,
+	INTERNAL,
 	INVALID_ARGUMENT,
 } from "@pancake/abi";
 import type { Ptr } from "./ffi/runtime.ts";
 import { readBytes } from "./seam.ts";
-import { readArg } from "../codec.ts";
+import { readArg } from "../abi_value.ts";
 import { PancakeError } from "../errors.ts";
 import type { Argument } from "../value.ts";
 
@@ -80,8 +81,8 @@ export function decodeHostAction(dv: DataView): HostAction {
 			return { kind, ticket };
 		default:
 			throw new PancakeError(
-				INVALID_ARGUMENT,
-				`unknown host action kind ${kind}`,
+				INTERNAL,
+				`pancake ABI returned unknown host action kind ${kind}`,
 			);
 	}
 }

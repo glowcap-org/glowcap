@@ -2,10 +2,50 @@
 // The data layer reads `mentionsYou` from here, which is why the pieces that
 // build elements live next door in `RichText.tsx` instead.
 
-import type { DirId } from "./types.ts";
+import type { DirId, SessionPhase } from "./types.ts";
+import { lineCost, MAX_LINE, MAX_NICK, ROOM_MENTIONS } from "../../lib/limits.ts";
+
+/** How a directory's connection reads in words. The dot beside it carries the
+ * same fact in shape and colour; this is what a reader who has neither gets. */
+export const PHASE_SAID: Record<SessionPhase, string> = {
+	connected: "Connected",
+	connecting: "Connecting…",
+	reconnecting: "Reconnecting…",
+	disconnected: "Not connected",
+};
+
+/** The rail foot's state row, said under the reader's own name.
+ *
+ * One producer for the one line, by one priority rule. The connection's story
+ * wins while there is one, as the plain phase word: this line is under the
+ * reader's own name, so it says how they stand rather than narrating what a
+ * connection is doing. The net layer's own sentences — reaching this
+ * locator, entering that room — are about a directory, and the card
+ * describing that directory is where they are read; a forty-character
+ * locator in the reader's standing line says nothing about the reader and
+ * crowds out the one thing this line is for. A settled connection lets that
+ * word through: their standing when they set one, worn in the roster's away
+ * tint, and otherwise a quiet "here" once a directory has granted a name, or
+ * the plain connected word before one has. */
+export interface FootState {
+	said: string;
+	/** Whether the row is the reader's standing, which is the one arm the foot
+	 * tints the way the roster tints a member's away reason. */
+	away: boolean;
+}
+
+export function footState(
+	session: SessionPhase,
+	standing: string,
+	named: boolean,
+): FootState {
+	if (session !== "connected") return { said: PHASE_SAID[session].toLowerCase(), away: false };
+	if (standing !== "") return { said: standing, away: true };
+	return { said: named ? "here" : PHASE_SAID.connected.toLowerCase(), away: false };
+}
 
 // A stable per-name avatar tint, so every speaker keeps one colour. The ten values
-// live in page.css as `--avatar-1` … `--avatar-10`, beside the rest of the rooms
+// live in the rooms stylesheets as `--avatar-1` … `--avatar-10`, beside the rest of the rooms
 // palette, because a colour written here cannot be themed and cannot be checked
 // against the chip's white initials. This picks the slot; the stylesheet owns the
 // colour.
@@ -47,6 +87,13 @@ export function directoryName(id: DirId, home: DirId | null): string {
 	return (transport || "peer") + " " + designator.slice(0, 4);
 }
 
+/** How a room is named in speech and in the tab title. A public room is its
+ * hash-name; a private one is only its label, because that label is not a name
+ * anybody can enter. The lock that stands in for the hash is drawn, not spelled. */
+export function roomCalled(id: string, held: boolean): string {
+	return held ? id : "#" + id;
+}
+
 export function hueOf(name: string): string {
 	let h = 0;
 	for (let i = 0; i < name.length; i++) {
@@ -58,7 +105,12 @@ export function hueOf(name: string): string {
 export function initials(name: string): string {
 	const parts = name.replace(/[^\p{L}\p{N} _-]/gu, "").split(/[ _-]+/).filter(Boolean);
 	if (parts.length === 0) return "?";
-	return (parts[0][0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
+	// By code point, not code unit: the nick rule admits letters of every
+	// script, and `parts[0][0]` on an astral-plane letter is half a surrogate
+	// pair, which draws as replacement-character garbage in the chip.
+	const first = [...parts[0]][0];
+	const second = parts[1] ? [...parts[1]][0] : "";
+	return (first + second).toUpperCase();
 }
 
 export function fmtTime(d: Date): string {
@@ -96,6 +148,26 @@ export function dayLabel(at: number): string {
  * separately, which is three places for one decision about how the page speaks. */
 export function tooLong(noun: string, max: number): string {
 	return `${noun} too long (max ${max} characters)`;
+}
+
+/** Why a line from somebody else cannot be shown, or null when it can.
+ *
+ * A room holds its members to its cap, and a room is not the only source: a
+ * direct line has no room in its path at all, and a room is whatever answered
+ * the address a reader typed. What arrives is drawn into the log and walked by
+ * the rich-text pass, so an unbounded line is an unbounded amount of both, and
+ * an author nobody can name is a line this app cannot attribute honestly.
+ *
+ * Refused rather than cut. A sentence cut in half can say the opposite of what
+ * it said, and this app would be the one saying it. */
+export function lineNotShowable(from: string, text: string): string | null {
+	if (from.length > MAX_NICK) {
+		return "A line arrived under a name longer than any this app grants, so it is not here.";
+	}
+	if (lineCost(text) > MAX_LINE) {
+		return `${from} sent a line longer than this app will show, so it is not here.`;
+	}
+	return null;
 }
 
 /** Whether two lines belong in one stack: same author, close enough in time. */
@@ -157,7 +229,7 @@ export function substituteEmoji(text: string): string {
  *
  * A trailing hyphen or dot is left out of a match so a name at the end of a
  * sentence does not swallow the punctuation, the same rule links follow. */
-export const NAME_CHARS = String.raw`\w\[\]\\\`^{|}-`;
+const NAME_CHARS = String.raw`\w\[\]\\\`^{|}-`;
 const MENTION = new RegExp(String.raw`@([${NAME_CHARS}]*[\w\[\]\\\`^{|}])`, "g");
 
 /** The names that reach a whole room rather than one person.
@@ -169,9 +241,10 @@ const MENTION = new RegExp(String.raw`@([${NAME_CHARS}]*[\w\[\]\\\`^{|}])`, "g")
  *
  * They mean "everyone here" and are answered as a mention of you, because you
  * are one of everyone. What separates them from a name is that nobody can be
- * called one: a member holding the nick `here` is still reached by `@here`
- * along with the rest of the room, which is the reading a room wants. */
-export const ROOM_MENTIONS: readonly string[] = ["here", "room", "channel", "everyone", "all"];
+ * called one: the directory refuses to grant any of them (`nickRefusal`), so
+ * the words stay vocabulary. The list itself lives beside that reservation in
+ * `lib/limits.ts`, one authority for both readings. */
+export { ROOM_MENTIONS } from "../../lib/limits.ts";
 
 /** The two the composer offers.
  *
@@ -186,16 +259,6 @@ export const ROOM_MENTIONS_OFFERED: readonly string[] = ["here", "room"];
  *
  * The one answer both the highlight in the log and the desktop notification
  * read, so a line cannot light up without notifying or the other way round. */
-/** What a line costs to carry, in bytes.
- *
- * Bytes rather than characters because that is what a limit downstream counts.
- * An emoji is one thing to type, one `length` of two in JavaScript, and four
- * bytes on the wire; a message measured any other way passes here and is cut
- * somewhere the reader never sees. */
-export function lineCost(text: string): number {
-	return new TextEncoder().encode(text).length;
-}
-
 /** The longest line this conversation will carry, in bytes.
  *
  * The tighter of what this app allows and what the room says of itself, so a

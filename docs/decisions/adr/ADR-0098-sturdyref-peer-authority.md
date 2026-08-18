@@ -171,9 +171,9 @@ wrong-peer refusal through linear-memory exports. Each binding dogfood refuses
 a wrong-peer sturdyref before its successful enlivenment.
 
 The native authority checks are held by
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig), and
+[`test/driver/core_host/`](../../../test/driver/core_host/), and
 the C ABI and hint-insensitive cache checks are held by
-[`test/c_abi/host_test.zig`](../../../test/c_abi/host_test.zig). The binding
+[`test/c_abi/host/verbs_test.zig`](../../../test/c_abi/host/verbs_test.zig). The binding
 proofs live in the
 [Rust session test](../../../bindings/rust/src/session_tests.rs),
 [TypeScript smoke](../../../bindings/ts/dogfood/zig_smoke.ts),
@@ -196,7 +196,7 @@ The namespace refusal, mint, removal, restart miss, and issued-authority
 survival are held by
 [`test/driver/durable_publication_test.zig`](../../../test/driver/durable_publication_test.zig)
 and the durable-namespace scenario in
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig);
+[`test/driver/core_host/`](../../../test/driver/core_host/);
 the [Python smoke](../../../bindings/python/zig_smoke.py) and
 [Racket smoke](../../../bindings/racket/zig-smoke.rkt) run the minted-name
 fetch, removal miss, and surviving-ref scenes over the C ABI.

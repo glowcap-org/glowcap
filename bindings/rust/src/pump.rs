@@ -214,7 +214,7 @@ fn last_abort(shared: &SessionShared) -> Result<Option<AbortInfo>> {
 		}
 	};
 	Ok(Some(AbortInfo {
-		domain: AbortDomain::from_abi(raw.domain),
+		domain: AbortDomain::from_abi(raw.domain)?,
 		kind: (raw.has_kind != 0).then(|| text(raw.kind_name, raw.kind_name_len)),
 		message: text(raw.message, raw.message_len),
 		error_name: text(raw.error_name, raw.error_name_len),

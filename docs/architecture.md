@@ -148,6 +148,44 @@ decisions:
 | `net.completion.BackendOptions.read_buffer_bytes` | Each buffer in the loop-wide shared read pool. | 16 KiB |
 | `net.completion.Options.outbound_high_water_bytes` | Pending outbound bytes before one connection's reads park. | 64 KiB |
 | `net.relay.RelayOptions.send_staging_bytes` | One retained masked WebSocket send chunk, including its header. | 4 KiB |
+| completion keyed-relay adapter | Per-clear-connection relay state; WSS adds sparse TLS state with two fixed record windows. | 248 bytes clear; 37,216 bytes secure |
+| completion keyed-relay open | Transient logical-dial state plus one hostname resolver job; eight completion connect seats refill from at most 32 retained DNS answers. | 3,896 bytes per admitted open; 1,136 additional bytes for a hostname |
+| pollable keyed-relay address race | Eight nonblocking socket/poll seats, a fixed 32-answer failure ledger, and cleanup state; resolver queue storage is separate. | 4,608-byte architecture-neutral stack ceiling |
+| pollable TLS channel | Pinned socket/engine projection, two 18 KiB ciphertext windows, and four 2 KiB socket/plaintext windows. | 45,616 bytes |
+| native Mbed TLS client | Test-only allocator probe around the real local success/refusal matrix; requested payload only, excluding platform allocator metadata. | 4 KiB one-root shared peak; 64 KiB incremental connection/handshake peak; 8,192 allocation-call ceiling |
+| native TLS trust input | Copied PEM or system-root DER accepted by one immutable runtime. | 8 MiB hard ceiling |
+
+Relay byte movement has one owner at each execution seam:
+
+| Carrier | Outbound WebSocket chunk | Inbound WebSocket chunk |
+| --- | --- | --- |
+| native pollable | one bounded payload copy while applying the RFC 6455 mask into the socket writer | socket input enters retained fixed buffers; application reads copy only the requested bytes out |
+| native completion | one bounded copy into masking/send staging; refused submission retains that same staging | the platform payload is borrowed directly; only an unconsumed coalesced tail copies into bounded spill |
+| TypeScript managed | `subarray` creates views; the runtime owns any copy needed by `WebSocket.send` | one runtime-owned `ArrayBuffer`, queued under the channel byte ceiling |
+| Python managed | ordinary bytes and oversized `memoryview` slices are borrowed; `websockets` owns framing/masking | one `websockets` binary message under its configured size ceiling |
+| Racket managed | ordinary bytes are borrowed; an oversized write pays one `subbytes` copy per bounded chunk before `net/rfc6455` framing | one reader thread admits one bounded binary message and cannot queue another while the pump is stalled |
+
+The Mbed TLS probe is compiled only into `native-tls-build`; production keeps
+the vendor allocator unchanged. It asserts that every refused and successful
+connection returns to the shared-runtime baseline and that final runtime
+release returns to zero. Retry ciphertext is a stable borrowed slice of the two
+record windows, and completion submission debt uses intrusive links, so neither
+projection adds a retry copy, a per-connection thread, or an unbounded queue.
+Hostname relay opens use one environment-owned resolver task per admitted open,
+then race at most eight platform connect operations at once. The pollable and
+completion drivers share that admission ceiling and their fixed 32-answer
+failure ledger, while keeping their socket mechanics separate. Failed seats
+refill without waiting for slower siblings; exact failures are retained in
+resolver order and every losing descriptor joins before admission.
+Descriptor-retirement refusal is a shutdown consequence; an apparent winner
+is rolled back rather than published beside an unretired loser.
+Pollable destruction is an allocation-free abortive close and never parks.
+The real completion close has a ten-poll/ten-second local ceiling; deterministic
+tests additionally pin one TLS shutdown transition and delivery of the final
+`close_notify` record before descriptor retirement. Managed copy-shape tests
+pin the TypeScript view, Python `memoryview`, and Racket ordinary-borrow /
+oversized-copy boundaries so an adapter cannot silently add another whole
+message clone.
 
 The completion loop can therefore change admission, pool memory, outbound
 slack, and transport staging independently. `initWithBackendOptions` tunes a

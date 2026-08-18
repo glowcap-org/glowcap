@@ -82,7 +82,7 @@ def decode(a) -> HostAction:
     owned ``HostAction`` variant. Lazily imports ``_arg_from_c`` so
     this module stays importable without a codec cycle.
     """
-    from ._codec import _arg_from_c
+    from ._abi_value import _arg_from_c
 
     kind = a.kind
     if kind == HOST_ACTION_DIAL:

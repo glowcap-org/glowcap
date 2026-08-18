@@ -21,8 +21,10 @@ model arm, codec round trips, and a live Goblins check.
 
 ## Live `op:untag`
 
-The responder and fixtures ship. Goblins has no live marshaller for the
-operation, so there is nothing to check against yet.
+The 1.0 responder, initiator, fixtures, C Host, and bindings ship. Pancake
+accepts the operation from every 1.0 peer and sends it only after the partner
+advertises the `untag` feature. Goblins has no live marshaller for the
+operation, so there is no outside implementation path to exercise yet.
 
 ## Promise-listening proposal
 
@@ -86,7 +88,7 @@ peer sends to a particular object or promise arrive in the order they were sent,
 and that order survives promise shortening. pancake's local invariant matches
 that shape: every shortening edge names an import on the same session, so a
 retargeted deliver leaves on the same wire its predecessors left on. A test in
-`test/engine/peer_test.zig` pins the retargeting and same-wire emission.
+`test/engine/peer/shortening_test.zig` pins the retargeting and same-wire emission.
 
 The receiver's half of that claim has no in-tree scenario, and it cannot get one
 between two pancake peers. Shortening starts from a promise this peer imported,
@@ -98,13 +100,15 @@ rather than a scenario the oracle can drive. Watch the proposal, too, for a
 requirement that reaches across sessions, which this session-local forest cannot
 express.
 
-## An error value
+## Goblins Error interop
 
-OCapN PR 248 proposes a first-class Error, and issue 142 collects the invariants
-one would have to keep. pancake breaks a promise with a bare Symbol reason,
-because the pinned Goblins unmarshaller refuses records it does not know and an
-`<error>` payload would kill the break on a live peer. Converging would mean a
-model arm, both codecs, and a live Goblins check.
+The pinned OCapN Model defines Error as Passable data. OCapN PR 248 and issue
+142 track its still-open invariants. pancake carries that value through the
+neutral model, both codecs, the owning Host, the C ABI, and every binding; a
+broken promise remains a different result shape. The pinned Goblins
+unmarshaller refuses an `<error>` record, so pancake's Goblins-compatible
+resolver callback keeps its established bare-Symbol break reason. Watch for a
+shared live-peer form before changing that profile.
 
 ## Sets, keywords, and one concrete encoding
 

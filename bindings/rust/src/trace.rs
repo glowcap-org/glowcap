@@ -20,11 +20,12 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::abi_constants_gen::{
-	CAPTP_NEXT, CAPTP_V1_0, CODEC_CAPNP, CODEC_SYRUP, TRACE_MESSAGE, TRACE_SESSION_CLOSE, TRACE_SESSION_OPEN,
-};
+use crate::abi_constants_gen::{TRACE_MESSAGE, TRACE_SESSION_CLOSE, TRACE_SESSION_OPEN};
 use crate::session::DurableProvenance;
 use crate::sys::host as ffi;
+
+mod projection;
+use projection::{base64, captp_version, codec, hex, view};
 
 /// One wire event in the versioned timeline schema (`{v:1, sim_t_ns, kind, …}`).
 #[derive(Debug, Clone)]
@@ -232,9 +233,9 @@ struct TracedHost {
 
 struct TraceState {
 	sink: Option<Rc<dyn Fn(&TraceEvent)>>,
-	/// Identifies the current installation so an older uninstall closure cannot
-	/// disable a replacement sink.
-	generation: u64,
+	/// Identity of the current installation. Pointer identity lets an older
+	/// uninstall closure recognize a replacement without an exhaustible counter.
+	installation: Option<Rc<()>>,
 	/// The display label the application chose for its own endpoint, or None.
 	self_label: Option<String>,
 	t0: Instant,
@@ -245,7 +246,7 @@ struct TraceState {
 thread_local! {
 	static STATE: RefCell<TraceState> = RefCell::new(TraceState {
 		sink: None,
-		generation: 0,
+		installation: None,
 		self_label: None,
 		t0: Instant::now(),
 		hosts: Vec::new(),
@@ -253,75 +254,27 @@ thread_local! {
 	});
 }
 
-fn view(ptr: *const u8, len: usize) -> Option<String> {
-	if ptr.is_null() || len == 0 {
-		return None;
-	}
-	let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-	Some(String::from_utf8_lossy(bytes).into_owned())
-}
-
-fn codec_from_abi(codec: u32) -> &'static str {
-	if codec == CODEC_CAPNP {
-		"capnp"
-	} else if codec == CODEC_SYRUP {
-		"syrup"
-	} else {
-		"unknown"
-	}
-}
-
-fn captp_version_from_abi(version: u32) -> &'static str {
-	if version == CAPTP_NEXT {
-		"pancake-next"
-	} else if version == CAPTP_V1_0 {
-		"1.0"
-	} else {
-		"unknown"
-	}
-}
-
-/// Standard base64 (RFC 4648, padded) of a small buffer — bounded by
-/// `PAYLOAD_CAP`, so a dependency-free encoder beats a crate.
-/// The message tag as lowercase hex. It rides the record inline rather than
-/// behind a pointer, so there is nothing to borrow-check here.
-fn hex(bytes: &[u8]) -> String {
-	let mut out = String::with_capacity(bytes.len() * 2);
-	for b in bytes {
-		out.push_str(&format!("{b:02x}"));
-	}
-	out
-}
-
-fn base64(bytes: &[u8]) -> String {
-	const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-	let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-	for chunk in bytes.chunks(3) {
-		let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-		let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-		out.push(ALPHABET[(n >> 18) as usize & 63] as char);
-		out.push(ALPHABET[(n >> 12) as usize & 63] as char);
-		out.push(if chunk.len() > 1 {
-			ALPHABET[(n >> 6) as usize & 63] as char
-		} else {
-			'='
-		});
-		out.push(if chunk.len() > 2 {
-			ALPHABET[n as usize & 63] as char
-		} else {
-			'='
-		});
-	}
-	out
-}
-
-unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::PancakeTraceEvent) {
-	let ev = unsafe { &*event };
-	let Some((context, diagnostic_id, sink, record)) = STATE.with(|state| {
-		let state = state.borrow();
-		let sink = state.sink.clone()?;
+fn project_native_event(
+	cookie: usize,
+	ev: &ffi::PancakeTraceEvent,
+) -> crate::Result<Option<(Rc<crate::ContextInner>, u64, Rc<dyn Fn(&TraceEvent)>, TraceEvent)>> {
+	STATE.with(|state| {
+		let state = state.try_borrow().map_err(|_| {
+			crate::Error::with_detail(
+				crate::sys::ERR_INTERNAL,
+				"trace callback re-entered its binding state".into(),
+			)
+		})?;
+		let Some(sink) = state.sink.clone() else {
+			return Ok(None);
+		};
+		let host = state.hosts.iter().find(|host| host.cookie == cookie).ok_or_else(|| {
+			crate::Error::with_detail(
+				crate::sys::ERR_INTERNAL,
+				format!("pancake ABI invoked trace callback for unknown host cookie {cookie}"),
+			)
+		})?;
 		let sim_t_ns = state.t0.elapsed().as_nanos() as u64;
-		let cookie = ctx as usize;
 		let session = format!("live-h{}-s{}", cookie, ev.session);
 		let record = match ev.kind {
 			k if k == TRACE_SESSION_OPEN => TraceEvent {
@@ -335,12 +288,12 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 					.map(|h| h.designator.clone()),
 				a_label: state.self_label.clone(),
 				a_profile: Some(SELF_PROFILE),
-				b: Some(view(ev.designator, ev.designator_len).unwrap_or_else(|| String::from("peer"))),
-				transport: view(ev.transport, ev.transport_len),
-				session_id: view(ev.session_id, ev.session_id_len),
-				codec: Some(codec_from_abi(ev.codec)),
-				captp_version: Some(captp_version_from_abi(ev.captp_version)),
-				provenance: DurableProvenance::from_abi(ev.provenance),
+				b: Some(view(ev.designator, ev.designator_len, "designator")?.unwrap_or_else(|| String::from("peer"))),
+				transport: view(ev.transport, ev.transport_len, "transport")?,
+				session_id: view(ev.session_id, ev.session_id_len, "session id")?,
+				codec: Some(codec(ev.codec)?),
+				captp_version: Some(captp_version(ev.captp_version)?),
+				provenance: DurableProvenance::from_abi(ev.provenance)?,
 				outbound: false,
 				op: None,
 				len: None,
@@ -360,7 +313,18 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 				};
 				let (len, bytes_b64, summary) = if total_len == 0 {
 					(None, None, None)
-				} else if !ev.frame.is_null() && ev.frame_len > 0 {
+				} else if ev.frame_len > total_len {
+					return Err(crate::Error::with_detail(
+						crate::sys::ERR_INTERNAL,
+						"pancake ABI returned a trace frame prefix longer than its total length".into(),
+					));
+				} else if ev.frame_len > 0 {
+					if ev.frame.is_null() {
+						return Err(crate::Error::with_detail(
+							crate::sys::ERR_INTERNAL,
+							"pancake ABI returned a null trace frame with nonzero length".into(),
+						));
+					}
 					let frame = unsafe { std::slice::from_raw_parts(ev.frame, ev.frame_len) };
 					if total_len <= PAYLOAD_CAP && frame.len() >= total_len {
 						(Some(total_len), Some(base64(&frame[..total_len])), None)
@@ -390,8 +354,17 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 					codec: None,
 					captp_version: None,
 					provenance: DurableProvenance::Unauthenticated,
-					outbound: ev.outbound != 0,
-					op: view(ev.verb, ev.verb_len),
+					outbound: match ev.outbound {
+						0 => false,
+						1 => true,
+						other => {
+							return Err(crate::Error::with_detail(
+								crate::sys::ERR_INTERNAL,
+								format!("pancake ABI returned unknown trace direction {other}"),
+							));
+						}
+					},
+					op: view(ev.verb, ev.verb_len, "verb")?,
 					len,
 					bytes_b64,
 					summary,
@@ -420,14 +393,58 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 				digest: None,
 				meta: None,
 			},
-			_ => return None,
+			other => {
+				return Err(crate::Error::with_detail(
+					crate::sys::ERR_INTERNAL,
+					format!("pancake ABI returned unknown trace event kind {other}"),
+				));
+			}
 		};
+		Ok(Some((Rc::clone(&host.context), host.diagnostic_id, sink, record)))
+	})
+}
+
+fn report_callback_failure(cookie: usize, operation: &str, error: crate::Error) {
+	let owner = STATE.with(|state| {
+		let state = state.try_borrow().ok()?;
 		let host = state.hosts.iter().find(|host| host.cookie == cookie)?;
-		Some((Rc::clone(&host.context), host.diagnostic_id, sink, record))
-	}) else {
-		return;
-	};
-	emit_record(&context, diagnostic_id, sink, record);
+		Some((Rc::clone(&host.context), host.diagnostic_id))
+	});
+	if let Some((context, diagnostic_id)) = owner {
+		context.report_failure(
+			crate::FailureLayer::Binding,
+			crate::FailureScope::Host,
+			diagnostic_id,
+			0,
+			operation,
+			&error,
+		);
+	} else {
+		crate::record_runtime_failure(crate::FailureLayer::Binding, operation, error);
+	}
+}
+
+unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::PancakeTraceEvent) {
+	let cookie = ctx as usize;
+	let projected = catch_unwind(AssertUnwindSafe(|| {
+		if event.is_null() {
+			return Err(crate::Error::with_detail(
+				crate::sys::ERR_INTERNAL,
+				"pancake ABI invoked trace callback with a null event".into(),
+			));
+		}
+		project_native_event(cookie, unsafe { &*event })
+	}));
+	match projected {
+		Ok(Ok(Some((context, diagnostic_id, sink, record)))) => emit_record(&context, diagnostic_id, sink, record),
+		Ok(Ok(None)) => {}
+		Ok(Err(error)) => report_callback_failure(cookie, "trace.decode", error),
+		Err(payload) => report_callback_failure(
+			cookie,
+			"trace.callback",
+			crate::Error::with_detail(crate::sys::ERR_INTERNAL, crate::panic_message(payload.as_ref())),
+		),
+	}
 }
 
 /// Install the sink (replacing any prior one), start the clock, and register
@@ -438,17 +455,15 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Pancak
 /// it: the `a` endpoint stays the host's own key designator, which is what a
 /// partner names it by and so the only name two producers can agree on.
 pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() {
-	let (generation, hosts) = STATE.with(|state| {
+	let installation = Rc::new(());
+	let hosts = STATE.with(|state| {
 		let mut state = state.borrow_mut();
-		state.generation = state
-			.generation
-			.checked_add(1)
-			.expect("trace installation generation exhausted");
+		state.installation = Some(Rc::clone(&installation));
 		state.sink = Some(Rc::from(sink));
 		state.self_label = self_label.map(str::to_string);
 		state.t0 = Instant::now();
 		let hosts = state.hosts.iter().map(|h| (h.raw, h.cookie)).collect::<Vec<_>>();
-		(state.generation, hosts)
+		hosts
 	});
 	for (raw, cookie) in hosts {
 		unsafe { ffi::pancake_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
@@ -456,9 +471,14 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 	move || {
 		let hosts = STATE.with(|state| {
 			let mut state = state.borrow_mut();
-			if state.generation != generation {
+			if !state
+				.installation
+				.as_ref()
+				.is_some_and(|current| Rc::ptr_eq(current, &installation))
+			{
 				return None;
 			}
+			state.installation = None;
 			state.sink = None;
 			Some(state.hosts.iter().map(|h| h.raw).collect::<Vec<_>>())
 		});
@@ -467,6 +487,19 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 		};
 		for raw in hosts {
 			unsafe { ffi::pancake_host_set_trace(raw, None, std::ptr::null_mut()) };
+		}
+	}
+}
+
+fn allocate_trace_cookie(state: &mut TraceState) -> usize {
+	loop {
+		let cookie = state.next_cookie;
+		state.next_cookie = state.next_cookie.wrapping_add(1);
+		if state.next_cookie == 0 {
+			state.next_cookie = 1;
+		}
+		if cookie != 0 && state.hosts.iter().all(|host| host.cookie != cookie) {
+			return cookie;
 		}
 	}
 }
@@ -482,8 +515,7 @@ pub(crate) fn attach_host(
 ) {
 	let install = STATE.with(|state| {
 		let mut state = state.borrow_mut();
-		let cookie = state.next_cookie;
-		state.next_cookie += 1;
+		let cookie = allocate_trace_cookie(&mut state);
 		state.hosts.push(TracedHost {
 			raw,
 			cookie,
@@ -504,4 +536,64 @@ pub(crate) fn detach_host(raw: *mut ffi::PancakeHost) {
 	STATE.with(|state| {
 		state.borrow_mut().hosts.retain(|h| h.raw != raw);
 	});
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn an_old_uninstall_cannot_disable_its_replacement() {
+		let uninstall_old = enable_trace(Box::new(|_| {}), None);
+		let uninstall_current = enable_trace(Box::new(|_| {}), None);
+		uninstall_old();
+		STATE.with(|state| assert!(state.borrow().sink.is_some()));
+		uninstall_current();
+		STATE.with(|state| assert!(state.borrow().sink.is_none()));
+	}
+
+	#[test]
+	fn trace_cookies_wrap_without_using_zero() {
+		let mut state = TraceState {
+			sink: None,
+			installation: None,
+			self_label: None,
+			t0: Instant::now(),
+			hosts: Vec::new(),
+			next_cookie: usize::MAX,
+		};
+		assert_eq!(allocate_trace_cookie(&mut state), usize::MAX);
+		assert_eq!(allocate_trace_cookie(&mut state), 1);
+	}
+
+	#[test]
+	fn malformed_native_trace_is_contained_and_reported() {
+		let context = Rc::new(crate::ContextInner::new().unwrap());
+		let cookie = STATE.with(|state| {
+			let mut state = state.borrow_mut();
+			let cookie = allocate_trace_cookie(&mut state);
+			state.sink = Some(Rc::new(|_| {}));
+			state.hosts.push(TracedHost {
+				raw: std::ptr::null_mut(),
+				cookie,
+				designator: "test".into(),
+				context: Rc::clone(&context),
+				diagnostic_id: 17,
+			});
+			cookie
+		});
+		let mut event: ffi::PancakeTraceEvent = unsafe { core::mem::zeroed() };
+		event.kind = u32::MAX;
+		unsafe { on_native_event(cookie as *mut c_void, &event) };
+		let failure = context.next_failure().unwrap().expect("decoder failure is retained");
+		assert_eq!(failure.operation, "trace.decode");
+		assert_eq!(failure.scope, crate::FailureScope::Host);
+		assert_eq!(failure.scope_id, 17);
+		assert!(failure.primary_message.contains("unknown trace event kind"));
+		STATE.with(|state| {
+			let mut state = state.borrow_mut();
+			state.sink = None;
+			state.hosts.retain(|host| host.cookie != cookie);
+		});
+	}
 }

@@ -59,8 +59,7 @@ test "Host lift keeps equal import positions scoped to their owning sessions" {
     try std.testing.expectEqual(model.Reference{ .far = model.FarRef.object(7) }, try host.lowerCapability(a, a_ref));
     try std.testing.expectEqual(model.Reference{ .far = model.FarRef.object(7) }, try host.lowerCapability(b, b_ref));
     const projected = try host.lowerCapability(b, a_ref);
-    try std.testing.expect(projected == .far);
-    try std.testing.expect(model.ImportName.classify(projected.far.import_position.int()) == .token);
+    try std.testing.expect(projected == .routed);
 }
 
 test "Host local capability identity survives Port closure and reprojects lazily" {
@@ -88,6 +87,17 @@ test "Host local capability identity survives Port closure and reprojects lazily
     const reprojected = try host.lowerCapability(replacement, owner_ref);
     try std.testing.expect(reprojected == .near);
     try std.testing.expectEqual(owner_ref, try host.liftCapability(replacement, reprojected));
+}
+
+test "Host local capability verbs reject a far actor without mutation" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x43} ** 32, .{});
+    defer host.deinit();
+
+    const far: actors.Ref = .{ .far = model.FarRef.object(7) };
+    try std.testing.expectError(actors.Error.NotLocal, host.retainLocalCapability(far));
+    try std.testing.expectError(actors.Error.NotLocal, host.liftLocalActor(far));
+    try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
+    try std.testing.expectEqual(@as(usize, 0), host.vat.actors.count());
 }
 
 test "reserved fresh local capability commit cannot allocate after publication" {
@@ -190,7 +200,7 @@ test "rejected value lowering rolls back unseen Port and Node projections" {
 
     try std.testing.expectEqual(exports_before, destination.served.port.exports.count());
     try std.testing.expectEqual(enrollments_before, host.node.foreign_imports.count());
-    try std.testing.expect(home.served.port.peer.session_state.foreignTokenFor(.from(7)) == null);
+    try std.testing.expect(home.served.port.peer.session_state.foreignRouteIdFor(.from(7)) == null);
 }
 
 test "rejected value lowering rolls back its spill receipt path" {
@@ -225,14 +235,43 @@ test "repeated lift is canonical and partial then final release tracks wire reta
     const first = try host.liftCapability(session, .{ .far = model.FarRef.object(7) });
     const repeated = try host.liftCapability(session, .{ .far = model.FarRef.object(7) });
     try std.testing.expectEqual(first, repeated);
-    try std.testing.expectError(error.ImportLifted, host.releaseImport(session, 7, 1));
-
     try host.releaseCapability(first, 1);
     try std.testing.expect(session.served.port.peer.session_state.hasImport(.from(7)));
     try std.testing.expectEqual(model.Reference{ .far = model.FarRef.object(7) }, try host.lowerCapability(session, first));
     try host.releaseCapability(first, 1);
     try std.testing.expect(!session.served.port.peer.session_state.hasImport(.from(7)));
     try std.testing.expectError(error.UnknownCapability, host.lowerCapability(session, first));
+    try std.testing.expectError(error.UnknownCapability, host.releaseCapability(first, 1));
+}
+
+test "remote capability becomes release-only when its home session closes" {
+    var host = test_host.init(std.testing.allocator, [_]u8{0x57} ** 32, .{});
+    defer host.deinit();
+    var partner = test_host.init(std.testing.allocator, [_]u8{0x58} ** 32, .{});
+    defer partner.deinit();
+    const pair = try host_pair.openPair(&host, &partner, "127.0.0.1:9351");
+    const session = pair.a;
+    const survivor = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:9352", &.{});
+    try session.served.port.peer.importObject(7);
+    try session.served.port.peer.importObject(7);
+
+    const first = try host.liftCapability(session, .{ .far = model.FarRef.object(7) });
+    const second = try host.liftCapability(session, .{ .far = model.FarRef.object(7) });
+    try std.testing.expectEqual(first, second);
+    try std.testing.expectEqual(@as(?u64, 2), host.capabilities.retainCount(first));
+
+    try host.releaseSession(session);
+    try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
+    try std.testing.expectError(error.UnknownCapability, host.lowerCapability(survivor, first));
+    try std.testing.expectEqual(@as(?u64, 2), host.capabilities.retainCount(first));
+
+    // Teardown already retired the wire import, but each issued application
+    // retain still settles exactly once rather than becoming a permanent
+    // finalizer refusal.
+    try host.releaseCapability(first, 1);
+    try std.testing.expectEqual(@as(?u64, 1), host.capabilities.retainCount(first));
+    try host.releaseCapability(second, 1);
+    try std.testing.expectEqual(@as(?u64, null), host.capabilities.retainCount(first));
     try std.testing.expectError(error.UnknownCapability, host.releaseCapability(first, 1));
 }
 

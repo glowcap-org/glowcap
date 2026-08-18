@@ -96,6 +96,7 @@ function failureVocabularyName<T extends string>(
 const RUNTIME_FAILURE_CAP = 64;
 const FAILURE_PAYLOAD_CAP = 512;
 const U64_MAX = (1n << 64n) - 1n;
+const failureEventDecoder = new TextDecoder("utf-8", { fatal: true });
 const runtimeFailures: FailureEvent[] = [];
 let nextRuntimeFailureSequence = 1n;
 
@@ -261,6 +262,21 @@ export function recordCallerlessFailure(context: Context | null, input: FailureR
 			primaryMessage: error instanceof Error ? error.message : String(error),
 		});
 	}
+}
+
+/** Retain a binding-owned failure after no Host/Context remains to receive it.
+ * Package-internal transport helpers use this for late cleanup whose initiating
+ * operation already returned. It is a projection onto the one process fallback
+ * journal, not a second diagnostic authority. */
+export function recordProcessBindingFailure(operation: string, error: unknown): void {
+	recordCallerlessFailure(null, {
+		layer: "binding",
+		scope: "process",
+		operation,
+		primaryName: error instanceof Error ? error.name : "ThrownValue",
+		primaryResult: INTERNAL,
+		primaryMessage: error instanceof Error ? error.message : String(error),
+	});
 }
 
 interface ContextState {
@@ -471,7 +487,7 @@ export class Context {
 
 		const dv = new DataView(event.buffer);
 		const text = (pointerOff: number, lengthOff: number): string =>
-			new TextDecoder().decode(readBytes(L.getPtr(dv, pointerOff), L.getUsize(dv, lengthOff)));
+			failureEventDecoder.decode(readBytes(L.getPtr(dv, pointerOff), L.getUsize(dv, lengthOff)));
 		const layer = failureVocabularyName(failureLayers, dv.getUint32(L.FAILURE_EVENT_LAYER_OFF, true));
 		const scope = failureVocabularyName(failureScopes, dv.getUint32(L.FAILURE_EVENT_SCOPE_KIND_OFF, true));
 		if (layer === undefined || scope === undefined) {

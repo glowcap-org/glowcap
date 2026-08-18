@@ -16,7 +16,7 @@
 (require "private/ffi-ocapn.rkt"
          "private/errors.rkt"
          "private/value.rkt"
-         "private/codec.rkt"
+         "private/abi-value.rkt"
          "private/vat.rkt"
          "private/locator.rkt"
          "private/async.rkt"
@@ -28,16 +28,18 @@
          "private/finalizer-diagnostics.rkt"
          "private/dial.rkt"
          "private/constants.rkt"
+         "private/carrier-failure.rkt"
          "private/transport.rkt")
 
 (provide ref? ref-id ref-released? (struct-out sym)
          (struct-out driver-provider) (struct-out byte-connector)
          make-driver-provider make-byte-connector
-         (struct-out kw) (struct-out pset) (struct-out tagged-arg)
+         (struct-out kw) (struct-out error-arg) (struct-out pset) (struct-out tagged-arg) (struct-out struct-arg)
          (struct-out abort-info)
          (struct-out partner-identity)
          abi-version last-error
          exn:fail:pancake? exn:fail:pancake-code exn:fail:pancake-abort
+         exn:fail:pancake-carrier-failure (struct-out carrier-failure)
          session-flush!)
 
 (provide methods
@@ -115,7 +117,8 @@
            establish-accepted-session accept-next-session HANDSHAKE-TIMEOUT-MS
            host-set-advertised-locator!
            host-set-session-limits! format-peer-uri
-           check check-with read-last-error raise-pancake bytes<-c codec-id
+           check check-with read-last-error raise-pancake
+           retain-cleanup-failure raise-retained-failures bytes<-c codec-id
            pin-immobile
            _PancakeFrame _PancakeFrame-pointer make-PancakeFrame
            _PancakeManagedFrame _PancakeManagedFrame-pointer make-PancakeManagedFrame

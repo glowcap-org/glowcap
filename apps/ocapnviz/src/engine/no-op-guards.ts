@@ -57,9 +57,9 @@ import { observationsOf } from "./temporal/recording-access.ts";
 import { isDerived, type TimeSpan } from "./temporal/time-span.ts";
 import { authoredPeerPosition } from "./event-helpers.ts";
 import { findNode, type GameWorld } from "./world.ts";
-import { parseEndpointStageId } from "../schema/topology.ts";
+import { parseEndpointStageId } from "../schema/session-end.ts";
 import { allVisModeOnDoc, categoryVisModeOnDoc, rowVisModeOnDoc } from "./visibility.ts";
-import type { BuilderIntent } from "./engine.ts";
+import type { BuilderIntent } from "./intents.ts";
 import { PEER_TRAJECTORY, SESSION_TRAJECTORY } from "./trajectory.ts";
 
 /** The span, only when the USER authored it. A `set-*` timing

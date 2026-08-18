@@ -214,7 +214,7 @@ SessionEndpoint = {
 `designator` is what the end claims to be, either dialed or read out of the
 partner's hello. `attributedBy` is what backed that claim, and `peer` is the
 peer the end attached to as a result. The words `attributedBy` can take are the
-`EndpointAttribution` enum in `src/schema/topology.ts`, which is where each one
+`EndpointAttribution` enum in `src/schema/session-end.ts`, which is where each one
 argues for itself.
 
 The invariant runs one way. An `attributedBy` means a `peer`, because nothing

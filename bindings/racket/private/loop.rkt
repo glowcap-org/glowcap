@@ -30,8 +30,9 @@
          racket/async-channel
          racket/random
          "constants.rkt"
-         "codec.rkt"
+         "abi-value.rkt"
          "ffi-driver.rkt"
+         "driver-failure.rkt"
          "errors.rkt"
          "value.rkt"
          "locator.rkt"
@@ -78,21 +79,6 @@
 ;; the `pancake_host_*` family's even though one library carries both.
 (define (driver-last-error) (read-last-error pancake_driver_last_error))
 (define (check/driver code) (check-with code driver-last-error))
-
-;; Marks a refusal produced by the loop drive itself, separating it from a
-;; per-session effect that the shared drain may safely classify and continue.
-(struct exn:fail:loop-drive exn:fail:pancake ())
-
-(define (raise-loop-drive error)
-  (raise
-   (exn:fail:loop-drive
-    (exn-message error)
-    (exn-continuation-marks error)
-    (exn:fail:pancake-code error)
-    (exn:fail:pancake-abort error)
-    (exn:fail:pancake-secondary-code error)
-    (exn:fail:pancake-secondary-name error)
-    (exn:fail:pancake-secondary-count error))))
 
 ;; ── The loop ─────────────────────────────────────────────────────────────────
 
@@ -141,7 +127,7 @@
 
 (define (fresh-event-buf)
   (make-PancakeDriverEvent
-   0 0 0 0 0 0 #f
+   0 0 0 0 0 0 0 0 0 0 0 #f
    (make-PancakeHostAction
     0 0 #f
     (make-PancakeArgument 0 0 0 0.0 #f 0 (make-PancakeReference 0) #f 0)
@@ -157,7 +143,7 @@
             (async-transport (lambda (_frame) (void)) void
                              (lambda (wake-evt) (sync wake-evt) 'woke) void))
 	           #f m #f
-	           (pending-writes (make-async-channel) (box 0) (make-semaphore 1) 1)
+	           (make-pending-writes 1)
 	           (make-semaphore 1) (box #f) (box OK)
 	           (box #f) (box #f) (box #f) (box #f)))
 
@@ -308,7 +294,13 @@
 ;; Provider packages are generic to the loop; private implementation tables
 ;; stay behind the archive ABI.
 (define (driver-loop-add-provider! lp package)
-  (check/driver (pancake_driver_add_provider (driver-loop-handle lp) package)))
+  (define-values (code failure)
+    (call/driver-failure
+     'driver-add-provider
+     (lambda (out)
+       (pancake_driver_add_provider (driver-loop-handle lp) package out))))
+  (when failure (raise failure))
+  (void))
 
 (define (driver-loop-has-transport? lp transport)
   (define name (string->bytes/utf-8 transport))
@@ -396,27 +388,12 @@
 ;; particular, operation ids and listener ids are different namespaces even
 ;; though both are carried by the same C record.
 (struct driver-event-opened (operation-id session) #:transparent)
-(struct driver-failure
-  (primary-result primary-name secondary-result secondary-count secondary-name)
-  #:transparent)
 (struct driver-event-open-failed (operation-id failure) #:transparent)
 (struct driver-event-listener-ready (listener-id) #:transparent)
 (struct driver-event-listener-failed (listener-id failure) #:transparent)
 (struct driver-event-accepted (listener-id session) #:transparent)
 (struct driver-event-session-closed (session failure) #:transparent)
 (struct driver-event-completion (action) #:transparent)
-
-(define (driver-failure<-c ev)
-  (driver-failure
-   (PancakeDriverEvent-primary-result ev)
-   (bytes->string/utf-8
-    (bytes<-c (PancakeDriverEvent-primary-name ev)
-              (PancakeDriverEvent-primary-name-len ev)) #\uFFFD)
-   (PancakeDriverEvent-secondary-result ev)
-   (PancakeDriverEvent-secondary-count ev)
-   (bytes->string/utf-8
-    (bytes<-c (PancakeDriverEvent-secondary-name ev)
-              (PancakeDriverEvent-secondary-name-len ev)) #\uFFFD)))
 
 (define (decode-driver-event ev)
   (define kind (PancakeDriverEvent-kind ev))
@@ -427,13 +404,13 @@
     [(= kind DRIVER-EVENT-OPEN-FAILED)
      (driver-event-open-failed
       (PancakeDriverEvent-operation-id ev)
-      (driver-failure<-c ev))]
+      (driver-failure<-event ev))]
     [(= kind DRIVER-EVENT-LISTENER-READY)
      (driver-event-listener-ready (PancakeDriverEvent-listener-id ev))]
     [(= kind DRIVER-EVENT-LISTENER-FAILED)
      (driver-event-listener-failed
       (PancakeDriverEvent-listener-id ev)
-      (driver-failure<-c ev))]
+      (driver-failure<-event ev))]
     [(= kind DRIVER-EVENT-ACCEPTED)
      (driver-event-accepted (PancakeDriverEvent-listener-id ev)
                             (PancakeDriverEvent-session ev))]
@@ -441,13 +418,13 @@
      (driver-event-session-closed
       (PancakeDriverEvent-session ev)
       (and (not (= (PancakeDriverEvent-primary-result ev) OK))
-           (driver-failure<-c ev)))]
+           (driver-failure<-event ev)))]
     [(= kind DRIVER-EVENT-COMPLETION)
      (driver-event-completion (host-decode-action!
                                (PancakeDriverEvent-action ev) arg<-c))]
     [else
-     (raise-pancake 'pancake-loop ERR-INVALID-ARGUMENT
-                    "unknown loop event kind ~a" kind)]))
+     (raise-pancake 'pancake-loop ERR-INTERNAL
+                    "ABI returned unknown loop event kind ~a" kind)]))
 
 ;; Drain `pancake_driver_next_event` until WOULD-BLOCK, decoding each borrowed
 ;; C record before the next pop invalidates its views.
@@ -696,32 +673,12 @@
 
 ;; ── Listen and accept ────────────────────────────────────────────────────────
 
-(define (driver-failure-exn who failure abort)
-  (exn:fail:pancake
-   (string-append (format "~a failed" who)
-    (if (string=? (driver-failure-primary-name failure) "")
-        ""
-        (format ": ~a" (driver-failure-primary-name failure)))
-    (if abort
-        (format " [~a~a: ~a]" (abort-info-domain abort)
-                (if (abort-info-kind abort) (format " ~a" (abort-info-kind abort)) "")
-                (abort-info-message abort))
-        ""))
-   (current-continuation-marks)
-   (driver-failure-primary-result failure)
-   abort
-   (and (positive? (driver-failure-secondary-count failure))
-        (driver-failure-secondary-result failure))
-   (and (positive? (driver-failure-secondary-count failure))
-        (driver-failure-secondary-name failure))
-   (driver-failure-secondary-count failure)))
-
 (define (listener-closed-exn who)
   (exn:fail:pancake
    (format "~a: listener closed during setup" who)
    (current-continuation-marks)
    ERR-CLOSED
-   #f #f #f 0))
+   #f #f #f #f 0))
 
 (define (settle-listener! listener outcome terminal-state)
   (when (box-cas! (loop-listener-state listener) 'pending terminal-state)
@@ -862,9 +819,7 @@
     (define close-error #f)
     (with-handlers ([exn? (lambda (e) (set! close-error e))])
       (when (loop-native-live? lp)
-        (check/driver
-         (pancake_driver_listener_close (driver-loop-handle lp)
-                                        (loop-listener-id listener)))))
+        (close-driver-listener! (driver-loop-handle lp) (loop-listener-id listener))))
     (when close-error
       (set-box! state-box prior)
       (raise close-error))
@@ -955,7 +910,7 @@
            (pancake_driver_lifecycle_state (driver-loop-handle lp)))
          (check/driver rc)
          (set! state lifecycle)
-         (unless (= lifecycle LIFECYCLE-CLOSED)
+         (unless (lifecycle-closed? lifecycle)
            (set! wait-ms (loop-step-wait-ms lp)))
          effects)))
     (run-drain-effects! m fx)
@@ -963,7 +918,7 @@
     ;; an idle pass stays silent so parked drivers cannot wake each other in
     ;; an endless idle exchange.
     (when (drain-effects-productive? fx) (host-bump-progress! m))
-    (unless (= state LIFECYCLE-CLOSED)
+    (unless (lifecycle-closed? state)
       (if (>= wait-ms 0)
           (sync/timeout (/ wait-ms 1000.0) gen)
           (sync gen))
@@ -1042,13 +997,13 @@
          (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/driver rc))
          (set! close-code rc)
          (set! state lifecycle)
-         (unless (= lifecycle LIFECYCLE-CLOSED)
+         (unless (lifecycle-closed? lifecycle)
            (set! wait-ms (loop-step-wait-ms lp)))
          effects)))
     (run-drain-effects! m fx)
     (when (drain-effects-productive? fx) (host-bump-progress! m))
     (cond
-      [(= state LIFECYCLE-CLOSED) close-code]
+      [(lifecycle-closed? state) close-code]
       [(>= wait-ms 0) (sync/timeout (/ wait-ms 1000.0) gen) (loop)]
       [else (sync gen) (loop)])))
 
@@ -1082,9 +1037,9 @@
            (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/driver rc))
            (set! close-code rc)
            (set! state lifecycle)
-           (when (= state LIFECYCLE-CLOSED)
+           (when (lifecycle-closed? state)
              (set-box! (session-close-result c) close-code))
-           (unless (= state LIFECYCLE-CLOSED)
+           (unless (lifecycle-closed? state)
              (set! wait-ms (loop-step-wait-ms lp)))
            effects)))
       (run-drain-effects! m fx)
@@ -1130,16 +1085,23 @@
 ;; freed endpoint. The close procedure was captured at adoption, so this
 ;; path — reachable from the FFI finalizer thread — resolves no module.
 (define (loop-native-release! lp)
-  (when (loop-native-live? lp)
-    (check/driver (pancake_driver_release (driver-loop-handle lp)))
-    (set-box! (driver-loop-state lp) 'released)
-    (for ([listener (in-hash-values (driver-loop-listeners lp))])
-      (cond
-        [(box-cas! (loop-listener-state listener) 'pending 'closed) (void)]
-        [(box-cas! (loop-listener-state listener) 'ready 'closed) (void)]
-        [else (void)])
-      (async-channel-put (loop-listener-accepts listener) accepts-terminal))
-    (hash-clear! (driver-loop-listeners lp))))
+  (cond
+    [(not (loop-native-live? lp)) (values OK #f)]
+    [else
+     (define-values (code failure)
+       (call/driver-failure
+        'driver-release
+        (lambda (out) (pancake_driver_release (driver-loop-handle lp) out))))
+     (when (release-consumed? code)
+       (set-box! (driver-loop-state lp) 'released)
+       (for ([listener (in-hash-values (driver-loop-listeners lp))])
+         (cond
+           [(box-cas! (loop-listener-state listener) 'pending 'closed) (void)]
+           [(box-cas! (loop-listener-state listener) 'ready 'closed) (void)]
+           [else (void)])
+         (async-channel-put (loop-listener-accepts listener) accepts-terminal))
+       (hash-clear! (driver-loop-listeners lp)))
+     (values code failure)]))
 
 ;; A loop-owned session's release: through the loop, so the native tier
 ;; unhooks the wire it is polling. After native teardown the handles are

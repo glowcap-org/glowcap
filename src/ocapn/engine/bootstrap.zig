@@ -18,20 +18,20 @@ const PeerId = @import("peer_id.zig").PeerId;
 /// A recognized inbound bootstrap-fetch.
 pub const FetchRequest = struct {
     swissnum: []const u8,
-    answer: model.AnswerPosition,
+    answer: model.AnswerName,
 };
 
 /// A recognized inbound `deposit-gift` bootstrap call.
 pub const DepositRequest = struct {
     gift_id: []const u8,
     gifted: model.view.Reference,
-    answer: ?model.AnswerPosition,
+    answer: ?model.AnswerName,
 };
 
 /// A recognized inbound `withdraw-gift` bootstrap call.
 pub const WithdrawRequest = struct {
     receive: model.view.HandoffReceive,
-    answer: model.AnswerPosition,
+    answer: model.AnswerName,
 };
 
 pub const Request = union(enum) {
@@ -627,8 +627,8 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
 /// borrowed `model.view.Deliver` (inbound wire) and the owned `model.Deliver`
 /// (a queued pipelined call) both carry `.answer` and a `.resolve_me_desc` with
 /// `.position()`.
-pub fn answerForDeliver(deliver: anytype, session: *const session_mod.Session) ?model.AnswerPosition {
-    return deliver.answer orelse blk: {
+pub fn answerForDeliver(deliver: anytype, session: *const session_mod.Session) ?model.AnswerName {
+    return if (deliver.answer) |answer| .fromWire(answer) else blk: {
         if (deliver.resolve_me_desc) |rmd| {
             if (rmd.position()) |import_position| {
                 break :blk session.answerForResolverImport(model.ImportPosition.from(import_position));
@@ -643,29 +643,21 @@ pub fn resolveForSwissnum(
     local_projection: ?LocalObjectProjection,
     scope: ?PeerId,
     request: FetchRequest,
-) !model.Message {
+) !model.Resolution {
     const projected = if (local_projection) |p|
         (try p.resolve_name(p.ctx, scope orelse return session_mod.Error.InvalidGift, request.swissnum)) orelse
             session.bootstrapLookup(request.swissnum)
     else
         session.bootstrapLookup(request.swissnum);
     if (projected) |export_position| {
-        return .{ .resolve = .{
-            .answer = request.answer,
-            .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
-        } };
+        return .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } };
     }
     return .{
-        .resolve = .{
-            .answer = request.answer,
-            .resolution = .{
-                .@"break" = .{
-                    // Named: the miss diagnostic must outlive this stack frame, and
-                    // `send` frees the resolution. One string dupe on the unknown-name
-                    // path; the fulfill arm is POD and allocates nothing.
-                    .message = try session.allocator.dupe(u8, "unknown swissnum"),
-                },
-            },
+        .@"break" = .{
+            // Named: the miss diagnostic must outlive this stack frame, and
+            // the settlement queue frees the resolution. One string dupe on
+            // the unknown-name path; the fulfill arm is POD and allocates nothing.
+            .message = try session.allocator.dupe(u8, "unknown swissnum"),
         },
     };
 }
@@ -676,7 +668,7 @@ pub fn resolveForDeposit(
     local_projection: ?LocalObjectProjection,
     scope: ?PeerId,
     request: DepositRequest,
-) !?model.Message {
+) !?model.Resolution {
     try session.validateHandoffGiftId(request.gift_id);
     const gifted = try request.gifted.toOwned(session.allocator);
     var transferred = false;
@@ -702,11 +694,8 @@ pub fn resolveForDeposit(
                 p.release_target(p.ctx, target);
                 return err;
             };
-            const answer = request.answer orelse return null;
-            return .{ .resolve = .{
-                .answer = answer,
-                .resolution = .{ .fulfill = .{ .void = {} } },
-            } };
+            if (request.answer == null) return null;
+            return .{ .fulfill = .{ .void = {} } };
         }
         return session_mod.Error.InvalidGift;
     }
@@ -726,17 +715,14 @@ pub fn resolveForDeposit(
     // is retained beside the gift id.
     try registry.depositOwned(session.allocator, session.limits, local_projection, request.gift_id, gifted);
     transferred = true;
-    const answer = request.answer orelse return null;
-    return .{ .resolve = .{
-        .answer = answer,
-        .resolution = .{ .fulfill = .{ .void = {} } },
-    } };
+    if (request.answer == null) return null;
+    return .{ .fulfill = .{ .void = {} } };
 }
 
 /// The withdraw responder's verdict.
 pub const WithdrawOutcome = union(enum) {
-    /// The withdraw settled: an owned outbound message plus, on success, an
-    /// infallible gift commit. The caller queues the message before applying
+    /// The withdraw settled: an owned resolution plus, on success, an
+    /// infallible gift commit. The caller queues the settlement before applying
     /// the commit, so allocation failure leaves the gift retryable.
     settled: PreparedWithdraw,
     /// The gift id names no *live* deposit — the gift is unknown, or its prior
@@ -799,56 +785,55 @@ pub const PendingReceive = struct {
 };
 
 pub const PreparedWithdraw = struct {
-    message: ?model.Message,
-    commit: ?GiftRegistry.PreparedWithdrawCommit = null,
-    gift_registry: ?*GiftRegistry = null,
-    projection: ?struct {
-        seam: LocalObjectProjection,
-        scope: PeerId,
-        target: u64,
-        projected: ProjectedLocalTarget,
+    answer: model.AnswerName,
+    resolution: ?model.Resolution,
+    commit: ?struct {
+        prepared: GiftRegistry.PreparedWithdrawCommit,
+        gift_registry: *GiftRegistry,
+        projection: ?struct {
+            seam: LocalObjectProjection,
+            scope: PeerId,
+            target: u64,
+            projected: ProjectedLocalTarget,
+        } = null,
     } = null,
 
     pub fn deinit(self: *PreparedWithdraw, allocator: std.mem.Allocator) void {
-        if (self.message) |message| model.freeMessage(allocator, message);
-        self.message = null;
-        if (self.projection) |projection| {
+        if (self.resolution) |resolution| model.freeResolution(allocator, resolution);
+        self.resolution = null;
+        if (self.commit) |commit| if (commit.projection) |projection| {
             projection.seam.rollback(
                 projection.seam.ctx,
                 projection.scope,
                 projection.target,
                 projection.projected,
             );
-        }
-        self.projection = null;
-        self.gift_registry = null;
+        };
+        self.commit = null;
     }
 
-    pub fn takeMessage(self: *PreparedWithdraw) model.Message {
-        const message = self.message orelse unreachable;
-        self.message = null;
-        return message;
+    pub fn takeResolution(self: *PreparedWithdraw) !model.Resolution {
+        const resolution = self.resolution orelse return error.PreparedSettlementConsumed;
+        self.resolution = null;
+        return resolution;
     }
 
     /// Finish a successfully queued withdrawal. Every fallible resource was
     /// reserved by `resolveForWithdraw`; this consumes the gift infallibly and
     /// preserves a newly shared Port projection.
     pub fn apply(self: *PreparedWithdraw, allocator: std.mem.Allocator, projection: ?LocalObjectProjection, counters: *GiftRegistry) void {
-        const prepared = self.commit orelse return;
-        const gifts = self.gift_registry orelse unreachable;
-        if (counters.commitWithdraw(gifts, allocator, projection, prepared)) |moved|
+        const commit = self.commit orelse return;
+        if (counters.commitWithdraw(commit.gift_registry, allocator, projection, commit.prepared)) |moved|
             model.freeReference(allocator, moved);
         self.commit = null;
-        self.gift_registry = null;
-        self.projection = null;
     }
 };
 
-fn preparedBreak(allocator: std.mem.Allocator, answer: model.AnswerPosition, reason: []const u8) !PreparedWithdraw {
-    return .{ .message = try model.cloneMessage(allocator, .{ .resolve = .{
+fn preparedBreak(allocator: std.mem.Allocator, answer: model.AnswerName, reason: []const u8) !PreparedWithdraw {
+    return .{
         .answer = answer,
-        .resolution = .{ .@"break" = .{ .message = reason } },
-    } }) };
+        .resolution = .{ .@"break" = .{ .message = try allocator.dupe(u8, reason) } },
+    };
 }
 
 /// The gifter side a signed give names, fixed-width for the session resolver.
@@ -944,7 +929,7 @@ pub fn resolvePendingWithdraw(
     local_projection: ?LocalObjectProjection,
     scope: ?PeerId,
     receive: PendingReceive,
-    answer: model.AnswerPosition,
+    answer: model.AnswerName,
 ) !?PreparedWithdraw {
     const gifter_side = receive.gifter_side;
     const gifter_session = if (gifter_session_resolver) |resolver|
@@ -969,7 +954,7 @@ fn prepareGiftWithdraw(
     local_projection: ?LocalObjectProjection,
     scope: ?PeerId,
     claim: WithdrawGiftClaim,
-    answer: model.AnswerPosition,
+    answer: model.AnswerName,
 ) !PreparedWithdraw {
     gifts.validateWithdrawGiftClaim(claim) catch |err| {
         return preparedBreak(allocator, answer, withdrawRefusalReason(err));
@@ -997,20 +982,20 @@ fn prepareGiftWithdraw(
             var projection_live = true;
             errdefer if (projection_live) p.rollback(p.ctx, projection_scope, target, projected);
             const commit = try GiftRegistry.prepareWithdrawCommit(gifts, claim);
-            const message = try model.cloneMessage(allocator, .{ .resolve = .{
-                .answer = answer,
-                .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = projected.export_position } } } },
-            } });
+            const resolution: model.Resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = projected.export_position } } } };
             projection_live = false;
             return .{
-                .message = message,
-                .commit = commit,
-                .gift_registry = gifts,
-                .projection = .{
-                    .seam = p,
-                    .scope = projection_scope,
-                    .target = target,
-                    .projected = projected,
+                .answer = answer,
+                .resolution = resolution,
+                .commit = .{
+                    .prepared = commit,
+                    .gift_registry = gifts,
+                    .projection = .{
+                        .seam = p,
+                        .scope = projection_scope,
+                        .target = target,
+                        .projected = projected,
+                    },
                 },
             };
         },
@@ -1019,14 +1004,14 @@ fn prepareGiftWithdraw(
         .verbatim_cap => {
             const gifted = gifts.giftedCap(claim.gift_id).?;
             const commit = try GiftRegistry.prepareWithdrawCommit(gifts, claim);
-            const message = try model.cloneMessage(allocator, .{ .resolve = .{
-                .answer = answer,
-                .resolution = .{ .fulfill = .{ .reference = gifted } },
-            } });
+            const resolution: model.Resolution = .{ .fulfill = .{ .reference = try model.cloneReference(allocator, gifted) } };
             return .{
-                .message = message,
-                .commit = commit,
-                .gift_registry = gifts,
+                .answer = answer,
+                .resolution = resolution,
+                .commit = .{
+                    .prepared = commit,
+                    .gift_registry = gifts,
+                },
             };
         },
         // Provenance-only deposit with nothing to hand back here. Leave the gift

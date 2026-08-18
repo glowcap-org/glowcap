@@ -14,7 +14,6 @@ const model = @import("model");
 const session = @import("mod.zig");
 
 const Error = session.Error;
-const AnswerTable = session.AnswerTable;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 
 /// Unique positions a typical `op:gc-*` folds on the stack before spilling to a
@@ -134,14 +133,19 @@ pub fn applyGcExportDecrement(table: anytype, gc_export: model.GcExport) Error!v
 /// itself, never disguised as a partner protocol violation.
 pub fn checkGcAnswerDecrement(
     allocator: std.mem.Allocator,
-    table: *const AnswerTable,
+    table: anytype,
     positions: []const u64,
 ) (Error || std.mem.Allocator.Error)!void {
     var pending: PendingFold = .{};
     defer pending.deinit(allocator);
     for (positions) |pos| {
         const total = try pending.add(allocator, pos, 1);
-        if (total > table.count(model.AnswerPosition.from(pos))) return Error.GcUnderflow;
+        const Id = @TypeOf(table.*).Id;
+        const id: Id = if (Id == model.AnswerName)
+            .fromWire(.from(pos))
+        else
+            .from(pos);
+        if (total > table.count(id)) return Error.GcUnderflow;
     }
 }
 

@@ -19,6 +19,8 @@ extern "C" {
 typedef struct PancakeDriverLoop PancakeDriverLoop;
 /* PancakeDriverOptions.abi_version. */
 #define PANCAKE_DRIVER_OPTIONS_ABI_VERSION 1
+/* PancakeDriverFailure.abi_version. */
+#define PANCAKE_DRIVER_FAILURE_ABI_VERSION 2
 /* Largest handshake_ms or settle_ms value. */
 #define PANCAKE_DRIVER_MAX_WAIT_MS 2147483647
 /* Default PancakeDriverOptions.wire_buffer_bytes. */
@@ -67,6 +69,35 @@ typedef struct PancakeDriverOptions {
     uint32_t settle_ms;
 } PancakeDriverOptions;
 
+typedef struct PancakeDriverFailure {
+    /* PANCAKE_DRIVER_FAILURE_ABI_VERSION. */
+    uint32_t abi_version;
+    /* sizeof(PancakeDriverFailure). */
+    size_t struct_size;
+    /* Stable PANCAKE_ERR_* primary result; PANCAKE_OK on success. */
+    int32_t primary_result;
+    /* Stable PANCAKE_ERR_* first consequence; PANCAKE_OK when absent. */
+    int32_t secondary_result;
+    /* Total observed consequences. */
+    uint32_t secondary_count;
+    /* PANCAKE_CARRIER_PHASE_* or NONE. */
+    uint32_t carrier_phase;
+    /* PANCAKE_CARRIER_DETAIL_* presence bits. */
+    uint32_t carrier_detail_flags;
+    /* Neutral certificate-verification flags; zero when unavailable. */
+    uint32_t carrier_verification_flags;
+    /* Peer TLS alert byte when its presence bit is set. */
+    uint32_t carrier_peer_alert;
+    /* Private engine failure code when its presence bit is set. */
+    int32_t carrier_engine_code;
+    /* Borrowed process-lifetime primary failure name. */
+    const uint8_t *primary_name;
+    size_t primary_name_len;
+    /* Borrowed process-lifetime first consequence name. */
+    const uint8_t *secondary_name;
+    size_t secondary_name_len;
+} PancakeDriverFailure;
+
 typedef struct PancakeDriverEvent {
     /* PANCAKE_DRIVER_EVENT_*. */
     uint32_t kind;
@@ -76,6 +107,16 @@ typedef struct PancakeDriverEvent {
     int32_t secondary_result;
     /* Total observed consequences. */
     uint32_t secondary_count;
+    /* PANCAKE_CARRIER_PHASE_* or NONE. */
+    uint32_t carrier_phase;
+    /* PANCAKE_CARRIER_DETAIL_* presence bits. */
+    uint32_t carrier_detail_flags;
+    /* Neutral certificate-verification flags; zero when unavailable. */
+    uint32_t carrier_verification_flags;
+    /* Peer TLS alert byte when its presence bit is set. */
+    uint32_t carrier_peer_alert;
+    /* Private engine failure code when its presence bit is set. */
+    int32_t carrier_engine_code;
     /* OPENED or OPEN_FAILED operation id. */
     uint64_t operation_id;
     /* Listener identity for listener events and ACCEPTED. */
@@ -124,14 +165,15 @@ int32_t pancake_driver_lifecycle_state(PancakeDriverLoop *loop, uint32_t *out_st
    wait primitive's timeout argument. */
 int32_t pancake_driver_step_wait_ms(PancakeDriverLoop *loop, int32_t *out_wait_ms);
 /* Release listeners, wires, events, provider adapters, and the moved Host.
-   NULL is a no-op. PANCAKE_ERR_INVALID_ARGUMENT refuses before consumption;
-   every other result consumes the handle and reports the teardown outcome. */
-int32_t pancake_driver_release(PancakeDriverLoop *loop);
-/* Install one validated provider package. The driver acquires its native lease
-   through provider.retain, copies profiles and implementation tables, and calls
-   provider.release only after every listener, connection, and callback has retired.
-   The provider lease, not a binding-side owner, keeps the transport context alive. */
-int32_t pancake_driver_add_provider(PancakeDriverLoop *loop, const PancakeTransportProvider *provider);
+   out_failure must identify the current version/layout before the call. NULL loop is
+   a no-op. Invalid output or reentry refuses before consumption; every other
+   result consumes the handle and returns the exact teardown chain in out_failure. */
+int32_t pancake_driver_release(PancakeDriverLoop *loop, PancakeDriverFailure *out_failure);
+/* Install one validated provider package. out_failure must identify the current
+   version/layout and receives the exact primary and rollback chain. The driver
+   acquires the native lease through provider.retain, copies profiles and tables,
+   and calls provider.release after every listener, connection, and callback retires. */
+int32_t pancake_driver_add_provider(PancakeDriverLoop *loop, const PancakeTransportProvider *provider, PancakeDriverFailure *out_failure);
 /* Report whether one installed provider owns the transport symbol. */
 int32_t pancake_driver_has_transport(PancakeDriverLoop *loop, const uint8_t *transport, size_t transport_len, uint8_t *out_present);
 /* Begin a non-blocking dial from one borrowed locator view. Null options inherit
@@ -159,8 +201,9 @@ int32_t pancake_driver_listener_advertise(PancakeDriverLoop *loop, uint64_t list
 /* Select this listener locator as the Host's acceptable location. */
 int32_t pancake_driver_listener_select(PancakeDriverLoop *loop, uint64_t listener);
 /* Stop one listener and remove its advertised locator without releasing the
-   loop or accepted session handles. */
-int32_t pancake_driver_listener_close(PancakeDriverLoop *loop, uint64_t listener);
+   loop or accepted session handles. out_failure must identify the current
+   version/layout and receives the exact stop/cancellation and cleanup chain. */
+int32_t pancake_driver_listener_close(PancakeDriverLoop *loop, uint64_t listener, PancakeDriverFailure *out_failure);
 /* Return the loop-owned descriptor on which the embedder parks. */
 int32_t pancake_driver_readiness_fd(PancakeDriverLoop *loop, int32_t *out_fd);
 /* Advance listeners, in-flight opens, wires, Host actions, and handshakes.
@@ -198,7 +241,7 @@ int32_t pancake_driver_session_lifecycle_state(PancakeDriverLoop *loop, PancakeH
 int32_t pancake_driver_session_serve(PancakeDriverLoop *loop, PancakeHostSession *session);
 /* Release one loop-owned session and its wire. */
 int32_t pancake_driver_session_release(PancakeDriverLoop *loop, PancakeHostSession *session);
-/* Query or copy this archive's thread-local error message. */
+/* Query or copy this archive's thread-local error message. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_driver_last_error(uint8_t *out_buf, size_t cap);
 /* Clear this archive's thread-local error message. */
 void pancake_driver_clear_last_error(void);

@@ -190,7 +190,7 @@ export function Dialog(
         background: "rgba(0,0,0,0.45)",
         // The app shell passes pointer events through to the canvas beneath it
         // and every opaque panel claims them back (`appShellStyle` in
-        // `App.tsx`). A dialog is mounted wherever its owner lives, so it
+        // `ui/app-shell.ts`). A dialog is mounted wherever its owner lives, so it
         // claims them here rather than relying on the shell it landed in:
         // without this the panel is unclickable and the backdrop never hears
         // the press that should dismiss it.

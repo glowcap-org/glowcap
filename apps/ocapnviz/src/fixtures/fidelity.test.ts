@@ -17,7 +17,7 @@ import {
   endpointStageId,
   SESSION_SIDES,
   type SessionSide,
-} from "../schema/topology.ts";
+} from "../schema/session-end.ts";
 import { observationsOf } from "../engine/temporal/recording-access.ts";
 import type { TimelineEvent } from "../engine/timeline.ts";
 

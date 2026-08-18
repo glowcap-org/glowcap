@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import ctypes
 
+from ._archive_contract import require_archive_fingerprint
+from ._constants import ONION_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _bind, _Frame, _Lib, _ManagedFrame
 from ._lib_resolve import _lib_path
@@ -51,6 +53,7 @@ class _OnionConfig(ctypes.Structure):
 
 def _load():
     onion = ctypes.CDLL(str(_lib_path("pancake_net_transport_onion")))
+    require_archive_fingerprint(onion, "onion", ONION_ARCHIVE_FINGERPRINT)
     facade = _Lib(onion)
     _bind(
         facade,

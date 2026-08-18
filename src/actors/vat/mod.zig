@@ -380,7 +380,7 @@ pub const InterceptOutcome = union(enum) {
 /// rewrite must stay valid for that same window.
 pub const ResolveInterceptor = struct {
     ctx: ?*anyopaque,
-    func: *const fn (ctx: ?*anyopaque, answer: model.AnswerPosition, fulfilled: model.Argument) anyerror!InterceptOutcome,
+    func: *const fn (ctx: ?*anyopaque, answer: model.AnswerName, fulfilled: model.Argument) anyerror!InterceptOutcome,
 };
 
 /// A one-shot vow listener: `func(ctx, resolution)` fires when the vow
@@ -477,6 +477,14 @@ pub const Error = error{
     /// turns. Its accounting remains live until both reach zero.
     IngressBusy,
 } || std.mem.Allocator.Error;
+
+/// Cancellation refuses only when the ingress is not live or is executing a
+/// turn. It allocates nothing: queued work and listeners are retired from
+/// storage reserved at admission.
+pub const IngressCancellationError = error{
+    UnknownIngress,
+    IngressBusy,
+};
 
 /// One CapTP session's projection of a Vat: wire peer, export positions, and
 /// far-vow settlement. A Port owns names and authority that exist only on that
@@ -1059,14 +1067,31 @@ pub const Vat = struct {
         self.allocator.destroy(state);
     }
 
+    /// Roll back the exact ingress returned by `openIngress` when its owning
+    /// transaction fails before publishing the ingress or admitting work.
+    /// Unlike `closeIngress`, this is an infallible undo primitive: the caller
+    /// still owns the fresh row exclusively, so absence or queued work is an
+    /// internal transaction bug rather than a runtime failure to reinterpret.
+    pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
+        std.debug.assert(ingress != .local);
+        const removed = self.ingresses.fetchRemove(ingress) orelse unreachable;
+        const state = removed.value;
+        std.debug.assert(state.pending_turns == 0);
+        std.debug.assert(state.active_turns == 0);
+        std.debug.assert(!state.runnable);
+        std.debug.assert(state.runnable_next == null);
+        std.debug.assert(state.first == null and state.last == null);
+        self.allocator.destroy(state);
+    }
+
     /// Tear down a session ingress that can no longer run. It is removed from
     /// admission and fair scheduling before listeners fire, so a break handler
     /// cannot enqueue fresh work onto the closing Port. Every queued local vow
     /// settles broken; unobserved turns are discarded with their chunk.
-    pub fn cancelIngress(self: *Vat, ingress: IngressId, reason: []const u8) Error!void {
-        if (ingress == .local) return Error.IngressBusy;
-        const state = self.ingresses.get(ingress) orelse return Error.UnknownIngress;
-        if (state.active_turns != 0) return Error.IngressBusy;
+    pub fn cancelIngress(self: *Vat, ingress: IngressId, reason: []const u8) IngressCancellationError!void {
+        if (ingress == .local) return error.IngressBusy;
+        const state = self.ingresses.get(ingress) orelse return error.UnknownIngress;
+        if (state.active_turns != 0) return error.IngressBusy;
         std.debug.assert(self.ingresses.remove(ingress));
 
         _ = self.takeSpecificRunnable(state);

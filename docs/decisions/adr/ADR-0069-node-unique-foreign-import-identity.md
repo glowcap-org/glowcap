@@ -3,175 +3,125 @@ id: ADR-0069
 status: accepted
 date: 2026-07-07
 tags: [engine, node, handoff, three-party, routing, gc, api]
-decision: "A fetched foreign capability is identified across connections by a node-unique token, not by its wire import position. `engine.Node` enrolls every fetched far import under a token drawn from the same reserved high range as a redeemed handoff token, mapping it to a `Route{home_conn, real_wire_reference}`, and hands the application that token; routing, the gifter-side origination interceptor, and the send-argument foreign verdict all resolve through the enrollment instead of through the old position-keyed `foreign_homes` map. This closes a real cross-connection identity collision (import positions are per-session, so two capabilities fetched over different connections routinely share a position, and the node-global position key made the second fetch clobber the first, mis-routing every introduction after the first to the last-fetched exporter (revealed by the rooms directory, which introduces many members over one identity). The enrollment is also swept in `removeConn`, fixing a companion leak. A single outbound chokepoint (`Peer.send` calling `Node.lowerForConn`) lowers every reference in an outbound message, so a token cannot leak in any emission position. The native Zig driver adopts the token first, proven by a two-exporter handoff test; at acceptance the C ABI surfaced the enrollment as pancake_node_enroll_foreign (that C waist is deleted) CapTP product work uses `pancake_host_*`) and all four bindings adopt it, the TypeScript one proven by the rooms direct-message reproduction; the deprecated position-keyed path and the old record-foreign-home helper are then removed, leaving the token as the node's one foreign-capability identity."
+decision: "A fetched or redeemed foreign capability is identified across sessions by a node-unique `CapabilityRouteId`, never by a wire import position. `Reference.routed` carries that identity until the Node lowers it at the owning session."
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0079, ADR-0096, ADR-0113]
+amended_by: [ADR-0079, ADR-0091, ADR-0096, ADR-0113, ADR-0116]
 ---
 
-# ADR-0069 A fetched foreign capability is identified by a node-unique token
-
-> **C-projection / vocabulary amendment (ADR-0079).** The Zig `engine.Node`
-> token enrollment and its semantics remain accepted. The former
-> pancake_node_enroll_foreign C entry (and the pancake_node_* waist) were
-> deleted; CapTP multi-session product work uses `pancake_host_*`. Binding
-> `Node` is not the current multi-session product: that is binding `Host`. Read
-> historical pancake_node_* / binding-`Node` mentions below as acceptance-time
-> shape.
+# ADR-0069 Foreign capabilities have Node-owned route identities
 
 ## Context
 
-`engine.Node` (ADR-0066) makes a three-party handoff transparent. When a served
-reply returns a capability the node fetched from another connection, the node's
-resolve interceptor recognizes it as *foreign* and originates the gifter half of
-a handoff instead of encoding a cross-connection reference. It recognizes the
-capability by looking it up in `foreign_homes`, a map from the capability's far
-import position to the connection it lives on, written by `recordForeignHome`
-after every `fetch`.
+CapTP import positions are session-local. Two partners may both introduce
+`far(7)` while naming unrelated capabilities. A Host-wide table keyed only by
+the import position therefore aliases those capabilities and can route a later
+send or re-gift to the wrong exporter.
 
-That key is wrong. An import position is a **per-session** name: CapTP numbers
-imports per session, each starting fresh, so the same position value occurs in
-every session. A single node that holds fetched capabilities from more than one
-session therefore has more than one capability at the same position, and
-the node-global `foreign_homes[position] = home` makes the second `fetch` clobber
-the first. Every later re-gift then resolves to the last-fetched home. A broker
-that introduces a *single* exporter never trips it: which is why every existing
-handoff demo and test passed: but a broker that introduces *several* parties
-mis-routes all but the last introduction back to that last party.
+The application cannot repair that ambiguity. Once it holds only `far(7)`, the
+session that gave the reference is precisely the missing fact. Carrying the
+home session in every binding would duplicate a protocol identity decision and
+make language adapters authoritative for routing.
 
-The rooms directory is exactly such a broker: each browser tab is a member it
-fetches a `dm` inbox from, and it introduces members to each other. With two
-members, introducing the first resolves to the second, so a direct message loops
-back to the sender. Rooms revealed the defect; it is general, and it is the only
-instance of its class in the tree (every other cross-connection table keys on a
-node-unique token, a `ConnId`, a `conn_id`-composite key, or a global crypto or
-locator identity).
-
-A composite key `{conn_id, import_position}` does not fix it: at the point the
-node must find the home (the interceptor, resolving a reply on the *recipient's*
-connection), the node has the recipient connection and the position but not the
-home connection: the home is precisely what it is looking up. The far reference
-the application hands back is `far(position)`, and two such references are
-byte-identical. The only sound fix is to make the application-held identity
-node-unique.
-
-`foreign_homes` is also never reclaimed in `removeConn` (which sweeps every other
-per-connection table), so it both leaks and, with stale rows from closed
-connections colliding against live low positions, sharpens the mis-routing.
+Pancake also creates a local capability identity when a three-party handoff is
+redeemed. That identity has the same requirement: it must route to the exporter
+session while never becoming a wire import on an unrelated session.
 
 ## Decision
 
-A fetched foreign capability is identified by a **node-unique token**, the same
-device the node already uses for a redeemed handoff capability (ADR-0066's
-reserved high range, disjoint from any wire import position). `fetch` no longer
-hands the application the raw `far(position)`; the node enrolls the import under a
-token and hands back `far(token)`. The enrollment records a
-`Route{home_conn, real_wire_reference}`: the connection the capability lives on
-and the real `far(position)` to address there.
+`engine.Node` assigns a monotonic `CapabilityRouteId` and stores:
 
-A token is a node-local id and must never reach the wire. Rather than swap it to
-its wire form at each of the several places a reference is emitted: a send
-target, a forwarded target, an argument, a resolution: the peer lowers every
-reference in an outbound message at the one place all outbound messages funnel
-through: `Peer.send` (via `enqueueRecorded`), calling `Node.lowerForConn` through
-a hook the node installs on each registered peer. A reference below the reserved
-range is returned untouched (the fast path, every real wire reference), and the
-walk runs only after the node has enrolled its first foreign token, so a two-party
-peer pays nothing. This is the structural guarantee: a token cannot leak in a
-position someone forgot to patch, because there is one lowering site and it is on
-the encode path itself. A token whose home is another connection has no wire name
-there and fails **closed** with `TokenNotLiftable`, turning a routing bug into a
-loud error instead of a synthetic id on the wire.
+```text
+CapabilityRouteId -> { home PeerId, real session-scoped Reference }
+```
 
-Two decisions remain above the chokepoint, because only they choose a *different*
-connection than the one the application addressed:
+Application- and Host-owned semantic values carry the id in the explicit
+`Reference.routed` arm. A routed reference is not a `FarRef`, and no magnitude
+test converts between them. Every `u64` remains available to a peer as an
+`ImportPosition` (ADR-0091).
 
-- **Routing a send target across connections** (`routeReference`/`route`): a
-  `far(token)` addressed from a connection other than its home redirects to its
-  `home_conn` with the real `far(position)`: the same redirect a redeemed token
-  gets. The driver does this before `send`; the chokepoint then lowers a token
-  addressed on its own home.
-- **Re-gifting a served reply** (the host's resolve interceptor over
-  `interceptFulfilledRef`): when a returned capability's home is *another*
-  connection, the node re-gifts it: depositing the **real** `far(position)` on
-  that home and building the give toward it (depositing the token would name an
-  export the exporter never made). When the home is *this* connection the
-  interceptor returns the reference unchanged and the chokepoint lowers it. The
-  interceptor's `?Argument` return distinguishes a claimed re-gift (null) from an
-  ordinary pass-through, nothing more.
+The Node owns both route families:
 
-The send-argument foreign verdict (`argIsForeign`) stays as the binding's early,
-descriptive check: a `far(token)` is foreign exactly when its enrolled home is not
-the connection being addressed. It no longer has to be the last line of defense,
-the chokepoint fails an off-home token closed regardless: but a binding may still
-consult it to reject a cross-connection argument with a clearer error before the
-send.
+- `foreign_imports` enrolls a fetched import and keeps the id on the live
+  session import row as its generation proof;
+- `redeemed` owns the temporary route produced by a completed handoff until the
+  Host adopts it into opaque capability identity.
 
-The enrollment is swept in `removeConn` when its home closes, bounding a
-long-running broker's routing rows. A token whose enrollment has been reclaimed
-(or a redeemed token whose exporter is gone) routes nowhere, and `routeReference`
-then fails it **closed** rather than passing the synthetic id through: a
-reference in the reserved range that routes nowhere is a retired token, never a
-wire import.
+An enrollment is prepared before publication. A fresh foreign-import route
+carries rollback authority, so allocation or admission failure removes the map
+row and import-row memo before the caller observes the reference. Ids are never
+reused even after rollback or retirement.
 
-### Interactions
+### One lowering authority
 
-- **Garbage collection (ADR-0063).** A binding releases a fetched import by its
-  wire position (`op:gc-exports`). Because the application now holds the token,
-  the release path translates the token back to its `{home_conn, position}`
-  before emitting the delta. The native driver does not garbage-collect fetched
-  imports, so this concerns only the language bindings.
-- **The gifter identity is unchanged.** The gift is still signed by the node
-  seed; only the internal routing key changes. Deposit/withdraw verification is
-  untouched.
-- **Same-home arguments and resolutions are lowered.** Because the chokepoint
-  lowers *every* reference an outbound message carries, a fetched capability passed
-  as a send argument, or used to fulfill a resolution, on its own home connection
-  now reaches the wire as its real import, not only send targets and served
-  replies. A token addressed *across* connections in argument position still has
-  no wire name and fails closed; cross-connection argument origination (a re-gift
-  from argument position, rather than reply position) remains the one boundary
-  ADR-0066 draws, unchanged by this ADR.
+`Peer.send` calls the Node lowering hook before encoding every outbound
+message. The hook:
 
-### Migration
+- returns ordinary wire references unchanged;
+- replaces a routed reference with its real wire reference only on its home
+  session;
+- returns `RouteNotLowerable` everywhere else.
 
-The change spans the whole stack, because a fetched capability's identity is held
-by every consumer. It lands in stages so each is provable on its own:
+Codecs reject `Reference.routed`. This makes bypassing the Node fail closed and
+keeps target, argument, nested value, and resolution emission on one rule.
 
-1. The `Node` gains the token enrollment; the native Zig driver adopts it at
-   `fetch`. The position-keyed `foreign_homes` path is retained, unused by the
-   driver, so the C ABI and the four language bindings keep compiling and their
-   single-exporter dogfoods keep passing while they still use it. A two-exporter
-   handoff test (`test/driver/`) proves the driver routes each introduction to
-   its own exporter: the test that fails under the old key and passes under the
-   new one.
-2. The outbound chokepoint (`Peer.send` to `Node.lowerForConn`) lowers tokens
-   uniformly, so the token model no longer leaks in any emission position: the
-   prerequisite for a binding to hold tokens without a per-path lowering rule of
-   its own.
-3. At acceptance the C ABI surfaced the enrollment (pancake_node_enroll_foreign;
-   that entry is gone with the pancake_node_* waist: see banner), and every
-   language binding adopts the token at `fetch` (and `enliven`, where it records a
-   home), translating it back to its wire position in the GC path. The TypeScript
-   (Deno, Bun), Python, Rust, and Racket bindings are all migrated; the TypeScript
-   one is proven by the rooms direct-message reproduction that mis-routed under the
-   position key and routes correctly under the token. With the last binding
-   migrated, the position-keyed `foreign_homes` map and
-   the old record-foreign-home helper are removed, so the token enrollment is the
-   node's one foreign-capability identity.
+Two Host decisions sit above lowering because they may choose a different
+session:
+
+- a send target routes to its recorded home before the message enters that
+  Peer;
+- a capability returned to a third session becomes a signed give (or a
+  promise proxy) using the real exporter-side reference.
+
+Bindings receive opaque Host capabilities and never inspect
+`CapabilityRouteId`, `PeerId`, or import positions.
+
+### Lifetime and GC
+
+The session import row is the generation authority for a fetched route. The row
+stores its current `CapabilityRouteId`; releasing and reusing the same wire
+position cannot revive the previous identity. `removePeer` reclaims all routes
+homed on that peer, and later use fails with `CapabilityRouteUnavailable`.
+
+When Host GC releases a fetched capability, it resolves the opaque capability
+to `{home session, ImportPosition}`, emits `op:gc-exports` there, and retires
+the route after the final import retain disappears. Partial releases keep both
+the import and route live.
 
 ## Consequences
 
-- The cross-connection identity collision is closed at the root, in one place,
-  for every consumer: the native driver and all four bindings hold a fetched
-  capability's identity as a token, not worked around per application.
-- The `Node` carries one foreign-capability table, the token enrollment. The
-  deprecated position-keyed map and its C ABI entry point are gone, so there is no
-  second identity for a fetched capability to drift against.
-- `removeConn` reclaims the enrollment, so a long-running broker (a directory
-  serving members that come and go) no longer accumulates stale routing rows.
-- The token model is now the single identity for *both* halves of a handoff,
-  the redeemed capability a recipient holds and the fetched capability a gifter
-  re-gifts: which is the shape ADR-0066 was reaching for when it retired the
-  per-binding `Ref.home` field.
+- Equal wire positions on different sessions never alias.
+- A stale route cannot acquire a later meaning.
+- No routed identity can leak onto the wire; the codec is a backstop, not the
+  policy owner.
+- Ordinary two-party references take one union-tag branch and no map lookup.
+  Routed references use the existing Node map. The representation adds no
+  allocation or copy to frame processing.
+- Routing and handoff policy live once in Zig. C and language bindings remain
+  lifecycle, value, and runtime adapters.
+
+## Evidence
+
+Recurring Node and Host scenarios prove:
+
+- identical import positions on two sessions route to their respective homes;
+- same-home lowering emits the original wire position and cross-home lowering
+  fails closed;
+- prepared enrollment rolls back without publishing authority;
+- partial/final GC and position reuse preserve generation safety;
+- object re-gift and promise proxy paths use the same route identity;
+- old high-band boundaries and `maxInt(u64)` remain valid wire imports.
+
+The live Goblins handoff/gift matrix proves the resulting wire behavior; it is
+not the authority for the internal route representation.
+
+## Rejected alternatives
+
+- **Key by import position.** Positions are session-local and collide.
+- **Key by `{PeerId, ImportPosition}` while exposing only `far(position)`.** The
+  caller no longer has the home `PeerId` when routing is needed.
+- **Reserve a numeric import band.** This rejects valid OCapN input and lets a
+  local identity masquerade as a wire reference.
+- **Store home identity in each binding.** This duplicates routing semantics
+  and makes adapters disagree about capability identity and GC.

@@ -1,0 +1,204 @@
+/* The Operations modal and its panes: the control that opens it from the
+   Settings head, the shared pane rhythm, and the two tables the panes draw.
+   Settings owns the toggles that take these capabilities; everything the
+   modal itself draws lives here, on the modal's own three planes — ground,
+   well, field — declared in settings.css. */
+
+/* The Operations control leads the toggle row from the left, apart from the
+   window toggles at its end: it opens a layer about the server rather than
+   changing something about this window, and the gap says so. */
+.settings-toggles .ops-lead {
+	margin-inline-end: auto;
+}
+
+/* A pane is a column on the modal's own gap: the lead and its refresh first,
+   then one well per question. */
+.ops-pane {
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+}
+.ops-head {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+.ops-head .lead {
+	flex: 1;
+	margin: 0;
+	/* A one-word last line reads as a typo; let the engine balance the break. */
+	text-wrap: pretty;
+}
+
+/* The panes' table rhythm: caption-weight column heads, a hairline between
+   rows, and a numberless third column that keeps actions at the line's end.
+   Locators and swiss numbers are wire text, so they sit in mono a step under
+   the prose around them. */
+.ops-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: var(--type-ui);
+}
+.ops-table th,
+.ops-table td {
+	text-align: start;
+	padding: 6px 10px 6px 0;
+	vertical-align: baseline;
+	overflow-wrap: anywhere;
+}
+.ops-table th {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+	padding-top: 0;
+}
+.ops-table tbody tr td {
+	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+/* Without a heading row there is nothing for the first hairline to divide. */
+.ops-table tbody tr:first-child td {
+	border-top: 0;
+}
+/* A column that is code throughout carries itself in mono alone: a chip per
+   cell would checker the table. */
+.ops-table code {
+	font-size: 11px;
+	background: transparent;
+	padding: 0;
+	border-radius: 0;
+}
+.ops-kind {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+	white-space: nowrap;
+}
+.ops-note {
+	color: var(--ink-soft);
+}
+.ops-kicker {
+	display: block;
+	font-size: 11px;
+	font-weight: 700;
+	color: var(--ink-soft);
+}
+/* The action cell hugs the line's end; a control there is one small ghost
+   mark, not a labelled button competing with the address beside it. */
+.ops-act {
+	width: 1%;
+	text-align: end;
+	white-space: nowrap;
+	padding-right: 0;
+	vertical-align: middle;
+}
+/* The serving mark: a teal dot and two quiet words where a down control
+   would be a dead press. Teal is this page's "you are here" voice — the
+   directory facts' live dot speaks it too — so the mark reads as a state,
+   never as an action. */
+.ops-serving {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--teal-ink);
+	white-space: nowrap;
+}
+.ops-serving::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--teal-ink);
+}
+
+/* A pane with nothing to list says so in the well, quietly, instead of
+   drawing an empty grid. */
+.ops-empty {
+	margin: 0;
+	padding: 6px 0;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+}
+
+/* The listeners as rows rather than a table: a locator is one long piece of
+   wire text, and a column beside it only forces it to wrap against its
+   neighbors. One row per transport, its switch at the line's end the way the
+   Advanced toggles sit, the description under the name, and — while it is
+   up — the locator as a full-width copy field, the line an operator hands
+   out. */
+.ops-listeners {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.ops-listener {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.ops-listener + .ops-listener {
+	padding-top: 12px;
+	border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+.ops-listener-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 24px;
+}
+.ops-listener-name {
+	flex: 1;
+	font-size: var(--type-ui);
+	font-weight: 700;
+	color: var(--ink);
+}
+.ops-listener .hint {
+	margin: 0;
+}
+/* A seat the server already knows cannot come up fades as one piece, so the
+   disabled switch and its row agree; the standing sentence keeps full ink so
+   the reason stays readable. */
+.ops-listener[data-idle="true"] .ops-listener-name,
+.ops-listener[data-idle="true"] > .hint:first-of-type {
+	opacity: .55;
+}
+.ops-idle {
+	font-style: italic;
+}
+/* One knob of a seat's `up`: the name as a quiet caption leading its field,
+   so three host-shaped fields cannot be told apart only by placeholder. */
+.ops-opt {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.ops-opt-name {
+	flex: none;
+	width: 72px;
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+}
+.ops-opt .field {
+	flex: 1;
+	min-width: 0;
+}
+/* The refresh control says it is asking: the arrow turns until the server's
+   answer lands, so a slow snapshot reads as working rather than dead. */
+.ops-refresh[data-asking="true"] svg {
+	animation: ops-refresh-turn .9s linear infinite;
+}
+@keyframes ops-refresh-turn {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.ops-refresh[data-asking="true"] svg {
+		animation: none;
+	}
+}

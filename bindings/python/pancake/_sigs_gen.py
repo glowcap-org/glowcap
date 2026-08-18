@@ -139,6 +139,7 @@ def driver_sigs(
         "pancake_host_vow_index": ([P, u64, u64, u64_p], i32),
         "pancake_host_vow_untag": ([P, u64, P, size, u64_p], i32),
         "pancake_host_vow_get": ([P, u64, P, size, u64_p], i32),
+        "pancake_host_turn_session": ([P, ctypes.POINTER(P)], i32),
         "pancake_host_turn_forward": ([P, ctypes.POINTER(_Reference), P, size, ctypes.POINTER(_Argument), size, ctypes.POINTER(_Argument)], i32),
         "pancake_host_turn_defer": ([P, u64_p], i32),
         "pancake_host_turn_spawn": ([P, _HostBehavior, P, P, ctypes.POINTER(_Reference)], i32),
@@ -156,6 +157,7 @@ def driver_sigs(
 
 def loop_sigs(
     _DriverOptions,
+    _DriverFailure,
     _CloseOptions,
     _DriverEvent,
     _LocatorView,
@@ -179,8 +181,8 @@ def loop_sigs(
         "pancake_driver_retire": ([P], i32),
         "pancake_driver_lifecycle_state": ([P, u32_p], i32),
         "pancake_driver_step_wait_ms": ([P, i32_p], i32),
-        "pancake_driver_release": ([P], i32),
-        "pancake_driver_add_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
+        "pancake_driver_release": ([P, ctypes.POINTER(_DriverFailure)], i32),
+        "pancake_driver_add_provider": ([P, ctypes.POINTER(_TransportProvider), ctypes.POINTER(_DriverFailure)], i32),
         "pancake_driver_has_transport": ([P, P, size, P], i32),
         "pancake_driver_dial": ([P, ctypes.POINTER(_LocatorView), ctypes.POINTER(_TransportOperationOptions), u64_p], i32),
         "pancake_driver_adopt_external": ([P, P, size, u64, u32, u64_p], i32),
@@ -189,7 +191,7 @@ def loop_sigs(
         "pancake_driver_listener_restoration_state": ([P, u64, P, size, size_p], i32),
         "pancake_driver_listener_advertise": ([P, u64, ctypes.POINTER(_LocatorView)], i32),
         "pancake_driver_listener_select": ([P, u64], i32),
-        "pancake_driver_listener_close": ([P, u64], i32),
+        "pancake_driver_listener_close": ([P, u64, ctypes.POINTER(_DriverFailure)], i32),
         "pancake_driver_readiness_fd": ([P, i32_p], i32),
         "pancake_driver_step": ([P, i32], i32),
         "pancake_driver_detach_thread": ([P], i32),
@@ -211,24 +213,27 @@ def tcp_sigs(_Frame, _ManagedFrame, _TcpConfig, _TcpStreamOptions, _TransportPro
     size = ctypes.c_size_t
     u16 = ctypes.c_uint16
     u32 = ctypes.c_uint32
+    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
+    size_p = ctypes.POINTER(size)
     i32_p = ctypes.POINTER(i32)
     u16_p = ctypes.POINTER(u16)
     return {
+        "pancake_tcp_archive_fingerprint": ([], u64),
         "pancake_tcp_last_error": ([P, size], size),
         "pancake_tcp_netlayer_new": ([ctypes.POINTER(_TcpConfig), ctypes.POINTER(P)], i32),
         "pancake_tcp_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
         "pancake_tcp_netlayer_shutdown": ([P], None),
         "pancake_tcp_netlayer_release": ([P], None),
-        "pancake_tcp_connect": ([P, P, size, u16, ctypes.POINTER(_TcpStreamOptions), u32, size, ctypes.POINTER(P)], i32),
+        "pancake_tcp_connect": ([P, P, size, u16, ctypes.POINTER(_TcpStreamOptions), u32, size, ctypes.POINTER(P), P, size, size_p], i32),
         "pancake_tcp_listen": ([P, P, size, u16, ctypes.POINTER(P)], i32),
         "pancake_tcp_listener_port": ([P, u16_p], i32),
         "pancake_tcp_listener_readiness_fd": ([P, i32_p], i32),
-        "pancake_tcp_accept": ([P, ctypes.POINTER(_TcpStreamOptions), u32, size, ctypes.POINTER(P)], i32),
-        "pancake_tcp_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], i32),
-        "pancake_tcp_conn_write_frame": ([P, ctypes.POINTER(_Frame)], i32),
+        "pancake_tcp_accept": ([P, ctypes.POINTER(_TcpStreamOptions), u32, size, ctypes.POINTER(P), P, size, size_p], i32),
+        "pancake_tcp_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame), P, size, size_p], i32),
+        "pancake_tcp_conn_write_frame": ([P, ctypes.POINTER(_Frame), P, size, size_p], i32),
         "pancake_tcp_conn_shutdown": ([P], i32),
-        "pancake_tcp_conn_release": ([P], i32),
+        "pancake_tcp_conn_release": ([P, P, size, size_p], i32),
         "pancake_tcp_listener_shutdown": ([P], None),
         "pancake_tcp_listener_release": ([P], None),
     }
@@ -239,22 +244,25 @@ def inproc_sigs(_Frame, _ManagedFrame):
     P = ctypes.c_void_p
     size = ctypes.c_size_t
     u32 = ctypes.c_uint32
+    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
+    size_p = ctypes.POINTER(size)
     i32_p = ctypes.POINTER(i32)
     return {
+        "pancake_inproc_archive_fingerprint": ([], u64),
         "pancake_inproc_last_error": ([P, size], size),
         "pancake_inproc_netlayer_new": ([ctypes.POINTER(P)], i32),
         "pancake_inproc_netlayer_release": ([P], None),
-        "pancake_inproc_connect": ([P, P, size, u32, size, ctypes.POINTER(P)], i32),
+        "pancake_inproc_connect": ([P, P, size, u32, size, ctypes.POINTER(P), P, size, size_p], i32),
         "pancake_inproc_listen": ([P, P, size, ctypes.POINTER(P)], i32),
         "pancake_inproc_listener_readiness_fd": ([P, i32_p], i32),
-        "pancake_inproc_accept": ([P, u32, size, ctypes.POINTER(P)], i32),
-        "pancake_inproc_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], i32),
-        "pancake_inproc_conn_write_frame": ([P, ctypes.POINTER(_Frame)], i32),
+        "pancake_inproc_accept": ([P, u32, size, ctypes.POINTER(P), P, size, size_p], i32),
+        "pancake_inproc_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame), P, size, size_p], i32),
+        "pancake_inproc_conn_write_frame": ([P, ctypes.POINTER(_Frame), P, size, size_p], i32),
         "pancake_inproc_conn_shutdown": ([P], None),
         "pancake_inproc_conn_release": ([P], None),
         "pancake_inproc_listener_shutdown": ([P], None),
-        "pancake_inproc_listener_release": ([P], i32),
+        "pancake_inproc_listener_release": ([P, P, size, size_p], i32),
     }
 
 
@@ -263,28 +271,30 @@ def onion_sigs(_Frame, _ManagedFrame, _OnionConfig, _TransportProvider):
     P = ctypes.c_void_p
     size = ctypes.c_size_t
     u32 = ctypes.c_uint32
+    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
     size_p = ctypes.POINTER(size)
     i32_p = ctypes.POINTER(i32)
     u32_p = ctypes.POINTER(u32)
     return {
+        "pancake_onion_archive_fingerprint": ([], u64),
         "pancake_onion_last_error": ([P, size], size),
         "pancake_onion_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
         "pancake_onion_netlayer_new": ([ctypes.POINTER(_OnionConfig), ctypes.POINTER(P)], i32),
         "pancake_onion_netlayer_shutdown": ([P], None),
-        "pancake_onion_netlayer_release": ([P], i32),
-        "pancake_onion_connect": ([P, P, size, u32, size, ctypes.POINTER(P)], i32),
-        "pancake_onion_listen": ([P, P, size, size_p, P, size, size_p, ctypes.POINTER(P)], i32),
-        "pancake_onion_listener_wait": ([P, i32, u32_p], i32),
+        "pancake_onion_netlayer_release": ([P, P, size, size_p], i32),
+        "pancake_onion_connect": ([P, P, size, u32, size, ctypes.POINTER(P), P, size, size_p], i32),
+        "pancake_onion_listen": ([P, P, size, size_p, P, size, size_p, ctypes.POINTER(P), P, size, size_p], i32),
+        "pancake_onion_listener_wait": ([P, i32, u32_p, P, size, size_p], i32),
         "pancake_onion_listener_readiness_fd": ([P, i32_p], i32),
         "pancake_onion_conn_readiness_fd": ([P, i32_p], i32),
-        "pancake_onion_accept": ([P, u32, size, ctypes.POINTER(P)], i32),
-        "pancake_onion_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], i32),
-        "pancake_onion_conn_write_frame": ([P, ctypes.POINTER(_Frame)], i32),
+        "pancake_onion_accept": ([P, u32, size, ctypes.POINTER(P), P, size, size_p], i32),
+        "pancake_onion_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame), P, size, size_p], i32),
+        "pancake_onion_conn_write_frame": ([P, ctypes.POINTER(_Frame), P, size, size_p], i32),
         "pancake_onion_conn_shutdown": ([P], i32),
-        "pancake_onion_conn_release": ([P], i32),
+        "pancake_onion_conn_release": ([P, P, size, size_p], i32),
         "pancake_onion_listener_shutdown": ([P], None),
-        "pancake_onion_listener_release": ([P], i32),
+        "pancake_onion_listener_release": ([P, P, size, size_p], i32),
     }
 
 
@@ -292,13 +302,15 @@ def iroh_sigs(_IrohReadyEvent, _IrohConfig, _TransportProvider):
     """``libpancake_net_transport_iroh`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
+    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
     size_p = ctypes.POINTER(size)
     return {
+        "pancake_iroh_archive_fingerprint": ([], u64),
         "pancake_iroh_last_error": ([P, size], size),
-        "pancake_iroh_netlayer_new": ([P, size, ctypes.POINTER(_IrohConfig), ctypes.POINTER(P)], i32),
+        "pancake_iroh_netlayer_new": ([P, size, ctypes.POINTER(_IrohConfig), ctypes.POINTER(P), P, size, size_p], i32),
         "pancake_iroh_netlayer_close": ([P], None),
-        "pancake_iroh_netlayer_release": ([P], i32),
+        "pancake_iroh_netlayer_release": ([P, P, size, size_p], i32),
         "pancake_iroh_netlayer_node_id": ([P, P, size, size_p], i32),
         "pancake_iroh_netlayer_direct_addrs": ([P, P, size, size_p], i32),
         "pancake_iroh_conn_release": ([P], None),
@@ -320,9 +332,11 @@ def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider):
     """``libpancake_net_transport_webrtc`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
+    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
     size_p = ctypes.POINTER(size)
     return {
+        "pancake_webrtc_archive_fingerprint": ([], u64),
         "pancake_webrtc_last_error": ([P, size], size),
         "pancake_webrtc_netlayer_new": ([ctypes.POINTER(_WebrtcConfig), ctypes.POINTER(P)], i32),
         "pancake_webrtc_netlayer_readiness_fd": ([P], i32),
@@ -346,15 +360,19 @@ def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider):
     }
 
 
-def relay_sigs(_RelayConfig, _TransportProvider):
+def relay_sigs(_RelayConfig, _RelayTrustSummary, _TransportProvider):
     """``libpancake_net_transport_relay`` signatures, in the inventory's order."""
     P = ctypes.c_void_p
     size = ctypes.c_size_t
+    u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
+    size_p = ctypes.POINTER(size)
     return {
+        "pancake_relay_archive_fingerprint": ([], u64),
         "pancake_relay_last_error": ([P, size], size),
         "pancake_relay_clear_last_error": ([], None),
         "pancake_relay_runtime_new": ([ctypes.POINTER(_RelayConfig), ctypes.POINTER(P)], i32),
+        "pancake_relay_runtime_trust_summary": ([P, ctypes.POINTER(_RelayTrustSummary)], i32),
         "pancake_relay_transport_provider": ([P, ctypes.POINTER(_TransportProvider)], i32),
-        "pancake_relay_runtime_release": ([P], i32),
+        "pancake_relay_runtime_release": ([P, P, size, size_p], i32),
     }

@@ -15,8 +15,8 @@
 use core::ffi::{c_int, c_uchar, c_uint};
 
 use super::driver::{
-	PancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportOperationOptions,
-	PancakeTransportProvider,
+	PancakeDriverEvent, PancakeDriverFailure, PancakeDriverLoop, PancakeDriverOptions,
+	PancakeTransportOperationOptions, PancakeTransportProvider,
 };
 use super::host::{PancakeCloseOptions, PancakeHost, PancakeHostSession};
 use super::ocapn::PancakeLocatorView;
@@ -32,10 +32,11 @@ extern "C" {
 	pub fn pancake_driver_retire(loop_: *mut PancakeDriverLoop) -> c_int;
 	pub fn pancake_driver_lifecycle_state(loop_: *mut PancakeDriverLoop, out_state: *mut u32) -> c_int;
 	pub fn pancake_driver_step_wait_ms(loop_: *mut PancakeDriverLoop, out_wait_ms: *mut i32) -> c_int;
-	pub fn pancake_driver_release(loop_: *mut PancakeDriverLoop) -> c_int;
+	pub fn pancake_driver_release(loop_: *mut PancakeDriverLoop, out_failure: *mut PancakeDriverFailure) -> c_int;
 	pub fn pancake_driver_add_provider(
 		loop_: *mut PancakeDriverLoop,
 		provider: *const PancakeTransportProvider,
+		out_failure: *mut PancakeDriverFailure,
 	) -> c_int;
 	pub fn pancake_driver_has_transport(
 		loop_: *mut PancakeDriverLoop,
@@ -84,7 +85,11 @@ extern "C" {
 		locator: *const PancakeLocatorView,
 	) -> c_int;
 	pub fn pancake_driver_listener_select(loop_: *mut PancakeDriverLoop, listener: u64) -> c_int;
-	pub fn pancake_driver_listener_close(loop_: *mut PancakeDriverLoop, listener: u64) -> c_int;
+	pub fn pancake_driver_listener_close(
+		loop_: *mut PancakeDriverLoop,
+		listener: u64,
+		out_failure: *mut PancakeDriverFailure,
+	) -> c_int;
 	pub fn pancake_driver_readiness_fd(loop_: *mut PancakeDriverLoop, out_fd: *mut i32) -> c_int;
 	pub fn pancake_driver_step(loop_: *mut PancakeDriverLoop, timeout_ms: c_int) -> c_int;
 	pub fn pancake_driver_detach_thread(loop_: *mut PancakeDriverLoop) -> c_int;

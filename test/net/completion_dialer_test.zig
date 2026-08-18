@@ -373,7 +373,7 @@ const FailingConnectBackend = struct {
         return null;
     }
 
-    pub fn recycleRecv(self: *FailingConnectBackend, comp: completion.Completion) void {
+    pub fn recycleBorrowed(self: *FailingConnectBackend, comp: completion.Completion) void {
         _ = self;
         _ = comp;
     }

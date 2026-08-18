@@ -19,28 +19,21 @@ import {
 import { peerGenesisValue, peerLabelAt, peerProfileAt, peerPropertyAt } from "../../engine/temporal/doc-resolver.ts";
 import { PEER_PROPERTIES, PEER_TRAJECTORY } from "../../engine/trajectory.ts";
 import { ActivityChip, LifecycleChip, type LifecycleStatus, PeerKindLabel } from "../EntityChips.tsx";
+import { EditableIdField, Field, FieldGroup, InlineTextField, ProfileSelect } from "./fields.tsx";
+import type { EditorBindings } from "./bindings.ts";
+import { OptionalTimeRow, TrajectoryInsert, TrajectoryValue } from "./trajectory.tsx";
+import { PositionRow } from "./position-row.tsx";
+import { SessionLinkRow, Unknown } from "./links.tsx";
 import {
-  EditableIdField,
-  type EditorBindings,
-  Field,
-  FieldGroup,
   inlineHeadingInput,
   inlineMonoInput,
-  InlineTextField,
   kv,
   linkRowList,
-  OptionalTimeRow,
   PanelHeading,
   placeholder,
-  PositionRow,
-  ProfileSelect,
-  SessionLinkRow,
-  TrajectoryInsert,
-  TrajectoryValue,
-  Unknown,
   valueMono,
   valueText,
-} from "./shared.tsx";
+} from "./styles.tsx";
 import { elideIdentifier, Identifier } from "../identifier.tsx";
 import { useEngineVersion } from "../useEngineVersion.ts";
 import { isInSelection, peerInfo, sessionInfo, sessionsTouchingPeer } from "./entity-info.ts";

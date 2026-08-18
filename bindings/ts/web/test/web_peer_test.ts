@@ -16,6 +16,7 @@ import * as tcp from "@pancake/tcp";
 // in-tree and socket-real at once.
 
 import { init } from "@pancake/web";
+import { proveChromiumNoiseRelay } from "./browser_noise_relay_test.ts";
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -24,7 +25,7 @@ function fail(message: string): never {
 
 // A hang is a bug, never a slow test (the cli rule's posture): bound the whole
 // scenario.
-const deadline = setTimeout(() => fail("web peer scenario timed out after 30s"), 30_000);
+const deadline = setTimeout(() => fail("web peer scenario timed out after 90s"), 90_000);
 
 // 1. Start the accepting host and wait for its READY line.
 const child = new Deno.Command(Deno.execPath(), {
@@ -79,7 +80,7 @@ try {
 	const session = await runtime.connect(
 		tcp.keyed.locator(ready.designator, "127.0.0.1", ready.port),
 	);
-	session.serve().catch(() => {});
+	const sessionServing = session.serve();
 
 	// 4. Fetch and call, and host an object of our own for the callback leg.
 	let resolveNotify!: (value: string) => void;
@@ -98,7 +99,7 @@ try {
 	const seen = await notifiedValue;
 	if (seen !== "saw web") fail(`unexpected callback payload: ${JSON.stringify(seen)}`);
 
-	session.close();
+	await Promise.all([session.close(), sessionServing]);
 
 	// 5. The second grammar: a fresh dial negotiates Cap'n Proto against the
 	//    capnp host, so both codecs run inside the wasm peer on this proof.
@@ -106,18 +107,23 @@ try {
 	const capnpSession = await capnpRuntime.connect(
 		tcp.keyed.locator(ready.capnpDesignator, "127.0.0.1", ready.capnpPort),
 	);
-	capnpSession.serve().catch(() => {});
+	const capnpServing = capnpSession.serve();
 	const capnpGreeter = await capnpSession.fetch("greeter");
 	const capnpReply = await capnpSession.send(capnpGreeter, "greet", ["capnp web"]);
 	if (capnpReply !== "hello capnp web") {
 		fail(`unexpected capnp greet reply: ${JSON.stringify(capnpReply)}`);
 	}
-	await capnpSession.close();
+	await Promise.all([capnpSession.close(), capnpServing]);
 	await capnpRuntime.close();
 
+	// 6. A real Chromium page becomes the non-listening side of a sealed relay
+	// rendezvous, then the installed native CLI cold-dials and calls it.
+	await runtime.close();
+	await proveChromiumNoiseRelay();
+
 	console.log(
-		"PASS: a wasm browser peer held keyed OCapN sessions over WebSocket " +
-			"(fetch, call, a host call back into a wasm-hosted object, both codecs)",
+		"PASS: a wasm browser peer held keyed and Noise-relay OCapN sessions " +
+			"(fetch, call, a host callback, both codecs, native cold-dial, Chromium)",
 	);
 } finally {
 	clearTimeout(deadline);
@@ -128,4 +134,3 @@ try {
 	}
 	await child.status;
 }
-Deno.exit(0);

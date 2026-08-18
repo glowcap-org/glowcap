@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import ctypes
 
+from ._archive_contract import require_archive_fingerprint
+from ._constants import INPROC_ARCHIVE_FINGERPRINT
 from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
 from ._lib_resolve import _lib_path
 
@@ -27,6 +29,7 @@ from ._sigs_gen import inproc_sigs
 
 def _load():
     inproc = ctypes.CDLL(str(_lib_path("pancake_net_transport_inproc")))
+    require_archive_fingerprint(inproc, "inproc", INPROC_ARCHIVE_FINGERPRINT)
     facade = _Lib(inproc)
     _bind(facade, inproc, inproc_sigs(_Frame, _ManagedFrame))
     return facade

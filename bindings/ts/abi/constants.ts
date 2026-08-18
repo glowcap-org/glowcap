@@ -66,6 +66,7 @@ export const MAX_HANDSHAKE_CONCURRENCY = 32;
 export const DISCOVERY_DIAL_RETRY_MS = 3000;
 export const DISCOVERY_DIAL_MAX_ATTEMPTS = 24;
 export const DRIVER_OPTIONS_ABI_VERSION = 1;
+export const DRIVER_FAILURE_ABI_VERSION = 2;
 export const DRIVER_MAX_WAIT_MS = 2147483647;
 export const DRIVER_DEFAULT_WIRE_BUFFER_BYTES = 16384;
 export const DRIVER_DEFAULT_MAX_PENDING_OPENS = 256;
@@ -85,6 +86,19 @@ export const DRIVER_EVENT_OPEN_FAILED = 1;
 export const DRIVER_EVENT_ACCEPTED = 2;
 export const DRIVER_EVENT_SESSION_CLOSED = 3;
 export const DRIVER_EVENT_COMPLETION = 4;
+export const DRIVER_EVENT_LISTENER_READY = 5;
+export const DRIVER_EVENT_LISTENER_FAILED = 6;
+export const CARRIER_PHASE_NONE = 0;
+export const CARRIER_PHASE_RESOLVE = 1;
+export const CARRIER_PHASE_CONNECT = 2;
+export const CARRIER_PHASE_SECURE_HANDSHAKE = 3;
+export const CARRIER_PHASE_WEBSOCKET_UPGRADE = 4;
+export const CARRIER_PHASE_REGISTRATION = 5;
+export const CARRIER_PHASE_RECEIVE = 6;
+export const CARRIER_PHASE_TRANSMIT = 7;
+export const CARRIER_PHASE_SHUTDOWN = 8;
+export const CARRIER_DETAIL_PEER_ALERT = 1;
+export const CARRIER_DETAIL_ENGINE_CODE = 2;
 export const DRIVER_ADOPT_DIALED = 0;
 export const DRIVER_ADOPT_ACCEPTED = 1;
 export const LOCATOR_VIEW_ABI_VERSION = 1;
@@ -111,6 +125,9 @@ export const WEBRTC_EV_CANDIDATE = 2;
 export const WEBRTC_EV_READABLE = 4;
 export const WEBRTC_EV_WRITABLE = 8;
 export const WEBRTC_EV_CLOSED = 16;
+export const RELAY_CONFIG_ABI_VERSION = 1;
+export const RELAY_TRUST_SYSTEM = 0;
+export const RELAY_TRUST_COPIED_PEM = 1;
 export const ARG_INTEGER = 0;
 export const ARG_FLOAT64 = 1;
 export const ARG_BOOLEAN = 2;
@@ -124,6 +141,8 @@ export const ARG_SET = 9;
 export const ARG_TAGGED = 10;
 export const ARG_KEYWORD = 11;
 export const ARG_BIG_INTEGER = 12;
+export const ARG_STRUCT = 13;
+export const ARG_ERROR = 14;
 export const CODEC_UNKNOWN = 0;
 export const CODEC_SYRUP = 1;
 export const CODEC_CAPNP = 2;
@@ -133,11 +152,19 @@ export const FEATURE_PIPELINING = 1;
 export const FEATURE_HANDOFF = 2;
 export const FEATURE_WIRE_DELTA = 4;
 export const FEATURE_STURDYREF = 8;
+export const FEATURE_UNTAG = 16;
 export const FEATURE_MINIMUM = 0;
-export const FEATURE_FULL = 15;
+export const FEATURE_BASELINE = 15;
+export const FEATURE_FULL = 31;
 export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
+export const TCP_ARCHIVE_FINGERPRINT = 11921594121097688506n;
+export const INPROC_ARCHIVE_FINGERPRINT = 5128366216247227632n;
+export const ONION_ARCHIVE_FINGERPRINT = 4430031151441338933n;
+export const IROH_ARCHIVE_FINGERPRINT = 16905722069956353583n;
+export const RELAY_ARCHIVE_FINGERPRINT = 16431240017645923720n;
+export const WEBRTC_ARCHIVE_FINGERPRINT = 4566877851080940310n;
 export const HINT_DIRECT_ADDRESSES = "direct-addresses";
 export const TRANSPORT_TCP = "tcp";
 export const TRANSPORT_ONION = "onion";
@@ -182,11 +209,14 @@ export const WASM_LAYOUT_STRUCTS = [
 // prefix listed here that gains one.
 export const NATIVE_ONLY_LAYOUT_PREFIXES = [
 	"DRIVER_OPTIONS",
+	"DRIVER_FAILURE",
 	"DRIVER_EVENT",
 	"TRANSPORT_OPERATION_OPTIONS",
 	"TRANSPORT_PROVIDER",
 	"TCP_STREAM_OPTIONS",
 	"TCP_CONFIG",
+	"RELAY_CONFIG",
+	"RELAY_TRUST_SUMMARY",
 	"IROH_READY_EVENT",
 	"WEBRTC_READY_EVENT",
 	"IROH_CONFIG",

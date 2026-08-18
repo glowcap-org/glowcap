@@ -7,7 +7,7 @@
 			height: auto;
 			background: var(--paper-raised);
 			border: 1px solid var(--rule);
-			border-radius: 10px;
+			border-radius: var(--radius-card);
 			box-shadow: var(--shadow);
 		}
 		.capwalk text {
@@ -82,24 +82,11 @@
 			gap: 1rem;
 			margin: 0.85rem 0 0.5rem;
 		}
-		.capwalk-controls button {
-			font: inherit;
-			padding: 0.35rem 1rem;
-			border: 1px solid var(--rule);
-			border-radius: 8px;
-			background: var(--paper-raised);
-			color: var(--ink);
-			cursor: pointer;
-		}
-		.capwalk-controls button:hover {
-			border-color: var(--teal);
-			color: var(--teal-deep);
-		}
 		.capwalk-where { color: var(--ink-soft); font-size: 0.9rem; }
 		.capwalk-steps { margin: 0.5rem 0 0; padding-left: 1.5rem; }
 		.capwalk-steps li {
 			padding: 0.3rem 0.6rem;
-			border-radius: 8px;
+			border-radius: var(--radius-chip);
 			color: var(--ink-soft);
 		}
 		.capwalk.js .capwalk-steps li { cursor: pointer; }
@@ -121,7 +108,7 @@
 			height: auto;
 			background: var(--paper-raised);
 			border: 1px solid var(--rule);
-			border-radius: 10px;
+			border-radius: var(--radius-card);
 			box-shadow: var(--shadow);
 		}
 		.tokref text {

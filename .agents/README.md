@@ -57,6 +57,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | Skill                            | Purpose                                                                              |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
 | [community-review](skills/community-review/SKILL.md) | OCapN / Goblins community-review preflight |
+| [file-budget](skills/file-budget/SKILL.md) | Canonical workflow for splitting oversize sources until the closed exception inventory is empty |
 | [pancake-cli](skills/pancake-cli/SKILL.md) | Shell CapTP (argv / REPL / listen / `--json`) |
 | [pancake-mcp](skills/pancake-mcp/SKILL.md) | In-host CapTP via project MCP |
 | [ratchet](skills/ratchet/SKILL.md) | Land a session's lesson at the strongest layer: check, fixture, rule line, or deletion |

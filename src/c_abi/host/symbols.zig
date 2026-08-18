@@ -188,9 +188,6 @@ pub const symbols = [_]Symbol{
     .{
         .name = "pancake_host_turn_session",
         .out_params = &.{1},
-        .rust_omit = "Rust behavior dispatch already carries its session wrapper explicitly and has no implicit current-session context",
-        .python_omit = "Python behaviors do not expose implicit current-session context; replies use the borrowed turn",
-        .racket_omit = "Racket behaviors do not expose implicit current-session context; replies use the borrowed turn",
     },
     .{
         .name = "pancake_host_turn_forward",

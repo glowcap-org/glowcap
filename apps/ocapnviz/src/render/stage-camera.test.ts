@@ -14,8 +14,12 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { StageCamera } from "./stage-camera.ts";
-import { formatStageZoom, MIN_STAGE_SCALE } from "./stage-view.ts";
+import { StageCamera, VIEW_SETTLE_MS } from "./stage-camera.ts";
+import { DEFAULT_STAGE_VIEW, formatStageZoom, MIN_STAGE_SCALE } from "./stage-view.ts";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function counted(camera: StageCamera): () => number {
   let woken = 0;
@@ -175,6 +179,63 @@ Deno.test("a zoom step does not disturb the settled view's identity", () => {
     camera.getSettledView() !== before,
     "coming to rest somewhere new left the snapshot alone",
   );
+});
+
+Deno.test("a still camera settles once after it stops, not per frame", async () => {
+  // Sixty identical publishes are one rest. Restarting the wait on each of
+  // them would mean a parked camera never reports, which is the Opens-at
+  // button staying dark while the reader is already looking at the view.
+  const camera = new StageCamera();
+  const woken = counted(camera);
+  for (let i = 0; i < 10; i++) camera.noteViewWhenSettled(2, 10, -4);
+  assertEquals(woken(), 0, "the wait itself is not a rest");
+  await sleep(VIEW_SETTLE_MS + 40);
+  assertEquals(camera.getReadout().settled, {
+    zoom: 2,
+    center: { x: 10, y: -4 },
+  });
+  assertEquals(woken(), 1, "one rest woke more than once");
+});
+
+Deno.test("a moving camera reports the last view it sat at", async () => {
+  const camera = new StageCamera();
+  camera.noteViewWhenSettled(1, 0, 0);
+  camera.noteViewWhenSettled(2, 5, 8);
+  await sleep(VIEW_SETTLE_MS + 40);
+  assertEquals(camera.getReadout().settled, {
+    zoom: 2,
+    center: { x: 5, y: 8 },
+  });
+});
+
+Deno.test("detaching the viewport cancels a pending settle", async () => {
+  // A stage rebuilt around a replaced buffer must not inherit the previous
+  // wait: that wait would publish a view the new camera never sat at.
+  const camera = new StageCamera();
+  const view = () => ({ zoom: 1, center: { x: 0, y: 0 } });
+  const detach = camera.attach({ run: () => {}, view });
+  camera.noteViewWhenSettled(3, 1, 2);
+  detach();
+  await sleep(VIEW_SETTLE_MS + 40);
+  assertEquals(
+    camera.getReadout().settled,
+    DEFAULT_STAGE_VIEW,
+    "a cancelled wait still published",
+  );
+});
+
+Deno.test("a stale detach does not cancel the live camera's settle", async () => {
+  const camera = new StageCamera();
+  const view = () => ({ zoom: 1, center: { x: 0, y: 0 } });
+  const detachOld = camera.attach({ run: () => {}, view });
+  camera.attach({ run: () => {}, view });
+  camera.noteViewWhenSettled(2, 8, 9);
+  detachOld();
+  await sleep(VIEW_SETTLE_MS + 40);
+  assertEquals(camera.getReadout().settled, {
+    zoom: 2,
+    center: { x: 8, y: 9 },
+  });
 });
 
 Deno.test("republishing the scale it already holds does no work", () => {

@@ -26,7 +26,9 @@ class Ref:
 
     ``id`` is an opaque identity in the Host that produced the handle. It is
     never a wire position and does not reveal whether the target is local,
-    remote, or handoff-routed.
+    remote, or handoff-routed. Python ``==`` and hashing compare only that
+    immutable identity; occurrence-local release and GC state do not change
+    Target equality.
     """
 
     id: int
@@ -72,6 +74,17 @@ class Keyword(str):
     """A string that marshals as an OCapN keyword."""
 
 
+@dataclass(frozen=True)
+class ErrorValue:
+    """A fulfilled OCapN Error value.
+
+    Returning this is data; raising an exception is the separate operation
+    that breaks a reply.
+    """
+
+    message: str
+
+
 class Set(list):
     """A list that marshals as an OCapN set (elements may be unhashable)."""
 
@@ -82,6 +95,13 @@ class Tagged:
 
     tag: str
     value: list
+
+
+@dataclass(frozen=True)
+class Struct:
+    """An OCapN Struct: unordered, uniquely named String fields."""
+
+    entries: list[tuple[str, "Argument"]]
 
 
 class Forward:
@@ -103,9 +123,9 @@ class Forward:
 
 
 # An argument is a native Python value or a wrapper:
-#   int, float, bool, bytes, str, Symbol, Keyword, None (void), Ref, list,
-#   Set, Tagged.
-Argument: TypeAlias = int | float | bool | bytes | str | Symbol | Keyword | None | Ref | list | Set | Tagged
+#   int, float, bool, bytes, str, Symbol, Keyword, ErrorValue, None (void), Ref,
+#   list, Set, Tagged, Struct.
+Argument: TypeAlias = int | float | bool | bytes | str | Symbol | Keyword | ErrorValue | None | Ref | list | Set | Tagged | Struct
 
 # An actor: handle a ``(verb, args)`` call and return a reply (``None`` is the
 # OCapN void). ``args`` may contain :class:`Ref`s (capabilities handed to you);

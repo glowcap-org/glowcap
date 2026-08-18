@@ -153,6 +153,15 @@ try {
 		{ timeout: 30_000 },
 	).catch(() => fail("the room never echoed the first line, so there was nothing to survive"));
 
+	// Stepped away before the ground moves. What the roster shows is the room's
+	// word, and a membership belongs to a connection — so a reconnect grants a
+	// fresh one with nobody away, which would put this reader back in front of
+	// everyone else while their own screen still said they had stepped out.
+	await tab.fill("#line", "/away making tea");
+	await tab.press("#line", "Enter");
+	await tab.waitForSelector("#members li.away", { timeout: 30_000 })
+		.catch(() => fail("saying you had stepped away did not show in the room"));
+
 	// ── The room goes away ───────────────────────────────────────────────
 	await killRoomServer();
 
@@ -185,10 +194,26 @@ try {
 		fail(`the supervised room changed authority across its restart: ${locatorBefore} became ${locatorAfter}`);
 	}
 
-	const status = (await tab.textContent("#status")) ?? "";
-	if (!status.includes("workshop")) {
-		fail(`after reconnecting the page is not in its room; the foot reads "${status}"`);
-	}
+	// The foot settles with the connection: once the room is re-entered the
+	// state row stops narrating the reconnect and hands the line back to the
+	// reader's own word — which survived the session it was said on, and is
+	// exactly what this test stepped away to prove. The identity row stays who
+	// this tab is; membership itself is the composer above and the rail's row.
+	await tab.waitForFunction(
+		() => {
+			const state = (document.querySelector("#standingBtn #status")?.textContent ?? "").trim();
+			const name = (document.querySelector("#standingBtn .foot-names .name")?.textContent ?? "").trim();
+			return state === "making tea" && name === "ada";
+		},
+		undefined,
+		{ timeout: 30_000 },
+	).catch(async () => {
+		const foot = await tab.evaluate(() => ({
+			state: document.querySelector("#standingBtn #status")?.textContent ?? "",
+			name: document.querySelector("#standingBtn .foot-names .name")?.textContent ?? "",
+		}));
+		fail(`after reconnecting the foot never settled back onto the reader: ${JSON.stringify(foot)}`);
+	});
 
 	// ── What belonged to the page is still the page's ────────────────────
 	const kept = await tab.evaluate(
@@ -211,6 +236,20 @@ try {
 		after,
 		{ timeout: 30_000 },
 	).catch(() => fail("the room did not echo a line sent after the reconnect, so nothing usable came back"));
+
+	// And this reader is still away in it. The room forgot — it granted a
+	// membership to a connection that did not exist a moment ago — so what makes
+	// this true is the page saying it again, and what makes it worth checking is
+	// that nobody would have noticed it silently stop being true.
+	await tab.waitForSelector("#members li.away", { timeout: 30_000 })
+		.catch(async () => {
+			const roster = await tab.evaluate(() =>
+				[...document.querySelectorAll("#members li")].map((row) =>
+					row.className + ": " + (row.textContent ?? "").slice(0, 40)
+				)
+			);
+			fail(`reconnecting walked this reader back in without saying so: ${JSON.stringify(roster)}`);
+		});
 
 	// The directory answers the new session too: the page cleared what the old
 	// one told it, so a room in this list is one the new session reported.

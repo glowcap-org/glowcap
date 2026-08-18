@@ -3,17 +3,9 @@
 ;; (libpancake_host, ADR-0072 / ADR-0079). It owns the `session` struct and
 ;; every `session-*` application verb (`session-fetch`, `session-send`,
 ;; `session-tell`, `session-serve`, …), plus mint/handshake (`establish-*`).
-;; The dial executor (plan + channel open + `connect`) lives in
-;; `private/dial.rkt`. Server/`listen`/`accept` live in `private/tcp-listen.rkt`.
-;; The host action switch (`drain-host-actions!`) lives
-;; in `private/action.rkt`. Far vows (`session-vow` / `session-index` /
-;; `session-untag` / settle), far-send mint (`session-far-send`), and the
-;; shared fetch wait live in `private/promise.rkt`. The session byte path
-;; — handshake, read raw bytes, `pancake_host_session_feed_bytes`, write what
-;; `take_outbound` drains, feed-refusal / `last_abort`, EOF / `break_far_vows` —
-;; lives in `private/pump.rkt`. The public barrel (`pancake.rkt`) requires those
-;; modules directly for app-facing symbols; this module requires them for CapTP
-;; verbs and mint/handshake only.
+;; Dial/listen orchestration lives in `dial.rkt` and `tcp-listen.rkt`; action,
+;; promise, byte-pump, and bounded-write-queue subjects live in their named
+;; private modules. This module composes those owners into the Session API.
 ;;
 ;; THE ACTION DRAIN. After any top-level host verb, the action queue drains
 ;; until dry (the one loop rule): a NEED_GIFT_ID draws 32 random bytes on the
@@ -34,9 +26,8 @@
          racket/lazy-require
          racket/random
          racket/string
-         racket/async-channel
          "constants.rkt"
-         "codec.rkt"
+         "abi-value.rkt"
          "ffi-ocapn.rkt"
          "ffi-host.rkt"
          "errors.rkt"
@@ -44,6 +35,7 @@
          "vat.rkt"
          "locator.rkt"
          "async.rkt"
+         "pending-writes.rkt"
          "host.rkt"
          "trace.rkt"
          "trampoline.rkt"
@@ -53,6 +45,7 @@
          "gc.rkt")
 
 (provide (all-defined-out)
+         (all-from-out "pending-writes.rkt")
          ;; Feed-refusal `last_abort` lives in pump; re-export for dogfood that
          ;; requires this module for CapTP verbs. The handshake bound lives
          ;; there too, beside the deadline machinery dial and accept share;
@@ -60,22 +53,9 @@
          session-last-abort
          HANDSHAKE-TIMEOUT-MS)
 
-;; A session carries its pump state (`async`), its vat, the `host` it
-;; belongs to, and its `native` opaque `PancakeHostSession` handle the host
-;; minted for it. The host (product role of Goblins `mycapn`; it owns
-;; `engine.Node` for the router tables — ADR-0079) redeems three-party handoff
-;; gives transparently and routes redeemed-capability sends to the exporter
-;; that hosts them, so the application's `session-send`/`session-fetch`/
-;; `session-tell` surface never sees a give. `pending-writes`/`write-gate`
-;; carry encoded outbound frames from the locked action drain to the socket:
-;; the drain pops `take_outbound` under the host lock (a host verb) into the
-;; byte-bounded FIFO, and the write happens after the lock releases, under the
-;; per-session gate — so a slow partner's socket stalls its own session's
-;; writer, never every thread sharing the host. The FIFO is the order authority:
-;; whichever thread holds the gate writes everything queued so far, in queue
-;; order, so frames never reorder on the wire.
-(define PENDING-WRITE-HIGH-WATER (* 2 HOST-FRAME-CAP))
-(struct pending-writes (channel bytes lock high-water))
+;; A session carries its pump state, vat, Host, native handle, bounded outbound
+;; queue, and lifecycle barriers. Handoff redemption and routed sends remain
+;; Host-owned; queue byte accounting lives in `pending-writes.rkt`.
 (struct session
   (async vat host native pending-writes write-gate release-pending? close-result
          closing-state wire-failure transport-lost? transport-close-started?))
@@ -151,7 +131,7 @@
      (and (not (session-released? c))
           (= 1 (pancake_host_session_is_open (session-ptr c)))))))
 
-;; Distributed GC (`session-with-gc!` / `track-import!` / `drain-gc!`) lives in
+;; Distributed GC (`session-with-gc!` / `track-argument!` / `drain-gc!`) lives in
 ;; `private/gc.rkt`. Feed-refusal / `session-last-abort` lives in `private/pump.rkt`.
 
 ;; ── The action drain ──────────────────────────────────────────────────────────
@@ -281,10 +261,7 @@
   (define ac (make-async-connection transport))
   (define v (make-vat #:time-travel? time-travel?))
   (define c (session ac v m ptr
-                     (pending-writes (make-async-channel)
-                                     (box 0)
-                                     (make-semaphore 1)
-                                     PENDING-WRITE-HIGH-WATER)
+                     (make-pending-writes)
                      (make-semaphore 1)
                      (box #f)
                      (box OK)
@@ -345,32 +322,41 @@
 ;; abandoning the connection on any failure so a rude partner costs one
 ;; accept, never the listener. `timeout-ms` bounds the wait; #f and 0 leave it
 ;; unbounded. The read/feed loop lives in `run-handshake!`.
+(define (retain-establishment-cleanup! m primary cleanup)
+  (define retained (retain-cleanup-failure primary cleanup))
+  (when (eq? retained primary)
+    ;; An arbitrary foreign exception cannot carry Racket's immutable typed
+    ;; fields. Its cleanup has no return slot, so the Host becomes its owner.
+    (record-host-runtime-failure! m cleanup))
+  retained)
+
 (define (finish-establish! c timeout-ms)
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
+                     (define retained error)
                      (with-handlers ([(lambda (_) #t)
                                       (lambda (cleanup-error)
-                                        (record-host-runtime-failure!
-                                         (session-host c) cleanup-error))])
+                                        (set! retained
+                                              (retain-establishment-cleanup!
+                                               (session-host c) retained cleanup-error)))])
                        (abandon-session! c))
-                     (raise error))])
+                     (raise retained))])
     (run-handshake! c timeout-ms)
     c))
 
-;; Run one mint + handshake window; any failure inside it closes `transport`
-;; before the error escapes, so a failed establish never leaks the byte
-;; channel behind it. The close lives here, not at dial/accept sites — the
-;; Rust and Python bindings keep the same rule inside their establish — and
-;; every transport's close is idempotent, so a later `session-close!` on the
-;; survivor stays safe.
+;; A failed mint/handshake closes its byte channel before the error escapes.
+;; Every transport close is idempotent, so a surviving Session remains safe.
 (define (establish-closing-transport m transport thunk)
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
+                     (define retained e)
                      (with-handlers ([(lambda (_) #t)
                                       (lambda (cleanup-error)
-                                        (record-host-runtime-failure! m cleanup-error))])
+                                        (set! retained
+                                              (retain-establishment-cleanup!
+                                               m retained cleanup-error)))])
                        ((async-transport-close! transport)))
-                     (raise e))])
+                     (raise retained))])
     (thunk)))
 
 ;; Mint the dialing half over a byte channel the caller already realized for
@@ -593,7 +579,7 @@
         (if (= result ERR-TIMEOUT)
             "session-close!: finish close exhausted its grace period"
             (format "session-close!: session close failed with pancake error ~a" result))
-        (current-continuation-marks) result #f #f #f 0)))
+        (current-continuation-marks) result #f #f #f #f 0)))
 
 (define (raise-session-terminal-failure! c)
   (raise-session-wire-failure! c)
@@ -649,10 +635,11 @@
              ;; parked on the lock; its handle must see no further host verb.
              [(session-released? c) no-drain-effects]
              [else
-              (define-values (rc _state)
+              (define-values (rc state)
                 (pancake_host_session_close_progress
                  (session-ptr c) (monotonic-ms)))
               (unless (or (= rc OK) (= rc ERR-TIMEOUT)) (check/host rc))
+              (lifecycle-closed? state)
               ;; Drain what progress queued (this session's release rides an
               ;; action) before parking; a productive drain bumps below.
               (define effects (drain-host-actions! m))
@@ -946,12 +933,11 @@
   (guard-open 'session-fetch c)
   (drain-gc! c) ; flush any imports reclaimed since the last session op
   (define nb (string->bytes/utf-8 name))
-  (track-import!
-   c
-   (blocking-fetch c 'session-fetch "fetch" name
-                   (lambda ()
-                     (pancake_host_session_fetch (session-ptr c) (pin-immobile nb)
-                                              (bytes-length nb))))))
+  (blocking-fetch c 'session-fetch "fetch" name
+                  (lambda ()
+                    (pancake_host_session_fetch (session-ptr c) (pin-immobile nb)
+                                                (bytes-length nb)))
+                  #:track-gc? #t))
 
 ;; Enliven a sturdyref against this session (ADR-0098): bring the durable
 ;; `(peer, swissnum)` to life as a live capability. The host verifies the full
@@ -1039,7 +1025,7 @@
           (pancake_host_enliven (host-ptr m) (pin-immobile sturdyref-bytes)
                                 (bytes-length sturdyref-bytes)))
         (check/host rc)
-        (define fresh (session-vow #f id 'pending '()))
+        (define fresh (session-vow #f id 'pending '() #f))
         (register-vow! m fresh)
         fresh)))
   ;; Fire the staged work: a cache-hit's pre-queued settle, or the dial action

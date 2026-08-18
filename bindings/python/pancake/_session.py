@@ -40,7 +40,7 @@ from ._ffi_host import _PartnerIdentity, _host
 from ._ffi_ocapn import _byte_buf, _Reference
 from ._host import Host
 from ._locator import _OwnedLocator, Locator
-from ._lifecycle import PendingWork, _UNSET, _close_options, _monotonic_ms
+from ._lifecycle import PendingWork, _UNSET, _close_options, _lifecycle_closed, _monotonic_ms
 from ._promise import RemotePromise, _fetch_like, _listen_far
 from ._gc import release_ref
 from ._trampoline import (
@@ -403,7 +403,7 @@ class Session:
 
     @property
     def gc(self):
-        """Host-owned GC state. Binding-internal seam for promise fetch track."""
+        """Host-owned GC state. Binding-internal projection/finalizer seam."""
         return self._host.gc
 
     @property
@@ -499,6 +499,7 @@ class Session:
         self._terminal_failure_count = _retain_terminal_failure(
             failures, getattr(self, "_terminal_failure_count", 0), error
         )
+        self._host._track_session_retirement_failure(error)
 
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
@@ -668,6 +669,7 @@ class Session:
                 )
                 if rc not in (_abi.OK, _abi.ERR_TIMEOUT):
                     _check_host(rc)
+                _lifecycle_closed(state.value)
                 # Drain what the progress call queued (a spent grace escalates
                 # into teardown actions). A drain that ran work sets the armed
                 # event, so the wait below returns at once and the loop
@@ -991,13 +993,18 @@ class Session:
         def owned(ptr, length) -> bytes:
             return ctypes.string_at(ptr, length) if ptr and length else b""
 
+        try:
+            provenance = _provenance_from_abi(info.provenance)
+        except ValueError as error:
+            raise PancakeError(_abi.ERR_INTERNAL, str(error)) from error
+
         return PartnerIdentity(
             session_key=owned(info.session_key, info.session_key_len),
             designator=owned(info.designator, info.designator_len).decode(
                 errors="replace"
             ),
             locator_record=owned(info.locator_record, info.locator_record_len),
-            provenance=_provenance_from_abi(info.provenance),
+            provenance=provenance,
         )
 
     def bind_verified_channel_key(self, designator: str) -> None:
@@ -1036,14 +1043,13 @@ class Session:
 
     def with_gc(self) -> "Session":
         """Opt this session into distributed GC (ADR-0063), off by default.
-        Once on, a far capability returned by :meth:`fetch` releases its import
-        to the partner -- a single ``op:gc-exports`` delta, routed through the
-        host to the import's home connection -- when the runtime reclaims the
-        last :class:`Ref` to it, so the partner can release the matching
-        export. CPython's refcounting makes that release prompt on the last
-        ``del``. Capabilities lifted elsewhere (a ``send`` reply, a delivered
-        argument, an ``enliven`` result the dedup cache owns) are outside this
-        seam. Returns ``self`` for chaining."""
+        Every capability occurrence projected by this session through
+        :meth:`fetch`, a fulfilled far operation, or a recursively nested
+        delivered argument releases its Host retain when the runtime reclaims
+        its :class:`Ref`. The Host routes any required ``op:gc-exports`` to the
+        import's actual home. CPython's refcounting usually makes release prompt
+        on the last ``del``; an ``enliven`` result remains owned by its dedup
+        cache. Returns ``self`` for chaining."""
         self._gc_enabled = True
         return self
 
@@ -1091,10 +1097,9 @@ class Session:
 
         Releases one application retain. For a remote capability the Host emits
         any required ``op:gc-exports``; a local capability needs no wire
-        message. :meth:`with_gc` does this too, but only for a
-        :meth:`fetch` result and only when the runtime reclaims the handle;
-        this is deterministic and works for any far capability this session
-        holds, including one lifted from a delivered argument or a reply.
+        message. :meth:`with_gc` does this best-effort for every capability
+        occurrence projected by an opted-in session; this is deterministic and
+        also works for a handle outside that automatic seam.
 
         ``ref`` is spent afterwards and every use of it raises. The Host
         generation makes the stale id fail closed; the binding rejects it before

@@ -62,7 +62,11 @@ implicitly a dialable signed locator.
 The bindings also expose sturdyref enlivenment, promise pipelining,
 attenuation, revocation, and opt-in distributed garbage collection. A `Ref` is
 opaque. Pass it as an argument and the binding chooses the correct wire
-reference; application code never manages import or export numbers.
+reference; application code never manages import or export numbers. Capability
+equality follows the opaque Host identity: Rust `==`, Python `==`, Racket
+`equal?`, and TypeScript `Ref.equals`. TypeScript `===` compares wrapper
+occurrences instead, which remain distinct because every occurrence owns its
+own release unit.
 
 ## A call can introduce another peer
 
@@ -138,6 +142,15 @@ Applications call `runtime.connect(locator)` after composing that Runtime with
 the required provider or connector. Optional transport packages own locator
 construction, configuration, setup, and operation options; generic bindings
 never name a concrete transport.
+
+The native relay package projects one Zig provider through the C ABI. Its
+declarative configuration selects `ws` or `wss`, system or copied-PEM trust,
+and registration posture; bindings do not parse certificates or own TLS state.
+Provider installation, listener close, and final loop release all use the same
+versioned driver-failure record, so a binding copies exact primary and cleanup
+facts without treating diagnostic text as control flow.
+Managed browser and event-loop connectors use their runtime's WebSocket while
+the byte-fed Host still owns Noise and CapTP.
 
 ## Building and checking
 

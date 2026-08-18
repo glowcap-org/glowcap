@@ -218,7 +218,7 @@ test "standard host action drain retains a gift-id request when entropy fails" {
     const exporter = try host.node.registerPeer(.{});
     try host.node.peer(exporter).?.session_state.registerImport(.from(4));
     const gift = try host.node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
-    try std.testing.expect(try host.node.interceptFulfilledRef(recipient, 77, gift.far.import_position.int()));
+    try std.testing.expect(try host.node.interceptFulfilledRoute(recipient, 77, gift.routed.id));
 
     var fail_next = true;
     try std.testing.expectError(

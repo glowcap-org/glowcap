@@ -52,6 +52,20 @@ const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimiz
 exe.root_module.addImport("pancake", pancake.module("pancake"));
 ```
 
+The base module has no TLS dependency. A native program that wants the built-in
+`ws` and `wss` relay provider imports the separately composed module:
+
+```zig
+exe.root_module.addImport(
+    "pancake_native_relay",
+    pancake.module("pancake_native_relay"),
+);
+```
+
+That module owns both `keyed-relay` and `noise-relay` views over one carrier and
+one immutable trust snapshot. It builds Pancake's pinned Mbed TLS engine; a
+program that does not import it does not link Mbed TLS.
+
 Then dial a peer, fetch a capability by name, and call it. This is the body of
 a function whose caller supplies `io`, `allocator`, and `designator`, the
 peer's `host:port`; the compilable whole is
@@ -149,7 +163,9 @@ workflow.
 
 The [website](https://jimisaacs.github.io/pancake/) is the primary guide. For
 a local preview, run `zig build docs-serve` and open
-`http://127.0.0.1:1990/pancake/`.
+`http://127.0.0.1:1990/pancake/`. In the devcontainer that process binds every
+interface so the published host port (`PANCAKE_DOCS_HOST_PORT`, 1990 on the
+primary checkout) reaches it.
 
 Docs kept in step with today's code own the inventory:
 

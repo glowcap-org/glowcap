@@ -133,6 +133,11 @@ the shape harder to change. Name which principle a finding breaks.
   scattered `.?` checks (split it; delete the flag).
 - A boundary that is real but only conventional (turn it into a build-checked
   invariant).
+- A file that has outgrown one responsibility. First-party sources stop at
+  650 lines (`tools/check/source_check/file_length.zig`); overages are
+  explicit ceilings that only shrink. Split on a seam the file already names,
+  never by chopping at the cap, and drop or lower the exception in the same
+  change. The procedure is [file-budget](../file-budget/SKILL.md).
 - Parallel hierarchies that re-express what a shared core could hold.
 - Behavior gaps hiding inside duplication (a hand-rolled copy that dropped
   something the canonical path does — unification fixes these for free).

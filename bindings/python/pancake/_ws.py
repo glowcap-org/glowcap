@@ -79,14 +79,18 @@ class _WebSocketTransport:
         return message
 
     async def write(self, data: bytes) -> None:
-        if not data:
+        if len(data) <= _WS_MESSAGE_HIGH_WATER:
             await self._ws.send(data)
             return
         # Keep each WebSocket message within the same transport bound enforced
         # on receive. Message boundaries carry no CapTP meaning, so splitting
         # here is byte-transparent and lets large frames traverse the relay.
-        for offset in range(0, len(data), _WS_MESSAGE_HIGH_WATER):
-            await self._ws.send(data[offset : offset + _WS_MESSAGE_HIGH_WATER])
+        # A memoryview keeps segmentation from making a second Python bytes
+        # copy. The WebSocket runtime still owns the one framing/masking copy
+        # required after this await boundary.
+        view = memoryview(data)
+        for offset in range(0, len(view), _WS_MESSAGE_HIGH_WATER):
+            await self._ws.send(view[offset : offset + _WS_MESSAGE_HIGH_WATER])
 
     def close(self) -> None:
         if self._close_task is not None:

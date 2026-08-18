@@ -354,7 +354,7 @@ transport list is replaced by the connection rule.
 Before ADR-0109 retired the credential branch, the four-clause rule and both
 evidence verbs were held by its attestation contract test,
 and the byte-fed tier by
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig).
+[`test/driver/core_host/`](../../../test/driver/core_host/).
 Each item below names what carries it, or says plainly that nothing does yet.
 
 1. A peer reached through a relay reports `durable_key_attestation` provenance

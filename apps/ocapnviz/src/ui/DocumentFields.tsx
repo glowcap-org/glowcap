@@ -27,7 +27,7 @@
  *
  * Editing shows every row, empty ones included, because an absent field is
  * exactly what the reader came here to fill in. Empty is normalized back to
- * absent on the way in (`Engine.setDocumentTitle` and its siblings), so a field
+ * absent on the way in (`document-fields.ts`), so a field
  * cleared to nothing leaves no `""` behind to make two documents that say the
  * same thing compare unequal.
  *
@@ -47,7 +47,7 @@
  * # Which edits enter undo
  *
  * The text fields, through the transaction the field's own focus opens
- * (`EditSession`), so a typing burst is one entry rather than one per letter.
+ * (`EditBracket`), so a typing burst is one entry rather than one per letter.
  *
  * Where the document opens, too, through the Opens-at row's pin. Looking around
  * is not an edit — panning changes no document and records no history — so the
@@ -55,7 +55,7 @@
  *
  * `dct:created` and `dct:modified` are not edited here at all: created is stamped
  * once by whoever made the document, and modified is stamped when it is saved
- * (`builder/helpers.ts`). Showing them read-only is the honest presentation of a
+ * (`builder/document-io.ts`). Showing them read-only is the honest presentation of a
  * field the reader does not own.
  */
 
@@ -65,10 +65,11 @@ import type { AppMode } from "../state/app-state.ts";
 import { stageCamera } from "../render/stage-camera.ts";
 import { ClearGlyph, PinGlyph } from "./glyphs.tsx";
 import { DEFAULT_STAGE_VIEW, formatStageZoom, initialStageView, sameStageView } from "../render/stage-view.ts";
-import type { EditSession } from "./inspector/shared.tsx";
+import type { EditBracket } from "./inspector/edit-bracket.ts";
 import type { BufferSourceInfo } from "../state/app-state.ts";
 import { stateChipBase } from "./EntityChips.tsx";
-import { Field, InlineTextField, TimeScrubInput, valueMono, valueName, valueText } from "./inspector/shared.tsx";
+import { Field, InlineTextField, TimeScrubInput } from "./inspector/fields.tsx";
+import { valueMono, valueName, valueText } from "./inspector/styles.tsx";
 import { c, SPACE } from "./tokens.ts";
 import { useDocVersion } from "./useDocVersion.ts";
 
@@ -78,7 +79,7 @@ export function DocumentFields(
     mode: AppMode;
     /** Present only where editing is allowed, which is Build. Absent makes every
      *  row read-only without each row having to ask what mode it is in. */
-    editor: EditSession | undefined;
+    editor: EditBracket | undefined;
     /** What the buffer is. Null only before the first source resolves. */
     source: BufferSourceInfo | null;
     /** Whether Build has changed it since. */
@@ -327,7 +328,7 @@ const entryVersion = new WeakMap<Element, number>();
  * The row reads the STORED view, not the camera. Looking around is reading: it
  * changes no document, records no history, and turns no badge on. So the way this
  * gets set is a press, and the press is an ordinary undoable edit like every other
- * row here (`Engine.setOpeningView`).
+ * row here (`writeOpeningView` in `document-fields.ts`).
  *
  * The button is the whole indication that there is anything to press. It comes
  * alive once the camera has come to rest somewhere other than where the document
@@ -344,7 +345,7 @@ const entryVersion = new WeakMap<Element, number>();
  * has a visible consequence and this is the only place that names it.
  */
 function OpeningView(
-  { engine, editor }: { engine: Engine; editor: EditSession | undefined },
+  { engine, editor }: { engine: Engine; editor: EditBracket | undefined },
 ) {
   // The settled view alone, not the whole readout: the readout's percentage
   // changes on most frames of a zoom, and this row does not show it. Subscribing

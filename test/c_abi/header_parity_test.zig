@@ -88,6 +88,7 @@ test "C header struct layouts match the Zig c_abi source" {
     try expectLayoutParity(c.PancakeTransportProviderEntry, cabi_loop.PancakeTransportProviderEntry);
     try expectLayoutParity(c.PancakeTransportProvider, cabi_loop.PancakeTransportProvider);
     try expectLayoutParity(c.PancakeRelayConfig, cabi_relay.PancakeRelayConfig);
+    try expectLayoutParity(c.PancakeRelayTrustSummary, cabi_relay.PancakeRelayTrustSummary);
 }
 
 test "the generated WebRTC header exposes its control and provider surface" {
@@ -112,6 +113,9 @@ test "C header return codes match the Zig c_abi source" {
     try expectConst(c.PANCAKE_ERR_UNSUPPORTED_VALUE, cabi.PANCAKE_ERR_UNSUPPORTED_VALUE);
     try expectConst(c.PANCAKE_ERR_BROKEN, cabi.PANCAKE_ERR_BROKEN);
     try expectConst(c.PANCAKE_ERR_NOT_FOUND, cabi.PANCAKE_ERR_NOT_FOUND);
+    try expectConst(c.PANCAKE_RELAY_CONFIG_ABI_VERSION, cabi_relay.PANCAKE_RELAY_CONFIG_ABI_VERSION);
+    try expectConst(c.PANCAKE_RELAY_TRUST_SYSTEM, cabi_relay.PANCAKE_RELAY_TRUST_SYSTEM);
+    try expectConst(c.PANCAKE_RELAY_TRUST_COPIED_PEM, cabi_relay.PANCAKE_RELAY_TRUST_COPIED_PEM);
 }
 
 test "C header discriminants match the Zig c_abi source" {
@@ -141,6 +145,8 @@ test "C header discriminants match the Zig c_abi source" {
     try expectConst(c.PANCAKE_ARG_TAGGED, cabi.PANCAKE_ARG_TAGGED);
     try expectConst(c.PANCAKE_ARG_KEYWORD, cabi.PANCAKE_ARG_KEYWORD);
     try expectConst(c.PANCAKE_ARG_BIG_INTEGER, cabi.PANCAKE_ARG_BIG_INTEGER);
+    try expectConst(c.PANCAKE_ARG_STRUCT, cabi.PANCAKE_ARG_STRUCT);
+    try expectConst(c.PANCAKE_ARG_ERROR, cabi.PANCAKE_ARG_ERROR);
 
     try expectConst(c.PANCAKE_RESOLUTION_FULFILL, cabi.PANCAKE_RESOLUTION_FULFILL);
     try expectConst(c.PANCAKE_RESOLUTION_BREAK, cabi.PANCAKE_RESOLUTION_BREAK);
@@ -152,11 +158,16 @@ test "C header discriminants match the Zig c_abi source" {
 
 test "C feature mask names every model feature exactly once" {
     const full = pancake.ocapn.model.FeatureSet.full();
+    const baseline = pancake.ocapn.model.FeatureSet.baseline();
     const minimum = pancake.ocapn.model.FeatureSet.minimum();
+    try expectConst(c.PANCAKE_FEATURE_UNTAG, cabi.PANCAKE_FEATURE_UNTAG);
+    try expectConst(c.PANCAKE_FEATURE_BASELINE, cabi.PANCAKE_FEATURE_BASELINE);
     try expectConst(c.PANCAKE_FEATURE_FULL, cabi.PANCAKE_FEATURE_FULL);
     try std.testing.expectEqual(cabi.PANCAKE_FEATURE_FULL, cabi.featureSetToC(full));
     try std.testing.expectEqual(cabi.PANCAKE_FEATURE_MINIMUM, cabi.featureSetToC(minimum));
     try std.testing.expectEqual(full, cabi.featureSetFromC(cabi.PANCAKE_FEATURE_FULL).?);
+    try std.testing.expect(!baseline.untag);
+    try std.testing.expectEqual(cabi.PANCAKE_FEATURE_BASELINE, cabi.featureSetToC(baseline));
     try std.testing.expectEqual(minimum, cabi.featureSetFromC(cabi.PANCAKE_FEATURE_MINIMUM).?);
     const unused_feature_bits = ~cabi.PANCAKE_FEATURE_FULL;
     if (unused_feature_bits != 0) {

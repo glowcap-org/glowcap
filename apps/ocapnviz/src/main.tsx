@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
+import "./controls.css";
 import { App } from "./App.tsx";
 import { AppErrorBoundary } from "./ui/error/AppErrorBoundary.tsx";
 import { pushError } from "./ui/error/error-bus.ts";

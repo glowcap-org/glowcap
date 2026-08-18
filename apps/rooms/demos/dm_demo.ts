@@ -3,7 +3,7 @@
 // `runDmHandoff`; this file supplies only the TCP flavour of standing Bob and
 // the rendezvous room up. Run by `zig build demo-rooms-dm`.
 
-import { runDmHandoff } from "../lib/dm_handoff.ts";
+import { runDmHandoff } from "./dm_handoff.ts";
 import { loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 

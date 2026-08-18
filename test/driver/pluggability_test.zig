@@ -43,7 +43,7 @@ const LoopbackResident = struct {
 
     const vtable: net.netlayer.Netlayer.VTable = .{
         .profile = .{ .symbol = transport, .designator_scheme = .address },
-        .dial = .{ .blocking = dial },
+        .dial = .{ .blocking = net.netlayer.adaptBlockingDial(dial) },
         .listen = listen,
     };
 
@@ -97,10 +97,10 @@ const LoopbackResident = struct {
 
     const listener_vtable: net.netlayer.Listener.VTable = .{
         .transport_name = transport,
-        .accept = accept,
-        .waitAcceptable = waitAcceptable,
-        .localLocator = localLocator,
-        .canonicalizeLocator = canonicalizeLocator,
+        .accept = net.netlayer.adaptAccept(accept),
+        .wait_acceptable = net.netlayer.adaptAcceptReadiness(waitAcceptable),
+        .local_locator = net.netlayer.adaptListenerLocator(localLocator),
+        .canonicalize_locator = net.netlayer.adaptListenerCanonicalize(canonicalizeLocator),
         .close = close,
     };
 

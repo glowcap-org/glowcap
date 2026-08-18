@@ -30,8 +30,24 @@ if TYPE_CHECKING:
     from ._host import Host
 
 from . import _constants as _c
-from ._codec import _codec_id
-from ._errors import _check_host, _retain_terminal_failure, _vow_failure, PancakeError
+from ._abi_value import _codec_id
+from ._errors import (
+    _check_host,
+    _retain_cleanup_failure,
+    _retain_terminal_failure,
+    _vow_failure,
+    PancakeError,
+)
+from ._driver_failure import (
+    _add_provider,
+    _close_listener,
+    _driver_event_failure,
+    _release,
+    _report_fields,
+)
+from ._carrier_failure import _decode as _decode_carrier
+from ._driver_event import LoopEvent
+from ._listener import ListenerLike, ListenerOwner
 from ._ffi_driver import (
     _driver,
     _DriverEvent,
@@ -41,7 +57,7 @@ from ._ffi_driver import (
 from ._ffi_host import _CloseOptions, _host
 from ._host_action_gen import HOST_ACTION_SETTLE, Fail, Settle, decode
 from ._failure import FailureLayer, _record_runtime_failure
-from ._lifecycle import PendingWork, _close_options
+from ._lifecycle import PendingWork, _close_options, _lifecycle_closed, _release_consumed
 from ._locator import _OwnedLocator, Locator, parse_locator
 from ._trampoline import _enter_deliver, _exit_deliver, _inside_turn
 
@@ -70,21 +86,19 @@ def _release_driver_finalizer_state(state: _DriverFinalizerState) -> None:
     handle = state.handle
     if not handle:
         return
-    rc = _driver.pancake_driver_release(handle)
-    if rc != _c.OK:
+    outcome = _release(_driver, handle, "driver-loop.finalize.release")
+    rc = outcome.code
+    if outcome.error is not None:
         if not state.release_failure_reported:
             state.release_failure_reported = True
-            error = PancakeError(rc, _last_driver_error())
+            error = outcome.error
             try:
                 if state.context is None:
                     raise RuntimeError("driver finalizer has no surviving Context")
                 state.context._report_failure(
                     layer=_c.FAILURE_LAYER_BINDING,
                     scope=_c.FAILURE_SCOPE_CONTEXT,
-                    operation="driver-loop.finalize.release",
-                    primary_name=type(error).__name__,
-                    primary_result=error.code,
-                    primary_message=str(error),
+                    **_report_fields(outcome, "driver-loop.finalize.release"),
                 )
             except BaseException as recorder_error:
                 _record_runtime_failure(
@@ -97,10 +111,11 @@ def _release_driver_finalizer_state(state: _DriverFinalizerState) -> None:
                     "driver-loop.finalize.release.diagnostic",
                     recorder_error,
                 )
-        with _deferred_driver_finalizers_lock:
-            if state.handle and state not in _deferred_driver_finalizers:
-                _deferred_driver_finalizers.append(state)
-        return
+        if not _release_consumed(rc):
+            with _deferred_driver_finalizers_lock:
+                if state.handle and state not in _deferred_driver_finalizers:
+                    _deferred_driver_finalizers.append(state)
+            return
     state.handle = None
     if state.host_state is not None:
         from ._host import _retire_finalizer_state
@@ -121,22 +136,6 @@ def _drain_driver_finalizers() -> None:
 
 
 atexit.register(_drain_driver_finalizers)
-
-
-def _driver_event_failure(event: "LoopEvent", operation: str) -> PancakeError:
-    """Project an authoritative driver-event result with its diagnostic."""
-    detail = (
-        f"{operation} failed: {event.primary_name}"
-        if event.primary_name
-        else f"{operation} failed"
-    )
-    error = PancakeError(event.primary_result, detail)
-    error.secondary_count = event.secondary_count
-    if event.secondary_count:
-        error.secondary = (
-            PancakeError(event.secondary_result, event.secondary_name or None),
-        )
-    return error
 
 
 def _driver_options(
@@ -206,94 +205,6 @@ class _StepDeliverContext:
 
     def __init__(self, host) -> None:
         self.host = host
-
-
-class LoopEvent:
-    """One drained loop event, in owned form (the C views die at the next
-    pop, so byte payloads are copied out here)."""
-
-    __slots__ = (
-        "kind",
-        "primary_result",
-        "secondary_result",
-        "secondary_count",
-        "operation_id",
-        "listener_id",
-        "session",
-        "primary_name",
-        "secondary_name",
-        "settled_ok",
-        "decoded",
-    )
-
-    def __init__(
-        self,
-        kind: int,
-        primary_result: int,
-        secondary_result: int,
-        secondary_count: int,
-        operation_id: int,
-        listener_id: int,
-        session: Optional[int],
-        primary_name: str = "",
-        secondary_name: str = "",
-        settled_ok: bool = False,
-        decoded: object = None,
-    ) -> None:
-        self.kind = kind
-        self.primary_result = primary_result
-        self.secondary_result = secondary_result
-        self.secondary_count = secondary_count
-        self.operation_id = operation_id
-        self.listener_id = listener_id
-        self.session = session
-        self.primary_name = primary_name
-        self.secondary_name = secondary_name
-        self.settled_ok = settled_ok
-        self.decoded = decoded
-
-
-class ListenerOwner:
-    """Ownership of exactly one native driver listener.
-
-    The owner closes admission for its listener and releases only accepted
-    handles that have not crossed into a public Session. It never owns the
-    loop, Host, or sibling listeners.
-    """
-
-    __slots__ = ("_loop", "listener", "_closed", "_ready", "_failure")
-
-    def __init__(self, loop: "DriverLoop", listener: int) -> None:
-        self._loop = loop
-        self.listener = listener
-        self._closed = False
-        self._ready = False
-        self._failure: Optional[PancakeError] = None
-
-    @property
-    def ready(self) -> bool:
-        """Whether the provider has completed listener construction."""
-        return self._ready
-
-    @property
-    def failure(self) -> Optional[PancakeError]:
-        """The terminal setup failure, if construction was rejected."""
-        return self._failure
-
-    def _mark_ready(self) -> None:
-        self._ready = True
-
-    def _mark_failed(self, error: PancakeError) -> None:
-        self._failure = error
-        self._closed = True
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        if self._loop._released:
-            self._closed = True
-            return
-        self._loop.close_listener(self.listener)
 
 
 class DriverLoop:
@@ -419,9 +330,12 @@ class DriverLoop:
                     ctypes.byref(slot),
                 )
             )
-        except BaseException:
-            _host.pancake_host_release(host)
-            context._release_handle()
+        except BaseException as primary:
+            from ._host import _release_unpublished_host
+
+            cleanup = _release_unpublished_host(host, context)
+            if cleanup is not None:
+                _retain_cleanup_failure(primary, cleanup)
             raise
         assert slot.value is not None
         loop = cls(slot.value, host.value, context)
@@ -546,23 +460,39 @@ class DriverLoop:
             self._closed_event.set()
             return
         self._release_attempted = True
-        try:
-            _check(_driver.pancake_driver_release(self._h))
-        except BaseException as release_error:
+        release_outcome = _release(
+            _driver, self._h, "driver-loop.background.release"
+        )
+        release_code = release_outcome.code
+        if _release_consumed(release_code):
+            self._retire_native_release()
+        if release_outcome.error is not None:
+            release_error = release_outcome.error
             self._record_terminal_failure(release_error)
             self._closed_event.set()
             return
-        self._released = True
-        self._finalizer_state.handle = None
-        self._finalizer.detach()
-        if self._wrapper is not None:
-            self._wrapper._driver_did_release()
         self._closed_event.set()
 
     def _record_terminal_failure(self, error: BaseException) -> None:
         self._terminal_failure_count = _retain_terminal_failure(
             self._terminal_failures, self._terminal_failure_count, error
         )
+
+    def _retire_wrapper(self) -> None:
+        """Retire the adopted Host and claim its session cleanup outcomes."""
+        wrapper = self._wrapper
+        if wrapper is None:
+            return
+        wrapper._driver_did_release()
+        for error in wrapper.terminal_failures:
+            self._record_terminal_failure(error)
+
+    def _retire_native_release(self) -> None:
+        """Commit wrapper ownership after a consuming driver release."""
+        self._released = True
+        self._finalizer_state.handle = None
+        self._finalizer.detach()
+        self._retire_wrapper()
 
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
@@ -759,7 +689,7 @@ class DriverLoop:
                 if rc not in (_c.OK, _c.ERR_TIMEOUT):
                     _check(rc)
                 close_code = rc
-                if state.value == _c.LIFECYCLE_CLOSED:
+                if _lifecycle_closed(state.value):
                     break
                 await self._wait_step_wake()
             self._finish_close(close_code)
@@ -774,14 +704,10 @@ class DriverLoop:
             self._progress_timer = None
         try:
             self._release_attempted = True
-            try:
-                _check(_driver.pancake_driver_release(self._h))
-            except BaseException as error:
-                self._record_terminal_failure(error)
-                raise
-            self._released = True
-            self._finalizer_state.handle = None
-            self._finalizer.detach()
+            release_outcome = _release(_driver, self._h, "driver-loop.close.release")
+            release_code = release_outcome.code
+            if _release_consumed(release_code):
+                self._retire_native_release()
             for accepts in self._accepts.values():
                 accepts.put_nowait(_ACCEPTS_CLOSED)
             for owner in self._listeners.values():
@@ -802,11 +728,14 @@ class DriverLoop:
                     close_future.set_exception(closed)
             self._session_closes.clear()
             self._unclaimed_sessions.clear()
-            if self._wrapper is not None:
-                # Native release is the transfer's terminal boundary. Retire
-                # wrapper-owned callbacks and its Context borrow only after
-                # every native allocation has reached that allocator's free.
-                self._wrapper._driver_did_release()
+            # Native release is the transfer's terminal boundary. Retire
+            # wrapper-owned callbacks and its Context borrow only after every
+            # native allocation has reached that allocator's free, then claim
+            # physical session cleanup at this loop's close barrier.
+            if release_outcome.error is not None:
+                error = release_outcome.error
+                self._record_terminal_failure(error)
+                raise error
         finally:
             if close_code == _c.ERR_TIMEOUT:
                 self._close_error = PancakeError(
@@ -913,7 +842,7 @@ class DriverLoop:
             self._session_closes.pop(session, None)
             future.set_exception(PancakeError(rc, "native session close failed"))
             return
-        if state.value != _c.LIFECYCLE_CLOSED:
+        if not _lifecycle_closed(state.value):
             return
         self._session_closes.pop(session, None)
         if rc == _c.ERR_TIMEOUT:
@@ -939,7 +868,7 @@ class DriverLoop:
             nonlocal registered
             if not active or registered:
                 raise RuntimeError("provider registrar is no longer active")
-            _check(_driver.pancake_driver_add_provider(self._h, ctypes.byref(package)))
+            _add_provider(_driver, self._h, package)
             registered = True
 
         try:
@@ -1051,6 +980,19 @@ class DriverLoop:
             if rc == _c.WOULD_BLOCK:
                 return out
             _check(rc)
+            if event.kind not in (
+                _c.DRIVER_EVENT_OPENED,
+                _c.DRIVER_EVENT_OPEN_FAILED,
+                _c.DRIVER_EVENT_ACCEPTED,
+                _c.DRIVER_EVENT_SESSION_CLOSED,
+                _c.DRIVER_EVENT_COMPLETION,
+                _c.DRIVER_EVENT_LISTENER_READY,
+                _c.DRIVER_EVENT_LISTENER_FAILED,
+            ):
+                raise PancakeError(
+                    _c.ERR_INTERNAL,
+                    f"pancake ABI returned unknown loop event kind {event.kind}",
+                )
             primary_name = ""
             secondary_name = ""
             settled_ok = False
@@ -1081,7 +1023,13 @@ class DriverLoop:
                 # (they die at the next pop): the same generated decoder the
                 # byte-fed drain uses, so a wrapper-routed settle carries the
                 # same value shapes.
-                decoded = decode(event.action)
+                try:
+                    decoded = decode(event.action)
+                except BaseException as error:
+                    raise PancakeError(
+                        _c.ERR_INTERNAL,
+                        f"pancake ABI returned an invalid completion action: {error}",
+                    ) from error
                 if not settled_ok and event.action.message:
                     primary_name = ctypes.string_at(
                         event.action.message, event.action.message_len
@@ -1099,6 +1047,13 @@ class DriverLoop:
                     secondary_name,
                     settled_ok,
                     decoded,
+                    carrier_failure=_decode_carrier(
+                        event.carrier_phase,
+                        event.carrier_detail_flags,
+                        event.carrier_verification_flags,
+                        event.carrier_peer_alert,
+                        event.carrier_engine_code,
+                    ),
                 )
             )
 
@@ -1213,6 +1168,11 @@ class DriverLoop:
                         done.set_exception(
                             _vow_failure(event.decoded.result, event.decoded.message)
                         )
+        else:
+            raise PancakeError(
+                _c.ERR_INTERNAL,
+                f"pancake ABI returned unknown loop event kind {event.kind}",
+            )
 
     # ── Dial, accept, listen ─────────────────────────────────────────────────
 
@@ -1327,7 +1287,7 @@ class DriverLoop:
             raise PancakeError(_c.ERR_CLOSED, "the loop is closed")
         return item
 
-    def try_accept(self, listener: Union[int, "ListenerOwner"]) -> Optional[int]:
+    def try_accept(self, listener: ListenerLike) -> Optional[int]:
         """Claim one already-dispatched accepted handle without parking.
 
         This is the accept face for callers that drive :meth:`step` from a
@@ -1359,10 +1319,10 @@ class DriverLoop:
         self._accepts[listener.value] = asyncio.Queue()
         return owner
 
-    def _listener_id(self, listener: Union[int, "ListenerOwner"]) -> int:
+    def _listener_id(self, listener: ListenerLike) -> int:
         return listener.listener if isinstance(listener, ListenerOwner) else listener
 
-    def listener_locator(self, listener: Union[int, "ListenerOwner"]) -> Locator:
+    def listener_locator(self, listener: ListenerLike) -> Locator:
         """Copy the listener's complete typed OCapN locator."""
         listener = self._listener_id(listener)
         from ._ffi_ocapn import _LocatorView
@@ -1378,9 +1338,7 @@ class DriverLoop:
         ) as owned:
             return owned.value()
 
-    def listener_restoration_state(
-        self, listener: Union[int, "ListenerOwner"]
-    ) -> bytes:
+    def listener_restoration_state(self, listener: ListenerLike) -> bytes:
         """Copy opaque provider state used to restore a listener's local address.
 
         The driver owns the provider state and exposes only its size/copy ABI;
@@ -1416,7 +1374,7 @@ class DriverLoop:
         return bytes(buffer)
 
     def advertise_listener(
-        self, listener: Union[int, "ListenerOwner"], locator: Union[Locator, str]
+        self, listener: ListenerLike, locator: Union[Locator, str]
     ) -> None:
         """Replace this listener's advertised locator through its native owner."""
         listener = self._listener_id(listener)
@@ -1428,13 +1386,13 @@ class DriverLoop:
                 )
             )
 
-    def select_listener(self, listener: Union[int, "ListenerOwner"]) -> None:
+    def select_listener(self, listener: ListenerLike) -> None:
         """Select this listener's locator as the Host's acceptable location."""
         _check(
             _driver.pancake_driver_listener_select(self._h, self._listener_id(listener))
         )
 
-    def close_listener(self, listener: Union[int, "ListenerOwner"]) -> None:
+    def close_listener(self, listener: ListenerLike) -> None:
         """Stop one listener after preserving already committed accepts."""
         listener = self._listener_id(listener)
         # A terminal setup event may already be queued while the caller is
@@ -1444,7 +1402,7 @@ class DriverLoop:
         owner = self._listeners.get(listener)
         if owner is None:
             return
-        _check(_driver.pancake_driver_listener_close(self._h, listener))
+        _close_listener(self._h, listener)
         owner._closed = True
         try:
             self._dispatch_many(self._pop_events())
@@ -1473,9 +1431,7 @@ class DriverLoop:
             accepts.put_nowait(failure if failure is not None else _ACCEPTS_CLOSED)
             del self._accepts[listener]
 
-    async def wait_listener(
-        self, listener: Union[int, "ListenerOwner"]
-    ) -> "ListenerOwner":
+    async def wait_listener(self, listener: ListenerLike) -> ListenerOwner:
         """Await provider construction and return the stable listener owner.
 
         ``listen`` has already returned the identity before setup runs. This
@@ -1541,7 +1497,7 @@ class DriverLoop:
         self._completions[vow] = future
         return future
 
-    async def accept_session(self, listener: Union[int, "ListenerOwner"]):
+    async def accept_session(self, listener: ListenerLike):
         """Await the next accepted session, wrapped as the public
         :class:`pancake.Session` over the adopted wrapper Host — the
         accept-side twin of :meth:`connect_session`. The handshake already

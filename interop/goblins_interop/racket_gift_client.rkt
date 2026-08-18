@@ -8,17 +8,15 @@
 ;; Topology (all TCP loopback):
 ;;   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
 ;;   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
-;;                              publishes an "introducer"
-;;                              that returns it, and listens for the recipient.
+;;                              returns it twice in one nested Passable value.
 ;;   Carol  (Goblins recipient) dials the pancake introducer, asks for the
-;;                              greeter, transparently redeems pancake's give, and
-;;                              calls the greeter directly on Bob.
+;;                              greeters, transparently redeems both gives, and
+;;                              calls both directly on Bob.
 ;;
-;; pancake is the gifter: when Carol asks for the greeter, pancake deposits it
-;; back with Bob over its own Bob connection and resolves Carol's send with a
-;; signed give. Goblins Bob must accept pancake's deposit; Goblins Carol must
-;; redeem pancake's give and reach Bob directly. The proof is Carol's `GIFT OK`
-;; line carrying the greeter's reply with the name she sent.
+;; pancake is the gifter: when Carol asks for the greeters, pancake deposits both
+;; occurrences with Bob and resolves Carol's send with two signed gives. Goblins
+;; must redeem both and reach Bob directly; Carol's `GIFT NESTED OK` line carries
+;; both replies and the distinct names she sent.
 ;;
 ;; Needs `racket` plus the `goblins` collection on PATH; run via
 ;; `zig build racket-goblins-gift`.
@@ -107,20 +105,19 @@
   (unless (ref? greeter) (gift-fail "the vendor reply was not a capability"))
   (printf "racket-goblins-gift: lifted goblins-bob's greeter from a reply\n")
 
-  ;; Publish the introducer host-wide. Returning Bob's greeter (home = the Bob
-  ;; connection) to the recipient's connection trips the transparent gifter,
-  ;; which deposits with Bob and resolves the recipient with a signed give.
+  ;; Two recursively placed occurrences force the binding's complete Value
+  ;; lowering path and the core's one-message/two-give transaction.
   (host-publish-giftable gifter-host INTRODUCER-SWISS
-                            (methods [(get-greeter) greeter]))
+                            (methods [(get-greeter) (list greeter (list greeter))]))
   (printf "racket-goblins-gift: pancake publishing introducer swiss=~a on ~a:~a\n"
           INTRODUCER-SWISS HOST gifter-port)
 
   ;; Spawn Carol (the Goblins recipient): she dials pancake's introducer, asks
-  ;; for the greeter, redeems pancake's give, and calls Bob directly.
+  ;; for both greeters, redeems both gives, and calls Bob directly.
   (define-values (carol carol-out carol-in carol-err)
     (subprocess #f #f #f RACKET RECIPIENT-SCRIPT
                 (tcp-address-designator HOST gifter-port) INTRODUCER-SWISS
-                (number->string (+ PORT 1))))
+                (number->string (+ PORT 1)) "nested"))
   (track-child! carol)
   (close-output-port carol-in)
   (define carol-err-sink (open-output-string))
@@ -135,10 +132,12 @@
   (unless (zero? carol-code)
     (gift-fail (format "recipient exited non-zero (~a)~a" carol-code
                   (if (string=? carol-err-text "") "" (format "; stderr:\n~a" carol-err-text)))))
-  (unless (and (string-prefix? reply "GIFT OK:") (string-contains? reply "goblins-carol"))
+  (unless (and (string-prefix? reply "GIFT NESTED OK:")
+               (string-contains? reply "goblins-carol-one")
+               (string-contains? reply "goblins-carol-two"))
     (gift-fail (format "recipient did not confirm the greeter reply with its name: ~s" reply)))
 
-  (printf "racket-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n")
+  (printf "racket-goblins-gift OK: two nested binding values became distinct gives that live Goblins redeemed and called directly\n")
 
   (session-close! to-bob)
   (runtime-close! runtime)

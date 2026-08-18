@@ -10,6 +10,8 @@
 //! also installs the fixed bootstrap export, the one fallible step, so a failed
 //! registration leaves the session untouched.
 
+const std = @import("std");
+
 const model = @import("model");
 const session = @import("mod.zig");
 
@@ -56,6 +58,30 @@ pub fn transitionToOpen(self: *Session) !void {
 pub fn partnerSessionKey(self: *const Session) ?[]const u8 {
     if (self.partner_session_key.len == 0) return null;
     return self.partner_session_key;
+}
+
+/// Whether this partner is known to be pancake by any signal: the dial- or
+/// mirror-minted knowledge (`Session.partner_known_pancake`, ADR-0118), or a
+/// hello that stated a non-baseline preference on any transport — only
+/// pancake stamps the `pancake/*` hints. The give path reads this for the
+/// recipient: a known-pancake recipient keeps the exporter's profile-hinted
+/// location and can upgrade its redeem session; anyone else gets the
+/// dialable bare form.
+pub fn partnerKnownPancake(self: *const Session) bool {
+    return self.partner_known_pancake or
+        !std.meta.eql(self.partner_preference, model.Preference.baseline);
+}
+
+/// Whether this side's configured preference asks for a non-baseline CapTP
+/// version or codec — ADR-0118's one opt-in, read where behavior would
+/// otherwise change for a peer that never asked for an upgrade (the onion
+/// accept's deferred hello). Features are deliberately not part of the
+/// test: every peer offers the full ignorable feature set by default, so
+/// features alone opt nothing in.
+pub fn statesUpgradedProfile(self: *const Session) bool {
+    const baseline = model.Preference.baseline;
+    return self.preferred.captp_version != baseline.captp_version or
+        self.preferred.codec != baseline.codec;
 }
 
 /// This side's own session public key, from the `op:start-session` half we

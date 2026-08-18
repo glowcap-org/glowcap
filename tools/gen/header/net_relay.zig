@@ -11,11 +11,12 @@ pub const outputs = [_]Output{
 pub const step_name = "gen-header-net-transport-relay";
 
 const emitted_fn_names = [_][]const u8{
+    "pancake_relay_archive_fingerprint",
     "pancake_relay_runtime_new",
     "pancake_relay_runtime_new_in",
+    "pancake_relay_runtime_trust_summary",
     "pancake_relay_transport_provider",
     "pancake_relay_runtime_release",
-    "pancake_relay_runtime_release_with_diagnostic",
     "pancake_relay_last_error",
     "pancake_relay_clear_last_error",
 };
@@ -66,20 +67,35 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef struct PancakeRelayRuntime PancakeRelayRuntime;
         \\
     );
+    try b.print(gpa, "#define PANCAKE_RELAY_CONFIG_ABI_VERSION {d}u\n", .{c.PANCAKE_RELAY_CONFIG_ABI_VERSION});
+    try b.print(gpa, "#define PANCAKE_RELAY_TRUST_SYSTEM {d}u\n", .{c.PANCAKE_RELAY_TRUST_SYSTEM});
+    try b.print(gpa, "#define PANCAKE_RELAY_TRUST_COPIED_PEM {d}u\n\n", .{c.PANCAKE_RELAY_TRUST_COPIED_PEM});
     try E.emitStruct(&b, gpa, c.PancakeRelayConfig, "PancakeRelayConfig", &.{
+        "Must equal PANCAKE_RELAY_CONFIG_ABI_VERSION.",
+        "Must equal sizeof(PancakeRelayConfig).",
         "Borrowed dial URL copied by the constructor.",
         "Byte length of relay_url.",
         "Borrowed registration URL copied by the constructor; NULL/empty makes the package dial-only.",
         "Byte length of register_url.",
+        "PANCAKE_RELAY_TRUST_* policy; system roots are the default.",
+        "Borrowed PEM bytes copied during construction; only valid with COPIED_PEM.",
+        "Byte length of trust_pem.",
+    });
+    try b.append(gpa, '\n');
+    try E.emitStruct(&b, gpa, c.PancakeRelayTrustSummary, "PancakeRelayTrustSummary", &.{
+        "Roots loaded into the native TLS engine.",
+        "Platform roots the native TLS engine could not consume.",
+        "Exact first engine code for a skipped root; zero when none were skipped.",
     });
     try b.append(gpa, '\n');
 
+    try emitFn(&b, gpa, "pancake_relay_archive_fingerprint", &.{}, "Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_RELAY_ARCHIVE_FINGERPRINT before any other call.");
     try emitFn(&b, gpa, "pancake_relay_runtime_new", &.{ "config", "out_runtime" }, "Create a relay runtime with the library allocator. Configuration bytes are\ncopied. Release the runtime after every driver holding its provider lease.");
     try emitFn(&b, gpa, "pancake_relay_runtime_new_in", &.{ "context", "config", "out_runtime" }, "Create a relay runtime whose owned state uses `context`.");
+    try emitFn(&b, gpa, "pancake_relay_runtime_trust_summary", &.{ "runtime", "out_summary" }, "Copy the immutable trust-load result retained by this runtime.");
     try emitFn(&b, gpa, "pancake_relay_transport_provider", &.{ "runtime", "out_provider" }, "Fill `out_provider` with the shared keyed-relay/noise-relay multiplexed package.\nInstall it once with pancake_driver_add_provider; the driver retains its lease.");
-    try emitFn(&b, gpa, "pancake_relay_runtime_release", &.{"runtime"}, "Release the caller's runtime reference. The provider lease keeps the runtime\nalive until its driver is released.");
-    try emitFn(&b, gpa, "pancake_relay_runtime_release_with_diagnostic", &.{ "runtime", "out_error", "error_cap", "out_error_len" }, "The same release barrier, additionally copying the worker thread's exact\ndiagnostic into caller-owned storage before return.");
-    try emitFn(&b, gpa, "pancake_relay_last_error", &.{ "out_buf", "cap" }, "Copy this archive's calling-thread diagnostic, NUL-terminating when cap is\nnonzero. NULL or zero capacity queries the full length.");
+    try emitFn(&b, gpa, "pancake_relay_runtime_release", &.{ "runtime", "out_error", "error_cap", "out_error_len" }, "Release the caller's runtime reference. The provider lease keeps the runtime\nalive until its driver is released. out_error/out_error_len optionally capture\nthis call's diagnostic before an off-thread runtime regains control: omit all\nthree diagnostic arguments, or provide out_error_len.");
+    try emitFn(&b, gpa, "pancake_relay_last_error", &.{ "out_buf", "cap" }, "Copy this archive's calling-thread diagnostic, NUL-terminating when cap is\nnonzero. NULL or zero capacity queries the full length." ++ header_emit.last_error_freshness_doc);
     try emitFn(&b, gpa, "pancake_relay_clear_last_error", &.{}, "Clear this archive's calling-thread diagnostic.");
 
     try b.appendSlice(gpa,

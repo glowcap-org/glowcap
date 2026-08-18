@@ -16,7 +16,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { editBracket, type EditSession } from "./shared.tsx";
+import { type EditBracket, editBracket } from "./edit-bracket.ts";
 
 /** Records what one editor would have been asked to do. */
 function recorder() {
@@ -26,13 +26,13 @@ function recorder() {
     session: {
       beginEdit: (label: string) => void calls.push(`begin:${label}`),
       endEdit: () => void calls.push("end"),
-    } satisfies EditSession,
+    } satisfies EditBracket,
   };
 }
 
 /** A field's view of the editor prop: whatever it is holding right
  *  now, which a test moves the way a re-render would. */
-function editorProp(initial: EditSession | undefined) {
+function editorProp(initial: EditBracket | undefined) {
   const held = { current: initial };
   return { held, ask: () => held.current };
 }

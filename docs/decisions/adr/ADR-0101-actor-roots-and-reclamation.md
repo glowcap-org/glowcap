@@ -19,7 +19,7 @@ the deferred retire past a running frame, the tolerated no-op on an absent
 row, the queued-turn refusal, and restore's intersect rule — are held by
 `test/actors/actor_roots_test.zig`. The composition's rooting relationships
 are held by the production Host scenarios: the alias, gift, export-binding,
-and session-closure roots in `test/driver/core_host_test.zig` (the unpublish
+and session-closure roots in `test/driver/core_host/actors_test.zig` (the unpublish
 scenario's reclamation tail), and the owning-tier release-reclaims case with
 the `Hosting` deinit forwarding in `test/driver/actor_reclaim_test.zig`.
 ADR-0096 deliberately left actor reclamation at Host lifetime; this record
@@ -119,7 +119,7 @@ outermost-turn boundary.
 Items 2, 3, 6, 7, and 8 are held by
 [`test/actors/actor_roots_test.zig`](../../../test/actors/actor_roots_test.zig)
 and the unpublish scenario's reclamation tail in
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig);
+[`test/driver/core_host/actors_test.zig`](../../../test/driver/core_host/actors_test.zig);
 items 1, 4, and 5 by
 [`test/driver/actor_reclaim_test.zig`](../../../test/driver/actor_reclaim_test.zig)
 together with that same Host scenario and ADR-0100's gifter-close scenario.

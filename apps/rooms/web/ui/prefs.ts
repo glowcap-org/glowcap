@@ -3,8 +3,9 @@
 //
 // The address bar wins when it names a value, so a test or a shared link keeps
 // doing what it says. When the URL is silent, the last choice this browser
-// remembered is used. Settings writes both, then reloads: the advertised DM
-// locator and the viz tap are decided when the peer opens, not mid-session.
+// remembered is used. A save writes and then reloads — Settings the DM
+// transport, the Visualizer pane the viz endpoint — because both are decided
+// when the peer opens, not mid-session.
 
 export type DmMode = "webrtc" | "relay";
 
@@ -60,25 +61,24 @@ export function current(): { dm: DmMode; viz: string } {
 	return { dm: dmTransport(), viz: vizOverride() ?? "" };
 }
 
-/** Build the WebSocket URL this page would use for a `/viz` port. */
-export function vizWsUrl(
-	port: string,
-	loc: { protocol: string; hostname: string },
-): string | null {
-	if (!/^[0-9]+$/.test(port)) return null;
-	const proto = loc.protocol === "https:" ? "wss://" : "ws://";
-	return `${proto}${loc.hostname}:${port}/`;
+/** The page-origin viz socket URL: `/viz` upgrades and carries the socket to
+ * the endpoint, so the browser never needs the endpoint's own port — which
+ * may be container-side, unpublished, or plain `ws://` behind an HTTPS
+ * page. */
+export function originVizUrl(loc: { protocol: string; host: string }): string {
+	return `${loc.protocol === "https:" ? "wss://" : "ws://"}${loc.host}/viz`;
 }
 
-/** What a blank viz field means: this page's `/viz` answer, or null if none. */
+/** What a blank viz field means: this page's own endpoint through its
+ * origin, or null when the server has none. */
 export async function advertisedViz(): Promise<string | null> {
 	try {
 		const res = await fetch("/viz");
-		if (!res.ok) {
-			await res.body?.cancel();
-			return null;
-		}
-		return vizWsUrl((await res.text()).trim(), location);
+		await res.body?.cancel();
+		// Only a 200 names an endpoint: a server with the visualizer off
+		// answers 204, which is "nothing here" rather than a failure.
+		if (res.status !== 200) return null;
+		return originVizUrl(location);
 	} catch {
 		return null;
 	}
@@ -107,14 +107,17 @@ export function writeSearch(url: URL, next: { dm: DmMode; viz: string }): void {
 }
 
 /** Remember the choice, put it on the URL so a reload and a bookmark agree, and
- * reload so the peer opens with the new locator and viz tap. */
-export function apply(next: { dm: DmMode; viz: string }): void {
-	const viz = next.viz.trim();
-	LS.set(KEY.dm, next.dm);
+ * reload so the peer opens with the new locator and viz tap. A caller names
+ * only what it owns — Settings the DM transport, the visualizer pane its
+ * endpoint — and what it leaves out keeps its current value. */
+export function apply(next: { dm?: DmMode; viz?: string }): void {
+	const whole = { ...current(), ...next };
+	const viz = whole.viz.trim();
+	LS.set(KEY.dm, whole.dm);
 	if (viz) LS.set(KEY.viz, viz);
 	else LS.remove(KEY.viz);
 	const url = new URL(location.href);
-	writeSearch(url, next);
+	writeSearch(url, whole);
 	history.replaceState(null, "", url);
 	location.reload();
 }

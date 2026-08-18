@@ -36,6 +36,7 @@ pub const step_name = "gen-header-net-transport-webrtc";
 // `pub export fn pancake_webrtc_*` cannot silently miss the header while the
 // gate stays green.
 const emitted_fn_names = [_][]const u8{
+    "pancake_webrtc_archive_fingerprint",
     "pancake_webrtc_netlayer_new",
     "pancake_webrtc_netlayer_new_in",
     "pancake_webrtc_netlayer_readiness_fd",
@@ -206,6 +207,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\} PancakeWebrtcConfig;
     );
 
+    try emitFn(&b, gpa, "pancake_webrtc_archive_fingerprint", &.{}, "Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT before any other call.");
     try emitFn(&b, gpa, "pancake_webrtc_netlayer_new", &.{ "config", "out_netlayer" }, "Create the shared WebRTC runtime/readiness endpoint. Release it after every peer\ncreated from it has been released. config carries the endpoint's settings; a\nNULL one is PANCAKE_ERR_NULL_POINTER.");
     try emitFn(&b, gpa, "pancake_webrtc_netlayer_new_in", &.{ "context", "config", "out_netlayer" }, "As pancake_webrtc_netlayer_new, allocating through context.");
     try emitFn(&b, gpa, "pancake_webrtc_netlayer_readiness_fd", &.{"netlayer"}, "Borrow the netlayer's single read-only OS readiness fd. Register it once; do not\nclose it. When it wakes, call pancake_webrtc_netlayer_drain_ready.");
@@ -228,7 +230,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_webrtc_peer_release", &.{"peer"}, "Release the peer and close its channel. If this consumes the endpoint's final\nlease, its teardown outcome is returned here. NULL is a no-op.");
     try emitFn(&b, gpa, "pancake_webrtc_transport_provider", &.{ "netlayer", "out_provider" }, "Fill the generic multiplexed provider package. Signaling establishes peers; the driver claims authorized open peers by stable subject.");
 
-    try emitFn(&b, gpa, "pancake_webrtc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last webrtc-transport error into out_buf, the webrtc\nsibling of pancake_last_error, reading libpancake_net_transport_webrtc's own\nper-thread slot. A pancake_webrtc_* call that returns PANCAKE_ERR_IO records its\nconcrete cause here. Copies at most cap-1 bytes and NUL-terminates when cap>0;\nout_buf NULL or cap 0 queries the length. Returns the full message length, or 0\nwhen none is set.");
+    try emitFn(&b, gpa, "pancake_webrtc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last webrtc-transport error into out_buf, the webrtc\nsibling of pancake_last_error, reading libpancake_net_transport_webrtc's own\nper-thread slot. A pancake_webrtc_* call that returns PANCAKE_ERR_IO records its\nconcrete cause here. Copies at most cap-1 bytes and NUL-terminates when cap>0;\nout_buf NULL or cap 0 queries the length. Returns the full message length, or 0\nwhen none is set." ++ header_emit.last_error_freshness_doc);
     try emitFn(&b, gpa, "pancake_webrtc_clear_last_error", &.{}, "Clear the calling thread's webrtc-transport last-error slot.");
 
     try b.appendSlice(gpa,

@@ -58,7 +58,7 @@ current pancake_node_* families (since deleted): the connection pump, the
 redeem loop, the
 publish/fetch ergonomics, the promise-to-answer bookkeeping, once per language.
 The reference implementation's own consumers carry the driver's orchestration,
-and the tested Zig tier (`test/driver/core_host_test.zig`) is not the
+and the tested Zig tier (`test/driver/core_host/`) is not the
 code any binding actually runs. This is the drift ADR-0059 removed for value
 vocabulary (shared by layout, not re-declared) reappearing one layer up as
 shared behavior re-implemented instead of shared.

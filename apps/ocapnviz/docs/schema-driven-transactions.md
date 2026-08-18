@@ -13,7 +13,8 @@ silently.
 
 The code is the authority: `src/engine/schema/` holds `refs.ts`, `edges.ts`,
 `doc-index.ts`, `walk.ts`, `cascade.ts`, `clipboard.ts`, `extract.ts`, and
-`paste.ts`. Transactions live on the engine itself, in `src/engine/engine.ts`.
+`paste.ts`. Transactions live on `EditSession` in `src/engine/edit-session.ts`;
+the Engine is the public door.
 
 ## Invariants this preserves
 

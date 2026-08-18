@@ -5,7 +5,7 @@
 ;; Nothing here is public. The shared frame, argument, reference, and
 ;; last-abort layouts stay in `ffi-shared.rkt`. The host surface
 ;; spans `private/host.rkt`, `private/session.rkt`, `private/action.rkt`,
-;; and `private/pump.rkt`.
+;; `private/pump.rkt`, and the trampoline's turn-to-session projection.
 ;;
 ;; Callback discipline: the behavior callback fires synchronously on the
 ;; Racket thread executing the enclosing `pancake_host_*` call, so a plain

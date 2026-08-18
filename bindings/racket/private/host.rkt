@@ -23,7 +23,7 @@
          "finalizer-diagnostics.rkt"
          "locator.rkt"
          "trace.rkt"
-         "codec.rkt"
+         "abi-value.rkt"
          "trampoline.rkt"
          "transport.rkt")
 
@@ -135,13 +135,18 @@
 (define failure-layers '#(core driver transport binding application-observer))
 (define failure-scopes '#(process context host session listener transport operation))
 
-(define (failure-symbol vocabulary index fallback)
-  (if (< index (vector-length vocabulary)) (vector-ref vocabulary index) fallback))
+(define (failure-symbol vocabulary index family)
+  (if (< index (vector-length vocabulary))
+      (vector-ref vocabulary index)
+      (error 'pancake "ABI returned unknown failure ~a: ~a" family index)))
 
 (define (failure-text ptr len)
   (if (or (not ptr) (zero? len))
       ""
-      (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)))
+      ;; Native diagnostic reports are validated and truncated at code-point
+      ;; boundaries. Invalid text here is an ABI violation, not adapter data
+      ;; that the binding may silently repair.
+      (bytes->string/utf-8 (bytes<-c ptr len))))
 
 (define (next-context-failure context)
   (define event
@@ -161,8 +166,8 @@
      (failure-event
       (PancakeFailureEvent-sequence event)
       (PancakeFailureEvent-dropped-before event)
-      (failure-symbol failure-layers (PancakeFailureEvent-layer event) 'unknown)
-      (failure-symbol failure-scopes (PancakeFailureEvent-scope-kind event) 'unknown)
+      (failure-symbol failure-layers (PancakeFailureEvent-layer event) 'layer)
+      (failure-symbol failure-scopes (PancakeFailureEvent-scope-kind event) 'scope)
       (PancakeFailureEvent-scope-id event)
       (PancakeFailureEvent-operation-id event)
       (PancakeFailureEvent-primary-result event)
@@ -308,11 +313,16 @@
   (define-values (identity-rc diagnostic-id) (pancake_host_diagnostic_id ptr))
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
+                     (define cleanup-code (pancake_host_release ptr))
                      (define cleanup
                        (with-handlers ([(lambda (_) #t) values])
-                         (check/host (pancake_host_release ptr))
+                         (check/host cleanup-code)
                          #f))
-                     (pancake_context_release context)
+                     ;; A pre-commit refusal leaves a native Host borrowing
+                     ;; this Context. Leak the pair rather than free its
+                     ;; allocator policy under the still-live Host.
+                     (when (release-consumed? cleanup-code)
+                       (pancake_context_release context))
                      (raise (if cleanup
                                 (retain-cleanup-failure error cleanup)
                                 error)))])
@@ -324,7 +334,8 @@
   ;; in a feed several producers share.
   (trace-attach-host!
    m host-install-trace! (designator-from-seed durable-seed)
-   (lambda (error) (host-record-callerless-failure! m "trace.sink" error)))
+   (lambda (operation error)
+     (host-record-callerless-failure! m operation error)))
   (register-finalizer m host-finalize!)
   m)
 
@@ -388,21 +399,30 @@
          (call-with-host/allow-released
           m
           (lambda ()
-            ;; A refusal leaves the wrapper live. Only successful native
-            ;; teardown invalidates the pointer and crosses terminal state.
+            ;; INVALID-ARGUMENT leaves the wrapper live. Every other result is
+            ;; a consumed teardown outcome: retire wrapper/context state before
+            ;; returning its exact failure from the close barrier.
             (let* ([ptr (host-ptr m)]
                    [lp (host-loop-of m)])
-              (if lp
-                  ((unbox loop-native-release-hook) lp)
-                  (check/host (pancake_host_release ptr)))
-              (pancake_context_release (host-context m))
-              (trace-detach-host! m)
-              (set-host-ptr! m #f)
-              (set-box! (host-released? m) #t)
-              (hash-clear! (host-vows m))
-              (hash-clear! (host-dial-workers m))
-              (hash-clear! (host-keep m))
-              (hash-clear! (host-sessions m))))))
+              (define-values (release-code release-error)
+                (if lp
+                    ((unbox loop-native-release-hook) lp)
+                    (let ([code (pancake_host_release ptr)])
+                      (values
+                       code
+                       (with-handlers ([(lambda (_) #t) values])
+                         (check/host code)
+                         #f)))))
+              (when (release-consumed? release-code)
+                (pancake_context_release (host-context m))
+                (trace-detach-host! m)
+                (set-host-ptr! m #f)
+                (set-box! (host-released? m) #t)
+                (hash-clear! (host-vows m))
+                (hash-clear! (host-dial-workers m))
+                (hash-clear! (host-keep m))
+                (hash-clear! (host-sessions m)))
+              (when release-error (raise release-error))))))
        void)
       (when (= close-code ERR-TIMEOUT) (check/host close-code))
       (release-result (host-runtime-primary m))))
@@ -476,7 +496,9 @@
 ;; An unreachable Host has no reachable session wrapper; native release owns
 ;; the remaining physical cleanup.
 (define (host-finalize! m)
-  (host-release/options! m #f #f))
+  (run-native-finalizer!
+   "host.finalizer.release"
+   (lambda () (host-release/options! m #f #f))))
 
 (define (host-release/options! m options close-sessions?)
   (define disposition

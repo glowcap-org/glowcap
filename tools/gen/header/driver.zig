@@ -46,6 +46,7 @@ const Spec = struct {
     pub const emitted_fns: []const []const u8 = &emitted_fn_names;
     pub const const_docs = [_]struct { name: []const u8, doc: []const u8 }{
         .{ .name = "PANCAKE_DRIVER_OPTIONS_ABI_VERSION", .doc = "PancakeDriverOptions.abi_version." },
+        .{ .name = "PANCAKE_DRIVER_FAILURE_ABI_VERSION", .doc = "PancakeDriverFailure.abi_version." },
         .{ .name = "PANCAKE_DRIVER_MAX_WAIT_MS", .doc = "Largest handshake_ms or settle_ms value." },
         .{ .name = "PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES", .doc = "Default PancakeDriverOptions.wire_buffer_bytes." },
         .{ .name = "PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS", .doc = "Default PancakeDriverOptions.max_pending_opens." },
@@ -113,6 +114,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
     inline for (.{
         "PANCAKE_DRIVER_OPTIONS_ABI_VERSION",
+        "PANCAKE_DRIVER_FAILURE_ABI_VERSION",
         "PANCAKE_DRIVER_MAX_WAIT_MS",
         "PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES",
         "PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS",
@@ -140,11 +142,33 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Application-answer progress budget in milliseconds; zero waits without a bound.",
     });
     try b.appendSlice(gpa, "\n");
+    try E.emitStruct(&b, gpa, cd.PancakeDriverFailure, "PancakeDriverFailure", &.{
+        "PANCAKE_DRIVER_FAILURE_ABI_VERSION.",
+        "sizeof(PancakeDriverFailure).",
+        "Stable PANCAKE_ERR_* primary result; PANCAKE_OK on success.",
+        "Stable PANCAKE_ERR_* first consequence; PANCAKE_OK when absent.",
+        "Total observed consequences.",
+        "PANCAKE_CARRIER_PHASE_* or NONE.",
+        "PANCAKE_CARRIER_DETAIL_* presence bits.",
+        "Neutral certificate-verification flags; zero when unavailable.",
+        "Peer TLS alert byte when its presence bit is set.",
+        "Private engine failure code when its presence bit is set.",
+        "Borrowed process-lifetime primary failure name.",
+        "",
+        "Borrowed process-lifetime first consequence name.",
+        "",
+    });
+    try b.appendSlice(gpa, "\n");
     try E.emitStruct(&b, gpa, cd.PancakeDriverEvent, "PancakeDriverEvent", &.{
         "PANCAKE_DRIVER_EVENT_*.",
         "Stable PANCAKE_ERR_* primary result for failure events; PANCAKE_OK otherwise.",
         "Stable PANCAKE_ERR_* first consequence, or PANCAKE_OK.",
         "Total observed consequences.",
+        "PANCAKE_CARRIER_PHASE_* or NONE.",
+        "PANCAKE_CARRIER_DETAIL_* presence bits.",
+        "Neutral certificate-verification flags; zero when unavailable.",
+        "Peer TLS alert byte when its presence bit is set.",
+        "Private engine failure code when its presence bit is set.",
         "OPENED or OPEN_FAILED operation id.",
         "Listener identity for listener events and ACCEPTED.",
         "OPENED, ACCEPTED, or SESSION_CLOSED session.",
@@ -161,8 +185,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "pancake_driver_retire", &.{"loop"}, "Stop listener admission and retire the loop after every application-owned\nsession handle releases. Existing sessions remain active; the final release\nbegins cancel close. Continue stepping until lifecycle state reports CLOSED.");
     try E.emitFn(&b, gpa, "pancake_driver_lifecycle_state", &.{ "loop", "out_state" }, "Write the current PANCAKE_LIFECYCLE_* state. CLOSED is withheld until the runtime\nhas retired its execution state and queued events have been drained. After finite\ngrace expiry, teardown escalates to CANCEL and this returns PANCAKE_ERR_TIMEOUT\ntogether with CLOSED.");
     try E.emitFn(&b, gpa, "pancake_driver_step_wait_ms", &.{ "loop", "out_wait_ms" }, "The longest a nonblocking embedder may park on the readiness descriptor before\ncalling pancake_driver_step again with a zero timeout: milliseconds until the\nnearest pending-work deadline (the close grace, a session's close grace, a dial\nor listener setup budget), clamped at zero, or -1 when no finite deadline is\npending and readiness alone advances the loop. The value drops straight into a\nwait primitive's timeout argument.");
-    try E.emitFn(&b, gpa, "pancake_driver_release", &.{"loop"}, "Release listeners, wires, events, provider adapters, and the moved Host.\nNULL is a no-op. PANCAKE_ERR_INVALID_ARGUMENT refuses before consumption;\nevery other result consumes the handle and reports the teardown outcome.");
-    try E.emitFn(&b, gpa, "pancake_driver_add_provider", &.{ "loop", "provider" }, "Install one validated provider package. The driver acquires its native lease\nthrough provider.retain, copies profiles and implementation tables, and calls\nprovider.release only after every listener, connection, and callback has retired.\nThe provider lease, not a binding-side owner, keeps the transport context alive.");
+    try E.emitFn(&b, gpa, "pancake_driver_release", &.{ "loop", "out_failure" }, "Release listeners, wires, events, provider adapters, and the moved Host.\nout_failure must identify the current version/layout before the call. NULL loop is\na no-op. Invalid output or reentry refuses before consumption; every other\nresult consumes the handle and returns the exact teardown chain in out_failure.");
+    try E.emitFn(&b, gpa, "pancake_driver_add_provider", &.{ "loop", "provider", "out_failure" }, "Install one validated provider package. out_failure must identify the current\nversion/layout and receives the exact primary and rollback chain. The driver\nacquires the native lease through provider.retain, copies profiles and tables,\nand calls provider.release after every listener, connection, and callback retires.");
     try E.emitFn(&b, gpa, "pancake_driver_has_transport", &.{ "loop", "transport", "transport_len", "out_present" }, "Report whether one installed provider owns the transport symbol.");
     try E.emitFn(&b, gpa, "pancake_driver_dial", &.{ "loop", "locator", "options", "out_operation_id" }, "Begin a non-blocking dial from one borrowed locator view. Null options inherit\nprovider defaults; a payload is interpreted only by the selected provider.\nPre-admission failures return directly and mint no operation id. After admission,\ntransport completion and the CapTP handshake advance through step; OPENED or\nOPEN_FAILED carries the returned operation id.");
     try E.emitFn(&b, gpa, "pancake_driver_adopt_external", &.{ "loop", "transport", "transport_len", "subject", "role", "out_operation_id" }, "Begin adoption of one externally established provider connection. Pre-admission failures return directly and mint no operation id. The subject is interpreted only by the provider registered under transport. role selects the Host/session half; after admission, OPENED or OPEN_FAILED carries the returned operation id.");
@@ -171,7 +195,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "pancake_driver_listener_restoration_state", &.{ "loop", "listener", "out", "cap", "out_len" }, "Query or copy opaque transport-owned state sufficient to restore this listener's local address. A null/zero output queries the exact size; a short buffer is untouched. Treat returned bytes as sensitive provider vocabulary, never as locator data.");
     try E.emitFn(&b, gpa, "pancake_driver_listener_advertise", &.{ "loop", "listener", "locator" }, "Replace an active listener's complete advertised locator from a borrowed\nview while preserving its transport and identity posture. The loop clones the\nvalue before returning.");
     try E.emitFn(&b, gpa, "pancake_driver_listener_select", &.{ "loop", "listener" }, "Select this listener locator as the Host's acceptable location.");
-    try E.emitFn(&b, gpa, "pancake_driver_listener_close", &.{ "loop", "listener" }, "Stop one listener and remove its advertised locator without releasing the\nloop or accepted session handles.");
+    try E.emitFn(&b, gpa, "pancake_driver_listener_close", &.{ "loop", "listener", "out_failure" }, "Stop one listener and remove its advertised locator without releasing the\nloop or accepted session handles. out_failure must identify the current\nversion/layout and receives the exact stop/cancellation and cleanup chain.");
     try E.emitFn(&b, gpa, "pancake_driver_readiness_fd", &.{ "loop", "out_fd" }, "Return the loop-owned descriptor on which the embedder parks.");
     try E.emitFn(&b, gpa, "pancake_driver_step", &.{ "loop", "timeout_ms" }, "Advance listeners, in-flight opens, wires, Host actions, and handshakes.\nPANCAKE_OK means immediate work was observed or an event remains queued;\nPANCAKE_ERR_WOULD_BLOCK means the loop is drained after the requested wait.\nEdge-triggered embedders call until WOULD_BLOCK before clearing readiness.\nDrain events after every call that returns PANCAKE_OK.");
     try E.emitFn(&b, gpa, "pancake_driver_detach_thread", &.{"loop"}, "End the current thread's exclusive claim at a quiescent handoff boundary.");
@@ -182,7 +206,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "pancake_driver_session_lifecycle_state", &.{ "loop", "session", "out_state" }, "Write one loop-owned session's PANCAKE_LIFECYCLE_* phase. CLOSED means the\ntransport is closed while the handle remains valid for explicit release. A finite\nfinish grace expiry returns PANCAKE_ERR_TIMEOUT together with CLOSED.");
     try E.emitFn(&b, gpa, "pancake_driver_session_serve", &.{ "loop", "session" }, "Begin delivering this session's inbound application frames: the embedder has\nfinished its post-open setup (publishes, spawns), so a partner's pipelined\nfirst frames can no longer outrun the objects they name. A session surfaced\nby an OPENED or ACCEPTED event holds its inbound until this call; handshake\nframes were never held, and early bytes wait unread and replay in order now.\nIdempotent. Every binding runtime calls this from its serve path.");
     try E.emitFn(&b, gpa, "pancake_driver_session_release", &.{ "loop", "session" }, "Release one loop-owned session and its wire.");
-    try E.emitFn(&b, gpa, "pancake_driver_last_error", &.{ "out_buf", "cap" }, "Query or copy this archive's thread-local error message.");
+    try E.emitFn(&b, gpa, "pancake_driver_last_error", &.{ "out_buf", "cap" }, "Query or copy this archive's thread-local error message." ++ header_emit.last_error_freshness_doc);
     try E.emitFn(&b, gpa, "pancake_driver_clear_last_error", &.{}, "Clear this archive's thread-local error message.");
 
     try b.appendSlice(gpa,

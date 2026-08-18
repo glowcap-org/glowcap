@@ -33,6 +33,10 @@ SERENA_PYTHON="3.13"
 CLAUDE_CODE_VERSION="2.1.232"
 OPENCODE_VERSION="1.18.18"
 CODEX_VERSION="0.147.0"
+# Cursor publishes the agent CLI as one dated build per platform. The version
+# string is the whole path segment (date and commit), so it is copied verbatim
+# into the download URL rather than composed from parts.
+CURSOR_AGENT_VERSION="2026.08.11-e8db854"
 
 # --- Host side (not in the image; used by up.sh when no CLI is installed) ---
 DEVCONTAINER_CLI_VERSION="0.88.0"
@@ -68,6 +72,27 @@ PLTUSERHOME="/opt/pancake-racket-userhome"
 # go to a shared system path instead: root installs them once and every user
 # reads them.
 PLAYWRIGHT_BROWSERS_PATH="/usr/local/share/ms-playwright"
+# Claude Code splits its state in two by default: `~/.claude` for skills,
+# plugins, and credentials, and `~/.claude.json` beside it for the account,
+# onboarding state, and per-project history. Only the directory can be
+# bind-mounted, so the loose file lived in the container's writable layer and
+# died with the container, and every new container opened on the login screen.
+# Pointing CLAUDE_CONFIG_DIR at the directory puts `.claude.json` inside it, so
+# one bind carries the whole tool the way `~/.codex` already does.
+CLAUDE_CONFIG_DIR="/home/vscode/.claude"
+# Cursor's installer unpacks the agent CLI under ~/.local/share, which is
+# neither a volume nor a bind here. The binary belongs to the image, so it goes
+# to a shared system path instead, one directory per pinned build.
+CURSOR_AGENT_DIR="/usr/local/share/cursor-agent"
+# Settings and session history live under CURSOR_CONFIG_DIR / CURSOR_DATA_DIR
+# (then XDG_CONFIG_HOME/cursor, then ~/.cursor). Access and refresh tokens on
+# Linux live separately at ~/.config/cursor/auth.json; that directory is its
+# own host bind. There is no environment variable that redirects the token
+# file, so CURSOR_CONFIG_DIR cannot cover it. Both directory variables still
+# point at the settings bind so ambient XDG settings cannot send harness
+# state into the writable layer.
+CURSOR_STATE_DIR="/home/vscode/.cursor"
+CURSOR_AUTH_DIR="/home/vscode/.config/cursor"
 UV_TOOL_DIR="/usr/local/uv/tools"
 UV_TOOL_BIN_DIR="/usr/local/bin"
 UV_PYTHON_INSTALL_DIR="/usr/local/uv/python"

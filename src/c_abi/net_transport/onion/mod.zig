@@ -32,6 +32,15 @@ const model = @import("model");
 // The shared C-ABI vocabulary leaf, *not* the ocapn root (ADR-0059).
 const c = @import("c_abi_shared");
 
+pub const PANCAKE_ONION_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    @embedFile("mod.zig"),
+    @embedFile("symbols.zig"),
+);
+
+pub export fn pancake_onion_archive_fingerprint() u64 {
+    return PANCAKE_ONION_ARCHIVE_FINGERPRINT;
+}
+
 /// The netlayer handle owns where Tor listens, how to authenticate to it, and the
 /// one `std.Io` backend its streams block on. Created and released explicitly by
 /// the host; it must outlive every connection and listener made from it.
@@ -49,7 +58,6 @@ const PancakeFrame = c.PancakeFrame;
 const PancakeManagedFrame = c.PancakeManagedFrame;
 
 const setLastError = c.setLastError;
-const clearLastError = c.lastErrorClear;
 const codecFromC = c.codecFromC;
 
 const PANCAKE_OK = c.PANCAKE_OK;
@@ -388,18 +396,9 @@ fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) cal
 fn providerRelease(ctx: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
     const payload: *OnionNetlayerPayload = @ptrCast(@alignCast(ctx orelse return PANCAKE_OK));
     if (payload.release()) |failure| {
-        setListenFailure("onion provider release", failure);
+        c.setLastErrorChain("onion provider release", failure);
         const code = providerListenError(failure.cause);
-        c.transport_provider.setProviderFailure(out_failure, code, failure.cause);
-        if (failure.secondary_cause) |secondary| {
-            const slot = out_failure orelse return code;
-            const name = @errorName(secondary);
-            slot.secondary_result = providerListenError(secondary);
-            slot.secondary_name = name.ptr;
-            slot.secondary_name_len = name.len;
-            slot.secondary_count = failure.secondary_count;
-        }
-        return code;
+        return c.transport_provider.failProviderChain(out_failure, code, failure, providerListenError);
     }
     return PANCAKE_OK;
 }
@@ -438,17 +437,21 @@ fn providerListenerRestorationState(
     out: ?[*]u8,
     cap: usize,
     out_len: ?*usize,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
-    const len_slot = out_len orelse return c.PANCAKE_ERR_NULL_POINTER;
+    const len_slot = out_len orelse
+        return c.transport_provider.failProvider(out_failure, c.PANCAKE_ERR_NULL_POINTER, error.NullPointer);
     len_slot.* = 0;
     const listener = rawListener(listener_raw);
-    if (!listener.operations.acquire(listener.owner.io())) return c.PANCAKE_ERR_CLOSED;
+    if (!listener.operations.acquire(listener.owner.io()))
+        return c.transport_provider.failProvider(out_failure, c.PANCAKE_ERR_CLOSED, error.Closed);
     defer listener.operations.release(listener.owner.io());
     const state = listener.listener.serviceKey();
     len_slot.* = state.len;
     if (cap < state.len) return c.PANCAKE_ERR_BUFFER_TOO_SMALL;
     if (state.len != 0) {
-        const dest = out orelse return c.PANCAKE_ERR_NULL_POINTER;
+        const dest = out orelse
+            return c.transport_provider.failProvider(out_failure, c.PANCAKE_ERR_NULL_POINTER, error.NullPointer);
         @memcpy(dest[0..state.len], state);
     }
     return c.PANCAKE_OK;
@@ -540,19 +543,19 @@ fn providerFinishConnect(
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
     };
     const claimed = attempt.completion.claim() catch |err| {
-        attempt.owner.tasks.reap(&attempt.operation);
+        _ = attempt.owner.tasks.reap(&attempt.operation);
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
     };
     if (!claimed) return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
     attempt.completion.wake.drain() catch |err| {
-        attempt.owner.tasks.reap(&attempt.operation);
+        _ = attempt.owner.tasks.reap(&attempt.operation);
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
     };
     const result = attempt.result;
     attempt.result = .pending;
     switch (result) {
         .failure => |err| {
-            attempt.owner.tasks.reap(&attempt.operation);
+            _ = attempt.owner.tasks.reap(&attempt.operation);
             const code = providerDialError(err);
             return c.transport_provider.failProvider(out_failure, code, err);
         },
@@ -560,13 +563,13 @@ fn providerFinishConnect(
         .stream => |stream| {
             if (!attempt.owner.retain()) {
                 stream.close(attempt.owner.io());
-                attempt.owner.tasks.reap(&attempt.operation);
+                _ = attempt.owner.tasks.reap(&attempt.operation);
                 return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
             }
             const conn = attempt.owner.allocator.create(RawConn) catch |err| {
                 stream.close(attempt.owner.io());
                 attempt.owner.releaseProviderChild();
-                attempt.owner.tasks.reap(&attempt.operation);
+                _ = attempt.owner.tasks.reap(&attempt.operation);
                 return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, err);
             };
             conn.* = .{
@@ -581,7 +584,7 @@ fn providerFinishConnect(
             };
             slot.* = conn;
             fd_slot.* = @intCast(conn.stream.readinessFd());
-            attempt.owner.tasks.reap(&attempt.operation);
+            _ = attempt.owner.tasks.reap(&attempt.operation);
             return PANCAKE_OK;
         },
     }
@@ -590,9 +593,9 @@ fn providerFinishConnect(
 fn providerCancelConnect(attempt_raw: ?*anyopaque, _: ?*c.PancakeProviderFailure) callconv(.c) i32 {
     const attempt: *ProviderDialAttempt = @ptrCast(@alignCast(attempt_raw orelse return PANCAKE_OK));
     if (attempt.completion.cancel())
-        attempt.owner.tasks.reap(&attempt.operation)
+        _ = attempt.owner.tasks.reap(&attempt.operation)
     else
-        attempt.owner.tasks.cancel(&attempt.operation);
+        _ = attempt.owner.tasks.cancel(&attempt.operation);
     return PANCAKE_OK;
 }
 
@@ -665,22 +668,22 @@ fn providerFinishListen(
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
     };
     const claimed = attempt.completion.claim() catch |err| {
-        attempt.owner.tasks.reap(&attempt.operation);
+        _ = attempt.owner.tasks.reap(&attempt.operation);
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
     };
     if (!claimed) return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
     attempt.completion.wake.drain() catch |err| {
-        attempt.owner.tasks.reap(&attempt.operation);
+        _ = attempt.owner.tasks.reap(&attempt.operation);
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
     };
     const result = attempt.result;
     attempt.result = .pending;
-    defer attempt.owner.tasks.reap(&attempt.operation);
+    defer _ = attempt.owner.tasks.reap(&attempt.operation);
     switch (result) {
         .failure => |failure| {
-            setListenFailure("onion provider listen", failure);
+            c.setLastErrorChain("onion provider listen", failure);
             const code = providerListenError(failure.cause);
-            setProviderFailureChain(out_failure, code, failure);
+            c.transport_provider.setProviderFailureChain(out_failure, code, failure, providerListenError);
             return code;
         },
         .pending => unreachable,
@@ -688,8 +691,8 @@ fn providerFinishListen(
             if (!attempt.owner.retain()) {
                 var failure = net.netlayer.ListenFailure.init(error.Closed);
                 if (listener.deinit()) |cleanup| failure.noteChain(cleanup);
-                setListenFailure("onion provider listen", failure);
-                setProviderFailureChain(out_failure, PANCAKE_ERR_CLOSED, failure);
+                c.setLastErrorChain("onion provider listen", failure);
+                c.transport_provider.setProviderFailureChain(out_failure, PANCAKE_ERR_CLOSED, failure, providerListenError);
                 return PANCAKE_ERR_CLOSED;
             }
             var owns_owner_ref = true;
@@ -701,16 +704,16 @@ fn providerFinishListen(
             }) catch |err| {
                 var failure = net.netlayer.ListenFailure.init(err);
                 if (listener.deinit()) |cleanup| failure.noteChain(cleanup);
-                setListenFailure("onion provider listener locator", failure);
-                setProviderFailureChain(out_failure, PANCAKE_ERR_INTERNAL, failure);
+                c.setLastErrorChain("onion provider listener locator", failure);
+                c.transport_provider.setProviderFailureChain(out_failure, PANCAKE_ERR_INTERNAL, failure, providerListenError);
                 return PANCAKE_ERR_INTERNAL;
             };
             const raw = attempt.owner.allocator.create(RawListener) catch |err| {
                 model.freePeerLocator(attempt.owner.allocator, locator);
                 var failure = net.netlayer.ListenFailure.init(err);
                 if (listener.deinit()) |cleanup| failure.noteChain(cleanup);
-                setListenFailure("onion provider listener", failure);
-                setProviderFailureChain(out_failure, PANCAKE_ERR_INTERNAL, failure);
+                c.setLastErrorChain("onion provider listener", failure);
+                c.transport_provider.setProviderFailureChain(out_failure, PANCAKE_ERR_INTERNAL, failure, providerListenError);
                 return PANCAKE_ERR_INTERNAL;
             };
             raw.* = .{ .listener = listener, .locator = locator, .owner = attempt.owner, .operations = .{} };
@@ -724,9 +727,9 @@ fn providerFinishListen(
 fn providerCancelListen(attempt_raw: ?*anyopaque, _: ?*c.PancakeProviderFailure) callconv(.c) i32 {
     const attempt: *ProviderListenAttempt = @ptrCast(@alignCast(attempt_raw orelse return PANCAKE_OK));
     if (attempt.completion.cancel())
-        attempt.owner.tasks.reap(&attempt.operation)
+        _ = attempt.owner.tasks.reap(&attempt.operation)
     else
-        attempt.owner.tasks.cancel(&attempt.operation);
+        _ = attempt.owner.tasks.cancel(&attempt.operation);
     return PANCAKE_OK;
 }
 
@@ -751,9 +754,11 @@ fn providerListenerLocator(
     listener_raw: ?*anyopaque,
     sink_ctx: ?*anyopaque,
     sink: c.PancakeLocatorSinkFn,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
-    if (!listener.operations.acquire(listener.owner.io())) return PANCAKE_ERR_CLOSED;
+    if (!listener.operations.acquire(listener.owner.io()))
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
     defer listener.operations.release(listener.owner.io());
     var hint_stack: [c.locator_adapter.inline_hint_capacity]c.PancakeLocatorHintView = undefined;
     const view = c.locator_adapter.project(
@@ -761,7 +766,7 @@ fn providerListenerLocator(
         hint_stack[0..listener.locator.hints.entries.len],
     ) catch |err| {
         setLastError("onion listener locator projection: {s}", .{@errorName(err)});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, err);
     };
     return sink(sink_ctx, &view);
 }
@@ -771,28 +776,33 @@ fn providerListenerAdvertise(
     locator_view: ?*const c.PancakeLocatorView,
     sink_ctx: ?*anyopaque,
     sink: c.PancakeLocatorSinkFn,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
     const listener = rawListener(listener_raw);
-    if (!listener.operations.acquire(listener.owner.io())) return PANCAKE_ERR_CLOSED;
+    if (!listener.operations.acquire(listener.owner.io()))
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, error.Closed);
     defer listener.operations.release(listener.owner.io());
-    const view = locator_view orelse return PANCAKE_ERR_NULL_POINTER;
-    const locator = onionLocatorFromView(view) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    const view = locator_view orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+    const locator = onionLocatorFromView(view) orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     const canonical = net.netlayer.canonicalizeFixedLocator(
         listener.owner.allocator,
         locator,
         listener.locator.transport,
         listener.locator.designator,
-    ) catch |err| return switch (err) {
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
-        else => PANCAKE_ERR_INVALID_ARGUMENT,
-    };
+    ) catch |err| return c.transport_provider.failProvider(
+        out_failure,
+        if (err == error.OutOfMemory) PANCAKE_ERR_INTERNAL else PANCAKE_ERR_INVALID_ARGUMENT,
+        err,
+    );
     defer model.freePeerLocator(listener.owner.allocator, canonical);
     var c_hint_stack: [c.locator_adapter.inline_hint_capacity]c.PancakeLocatorHintView = undefined;
     const canonical_view = c.locator_adapter.project(
         canonical,
         c_hint_stack[0..canonical.hints.entries.len],
-    ) catch
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+    ) catch |err|
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, err);
     return sink(sink_ctx, &canonical_view);
 }
 
@@ -846,18 +856,9 @@ fn providerListenerClose(
             failure = runtime_failure;
     }
     if (failure) |chain| {
-        setListenFailure("onion provider listener close", chain);
+        c.setLastErrorChain("onion provider listener close", chain);
         const code = providerListenError(chain.cause);
-        c.transport_provider.setProviderFailure(out_failure, code, chain.cause);
-        if (chain.secondary_cause) |secondary| {
-            const slot = out_failure orelse return code;
-            const name = chain.secondaryName().?;
-            slot.secondary_result = providerListenError(secondary);
-            slot.secondary_name = name.ptr;
-            slot.secondary_name_len = name.len;
-            slot.secondary_count = chain.secondary_count;
-        }
-        return code;
+        return c.transport_provider.failProviderChain(out_failure, code, chain, providerListenError);
     }
     return PANCAKE_OK;
 }
@@ -927,18 +928,9 @@ fn providerConnClose(
             failure = runtime_failure;
     }
     if (failure) |chain| {
-        setListenFailure("onion provider connection close", chain);
+        c.setLastErrorChain("onion provider connection close", chain);
         const code = providerListenError(chain.cause);
-        c.transport_provider.setProviderFailure(out_failure, code, chain.cause);
-        if (chain.secondary_cause) |secondary| {
-            const slot = out_failure orelse return code;
-            const name = @errorName(secondary);
-            slot.secondary_result = providerListenError(secondary);
-            slot.secondary_name = name.ptr;
-            slot.secondary_name_len = name.len;
-            slot.secondary_count = chain.secondary_count;
-        }
-        return code;
+        return c.transport_provider.failProviderChain(out_failure, code, chain, providerListenError);
     }
     return PANCAKE_OK;
 }
@@ -956,34 +948,6 @@ fn providerListenError(err: anyerror) i32 {
         error.OutOfMemory => PANCAKE_ERR_INTERNAL,
         else => PANCAKE_ERR_IO,
     };
-}
-
-fn setProviderFailureChain(
-    out_failure: ?*c.PancakeProviderFailure,
-    code: i32,
-    failure: net.netlayer.ListenFailure,
-) void {
-    c.transport_provider.setProviderFailure(out_failure, code, failure.cause);
-    const secondary = failure.secondary_cause orelse return;
-    const slot = out_failure orelse return;
-    const name = failure.secondaryName().?;
-    slot.secondary_result = providerListenError(secondary);
-    slot.secondary_name = name.ptr;
-    slot.secondary_name_len = name.len;
-    slot.secondary_count = failure.secondary_count;
-}
-
-fn setListenFailure(prefix: []const u8, failure: net.netlayer.ListenFailure) void {
-    if (failure.secondary_cause) |secondary| {
-        setLastError("{s}: {s}; cleanup: {s} ({d} secondary failures)", .{
-            prefix,
-            @errorName(failure.cause),
-            @errorName(secondary),
-            failure.secondary_count,
-        });
-    } else {
-        setLastError("{s}: {s}", .{ prefix, @errorName(failure.cause) });
-    }
 }
 
 /// Copy the calling thread's last onion-transport error message into `out_buf`,
@@ -1006,7 +970,7 @@ pub export fn pancake_onion_netlayer_new(
     config: ?*const PancakeOnionConfig,
     out_netlayer: ?*?*PancakeOnionNetlayer,
 ) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
     return netlayerNewIn(c.library_allocator, cfg, slot);
@@ -1018,7 +982,7 @@ pub export fn pancake_onion_netlayer_new_in(
     config: ?*const PancakeOnionConfig,
     out_netlayer: ?*?*PancakeOnionNetlayer,
 ) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
@@ -1140,31 +1104,30 @@ fn take(block: []u8, cursor: *usize, bytes: []const u8) []const u8 {
     return block[start..][0..bytes.len];
 }
 
-pub export fn pancake_onion_netlayer_release(netlayer: ?*PancakeOnionNetlayer) i32 {
-    clearLastError();
+fn onionNetlayerRelease(netlayer: ?*PancakeOnionNetlayer) i32 {
     const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_OK;
     if (payload.release()) |failure| {
-        setListenFailure("onion netlayer release", failure);
+        c.setLastErrorChain("onion netlayer release", failure);
         return providerListenError(failure.cause);
     }
     return PANCAKE_OK;
 }
 
-pub export fn pancake_onion_netlayer_release_with_diagnostic(
+pub export fn pancake_onion_netlayer_release(
     netlayer: ?*PancakeOnionNetlayer,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_netlayer_release(netlayer),
+        onionNetlayerRelease(netlayer),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -1175,6 +1138,7 @@ pub export fn pancake_onion_transport_provider(
     netlayer: ?*PancakeOnionNetlayer,
     out_provider: ?*c.PancakeTransportProvider,
 ) i32 {
+    c.lastErrorClear();
     const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_provider orelse return PANCAKE_ERR_NULL_POINTER;
     slot.* = payload.provider;
@@ -1247,7 +1211,7 @@ const ListenJob = struct {
 /// `service_id` is the bare version 3 designator, 56 base32 characters with no
 /// `.onion` suffix. A designator that is not a well-formed v3 address is refused
 /// before any socket opens. Blocking: a Tor circuit takes seconds.
-pub export fn pancake_onion_connect(
+fn onionConnect(
     netlayer: ?*PancakeOnionNetlayer,
     service_id: ?[*]const u8,
     service_id_len: usize,
@@ -1255,7 +1219,6 @@ pub export fn pancake_onion_connect(
     max_frame_bytes: usize,
     out_conn: ?*?*PancakeOnionConn,
 ) i32 {
-    clearLastError();
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!nl.calls.acquire(nl.resident.io)) return PANCAKE_ERR_CLOSED;
     defer nl.calls.release(nl.resident.io);
@@ -1287,7 +1250,7 @@ pub export fn pancake_onion_connect(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_onion_connect_with_diagnostic(
+pub export fn pancake_onion_connect(
     netlayer: ?*PancakeOnionNetlayer,
     service_id: ?[*]const u8,
     service_id_len: usize,
@@ -1298,15 +1261,15 @@ pub export fn pancake_onion_connect_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_connect(netlayer, service_id, service_id_len, codec, max_frame_bytes, out_conn),
+        onionConnect(netlayer, service_id, service_id_len, codec, max_frame_bytes, out_conn),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -1321,7 +1284,7 @@ pub export fn pancake_onion_connect_with_diagnostic(
 ///
 /// Every out-parameter is optional. Requires a configured control endpoint.
 /// Blocking: the control conversation is several round trips to the daemon.
-pub export fn pancake_onion_listen(
+fn onionListen(
     netlayer: ?*PancakeOnionNetlayer,
     out_service_id: ?[*]u8,
     out_service_id_cap: usize,
@@ -1331,7 +1294,6 @@ pub export fn pancake_onion_listen(
     out_service_key_len: ?*usize,
     out_listener: ?*?*PancakeOnionListener,
 ) i32 {
-    clearLastError();
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!nl.calls.acquire(nl.resident.io)) return PANCAKE_ERR_CLOSED;
     defer nl.calls.release(nl.resident.io);
@@ -1354,7 +1316,7 @@ pub export fn pancake_onion_listen(
     job.done.wait(nl.resident.io);
     if (job.failure) |failure| {
         nl.allocator.destroy(payload);
-        setListenFailure("onion listen", failure);
+        c.setLastErrorChain("onion listen", failure);
         return listenErrorToCode(failure.cause);
     }
 
@@ -1389,7 +1351,7 @@ pub export fn pancake_onion_listen(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_onion_listen_with_diagnostic(
+pub export fn pancake_onion_listen(
     netlayer: ?*PancakeOnionNetlayer,
     out_service_id: ?[*]u8,
     service_id_cap: usize,
@@ -1402,12 +1364,12 @@ pub export fn pancake_onion_listen_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_listen(
+        onionListen(
             netlayer,
             out_service_id,
             service_id_cap,
@@ -1419,7 +1381,7 @@ pub export fn pancake_onion_listen_with_diagnostic(
         ),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -1440,13 +1402,12 @@ fn copyOut(bytes: []const u8, out: ?[*]u8, cap: usize, out_len: ?*usize) bool {
 /// The partner's claimed location is unverified on this side: Tor tells a hidden
 /// service nothing about who dialed it. ADR-0108 records that, and the pinned
 /// Goblins has the identical gap.
-pub export fn pancake_onion_accept(
+fn onionAccept(
     listener: ?*PancakeOnionListener,
     codec: u32,
     max_frame_bytes: usize,
     out_conn: ?*?*PancakeOnionConn,
 ) i32 {
-    clearLastError();
     const lpayload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!lpayload.operations.acquire(lpayload.io)) return PANCAKE_ERR_CLOSED;
     defer lpayload.operations.release(lpayload.io);
@@ -1470,7 +1431,7 @@ pub export fn pancake_onion_accept(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_onion_accept_with_diagnostic(
+pub export fn pancake_onion_accept(
     listener: ?*PancakeOnionListener,
     codec: u32,
     max_frame_bytes: usize,
@@ -1479,15 +1440,15 @@ pub export fn pancake_onion_accept_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_accept(listener, codec, max_frame_bytes, out_conn),
+        onionAccept(listener, codec, max_frame_bytes, out_conn),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -1499,12 +1460,11 @@ pub export fn pancake_onion_accept_with_diagnostic(
 /// The flag is a `u32` rather than a C `bool` because every other integer in this
 /// family is fixed-width, and `_Bool` is the one type whose width a caller has to
 /// look up.
-pub export fn pancake_onion_listener_wait(
+fn onionListenerWait(
     listener: ?*PancakeOnionListener,
     timeout_ms: i32,
     out_ready: ?*u32,
 ) i32 {
-    clearLastError();
     const lpayload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!lpayload.operations.acquire(lpayload.io)) return PANCAKE_ERR_CLOSED;
     defer lpayload.operations.release(lpayload.io);
@@ -1517,7 +1477,7 @@ pub export fn pancake_onion_listener_wait(
     return PANCAKE_OK;
 }
 
-pub export fn pancake_onion_listener_wait_with_diagnostic(
+pub export fn pancake_onion_listener_wait(
     listener: ?*PancakeOnionListener,
     timeout_ms: i32,
     out_ready: ?*u32,
@@ -1525,15 +1485,15 @@ pub export fn pancake_onion_listener_wait_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_listener_wait(listener, timeout_ms, out_ready),
+        onionListenerWait(listener, timeout_ms, out_ready),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -1555,7 +1515,7 @@ pub export fn pancake_onion_listener_readiness_fd(
     listener: ?*PancakeOnionListener,
     out_fd: ?*i32,
 ) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const lpayload = listenerFromOpaque(listener) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!lpayload.operations.acquire(lpayload.io)) return PANCAKE_ERR_CLOSED;
     defer lpayload.operations.release(lpayload.io);
@@ -1575,7 +1535,7 @@ pub export fn pancake_onion_listener_readiness_fd(
 /// The descriptor is owned by the connection. Do not close it, and do not use it
 /// after `pancake_onion_conn_release`.
 pub export fn pancake_onion_conn_readiness_fd(conn: ?*PancakeOnionConn, out_fd: ?*i32) i32 {
-    clearLastError();
+    c.lastErrorClear();
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_fd orelse return PANCAKE_ERR_NULL_POINTER;
     if (!payload.operations.acquire(payload.stream.io)) return PANCAKE_ERR_CLOSED;
@@ -1590,56 +1550,54 @@ pub export fn pancake_onion_conn_readiness_fd(conn: ?*PancakeOnionConn, out_fd: 
 ///
 /// Prefer polling `pancake_onion_conn_readiness_fd` first; this blocks when nothing
 /// has arrived.
-pub export fn pancake_onion_conn_read_frame(conn: ?*PancakeOnionConn, out_frame: ?*PancakeManagedFrame) i32 {
-    clearLastError();
+fn onionConnReadFrame(conn: ?*PancakeOnionConn, out_frame: ?*PancakeManagedFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
     return conn_frame_ops.readFrame(payload, slot, onReadConnectionLost);
 }
 
-pub export fn pancake_onion_conn_read_frame_with_diagnostic(
+pub export fn pancake_onion_conn_read_frame(
     conn: ?*PancakeOnionConn,
     out_frame: ?*PancakeManagedFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_conn_read_frame(conn, out_frame),
+        onionConnReadFrame(conn, out_frame),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
 /// Write one frame's *borrowed* bytes to the partner.
-pub export fn pancake_onion_conn_write_frame(conn: ?*PancakeOnionConn, frame_in: ?*const PancakeFrame) i32 {
-    clearLastError();
+fn onionConnWriteFrame(conn: ?*PancakeOnionConn, frame_in: ?*const PancakeFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
     return conn_frame_ops.writeFrame(payload, borrowed, onWriteErr);
 }
 
-pub export fn pancake_onion_conn_write_frame_with_diagnostic(
+pub export fn pancake_onion_conn_write_frame(
     conn: ?*PancakeOnionConn,
     frame_in: ?*const PancakeFrame,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_conn_write_frame(conn, frame_in),
+        onionConnWriteFrame(conn, frame_in),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -1649,15 +1607,29 @@ pub export fn pancake_onion_conn_write_frame_with_diagnostic(
 /// to another OS thread. Stop new calls, use shutdown to wake admitted work,
 /// join the runtime's operation leases, and only then release the handle.
 pub export fn pancake_onion_conn_shutdown(conn: ?*PancakeOnionConn) i32 {
+    c.lastErrorClear();
     const payload = connFromOpaque(conn) orelse return PANCAKE_OK;
     conn_lifecycle.shutdown(payload) catch |err| return c.failIo("onion connection shutdown", err);
     return PANCAKE_OK;
 }
 
-pub export fn pancake_onion_conn_release(conn: ?*PancakeOnionConn) i32 {
+fn onionConnRelease(conn: ?*PancakeOnionConn) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_OK;
     destroyConn(payload) catch |err| return c.failIo("onion connection release", err);
     return PANCAKE_OK;
+}
+
+pub export fn pancake_onion_conn_release(
+    conn: ?*PancakeOnionConn,
+    out_error: ?[*]u8,
+    error_cap: usize,
+    out_error_len: ?*usize,
+) i32 {
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
+        return PANCAKE_ERR_NULL_POINTER;
+    }
+    return c.captureCallError(onionConnRelease(conn), out_error, error_cap, out_error_len);
 }
 
 /// Interrupt a blocked accept without freeing `listener` or withdrawing its
@@ -1671,8 +1643,7 @@ pub export fn pancake_onion_listener_shutdown(listener: ?*PancakeOnionListener) 
 /// Withdraw the service and release the listener. This is the only release in the
 /// family with an effect on shared state: the service stops being published, so a
 /// partner dialing that address afterwards finds nothing.
-pub export fn pancake_onion_listener_release(listener: ?*PancakeOnionListener) i32 {
-    clearLastError();
+fn onionListenerRelease(listener: ?*PancakeOnionListener) i32 {
     const payload = listenerFromOpaque(listener) orelse return PANCAKE_OK;
     pancake_onion_listener_shutdown(listener);
     payload.operations.wait(payload.io);
@@ -1680,27 +1651,27 @@ pub export fn pancake_onion_listener_release(listener: ?*PancakeOnionListener) i
     const failure = payload.listener.deinit();
     alloc.destroy(payload);
     if (failure) |chain| {
-        setListenFailure("onion listener release", chain);
+        c.setLastErrorChain("onion listener release", chain);
         return listenErrorToCode(chain.cause);
     }
     return PANCAKE_OK;
 }
 
-pub export fn pancake_onion_listener_release_with_diagnostic(
+pub export fn pancake_onion_listener_release(
     listener: ?*PancakeOnionListener,
     out_error: ?[*]u8,
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        clearLastError();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_onion_listener_release(listener),
+        onionListenerRelease(listener),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 

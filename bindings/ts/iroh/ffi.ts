@@ -12,25 +12,27 @@
 // shared FFI runtime (`@pancake/runtime/ffi`). Nothing here is public; `mod.ts` is
 // the ergonomic surface over it.
 
-import { ffi, libFile, libPath, type Symbols } from "@pancake/runtime/ffi";
+import { ffi, libFile, libPath, requireArchiveFingerprint, type Symbols } from "@pancake/runtime/ffi";
+import { IROH_ARCHIVE_FINGERPRINT } from "@pancake/abi";
 
 const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void";
+	V = "void",
+	U64 = "u64";
 
 const irohSymbolDefs = {
+	pancake_iroh_archive_fingerprint: { parameters: [], result: U64 },
 	pancake_iroh_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
-	pancake_iroh_netlayer_new: { parameters: [B, U, B, B], result: I, outBuffers: [3], nonblocking: true },
-	pancake_iroh_netlayer_new_with_diagnostic: {
+	pancake_iroh_netlayer_new: {
 		parameters: [B, U, B, B, B, U, B],
 		result: I,
 		outBuffers: [3, 4, 6],
 		nonblocking: true,
 	},
 	pancake_iroh_netlayer_close: { parameters: [P], result: V, nonblocking: true },
-	pancake_iroh_netlayer_release: { parameters: [P], result: I, nonblocking: true },
+	pancake_iroh_netlayer_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
 	pancake_iroh_netlayer_node_id: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_netlayer_direct_addrs: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_release: { parameters: [P], result: V },
@@ -49,7 +51,7 @@ const irohSymbolDefs = {
 	pancake_iroh_conn_try_read: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3] },
 	pancake_iroh_conn_try_write: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	pancake_iroh_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_iroh_netlayer_new_with_diagnostic_in: {
+	pancake_iroh_netlayer_new_in: {
 		parameters: [P, B, U, B, B, B, U, B],
 		result: I,
 		outBuffers: [4, 5, 7],
@@ -69,6 +71,11 @@ export function irohS(): Symbols {
 			libPath("pancake_net_transport_iroh"),
 			irohSymbolDefs,
 		);
+		requireArchiveFingerprint(irohSyms, {
+			symbol: "pancake_iroh_archive_fingerprint",
+			expected: IROH_ARCHIVE_FINGERPRINT,
+			archive: "pancake_net_transport_iroh",
+		});
 	} catch (e) {
 		throw new Error(
 			`iroh transport unavailable: could not load ${

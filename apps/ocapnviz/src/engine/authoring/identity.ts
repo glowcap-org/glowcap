@@ -17,7 +17,7 @@
 
 import type { TimelineDocument } from "../timeline.ts";
 import { collisionError, type EngineResult, err, ok } from "../errors.ts";
-import { parseEndpointStageId } from "../../schema/topology.ts";
+import { parseEndpointStageId } from "../../schema/session-end.ts";
 import { cascadeRewrite } from "../schema/cascade.ts";
 import { restoreSnapshotInto, takeSnapshot } from "../snapshot.ts";
 import type { AuthoringContext } from "./context.ts";

@@ -13,6 +13,8 @@
 // kernel write. A sink that cannot block (a fire-and-forget send) has no
 // backpressure and must be bounded some other way.
 
+import { retainSecondaryFailure } from "@pancake/runtime/transport";
+
 /** A byte source: yields chunks to relay. `read` resolves null on EOF. */
 export interface ByteSource {
 	read(): Promise<Uint8Array | null>;
@@ -28,7 +30,8 @@ export interface ByteSink {
 export interface RelayChannel {
 	read(): Promise<Uint8Array | null>;
 	write(chunk: Uint8Array): Promise<void>;
-	close(): void;
+	/** Request closure and join the channel's release barrier. */
+	close(): Promise<void>;
 }
 
 /** Per-session relay limits. */
@@ -59,30 +62,35 @@ export async function relayBytes(
 	sink: ByteSink,
 	channel: RelayChannel,
 	config: RelayConfig,
-	closeSource: () => void,
+	closeSource: () => Promise<void>,
 ): Promise<void> {
 	let bytesTransferred = 0;
 	let timeoutHandle: number | null = null;
-	let teardownStarted = false;
+	let teardownBarrier: Promise<void> | null = null;
 	const failures: unknown[] = [];
 
 	const retainFailure = (error: unknown) => {
 		failures.push(error);
 	};
 
-	const teardown = () => {
-		if (teardownStarted) return;
-		teardownStarted = true;
-		try {
-			channel.close();
-		} catch (error) {
-			retainFailure(error);
-		}
-		try {
-			closeSource();
-		} catch (error) {
-			retainFailure(error);
-		}
+	const teardown = (): Promise<void> => {
+		if (teardownBarrier != null) return teardownBarrier;
+		// Publish teardown before invoking either close: a synchronous close may
+		// settle the sibling leg reentrantly, and that consequence must remain
+		// classified as cancellation rather than a second operation failure.
+		teardownBarrier = (async () => {
+			const outcomes = await Promise.allSettled([
+				Promise.resolve().then(() => channel.close()),
+				Promise.resolve().then(closeSource),
+			]);
+			// Record in stable owner order even when the physical closes complete in
+			// the opposite order. The operation failure, if any, was retained before
+			// teardown started and therefore remains primary.
+			for (const outcome of outcomes) {
+				if (outcome.status === "rejected") retainFailure(outcome.reason);
+			}
+		})();
+		return teardownBarrier;
 	};
 
 	// An inactivity timeout, not a lifetime cap: any chunk in either direction
@@ -90,7 +98,7 @@ export async function relayBytes(
 	const resetIdleTimeout = () => {
 		if (timeoutHandle !== null) clearTimeout(timeoutHandle);
 		if (config.idleTimeoutMs > 0) {
-			timeoutHandle = setTimeout(teardown, config.idleTimeoutMs) as unknown as number;
+			timeoutHandle = setTimeout(() => void teardown(), config.idleTimeoutMs) as unknown as number;
 		}
 	};
 	resetIdleTimeout();
@@ -108,7 +116,10 @@ export async function relayBytes(
 				await channel.write(chunk);
 			}
 		} catch (error) {
-			retainFailure(error);
+			// Teardown deliberately interrupts the sibling's pending read/write. Its
+			// resulting transport rejection is cancellation evidence, not a second
+			// session failure; only an error observed before teardown owns the result.
+			if (teardownBarrier == null) retainFailure(error);
 		}
 	})();
 
@@ -123,7 +134,7 @@ export async function relayBytes(
 				await sink.write(chunk);
 			}
 		} catch (error) {
-			retainFailure(error);
+			if (teardownBarrier == null) retainFailure(error);
 		}
 	})();
 
@@ -131,16 +142,13 @@ export async function relayBytes(
 		await Promise.race([legA, legB]);
 	} finally {
 		if (timeoutHandle !== null) clearTimeout(timeoutHandle);
-		teardown();
+		await teardown();
 		await Promise.allSettled([legA, legB]);
 	}
 	if (failures.length > 0) {
-		const failure = failures[0];
-		const secondaryFailures = failures.slice(1);
-		if (failure instanceof Error && secondaryFailures.length > 0) {
-			failure.cause = secondaryFailures.length === 1
-				? secondaryFailures[0]
-				: new AggregateError(secondaryFailures, "additional relay teardown failures");
+		let failure = failures[0];
+		for (const secondary of failures.slice(1)) {
+			failure = retainSecondaryFailure(failure, secondary);
 		}
 		throw failure;
 	}

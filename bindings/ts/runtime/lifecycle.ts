@@ -4,7 +4,12 @@ import {
 	CLOSE_GRACE_UNSPECIFIED,
 	CLOSE_MAX_GRACE_MS,
 	CLOSE_OPTIONS_ABI_VERSION,
+	INTERNAL,
 	INVALID_ARGUMENT,
+	LIFECYCLE_ACTIVE,
+	LIFECYCLE_CLOSED,
+	LIFECYCLE_FINISHING,
+	LIFECYCLE_TERMINATING,
 	PENDING_CANCEL,
 	PENDING_FINISH,
 } from "@pancake/abi";
@@ -23,6 +28,26 @@ export type CloseOptions =
 		readonly pending: "finish";
 		readonly graceMs: number | null;
 	};
+
+/** Whether final native release crossed its ownership boundary. */
+export function releaseConsumed(code: number): boolean {
+	return code !== INVALID_ARGUMENT;
+}
+
+/** Decode the closed/not-closed fact without allowing a future or corrupted
+ * native discriminant to masquerade as ordinary progress forever. */
+export function lifecycleClosed(raw: number): boolean {
+	switch (raw) {
+		case LIFECYCLE_ACTIVE:
+		case LIFECYCLE_FINISHING:
+		case LIFECYCLE_TERMINATING:
+			return false;
+		case LIFECYCLE_CLOSED:
+			return true;
+		default:
+			throw new PancakeError(INTERNAL, `pancake ABI returned unknown lifecycle state ${raw}`);
+	}
+}
 
 function pendingId(pending: CloseOptions["pending"]): number {
 	if (pending === undefined || pending === "cancel") return PENDING_CANCEL;

@@ -1,0 +1,352 @@
+/* The article: what prose, lists, tables, and code fences look like inside
+   the reading column, and the tabbed code blocks a page can build. */
+
+/* ── Content / prose ─────────────────────────────────────────────────────── */
+
+#content {
+  padding: 2rem 0 3rem;
+  min-width: 0;
+}
+
+.prose {
+  max-width: var(--content-max);
+}
+
+/* The end of the page, marked the way a book marks the end of a chapter: one
+   small ornament, centred, with room around it. It is the project's own stack,
+   used once and quietly, rather than a glyph repeated down the margin. */
+#content::after {
+  content: "";
+  display: block;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 3.5rem auto 0.5rem;
+  color: var(--ink-soft);
+  opacity: 0.45;
+  background: currentColor;
+  -webkit-mask: var(--mark-stack) center / contain no-repeat;
+  mask: var(--mark-stack) center / contain no-repeat;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+h1, h2, h3, h4 {
+  line-height: 1.2;
+  color: var(--ink);
+  /* Keep an in-page anchor from landing under the sticky header. */
+  scroll-margin-top: 4.5rem;
+  /* A heading is short text, so balance its lines instead of letting a lone
+     word drop to a second row. */
+  text-wrap: balance;
+}
+
+/* Display sizes use Plex's semibold weight. Body emphasis keeps the stronger
+   bold, so page structure and emphasis remain distinct. */
+h1 {
+  color: var(--teal-ink);
+  font-size: 2.9rem;
+  font-weight: 600;
+  margin: 0 0 0.6rem;
+  letter-spacing: 0;
+}
+
+h2 {
+  color: var(--accent-ink);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin: 2.2rem 0 0.8rem;
+}
+
+/* Sections are separated by a rule, not by a glyph in front of the heading. A
+   hairline across the column is how a printed page marks a new section: it
+   reads at a glance while scrolling, costs no colour, and leaves the heading
+   itself to be read as words. */
+.prose h2 {
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rule);
+}
+
+h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin: 1.8rem 0 0.5rem;
+}
+
+p, li {
+  color: var(--ink);
+  /* Tune the last lines of body copy so a paragraph or list item never strands
+     a single word on a line of its own. `pretty` only touches the tail, so the
+     rag of the rest is left alone; browsers without it fall back to normal. */
+  text-wrap: pretty;
+}
+
+/* Lists: an accent marker and a little room to breathe, so a bulleted or
+   numbered run reads as a tidy list rather than crowded paragraphs. */
+.prose ul,
+.prose ol {
+  padding-left: 1.4rem;
+  margin: 1rem 0;
+}
+
+.prose li {
+  margin: 0.35rem 0;
+}
+
+.prose li::marker {
+  color: var(--accent);
+}
+
+/* Diagrams. SuperMD renders a captioned image as a figure, and these are the
+   hand-drawn SVGs that sit inside the prose. The card framing tells a reader
+   "this is a picture of the idea," distinct from the clickable route cards. */
+.prose figure {
+  margin: 1.75rem 0;
+  padding: 1.1rem 1.1rem 0.5rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-card);
+}
+
+/* While the swap below is in flight, the images it is about to replace are
+   hidden: they are painted in the light literals baked into each file, and on a
+   dark page that is a flash of cream artwork per diagram. Only the script that
+   performs the swap sets this class, and it removes it when every fetch has
+   settled or after three seconds, whichever comes first. */
+:root.inlining-diagrams .prose figure img[src$=".svg"] {
+  visibility: hidden;
+}
+
+/* A diagram that the page can actually reach into. The script in the base
+   template swaps each hand-drawn SVG from an `img` (which renders in its own
+   document, deaf to this stylesheet) into a shadow root, where the artwork
+   reads the tokens above and follows the theme, including the header's toggle.
+   The shadow root is what makes this safe at scale: a page can carry a dozen
+   diagrams whose internal stylesheets all use names like `.arc1`, and none of
+   them collide with each other or leak into the page.
+
+   Without JavaScript the `img` simply stays, drawn in the light palette its
+   literals name. */
+.prose .diagram {
+  display: block;
+  width: 100%;
+}
+
+/* Both kinds of drawing, the swapped-in diagrams and the inline walkthrough,
+   want the lighter end of the amber and teal ramps for their strokes and
+   labels. `--dia-*` carries a light identity of its own in `:root`, so this
+   needs no literal fallback; in the light theme it resolves to the core value
+   and nothing shifts. */
+.prose .diagram,
+.prose .capwalk {
+  --accent-deep: var(--dia-accent-deep);
+  --teal-deep: var(--dia-teal-deep);
+}
+
+.prose figure img {
+  display: block;
+  /* Full-width means a diagram's viewBox width sets its display scale: the
+     hand-drawn SVGs share a 760-unit canvas, and a narrower canvas magnifies. */
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.prose figcaption {
+  margin-top: 0.7rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  text-align: center;
+  /* Even the lines out so a short centered caption never strands a lone word
+     on a line of its own. */
+  text-wrap: balance;
+}
+
+/* Raster illustrations (the README art) are pictures, not diagrams, so they
+   drop the card frame and sit centered. The figure stays wide enough for the
+   caption to read as a sentence or two rather than a cramped column, while the
+   image itself stays modest. */
+.prose figure:has(img[src$=".png"]) {
+  max-width: 32rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.prose figure:has(img[src$=".png"]) img {
+  width: auto;
+  max-width: 18rem;
+  border-radius: var(--radius-card);
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.1em 0.34em;
+  border-radius: var(--radius-chip);
+  /* Protocol tokens (`op:start-session`, `ocapn-sturdyref`) are single names;
+     keep the hyphen from being a line-break opportunity that splits one. */
+  white-space: nowrap;
+}
+
+pre {
+  background: var(--code-bg);
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius-control);
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-well);
+  /* The TypeScript examples are tab-indented, matching deno fmt; render the
+     tab four columns wide like every editor here, not the browser's eight. */
+  tab-size: 4;
+}
+
+/* Copy-to-clipboard. The button is built by the script in the base template, so
+   a reader without JavaScript simply gets the code block as it always was. It
+   stays faint until the block is hovered or the button itself is focused, so a
+   page of listings is not a page of buttons; it never fades out on touch, where
+   there is no hover to reveal it. */
+.code-block {
+  position: relative;
+}
+
+.copy-btn {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--paper-raised) 85%, transparent);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-chip);
+  padding: 0.32rem 0.6rem;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.code-block .copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  opacity: 0;
+}
+
+.code-block:hover .copy-btn,
+.code-block .copy-btn:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .code-block .copy-btn {
+    opacity: 1;
+  }
+}
+
+/* Inside a tabbed block the button joins the tab strip and copies whichever tab
+   is showing. It matches the tabs' box exactly so the row is level, but it is
+   drawn as a quiet action rather than a chip: given the same border and fill as
+   the tabs it reads as a third tab, which is the one thing it must not do. */
+.code-tabs .tab-bar .copy-btn {
+  margin-left: auto;
+  align-self: stretch;
+  margin-bottom: 0;
+  background: transparent;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.code-tabs .tab-bar .copy-btn:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.copy-btn:hover {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+.copy-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.copy-btn.is-done {
+  color: var(--teal-ink);
+  border-color: var(--teal);
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.86em;
+  /* Block code follows its `pre` parent (preserve + scroll), not the inline
+     nowrap above, so multi-line listings stay multi-line. */
+  white-space: pre;
+}
+
+/* ── Code tabs ───────────────────────────────────────────────────────────────
+   A `code-tabs` block holds label/code pairs (authored as bold one-word
+   paragraphs before each fence). The script in the base template turns the
+   pairs into tabs; without JavaScript the pairs render as labeled, stacked
+   code blocks, which is the intended fallback. */
+.code-tabs .tab-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.3rem;
+  /* The bar sits directly on the panel below; the buttons themselves overlap
+     the panel's top border (see `margin-bottom` below), so the strip and the
+     code block read as one shape rather than two stacked boxes. */
+  position: relative;
+  z-index: 1;
+}
+
+.code-tabs .tab-bar button {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--ink) 5%, var(--code-bg));
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  padding: 0.3rem 0.9rem;
+  cursor: pointer;
+  /* Drop onto the panel's 1px top border so the active tab can punch through
+     it and unselected tabs share the same baseline. */
+  margin-bottom: -1px;
+}
+
+.code-tabs .tab-bar button[aria-pressed="true"] {
+  color: var(--teal-ink);
+  /* Same fill as the panel, with the seam erased where they meet, so the
+     selected tab opens straight into the code block. */
+  background: var(--code-bg);
+  border-bottom-color: var(--code-bg);
+}
+
+.code-tabs .tab-bar button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* Once the script has built a bar, every panel behind it drops its top margin
+   (`pre` keeps the browser default elsewhere) and squares its top corners so
+   the tabs sit flush on the panel; the bottom stays rounded. The no-JS
+   fallback has no bar, so its stacked blocks keep the normal `pre` shape. */
+.code-tabs .tab-bar ~ pre {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* The no-JS fallback labels. The script removes them when it builds the bar. */
+.code-tabs > p {
+  margin: 0.6rem 0 -0.6rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}

@@ -1,0 +1,148 @@
+/* Code coloring for the site's fenced blocks. */
+
+/* ── Syntax highlighting ─────────────────────────────────────────────────────
+   Zine tokenizes fenced code with TreeSitter and emits scope classes — a single
+   token can carry several (an identifier arrives as `constant variable type
+   variable`). We color only the scopes that carry meaning: keywords, strings,
+   comments, calls, numbers. Identifiers stay at ink, so a Zig sample reads in
+   color instead of turning to confetti. The palette is the site's own — plum
+   for keywords (a nod to the Goblins mascot), teal for calls, an olive string,
+   amber escapes and literals. Rules are ordered so a more specific scope (escape
+   over string) wins on tokens that carry both. */
+pre code .keyword,
+pre code .keyword_conditional,
+pre code .keyword_exception,
+pre code .keyword_repeat,
+pre code .keyword_return,
+pre code .keyword_operator,
+pre code .keyword_import,
+pre code .function_builtin {
+  color: var(--syn-keyword);
+}
+
+pre code .function_call,
+pre code .function {
+  color: var(--syn-call);
+}
+
+pre code .string {
+  color: var(--syn-string);
+}
+
+pre code .number,
+pre code .boolean,
+pre code .constant_builtin {
+  color: var(--syn-number);
+}
+
+pre code .string_escape {
+  color: var(--syn-number);
+}
+
+pre code .comment {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+pre code .operator,
+pre code .punctuation_delimiter,
+pre code .punctuation_bracket {
+  color: var(--syn-punct);
+}
+
+/* Jargon callouts. A short aside that defines a term from the object-capability
+   and CapTP world — swiss-num, vat, promise pipelining — that a reader new to
+   ocaps will not have met. Each is authored as a blockquote led by the bold term
+   it defines, so the markup stays plain Markdown while the term reads as the
+   callout's label. */
+blockquote {
+  margin: 1.5rem 0;
+  padding: 0.85rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--teal) 30%, var(--paper));
+  background: color-mix(in srgb, var(--teal) 7%, transparent);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+}
+
+.prose blockquote p {
+  margin: 0.5rem 0;
+}
+
+.prose blockquote p:first-child {
+  margin-top: 0;
+}
+
+.prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* The defined term leads the callout, lifted into the core teal and marked with
+   the page's twinkle, so a jargon aside is recognizable at a glance. A blockquote
+   that does not open with a bold term simply gets no twinkle. */
+.prose blockquote > p:first-child > strong:first-child {
+  color: var(--teal-ink);
+}
+
+/* A table wider than its column scrolls inside itself. Without this the page
+   body scrolls sideways on a narrow screen, which moves the prose out from
+   under the reader along with the table. The markdown emits a bare `<table>`
+   with nothing to wrap, so the table is its own scroll container: `display:
+   block` is what makes `overflow-x` apply, and the inner `display: table` below
+   puts the grid layout back inside it. */
+table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.94em;
+  margin: 1.2rem 0;
+  /* Figures of equal width, so a column of measurements lines up digit under
+     digit instead of drifting. The benchmark tables are full of them. */
+  font-variant-numeric: tabular-nums;
+}
+/* Restore the grid inside the scrolling block. Without these the rows stack and
+   the columns stop lining up, which is the usual cost of the wrapper-free
+   scroll above. */
+table > thead,
+table > tbody {
+  display: table;
+  width: 100%;
+}
+table > thead > tr,
+table > tbody > tr {
+  display: table-row;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+  /* Balance a multi-line value cell so it never leaves one trailing word
+     alone on its own row. */
+  text-wrap: balance;
+}
+
+/* The first column of a doc table is the key — a codec, transport, surface, or
+   binding name — and reads best whole. Keep it on one line; the value columns
+   beside it do the wrapping. */
+.prose th:first-child,
+.prose td:first-child {
+  white-space: nowrap;
+}
+
+th {
+  color: var(--teal-ink);
+  font-weight: 700;
+}
+
+tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 2rem 0;
+}

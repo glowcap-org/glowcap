@@ -5,391 +5,34 @@
 // away or press Escape and it puts itself away and hands focus back — so they
 // are one component used twice rather than two sets of handlers kept in step.
 
-import { memo, type ReactNode, useEffect, useRef, useState } from "react";
-import { useDismissOnClickOutside } from "./hooks.ts";
+import { memo, useEffect, useMemo, useState } from "react";
 import { usePeer } from "./peer.ts";
+import { implied, named } from "./intent.ts";
+import type { JoinAnswers } from "./joining.ts";
 import {
+	awayByPeer,
+	awayOf,
 	type Conv,
 	type DirId,
 	dirId,
+	dirMark,
 	dirsAreMarked,
 	type DirView,
 	type DmConv,
-	membersHere,
+	type Invitation,
 	type RoomConv,
 	type SessionPhase,
 } from "./types.ts";
-import { directoryName, hueOf, initials, tooLong } from "./text.ts";
-import { Icon } from "./icons.tsx";
-import { PHASE_SAID } from "./DirectoryFacts.tsx";
+import { Avatar, PresenceAvatar } from "./Avatar.tsx";
+import { directoryName, footState } from "./text.ts";
+import { Icon, Wordmark } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
+import { SettingsButton } from "./SettingsButton.tsx";
+import { StandingMenu } from "./Standing.tsx";
 import { Button } from "./Button.tsx";
 import { MAX_NICK, MAX_ROOM } from "../../lib/limits.ts";
-
-/** Which "+" field is open. At most one is, so this is one value rather than a
- * flag per section that could both be true. */
-type PanelName = "room" | "dm";
-
-/** One section of the rail: a heading, an optional "+" field under it, and the
- * rows.
- *
- * The two sections differ only in what they are called and what they list, so
- * this is one component used twice. The field sits *after* the heading rather
- * than inside it, which the stylesheet depends on: the heading is a flex row, and
- * a field inside it would land beside the "+" instead of below it.
- *
- * What is typed into that field is this component's own state and nowhere else.
- * It is not a store fact, because nothing outside this section reads a
- * half-typed name; and it is not left in the DOM, because a value the element
- * holds outlives the field being closed, the conversation being switched, and
- * the room being lost — the page would then reopen a field still carrying a name
- * from some earlier intention. */
-function RailSection(
-	{
-		id,
-		className,
-		title,
-		listId,
-		open,
-		label,
-		placeholder,
-		max,
-		noun,
-		canAdd,
-		onOpen,
-		onSubmit,
-		onElsewhere,
-		sigil,
-		where,
-		onError,
-		children,
-	}: {
-		id: string;
-		className?: string;
-		title: string;
-		listId: string;
-		/** Whether this section's field is the open one. The rail owns the
-		 * at-most-one rule, so a section only needs the answer, not the identity
-		 * of whichever other section might hold it. */
-		open: boolean;
-		label: string;
-		placeholder: string;
-		max: number;
-		/** What this section calls the thing being named, for the one message that
-		 * needs it. The message itself is built here, so the two sections cannot
-		 * word the same refusal differently. */
-		noun: string;
-		canAdd: boolean;
-		onOpen: (open: boolean) => void;
-		onSubmit: (value: string) => void;
-		/** Offered when this section can also reach somewhere this tab does not
-		 * hold yet. Absent means the section has no elsewhere: a direct line is
-		 * opened from a roster, so there is no address to go and find. */
-		onElsewhere?: (value: string) => void;
-		/** The mark this section's rows wear, worn by the panel too so the thing
-		 * being named looks like the things already named. */
-		sigil: string;
-		/** Where what is typed here will land, and which mark that directory wears.
-		 * Absent when the section has no destination to state — a direct line is
-		 * opened on whichever directory the person is already on. */
-		where?: { name: string; slot?: number };
-		onError: (text: string) => void;
-		children: ReactNode;
-	},
-) {
-	const button = useRef<HTMLButtonElement>(null);
-	const field = useRef<HTMLInputElement>(null);
-	const elsewhere = useRef<HTMLButtonElement>(null);
-	const [value, setValue] = useState("");
-	const showing = open && canAdd;
-
-	// The field exists to be typed in, so it takes the caret as it opens.
-	useEffect(() => {
-		if (showing) field.current?.focus();
-	}, [showing]);
-
-	useDismissOnClickOutside(showing, `#${id}, #${id}Btn`, () => onOpen(false));
-
-	// Closing empties the field and takes it out of the tab order, so focus goes
-	// back to the toggle rather than being left on `<body>` with nowhere to tab
-	// from.
-	const close = () => {
-		setValue("");
-		onOpen(false);
-		button.current?.focus();
-	};
-
-	return (
-		<div className={className ? "section " + className : "section"}>
-			<div className="section-head">
-				<span>{title}</span>
-				<IconButton
-					id={id + "Btn"}
-					ref={button}
-					icon="plus"
-					label={label}
-					size="small"
-					variant="ghost"
-					tone="accent"
-					aria-controls={id}
-					aria-expanded={showing}
-					hidden={!canAdd}
-					onClick={() => onOpen(!showing)}
-				/>
-			</div>
-			<div id={id} className={showing ? "newroom show" : "newroom"} data-dir={where?.slot}>
-				<span className="hash" aria-hidden="true">{sigil}</span>
-				<input
-					id={id + "Input"}
-					ref={field}
-					placeholder={placeholder}
-					aria-label={label}
-					maxLength={max}
-					value={value}
-					onChange={(e) => setValue(e.target.value)}
-					onBlur={(e) => {
-						// Except when focus is going to this panel's own two controls.
-						// The toggle is about to decide the field's fate and would
-						// otherwise find it already closed and open it straight back; the
-						// step-up link lives *inside* the panel, so closing on the way to
-						// it put the panel away before the press could land — which is
-						// exactly what a keyboard reader does, since reaching that link
-						// means tabbing off the field.
-						if (e.relatedTarget !== button.current && e.relatedTarget !== elsewhere.current) {
-							onOpen(false);
-						}
-					}}
-					onKeyDown={(e) => {
-						if (e.key === "Escape") {
-							// This field consumed the key. Say so, or the window handler
-							// treats the same press as "close the rooms list" and the
-							// phone loses the whole screen the field was sitting on.
-							e.stopPropagation();
-							close();
-							return;
-						}
-						if (e.key !== "Enter") return;
-						// Cancel the default so the Enter cannot fall through to the
-						// composer we are about to focus and land as a stray newline.
-						e.preventDefault();
-						const named = value.trim();
-						if (!named) return;
-						if (named.length > max) {
-							onError(tooLong(noun, max));
-							return;
-						}
-						close();
-						onSubmit(named);
-					}}
-				/>
-				{where !== undefined && onElsewhere !== undefined && (
-					// The same line a room carries under its name, doing the same job for a
-					// room that does not exist yet: it says where this one will land, and
-					// pressing it is how that is changed. A room's line opens what is known
-					// about its directory; this one opens the card where another can be
-					// named, which is the one difference between the two skeletons.
-					//
-					// Whatever has been typed goes with it. Moving between the two surfaces
-					// never costs a reader what they were part way through saying, which is
-					// the rule this field already holds when it fills the card behind it.
-					<Button
-						variant="caption"
-						ref={elsewhere}
-						id={id + "Elsewhere"}
-						className="rwhere"
-						title={where.name}
-						// The visible line states the destination, because that is what a
-						// reader needs to see. What pressing it does has to be said too, and
-						// only the accessible name has room for both.
-						aria-label={"In " + where.name + ". Put this " + noun.replace(/ name$/, "") +
-							" in another directory"}
-						// The field's blur closes this panel, so a press that moved focus
-						// would take its own target away before it landed. Preventing the
-						// pointer's default keeps the caret in the field; it suppresses
-						// the focus shift and nothing else, so the click still follows.
-						//
-						// The action belongs on the click and not on the press, because a
-						// button reached by keyboard fires click alone — Enter and Space
-						// raise no mousedown at all, and neither does a screen reader's
-						// activation. Acting on mousedown left this control focusable,
-						// visibly focused, and dead.
-						onMouseDown={(e) => e.preventDefault()}
-						onClick={() => {
-							const named = value.trim();
-							close();
-							onElsewhere(named);
-						}}
-					>
-						<Icon name="directory" size={12} />
-						<span className="rwhere-said">in {where.name}</span>
-					</Button>
-				)}
-			</div>
-			<ul id={listId}>{children}</ul>
-		</div>
-	);
-}
-
-function Empty({ text }: { text: string }) {
-	return <li className="empty">{text}</li>;
-}
-
-/** The mark that ends a row, in the slot the row's badge otherwise fills. Both
- * lists carry one and they differ only in what they are called. */
-function RowClose({ title, said, onClose }: { title: string; said: string; onClose: () => void }) {
-	return (
-		<IconButton
-			className="room-leave"
-			icon="close"
-			label={said}
-			size="small"
-			variant="ghost"
-			tone="danger"
-			title={title}
-			onClick={(e) => {
-				e.stopPropagation();
-				onClose();
-			}}
-		/>
-	);
-}
-
-/** One room this tab is in.
- *
- * The rail lists the rooms you hold, not the rooms a directory advertises. Those
- * are two different things, and rendering the second while inferring the first
- * from it is what made this list a catalogue that reordered itself under the
- * pointer whenever a stranger joined something. The catalogue has its own
- * surface now; what is left here is short, stable, and yours.
- *
- * The badge is unread, for the same reason: a head-count is somebody else's
- * activity, and nothing on this list should move or change because of it. */
-function RoomRow(
-	{ conv, unread, here, directory, slot, phase, onPick, onLeave, onAbout }: {
-		conv: RoomConv;
-		unread: number;
-		here: boolean;
-		/** What to call the directory this room is in, or null while this tab holds
-		 * only one and saying so would be noise. It is drawn on the row, not only
-		 * spoken: the colour beside it is the glance, and this is what carries the
-		 * same fact for a reader who cannot use colour. */
-		directory: string | null;
-		/** Which mark that directory wears, or null when none wears one. Set
-		 * together with `directory`, never alone, so a colour is never the only thing
-		 * telling two rooms apart. */
-		slot: number | null;
-		phase: SessionPhase;
-		onPick: (conv: RoomConv) => void;
-		onLeave: (key: string) => void;
-		onAbout: (dir: DirId) => void;
-	},
-) {
-	// The row opens the room and carries a second control beside it to leave.
-	// Both are real buttons: an interactive control nested inside another is a
-	// structure no assistive software can read out.
-	//
-	// Leaving lives in the badge's slot, so the row gives up no width to hold it
-	// and no name is cut short for a mark that is not showing.
-	const where = directory === null ? "" : " in " + directory;
-	const unwell = phase === "connected" ? "" : ", directory " + phase;
-	// The sigil belongs in the spoken name too. The row draws it, the header
-	// draws it, and a reader who hears "annex" where everyone else reads "#annex"
-	// is being told about a different thing.
-	const named = "#" + conv.id;
-	// The badge answers whichever question is live. Unread is the urgent one and
-	// takes the slot when there is any; otherwise the slot says how many people
-	// are in there, which is what it has always said and what a reader glances at
-	// to decide where to go next.
-	//
-	// The count is free to show now that nothing sorts by it. It used to order
-	// the list, so a stranger joining anywhere walked the rows out from under the
-	// pointer — but that was the ordering, not the number, and the ordering is
-	// gone.
-	const people = membersHere(conv.members);
-	const said = (here ? named : "Open " + named) + where +
-		(unread > 0 ? ", " + unread + " unread" : people > 0 ? ", " + people + " in the room" : "") + unwell;
-	return (
-		<li className={here ? "here" : ""} data-dir={slot ?? undefined}>
-			<button
-				type="button"
-				className="room-open"
-				aria-label={said}
-				aria-current={here ? "page" : undefined}
-				onClick={() => onPick(conv)}
-			>
-				<span className="hash" aria-hidden="true">#</span>
-				<span className="rname" title={conv.id}>{conv.id}</span>
-				{unread > 0
-					? <span className="rcount unread">{unread}</span>
-					: people > 0
-					? <span className="rcount">{people}</span>
-					: null}
-			</button>
-			{directory !== null && (
-				// A sibling of the row's own button, never inside it: a control within a
-				// control is a shape no assistive software can announce, and this one
-				// goes somewhere different from the row it sits under.
-				<Button
-					variant="caption"
-					className="rwhere"
-					title={directory}
-					aria-label={"About " + directory}
-					onClick={() => onAbout(conv.dir)}
-				>
-					<Icon name="directory" size={12} />
-					<span className="rwhere-said">in {directory}</span>
-				</Button>
-			)}
-			<RowClose title="Leave" said={"Leave " + named + where} onClose={() => onLeave(conv.key)} />
-		</li>
-	);
-}
-
-/** A directory this tab is on with nothing open on it.
- *
- * The same row a room gets, because it is the same kind of thing: somewhere you
- * are. Its mark is the directory glyph rather than a room's sigil, the line
- * under it says why it is here, and the way out gives the whole directory back
- * instead of one room. Pressing it opens the join card already aimed here, which
- * is the one thing anybody wants from a server they are on and in no room on. */
-function EmptyDirRow(
-	{ dir, home, marked, onJoinOn, onLeave, onAbout }: {
-		dir: DirView;
-		home: DirId | null;
-		marked: boolean;
-		onJoinOn: (dir: DirId) => void;
-		onLeave: (dir: DirId) => void;
-		onAbout: (dir: DirId) => void;
-	},
-) {
-	const name = directoryName(dir.id, home);
-	const said = dir.session === "connected" ? "no rooms yet" : PHASE_SAID[dir.session];
-	return (
-		<li className="dirrow" data-dir={marked ? dir.slot : undefined}>
-			<button
-				type="button"
-				className="room-open"
-				aria-label={"Join a room on " + name}
-				onClick={() => onJoinOn(dir.id)}
-			>
-				<span className="hash" aria-hidden="true">
-					<Icon name="directory" size={14} />
-				</span>
-				<span className="rname" title={dir.id}>{name}</span>
-			</button>
-			<Button
-				variant="caption"
-				className="rwhere"
-				aria-label={"About " + name}
-				onClick={() => onAbout(dir.id)}
-			>
-				<span className="rwhere-said">{said}</span>
-			</Button>
-			<RowClose title="Leave" said={"Leave " + name} onClose={() => onLeave(dir.id)} />
-		</li>
-	);
-}
-
+import { type PanelName, RailSection } from "./sidebar/Section.tsx";
+import { Empty, EmptyDirRow, InviteRow, RoomRow, RowClose } from "./sidebar/rows.tsx";
 /** The rooms this tab is in, across every directory, in the order it entered
  * them, and under them the directories it is on with nothing open.
  *
@@ -397,11 +40,30 @@ function EmptyDirRow(
  * joining appends rather than inserting into the middle, so the list a reader
  * learned stays the list they have. */
 function YourRooms(
-	{ convs, dirs, home, activeKey, marked, empty, onPick, onLeave, onAbout, onJoinOn, onLeaveDir }: {
+	{
+		convs,
+		dirs,
+		home,
+		activeKey,
+		marked,
+		empty,
+		invites,
+		onPick,
+		onLeave,
+		onAbout,
+		onJoinOn,
+		onLeaveDir,
+		onTake,
+		onDrop,
+	}: {
 		convs: ReadonlyMap<string, Conv>;
 		dirs: ReadonlyMap<DirId, DirView>;
 		home: DirId | null;
 		activeKey: string | null;
+		/** Rooms handed to this tab and not answered yet. */
+		invites: readonly Invitation[];
+		onTake: (id: string) => void;
+		onDrop: (id: string) => void;
 		/** Whether rows say which directory they are in. Worth saying only once
 		 * there is more than one to be in, and never worth saying past the ramp's
 		 * length,
@@ -419,7 +81,7 @@ function YourRooms(
 	},
 ) {
 	const rows = [...convs.values()].filter((conv): conv is RoomConv => conv.type === "room");
-	if (rows.length === 0 && empty.length === 0) {
+	if (rows.length === 0 && empty.length === 0 && invites.length === 0) {
 		return (
 			<Empty
 				text={dirs.size === 0
@@ -430,14 +92,21 @@ function YourRooms(
 	}
 	return (
 		<>
+			{invites.map((invite) => (
+				<InviteRow
+					key={invite.id}
+					invite={invite}
+					mark={marked ? dirMark(invite.dir, home, dirs.get(invite.dir)?.slot) : undefined}
+					onTake={onTake}
+					onDrop={onDrop}
+				/>
+			))}
 			{rows.map((conv) => {
 				const held = dirs.get(conv.dir);
 				// Every row names its directory once there is more than one, the page's
 				// own included. Leaving that one out would make the colour beside a home
 				// room the only thing telling it apart, and would leave the line that
-				// opens Settings unreachable. The split is that this directory is
-				// described by Settings and a foreign one by its own card, not that this
-				// one goes undescribed.
+				// opens its card unreachable.
 				return (
 					<RoomRow
 						key={conv.key}
@@ -445,7 +114,7 @@ function YourRooms(
 						unread={conv.unread.kind === "unread" ? conv.unread.count : 0}
 						here={activeKey === conv.key}
 						directory={marked ? directoryName(conv.dir, home) : null}
-						slot={marked ? held?.slot ?? null : null}
+						mark={marked ? dirMark(conv.dir, home, held?.slot) : undefined}
 						phase={held?.session ?? "disconnected"}
 						onPick={onPick}
 						onLeave={onLeave}
@@ -469,15 +138,19 @@ function YourRooms(
 }
 
 function DmRow(
-	{ conv, online, where, slot, here, onOpen, onClose, onAbout }: {
+	{ conv, online, away, where, mark, here, onOpen, onClose, onAbout }: {
 		conv: DmConv;
 		online: boolean;
+		/** Why the peer has stepped away, by the shared rooms' word, or null
+		 * while they are simply here — `peerAway`'s answer, worn by the chip's
+		 * pip exactly as the roster wears it. */
+		away: string | null;
 		/** Which directory this line was introduced on, or null while there is only
 		 * one and saying so would be noise. It is said in words as well as worn as
 		 * a colour, because two people may hold the same nickname on two
 		 * directories and colour alone cannot tell a reader which is which. */
 		where: string | null;
-		slot: number | null;
+		mark: string | undefined;
 		here: boolean;
 		onOpen: (key: string) => void;
 		onClose: (conv: DmConv) => void;
@@ -496,7 +169,7 @@ function DmRow(
 	// The close button is on every conversation, not only the one on screen: the
 	// room you are in can be left while you are reading a direct message, and the
 	// reverse has to be true too.
-	const mark = conv.line === "closed"
+	const lineMark = conv.line === "closed"
 		? <span className="closed-mark">closed</span>
 		: conv.line === "live"
 		? (
@@ -509,7 +182,7 @@ function DmRow(
 		<li
 			className={(here ? "here" : "") + (online ? "" : " off") +
 				(conv.line === "closed" ? " closed" : "")}
-			data-dir={slot ?? undefined}
+			data-dir={mark}
 		>
 			<button
 				type="button"
@@ -519,20 +192,27 @@ function DmRow(
 					: "Open direct message with " + conv.id) + (where === null ? "" : " on " + where)}
 				onClick={() => onOpen(conv.key)}
 			>
-				<span
-					className="dmavatar"
-					aria-hidden="true"
-					// Seeded by the name alone, deliberately: the same person must wear
-					// the same tint here and in the log, and the log knows only the name.
-					// Which directory they are on is carried by the ring around this chip
-					// and by the line under it, so two people holding one nickname on two
-					// directories are still told apart — by the two channels that mean
-					// that, rather than by a fill that would then disagree with the
-					// conversation it opens.
-					style={{ background: hueOf(conv.id) }}
-				>
-					{initials(conv.id)}
-				</span>
+				{
+					/* Seeded by the name alone, deliberately: the same person must wear
+					   the same tint here and in the log, and the log knows only the name.
+					   Which directory they are on is carried by the ring around this chip
+					   and by the line under it, so two people holding one nickname on two
+					   directories are still told apart — by the two channels that mean
+					   that, rather than by a fill that would then disagree with the
+					   conversation it opens. */
+				}
+				{
+					/* The chip wears the member's presence on its corner, except on a
+				    closed row: a conversation that reaches nobody is not somebody
+				    offline, and the trailing mark says "closed" instead. */
+				}
+				{conv.line === "closed" ? <Avatar name={conv.id} /> : (
+					<PresenceAvatar
+						name={conv.id}
+						state={online ? (away !== null ? "away" : "online") : "offline"}
+						reason={away ?? undefined}
+					/>
+				)}
 				{
 					/* Titled like a room's name, because it truncates like one. The row's
 				    own label carries the whole name for a reader who is listening; a
@@ -540,11 +220,7 @@ function DmRow(
 				}
 				<span className="rname" title={conv.id}>{conv.id}</span>
 				<span className="dm-marks">
-					<span
-						className={online ? "dmpip on" : "dmpip"}
-						title={conv.id + (online ? " is online" : " is offline")}
-					/>
-					{mark}
+					{lineMark}
 					{conv.unread.kind === "unread" && <span className="rcount">{conv.unread.count}</span>}
 				</span>
 			</button>
@@ -596,6 +272,10 @@ function DmRows(
 	const rows = [...convs.values()]
 		.filter((c): c is DmConv => c.type === "dm")
 		.sort((a, b) => a.id.localeCompare(b.id));
+	// One walk over every roster, shared by all the rows below; `convs` is a
+	// fresh map whenever any roster changes, so this stays current without a
+	// second walk per row.
+	const away = useMemo(() => awayByPeer(convs), [convs]);
 	if (rows.length === 0) {
 		return (
 			<Empty
@@ -612,8 +292,9 @@ function DmRows(
 					key={conv.key}
 					conv={conv}
 					online={dirs.get(conv.dir)?.dmablePeers.has(conv.id.toLowerCase()) ?? false}
+					away={awayOf(away, conv.dir, conv.id)}
 					where={marked ? directoryName(conv.dir, home) : null}
-					slot={marked ? dirs.get(conv.dir)?.slot ?? null : null}
+					mark={marked ? dirMark(conv.dir, home, dirs.get(conv.dir)?.slot) : undefined}
 					here={conv.key === activeKey}
 					onOpen={onOpen}
 					onClose={onClose}
@@ -624,17 +305,117 @@ function DmRows(
 	);
 }
 
+/** The rail's foot: one lockup saying who this reader is and how they stand,
+ * and pressing it opens the standing menu — the roster's two-row shape, worn by
+ * the reader themselves.
+ *
+ * The foot is the one part of the page about the reader rather than about a
+ * conversation, which is why standing lives here and not in a room's header:
+ * stepping out is something you do, not something you do to a room. For the
+ * same reason the top row never switches with the conversation being read: a
+ * name is one directory's grant, so the row says the home directory's grant
+ * and counts the others, with the whole list on its title, rather than letting
+ * the rail claim one name covers every room.
+ *
+ * Which is exactly what a lone name at the foot of a page does look like it is
+ * claiming, so when this tab holds more than one named directory the name
+ * wears that directory's own mark — the same `data-dir` colour its rooms wear
+ * in the rail above — and the chip beside it counts the other names in words.
+ * A reader can then see that this name belongs to one of the directories on
+ * screen rather than to the page. */
+function Foot(
+	{ dirs, home, session, standing }: {
+		dirs: ReadonlyMap<DirId, DirView>;
+		home: DirId | null;
+		session: SessionPhase;
+		standing: string;
+	},
+) {
+	const peer = usePeer();
+	// Every directory that has granted a name, in the order this tab opened
+	// them; the page's own directory answers first while it has granted one.
+	const grants = [...dirs.values()].filter((held) => held.nick !== "");
+	const primary = (grants.find((held) => held.id === home) ?? grants[0])?.nick ?? "";
+	// Distinct names, not directories: two directories both granting "alice"
+	// agree, and a count that said otherwise would raise a question the title
+	// could not answer.
+	const others = new Set(grants.map((held) => held.nick)).size - (primary === "" ? 0 : 1);
+	const whoSaid = grants.map((held) => `${held.nick} on ${directoryName(held.id, home)}`).join(", ");
+	const foot = footState(session, standing, primary !== "");
+	// Whose grant this name is, drawn only when the reader can see the same
+	// mark elsewhere: one directory needs no colour to be told apart from, and
+	// past the ramp nothing is marked at all (`dirsAreMarked`).
+	const named = grants.find((held) => held.id === home) ?? grants[0];
+	const mark = named !== undefined && dirsAreMarked(dirs) ? dirMark(named.id, home, named.slot) : undefined;
+	// The state row is the one live region the foot carries, in both arms, so a
+	// phase change or a standing change is announced without a second voice.
+	const stateRow = (className?: string) => (
+		<span id="status" role="status" aria-live="polite" className={className} title={foot.said}>
+			{foot.said}
+		</span>
+	);
+	return (
+		<div className="sidebar-foot">
+			<StandingMenu
+				id="standingBtn"
+				own={standing}
+				effective={standing}
+				about="you"
+				up
+				faceClass="foot-lockup"
+				label={primary === "" ? undefined : `${whoSaid} — where you are: ${foot.said}`}
+				onSay={(said) => peer.setStanding(said ?? "")}
+				face={primary === ""
+					? (
+						/* Before any directory grants a name there is nobody to draw, so
+						   the dot stands alone beside the state text, as it always has. */
+						<>
+							<span id="dot" className={"dot " + session} />
+							{stateRow()}
+						</>
+					)
+					: (
+						/* While the session cannot reach anybody the chip dims the way an
+						   offline member's does, so the reader's own state is said in the
+						   page's one vocabulary; the dot's shape still names which of the
+						   four phases this is, on the corner seat it has always held. */
+						<>
+							<span className={"avatar-presence" + (session === "connected" ? "" : " offline")}>
+								<Avatar name={primary} />
+								<span id="dot" className={"dot " + session} />
+							</span>
+							<span className="name-line">
+								<span className="foot-names" title={others > 0 ? whoSaid : primary} data-dir={mark}>
+									<span className="name">{primary}</span>
+									{others > 0 && (
+										<span className="foot-more">
+											+{others} {others === 1 ? "name" : "names"}
+										</span>
+									)}
+								</span>
+								{stateRow(foot.away ? "away-said" : "foot-said")}
+							</span>
+						</>
+					)}
+			/>
+		</div>
+	);
+}
+
 function SidebarPane(
 	{
 		convs,
 		dirs,
 		homeDir,
 		activeKey,
+		join,
 		railShown,
 		mobile,
 		session,
-		statusText,
 		emptyDirs,
+		standing,
+		invites,
+		settingsOpen,
 	}: {
 		convs: ReadonlyMap<string, Conv>;
 		/** Every directory this tab holds, in the order it opened them. */
@@ -645,10 +426,20 @@ function SidebarPane(
 		emptyDirs: DirView[];
 		homeDir: DirId | null;
 		activeKey: string | null;
+		/** The join card's answers. With no conversation open the card is the
+		 * workarea, and the rail's room field is then a second view of the same
+		 * form rather than a form of its own, so it reads the one resolved
+		 * answer rather than the state behind it. */
+		join: JoinAnswers;
 		railShown: boolean;
 		mobile: boolean;
 		session: SessionPhase;
-		statusText: string;
+		/** Where this reader stands everywhere, which the foot both shows and
+		 * sets. */
+		standing: string;
+		/** Rooms somebody handed this tab and it has not answered yet. */
+		invites: readonly Invitation[];
+		settingsOpen: boolean;
 	},
 ) {
 	// Whether this tab is in any room, which is what the direct-message section
@@ -689,78 +480,102 @@ function SidebarPane(
 					aria-pressed={railShown}
 					onClick={() => peer.showRail(false)}
 				/>
-				pancake <small>rooms</small>
+				<Wordmark />
+				{railShown && <SettingsButton id="settingsBtn" mobile={mobile} settingsOpen={settingsOpen} />}
 			</div>
-			<RailSection
-				id="newRoom"
-				title="Your rooms"
-				listId="roomList"
-				open={open === "room"}
-				label={marked ? "Create or open a room in " + directoryName(here, homeDir) : "Create or open a room"}
-				placeholder="room name"
-				max={MAX_ROOM}
-				noun="room name"
-				canAdd
-				onOpen={opener("room")}
-				onSubmit={(name) => peer.pickRoom(here, name)}
-				onElsewhere={peer.addDirectory}
-				onError={(text) => peer.banner({ kind: "error", text })}
-				sigil="#"
-				// Stated whether or not this tab holds more than one directory. A room
-				// row stays quiet about its directory while there is only one, because
-				// there is nothing to tell apart; this panel is the one moment the
-				// answer is still open, so it says where the room is going even then.
-				where={{ name: directoryName(here, homeDir), slot: dirs.get(here)?.slot }}
-			>
-				<YourRooms
-					convs={convs}
-					dirs={dirs}
-					home={homeDir}
-					activeKey={activeKey}
-					marked={marked}
-					empty={emptyDirs}
-					onPick={(conv) => peer.pickRoom(conv.dir, conv.id)}
-					onLeave={peer.leaveRoom}
-					onAbout={peer.aboutDirectory}
-					onJoinOn={(dir) => peer.addDirectory("", dir)}
-					onLeaveDir={peer.leaveDirectory}
-				/>
-			</RailSection>
-			<RailSection
-				id="newDm"
-				className="dms"
-				title="Direct messages"
-				listId="dmList"
-				open={open === "dm"}
-				label="Start a direct message"
-				placeholder="member name"
-				max={MAX_NICK}
-				noun="name"
-				canAdd={inARoom}
-				sigil="@"
-				onOpen={opener("dm")}
-				onSubmit={peer.startDm}
-				onError={(text) => peer.banner({ kind: "error", text })}
-			>
-				<DmRows
-					convs={convs}
-					activeKey={activeKey}
-					inARoom={inARoom}
-					dirs={dirs}
-					home={homeDir}
-					marked={marked}
-					onOpen={peer.openConv}
-					onClose={peer.closeDm}
-					onAbout={peer.aboutDirectory}
-				/>
-			</RailSection>
-			<div className="sidebar-foot">
-				<span id="dot" className={"dot " + session} />
-				<span id="status" role="status" aria-live="polite">{statusText}</span>
+			<div className="sidebar-body">
+				<RailSection
+					id="newRoom"
+					title="Your rooms"
+					listId="roomList"
+					open={open === "room"}
+					label={marked
+						? "Create or open a room in " + directoryName(here, homeDir)
+						: "Create or open a room"}
+					placeholder="room name"
+					max={MAX_ROOM}
+					noun="room name"
+					canAdd
+					onOpen={opener("room")}
+					canBePrivate
+					onSubmit={(name, isPrivate) =>
+						isPrivate ? peer.openPrivateRoom(here, name) : peer.pickRoom(here, name)}
+					// With the join card on screen, this field and that form name one
+					// room: one draft, one lock, and Enter submits the form itself, so
+					// the locator and name the reader filled in over there are honored
+					// rather than silently dropped. The form's id is a pinned selector,
+					// and `requestSubmit` is the platform's own way to submit it.
+					link={activeKey === null
+						? {
+							value: join.room.value,
+							secret: join.secret.value,
+							onValue: (value) => peer.editJoin({ room: value }),
+							onSecret: (secret) => peer.editJoin({ secret }),
+							submit: () => document.querySelector<HTMLFormElement>("#joinForm")?.requestSubmit(),
+						}
+						: undefined}
+					onElsewhere={(name) =>
+						peer.reachFor({ source: "press", room: named(name), locator: implied(here) })}
+					onError={(text) => peer.toast("failure", text)}
+					sigil="#"
+					// Stated whether or not this tab holds more than one directory. A room
+					// row stays quiet about its directory while there is only one, because
+					// there is nothing to tell apart; this panel is the one moment the
+					// answer is still open, so it says where the room is going even then.
+					where={{ name: directoryName(here, homeDir), mark: dirMark(here, homeDir, dirs.get(here)?.slot) }}
+				>
+					<YourRooms
+						convs={convs}
+						dirs={dirs}
+						home={homeDir}
+						activeKey={activeKey}
+						marked={marked}
+						empty={emptyDirs}
+						invites={invites}
+						onTake={peer.acceptInvite}
+						onDrop={peer.declineInvite}
+						onPick={(conv) => peer.pickRoom(conv.dir, conv.id, conv.key)}
+						onLeave={peer.leaveRoom}
+						onAbout={peer.aboutDirectory}
+						onJoinOn={(dir) => peer.reachFor({ source: "press", locator: named(dir) })}
+						onLeaveDir={peer.leaveDirectory}
+					/>
+				</RailSection>
+				<RailSection
+					id="newDm"
+					className="dms"
+					title="Direct messages"
+					listId="dmList"
+					open={open === "dm"}
+					label="Start a direct message"
+					placeholder="member name"
+					max={MAX_NICK}
+					noun="name"
+					canAdd={inARoom}
+					sigil="@"
+					onOpen={opener("dm")}
+					onSubmit={peer.startDm}
+					onError={(text) => peer.toast("failure", text)}
+				>
+					<DmRows
+						convs={convs}
+						activeKey={activeKey}
+						inARoom={inARoom}
+						dirs={dirs}
+						home={homeDir}
+						marked={marked}
+						onOpen={peer.openConv}
+						onClose={peer.closeDm}
+						onAbout={peer.aboutDirectory}
+					/>
+				</RailSection>
 			</div>
+			<Foot dirs={dirs} home={homeDir} session={session} standing={standing} />
 		</nav>
 	);
 }
 
-// Memoised: see `useStore`. None of these props change with a keystroke.
+// Memoised: see `useStore`. Composer keystrokes change none of these props;
+// the join card's answers do change per keystroke, but only while the card is
+// on screen, where the rail's linked field has to redraw anyway.
 export const Sidebar = memo(SidebarPane);

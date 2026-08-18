@@ -17,15 +17,24 @@ use super::driver::PancakeTransportProvider;
 use super::iroh::{PancakeIrohConfig, PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent};
 
 extern "C" {
+	pub fn pancake_iroh_archive_fingerprint() -> u64;
 	pub fn pancake_iroh_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_iroh_netlayer_new(
 		secret_seed: *const c_uchar,
 		secret_seed_len: usize,
 		config: *const PancakeIrohConfig,
 		out_netlayer: *mut *mut PancakeIrohNetlayer,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_iroh_netlayer_close(netlayer: *mut PancakeIrohNetlayer);
-	pub fn pancake_iroh_netlayer_release(netlayer: *mut PancakeIrohNetlayer) -> c_int;
+	pub fn pancake_iroh_netlayer_release(
+		netlayer: *mut PancakeIrohNetlayer,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_iroh_netlayer_node_id(
 		netlayer: *mut PancakeIrohNetlayer,
 		out: *mut c_uchar,

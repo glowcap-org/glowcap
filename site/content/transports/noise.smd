@@ -110,7 +110,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 > const pancake = @import("pancake");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     const relay_url = "wss://relay.example/rendezvous";
+>     const relay_url = "ws://192.0.2.10:8080/relay";
 >     var relay_resident = try pancake.net.relay.Resident.initProfile(allocator, io, relay_url, .noise);
 >     defer relay_resident.deinit();
 >     const netlayers = [_]pancake.net.netlayer.Netlayer{relay_resident.netlayer()};
@@ -125,11 +125,25 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 >
 > // Noise_XK seals the session end to end; the relay forwards ciphertext.
 > const peerKey = "<64 lowercase hex characters from the server>";
-> const partner = noise.locator(peerKey, "wss://relay.example/rendezvous");
+> const relayUrl = "ws://192.0.2.10:8080/relay";
+> const partner = noise.locator(peerKey, relayUrl);
 >
 > await using runtime = await Runtime.open({
-> 	providers: [provider({ relayUrl: "wss://relay.example/rendezvous" })],
+> 	providers: [provider({ relayUrl })],
 > });
+> ```
+> **Browser**
+> ```ts
+> import { connector, noise } from "@pancake/relay";
+> import { init } from "@pancake/web";
+>
+> const relayUrl = "wss://relay.example/relay";
+> const web = await init({
+> 	wasm: fetch("/pancake_host.wasm"),
+> 	connectors: [connector()],
+> });
+> await using runtime = web.runtime;
+> const partner = noise.locator("<64 lowercase hex characters>", relayUrl);
 > ```
 > **Python**
 > ```python
@@ -137,7 +151,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 >
 > # Noise_XK seals the CapTP stream end to end through the relay.
 > peer_key = "<64 lowercase hex characters from the server>"
-> relay_url = "wss://relay.example/rendezvous"
+> relay_url = "ws://192.0.2.10:8080/relay"
 > partner = relay.noise.locator(peer_key, relay_url)
 >
 > async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
@@ -148,7 +162,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 >
 > // Noise_XK seals the CapTP stream end to end through the relay.
 > let peer_key = "<64 lowercase hex characters from the server>";
-> let relay_url = "wss://relay.example/rendezvous";
+> let relay_url = "ws://192.0.2.10:8080/relay";
 > let partner = relay::noise::locator(peer_key, relay_url);
 > let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
 > 	relay::Config::dial_only(relay_url),
@@ -161,7 +175,7 @@ The same matrix used on each binding page shows the Noise-family dial surface.
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
-> (define relay-url "wss://relay.example/rendezvous")
+> (define relay-url "ws://192.0.2.10:8080/relay")
 > (define partner (noise-relay-locator peer-key relay-url))
 > (define runtime
 >   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
@@ -269,8 +283,8 @@ promise that a relay service is a listener.
 >     var relay_resident = try pancake.net.relay.Resident.initRegisteredProfile(
 >         allocator,
 >         io,
->         "wss://relay.example/rendezvous",
->         "wss://relay.example/register",
+>         "ws://192.0.2.10:8080/relay",
+>         "ws://192.0.2.10:8080/register",
 >         secret.publicKey(),
 >         .noise,
 >     );

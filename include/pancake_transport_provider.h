@@ -8,9 +8,11 @@
    Handle-producing callbacks transfer outputs only on PANCAKE_OK.
    On every other status the provider cleans partial work and leaves
    output slots untouched. finish_connect and finish_listen consume
-   their input operation on every return; cancel applies only before
-   finish. A listener completion pair is complete or absent; without
-   both finish_listen and cancel_listen, listen must return READY. */
+   their input operation on every return. A listener completion pair
+   is complete or absent; without both callbacks, listen must return
+   READY. An asynchronous cancel/close returns success after transfer,
+   emits the subject's terminal readiness after joining, and exposes
+   its claim-once cleanup outcome through the owning callback. */
 #ifndef PANCAKE_TRANSPORT_PROVIDER_H
 #define PANCAKE_TRANSPORT_PROVIDER_H
 
@@ -45,6 +47,28 @@ extern "C" {
 #define PANCAKE_SEALED_CHANNEL_NONE 0
 /* PancakeTransportProfile.sealed_channel: Host composes Noise_XK. */
 #define PANCAKE_SEALED_CHANNEL_NOISE_XK 1
+/* PancakeProviderFailure.carrier_phase: no carrier phase is available. */
+#define PANCAKE_CARRIER_PHASE_NONE 0
+/* Carrier failure occurred during name resolution. */
+#define PANCAKE_CARRIER_PHASE_RESOLVE 1
+/* Carrier failure occurred during byte-transport connect. */
+#define PANCAKE_CARRIER_PHASE_CONNECT 2
+/* Carrier failure occurred during the secure handshake. */
+#define PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE 3
+/* Carrier failure occurred during WebSocket upgrade. */
+#define PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE 4
+/* Carrier failure occurred during relay registration. */
+#define PANCAKE_CARRIER_PHASE_REGISTRATION 5
+/* Carrier failure occurred while receiving bytes. */
+#define PANCAKE_CARRIER_PHASE_RECEIVE 6
+/* Carrier failure occurred while transmitting bytes. */
+#define PANCAKE_CARRIER_PHASE_TRANSMIT 7
+/* Carrier failure occurred during shutdown. */
+#define PANCAKE_CARRIER_PHASE_SHUTDOWN 8
+/* PancakeProviderFailure.carrier_detail_flags: peer alert is present. */
+#define PANCAKE_CARRIER_DETAIL_PEER_ALERT 1
+/* PancakeProviderFailure.carrier_detail_flags: engine code is present. */
+#define PANCAKE_CARRIER_DETAIL_ENGINE_CODE 2
 /* PancakeTransportProvider ABI version. */
 #define PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION 1
 /* PancakeTransportProfile ABI version. */
@@ -68,6 +92,16 @@ typedef struct PancakeTransportOperationOptions {
 typedef struct PancakeProviderFailure {
     /* Returned PANCAKE_ERR_* status; zero on success. */
     int32_t result;
+    /* PANCAKE_CARRIER_PHASE_* or NONE when the provider cannot name a phase. */
+    uint32_t carrier_phase;
+    /* PANCAKE_CARRIER_DETAIL_* presence bits. */
+    uint32_t carrier_detail_flags;
+    /* Neutral certificate-verification flags; zero when unavailable. */
+    uint32_t carrier_verification_flags;
+    /* Peer TLS alert byte when its presence bit is set. */
+    uint32_t carrier_peer_alert;
+    /* Private engine failure code when its presence bit is set. */
+    int32_t carrier_engine_code;
     /* Immutable process-lifetime UTF-8 primary cause name. */
     const uint8_t *primary_name;
     /* Primary name byte length. */
@@ -92,11 +126,11 @@ typedef int32_t (*PancakeMultiplexedDrainReadyFn)(void *ctx, PancakeMultiplexedR
 typedef int32_t (*PancakeMultiplexedStartConnectFn)(void *ctx, uint64_t request_id, const PancakeLocatorView *locator, const PancakeTransportOperationOptions *options, PancakeProviderFailure *out_failure);
 typedef int32_t (*PancakeMultiplexedFinishConnectFn)(void *ctx, uint64_t request_id, uint64_t *out_conn, PancakeProviderFailure *out_failure);
 typedef int32_t (*PancakeMultiplexedClaimExternalFn)(void *ctx, uint64_t subject, uint64_t *out_conn, PancakeProviderFailure *out_failure);
-typedef int32_t (*PancakeMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const PancakeTransportOperationOptions *options, PancakeListenResult *out_result);
-typedef int32_t (*PancakeMultiplexedFinishListenFn)(void *ctx, uint64_t route_id, void **out_listener);
-typedef int32_t (*PancakeTransportListenerLocatorFn)(void *listener_ctx, void *sink_ctx, PancakeLocatorSinkFn sink);
-typedef int32_t (*PancakeTransportListenerAdvertiseFn)(void *listener_ctx, const PancakeLocatorView *locator, void *sink_ctx, PancakeLocatorSinkFn sink);
-typedef int32_t (*PancakeTransportListenerRestorationStateFn)(void *listener_ctx, uint8_t *out, size_t cap, size_t *out_len);
+typedef int32_t (*PancakeMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const PancakeTransportOperationOptions *options, PancakeListenResult *out_result, PancakeProviderFailure *out_failure);
+typedef int32_t (*PancakeMultiplexedFinishListenFn)(void *ctx, uint64_t route_id, void **out_listener, PancakeProviderFailure *out_failure);
+typedef int32_t (*PancakeTransportListenerLocatorFn)(void *listener_ctx, void *sink_ctx, PancakeLocatorSinkFn sink, PancakeProviderFailure *out_failure);
+typedef int32_t (*PancakeTransportListenerAdvertiseFn)(void *listener_ctx, const PancakeLocatorView *locator, void *sink_ctx, PancakeLocatorSinkFn sink, PancakeProviderFailure *out_failure);
+typedef int32_t (*PancakeTransportListenerRestorationStateFn)(void *listener_ctx, uint8_t *out, size_t cap, size_t *out_len, PancakeProviderFailure *out_failure);
 typedef int32_t (*PancakeMultiplexedFinishAcceptFn)(void *listener_ctx, uint64_t *out_conn, PancakeProviderFailure *out_failure);
 typedef int32_t (*PancakeMultiplexedStopListenFn)(void *listener_ctx, PancakeProviderFailure *out_failure);
 typedef int32_t (*PancakeMultiplexedSubjectFn)(void *ctx, uint64_t subject, PancakeProviderFailure *out_failure);
@@ -127,13 +161,13 @@ typedef struct PancakeMultiplexedTransport {
     PancakeMultiplexedFinishConnectFn finish_connect;
     /* Claim externally established connection. */
     PancakeMultiplexedClaimExternalFn claim_external;
-    /* Cancel connect. */
+    /* Cancel connect; asynchronous retirement emits CONNECT, then a repeated call claims cleanup. */
     PancakeMultiplexedSubjectFn cancel_connect;
     /* Begin listener construction; PENDING requires the completion pair. */
     PancakeMultiplexedListenFn listen;
     /* Consume pending listener construction on every return; present exactly with cancel_listen. */
     PancakeMultiplexedFinishListenFn finish_listen;
-    /* Cancel pending listener construction; present exactly with finish_listen. */
+    /* Cancel pending setup or claim an asynchronously stopped listener after LISTEN. */
     PancakeMultiplexedSubjectFn cancel_listen;
     /* Query canonical listener locator. */
     PancakeTransportListenerLocatorFn listener_locator;
@@ -143,13 +177,13 @@ typedef struct PancakeMultiplexedTransport {
     PancakeTransportListenerRestorationStateFn listener_restoration_state;
     /* Finish accept. */
     PancakeMultiplexedFinishAcceptFn finish_accept;
-    /* Stop listener. */
+    /* Stop listener; asynchronous retirement emits LISTEN, then cancel_listen claims cleanup. */
     PancakeMultiplexedStopListenFn stop_listen;
     /* Read: 0..cap bytes, 0 at EOF, -1 when dead, or PANCAKE_MULTIPLEXED_WOULD_BLOCK. */
     PancakeMultiplexedTryReadFn try_read;
     /* Write: 0..len bytes consumed, -1 when dead, or PANCAKE_MULTIPLEXED_WOULD_BLOCK. */
     PancakeMultiplexedTryWriteFn try_write;
-    /* Close connection. */
+    /* Close connection; asynchronous retirement emits CLOSED, then a repeated call claims cleanup. */
     PancakeMultiplexedSubjectFn conn_close;
     /* Atomically claim the connection's retained read/write failure. */
     PancakeMultiplexedConnTakeFailureFn conn_take_failure;

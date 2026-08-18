@@ -72,6 +72,23 @@ const paths = {
 	// the same stroke weight, on the same grid, so the control reads as the one
 	// button answering rather than as a second button appearing.
 	check: <path d="M5 12.6l4.6 4.6L19 7.4" />,
+	// A circle with a cross: a notice that something did not happen. The same
+	// grid and stroke as `check`, so success and failure sit as a pair.
+	fail: (
+		<>
+			<circle cx="12" cy="12" r="8.6" />
+			<path d="M8.4 8.4l7.2 7.2M15.6 8.4l-7.2 7.2" />
+		</>
+	),
+	// A triangle with a mark: something that landed, and needs looking at,
+	// without being a failure.
+	warn: (
+		<>
+			<path d="M12 3.8L21.2 20.2H2.8z" />
+			<path d="M12 9.4v5" />
+			<path d="M12 16.8h.01" />
+		</>
+	),
 	play: <path d="M8.2 5.2l10 6.8-10 6.8z" />,
 	retry: (
 		<>
@@ -108,6 +125,16 @@ const paths = {
 		</>
 	),
 	close: <path d="M5.9 5.9l12.2 12.2M18.1 5.9L5.9 18.1" />,
+	// Three dots in a row: everything else this thing can do, without naming any
+	// one of them in the glyph. Filled rather than stroked, because a stroked
+	// circle this small reads as a ring rather than a dot.
+	more: (
+		<>
+			<circle cx="5.5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+			<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+			<circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+		</>
+	),
 	// A nib over a line: changing what was written, rather than a page or a note,
 	// which would read as composing something new.
 	pencil: (
@@ -121,6 +148,14 @@ const paths = {
 		<>
 			<path d="M9.4 3.8H3.8v5.6M14.6 3.8h5.6v5.6" />
 			<path d="M9.4 20.2H3.8v-5.6M14.6 20.2h5.6v-5.6" />
+		</>
+	),
+	// The pair of expand: four corners pulling inward, so a picture already at
+	// its own size has a glyph that says "fit" rather than another expand.
+	collapse: (
+		<>
+			<path d="M3.8 9.4H9.4V3.8M20.2 9.4H14.6V3.8" />
+			<path d="M3.8 14.6H9.4V20.2M20.2 14.6H14.6V20.2" />
 		</>
 	),
 	// The room's members: one figure in front, one behind. Two are enough to read
@@ -162,23 +197,64 @@ const paths = {
 			<circle cx="10.4" cy="17" r="1.9" />
 		</>
 	),
+	// A wrench, for the Operations modal: the operator's hand on the server,
+	// distinct from the gear that already means this page's own Settings.
+	wrench: (
+		<path d="M14.1 6.5a4 4 0 0 1 4.7-4l-2.5 2.5 2.7 2.7 2.5-2.5a4 4 0 0 1-5.1 4.6l-8.6 8.6a1.9 1.9 0 1 1-2.7-2.7l8.6-8.6z" />
+	),
+	// A mark of a question, in a circle: the same weight as sun and bell, so
+	// Help sits with them in Settings rather than as a fourth tab of its own.
+	help: (
+		<>
+			<circle cx="12" cy="12" r="8.6" />
+			<path d="M9.6 9.4a2.5 2.5 0 1 1 3.3 2.3c-.9.4-1.3.9-1.3 1.8" />
+			<path d="M12 16.7h.01" />
+		</>
+	),
 } as const;
 
 export type IconName = keyof typeof paths | "mark";
 
+/** Every glyph, in definition order, including the pancake mark. */
+export const iconNames: readonly IconName[] = [
+	...(Object.keys(paths) as (keyof typeof paths)[]),
+	"mark",
+];
+
 /** One icon. Decorative by default: the control around it carries the accessible
  * name, so the icon itself is hidden from assistive software. */
+/** The logotype lockup — "pancake" beside its small-caps rooms — as one
+ * component so every home shares one structure; every metric lives on the
+ * `.wordmark` class in ui/mark.css, where the lockup's pixel contract is owned.
+ * (The boot screen in page.html carries the same two-element markup
+ * statically, because it paints before this bundle arrives. The documentation
+ * site header takes the same class without the product suffix.) */
+export function Wordmark() {
+	return (
+		<span className="wordmark">
+			<span>pancake</span>
+			<small>rooms</small>
+		</span>
+	);
+}
+
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-	// The pancake silhouette is shared with the boot screen and the project site
-	// through one mask token. Rendering that token here keeps the mark's geometry
-	// authoritative without teaching IconButton about one exceptional glyph.
 	if (name === "mark") {
+		// Four layered pieces rather than one masked box, so the boot screen,
+		// the mark button, and the documentation site lockup can drop the stack
+		// into place piece by piece; at rest the union is exactly the
+		// --mark-stack silhouette. Geometry lives in ui/mark.css.
 		return (
 			<span
 				className="icon-svg icon-mark"
 				style={{ width: size, height: size }}
 				aria-hidden="true"
-			/>
+			>
+				<i className="mark-piece mark-cake-3" />
+				<i className="mark-piece mark-cake-2" />
+				<i className="mark-piece mark-cake-1" />
+				<i className="mark-piece mark-butter" />
+			</span>
 		);
 	}
 	return (

@@ -14,5 +14,39 @@
 ;; The bound functions and their out-cell wrappers are generated from the
 ;; archive's annotated symbol inventory (`ffi-inproc-gen.rkt`, `zig build
 ;; gen-binding-racket-ffi`); this module owns the prose and re-provides them.
-(require "ffi-inproc-gen.rkt")
-(provide (all-from-out "ffi-inproc-gen.rkt"))
+(require ffi/unsafe
+         "ffi-shared.rkt"
+         "ffi-inproc-gen.rkt")
+(provide (except-out (all-from-out "ffi-inproc-gen.rkt")
+                     pancake_inproc_connect*
+                     pancake_inproc_accept*
+                     pancake_inproc_conn_read_frame*
+                     pancake_inproc_conn_write_frame*
+                     pancake_inproc_listener_release*)
+         pancake_inproc_connect
+         pancake_inproc_accept
+         pancake_inproc_conn_read_frame
+         pancake_inproc_conn_write_frame
+         pancake_inproc_listener_release)
+
+(define (pancake_inproc_connect netlayer designator designator-len codec max-frame)
+  (call/out _pointer #f
+            (lambda (out)
+              (call/without-diagnostic pancake_inproc_connect*
+                                       netlayer designator designator-len codec
+                                       max-frame out))))
+
+(define (pancake_inproc_accept listener codec max-frame)
+  (call/out _pointer #f
+            (lambda (out)
+              (call/without-diagnostic pancake_inproc_accept*
+                                       listener codec max-frame out))))
+
+(define (pancake_inproc_conn_read_frame conn frame)
+  (call/without-diagnostic pancake_inproc_conn_read_frame* conn frame))
+
+(define (pancake_inproc_conn_write_frame conn frame)
+  (call/without-diagnostic pancake_inproc_conn_write_frame* conn frame))
+
+(define (pancake_inproc_listener_release listener)
+  (call/without-diagnostic pancake_inproc_listener_release* listener))

@@ -26,6 +26,8 @@ export const NO_SUCH_ROOM = "no-such-room";
 export const ROOM_EXISTS = "room-exists";
 /** `open` with a room name longer than `MAX_ROOM`. */
 export const ROOM_TOO_LONG = "room-too-long";
+/** `open` from a connection that already holds `MAX_ROOMS_PER_CREATOR` rooms. */
+export const TOO_MANY_ROOMS = "too-many-rooms";
 /** A `link` that would make one more room name durable after the server has
  * reached `MAX_ROOM_LINKS`. Existing linked rooms still return their links. */
 export const ROOM_LINKS_FULL = "room-links-full";
@@ -62,12 +64,28 @@ export const UPLOAD_INCOMPLETE = "upload-incomplete";
  * The reference stays valid and says so plainly; it does not answer an empty
  * file, which a reader could not tell from a real one. */
 export const BLOB_EXPIRED = "blob-expired";
+/** An `up` for a transport this server process cannot realize: the archive was
+ * not built in, or the environment it needs (a running Tor) was not named at
+ * start. The detail says which. */
+export const LISTENER_UNSUPPORTED = "listener-unsupported";
+/** A `down` on the listener whose locator this server announced. The web relay
+ * dials that locator, so taking it down would cut off every browser tab —
+ * including the admin session asking. */
+export const LISTENER_SERVING = "listener-serving";
+/** An `up` for a transport whose one listener seat this runtime already
+ * holds. The native runtime admits one live listener per transport symbol
+ * (`HostRuntime.reserveListenerProfile`), so a second tcp listener needs the
+ * first taken down. */
+export const LISTENER_TRANSPORT_HELD = "listener-transport-held";
+/** A `down` naming no live listener. */
+export const NO_SUCH_LISTENER = "no-such-listener";
 
 export type RoomErrorCode =
 	| typeof NICK_TAKEN
 	| typeof NO_SUCH_ROOM
 	| typeof ROOM_EXISTS
 	| typeof ROOM_TOO_LONG
+	| typeof TOO_MANY_ROOMS
 	| typeof ROOM_LINKS_FULL
 	| typeof PEER_OFFLINE
 	| typeof INTRODUCTION_PENDING
@@ -77,13 +95,18 @@ export type RoomErrorCode =
 	| typeof BAD_ATTACHMENT
 	| typeof ATTACHMENT_REFUSED
 	| typeof UPLOAD_INCOMPLETE
-	| typeof BLOB_EXPIRED;
+	| typeof BLOB_EXPIRED
+	| typeof LISTENER_UNSUPPORTED
+	| typeof LISTENER_SERVING
+	| typeof LISTENER_TRANSPORT_HELD
+	| typeof NO_SUCH_LISTENER;
 
 const CODES = new Set<string>([
 	NICK_TAKEN,
 	NO_SUCH_ROOM,
 	ROOM_EXISTS,
 	ROOM_TOO_LONG,
+	TOO_MANY_ROOMS,
 	ROOM_LINKS_FULL,
 	PEER_OFFLINE,
 	INTRODUCTION_PENDING,
@@ -94,6 +117,10 @@ const CODES = new Set<string>([
 	ATTACHMENT_REFUSED,
 	UPLOAD_INCOMPLETE,
 	BLOB_EXPIRED,
+	LISTENER_UNSUPPORTED,
+	LISTENER_SERVING,
+	LISTENER_TRANSPORT_HELD,
+	NO_SUCH_LISTENER,
 ]);
 
 /** A failure with a machine-readable code. The message the wire carries is
@@ -128,4 +155,21 @@ export function roomErrorOf(err: unknown): RoomError | null {
 	if (err instanceof RoomError) return err;
 	const reason = err instanceof VowBroken ? err.reason : err instanceof Error ? err.message : String(err);
 	return RoomError.from(reason);
+}
+
+/** Whether `code` is a status no version of this defines.
+ *
+ * Calling a shared library built from a different revision than the source that
+ * declares its signatures looks like this from up here: the call returns
+ * whatever happened to be in the register, and the binding reads it as a status.
+ * Every pancake status is a small negative integer, so a positive one, or one
+ * far below the range, is not a status at all — and it is a different number on
+ * each attempt, which is the other half of the tell.
+ *
+ * Worth deciding rather than printing, because the number alone sends whoever
+ * reads it looking at the transport, the network, and their own configuration,
+ * none of which is the problem. The floor is well below the codes in use, so
+ * this stays true as more are defined. */
+export function impossibleStatus(code: unknown): boolean {
+	return typeof code === "number" && Number.isFinite(code) && (code > 0 || code < -64);
 }

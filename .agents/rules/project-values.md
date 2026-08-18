@@ -54,16 +54,36 @@ the vision itself when a tradeoff between them is unclear.
   README shows a command or a usage pattern, a build step should keep it honest.
 - **Performance is correctness pressure.** A wire-path allocation or copy is a
   design event: forbid it, name it, or measure it.
-- **DRY, orthogonal, and easier to change.** One authority per fact: a
-  duplicated body, table, constant, or claim is a defect even when it
-  compiles, because copies drift apart under change. Keep concerns orthogonal:
-  changing one thing must not require touching an unrelated one, and an
-  effect stays local to the seam that owns it. When two shapes are otherwise
-  equal, pick the one easier to change — a shared seam over parallel
-  representations, a generated mirror over a hand-kept copy, a check over a
-  convention.
+- **DRY, orthogonal, and easier to change.** DRY protects the other values; it
+  is not a target for textual deduplication. One authority per fact keeps
+  ownership explicit, gives each failure one boundary, makes one test or
+  generator sufficient evidence, and prevents performance policy from
+  diverging between copies. A new file that re-expresses an already-owned
+  subject creates two plausible edit locations and makes the module tree lie
+  about ownership; duplicated bodies, tables, constants, and claims drift for
+  the same reason. Keep concerns orthogonal: changing one thing must not
+  require touching an unrelated one, and an effect stays local to the seam
+  that owns it. When two shapes are otherwise equal, pick the one easier to
+  change — a shared seam over parallel representations, a generated mirror
+  over a hand-kept copy, a check over a convention. Do not merge merely
+  similar code when its facts, owners, lifetimes, or failure recipients differ.
 - **Small modules, sharp boundaries.** Split by responsibility. A reader should
   know what a file owns before reading its body.
+- **The file-length exception list is going to zero.** The list in
+  `tools/check/source_check/file_length.zig` names every file still over the
+  limit. It is closed, so nothing joins it, and the destination is an empty
+  list. Everyone who works here — agent or human — is expected to take turns at
+  it, and retiring a file from it is welcome work on its own, needing no other
+  reason.
+- **A file you open is yours to shorten.** Not whoever wrote it, not the session
+  that set its ceiling. "Another agent owns this file", "that is not what this
+  change is about", and "the split is bigger than my diff" are the same sentence
+  wearing three coats, and none of them is a reason: there are no owners here,
+  only the next reader. Splitting a file to make room for a change is the
+  ordinary way to work, not a detour from it. The tell that this rule is being
+  dodged is a diff that deleted its own lines to stay under a ceiling, which
+  leaves the file exactly as long as it was and the debt exactly where it was.
+  The [file-budget skill](../skills/file-budget/SKILL.md) is the procedure.
 - **Polish matters.** A rough edge in the build, README, examples, or agent
   rules becomes a rough edge in every contribution.
 - **Taste becomes code shape.** Do not commit external taste-reference names

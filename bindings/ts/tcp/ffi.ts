@@ -14,20 +14,23 @@
 // thread-local last-error read through `pancake_tcp_last_error`.
 
 import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+import { TCP_ARCHIVE_FINGERPRINT } from "@pancake/abi";
 
 const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void";
+	V = "void",
+	U64 = "u64";
 
 export const tcpS = lazySymbols(() => libPath("pancake_net_transport_tcp"), {
+	pancake_tcp_archive_fingerprint: { parameters: [], result: U64 },
 	pancake_tcp_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 	pancake_tcp_netlayer_new: { parameters: [B, B], result: I, outBuffers: [1] },
 	pancake_tcp_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_tcp_netlayer_shutdown: { parameters: [P], result: V },
 	pancake_tcp_netlayer_release: { parameters: [P], result: V, nonblocking: true },
-	pancake_tcp_connect_with_diagnostic: {
+	pancake_tcp_connect: {
 		parameters: [P, B, U, "u16", B, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [7, 8, 10],
@@ -36,26 +39,20 @@ export const tcpS = lazySymbols(() => libPath("pancake_net_transport_tcp"), {
 	pancake_tcp_listen: { parameters: [P, B, U, "u16", B], result: I, outBuffers: [4] },
 	pancake_tcp_listener_port: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_tcp_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_tcp_accept_with_diagnostic: {
+	pancake_tcp_accept: {
 		parameters: [P, B, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [4, 5, 7],
 		nonblocking: true,
 	},
-	pancake_tcp_conn_read_frame_with_diagnostic: {
-		parameters: [P, B, B, U, B],
-		result: I,
-		outBuffers: [1, 2, 4],
-		nonblocking: true,
-	},
-	pancake_tcp_conn_write_frame_with_diagnostic: {
-		parameters: [P, B, B, U, B],
-		result: I,
-		outBuffers: [2, 4],
-		nonblocking: true,
-	},
+	pancake_tcp_conn_read_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4], nonblocking: true },
+	pancake_tcp_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
 	pancake_tcp_conn_shutdown: { parameters: [P], result: I },
-	pancake_tcp_conn_release: { parameters: [P], result: I, nonblocking: true },
+	pancake_tcp_conn_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
 	pancake_tcp_listener_shutdown: { parameters: [P], result: V },
 	pancake_tcp_listener_release: { parameters: [P], result: V, nonblocking: true },
+}, {
+	symbol: "pancake_tcp_archive_fingerprint",
+	expected: TCP_ARCHIVE_FINGERPRINT,
+	archive: "pancake_net_transport_tcp",
 });

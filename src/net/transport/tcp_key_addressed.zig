@@ -62,7 +62,7 @@ pub fn Profile(comptime transport: model.transport.Known) type {
 
         const resident_vtable: Netlayer.VTable = .{
             .profile = metadata,
-            .dial = .{ .blocking = residentDial },
+            .dial = .{ .blocking = netlayer.adaptBlockingDial(residentDial) },
             .listen = residentListen,
             .io = resident_ctx.io,
         };
@@ -125,10 +125,10 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             .transport_name = transport_name,
             .designator_scheme = metadata.designator_scheme,
             .sealed_channel = metadata.sealed_channel,
-            .accept = listenerAccept,
-            .waitAcceptable = listenerWaitAcceptable,
-            .localLocator = listenerLocalLocator,
-            .canonicalizeLocator = listenerCanonicalizeLocator,
+            .accept = netlayer.adaptAccept(listenerAccept),
+            .wait_acceptable = netlayer.adaptAcceptReadiness(listenerWaitAcceptable),
+            .local_locator = netlayer.adaptListenerLocator(listenerLocalLocator),
+            .canonicalize_locator = netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
             .readiness_fd = listenerReadinessFd,
             .close = listenerClose,
         };

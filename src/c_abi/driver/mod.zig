@@ -15,6 +15,8 @@ const shared = @import("c_abi_shared");
 const c_abi_host = @import("c_abi_host");
 const driver = @import("driver");
 const driver_error = @import("error.zig");
+const failure_output = @import("failure_output.zig");
+const carrier_phase = @import("carrier_phase.zig");
 
 const loop = @import("loop.zig");
 
@@ -93,6 +95,17 @@ pub const PANCAKE_DESIGNATOR_SCHEME_ADDRESS = shared.transport_provider.PANCAKE_
 pub const PANCAKE_DESIGNATOR_SCHEME_KEY = shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY;
 pub const PANCAKE_SEALED_CHANNEL_NONE = shared.transport_provider.PANCAKE_SEALED_CHANNEL_NONE;
 pub const PANCAKE_SEALED_CHANNEL_NOISE_XK = shared.transport_provider.PANCAKE_SEALED_CHANNEL_NOISE_XK;
+pub const PANCAKE_CARRIER_PHASE_NONE = shared.transport_provider.PANCAKE_CARRIER_PHASE_NONE;
+pub const PANCAKE_CARRIER_PHASE_RESOLVE = shared.transport_provider.PANCAKE_CARRIER_PHASE_RESOLVE;
+pub const PANCAKE_CARRIER_PHASE_CONNECT = shared.transport_provider.PANCAKE_CARRIER_PHASE_CONNECT;
+pub const PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE = shared.transport_provider.PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE;
+pub const PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE = shared.transport_provider.PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE;
+pub const PANCAKE_CARRIER_PHASE_REGISTRATION = shared.transport_provider.PANCAKE_CARRIER_PHASE_REGISTRATION;
+pub const PANCAKE_CARRIER_PHASE_RECEIVE = shared.transport_provider.PANCAKE_CARRIER_PHASE_RECEIVE;
+pub const PANCAKE_CARRIER_PHASE_TRANSMIT = shared.transport_provider.PANCAKE_CARRIER_PHASE_TRANSMIT;
+pub const PANCAKE_CARRIER_PHASE_SHUTDOWN = shared.transport_provider.PANCAKE_CARRIER_PHASE_SHUTDOWN;
+pub const PANCAKE_CARRIER_DETAIL_PEER_ALERT = shared.transport_provider.PANCAKE_CARRIER_DETAIL_PEER_ALERT;
+pub const PANCAKE_CARRIER_DETAIL_ENGINE_CODE = shared.transport_provider.PANCAKE_CARRIER_DETAIL_ENGINE_CODE;
 pub const PancakeHost = c_abi_host.PancakeHost;
 pub const PancakeHostSession = c_abi_host.PancakeHostSession;
 pub const PancakeHostAction = c_abi_host.PancakeHostAction;
@@ -117,6 +130,8 @@ pub const PANCAKE_LIFECYCLE_CLOSED = c_abi_host.PANCAKE_LIFECYCLE_CLOSED;
 /// `pancake_driver_take_host`; released with `pancake_driver_release`. One thread
 /// drives one loop; `pancake_driver_wake` is the one cross-thread verb.
 pub const PancakeDriverLoop = opaque {};
+pub const PANCAKE_DRIVER_FAILURE_ABI_VERSION = failure_output.abi_version;
+pub const PancakeDriverFailure = failure_output.PancakeDriverFailure;
 
 /// Current layout version for `PancakeDriverOptions`.
 pub const PANCAKE_DRIVER_OPTIONS_ABI_VERSION: u32 = 1;
@@ -194,6 +209,12 @@ pub const PancakeDriverEvent = extern struct {
     secondary_result: i32,
     /// Total consequences observed, including any beyond `secondary_name`.
     secondary_count: u32,
+    /// PANCAKE_CARRIER_PHASE_* for a carrier-owned failure, otherwise NONE.
+    carrier_phase: u32,
+    carrier_detail_flags: u32,
+    carrier_verification_flags: u32,
+    carrier_peer_alert: u32,
+    carrier_engine_code: i32,
     operation_id: u64,
     listener_id: u64,
     session: ?*PancakeHostSession,
@@ -211,9 +232,15 @@ pub const FailureProjection = struct {
     primary_name: []const u8,
     secondary_result: i32,
     secondary_count: u32,
+    carrier_phase: u32,
+    carrier_detail_flags: u32,
+    carrier_verification_flags: u32,
+    carrier_peer_alert: u32,
+    carrier_engine_code: i32,
     secondary_name: []const u8,
 
     pub fn init(failure: driver.OperationFailure) FailureProjection {
+        const carrier = carrier_phase.project(failure.carrier_phase, failure.carrier_detail);
         return .{
             .primary_result = driver_error.code(failure.kind),
             .primary_name = failure.primaryName(),
@@ -222,6 +249,11 @@ pub const FailureProjection = struct {
             else
                 shared.PANCAKE_OK,
             .secondary_count = failure.secondary_count,
+            .carrier_phase = carrier.phase,
+            .carrier_detail_flags = carrier.detail_flags,
+            .carrier_verification_flags = carrier.verification_flags,
+            .carrier_peer_alert = carrier.peer_alert,
+            .carrier_engine_code = carrier.engine_code,
             .secondary_name = failure.secondaryName() orelse "",
         };
     }
@@ -230,6 +262,11 @@ pub const FailureProjection = struct {
         out.primary_result = self.primary_result;
         out.secondary_result = self.secondary_result;
         out.secondary_count = self.secondary_count;
+        out.carrier_phase = self.carrier_phase;
+        out.carrier_detail_flags = self.carrier_detail_flags;
+        out.carrier_verification_flags = self.carrier_verification_flags;
+        out.carrier_peer_alert = self.carrier_peer_alert;
+        out.carrier_engine_code = self.carrier_engine_code;
         out.primary_name = self.primary_name.ptr;
         out.primary_name_len = self.primary_name.len;
         out.secondary_name = self.secondary_name.ptr;

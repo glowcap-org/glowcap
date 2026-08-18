@@ -1,9 +1,11 @@
 // The wire contract shared by the rooms server and every rooms client, in every
-// language. It is deliberately tiny: two capability names and the method verbs
-// the directory, a room, and an inbox answer to. There is no schema negotiation
-// and no RPC framework — just object-capability messages over OCapN.
+// language. It is deliberately tiny: the directory's published name, the method
+// verbs the directory, a room, and an inbox answer to, and — when the process is
+// started that way — one extra Host publication whose swiss is the inspect
+// capability. There is no schema negotiation and no RPC framework — just
+// object-capability messages over OCapN.
 //
-// The directory is the server's one published capability. A client fetches it by
+// The directory is the server's ordinary published capability. A client fetches it by
 // name and eventual-sends it `open` or `enter`, each of which *returns a room
 // capability* — a live reference to that specific room. The client then
 // eventual-sends the room `subscribe` and `post`. When subscribing, the client
@@ -16,16 +18,66 @@
 /** The name the server publishes the directory under and clients fetch it by. */
 export const DIRECTORY = "directory";
 
-/** Directory methods a client sends. `open(name)` creates a room and returns a
- * reference to it, erroring if the name is taken; `enter(name)` returns the
- * existing room, erroring if there is no such room. `list()` returns the live
- * rooms — the ones with people in them — as `[name, count]` pairs; `watch(inbox)`
- * hands the directory an inbox capability, returns that same snapshot, and then
- * calls the inbox back with each change. */
+/** What the operator inspect object answers.
+ *
+ * It is not a directory method. The directory stays what every member fetches;
+ * inspect is a second Host publication under an unguessable swiss, minted only
+ * when the process is started with `--diagnostics`. Holding that swiss is the
+ * capability: a client fetches it the same way it fetches `directory`, then
+ * sends `snapshot` and gets the names this directory currently holds, as
+ * `[kind, name, note]` rows. It does not return live room references. */
+export const SNAPSHOT = "snapshot";
+
+/** Directory methods a client sends. `open(name, private?)` creates a room and
+ * returns a reference to it, erroring if a public name is taken; `enter(name)`
+ * returns the existing room, erroring if there is no such room. `list()` returns
+ * the live rooms — the ones with people in them — as `[name, count]` pairs;
+ * `watch(inbox)` hands the directory an inbox capability, returns that same
+ * snapshot, and then calls the inbox back with each change.
+ *
+ * `open(name, true)` makes a private room, and that second argument is the
+ * whole of what private means here. Such a room is in no list, has no deltas,
+ * and cannot be entered by name — because none of those is how you reach one.
+ * You reach one by holding a reference somebody handed you,
+ * which is the rule a posted line's `edit` and a room's `setTopic` already
+ * follow, applied to the room itself. So there is no member list to be added
+ * to, no check to pass, and nothing to ask the server about anybody's right to
+ * be here.
+ *
+ * Its name is a label rather than an address: two readers may each keep a
+ * private room called the same thing without either learning of the other,
+ * which is also why `open` cannot answer "that name is taken" for one. That
+ * answer is itself the leak.
+ *
+ * A private room has no sturdyref yet, and that is this directory's shape
+ * rather than anything about privacy: `link` is a directory verb that takes a
+ * room's name, and a private room has no name in that table. A sturdyref is an
+ * unguessable authority like any other, so a mint on the room itself — asked
+ * for by somebody already holding it — would be exactly as safe as the
+ * reference they asked with. */
 export const OPEN = "open";
 export const ENTER = "enter";
 export const LIST = "list";
 export const WATCH = "watch";
+
+/** What the operator listeners object answers, when the process is started with
+ * `--admin-listeners`.
+ *
+ * Like inspect, it is not a directory method: it is a second Host publication
+ * under an unguessable swiss, and holding that swiss is the whole of the
+ * authority to administer this server's listeners. `list` (the same verb name
+ * the directory uses, on a different object) answers the live listeners as
+ * `[id, transport, locator, serving]` rows, where `serving` marks the listener
+ * whose locator this server announced — the one the web relay dials. `up(
+ * transport, port?)` brings a listener up on `tcp`, `iroh`, or `onion` and
+ * answers its row; only a `tcp` listener takes a port, and the native runtime
+ * holds one live listener per transport at a time. `down(id)` stops that
+ * listener admitting connections; sessions it already accepted stay live. An
+ * `up` for a transport this process cannot realize, a second `up` on a
+ * transport already up, and a `down` on the serving listener all refuse with
+ * the typed codes in `errors.ts`. */
+export const UP = "up";
+export const DOWN = "down";
 
 /** Mint the stable sturdyref for one existing room: `link(name)`. The answer is
  * the opaque swissnum, not a second spelling of the peer locator; the caller
@@ -54,11 +106,16 @@ export const CODEC = "capnp" as const;
  * decision. */
 export const CAPTP_VERSION = "next" as const;
 
-/** Room methods a client sends. `subscribe(nick, inboxCap)` returns a welcome
- * line; `post(text)` broadcasts to every subscriber; `typing(on)` broadcasts an
- * ephemeral "I am typing" flag to the other members and is never stored or
- * echoed; `leave()` drops this membership (so a client can switch rooms on one
- * connection) without closing the connection. */
+/** Room methods a client sends. `subscribe(nick, inboxCap, voucher?)` returns
+ * a welcome line; `post(text)` broadcasts to every subscriber; `typing(on)`
+ * broadcasts an ephemeral "I am typing" flag to the other members and is never
+ * stored or echoed; `leave()` drops this membership (so a client can switch
+ * rooms on one connection) without closing the connection.
+ *
+ * The voucher is the third argument only a subscribe arriving on the wrong
+ * connection needs: proof, minted by the name capability (`VOUCHER`), that the
+ * caller is the held name's own holder. Without one, a name held elsewhere is
+ * refused as it always was. */
 export const SUBSCRIBE = "subscribe";
 export const POST = "post";
 /** Methods on the reference `post` answers with: the line it just made.
@@ -74,6 +131,19 @@ export const POST = "post";
  * concept of a moderator. */
 export const EDIT = "edit";
 export const WITHDRAW = "withdraw";
+/** Replace the files on a line already posted: `refile(caption, ...keep)`.
+ *
+ * `keep` is the indices of this line's current files, in the order the poster
+ * wants them kept, and the connection's own newly-staged uploads (the same
+ * `attach` staging a first post uses) are appended after them. So removing a
+ * file names every index but that one, adding files stages them and names all
+ * the current indices, and replacing is both at once. A kept file is not
+ * re-uploaded — it is already the room's to hold, named by position.
+ *
+ * `edit` stays text-only on purpose, so a caption change leaves the files
+ * alone; `refile` is the one verb that changes the set. Refiling a line down
+ * to no files and no caption withdraws it, because an empty line is nothing. */
+export const REFILE = "refile";
 
 /** The tags a room puts at the third argument of a line it sends. See the note
  * below for the whole set and why an unknown one is skipped rather than
@@ -81,6 +151,12 @@ export const WITHDRAW = "withdraw";
 export const LINE = "line";
 export const EDITED = "edited";
 export const WITHDRAWN = "withdrawn";
+/** The tag a room puts on a line whose file set changed: `refiled`, id, then
+ * the complete new run of file records. The client replaces that line's whole
+ * set from the records, so a kept file arrives again (with a fresh blob) rather
+ * than being named to keep. A client that predates this skips the tag and keeps
+ * showing the files it already had, which is stale but never wrong. */
+export const REFILED = "refiled";
 export const TYPING = "typing";
 export const LEAVE = "leave";
 export const TOPIC = "topic";
@@ -102,14 +178,54 @@ export const AWAY = "away";
  * learning what a bot is. */
 export const SET_TOPIC = "setTopic";
 
+/** A durable authority to this room, asked for with the reference: `link()`.
+ *
+ * Holding the room is the whole of the right to mint one, the same way holding
+ * it is the right to say something in it. What comes back is a swissnum the
+ * caller composes with the address it reached this room at, and whoever holds
+ * that string can redeem it into the room — over any channel, at any later
+ * time, including after everybody has left.
+ *
+ * A private room mints one from its own unguessable name rather than its
+ * label, so the link says nothing about what the room is called and the label
+ * says nothing about the link. The directory's `link` verb is the same mint
+ * asked for by *name*, which is why it answers nothing for a private room. */
+
+/** Hand somebody the room itself, over the direct line you already have with
+ * them: `handRoom(label, room)` on their direct-message inbox.
+ *
+ * The second argument is the live reference. It crosses as a third-party
+ * handoff — the sender's runtime deposits the gift and the receiver's redeems
+ * it during delivery — so what arrives is a working reference to the room,
+ * with nothing asked of the room or the directory about who may be handed
+ * what. The label is only what the sender calls it.
+ *
+ * This is the invitation. It costs the server nothing durable, which its
+ * data-shaped sibling below cannot say, and it lives exactly as long as live
+ * references live: the offer dies with the sessions under it, and taking it up
+ * later than that means asking for another. */
+export const HAND_ROOM = "handRoom";
+
+/** The durable sibling: `offerRoom(label, link)` on the same inbox, both
+ * arguments strings.
+ *
+ * The link is a sturdyref the room minted for whoever holds it (`LINK`), so
+ * this offer survives every connection under it and can be passed on as text.
+ * The price is the mint: a durable name is server state that outlives the
+ * room, so this is for an invitation that must outlive the sessions carrying
+ * it, not the ordinary hand-over. */
+export const OFFER_ROOM = "offerRoom";
+
 /** What rides after a room line's display text, at the third argument.
  *
  * A subscriber that does not know a tag skips it, which is what lets the room
- * say more over time without every client being rebuilt first: an older client
- * meeting a line it cannot interpret still draws the line.
+ * say more over time without every client being rebuilt first: a client
+ * meeting a tag it cannot interpret still draws the line.
  *
  *   `"line"`, id            an ordinary line, and the id this room knows it by
+ *   `"line"`, id, …files    a line carrying that id and a run of file records
  *   `"edited"`, id          that line now reads as this notify's text
+ *   `"refiled"`, id, …files that line's files are now exactly this run
  *   `"withdrawn"`, id       that line is taken back
  *   `"roster"`, …names      who is here, on arrival
  *   `"join"` / `"leave"`, nick
@@ -151,6 +267,17 @@ export const SET_TOPIC = "setTopic";
  * so this is not a property of the member's own transport, and keying the
  * directory's connections is what would close it. */
 export const REGISTER = "register";
+/** The one method on the name capability `register` answers with: `voucher()`.
+ *
+ * A registered name is held by a connection, and the capability is the
+ * holding, detached from it: presenting proof minted by this capability is
+ * being that member, on any connection. The proof is data — single-use
+ * unguessable bytes, the gift-id move — because a reference cannot be
+ * recognised by its minter after crossing sessions, while bytes can. A voucher
+ * redeems in `subscribe` while the registration stands and dies with it, so
+ * the name's lifetime is still the connection's; nothing durable is minted
+ * here. */
+export const VOUCHER = "voucher";
 export const INTRODUCE = "introduce";
 
 /** Offer the directory an inbox to introduce one named peer to:
@@ -237,7 +364,10 @@ export const SIG_REJECT = "reject";
  * `postFiles(caption)` on the room publishes them: every upload this
  * connection has staged, oldest first, as one message. The member's own
  * staged set is the room's pending set for that connection, so nothing has to
- * be named twice, and a message may carry up to `MAX_MESSAGE_FILES`.
+ * be named twice, and a message may carry up to `MAX_MESSAGE_FILES`. It
+ * answers with the same line reference `post` does, so a file line can be
+ * captioned again with `edit`, have its files changed with `refile`, or be
+ * taken back with `withdraw` — the whole line, its files with it.
  *
  * Once that one publication settles, the sender calls `write(chunk)` on each
  * upload capability as many times as its file needs. Writes within one file
@@ -260,12 +390,15 @@ export const SIG_REJECT = "reject";
  * room holds `MAX_ROOM_ATTACHMENT_BYTES` of media and drops its oldest file
  * to make room, so a reference to a dropped file breaks rather than lying.
  *
- * Every member then hears `notify(from, caption, ...records)`, where each
- * record is `"file", name, mime, size, blob, width, height` and `blob` is a
- * reference to the room's own object. One message carries as many records as
- * it had files, one after another. A client that predates attachments reads
- * the first two arguments and shows the caption, so the change is additive on
- * the wire. */
+ * Every member then hears `notify(from, caption, "line", id, ...records)`,
+ * where each record is `"file", name, mime, size, blob, width, height` and
+ * `blob` is a reference to the room's own object. The `"line"`, id pair is the
+ * same one a text line carries, so a file line is named and can be edited,
+ * refiled, or withdrawn; the records follow it. One message carries as many
+ * records as it had files, one after another. A client that predates
+ * attachments reads the first two arguments and shows the caption, skipping the
+ * tag and the records the way it already skips a presence change, so the shape
+ * is additive on the wire. */
 export const ATTACH = "attach";
 export const POST_FILES = "postFiles";
 
@@ -301,7 +434,22 @@ export const READ = "read";
  * carries. The blob is hosted by the sender on this direct session, so files
  * follow the DM over any transport without involving the room. The sender
  * retains a bounded set of unfetched sources and expires the oldest when that
- * process-wide ceiling fills. */
+ * process-wide ceiling fills.
+ *
+ * `dm` answers a line handle, the direct sibling of the reference a room's
+ * `post` answers, minted by the receiver on the arriving connection. Holding it
+ * is the authority to change or take back that one line, so the sender edits its
+ * own message after the fact. `edit(text)` changes the caption; `withdraw()`
+ * takes the line back, its files with it; `refile(caption, ...keep, ...records)`
+ * changes the files, where the `keep` indices name the receiver's own held
+ * files — nothing re-uploaded, because the receiver already holds them — and any
+ * `records` after them are freshly sender-hosted new files. The durable owner is
+ * the receiver here, where for a room it was the room, and so is the bounding: a
+ * direct line has no server, so the receiver refuses what the room would — an
+ * edit or caption past the line cap, an index the line does not have or names
+ * twice, and a kept-plus-added set past `MAX_MESSAGE_FILES`, which is what stops
+ * a line's files compounding across refiles. A peer may answer nothing and
+ * grant no line-changing authority, exactly as a room may. */
 export const DM = "dm";
 
 /** The one callback verb, on whatever inbox a client hands over.

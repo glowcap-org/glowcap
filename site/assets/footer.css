@@ -1,0 +1,79 @@
+/* The site footer, on every page. */
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+.site-footer {
+  flex: none;
+  width: 100%;
+  max-width: 84rem;
+  margin: 0 auto;
+  padding: 1rem clamp(1rem, 4vw, 2.5rem) 2.5rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+/* The foot of every page. A reader who has finished a page is at a decision
+   point, so this offers the three directions the site actually goes rather than
+   a single line of legal text. */
+.footer-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  gap: 1.5rem 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.footer-brand p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+
+.footer-cols nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.footer-cols h2 {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.footer-cols a {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.footer-cols a:hover {
+  color: var(--accent-ink);
+}
+
+.footer-legal {
+  margin: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 52rem) {
+  .footer-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .footer-brand {
+    grid-column: 1 / -1;
+  }
+}

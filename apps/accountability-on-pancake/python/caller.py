@@ -1,7 +1,7 @@
 """Python caller for the accountability-on-pancake cross-seam demo.
 
 Connects to a running Zig host, builds a KERI-anchored identity with a real key
-event log (``keri.py``), rotates it once, then invokes the Affordance capability:
+event log (``identity.py``), rotates it once, then invokes the Affordance capability:
 it signs the attestation preimage ``invoke|<subject>|<request>`` and hands over
 the log that binds its signing key to the AID it claims. Three paths are
 exercised, because all three are the contract:
@@ -28,7 +28,7 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path()
 
-from keri import Identity, b64url  # noqa: E402
+from identity import Identity, b64url  # noqa: E402
 from pancake import Runtime, VowBroken, tcp  # noqa: E402
 
 async def run(port: int) -> None:

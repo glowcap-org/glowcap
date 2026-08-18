@@ -28,6 +28,10 @@ const cd = @import("c_abi_host");
 const ci = @import("c_abi_net_transport_iroh");
 const cdr = @import("c_abi_driver");
 const cw = @import("c_abi_net_transport_webrtc");
+const ct = @import("c_abi_net_transport_tcp");
+const cn = @import("c_abi_net_transport_inproc");
+const co = @import("c_abi_net_transport_onion");
+const cr = @import("c_abi_net_transport_relay");
 const model = @import("model");
 
 const Output = @import("output").Output;
@@ -47,12 +51,14 @@ const RustTy = enum {
     int,
     uint,
     usize,
+    u64,
 
     fn spelling(self: RustTy) []const u8 {
         return switch (self) {
             .int => "c_int",
             .uint => "c_uint",
             .usize => "usize",
+            .u64 => "u64",
         };
     }
 };
@@ -64,7 +70,7 @@ const RustTy = enum {
 /// it cannot be hand-typed and drift.
 const Const = struct {
     stem: []const u8,
-    value: i64,
+    value: i128,
     rust_ty: RustTy,
     rkt: ?[]const u8 = null,
 };
@@ -133,6 +139,8 @@ const constants = [_]Const{
     con("ARG_TAGGED", c.PANCAKE_ARG_TAGGED, .uint, null),
     con("ARG_KEYWORD", c.PANCAKE_ARG_KEYWORD, .uint, null),
     con("ARG_BIG_INTEGER", c.PANCAKE_ARG_BIG_INTEGER, .uint, null),
+    con("ARG_STRUCT", c.PANCAKE_ARG_STRUCT, .uint, null),
+    con("ARG_ERROR", c.PANCAKE_ARG_ERROR, .uint, null),
     // Wire-grammar codec selectors (c_uint).
     con("CODEC_UNKNOWN", c.PANCAKE_CODEC_UNKNOWN, .uint, null),
     con("CODEC_SYRUP", c.PANCAKE_CODEC_SYRUP, .uint, null),
@@ -143,7 +151,9 @@ const constants = [_]Const{
     con("FEATURE_HANDOFF", c.PANCAKE_FEATURE_HANDOFF, .uint, null),
     con("FEATURE_WIRE_DELTA", c.PANCAKE_FEATURE_WIRE_DELTA, .uint, null),
     con("FEATURE_STURDYREF", c.PANCAKE_FEATURE_STURDYREF, .uint, null),
+    con("FEATURE_UNTAG", c.PANCAKE_FEATURE_UNTAG, .uint, null),
     con("FEATURE_MINIMUM", c.PANCAKE_FEATURE_MINIMUM, .uint, null),
+    con("FEATURE_BASELINE", c.PANCAKE_FEATURE_BASELINE, .uint, null),
     con("FEATURE_FULL", c.PANCAKE_FEATURE_FULL, .uint, null),
     // PancakeLastAbort.domain (c_uint).
     con("ABORT_DOMAIN_CODEC", c.PANCAKE_ABORT_DOMAIN_CODEC, .uint, null),
@@ -190,6 +200,18 @@ const constants = [_]Const{
     con("CLOSE_GRACE_FINITE", cd.PANCAKE_CLOSE_GRACE_FINITE, .uint, null),
     con("CLOSE_GRACE_UNBOUNDED", cd.PANCAKE_CLOSE_GRACE_UNBOUNDED, .uint, null),
     con("DRIVER_OPTIONS_ABI_VERSION", cdr.PANCAKE_DRIVER_OPTIONS_ABI_VERSION, .uint, null),
+    con("DRIVER_FAILURE_ABI_VERSION", cdr.PANCAKE_DRIVER_FAILURE_ABI_VERSION, .uint, null),
+    con("CARRIER_PHASE_NONE", cdr.PANCAKE_CARRIER_PHASE_NONE, .uint, null),
+    con("CARRIER_PHASE_RESOLVE", cdr.PANCAKE_CARRIER_PHASE_RESOLVE, .uint, null),
+    con("CARRIER_PHASE_CONNECT", cdr.PANCAKE_CARRIER_PHASE_CONNECT, .uint, null),
+    con("CARRIER_PHASE_SECURE_HANDSHAKE", cdr.PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE, .uint, null),
+    con("CARRIER_PHASE_WEBSOCKET_UPGRADE", cdr.PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE, .uint, null),
+    con("CARRIER_PHASE_REGISTRATION", cdr.PANCAKE_CARRIER_PHASE_REGISTRATION, .uint, null),
+    con("CARRIER_PHASE_RECEIVE", cdr.PANCAKE_CARRIER_PHASE_RECEIVE, .uint, null),
+    con("CARRIER_PHASE_TRANSMIT", cdr.PANCAKE_CARRIER_PHASE_TRANSMIT, .uint, null),
+    con("CARRIER_PHASE_SHUTDOWN", cdr.PANCAKE_CARRIER_PHASE_SHUTDOWN, .uint, null),
+    con("CARRIER_DETAIL_PEER_ALERT", cdr.PANCAKE_CARRIER_DETAIL_PEER_ALERT, .uint, null),
+    con("CARRIER_DETAIL_ENGINE_CODE", cdr.PANCAKE_CARRIER_DETAIL_ENGINE_CODE, .uint, null),
     con("DRIVER_MAX_WAIT_MS", cdr.PANCAKE_DRIVER_MAX_WAIT_MS, .uint, null),
     con("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", cdr.PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES, .usize, null),
     con("DRIVER_DEFAULT_MAX_PENDING_OPENS", cdr.PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS, .usize, null),
@@ -210,6 +232,15 @@ const constants = [_]Const{
     con("HINT_INTEGER", cdr.PANCAKE_HINT_INTEGER, .uint, null),
     con("HINTS_MAP", cdr.PANCAKE_HINTS_MAP, .uint, null),
     con("HINTS_BOOLEAN_FALSE", cdr.PANCAKE_HINTS_BOOLEAN_FALSE, .uint, null),
+    con("TCP_ARCHIVE_FINGERPRINT", ct.PANCAKE_TCP_ARCHIVE_FINGERPRINT, .u64, null),
+    con("INPROC_ARCHIVE_FINGERPRINT", cn.PANCAKE_INPROC_ARCHIVE_FINGERPRINT, .u64, null),
+    con("ONION_ARCHIVE_FINGERPRINT", co.PANCAKE_ONION_ARCHIVE_FINGERPRINT, .u64, null),
+    con("IROH_ARCHIVE_FINGERPRINT", ci.PANCAKE_IROH_ARCHIVE_FINGERPRINT, .u64, null),
+    con("RELAY_ARCHIVE_FINGERPRINT", cr.PANCAKE_RELAY_ARCHIVE_FINGERPRINT, .u64, null),
+    con("RELAY_CONFIG_ABI_VERSION", cr.PANCAKE_RELAY_CONFIG_ABI_VERSION, .uint, null),
+    con("RELAY_TRUST_SYSTEM", cr.PANCAKE_RELAY_TRUST_SYSTEM, .uint, null),
+    con("RELAY_TRUST_COPIED_PEM", cr.PANCAKE_RELAY_TRUST_COPIED_PEM, .uint, null),
+    con("WEBRTC_ARCHIVE_FINGERPRINT", cw.PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT, .u64, null),
     con("IROH_REACH_DIRECT", ci.PANCAKE_IROH_REACH_DIRECT, .uint, null),
     con("IROH_REACH_DISCOVERY", ci.PANCAKE_IROH_REACH_DISCOVERY, .uint, null),
     con("IROH_REACH_DISCOVERY_NO_RELAY", ci.PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY, .uint, null),

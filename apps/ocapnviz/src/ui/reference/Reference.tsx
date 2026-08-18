@@ -23,7 +23,8 @@
  */
 
 import { useRef } from "react";
-import { ATTRIBUTION_STANDING, captpVersionLabel, UNATTRIBUTED_WORD } from "../../schema/topology.ts";
+import { captpVersionLabel } from "../../schema/topology.ts";
+import { ATTRIBUTION_STANDING, UNATTRIBUTED_WORD } from "../../schema/session-end.ts";
 import {
   CAPTP_VERSION_ROWS,
   CODEC_ROWS,

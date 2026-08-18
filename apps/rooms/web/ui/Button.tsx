@@ -12,7 +12,9 @@
 // The third is a step sideways rather than out of a form: a word inside running
 // text that opens something further. It is a role and not a knob, the same as
 // the other two — what makes it its own variant is that it takes no box at all,
-// so it can sit in a line of prose without the line growing around it.
+// so it can sit in a line of prose without the line growing around it. It still
+// wears teal at rest, the same ink as the quiet way out, because a word that
+// only colours under a pointer is indistinguishable from the sentence around it.
 //
 // The fourth is that word grown into a line of its own: the quiet second line
 // under a name, saying where the thing above it lives and opening what is known

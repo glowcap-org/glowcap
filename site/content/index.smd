@@ -65,4 +65,5 @@ puts the `pancake` binary in `zig-out/bin`. [Choose an
 API]($link.page('surfaces')) compares all of these entry points.
 
 If the ideas are new, start at [Why OCapN]($link.page('why')). If you are ready
-to dial, go to [Start building]($link.page('start')).
+to dial, go to [Start building]($link.page('start')). To see the same protocol
+as a conversation between people, run the [rooms chat]($link.page('examples')).

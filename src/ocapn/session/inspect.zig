@@ -28,7 +28,7 @@ pub const ImportView = struct {
 
 /// Read-only answer row (inbound or outbound) plus position.
 pub const AnswerRowView = struct {
-    position: model.AnswerPosition,
+    position: model.AnswerName,
     view: AnswerView,
 };
 
@@ -70,13 +70,17 @@ fn forEachSlotRow(
 /// Walk an answer table (inbound or outbound), projecting each row.
 fn forEachAnswerRow(
     table: anytype,
+    comptime Position: type,
     ctx: anytype,
     comptime f: *const fn (@TypeOf(ctx), AnswerRowView) void,
 ) void {
     var it = table.rows.iterator();
     while (it.next()) |entry| {
         f(ctx, .{
-            .position = .from(entry.key_ptr.*),
+            .position = if (Position == model.AnswerName)
+                entry.key_ptr.*
+            else
+                .fromWire(entry.key_ptr.*),
             .view = AnswerView.of(entry.value_ptr),
         });
     }
@@ -94,10 +98,61 @@ pub fn forEachImport(self: *const Session, ctx: anytype, comptime f: *const fn (
 
 /// Walk every live inbound answer. Callback must not mutate the table.
 pub fn forEachInboundAnswer(self: *const Session, ctx: anytype, comptime f: *const fn (@TypeOf(ctx), AnswerRowView) void) void {
-    forEachAnswerRow(&self.inbound_answers, ctx, f);
+    forEachAnswerRow(&self.inbound_answers, model.AnswerName, ctx, f);
 }
 
 /// Walk every live outbound answer. Callback must not mutate the table.
 pub fn forEachOutboundAnswer(self: *const Session, ctx: anytype, comptime f: *const fn (@TypeOf(ctx), AnswerRowView) void) void {
-    forEachAnswerRow(&self.outbound_answers, ctx, f);
+    forEachAnswerRow(&self.outbound_answers, model.AnswerPosition, ctx, f);
+}
+
+// ── Point lookups the engine reads on the hot path ─────────────────────────
+// `*Session` rather than `*const` because the table reads use `getPtr`.
+
+pub fn inboundAnswer(self: *Session, id: model.AnswerPosition) ?AnswerView {
+    return self.inboundAnswerNamed(.fromWire(id));
+}
+
+pub fn inboundAnswerNamed(self: *Session, id: model.AnswerName) ?AnswerView {
+    const entry = self.inbound_answers.getPtr(id) orelse return null;
+    return AnswerView.of(entry);
+}
+
+/// Live inbound answer to Slot.
+pub fn inboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
+    const cell = self.inbound_answers.getPtr(.fromWire(id)) orelse return null;
+    return answers.answerSlot(id, cell.status());
+}
+
+/// Whether `id` is a known inbound answer — the existence probe the
+/// pipeline's guards read, without materializing an `AnswerView`.
+pub fn hasInboundAnswer(self: *const Session, id: model.AnswerPosition) bool {
+    return self.hasInboundAnswerNamed(.fromWire(id));
+}
+
+pub fn hasInboundAnswerNamed(self: *const Session, id: model.AnswerName) bool {
+    return self.inbound_answers.contains(id);
+}
+
+/// The identity stamp of the live inbound-answer row at `id`, or null when
+/// absent — the value a queued listener-fire carrier compares at encode to
+/// tell this row instance from a released-and-reused position.
+pub fn inboundAnswerRowId(self: *Session, id: model.AnswerPosition) ?u64 {
+    return self.inboundAnswerRowIdNamed(.fromWire(id));
+}
+
+pub fn inboundAnswerRowIdNamed(self: *Session, id: model.AnswerName) ?u64 {
+    const entry = self.inbound_answers.getPtr(id) orelse return null;
+    return entry.row_id;
+}
+
+pub fn outboundAnswer(self: *Session, id: model.AnswerPosition) ?AnswerView {
+    const entry = self.outbound_answers.getPtr(id) orelse return null;
+    return AnswerView.of(entry);
+}
+
+/// Live outbound answer to Slot.
+pub fn outboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
+    const cell = self.outbound_answers.getPtr(id) orelse return null;
+    return answers.answerSlot(id, cell.status());
 }

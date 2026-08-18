@@ -312,7 +312,7 @@ const resident_ctx = netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{
     .profile = known_transport.metadata(),
-    .dial = .{ .blocking = residentDial },
+    .dial = .{ .blocking = netlayer.adaptBlockingDial(residentDial) },
     .listen = residentListen,
     .io = resident_ctx.io,
 };
@@ -406,10 +406,10 @@ const listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .designator_scheme = known_transport.metadata().designator_scheme,
     .sealed_channel = known_transport.metadata().sealed_channel,
-    .accept = listenerAccept,
-    .waitAcceptable = listenerWaitAcceptable,
-    .localLocator = listenerLocalLocator,
-    .canonicalizeLocator = listenerCanonicalizeLocator,
+    .accept = netlayer.adaptAccept(listenerAccept),
+    .wait_acceptable = netlayer.adaptAcceptReadiness(listenerWaitAcceptable),
+    .local_locator = netlayer.adaptListenerLocator(listenerLocalLocator),
+    .canonicalize_locator = netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
     .readiness_fd = listenerReadinessFd,
     .close = listenerClose,
 };
@@ -420,10 +420,10 @@ const borrowed_listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .designator_scheme = known_transport.metadata().designator_scheme,
     .sealed_channel = known_transport.metadata().sealed_channel,
-    .accept = borrowedListenerAccept,
-    .waitAcceptable = borrowedListenerWaitAcceptable,
-    .localLocator = borrowedListenerLocalLocator,
-    .canonicalizeLocator = borrowedListenerCanonicalizeLocator,
+    .accept = netlayer.adaptAccept(borrowedListenerAccept),
+    .wait_acceptable = netlayer.adaptAcceptReadiness(borrowedListenerWaitAcceptable),
+    .local_locator = netlayer.adaptListenerLocator(borrowedListenerLocalLocator),
+    .canonicalize_locator = netlayer.adaptListenerCanonicalize(borrowedListenerCanonicalizeLocator),
     .readiness_fd = borrowedListenerReadinessFd,
     .close = borrowedListenerClose,
 };

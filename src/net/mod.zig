@@ -38,6 +38,7 @@ const frame_stream = @import("frame_stream.zig");
 const loop_mod = @import("completion/loop.zig");
 
 pub const Connection = connection.Connection;
+pub const ConnectionCloseProgress = connection.CloseProgress;
 pub const Progress = connection.Progress;
 pub const pumpOver = connection.pumpOver;
 pub const waitAnyReadable = connection.waitAnyReadable;
@@ -69,6 +70,16 @@ pub const clock = @import("clock.zig");
 
 /// Shared `poll(2)` wrappers for blocking residents and readiness backends.
 pub const poll = @import("poll.zig");
+
+/// Transport-neutral TLS engine state and buffer-ownership contract. Concrete
+/// engines live at the adapter edge; TCP remains a raw byte transport.
+pub const tls = struct {
+    pub const engine = @import("tls/engine.zig");
+    pub const pollable_stream = @import("tls/pollable_stream.zig");
+    pub const runtime = @import("tls/runtime.zig");
+    pub const runtime_owner = @import("tls/runtime_owner.zig");
+    pub const transform = @import("tls/transform.zig");
+};
 
 /// The native TCP transport provider and its `plain`, `keyed`, and `noise`
 /// profiles. The namespace owns their shared socket realization and fixed
@@ -165,6 +176,9 @@ pub const ReadySet = readiness.ReadySet;
 /// connection orchestration is OS-neutral; the platform completion primitive is a
 /// `Backend` it is parameterized over. See `completion/loop.zig`.
 pub const completion = loop_mod;
+/// Stable phase and exact causal chain reported by transport carriers. The
+/// owning operation supplies lifecycle identity when it projects this fact.
+pub const carrier_failure = @import("carrier_failure.zig");
 
 /// The io_uring completion backend (Linux). Empty off Linux so other builds stay
 /// clean; it implements the `completion` backend interface and is reached

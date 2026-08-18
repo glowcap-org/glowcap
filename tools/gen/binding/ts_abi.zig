@@ -43,18 +43,19 @@ pub const step_name = "gen-ts-abi";
 /// One generated file: its path and the emitter that produces its full bytes.
 /// The shared `tools/gen` emit/verify harness writes and staleness-checks each.
 const Output = @import("output").Output;
+const ffi = @import("ts_ffi.zig");
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/abi/constants.ts", .generate = generateConstants },
     .{ .path = "bindings/ts/runtime/internal/abi.ts", .generate = generateLayouts },
-    .{ .path = "bindings/ts/runtime/internal/ffi/host.ts", .generate = generateHostFfi },
-    .{ .path = "bindings/ts/runtime/internal/ffi/driver.ts", .generate = generateLoopFfi },
-    .{ .path = "bindings/ts/runtime/internal/ffi/ocapn.ts", .generate = generateOcapnFfi },
-    .{ .path = "bindings/ts/tcp/ffi.ts", .generate = generateTcpFfi },
-    .{ .path = "bindings/ts/inproc/ffi.ts", .generate = generateInprocFfi },
-    .{ .path = "bindings/ts/onion/ffi.ts", .generate = generateOnionFfi },
-    .{ .path = "bindings/ts/relay/ffi.ts", .generate = generateRelayFfi },
-    .{ .path = "bindings/ts/iroh/ffi.ts", .generate = generateIrohFfi },
+    .{ .path = "bindings/ts/runtime/internal/ffi/host.ts", .generate = ffi.generateHostFfi },
+    .{ .path = "bindings/ts/runtime/internal/ffi/driver.ts", .generate = ffi.generateLoopFfi },
+    .{ .path = "bindings/ts/runtime/internal/ffi/ocapn.ts", .generate = ffi.generateOcapnFfi },
+    .{ .path = "bindings/ts/tcp/ffi.ts", .generate = ffi.generateTcpFfi },
+    .{ .path = "bindings/ts/inproc/ffi.ts", .generate = ffi.generateInprocFfi },
+    .{ .path = "bindings/ts/onion/ffi.ts", .generate = ffi.generateOnionFfi },
+    .{ .path = "bindings/ts/relay/ffi.ts", .generate = ffi.generateRelayFfi },
+    .{ .path = "bindings/ts/iroh/ffi.ts", .generate = ffi.generateIrohFfi },
 };
 
 const constants_preamble =
@@ -97,6 +98,20 @@ const Const = struct {
     value: i64,
 };
 
+const BigConst = struct {
+    ts: []const u8,
+    value: u64,
+};
+
+const archive_fingerprints = [_]BigConst{
+    .{ .ts = "TCP_ARCHIVE_FINGERPRINT", .value = ct.PANCAKE_TCP_ARCHIVE_FINGERPRINT },
+    .{ .ts = "INPROC_ARCHIVE_FINGERPRINT", .value = cin.PANCAKE_INPROC_ARCHIVE_FINGERPRINT },
+    .{ .ts = "ONION_ARCHIVE_FINGERPRINT", .value = con.PANCAKE_ONION_ARCHIVE_FINGERPRINT },
+    .{ .ts = "IROH_ARCHIVE_FINGERPRINT", .value = ci.PANCAKE_IROH_ARCHIVE_FINGERPRINT },
+    .{ .ts = "RELAY_ARCHIVE_FINGERPRINT", .value = cr.PANCAKE_RELAY_ARCHIVE_FINGERPRINT },
+    .{ .ts = "WEBRTC_ARCHIVE_FINGERPRINT", .value = cw.PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT },
+};
+
 fn k(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(c, decl)) };
 }
@@ -119,6 +134,10 @@ fn ki(comptime ts: []const u8, comptime decl: []const u8) Const {
 
 fn kw(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(cw, decl)) };
+}
+
+fn kr(comptime ts: []const u8, comptime decl: []const u8) Const {
+    return .{ .ts = ts, .value = @intCast(@field(cr, decl)) };
 }
 
 const constants = [_]Const{
@@ -180,6 +199,7 @@ const constants = [_]Const{
     kd("DISCOVERY_DIAL_RETRY_MS", "PANCAKE_DISCOVERY_DIAL_RETRY_MS"),
     kd("DISCOVERY_DIAL_MAX_ATTEMPTS", "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS"),
     kdr("DRIVER_OPTIONS_ABI_VERSION", "PANCAKE_DRIVER_OPTIONS_ABI_VERSION"),
+    kdr("DRIVER_FAILURE_ABI_VERSION", "PANCAKE_DRIVER_FAILURE_ABI_VERSION"),
     kdr("DRIVER_MAX_WAIT_MS", "PANCAKE_DRIVER_MAX_WAIT_MS"),
     kdr("DRIVER_DEFAULT_WIRE_BUFFER_BYTES", "PANCAKE_DRIVER_DEFAULT_WIRE_BUFFER_BYTES"),
     kdr("DRIVER_DEFAULT_MAX_PENDING_OPENS", "PANCAKE_DRIVER_DEFAULT_MAX_PENDING_OPENS"),
@@ -202,6 +222,19 @@ const constants = [_]Const{
     kdr("DRIVER_EVENT_ACCEPTED", "PANCAKE_DRIVER_EVENT_ACCEPTED"),
     kdr("DRIVER_EVENT_SESSION_CLOSED", "PANCAKE_DRIVER_EVENT_SESSION_CLOSED"),
     kdr("DRIVER_EVENT_COMPLETION", "PANCAKE_DRIVER_EVENT_COMPLETION"),
+    kdr("DRIVER_EVENT_LISTENER_READY", "PANCAKE_DRIVER_EVENT_LISTENER_READY"),
+    kdr("DRIVER_EVENT_LISTENER_FAILED", "PANCAKE_DRIVER_EVENT_LISTENER_FAILED"),
+    kdr("CARRIER_PHASE_NONE", "PANCAKE_CARRIER_PHASE_NONE"),
+    kdr("CARRIER_PHASE_RESOLVE", "PANCAKE_CARRIER_PHASE_RESOLVE"),
+    kdr("CARRIER_PHASE_CONNECT", "PANCAKE_CARRIER_PHASE_CONNECT"),
+    kdr("CARRIER_PHASE_SECURE_HANDSHAKE", "PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE"),
+    kdr("CARRIER_PHASE_WEBSOCKET_UPGRADE", "PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE"),
+    kdr("CARRIER_PHASE_REGISTRATION", "PANCAKE_CARRIER_PHASE_REGISTRATION"),
+    kdr("CARRIER_PHASE_RECEIVE", "PANCAKE_CARRIER_PHASE_RECEIVE"),
+    kdr("CARRIER_PHASE_TRANSMIT", "PANCAKE_CARRIER_PHASE_TRANSMIT"),
+    kdr("CARRIER_PHASE_SHUTDOWN", "PANCAKE_CARRIER_PHASE_SHUTDOWN"),
+    kdr("CARRIER_DETAIL_PEER_ALERT", "PANCAKE_CARRIER_DETAIL_PEER_ALERT"),
+    kdr("CARRIER_DETAIL_ENGINE_CODE", "PANCAKE_CARRIER_DETAIL_ENGINE_CODE"),
     kdr("DRIVER_ADOPT_DIALED", "PANCAKE_DRIVER_ADOPT_DIALED"),
     kdr("DRIVER_ADOPT_ACCEPTED", "PANCAKE_DRIVER_ADOPT_ACCEPTED"),
     kdr("LOCATOR_VIEW_ABI_VERSION", "PANCAKE_LOCATOR_VIEW_ABI_VERSION"),
@@ -236,6 +269,9 @@ const constants = [_]Const{
     kw("WEBRTC_EV_READABLE", "PANCAKE_WEBRTC_EV_READABLE"),
     kw("WEBRTC_EV_WRITABLE", "PANCAKE_WEBRTC_EV_WRITABLE"),
     kw("WEBRTC_EV_CLOSED", "PANCAKE_WEBRTC_EV_CLOSED"),
+    kr("RELAY_CONFIG_ABI_VERSION", "PANCAKE_RELAY_CONFIG_ABI_VERSION"),
+    kr("RELAY_TRUST_SYSTEM", "PANCAKE_RELAY_TRUST_SYSTEM"),
+    kr("RELAY_TRUST_COPIED_PEM", "PANCAKE_RELAY_TRUST_COPIED_PEM"),
     // Argument kinds.
     k("ARG_INTEGER", "PANCAKE_ARG_INTEGER"),
     k("ARG_FLOAT64", "PANCAKE_ARG_FLOAT64"),
@@ -250,6 +286,8 @@ const constants = [_]Const{
     k("ARG_TAGGED", "PANCAKE_ARG_TAGGED"),
     k("ARG_KEYWORD", "PANCAKE_ARG_KEYWORD"),
     k("ARG_BIG_INTEGER", "PANCAKE_ARG_BIG_INTEGER"),
+    k("ARG_STRUCT", "PANCAKE_ARG_STRUCT"),
+    k("ARG_ERROR", "PANCAKE_ARG_ERROR"),
     // Wire-grammar codec selectors (the host constructor and the transports).
     k("CODEC_UNKNOWN", "PANCAKE_CODEC_UNKNOWN"),
     k("CODEC_SYRUP", "PANCAKE_CODEC_SYRUP"),
@@ -260,7 +298,9 @@ const constants = [_]Const{
     k("FEATURE_HANDOFF", "PANCAKE_FEATURE_HANDOFF"),
     k("FEATURE_WIRE_DELTA", "PANCAKE_FEATURE_WIRE_DELTA"),
     k("FEATURE_STURDYREF", "PANCAKE_FEATURE_STURDYREF"),
+    k("FEATURE_UNTAG", "PANCAKE_FEATURE_UNTAG"),
     k("FEATURE_MINIMUM", "PANCAKE_FEATURE_MINIMUM"),
+    k("FEATURE_BASELINE", "PANCAKE_FEATURE_BASELINE"),
     k("FEATURE_FULL", "PANCAKE_FEATURE_FULL"),
     // PancakeLastAbort.domain.
     k("ABORT_DOMAIN_CODEC", "PANCAKE_ABORT_DOMAIN_CODEC"),
@@ -302,11 +342,14 @@ const wasm_manifest = cd.wasm_layout_manifest;
 /// exemption instead of a hardcoded skip drifting in the checker.
 const native_only_layouts = [_][]const u8{
     "DRIVER_OPTIONS",
+    "DRIVER_FAILURE",
     "DRIVER_EVENT",
     "TRANSPORT_OPERATION_OPTIONS",
     "TRANSPORT_PROVIDER",
     "TCP_STREAM_OPTIONS",
     "TCP_CONFIG",
+    "RELAY_CONFIG",
+    "RELAY_TRUST_SUMMARY",
     "IROH_READY_EVENT",
     "WEBRTC_READY_EVENT",
     "IROH_CONFIG",
@@ -322,6 +365,9 @@ fn generateConstants(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, "// ── Constants (values mirror src/c_abi declarations) ─────────────────────\n\n");
     inline for (constants) |entry| {
         try out.print(gpa, "export const {s} = {d};\n", .{ entry.ts, entry.value });
+    }
+    inline for (archive_fingerprints) |entry| {
+        try out.print(gpa, "export const {s} = {d}n;\n", .{ entry.ts, entry.value });
     }
     try out.print(gpa, "export const HINT_DIRECT_ADDRESSES = \"{s}\";\n", .{model.transport.hint_direct_addresses});
     inline for (std.enums.values(model.transport.Known)) |known| {
@@ -399,6 +445,7 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "PARTNER_IDENTITY", cd.PancakePartnerIdentity, "PancakePartnerIdentity (libpancake_host, pancake_host_session_partner_identity)");
     try emitLayout(&out, gpa, "TRACE_EVENT", cd.PancakeTraceEvent, "PancakeTraceEvent (libpancake_host, pancake_host_set_trace)");
     try emitLayout(&out, gpa, "DRIVER_OPTIONS", cdr.PancakeDriverOptions, "PancakeDriverOptions (libpancake_driver, pancake_driver_take_host)");
+    try emitLayout(&out, gpa, "DRIVER_FAILURE", cdr.PancakeDriverFailure, "PancakeDriverFailure (libpancake_driver deterministic barriers)");
     try emitLayout(&out, gpa, "CLOSE_OPTIONS", cd.PancakeCloseOptions, "PancakeCloseOptions (libpancake_host and libpancake_driver)");
     try emitLayout(&out, gpa, "DRIVER_EVENT", cdr.PancakeDriverEvent, "PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)");
     try emitLayout(&out, gpa, "TRANSPORT_OPERATION_OPTIONS", cdr.PancakeTransportOperationOptions, "PancakeTransportOperationOptions (pancake_driver_dial)");
@@ -407,6 +454,8 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "TRANSPORT_PROVIDER", cdr.PancakeTransportProvider, "PancakeTransportProvider (pancake_transport_provider.h, pancake_driver_add_provider)");
     try emitLayout(&out, gpa, "TCP_STREAM_OPTIONS", ct.PancakeTcpStreamOptions, "PancakeTcpStreamOptions (libpancake_net_transport_tcp)");
     try emitLayout(&out, gpa, "TCP_CONFIG", ct.PancakeTcpConfig, "PancakeTcpConfig (libpancake_net_transport_tcp, pancake_tcp_netlayer_new)");
+    try emitLayout(&out, gpa, "RELAY_CONFIG", cr.PancakeRelayConfig, "PancakeRelayConfig (libpancake_net_transport_relay, pancake_relay_runtime_new)");
+    try emitLayout(&out, gpa, "RELAY_TRUST_SUMMARY", cr.PancakeRelayTrustSummary, "PancakeRelayTrustSummary (libpancake_net_transport_relay, pancake_relay_runtime_trust_summary)");
     try emitLayout(&out, gpa, "IROH_READY_EVENT", ci.PancakeIrohReadyEvent, "PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)");
     try emitLayout(&out, gpa, "WEBRTC_READY_EVENT", cw.PancakeWebrtcReadyEvent, "PancakeWebrtcReadyEvent (libpancake_net_transport_webrtc, pancake_webrtc_netlayer_drain_ready)");
     try emitLayout(&out, gpa, "IROH_CONFIG", ci.PancakeIrohConfig, "PancakeIrohConfig (libpancake_net_transport_iroh, pancake_iroh_netlayer_new)");
@@ -425,489 +474,3 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
 // pointer-crossing overrides from the table. Both directions are held at
 // compile time: a table row that names no export fails `@field`, and an
 // export with neither a row nor an omitted-family match fails the walk.
-
-fn checkInventory(comptime M: type) void {
-    comptime {
-        @setEvalBranchQuota(40_000);
-        for (@typeInfo(M).@"struct".decls) |d| {
-            if (!std.mem.startsWith(u8, d.name, "pancake_")) continue;
-            if (@typeInfo(@TypeOf(@field(M, d.name))) != .@"fn") continue;
-            var listed = false;
-            for (M.symbols.symbols) |row| {
-                if (std.mem.eql(u8, row.name, d.name)) listed = true;
-            }
-            for (M.symbols.omitted_families) |fam| {
-                if (std.mem.startsWith(u8, d.name, fam.prefix)) listed = true;
-            }
-            if (!listed) @compileError("export '" ++ d.name ++ "' has no row (or omitted-family match) in its symbols.zig inventory");
-        }
-        for (M.symbols.symbols) |row| {
-            // Resolving the name proves the row still names a live export.
-            _ = @field(M, row.name);
-        }
-    }
-}
-
-comptime {
-    checkInventory(c);
-    checkInventory(cd);
-    checkInventory(cdr);
-    checkInventory(ct);
-    checkInventory(cin);
-    checkInventory(con);
-    checkInventory(ci);
-    checkInventory(cw);
-    checkInventory(cr);
-    for (cw.symbols.symbols) |row| {
-        if (row.ts_omit == null) {
-            @compileError("WebRTC export '" ++ row.name ++ "' promises a TypeScript native loader, but TypeScript WebRTC is browser-native");
-        }
-    }
-}
-
-/// The TS class letter for one parameter type: opaque handles and function
-/// pointers cross as `P`, byte and struct slots as `B`, and the plain
-/// integers by width. A row's `pointer_params` overrides its slot to `P`.
-fn tsParamClass(comptime T: type) []const u8 {
-    return switch (@typeInfo(T)) {
-        .optional => |o| tsParamClass(o.child),
-        .pointer => |p| switch (p.size) {
-            .many, .slice => "B",
-            else => switch (@typeInfo(p.child)) {
-                .@"opaque" => "P",
-                .@"fn" => "P",
-                else => "B",
-            },
-        },
-        .int => switch (T) {
-            u8 => "\"u8\"",
-            u16 => "\"u16\"",
-            u32 => "\"u32\"",
-            u64 => "U64",
-            usize => "U",
-            // A signed 32-bit parameter is a timeout in milliseconds, where
-            // negative means wait without limit — the one place this ABI takes a
-            // signed integer in, and the same `I` the result classes use.
-            i32 => "I",
-            i64 => "\"i64\"",
-            else => @compileError("unmapped integer parameter width"),
-        },
-        else => @compileError("unmapped parameter type"),
-    };
-}
-
-fn tsResultClass(comptime T: type) []const u8 {
-    return switch (T) {
-        i32 => "I",
-        void => "V",
-        usize => "U",
-        else => @compileError("unmapped result type"),
-    };
-}
-
-/// Which one-letter shorthands a table's rows use, so the generated prelude
-/// declares exactly those (an unused letter would trip deno lint).
-const UsedClasses = struct {
-    p: bool = false,
-    b: bool = false,
-    u: bool = false,
-    i: bool = false,
-    v: bool = false,
-    u64: bool = false,
-
-    fn note(self: *UsedClasses, class: []const u8) void {
-        if (std.mem.eql(u8, class, "P")) self.p = true;
-        if (std.mem.eql(u8, class, "B")) self.b = true;
-        if (std.mem.eql(u8, class, "U")) self.u = true;
-        if (std.mem.eql(u8, class, "I")) self.i = true;
-        if (std.mem.eql(u8, class, "V")) self.v = true;
-        if (std.mem.eql(u8, class, "U64")) self.u64 = true;
-    }
-};
-
-/// One symbol's row rendered as parts, so the emitter can compose the
-/// single-line and split forms without re-parsing its own output.
-const RowParts = struct {
-    params: []u8,
-    result: []const u8,
-    /// Rendered "outBuffers: [..]" text, or empty when the symbol crosses no
-    /// buffers at all.
-    out_buffers: []u8,
-    nonblocking: bool,
-
-    fn deinit(self: RowParts, gpa: std.mem.Allocator) void {
-        gpa.free(self.params);
-        gpa.free(self.out_buffers);
-    }
-};
-
-fn rowParts(gpa: std.mem.Allocator, comptime M: type, comptime row: anytype, used: *UsedClasses) !RowParts {
-    const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
-    inline for (row.out_params) |op| {
-        if (op >= info.params.len) {
-            @compileError(row.name ++ " names an out parameter beyond its reflected arity");
-        }
-    }
-    var params: std.ArrayList(u8) = .empty;
-    errdefer params.deinit(gpa);
-    try params.appendSlice(gpa, "parameters: [");
-    var any_buffer = false;
-    inline for (info.params, 0..) |p, i| {
-        if (i != 0) try params.appendSlice(gpa, ", ");
-        var class = tsParamClass(p.type.?);
-        inline for (row.pointer_params) |pp| {
-            if (pp == i) class = "P";
-        }
-        if (std.mem.eql(u8, class, "B")) any_buffer = true;
-        used.note(class);
-        try params.appendSlice(gpa, class);
-    }
-    try params.appendSlice(gpa, "]");
-    const result = tsResultClass(info.return_type.?);
-    used.note(result);
-    var out_buffers: std.ArrayList(u8) = .empty;
-    errdefer out_buffers.deinit(gpa);
-    if (any_buffer) {
-        try out_buffers.appendSlice(gpa, "outBuffers: [");
-        for (row.out_params, 0..) |op, i| {
-            if (i != 0) try out_buffers.appendSlice(gpa, ", ");
-            try out_buffers.print(gpa, "{d}", .{op});
-        }
-        try out_buffers.appendSlice(gpa, "]");
-    }
-    return .{
-        .params = try params.toOwnedSlice(gpa),
-        .result = result,
-        .out_buffers = try out_buffers.toOwnedSlice(gpa),
-        .nonblocking = row.nonblocking,
-    };
-}
-
-/// The dlopen row block for one archive, emitted in inventory order with the
-/// annotated section comments; rows the inventory opts out of TS are skipped.
-/// Row layout follows deno fmt: one line when it fits the 120-column width (a
-/// tab counting four), the split object form otherwise.
-fn renderRows(gpa: std.mem.Allocator, comptime M: type, used: *UsedClasses) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    inline for (M.symbols.symbols) |row| {
-        if (row.ts_omit == null) {
-            if (row.section) |section| {
-                var it = std.mem.splitScalar(u8, section, '\n');
-                while (it.next()) |l| try out.print(gpa, "\t// {s}\n", .{l});
-            }
-            const parts = try rowParts(gpa, M, row, used);
-            defer parts.deinit(gpa);
-            // Single-line width: tab(4) + name + ": { " + the parts joined by
-            // ", " + " },".
-            var width: usize = 4 + row.name.len + 4 + parts.params.len + 2 + 8 + parts.result.len + 3;
-            if (parts.out_buffers.len != 0) width += 2 + parts.out_buffers.len;
-            if (parts.nonblocking) width += 2 + 17;
-            if (width <= 120) {
-                try out.print(gpa, "\t{s}: {{ {s}, result: {s}", .{ row.name, parts.params, parts.result });
-                if (parts.out_buffers.len != 0) try out.print(gpa, ", {s}", .{parts.out_buffers});
-                if (parts.nonblocking) try out.appendSlice(gpa, ", nonblocking: true");
-                try out.appendSlice(gpa, " },\n");
-            } else {
-                try out.print(gpa, "\t{s}: {{\n\t\t{s},\n\t\tresult: {s},\n", .{ row.name, parts.params, parts.result });
-                if (parts.out_buffers.len != 0) try out.print(gpa, "\t\t{s},\n", .{parts.out_buffers});
-                if (parts.nonblocking) try out.appendSlice(gpa, "\t\tnonblocking: true,\n");
-                try out.appendSlice(gpa, "\t},\n");
-            }
-        }
-    }
-    return out.toOwnedSlice(gpa);
-}
-
-/// The `const P = …` shorthand prelude, declaring only the letters the rows
-/// use.
-fn renderLetters(gpa: std.mem.Allocator, out: *std.ArrayList(u8), used: UsedClasses) !void {
-    const letters = [_]struct { on: bool, decl: []const u8 }{
-        .{ .on = used.p, .decl = "P = \"pointer\"" },
-        .{ .on = used.b, .decl = "B = \"buffer\"" },
-        .{ .on = used.u, .decl = "U = \"usize\"" },
-        .{ .on = used.i, .decl = "I = \"i32\"" },
-        .{ .on = used.v, .decl = "V = \"void\"" },
-        .{ .on = used.u64, .decl = "U64 = \"u64\"" },
-    };
-    var first = true;
-    for (letters) |l| {
-        if (!l.on) continue;
-        if (first) {
-            try out.print(gpa, "const {s},\n", .{l.decl});
-            first = false;
-        } else {
-            try out.print(gpa, "\t{s},\n", .{l.decl});
-        }
-    }
-    // The final letter line ends the const statement: drop its ",\n".
-    out.items.len -= 2;
-    try out.appendSlice(gpa, ";\n\n");
-}
-
-fn renderDlopenFile(gpa: std.mem.Allocator, comptime M: type, comptime preamble: []const u8, comptime lib: []const u8, comptime table: []const u8) ![]u8 {
-    var used = UsedClasses{};
-    const rows = try renderRows(gpa, M, &used);
-    defer gpa.free(rows);
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    try out.appendSlice(gpa, preamble);
-    try renderLetters(gpa, &out, used);
-    try out.print(gpa, "export const {s} = lazySymbols(() => libPath(\"{s}\"), {{\n", .{ table, lib });
-    try out.appendSlice(gpa, rows);
-    try out.appendSlice(gpa, "});\n");
-    return out.toOwnedSlice(gpa);
-}
-
-const host_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/host (the annotated
-    \\// symbol inventory in symbols.zig plus each export's reflected signature)
-    \\// — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of the `pancake_host_*` family — the byte-fed
-    \\// host tier (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
-    \\//
-    \\// Nothing here is public. This table loads `libpancake_host`, the archive
-    \\// that owns every `pancake_host_*` symbol. The driver archive is a separate
-    \\// consumer of Host and exports only its `pancake_driver_*` family. Host shares the
-    \\// frame, argument, reference, and last-abort layouts by layout, so this
-    \\// loader declares no core symbol. The host surface over it spans
-    \\// `../../host.ts`, `../../session.ts`, `../../action.ts`, and
-    \\// `../../pump.ts`. The wasm browser build keeps importing the byte-fed
-    \\// `c_abi_host` root only; its injected adapter ignores the stem here.
-    \\//
-    \\// Callback discipline: the ONE native callback in the whole binding, the
-    \\// shared behavior trampoline (`../../trampoline.ts`), fires synchronously
-    \\// on the thread executing the enclosing `pancake_host_*` call. Deno and Bun
-    \\// both register callbacks globally, so it is minted through the runtime
-    \\// FFI's `makeCallback`, callable from any loaded archive; the wasm adapter
-    \\// routes it through the module's single import. Settlements carry no
-    \\// callback at all: they ride the action queue as SETTLE/FAIL, popped by
-    \\// `pancake_host_next_action` and routed by vow id (`../../action.ts` +
-    \\// `../../promise.ts`).
-    \\//
-    \\// `fetch`/`enliven`/`send` and the `vow_*` verbs each mint a host vow whose id
-    \\// lands in the trailing out-buffer; the outcome arrives as that vow's
-    \\// SETTLE/FAIL action. The `free` parameter of publish/spawn is always NULL
-    \\// from this binding: the JS side owns its behavior entries in the trampoline
-    \\// registry, so there is nothing for the library to free.
-    \\
-    \\import { libPath } from "./load.ts";
-    \\import { lazySymbols } from "./runtime.ts";
-    \\
-    \\
-;
-
-const ocapn_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/ocapn (the annotated
-    \\// symbol inventory in symbols.zig plus each export's reflected signature)
-    \\// — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of `libpancake_ocapn` — the core archive (ADR-0059).
-    \\//
-    \\// Nothing here is part of the public API. The ergonomic surface reaches these
-    \\// symbols through `ocapnS`; a consumer never imports this file. This loader
-    \\// opens *only* `libpancake_ocapn`, and only the shared-vocabulary rows the
-    \\// binding still speaks directly: the ABI version, the core last-error slot, the
-    \\// allocation context, managed-frame release, the exporter-locator encoder, and
-    \\// the OCapN URI grammar. The peer itself is driven through the byte-fed host
-    \\// archive (`host.ts`, `libpancake_host`, ADR-0072), never through raw
-    \\// raw per-session engine calls. Each transport archive has its own sibling loader
-    \\// here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
-    \\//
-    \\// The one-letter type shorthands (`P`/`B`/`U`/`I`/`V`) let a symbol's whole
-    \\// signature sit on one line, so the table reads down like the C header it
-    \\// mirrors. Every `internal/ffi` loader opens with the same header.
-    \\
-    \\import { libPath } from "./load.ts";
-    \\import { lazySymbols } from "./runtime.ts";
-    \\
-    \\
-;
-
-fn generateHostFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cd, host_ffi_preamble, "pancake_host", "hostS");
-}
-
-const loop_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/driver (the annotated
-    \\// symbol inventory in symbols.zig plus each export's reflected signature)
-    \\// — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of the `pancake_driver_*` loop family —
-    \\// `libpancake_driver`, the driver archive (ADR-0112).
-    \\//
-    \\// Nothing here is public; `../../driver_loop.ts` is the surface over it.
-    \\// The archive exports only this family and consumes a Host transferred from
-    \\// `libpancake_host`. One thread drives one loop:
-    \\// `pancake_driver_wake` is the one cross-thread call, and borrowed views
-    \\// in a popped event die at the next `pancake_driver_next_event`.
-    \\
-    \\import { libPath } from "./load.ts";
-    \\import { lazySymbols } from "./runtime.ts";
-    \\
-    \\
-;
-
-fn generateLoopFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cdr, loop_ffi_preamble, "pancake_driver", "loopS");
-}
-
-fn generateOcapnFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, c, ocapn_ffi_preamble, "pancake_ocapn", "ocapnS");
-}
-
-const tcp_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/net_transport/tcp (the
-    \\// annotated symbol inventory in symbols.zig plus each export's reflected
-    \\// signature) — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_tcp` — the blocking-TCP
-    \\// transport archive (ADR-0059).
-    \\//
-    \\// Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
-    \\// loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
-    \\// the inproc or iroh archives. The TCP archive is symbol-disjoint from the core
-    \\// (it shares the frame/context types by layout, not by symbol), so it loads
-    \\// alongside `libpancake_ocapn` rather than instead of it, and carries its own
-    \\// thread-local last-error read through `pancake_tcp_last_error`.
-    \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\
-    \\
-;
-
-fn generateTcpFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, ct, tcp_ffi_preamble, "pancake_net_transport_tcp", "tcpS");
-}
-
-const inproc_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/net_transport/inproc
-    \\// (the annotated symbol inventory in symbols.zig plus each export's reflected
-    \\// signature) — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_inproc` — the
-    \\// in-process transport archive (ADR-0059).
-    \\//
-    \\// Nothing here is public; `inproc.ts` is the ergonomic surface over it. This
-    \\// loader opens *only* the inproc archive, so importing `inproc.ts` never pulls
-    \\// in the TCP or iroh archives. The inproc family is symbol-disjoint from the
-    \\// core and shares the frame/context types by layout; it carries its own
-    \\// thread-local last-error read through `pancake_inproc_last_error`.
-    \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\
-    \\
-;
-
-fn generateInprocFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cin, inproc_ffi_preamble, "pancake_net_transport_inproc", "inprocS");
-}
-
-const onion_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/net_transport/onion
-    \\// (the annotated symbol inventory in symbols.zig plus each export's
-    \\// reflected signature) — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_onion`'s C ABI.
-    \\//
-    \\// Nothing here is public; `transport/onion.ts` is the ergonomic surface over
-    \\// it. This loader opens *only* the onion archive, so importing that module
-    \\// never pulls in the TCP, inproc, or iroh archives. The onion family is
-    \\// symbol-disjoint from the core and shares the frame/context types by layout;
-    \\// it carries its own thread-local last-error read through
-    \\// `pancake_onion_last_error`.
-    \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\
-    \\
-;
-
-fn generateOnionFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, con, onion_ffi_preamble, "pancake_net_transport_onion", "onionS");
-}
-
-const relay_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/net_transport/relay
-    \\// (the annotated symbol inventory in symbols.zig plus each export's
-    \\// reflected signature) — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_relay`'s C ABI.
-    \\// The archive owns one provider package for keyed-relay and noise-relay;
-    \\// profile policy remains in the native driver.
-    \\//
-    \\// Nothing here is public; `transport/relay.ts` is the ergonomic surface.
-    \\
-    \\import { lazySymbols, libPath } from "@pancake/runtime/ffi";
-    \\
-;
-
-fn generateRelayFfi(gpa: std.mem.Allocator) ![]u8 {
-    return renderDlopenFile(gpa, cr, relay_ffi_preamble, "pancake_net_transport_relay", "relayS");
-}
-
-const iroh_ffi_preamble =
-    \\// GENERATED by `zig build gen-ts-abi` from src/c_abi/net_transport/iroh
-    \\// (the annotated symbol inventory in symbols.zig plus each export's
-    \\// reflected signature) — do not edit.
-    \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
-    \\//
-    \\// Internal: the FFI mirror of `libpancake_net_transport_iroh`'s C ABI.
-    \\//
-    \\// The iroh companion library (`libpancake_net_transport_iroh`, ADR-0055) is
-    \\// optional — absent unless built with cargo — so it loads lazily on first use
-    \\// through `irohS()`, which names how to produce it rather than surfacing a raw
-    \\// dlopen failure. This loader opens *only* the iroh archive, through the core's
-    \\// shared FFI runtime (`@pancake/runtime/ffi`). Nothing here is public; `mod.ts` is
-    \\// the ergonomic surface over it.
-    \\
-    \\import { ffi, libFile, libPath, type Symbols } from "@pancake/runtime/ffi";
-    \\
-    \\
-;
-
-const iroh_ffi_postamble =
-    "} as const;\n\n" ++
-    "let irohSyms: Symbols | null = null;\n\n" ++
-    "// Open the iroh ABI library on first use. It is optional — absent unless built\n" ++
-    "// with cargo — so a clear error names how to produce it rather than a raw\n" ++
-    "// dlopen failure.\n" ++
-    "export function irohS(): Symbols {\n" ++
-    "\tif (irohSyms !== null) return irohSyms;\n" ++
-    "\ttry {\n" ++
-    "\t\tirohSyms = ffi.dlopen(\n" ++
-    "\t\t\tlibPath(\"pancake_net_transport_iroh\"),\n" ++
-    "\t\t\tirohSymbolDefs,\n" ++
-    "\t\t);\n" ++
-    "\t} catch (e) {\n" ++
-    "\t\tthrow new Error(\n" ++
-    "\t\t\t`iroh transport unavailable: could not load ${\n" ++
-    "\t\t\t\tlibFile(\"pancake_net_transport_iroh\")\n" ++
-    "\t\t\t} from PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. ` +\n" ++
-    "\t\t\t\t\"Build it with `zig build iroh-abi` (needs cargo). \" +\n" ++
-    "\t\t\t\t(e instanceof Error ? e.message : String(e)),\n" ++
-    "\t\t);\n" ++
-    "\t}\n" ++
-    "\treturn irohSyms;\n" ++
-    "}\n";
-
-fn generateIrohFfi(gpa: std.mem.Allocator) ![]u8 {
-    var used = UsedClasses{};
-    const rows = try renderRows(gpa, ci, &used);
-    defer gpa.free(rows);
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    try out.appendSlice(gpa, iroh_ffi_preamble);
-    try renderLetters(gpa, &out, used);
-    try out.appendSlice(gpa, "const irohSymbolDefs = {\n");
-    try out.appendSlice(gpa, rows);
-    try out.appendSlice(gpa, iroh_ffi_postamble);
-    return out.toOwnedSlice(gpa);
-}

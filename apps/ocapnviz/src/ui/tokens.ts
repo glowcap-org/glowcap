@@ -78,7 +78,7 @@ export function segmentCellClass(active: boolean): string {
 
 /**
  * What makes a control a cell of a segmented row: the shared seam, the rounded
- * outer ends, and the row's focus mark. `styles.css` names it on both control
+ * outer ends, and the row's focus mark. `controls.css` names it on both control
  * families for that reason.
  *
  * Reachable on its own because it is a modifier rather than a family. A button
@@ -173,7 +173,7 @@ export const FONT = {
  *             what makes it a level, not the size.
  *   sm   10   data — a field's value, a chip, a list row.
  *   base 11   chrome — control labels, buttons, fields. `.ocv-btn` in
- *             styles.css states the same 11 for class-styled controls.
+ *             controls.css states the same 11 for class-styled controls.
  *   lg   13   a heading — the pane's entity title, the wordmark.
  *
  * There is no 12. Between 11 and 13 it is a step no reader can name,

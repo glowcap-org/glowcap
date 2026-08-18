@@ -9,7 +9,7 @@ import { assert, assertEquals } from "@std/assert";
 import { buildLaneBundle, laneBundleColorsFromTheme, laneRowLabel } from "./lane-bundle.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
 import { projectFromObservations } from "../../engine/temporal/project-from-observations.ts";
-import { attachedEndpoint, sessionEndpoint } from "../../schema/topology.ts";
+import { attachedEndpoint, sessionEndpoint } from "../../schema/session-end.ts";
 
 const COLORS = laneBundleColorsFromTheme("dark");
 

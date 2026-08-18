@@ -13,28 +13,21 @@ test "rooms-peer usage and unsupervised map to exit usage" {
 
 test "rooms-peer deriveRendezvousUrl from http locator bootstrap" {
     const gpa = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-    const url = (try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "http://localhost:8000/locator")).?;
+    const url = (try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "http://localhost:8000/locator")).?;
     defer gpa.free(url);
-    try std.testing.expectEqualStrings("ws://127.0.0.1:8000/relay", url);
+    try std.testing.expectEqualStrings("ws://localhost:8000/relay", url);
 
-    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "https://localhost:8000/locator")) == null);
-    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "ocapn://abc.iroh")) == null);
+    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "https://localhost:8000/locator")) == null);
+    try std.testing.expect((try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "ocapn://abc.iroh")) == null);
 
-    const ip = (try cli.rooms_peer_common.deriveRendezvousUrl(io, gpa, "http://127.0.0.1:8000/locator")).?;
+    const ip = (try cli.rooms_peer_common.deriveRendezvousUrl(gpa, "http://127.0.0.1:8000/locator")).?;
     defer gpa.free(ip);
     try std.testing.expectEqualStrings("ws://127.0.0.1:8000/relay", ip);
 }
 
 test "rooms-peer resolveRendezvousUrl prefers PANCAKE_RENDEZVOUS" {
     const gpa = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
     const url = (try cli.rooms_peer_common.resolveRendezvousUrl(
-        io,
         gpa,
         "ws://127.0.0.1:9/relay",
         "http://localhost:8000/locator",
@@ -44,23 +37,28 @@ test "rooms-peer resolveRendezvousUrl prefers PANCAKE_RENDEZVOUS" {
 
     try std.testing.expectError(
         error.InvalidRendezvousUrl,
-        cli.rooms_peer_common.resolveRendezvousUrl(io, gpa, "http://not-ws", "http://localhost:8000/locator"),
+        cli.rooms_peer_common.resolveRendezvousUrl(gpa, "http://not-ws", "http://localhost:8000/locator"),
     );
 }
 
-test "rooms-peer admitRelayUrl resolves a DNS host to an IP RelayUrl" {
-    // `RelayUrl.parse` refuses names. `localhost` is in every hosts file, so
-    // this is the DNS path without depending on compose.
+test "rooms-peer admitRelayUrl passes a DNS host through for the resident to resolve" {
+    // `RelayUrl.parse` admits validated DNS names, and the keyed-relay resident
+    // resolves one at dial time so a resolution failure stays a visible dial
+    // failure. Admission therefore keeps the name verbatim; rewriting it to an
+    // IP here would be a second resolver whose failures could only become null.
     const gpa = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-    const url = (try cli.rooms_peer_common.admitRelayUrl(io, gpa, "ws://localhost:8000/relay")).?;
+    const url = (try cli.rooms_peer_common.admitRelayUrl(gpa, "ws://localhost:8000/relay")).?;
     defer gpa.free(url);
+    try std.testing.expectEqualStrings("ws://localhost:8000/relay", url);
     const parsed = try pancake.net.relay.RelayUrl.parse(url);
-    try std.testing.expect(std.mem.eql(u8, parsed.host, "127.0.0.1") or std.mem.eql(u8, parsed.host, "::1"));
+    try std.testing.expectEqualStrings("localhost", parsed.host);
     try std.testing.expectEqual(@as(u16, 8000), parsed.port);
     try std.testing.expectEqualStrings("/relay", parsed.path);
+
+    // What the grammar refuses stays refused: no scheme, and a host with a
+    // byte no DNS name validates.
+    try std.testing.expect((try cli.rooms_peer_common.admitRelayUrl(gpa, "http://not-ws")) == null);
+    try std.testing.expect((try cli.rooms_peer_common.admitRelayUrl(gpa, "ws://bad_host!:8000/relay")) == null);
 }
 
 test "rooms-peer peerCliPrefix for install alias vs product" {

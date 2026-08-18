@@ -7,7 +7,7 @@ decision: "Live ocapnviz observation is an OCapN capability: the convergence end
 supersedes: []
 superseded_by: []
 amends: [ADR-0104]
-amended_by: []
+amended_by: [ADR-0120]
 ---
 
 # ADR-0106 The viz capability

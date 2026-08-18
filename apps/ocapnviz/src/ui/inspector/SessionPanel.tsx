@@ -17,13 +17,8 @@
  * to, and what attributed it — is edited in that end's own block.
  */
 
-import {
-  EndpointAttribution,
-  endpointStageId,
-  SESSION_SIDES,
-  type SessionSide,
-  TRANSPORT_OPTIONS,
-} from "../../schema/topology.ts";
+import { TRANSPORT_OPTIONS } from "../../schema/topology.ts";
+import { EndpointAttribution, endpointStageId, SESSION_SIDES, type SessionSide } from "../../schema/session-end.ts";
 import type { StageSelection } from "../../render/types.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findSession } from "../../engine/world.ts";
@@ -40,31 +35,30 @@ import { SessionMoments } from "./SessionTrajectory.tsx";
 import { c } from "../tokens.ts";
 import { AttributionChip, LifecycleChip, type LifecycleStatus, SessionKindLabel, StateChip } from "../EntityChips.tsx";
 import {
-  ClaimLinkRow,
-  DivergenceHint,
   EditableIdField,
-  type EditorBindings,
   EnumSelect,
   Field,
   FieldGroup,
-  inlineMonoInput,
   InlineTextField,
-  kv,
-  linkRowList,
   NOBODY,
   NONE,
   NOTHING,
-  OptionalTimeRow,
-  PanelHeading,
-  PeerLinkRow,
   PeerSelect,
-  type PickerOption,
+} from "./fields.tsx";
+import type { EditorBindings } from "./bindings.ts";
+import type { PickerOption } from "./picker-labels.ts";
+import { DivergenceHint, OptionalTimeRow } from "./trajectory.tsx";
+import { ClaimLinkRow, PeerLinkRow, Unknown } from "./links.tsx";
+import {
+  inlineMonoInput,
+  kv,
+  linkRowList,
+  PanelHeading,
   placeholder,
-  Unknown,
   valueMono,
   valueName,
   valueText,
-} from "./shared.tsx";
+} from "./styles.tsx";
 import { Identifier } from "../identifier.tsx";
 import { isInSelection, peerInfo, sessionInfo } from "./entity-info.ts";
 import { type EndName as EndNameOf, sessionEndName } from "../session-name.ts";

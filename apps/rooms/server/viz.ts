@@ -4,9 +4,20 @@ import * as tcp from "@pancake/tcp";
 // Live mode consumes. Give the viewer the `ROOMS-VIZ-LISTENING` sturdyref and
 // the topology draws as it happens.
 //
+// No socket is admitted on reachability alone. The endpoint is minted with
+// one capability swiss, and every connect — viewer and producer alike —
+// presents it as the `cap` query parameter or is closed with a typed refusal
+// (`VIZ_REFUSED_CLOSE_CODE`). The same swiss is the durable trace
+// publication's name, so the announced sturdyref is the whole viewing grant:
+// its swissnum admits the socket and enlivens the trace object. Writing into
+// the timeline is the same swiss presented on `/publish`; before this,
+// reaching the port was the authority to write, which is the ambient door
+// this closes.
+//
 // Two kinds of socket connect here. An OCapN VIEWER connects to `/` and
 // receives through a durable trace capability; a PRODUCER connects to
-// `/publish` and sends, one JSON record per line, and receives nothing. That
+// `/publish` and sends, one JSON record per line, and hears back only the
+// endpoint's own `trace.publish-ready` admission mark. That
 // split is what lets a direct message appear at all: a
 // DM is a session between two members, held on the members' own hosts, and the
 // room server never sees a byte of it. Telemetry converges here; the traffic
@@ -50,7 +61,7 @@ import * as tcp from "@pancake/tcp";
 import { currentSession, formatSturdyRef, Host, Ref, Session, TRANSPORT_TCP, webSocketChannel } from "@pancake/runtime";
 import type { TraceEvent } from "@pancake/runtime";
 import { DESIGNATOR_SCHEME_ADDRESS } from "@pancake/abi";
-import { VIZ_PUBLISH_PATH } from "../lib/viz_publish.ts";
+import { VIZ_CAP_PARAM, VIZ_PUBLISH_PATH, VIZ_REFUSED_CLOSE_CODE } from "../lib/viz_publish.ts";
 
 export type VizServer = {
 	sink: (ev: TraceEvent) => void;
@@ -140,6 +151,32 @@ type FeedRecord = TraceEvent | {
 const replayEndLine = (epoch: number, sim_t_ns: number): string =>
 	JSON.stringify({ v: 1, sim_t_ns, kind: "trace.replay-end", epoch });
 
+/** The reason a refused socket carries in its close frame. */
+export const VIZ_REFUSED_REASON = "rooms viz: this endpoint requires its capability";
+
+/** Whether two secrets are the same string, compared without an early exit,
+ * so a probe cannot walk the swiss one character at a time by timing the
+ * refusal. `charCodeAt` past either end is `NaN`, which `| 0` folds to zero,
+ * so a length mismatch still walks the longer string and lands in the
+ * accumulated difference. */
+export function constantTimeEquals(a: string, b: string): boolean {
+	const length = Math.max(a.length, b.length);
+	let diff = a.length ^ b.length;
+	for (let i = 0; i < length; i += 1) {
+		diff |= (a.charCodeAt(i) | 0) ^ (b.charCodeAt(i) | 0);
+	}
+	return diff === 0;
+}
+
+/** The endpoint-authored mark an admitted producer hears, and the only thing
+ * it will ever hear: a positive admission signal, so taking the capability in
+ * a client is a deterministic round trip rather than a grace timer. Outside
+ * `KINDS` like the other endpoint-authored records, so `parseRecord` refuses
+ * a forged one, and without `seq` for `replayEndLine`'s reason: it goes to
+ * one socket and must not advance the shared dedup window. */
+const publishReadyLine = (epoch: number, sim_t_ns: number): string =>
+	JSON.stringify({ v: 1, sim_t_ns, kind: "trace.publish-ready", epoch });
+
 const KINDS = new Set([
 	"ocapn.session-opened",
 	"ocapn.message-decoded",
@@ -222,15 +259,18 @@ export function replayLines(
 		.map((s) => `{"replay":true,${s.line.slice(1)}`);
 }
 
-/** Start the endpoint on `port` (0 takes an ephemeral one) and return the sink
- * to hand to `enableTrace`. The `ROOMS-VIZ-LISTENING` line names the port the
- * socket actually bound, so a viewer — or a harness — reads the URL rather than
- * guessing at one. Sends never block the room server: a socket that cannot
- * accept a frame is dropped (the viewer reconnects and replays). */
-export function startViz(port: number): VizServer {
+/** Start the endpoint on `port` (0 takes an ephemeral one), guarded by
+ * `swiss` — the viz capability every socket must present — and return the
+ * sink to hand to `enableTrace`. The trace object is published under that
+ * same swiss, so the `ROOMS-VIZ-LISTENING` sturdyref carries the whole
+ * grant: the port the socket actually bound, the peer to establish with,
+ * and the swissnum that both admits the socket and enlivens the trace.
+ * Sends never block the room server: a socket that cannot accept a frame
+ * is dropped (the viewer reconnects and replays). */
+export function startViz(port: number, swiss: string): VizServer {
 	const traceHost = new Host(); // rooms-profile-exempt: generic v1.0 observer, not a Rooms peer.
 	const traceDesignator = traceHost.designator();
-	const traceSwiss = traceHost.publishDurable((verb, args) => {
+	traceHost.publishGiftable(swiss, (verb, args) => {
 		if (verb !== "subscribe" || args.length !== 1 || !(args[0] instanceof Ref)) {
 			throw new Error("trace.subscribe expects one inbox capability");
 		}
@@ -420,7 +460,7 @@ export function startViz(port: number): VizServer {
 				boundPort = bound;
 				announceBound(bound);
 				const locator = tcp.locator("127.0.0.1", bound);
-				const ref = formatSturdyRef(locator, traceSwiss, "v1_0");
+				const ref = formatSturdyRef(locator, swiss, "v1_0");
 				announceSturdyref(ref);
 				console.error(`ROOMS-VIZ-LISTENING ${ref}`);
 			},
@@ -428,14 +468,34 @@ export function startViz(port: number): VizServer {
 		(req) => {
 			if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
 				return new Response(
-					"rooms viz: connect an OCapN websocket at / or publish telemetry at /publish\n",
+					"rooms viz: connect an OCapN websocket at / or publish telemetry at /publish, " +
+						`presenting the viz capability as ?${VIZ_CAP_PARAM}=<swiss>\n`,
 					{ status: 400 },
 				);
 			}
-			const publishing = new URL(req.url).pathname === VIZ_PUBLISH_PATH;
+			const url = new URL(req.url);
+			const publishing = url.pathname === VIZ_PUBLISH_PATH;
 			const { socket, response } = Deno.upgradeWebSocket(req);
+			// Admission first, before either role exists. A socket that does not
+			// present the capability is never a producer and never a viewer: no
+			// handler is installed, so nothing it sends is parsed, ingested, or
+			// forwarded. The refusal happens after the upgrade so the closing
+			// handshake can carry a reason a WebSocket client is able to read;
+			// a plain 403 would reach it only as an anonymous handshake failure.
+			if (!constantTimeEquals(url.searchParams.get(VIZ_CAP_PARAM) ?? "", swiss)) {
+				socket.onopen = () => socket.close(VIZ_REFUSED_CLOSE_CODE, VIZ_REFUSED_REASON);
+				return response;
+			}
 			if (publishing) {
 				const producer = newProducer(socket);
+				socket.onopen = () => {
+					// The admission mark: the one thing a producer ever hears.
+					try {
+						socket.send(publishReadyLine(epoch, Math.round((performance.now() - t0) * 1_000_000)));
+					} catch {
+						// A socket that died mid-open reports through onclose.
+					}
+				};
 				socket.onmessage = (msg) => {
 					if (typeof msg.data !== "string") return;
 					const rec = parseRecord(msg.data);
@@ -446,6 +506,11 @@ export function startViz(port: number): VizServer {
 				return response;
 			}
 			viewerSockets.add(socket);
+			// Taken out again by the task that opening starts. A socket that never
+			// opens starts no task and would sit in this set for the life of the
+			// process; a listener rather than `onclose`, because the session takes the
+			// socket's own handlers when it establishes.
+			socket.addEventListener("close", () => viewerSockets.delete(socket));
 			socket.onopen = () => {
 				const task = (async () => {
 					let session: Session | null = null;

@@ -29,6 +29,31 @@ fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
     return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
 }
 
+fn unusedDialFinish(
+    _: *anyopaque,
+    _: *anyopaque,
+    _: *engine.Peer,
+    _: net.netlayer.Buffers,
+) net.netlayer.DialFinishOutcome {
+    return .{ .failed = .init(error.ConnectionLost) };
+}
+
+fn unusedDialCancel(_: *anyopaque, _: *anyopaque) ?pancake.foundation.FailureChain {
+    return null;
+}
+
+fn unusedListenFinish(
+    _: *anyopaque,
+    _: *anyopaque,
+    _: std.mem.Allocator,
+) net.netlayer.ListenFinishOutcome {
+    return .{ .failed = .init(error.BindFailed) };
+}
+
+fn unusedListenCancel(_: *anyopaque, _: *anyopaque) ?net.netlayer.ListenerCloseFailure {
+    return null;
+}
+
 /// Accept one partner through the contract `Listener`, handshake, and serve the
 /// bootstrap fetch until the client closes.
 fn serveOnce(listener: *net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
@@ -92,6 +117,60 @@ test "netlayer slice resolves a transport symbol and misses the rest" {
     const found = net.netlayer.resolve(&netlayers, "tcp") orelse return error.TcpNotResolved;
     try std.testing.expectEqualStrings("tcp", found.transportName());
     try std.testing.expect(net.netlayer.resolve(&netlayers, "quic") == null);
+}
+
+test "consumed operation shells refuse a second finish without trapping" {
+    var peer = stubNegotiatingPeer(std.testing.allocator);
+    defer peer.deinit();
+    const dial_vtable: net.netlayer.DialAttempt.VTable = .{
+        .finish = unusedDialFinish,
+        .cancel = unusedDialCancel,
+    };
+    var dial = net.netlayer.DialAttempt{
+        .owner = undefined,
+        .attempt = null,
+        .vtable = &dial_vtable,
+        .readiness_fd = -1,
+    };
+    const dial_failure = dial.finish(&peer, .{ .read = &.{}, .write = &.{} }).failed;
+    try std.testing.expectEqual(error.InvalidOptions, dial_failure.classification);
+
+    var listen = net.netlayer.ListenAttempt{
+        .owner = undefined,
+        .attempt = null,
+        .finish_fn = unusedListenFinish,
+        .cancel_fn = unusedListenCancel,
+        .readiness_fd = -1,
+    };
+    const listen_failure = listen.finish(std.testing.allocator).failed;
+    try std.testing.expectEqual(error.ProviderContract, listen_failure.cause);
+
+    var claimed = net.multiplexed_resident.ClaimedConnection{
+        .resident = undefined,
+        .id = null,
+    };
+    try std.testing.expect(claimed.borrow() == null);
+    try std.testing.expect(claimed.take() == null);
+
+    const empty_vtable: net.netlayer.Netlayer.VTable = .{
+        .profile = model.transport.Known.tcp.metadata(),
+        .dial = null,
+        .listen = null,
+    };
+    const empty = net.netlayer.Netlayer{ .ctx = undefined, .vtable = &empty_vtable };
+    const locator = tcp.locator("127.0.0.1:1");
+    try std.testing.expectError(
+        error.InvalidOptions,
+        empty.dial(&peer, locator, .{ .read = &.{}, .write = &.{} }, .inherit),
+    );
+    try std.testing.expectEqual(
+        error.InvalidOptions,
+        empty.startDial(locator, .inherit).failed.classification,
+    );
+    try std.testing.expectEqual(
+        error.InvalidOptions,
+        empty.listen(std.testing.allocator, .{ .designator = "" }).failed.cause,
+    );
 }
 
 test "netlayer contract loopback: dial + accept through the vtable, handshake + fetch" {

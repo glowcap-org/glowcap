@@ -40,7 +40,7 @@ const Peer = engine.Peer;
 pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
     const far = switch (target) {
         .far => |far| far,
-        .near, .promise, .sturdy, .broken => return session.Error.InvalidReference,
+        .near, .routed, .promise, .sturdy, .broken => return session.Error.InvalidReference,
     };
     if (!peer.session_state.holdsImport(far.import_position)) return session.Error.InvalidReference;
     const is_next_promise = peer.session_state.captp_version == .next;

@@ -40,5 +40,5 @@ then dials the returned `ocapn://<nodeid>.iroh` locator through iroh discovery.
 
 Port 8000 serves the browser UI and locator endpoint inside the container.
 CapTP traffic does not travel through that HTTP port. Compose publishes every
-canonical service port onto the host-loopback port selected in this worktree's
+canonical service port onto the host port selected in this worktree's
 ignored `.env`; the editor does not add a second forwarding layer.

@@ -3,7 +3,7 @@ id: ADR-0052
 status: accepted
 date: 2026-06-11
 tags: [engine, session, pipelining, untag, tagged]
-decision: `pancake-next` answers `op:untag` (CapTP § Receiving) through the ADR-0050 projection substrate; default `1.0` refuses it because Goblins has no such operation. A matching tag unwraps the Tagged payload (the single value when the payload has one, the value List otherwise) and a mismatched tag or a non-Tagged fulfillment breaks the projected answer. The tag is a Syrup String on the wire, matching op:get's field-name choice. The next-profile conformance authority is the spec text plus the Zig wire-driven scenarios and the Racket-generated fixture.
+decision: `op:untag` is an OCapN 1.0 operation and both profiles answer it through the ADR-0050 projection substrate. Pancake sends it only when the partner explicitly advertised the `untag` feature; an absent feature hint excludes it because Goblins has no such operation. A matching tag unwraps the Tagged payload (the single value when the payload has one, the value List otherwise) and a mismatched tag or a non-Tagged fulfillment breaks the projected answer. The tag is a Syrup String on the wire, matching op:get's field-name choice.
 supersedes: []
 superseded_by: []
 ---
@@ -36,23 +36,29 @@ pancake's `model.Tagged` carries the Goblins `user-record` payload as a slice
   through.
 - **The tag is a Syrup String on the wire**, matching the op:get field-name
   choice the spec and live Goblins settled for ADR-0050.
-- **The next-profile initiator half is symmetric.** Sending `op:untag` validates
-  the receiver like a deliver target and installs the projected answer
-  outbound. Default `1.0` refuses the operation before installing answer state.
+- **The initiator half is symmetric and explicitly negotiated.** Sending
+  `op:untag` validates the receiver like a deliver target and installs the
+  projected answer outbound on either wire version, but only when the session
+  negotiated `FeatureSet.untag`. Refusal occurs before answer state mutates.
+- **Inbound support is not feature-gated.** The pinned 1.0 draft defines the
+  operation. A conforming peer may send it even when it knows nothing about
+  Pancake's hint vocabulary, so both owned and borrowed receive paths validate
+  and answer it on 1.0.
 
 ## Scope (what this does not decide)
 
-- Goblins has no `op:untag` marshaller, so default `1.0` neither sends nor
-  accepts it. The next-profile authority is the spec text, the wire-driven
-  engine scenarios, and the upstream-Racket-generated `op_untag.bin` fixture.
+- Goblins has no `op:untag` marshaller. Its absent feature hint therefore keeps
+  Pancake from sending the operation accidentally, while accepting one remains
+  the standards-correct behavior. The authority is the pinned spec text, the
+  wire-driven engine scenarios, and the upstream-Racket-generated fixture.
 - The tag-namespace question upstream is discussing for user tags (meeting
   minutes 2025-10-14) is the application's: pancake matches the tag bytes the
   wire carries.
 
 ## Consequences
 
-- `pancake-next` answers all three projection ops on both sides; default `1.0`
-  remains limited to Goblins' `op:get` and `op:index` inventory.
+- Both profiles answer all three projection ops. Outbound `op:untag` is
+  available when both peers advertise it, independently of the version axis.
 - The untag scenarios (single-value unwrap, variadic List unwrap, tag mismatch,
   non-Tagged receiver, outbound install) ride the same wire-driven suite as
   get/index, and the codec corpus pins the wire shape in Syrup and Cap'n Proto

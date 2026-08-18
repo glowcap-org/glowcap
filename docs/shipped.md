@@ -11,9 +11,9 @@ are implemented and checked in this repository. Read
 | --- | --- |
 | Zig | `driver.Session` connects or listens, fetches and publishes capabilities, calls them, and redeems three-party introductions. `driver.HostRuntime` owns the sessions behind that API. |
 | Sans-I/O Zig | `engine.Peer` exposes the protocol engine without sockets or scheduling. Callers feed frames, step the engine, drain output, and handle events. |
-| C | Opaque handles, fixed-width result codes, explicit release, and a close that takes a pending-work policy (`PancakeCloseOptions`). Separate archives cover the core, host, native loop, and transports. Structured diagnostic reports validate stable result codes and consequence shape before crossing into retained storage. |
+| C | Opaque handles, fixed-width result codes, explicit release, and a close that takes a pending-work policy (`PancakeCloseOptions`). Separate archives cover the core, host, native loop, and transports. Each transport archive exposes a build-derived fingerprint, and generated binding loaders compare it before any other call so a stale companion is refused. Structured diagnostic reports validate stable result codes and consequence shape before crossing into retained storage; fallible blocking transport calls can return their worker-thread diagnostic in caller-owned storage. Every status call begins a fresh archive-local diagnostic fact, so an undetailed refusal cannot inherit an earlier call's cause. |
 | Bindings | Rust, TypeScript, Python, and Racket expose the same session and actor model through the C ABI. They can dial, listen, host objects, call far objects, and pass capabilities. |
-| Browser | `@pancake/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, and redeem handoffs over WebSocket; after signaling, it can also hold an ordinary keyed session over WebRTC. |
+| Browser | `@pancake/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs over WebSocket, register for sealed `noise-relay` cold-dials, and hold an ordinary keyed session over WebRTC after signaling. |
 
 The [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), and
 [binding contract](../bindings/README.md) are the entry points for those
@@ -43,16 +43,38 @@ channels use the byte-fed Host instead.
   session to close.
 - **Calls and promises.** Applications can fetch a bootstrap capability, call
   it, send without waiting, and pipeline calls or field, index, and tag
-  projections through an unresolved answer.
+  projections through an unresolved answer. Pancake accepts the OCapN 1.0
+  `op:untag` operation unconditionally; it sends one only when the partner's
+  signed hello advertises the independent `untag` feature, so a silent Goblins
+  peer remains on the proven compatibility set without redefining the version.
+  V1.0 resolver-only calls retain a typed local answer through the same reply
+  path without fabricating a wire position; every `u64` remains available to a
+  partner as an answer position, and wire GC cannot alias the local row.
+  One-way sends use the draft's answerless `op:deliver` form; there is no
+  separate `op:deliver-only` operation in the pinned draft or Goblins.
 - **Persistent references.** A sturdyref is a durable peer-locator plus swiss
   name that can be enlivened into a live capability. Session-level enlivenment
   checks the complete peer locator before cache lookup or wire traffic;
   repeated enlivenment on that session shares the same import. A mismatched
   peer or an accepted plain-TCP assertion is refused.
 - **Three-party handoff.** A capability received from one peer can be returned
-  to another. The application API covers deposit, signed gift, withdrawal, and
-  any new connection redemption needs. Deposited gifts keep the exact actor in
-  the Host Vat
+  or passed recursively to another. Inbound signed gives become Host-owned
+  promises immediately. Outbound foreign objects and promises wait as one
+  bounded transaction until every gift id, exporter deposit, shared promise
+  listener, recipient escrow, and rewritten message can commit. Core and C
+  Host cover terminal failure. Node-local routes use an explicit reference arm,
+  so every `u64` remains available to a peer as a wire import and an unlowered
+  route is structurally refused by codecs. The recurring Deno, Python, Rust,
+  and Racket gifter matrix proves two nested gives against live Goblins.
+
+- **Relayed promise settlement.** When a shared home promise settles, its
+  complete Passable value crosses Host identity once and reuses the bounded
+  Passable transaction for each recipient. Nested objects become gives, nested
+  promises become successor proxies, and a
+  recipient that cannot admit its projection breaks without publishing a
+  prefix or rolling back a sibling.
+
+- **Handoff capability ownership.** Deposited gifts keep the exact actor in the Host Vat
   ([ADR-0101](decisions/adr/ADR-0101-actor-roots-and-reclamation.md)).
   Zig and the bindings can also listen for settlement of a promise received
   from a peer
@@ -60,11 +82,17 @@ channels use the byte-fed Host instead.
   Gifts and replay counters live on the sessions that own them; product Hosts
   mint a fresh signing key per session
   ([ADR-0100](decisions/adr/ADR-0100-session-owned-handoff-authority.md),
-  [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md)).
+  [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md),
+  [ADR-0116](decisions/adr/ADR-0116-inline-passable-handoff.md)).
 - **Identity.** A session can report the identity its handshake established.
   On `driver.Session`, the C ABI, Wasm, and the bindings, every application
   capability is one opaque Host-scoped identity
   ([ADR-0096](decisions/adr/ADR-0096-host-scoped-capability-identity.md)).
+  Repeated lifts on one live exporter session — including a target reached
+  directly and through three-party handoff — converge on that identity. C
+  compares the opaque ids; Rust, Python, and Racket use their native equality
+  operations, and TypeScript uses `Ref.equals` because each wrapper occurrence
+  independently owns one native retain. Release state is not part of equality.
   Wire positions surface only on the low-level `engine.Peer` and
   `BlockingSession` tiers.
 - **Publication.** Each session reaches the Host's shared Vat through its own
@@ -78,13 +106,15 @@ channels use the byte-fed Host instead.
   dials the sturdyref peer itself.
 - **Locators.** Zig, C, and the bindings parse and format `ocapn://` peer and
   sturdyref URIs. Sturdyref helpers require the CapTP profile that owns the
-  swiss-number path spelling; no C or binding helper silently chooses one.
+  swiss-number path form; no C or binding helper silently chooses one.
   Applications dial through a locator rather than a transport-specific
   session API.
 - **Resource limits.** Session tables, projection depth, nesting depth, and
   Cap'n Proto traversal are bounded. Distributed garbage collection is
-  available as an opt-in for fetched references. A final import release also
-  clears sturdyref cache state and makes every old host route fail closed
+  available as a per-session opt-in in every binding: fetched capabilities,
+  fulfilled far results, and recursively nested delivered arguments all return
+  their opaque Host retain through one finalizer seam. A final import release
+  also clears sturdyref cache state and makes every old host route fail closed
   before the partner may reuse that position.
 - **Unreturned failures.** The vendor-neutral diagnostics layer and
   `PancakeContext` provide one typed, bounded journal for a failure whose last
@@ -102,7 +132,10 @@ channels use the byte-fed Host instead.
   cleanup chain merely because it crosses C. Every native terminal event owns
   queue capacity before its transition commits: opens and listeners reserve at
   admission, wires at adoption, and completions while their Host action is
-  still parked.
+  still parked. Provider installation and final driver release return a
+  versioned caller-owned record with the exact primary, first consequence, and
+  total consequence count; every binding projects that record without parsing
+  thread-local diagnostic text.
 - **Close.** Every owning front closes under an explicit pending-work policy
   ([ADR-0114](decisions/adr/ADR-0114-pending-work-close-policy.md)): cancel
   stops admitted work at once, finish seals admission and drives already
@@ -156,6 +189,12 @@ channels use the byte-fed Host instead.
   Failed Python relay and iroh connector establishment joins transport
   rollback, keeps the establishment error primary, and retains cleanup failure
   on the Host.
+  The TypeScript managed WebSocket and Deno TCP channels publish one bounded,
+  idempotent close barrier; the relay joins both legs and both barriers while
+  retaining later close refusals. The Python reference relay likewise joins its
+  WebSocket and channel close barriers and preserves the exact first I/O failure
+  plus ordered close consequences. Racket and Rust relay pumps already enforce
+  the same result-bearing pair teardown.
   TCP connector rollback follows the same joined barrier. Rejected TCP, Onion,
   relay, and iroh provider installation retains cleanup failure on the Host
   without replacing the exact installation error.
@@ -191,6 +230,18 @@ channels use the byte-fed Host instead.
   earlier close or loop failure. Iroh and TCP listener setup rollback retain
   listener cleanup failure beside the exact setup cause. Both use one shared
   cleanup-composition primitive.
+  Native WebRTC peer close is admitted once into an endpoint-owned task
+  barrier. Crate close refusal, timeout, cancellation, or panic survives the
+  peer handle and returns from final endpoint/provider release instead of
+  disappearing with a detached task. Its synchronous control calls remain
+  usable from a consumer already inside Tokio; the sidecar yields a
+  multithreaded ambient worker or borrows a scoped helper for a current-thread
+  runtime instead of invoking nested `block_on`.
+  The native iroh sidecar uses the same surviving-owner rule for detached QUIC
+  writers: write, finish, cancellation, and panic failure remains on the
+  endpoint release barrier. Its runtime owner is safe to release from inside a
+  consumer's Tokio runtime, and its blocking compatibility calls use the same
+  ambient-runtime seam rather than panicking on nested `block_on`.
   Rust custom allocator panics remain contained at the C callback boundary.
   Allocation still degrades to the native out-of-memory path, while allocation
   and free panic text is retained in the bounded runtime failure queue.
@@ -227,9 +278,12 @@ channels use the byte-fed Host instead.
   A local fire-and-forget behavior failure cannot become a reply, but its Host
   retains the exact exception instead of silently discarding it.
 
-The passable-value model covers the OCapN values used by the current protocol,
-plus the Set and Keyword forms used by Goblins. OCapN Null is not implemented;
-see [protocol limitations](boundaries.md#protocol-and-interop).
+The passable-value model and typed C/binding waist cover the pinned OCapN
+scalar and aggregate forms, including arbitrary-precision Integer, Struct, and
+Error-as-fulfilled-data, plus the Set and Keyword forms used by Goblins. Error
+data remains distinct from a broken reply at the Host, C, Rust, TypeScript,
+Python, and Racket surfaces. OCapN Null is not implemented; see
+[protocol limitations](boundaries.md#protocol-and-interop).
 
 ## Codecs
 
@@ -238,13 +292,18 @@ see [protocol limitations](boundaries.md#protocol-and-interop).
 | Syrup | The interoperable OCapN wire format. Its fixtures are cross-checked against upstream Syrup encoders. |
 | Cap'n Proto | A pancake-to-pancake format with checked golden frames. It is not a Goblins format. |
 
-The authenticated OCapN 1.0 profile uses Syrup. A pancake pair can prefer Cap'n
-Proto or `"pancake-next"`; each side states its offer in the hello's locator
-hints, and `engine.Peer.settleNegotiatedProfile` settles the pair after both
-verified hellos arrive
-([ADR-0103](decisions/adr/ADR-0103-hello-carried-profile-offers.md)). An absent
-offer is the v1.0/Syrup floor, so Goblins traffic stays wire-identical. Every
-binding exposes the host preference selector. Binding checks
+The authenticated OCapN 1.0 profile uses Syrup. Two pancake peers can prefer
+Cap'n Proto or `"pancake-next"`. Each side puts that offer in the hello's
+locator hints, and `engine.Peer.settleNegotiatedProfile` settles the pair after
+both verified hellos arrive.
+[ADR-0103](decisions/adr/ADR-0103-hello-carried-profile-offers.md) records that
+handshake. An absent offer is the v1.0/Syrup floor, so Goblins traffic stays
+wire-identical. Over onion the offer is sent only when the partner is known to
+be pancake, because the pinned Goblins cannot dial a hinted onion locator. A
+dial includes the offer when it was handed the pancake-hinted address form. An
+accept includes it when answering a hello that already stated one.
+[ADR-0118](decisions/adr/ADR-0118-onion-profile-by-knowledge.md) records that
+exception. Every binding exposes the host preference selector. Binding checks
 (`zig build rust-dogfood`, `deno-dogfood`, `python-dogfood`, and
 `racket-dogfood`) exercise the C ABI as a real consumer over a live Cap'n Proto
 socket. Zig applications can add another codec through the open registry
@@ -258,7 +317,7 @@ without changing the protocol core.
 | `keyed-tcp` | TCP with a key designator as the dial target. The channel is cleartext and unauthenticated; the key does not prove possession. |
 | `noise-tcp` | The keyed-tcp grammar with ADR-0107's sealed channel on the wire: a Noise_XK handshake between the two peers encrypts the channel end to end, and completing it proves the dialed key. The Zig host tiers, C driver loop, and all four native bindings dial and listen on it. |
 | `keyed-relay` | Cleartext WebSocket to a relay; the key designator is a dial target with no listening address. Trusted network and relay only. |
-| `noise-relay` | The keyed-relay pipe with ADR-0107's sealed channel: CapTP peers run Noise_XK with each other, and the relay only forwards ciphertext. The native provider dials and registers through the generic driver, and every native binding composes that provider. Browser peers use WebRTC for an authenticated channel or explicit cleartext `keyed-relay` rendezvous. |
+| `noise-relay` | The keyed-relay pipe with ADR-0107's sealed channel: CapTP peers run Noise_XK with each other, and the relay only forwards ciphertext. The native provider and every native binding compose it. The managed browser connector uses the same byte-fed Host sealing and can register or dial this profile. |
 | `inproc` | An in-process connection for tests and deterministic local scenarios. |
 | `iroh` | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
 | `webrtc` | An encrypted DataChannel reached through signaling. It carries a normal keyed OCapN session once the channel is open. |
@@ -282,7 +341,11 @@ byte-transparent relay in Deno, Python, Rust, and Racket. The relay forwards
 bytes without parsing CapTP or holding a capability.
 
 `noise-tcp` and `noise-relay` run ADR-0107's Noise_XK channel on the byte-fed
-Host and native tiers; `BlockingSession` refuses both symbols.
+Host and native tiers; `BlockingSession` refuses both symbols. The optional
+native relay module composes `ws` and `wss` over one provider, while
+browser-managed WebSockets use their runtime's carrier. The remaining secure
+relay evidence is recorded under
+[browser reachability](boundaries.md#browser-reachability).
 
 See [known limitations](boundaries.md#transports-and-peer-identity) for the
 security and reachability differences between these choices.
@@ -314,6 +377,21 @@ listening socket can still receive replies and participate in a handoff.
   transfer, WebRTC, and relay rendezvous. Direct files are sender-hosted blob
   capabilities on the existing peer session, so the transport stays below the
   message contract.
+- Starting the rooms web UI with `--diagnostics` (or `-Ddiagnostics` on the
+  zig step) publishes an inspect object under an unguessable swiss number on
+  that Host. Fetching the swiss number is the capability; the directory itself
+  does not answer `snapshot`. `--admin-listeners` (or `-Dadmin-listeners`)
+  publishes a listener-admin object the same way. Holding its swiss number
+  lists one seat per transport the server can realize, each described in the
+  owning provider package's own words along with the knobs its up accepts.
+  It brings a listener up and takes one down; an up names values for those
+  knobs — the tcp profiles' bind host, port, and advertised host, the relay
+  profiles' relay — and what it leaves out falls to the server's own
+  defaults. The listener carrying the announced locator
+  refuses to go down, and a seat the server already knows cannot come up
+  says so standing, both with words saying why. `--viz` (or `-Dviz`) serves
+  the live timeline endpoint on port 9300 (`PANCAKE_ROOMS_VIZ_PORT` moves
+  it) and mints the viz capability the same way.
 - Changing a line, taking one back, and saying what a room is about are
   references the room hands out rather than checks it performs. Posting answers
   with a reference to the line it made, and subscribing answers with the
@@ -322,7 +400,9 @@ listening socket can still receive replies and participate in a handoff.
   in one room because they hold different references.
 - ocapnviz can open a read-only trace sturdyref as a browser OCapN peer. Its
   production Chromium check covers replay, subsequent live observations, and
-  exclusion of the observer session from its own topology.
+  exclusion of the observer session from its own topology. The rooms trace
+  endpoint behind that sturdyref admits no socket — viewer or trace producer —
+  without the viz capability the sturdyref carries (ADR-0120).
 - The accountability example layers signed identity and an audit log above
   ordinary capabilities without changing CapTP.
 
@@ -340,17 +420,18 @@ protocol implementation.
 `zig build check-external` runs the core outside-authority baseline: the
 upstream OCapN suite, live Goblins sessions in both call directions and all
 three handoff roles, and pinned-source findings. It also regenerates the Syrup
-corpus with the upstream encoder. The every-push
+corpus with the upstream encoder. The recurring
 [`ci/gates.sh`](../ci/gates.sh) sequence runs that evidence plus each language
 binding as a live Goblins client through the C ABI and the Deno binding as a
 host. Those steps require their named external runtimes and are not evidence
 supplied by `zig build check`.
 
-The three-implementation rooms checks are on-demand: a browser tab redeems a
+The three-peer rooms checks are on-demand: a pancake browser tab redeems a
 room's introduction and holds a direct message with a real Goblins vat, off the
 room's path, over cleartext TCP and encrypted QUIC. They require Chromium and
-therefore do not run in the every-push sequence.
+therefore do not run in the recurring sequence.
 
-[Stability](stability.md) says which checks run on every push.
+[Stability](stability.md) says which checks run on main-branch pushes and pull
+requests.
 [Community review](community-review.md) records exactly what the outside-peer
 checks do and do not prove.

@@ -17,6 +17,14 @@ error_slot!(
 	ffi::pancake_relay_last_error
 );
 
+fn require_archive() -> Result<()> {
+	crate::require_archive_fingerprint(
+		"relay",
+		unsafe { ffi::pancake_relay_archive_fingerprint() },
+		crate::abi_constants::RELAY_ARCHIVE_FINGERPRINT,
+	)
+}
+
 fn profile_locator(transport: &str, designator: &str, relay_url: &str) -> Locator {
 	let mut hints = std::collections::BTreeMap::new();
 	hints.insert("rendezvous-relay".to_string(), HintValue::String(relay_url.to_string()));
@@ -64,7 +72,17 @@ pub mod noise {
 	}
 }
 
-/// URLs used to construct the shared native relay provider.
+/// Immutable trust snapshot used by the native secure relay carrier.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum Trust<'a> {
+	/// Load the process platform's trust roots once during construction.
+	#[default]
+	System,
+	/// Copy one PEM snapshot during construction. The runtime retains no borrow.
+	CopiedPem(&'a [u8]),
+}
+
+/// URLs and trust used to construct the shared native relay provider.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'a> {
 	/// The relay WebSocket URL used for outbound keyed/noise legs.
@@ -72,6 +90,8 @@ pub struct Config<'a> {
 	/// The registration URL used when listening. `None` makes this provider
 	/// dial-only; the driver still advertises both profiles.
 	pub register_url: Option<&'a str>,
+	/// Trust used when any validated route selects WSS.
+	pub trust: Trust<'a>,
 }
 
 impl<'a> Config<'a> {
@@ -79,6 +99,7 @@ impl<'a> Config<'a> {
 		Self {
 			relay_url,
 			register_url: None,
+			trust: Trust::System,
 		}
 	}
 
@@ -87,15 +108,37 @@ impl<'a> Config<'a> {
 		self
 	}
 
+	pub const fn with_trust(mut self, trust: Trust<'a>) -> Self {
+		self.trust = trust;
+		self
+	}
+
 	fn to_c(self) -> ffi::PancakeRelayConfig {
 		let register = self.register_url.unwrap_or("");
+		let (trust, trust_pem, trust_pem_len) = match self.trust {
+			Trust::System => (ffi::PANCAKE_RELAY_TRUST_SYSTEM, core::ptr::null(), 0),
+			Trust::CopiedPem(pem) => (ffi::PANCAKE_RELAY_TRUST_COPIED_PEM, pem.as_ptr(), pem.len()),
+		};
 		ffi::PancakeRelayConfig {
+			abi_version: ffi::PANCAKE_RELAY_CONFIG_ABI_VERSION,
+			struct_size: core::mem::size_of::<ffi::PancakeRelayConfig>(),
 			relay_url: self.relay_url.as_ptr(),
 			relay_url_len: self.relay_url.len(),
 			register_url: register.as_ptr(),
 			register_url_len: register.len(),
+			trust,
+			trust_pem,
+			trust_pem_len,
 		}
 	}
+}
+
+/// Immutable result of loading the native relay's trust snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TrustSummary {
+	pub loaded: usize,
+	pub skipped_by_engine: usize,
+	pub first_skipped_engine_code: Option<i32>,
 }
 
 /// Owns one relay provider runtime. It has no connection children because the
@@ -107,6 +150,7 @@ pub struct Runtime<'ctx> {
 
 impl<'ctx> Runtime<'ctx> {
 	pub fn new(config: Config<'_>) -> Result<Self> {
+		require_archive()?;
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
 		check_relay(unsafe { ffi::pancake_relay_runtime_new(&c, &mut raw) })?;
@@ -114,6 +158,7 @@ impl<'ctx> Runtime<'ctx> {
 	}
 
 	pub fn new_in(context: &'ctx Context, config: Config<'_>) -> Result<Self> {
+		require_archive()?;
 		let c = config.to_c();
 		let mut raw = core::ptr::null_mut();
 		check_relay(unsafe { ffi::pancake_relay_runtime_new_in(context.raw(), &c, &mut raw) })?;
@@ -129,19 +174,31 @@ impl<'ctx> Runtime<'ctx> {
 		})
 	}
 
+	pub fn trust_summary(&self) -> Result<TrustSummary> {
+		let mut raw = ffi::PancakeRelayTrustSummary::default();
+		check_relay(unsafe { ffi::pancake_relay_runtime_trust_summary(self.raw, &mut raw) })?;
+		Ok(TrustSummary {
+			loaded: raw.loaded,
+			skipped_by_engine: raw.skipped_by_engine,
+			first_skipped_engine_code: (raw.first_skipped_engine_code != 0).then_some(raw.first_skipped_engine_code),
+		})
+	}
+
 	/// Consume the constructor lease and report the native teardown barrier.
 	/// After provider installation this normally releases only that lease; the
 	/// driver reports final asynchronous teardown when it closes.
 	pub fn close(mut self) -> Result<()> {
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
-		check_relay(unsafe { ffi::pancake_relay_runtime_release(raw) })
+		check_relay(unsafe { ffi::pancake_relay_runtime_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut()) })
 	}
 }
 
 impl Drop for Runtime<'_> {
 	fn drop(&mut self) {
 		if !self.raw.is_null() {
-			if let Err(error) = check_relay(unsafe { ffi::pancake_relay_runtime_release(self.raw) }) {
+			if let Err(error) = check_relay(unsafe {
+				ffi::pancake_relay_runtime_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+			}) {
 				crate::record_runtime_failure(crate::FailureLayer::Transport, "relay-runtime-drop-release", error);
 			}
 		}
@@ -151,8 +208,14 @@ impl Drop for Runtime<'_> {
 /// Install the shared keyed-relay/noise-relay package into a native driver.
 pub fn install_provider(driver: &crate::driver_loop::DriverLoop, config: Config<'_>) -> Result<()> {
 	let runtime = Runtime::new(config)?;
-	driver.add_provider(runtime.transport_provider()?)?;
-	runtime.close()
+	let installed = (|| {
+		let package = runtime.transport_provider()?;
+		driver.add_provider(package)
+	})();
+	match installed {
+		Ok(()) => runtime.close(),
+		Err(primary) => Err(crate::retain_cleanup_failure(primary, runtime.close())),
+	}
 }
 
 /// Configure this archive's keyed-relay/noise-relay package for a generic
@@ -160,16 +223,28 @@ pub fn install_provider(driver: &crate::driver_loop::DriverLoop, config: Config<
 pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
 	let relay_url = config.relay_url.to_owned();
 	let register_url = config.register_url.map(str::to_owned);
+	let trust_pem = match config.trust {
+		Trust::System => None,
+		Trust::CopiedPem(pem) => Some(pem.to_vec()),
+	};
 	crate::driver_loop::Provider::new(move |lp| {
 		let relay_url = relay_url.clone();
 		let register_url = register_url.clone();
+		let trust_pem = trust_pem.clone();
 		async move {
 			let runtime = Runtime::new(Config {
 				relay_url: &relay_url,
 				register_url: register_url.as_deref(),
+				trust: trust_pem.as_deref().map_or(Trust::System, Trust::CopiedPem),
 			})?;
-			lp.add_provider(runtime.transport_provider()?)?;
-			runtime.close()
+			let installed = (|| {
+				let package = runtime.transport_provider()?;
+				lp.add_provider(package)
+			})();
+			match installed {
+				Ok(()) => runtime.close(),
+				Err(primary) => Err(crate::retain_cleanup_failure(primary, runtime.close())),
+			}
 		}
 	})
 }
@@ -179,4 +254,26 @@ pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
 /// generic dial path or application.
 pub fn provider_for(locator: &Locator) -> Result<crate::driver_loop::Provider> {
 	Ok(provider(Config::dial_only(route_from_locator(locator)?)))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{Config, Trust};
+
+	#[test]
+	fn system_trust_has_the_c_contracts_empty_view() {
+		let raw = Config::dial_only("wss://relay.example/relay").to_c();
+		assert!(raw.trust_pem.is_null());
+		assert_eq!(raw.trust_pem_len, 0);
+	}
+
+	#[test]
+	fn copied_trust_preserves_its_borrowed_view() {
+		let pem = b"fixture pem";
+		let raw = Config::dial_only("wss://relay.example/relay")
+			.with_trust(Trust::CopiedPem(pem))
+			.to_c();
+		assert_eq!(raw.trust_pem, pem.as_ptr());
+		assert_eq!(raw.trust_pem_len, pem.len());
+	}
 }

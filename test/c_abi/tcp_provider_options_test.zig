@@ -85,7 +85,7 @@ test "TCP provider operation options inherit, override, validate, and survive li
     var captured = LocatorCapture{};
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        table.listener_locator.?(listen_result.listener, &captured, LocatorCapture.sink),
+        table.listener_locator.?(listen_result.listener, &captured, LocatorCapture.sink, null),
     );
     const locator: c.PancakeLocatorView = .{
         .abi_version = c.PANCAKE_LOCATOR_VIEW_ABI_VERSION,

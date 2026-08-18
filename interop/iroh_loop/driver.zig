@@ -53,7 +53,7 @@ const publishGreeter = harness.publisher("greeter", Greeter);
 /// `calls_per_conn` times, checking every reply.
 fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) anyerror!void {
     var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
-    defer client.deinit();
+    defer client.deinit() catch |err| std.log.err("iroh client teardown failed: {s}", .{@errorName(err)});
 
     const entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
@@ -94,7 +94,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-loop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer server.deinit();
+    defer server.deinit() catch |err| std.log.err("iroh server teardown failed: {s}", .{@errorName(err)});
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);

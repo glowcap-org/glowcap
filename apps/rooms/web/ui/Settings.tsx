@@ -1,52 +1,90 @@
 // The page's settings dialog: this window's locators, its appearance, whether
 // it asks the browser to notify, how it advertises itself for direct messages,
-// and where it publishes a protocol trace. Appearance and notifications apply
-// at once. Saving the rest reloads, because those knobs are decided when the
-// peer opens.
+// and one toggle per operations
+// capability. A toggle that is on means this tab holds that capability:
+// flipping it on opens the take modal — paste the swiss number, fetch it —
+// and only a successful take lands it on. Flipping it off lets the
+// capability go. While any is held, an Operations control in the head opens
+// the modal with the held panes.
 
 import { useEffect, useRef, useState } from "react";
 import { usePeer } from "./peer.ts";
-import { advertisedViz, current, type DmMode } from "./prefs.ts";
-import { IconButton } from "./IconButton.tsx";
+import { current, type DmMode } from "./prefs.ts";
 import { Button } from "./Button.tsx";
+import { Switch } from "./Switch.tsx";
 import { CopyField } from "./Copy.tsx";
-import { DirectoryFacts, GrantedNameNote } from "./DirectoryFacts.tsx";
-import { useModalDialog } from "./modal.ts";
-import type { DirView } from "./types.ts";
-
-type Pane = "overview" | "settings";
+import { SettingsHead } from "./SettingsHead.tsx";
+import { openModalFrom, useHeldModal, useModalDialog } from "./modal.ts";
+import { anyOpsHeld, type DirView, OPS_CAPS, type OpsCap, type OpsHeld, type SettingsTab } from "./types.ts";
+import { OPS_CATALOG } from "./ops/catalog.ts";
 
 interface SettingsProps {
 	open: boolean;
 	theme: "light" | "dark";
 	notifyOn: boolean;
-	/** The directory this page is on, which is the one Settings describes. Null
-	 * before any directory has been opened, when there is nothing yet to say about
-	 * it beyond the locator the page came with. */
+	/** The directory this page came from, while this tab still holds it. Null
+	 * before it has answered and after it has been given back, when Settings
+	 * still knows the locator and has no session to open a card about. */
 	dir: DirView | null;
-	/** How many rooms are held on that directory. */
-	rooms: number;
+	/** Which operations capabilities this tab holds, which is what the toggles
+	 * say and what draws the Operations control in the head. */
+	opsHeld: OpsHeld;
+	/** Whether the Operations modal is the top layer, so its control can sit
+	 * pressed while this dialog is retained beneath it. */
+	opsOpen: boolean;
+	/** Which panel to show when this dialog mounts. Returning from Operations
+	 * lands on Advanced rather than resetting to Locators. */
+	tab: SettingsTab;
+	/** Keep the tree while another native dialog has the top layer. */
+	retain?: boolean;
 }
 
-export function Settings({ open, theme, notifyOn, dir, rooms }: SettingsProps) {
-	return open ? <SettingsDialog theme={theme} notifyOn={notifyOn} dir={dir} rooms={rooms} /> : null;
+export function Settings(
+	{ open, retain = false, theme, notifyOn, dir, opsHeld, opsOpen, tab }: SettingsProps,
+) {
+	const { held, onExited } = useHeldModal(open, retain);
+	if (!held) return null;
+	return (
+		<SettingsDialog
+			open={open}
+			retain={retain}
+			onExited={onExited}
+			theme={theme}
+			notifyOn={notifyOn}
+			dir={dir}
+			opsHeld={opsHeld}
+			opsOpen={opsOpen}
+			tab={tab}
+		/>
+	);
 }
 
-function SettingsDialog({ theme, notifyOn, dir, rooms }: Omit<SettingsProps, "open">) {
+function SettingsDialog(
+	{ open, retain, onExited, theme, notifyOn, dir, opsHeld, opsOpen, tab }: Omit<SettingsProps, "retain"> & {
+		retain?: boolean;
+		onExited: () => void;
+	},
+) {
 	const peer = usePeer();
 	const titleId = "settingsTitle";
 	const dialog = useRef<HTMLDialogElement>(null);
 	const overviewTab = useRef<HTMLButtonElement>(null);
 	const settingsTab = useRef<HTMLButtonElement>(null);
 	const [live] = useState(current);
-	const [pane, setPane] = useState<Pane>("overview");
+	const [pane, setPane] = useState<SettingsTab>(tab);
 	const [dm, setDm] = useState<DmMode>(live.dm);
-	const [viz, setViz] = useState(live.viz);
-	const [vizHintUrl, setVizHintUrl] = useState<string | null>(null);
 	const [roomLoc, setRoomLoc] = useState<string | null>(null);
 	const [selfLoc, setSelfLoc] = useState<string | null>(null);
-	const [notifyErr, setNotifyErr] = useState<string | null>(null);
-	useModalDialog(dialog, () => peer.closeSettings(), overviewTab);
+	const tabs: readonly SettingsTab[] = ["overview", "settings"];
+	const tabRef = (which: SettingsTab) => which === "overview" ? overviewTab : settingsTab;
+	useModalDialog(
+		dialog,
+		() => peer.closeSettings(),
+		tabRef(tab),
+		open,
+		onExited,
+		retain,
+	);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -55,27 +93,27 @@ function SettingsDialog({ theme, notifyOn, dir, rooms }: Omit<SettingsProps, "op
 		};
 		showSelf();
 		void peer.directoryReady.then(showSelf);
-		void advertisedViz().then((url) => {
-			if (!cancelled) setVizHintUrl(url);
-		});
 		setRoomLoc(peer.directoryLocator());
 		return () => {
 			cancelled = true;
 		};
 	}, [peer]);
 
-	const dirty = dm !== live.dm || viz.trim() !== live.viz.trim();
-	const selectPane = (next: Pane) => setPane(next);
-	const selectAndFocus = (next: Pane) => {
+	const dirty = dm !== live.dm;
+	const selectPane = (next: SettingsTab) => {
+		setPane(next);
+		peer.setSettingsTab(next);
+	};
+	const selectAndFocus = (next: SettingsTab) => {
 		selectPane(next);
-		queueMicrotask(() => (next === "overview" ? overviewTab : settingsTab).current?.focus());
+		queueMicrotask(() => tabRef(next).current?.focus());
 	};
 	const save = () => {
 		if (!dirty) {
 			peer.closeSettings();
 			return;
 		}
-		peer.applySettings({ dm, viz });
+		peer.applySettings({ dm });
 	};
 
 	// One panel is in the document at a time, rather than two that take turns
@@ -94,56 +132,50 @@ function SettingsDialog({ theme, notifyOn, dir, rooms }: Omit<SettingsProps, "op
 			ref={dialog}
 			className="modal"
 			aria-labelledby={titleId}
-			onClick={(event) => {
-				if (event.target === event.currentTarget) peer.closeSettings();
-			}}
 		>
 			<form
 				className="modal-card"
+				data-dir="home"
 				onSubmit={(e) => {
 					e.preventDefault();
 					save();
 				}}
 			>
-				<div className="settings-head">
-					<div className="settings-head-row">
-						<h2 id={titleId}>Settings</h2>
-						<div className="settings-toggles">
-							<IconButton
-								id="themeToggle"
-								icon={theme === "dark" ? "sun" : "moon"}
-								label="Toggle light or dark theme"
-								title={theme === "dark" ? "Switch to light" : "Switch to syrup (dark)"}
-								onClick={() => peer.setTheme(theme === "dark" ? "light" : "dark")}
-							/>
-							<IconButton
-								id="notifyToggle"
-								icon={notifyOn ? "bell" : "bellOff"}
-								label="Toggle mention notifications"
-								title="Notify me when I'm mentioned"
-								aria-pressed={notifyOn}
-								aria-describedby={notifyErr ? "notifyHint" : undefined}
-								onClick={() => {
-									void peer.toggleNotify().then(setNotifyErr);
-								}}
-							/>
-						</div>
-					</div>
-					{notifyErr ? <p id="notifyHint" className="hint" role="alert">{notifyErr}</p> : null}
+				<SettingsHead
+					titleId={titleId}
+					title="Settings"
+					theme={theme}
+					notifyOn={notifyOn}
+					helpOpen={false}
+					named={open}
+					ops={anyOpsHeld(opsHeld)
+						? {
+							open: opsOpen,
+							onOpen: (event) => openModalFrom(event.currentTarget, () => peer.openOperations()),
+						}
+						: undefined}
+					closeId={open ? "settingsClose" : undefined}
+					closeLabel={dirty ? "Discard changes and close" : "Close"}
+					onClose={() => peer.closeSettings()}
+				>
 					<div
 						className="settings-tabs"
-						data-thumb={pane === "settings" ? "end" : "start"}
+						data-count={String(tabs.length)}
+						data-thumb={String(Math.max(0, tabs.indexOf(pane)))}
 						role="tablist"
 						aria-labelledby={titleId}
 						onKeyDown={(e) => {
-							const go = (next: Pane) => {
+							const at = Math.max(0, tabs.indexOf(pane));
+							const go = (next: SettingsTab) => {
 								e.preventDefault();
 								selectAndFocus(next);
 							};
-							if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "End") {
-								go("settings");
-							} else if (e.key === "ArrowLeft" || e.key === "ArrowUp" || e.key === "Home") {
-								go("overview");
+							if (e.key === "Home") go(tabs[0]);
+							else if (e.key === "End") go(tabs[tabs.length - 1]);
+							else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+								go(tabs[Math.min(tabs.length - 1, at + 1)]);
+							} else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+								go(tabs[Math.max(0, at - 1)]);
 							}
 						}}
 					>
@@ -175,7 +207,7 @@ function SettingsDialog({ theme, notifyOn, dir, rooms }: Omit<SettingsProps, "op
 							Advanced
 						</button>
 					</div>
-				</div>
+				</SettingsHead>
 				{pane === "overview" && (
 					<div
 						id="overviewPanel"
@@ -183,23 +215,31 @@ function SettingsDialog({ theme, notifyOn, dir, rooms }: Omit<SettingsProps, "op
 						aria-labelledby="overviewTab"
 					>
 						{
-							/* This directory, said in the same three answers the card for any
-						    other directory gives, so the question has one shape wherever it
-						    is asked. The rail's caption under a room on this directory opens
-						    exactly here. */
+							/* This page's directory, as an address. What it granted you and
+						    Leave live on its card — the same card a room's caption opens —
+						    so this panel does not answer those twice. */
 						}
-						<div className="group">
+						<div className="group well">
 							<p className="uri-label">This directory</p>
 							<CopyField
 								id="directoryLocator"
 								text={roomLoc}
 								label="Copy the locator for this directory"
 							/>
-							{dir !== null && <DirectoryFacts dir={dir} rooms={rooms} />}
 							<p className="hint">This is the address of the room directory the page is showing.</p>
-							<GrantedNameNote />
+							{dir !== null && (
+								<Button
+									id="settingsAboutDir"
+									type="button"
+									variant="quiet"
+									onClick={(event) =>
+										openModalFrom(event.currentTarget, () => peer.aboutDirectory(dir.id))}
+								>
+									About this directory
+								</Button>
+							)}
 						</div>
-						<div className="group">
+						<div className="group well">
 							<p className="uri-label">This browser</p>
 							<CopyField
 								id="selfLocator"
@@ -221,7 +261,7 @@ function SettingsDialog({ theme, notifyOn, dir, rooms }: Omit<SettingsProps, "op
 						<p className="lead">
 							Saving reloads this window.
 						</p>
-						<div className="group" role="group" aria-labelledby="dmLegend">
+						<div className="group well" role="group" aria-labelledby="dmLegend">
 							<p className="group-label" id="dmLegend">Direct message connection</p>
 							<label className="choice">
 								<input
@@ -251,34 +291,36 @@ function SettingsDialog({ theme, notifyOn, dir, rooms }: Omit<SettingsProps, "op
 								</span>
 							</label>
 						</div>
-						<div className="group" role="group" aria-labelledby="vizLegend">
-							<p className="group-label" id="vizLegend">Protocol visualizer</p>
-							<p id="vizLead" className="hint">
-								This window publishes its own sessions, including direct messages.
-							</p>
-							<input
-								id="vizUrl"
-								name="viz"
-								type="text"
-								inputMode="url"
-								placeholder={vizHintUrl ?? "e.g. ws://127.0.0.1:9300/"}
-								value={viz}
-								onChange={(e) => setViz(e.target.value)}
-								autoComplete="off"
-								spellCheck={false}
-								aria-labelledby="vizLegend"
-								aria-describedby="vizLead vizHint"
-							/>
-							<p id="vizHint" className="hint">
-								Leave blank to use the value at <code>/viz</code> if available.
-							</p>
+						{
+							/* One toggle per operations capability, and the toggle is the
+						    capability: on means this tab holds it. Flipping one on opens
+						    the take modal, and only a successful take lands it on;
+						    flipping it off lets the capability go, pane and swiss with
+						    it. The Operations control in the head appears while any is
+						    held. */
+						}
+						<div className="group well" role="group" aria-labelledby="opsLegend">
+							<p className="group-label" id="opsLegend">Operations</p>
+							{OPS_CAPS.map((cap: OpsCap) => (
+								<div className="switch-row" key={cap}>
+									<p className="group-label" id={`ops-${cap}-legend`}>{OPS_CATALOG[cap].label}</p>
+									<Switch
+										id={OPS_CATALOG[cap].toggleId}
+										checked={opsHeld[cap]}
+										label={OPS_CATALOG[cap].label}
+										aria-labelledby={`ops-${cap}-legend`}
+										onClick={(event) => {
+											if (opsHeld[cap]) {
+												peer.dropOpsCap(cap);
+											} else openModalFrom(event.currentTarget, () => peer.openOpsTake(cap));
+										}}
+									/>
+								</div>
+							))}
 						</div>
 						<Button type="submit" disabled={!dirty}>Save and reload</Button>
 					</div>
 				)}
-				<Button variant="quiet" onClick={() => peer.closeSettings()}>
-					{dirty ? "Cancel" : "Close"}
-				</Button>
 			</form>
 		</dialog>
 	);

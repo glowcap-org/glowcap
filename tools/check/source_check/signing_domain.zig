@@ -50,7 +50,7 @@ const SigningFile = struct {
 
 const signing_files = [_]SigningFile{
     .{
-        .file = "ocapn/engine/mod.zig",
+        .file = "ocapn/engine/hello.zig",
         .sites = 1,
         .record = "codec.signed.locationBytes: the hello's acceptable-location signature over the canonical advertised locator.",
     },
@@ -70,9 +70,9 @@ const signing_files = [_]SigningFile{
         .record = "codec.signed.receiveBytes: the desc:handoff-receive certificate.",
     },
     .{
-        .file = "foundation/sealed.zig",
+        .file = "foundation/sealed_identity.zig",
         .sites = 1,
-        .record = "SealedChannel.identityStatement: domain, role, initial transcript, exact Ed25519 identity, and authenticated X25519 static.",
+        .record = "sealed_identity.statement: domain, role, initial transcript, exact Ed25519 identity, and authenticated X25519 static.",
     },
 };
 
@@ -89,12 +89,14 @@ const secret_seam_files = [_][]const u8{
 const bridge_home = "foundation/crypto.zig";
 
 /// Files that may call the conversion wrappers. `foundation/crypto.zig`
-/// declares them; `foundation.sealed` is the sole channel owner that converts
-/// durable public and secret keys. Runtime tiers compose that channel without
-/// receiving a second conversion authority.
+/// declares them; `foundation.sealed` constructs the Noise channel from the
+/// local and named remote keys, while `foundation.sealed_identity` verifies
+/// the remote mapping bound into the signed proof. Runtime tiers compose that
+/// pair without receiving conversion authority.
 const wrapper_callers = [_][]const u8{
     "foundation/crypto.zig",
     "foundation/sealed.zig",
+    "foundation/sealed_identity.zig",
 };
 
 fn inList(list: []const []const u8, file: []const u8) bool {

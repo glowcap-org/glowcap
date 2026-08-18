@@ -93,6 +93,7 @@ fn rustParamType(comptime T: type, comptime specials: []const Special) []const u
 fn rustReturnType(comptime T: type) []const u8 {
     return switch (T) {
         i32 => "c_int",
+        u64 => "u64",
         usize => "usize",
         void => "",
         else => @compileError("unmapped result type"),
@@ -224,8 +225,8 @@ fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
         \\use core::ffi::{c_int, c_uchar, c_uint};
         \\
     ++ "\nuse super::driver::{\n" ++
-        "\tPancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportOperationOptions,\n" ++
-        "\tPancakeTransportProvider,\n" ++
+        "\tPancakeDriverEvent, PancakeDriverFailure, PancakeDriverLoop, PancakeDriverOptions,\n" ++
+        "\tPancakeTransportOperationOptions, PancakeTransportProvider,\n" ++
         \\};
         \\use super::host::{PancakeCloseOptions, PancakeHost, PancakeHostSession};
         \\use super::ocapn::PancakeLocatorView;
@@ -357,5 +358,5 @@ fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
     , "use core::ffi::{c_int, c_uchar};\n\n" ++
         "use super::driver::PancakeTransportProvider;\n" ++
         "use super::ocapn::PancakeContext;\n" ++
-        "use super::relay::{PancakeRelayConfig, PancakeRelayRuntime};\n", &.{});
+        "use super::relay::{PancakeRelayConfig, PancakeRelayRuntime, PancakeRelayTrustSummary};\n", &.{});
 }

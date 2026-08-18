@@ -1,0 +1,11 @@
+{
+  global:
+    pancake_iroh_archive_*;
+    pancake_iroh_clear_*;
+    pancake_iroh_conn_*;
+    pancake_iroh_last_*;
+    pancake_iroh_netlayer_*;
+    pancake_iroh_transport_*;
+  local:
+    *;
+};

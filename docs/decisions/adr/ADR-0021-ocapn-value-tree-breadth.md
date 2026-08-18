@@ -85,7 +85,7 @@ not fork on representability.
   fidelity: named boundaries, not invisible ones. Struct and Integer/bignum
   are in-model per ADR-0046 and ADR-0049.
 - Conformance evidence lives in
-  [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig): the
+  [`test/codec/syrup/`](../../../test/codec/syrup/): the
   rendered variants assert against the pancake-authored Syrup corpus
   (`op_deliver_arg_*`); `float64` pins the canonical `'D'` + big-endian binary64
   bytes and round-trips NaN and signed zero bit-for-bit.

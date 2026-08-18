@@ -147,8 +147,13 @@ caught as staleness rather than as the signature change it was meant to be.
 
 ## Git Posture
 
-Agents do not mutate git history. Read-only git commands are fine: `status`,
-`diff`, `log`, `show`, `blame`, `branch`, `rev-parse`, `ls-files`.
+Each agent session owns one linked worktree, not the clone. All worktrees share
+the clone's refs, so moving a ref can affect another session; their indexes and
+working files remain separate. The worktree/container designator and branch
+name are independent facts: read the branch with `git branch --show-current`,
+never infer it from a directory, container, another worktree, or an example in
+this rule. Git writes stay on that branch. Read-only git commands are fine:
+`status`, `diff`, `log`, `show`, `blame`, `branch`, `rev-parse`, `ls-files`.
 
 `git checkout -- <path>` and `git restore` are working-tree writes, not reads:
 on a tree carrying uncommitted work they destroy that work. To undo a probe
@@ -159,6 +164,40 @@ A commit made when directed stages explicit paths, never `-a`/`-u`/`add .`:
 other sessions work this tree concurrently, and a sweep commit that picks up
 half of another session's in-flight edits ships a HEAD that does not compile.
 Read `git status` immediately before staging and claim only your own files.
+
+Stay on that current branch and commit there. Never check out `main`, `dev`, or
+another worktree's branch: doing so mixes their index into yours. `dev` is the
+sole shared integration ref. `main` is never moved by a worktree agent.
+
+Commit on the worktree branch, rebase that branch onto `main`, then onto `dev`,
+then fast-forward it into `dev`. At the start of a work stint, and before
+diagnosing a broad gate on an older branch, synchronize a clean worktree without
+publishing it:
+
+```sh
+.agents/skills/work/bin/pancake-integrate --sync
+```
+
+This rebases the current branch onto observed `main` and `dev`, but never moves
+either shared ref. It is the supported way to consume other worktrees'
+integrated repairs before adding or judging new work.
+
+After a clean, evidenced commit, run the repository-owned integration command:
+
+```sh
+.agents/skills/work/bin/pancake-integrate
+```
+
+Both modes refuse detached heads, `main`/`dev`, and a dirty tree. Publication
+rebases the current branch onto observed `main` and `dev`, then compare-and-swaps
+`dev` to `HEAD` (a fast-forward merge; agents never check out `dev`). The
+expected-old check is load-bearing: an ancestor check followed by an
+unconditional `update-ref` has a race that can erase another agent's tip. The
+black-box contract rides `zig build source-check`.
+
+Commit in small, evidenced steps on the worktree. `dev` takes one commit per
+change: one commit lands as written, and several need `-m "<subject>"` to land
+as one squash listing their subjects.
 
 ## Live CapTP (product CLI)
 

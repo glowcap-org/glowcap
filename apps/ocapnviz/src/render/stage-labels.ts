@@ -2,10 +2,10 @@
  * What the stage writes beside a node or along an edge, and how much room
  * that writing takes.
  *
- * One home for readers that have to agree. `render-frame.ts` sets the type
- * and paints the pill behind it, `engine/systems/keyframe-layout-system.ts`
+ * One home for readers that have to agree. `sprites/` sets the type
+ * and paints the pill behind it, `engine/systems/node-footprint.ts`
  * reserves a box for that pill before anything is drawn, and
- * `draw-helpers.ts` staggers a bundle's chips far enough apart that two of
+ * `edge-stroke.ts` staggers a bundle's chips far enough apart that two of
  * them clear. A label drawn at one size and separated at another is a gap no
  * reader could explain, so the sizes are stated once here rather than at each
  * site.
@@ -21,7 +21,7 @@
  * out picture readable instead.
  */
 
-import { UNNAMED_END_LABEL } from "../schema/topology.ts";
+import { UNNAMED_END_LABEL } from "../schema/session-end.ts";
 import { elideIdentifier } from "../ui/elide.ts";
 
 /** A label's type size and the pill drawn behind it. */

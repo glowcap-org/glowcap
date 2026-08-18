@@ -26,7 +26,6 @@ const Session = session.Session;
 const Error = session.Error;
 const RecvViewError = session.RecvViewError;
 const AnswerDirection = session.AnswerDirection;
-const AnswerTable = session.AnswerTable;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 const slot = session.slot;
 
@@ -240,7 +239,7 @@ fn installPreparedOutboundAnswer(self: *Session, position: model.AnswerPosition)
     std.debug.assert(!self.outbound_answers.contains(position));
     self.outbound_answers.putAssumeCapacity(
         position,
-        session.AnswerCell.initPending(position, self.nextStoreStamp()),
+        session.AnswerCell.initPending(self.nextStoreStamp()),
     );
 }
 
@@ -262,38 +261,46 @@ fn installPreparedOutboundAnswer(self: *Session, position: model.AnswerPosition)
 /// is now structural: for every inbound answer, `status != .pending` if and
 /// only if a resolution is stored.
 pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
-    // Only V1.0 sends this resolution itself. Next stores settlement locally
-    // and accounts an export mention if and when a listener callback carrying
-    // it is queued.
-    if (self.captp_version == .v1_0) {
-        retainSentExports(self, .{ .resolve = resolve }) catch |err| {
-            model.freeResolution(self.allocator, resolve.resolution);
-            return err;
-        };
-    } else if (resolve.resolution == .fulfill) {
-        recordSentExportArg(self, resolve.resolution.fulfill, 0, false) catch |err| {
-            model.freeResolution(self.allocator, resolve.resolution);
+    return applySentResolutionNamed(self, .fromWire(resolve.answer), resolve.resolution);
+}
+
+pub fn applySentResolutionNamed(
+    self: *Session,
+    answer_name: model.AnswerName,
+    resolution: model.Resolution,
+) !void {
+    // A fulfilled answer may put a local export on the wire through either a
+    // V1.0 resolver callback or a next-profile listener fire. Establish its
+    // local authority now; the eventual callback takes its wire retain at the
+    // publication seam.
+    if (resolution == .fulfill) {
+        recordSentExportArg(self, resolution.fulfill, 0, self.captp_version == .v1_0) catch |err| {
+            model.freeResolution(self.allocator, resolution);
             return err;
         };
     }
     // The send validator already proved the answer exists and is pending, so a
     // missing row is not reachable in practice; honour the consume contract
     // defensively rather than strand the resolution.
-    if (!self.inbound_answers.contains(resolve.answer)) {
-        model.freeResolution(self.allocator, resolve.resolution);
-        return;
+    if (!self.inbound_answers.contains(answer_name)) {
+        model.freeResolution(self.allocator, resolution);
+        return Error.InvalidReference;
     }
     // Transfer ownership to the store (which frees the resolution on its own
     // failure, so the contract holds on every path).
-    try self.storeResolution(resolve.answer, resolve.resolution);
+    try self.storeResolutionNamed(answer_name, resolution);
 }
 
 pub fn applyRecv(self: *Session, message: model.Message, introduced: *const validate.IntroducedImports) !void {
     switch (message) {
         .gc_export => |gc_export| {
             try session.applyGcExportDecrement(&self.exports, gc_export);
-            for (gc_export.positions) |position|
+            for (gc_export.positions) |position| {
+                const export_position = model.ExportPosition.from(position);
+                if (self.answerForLocalPromiseExport(export_position)) |answer|
+                    self.retireReleasedLocalPromiseAnswer(answer);
                 self.releaseShorteningResolverExport(model.ExportPosition.from(position));
+            }
         },
         // Inbound `op:gc-answers` releases an answer we created for the
         // partner, decrement our inbound answers and prune the inbound
@@ -495,9 +502,10 @@ fn countNearMentions(arg: model.Argument) usize {
 /// answer they describe. Two O(1) keyed removals.
 fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
-        if (try decrementAnswer(self, &self.inbound_answers, model.AnswerPosition.from(position))) {
+        const answer = model.AnswerName.fromWire(.from(position));
+        if (try decrementAnswer(self, &self.inbound_answers, answer)) {
             // Drop the whole link (both directions) with the answer it describes.
-            _ = self.v1_0_inbound_resolver_link.removeByKey(model.AnswerPosition.from(position));
+            _ = self.v1_0_inbound_resolver_link.removeByKey(answer);
         }
     }
 }
@@ -530,7 +538,7 @@ fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!
 /// Decrement an answer's refcount, removing it at zero. Returns whether the
 /// answer was fully released (count reached zero). Releasing an answer frees
 /// any queued pipelined calls, listeners, and stored resolution it owns.
-fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerPosition) Error!bool {
+fn decrementAnswer(self: *Session, table: anytype, position: @TypeOf(table.*).Id) Error!bool {
     const entry = table.getPtr(position) orelse return Error.GcUnderflow;
     if (entry.count == 0) return Error.GcUnderflow;
     entry.count -= 1;
@@ -551,16 +559,31 @@ fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerPo
 /// Outbound rows are locally chosen question identities and must always be
 /// fresh.
 pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerPosition) !void {
-    const table = switch (direction) {
-        .inbound => &self.inbound_answers,
-        .outbound => &self.outbound_answers,
-    };
-    if (table.getPtr(position)) |entry| {
-        if (direction == .outbound or entry.status() != .pending) return Error.UnexpectedMessage;
+    switch (direction) {
+        .inbound => return installInboundAnswerNamed(self, .fromWire(position)),
+        .outbound => {},
+    }
+    if (self.outbound_answers.getPtr(position)) |_| {
+        return Error.UnexpectedMessage;
+    }
+    try self.outbound_answers.put(
+        self.allocator,
+        position,
+        session.AnswerCell.initPending(self.nextStoreStamp()),
+    );
+}
+
+pub fn installInboundAnswerNamed(self: *Session, answer: model.AnswerName) !void {
+    if (self.inbound_answers.getPtr(answer)) |entry| {
+        if (entry.status() != .pending) return Error.UnexpectedMessage;
         return;
     }
-    if (direction == .inbound and table.len() >= self.limits.max_inbound_answers) {
+    if (self.inbound_answers.len() >= self.limits.max_inbound_answers) {
         return Error.InboundAnswerCapExceeded;
     }
-    try table.put(self.allocator, position, session.AnswerCell.initPending(position, self.nextStoreStamp()));
+    try self.inbound_answers.put(
+        self.allocator,
+        answer,
+        session.AnswerCell.initPending(self.nextStoreStamp()),
+    );
 }

@@ -18,8 +18,8 @@
  *
  * Validated by injection, one per property: accumulating the node set again
  * fails the first two, and dropping the reuse lookup fails the third. The pin
- * and claim cases are covered by `engine.test.ts` and
- * `claim-placement.test.ts`, which caught a first version of the reuse whose key
+ * and claim cases are covered by `engine-test/` and
+ * `claim-placement-test/`, which caught a first version of the reuse whose key
  * left them out.
  *
  * Not covered: the era count still grows by two per reconnect, because each one
@@ -31,7 +31,7 @@ import { assert, assertEquals } from "@std/assert";
 import { TimelineDocument, type TimelineEvent } from "../timeline.ts";
 import { Engine } from "../engine.ts";
 import { primaryObservations } from "../temporal/recording-access.ts";
-import { attachedEndpoint, unattributedEndpoint } from "../../schema/topology.ts";
+import { attachedEndpoint, unattributedEndpoint } from "../../schema/session-end.ts";
 
 function engineTest(name: string, fn: () => void): void {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });

@@ -24,7 +24,7 @@ import { MAX_LOCAL_FORWARD_HOPS, OK } from "@pancake/abi";
 import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
 import { checkHost, hostLastError, PancakeError, VowBroken } from "./errors.ts";
 import { type Argument, type Behavior, Forward, Ref, refFromId } from "./value.ts";
-import { encodeArgs, readArgArray, refStruct } from "./codec.ts";
+import { encodeArgs, readArgArray, refStruct } from "./abi_value.ts";
 import { type PromiseFactoryHandle, RemotePromise, sendFar } from "./promise.ts";
 
 /** One hosted object's behavior and Host-local reference resolver. The
@@ -135,6 +135,7 @@ export function runHosted(
 	const outSession = new Uint8Array(8);
 	checkHost(hostS.pancake_host_turn_session(turn, ab(outSession)));
 	const session = activeDeliver?.turnSession(outPointer(outSession)) ?? null;
+	activeDeliver?.trackTurnArguments(session, args);
 	const prev = currentTurn;
 	currentTurn = {
 		turn,
@@ -297,6 +298,7 @@ let currentTurn: { turn: Ptr; session: object | null; hostOwner: object | null }
 // the Host maps that borrowed handle onto the binding's public wrapper.
 export interface TurnHostOwner {
 	turnSession(ptr: Ptr): object | null;
+	trackTurnArguments(session: object | null, args: Argument[]): void;
 	deferTurnToPromise(turn: Ptr, pending: PromiseLike<Argument | void>): boolean;
 }
 

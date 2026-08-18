@@ -72,12 +72,12 @@ pub const ClaimedConnection = struct {
         return self.resident.connClose(id);
     }
 
-    pub fn borrow(self: ClaimedConnection) usize {
-        return self.id orelse unreachable;
+    pub fn borrow(self: ClaimedConnection) ?usize {
+        return self.id;
     }
 
-    pub fn take(self: *ClaimedConnection) usize {
-        const id = self.borrow();
+    pub fn take(self: *ClaimedConnection) ?usize {
+        const id = self.id;
         self.id = null;
         return id;
     }
@@ -96,8 +96,8 @@ pub const DialAttempt = struct {
         return self.dialer.cancelDial(request_id);
     }
 
-    pub fn id(self: DialAttempt) usize {
-        return self.request_id orelse unreachable;
+    pub fn id(self: DialAttempt) ?usize {
+        return self.request_id;
     }
 
     pub fn take(self: *DialAttempt) DialAttempt {
@@ -107,7 +107,8 @@ pub const DialAttempt = struct {
     }
 
     pub fn finish(self: *DialAttempt) DialFinishOutcome {
-        const request_id = self.id();
+        const request_id = self.request_id orelse
+            return .{ .failed = .init(error.InvalidOptions) };
         self.request_id = null;
         return switch (self.dialer.finishDial(request_id)) {
             .connected => |conn| .{ .connected = .{ .resident = self.dialer.resident, .id = conn } },
@@ -207,9 +208,10 @@ pub const MultiplexedResident = struct {
         /// on every return path.
         finish_connect: *const fn (ctx: *anyopaque, request_id: usize) RawDialFinishOutcome,
         /// Abandon a dial. Idempotent, and valid after its `ev_connect` was
-        /// announced but before `finish_connect` claimed it — the resident
-        /// releases the unclaimed connection; a later record for the id
-        /// drains to nothing.
+        /// announced but before `finish_connect` claimed it. A resident whose
+        /// retirement is asynchronous returns null after transferring the
+        /// request, emits `ev_connect` when retirement has joined, and returns
+        /// the claim-once cleanup chain when called again for that id.
         cancel_connect: *const fn (ctx: *anyopaque, request_id: usize) ?foundation.FailureChain,
     };
 
@@ -223,6 +225,16 @@ pub const MultiplexedResident = struct {
     pub const RawFinishAcceptOutcome = union(enum) {
         connection: ?usize,
         failed: netlayer.AcceptFailure,
+    };
+
+    pub const RawListenStartOutcome = union(enum) {
+        admitted: RawListenResult,
+        failed: netlayer.ListenFailure,
+    };
+
+    pub const RawListenFinishOutcome = union(enum) {
+        listener: *anyopaque,
+        failed: netlayer.ListenFailure,
     };
 
     pub const ListenVTable = struct {
@@ -239,7 +251,7 @@ pub const MultiplexedResident = struct {
             transport: []const u8,
             requested_designator: []const u8,
             options: netlayer.OperationOptions,
-        ) netlayer.ListenError!RawListenResult,
+        ) RawListenStartOutcome,
         /// Present only when `listen` may return pending. Immediate-only
         /// residents carry no fabricated completion capability.
         completion: ?ListenCompletionVTable = null,
@@ -250,7 +262,7 @@ pub const MultiplexedResident = struct {
             listener_ctx: *anyopaque,
             transport: []const u8,
             allocator: std.mem.Allocator,
-        ) netlayer.ListenError!model.PeerLocator,
+        ) netlayer.ListenerLocatorOutcome,
         /// Validate and canonicalize a replacement listener locator.
         canonicalize_locator: *const fn (
             ctx: *anyopaque,
@@ -258,37 +270,77 @@ pub const MultiplexedResident = struct {
             transport: []const u8,
             allocator: std.mem.Allocator,
             locator: model.PeerLocator,
-        ) netlayer.ListenError!model.PeerLocator,
+        ) netlayer.ListenerLocatorOutcome,
         restoration_state: ?*const fn (
             ctx: *anyopaque,
             listener_ctx: *anyopaque,
             out: []u8,
-        ) netlayer.RestorationStateError!usize = null,
+        ) netlayer.ListenerRestorationOutcome = null,
         /// Claim one ready inbound connection. Null means the coalesced accept
         /// queue has drained. The raw id immediately enters
         /// `ClaimedConnection` ownership in the wrapper and shares
         /// `finish_connect`'s connection namespace.
-        finish_accept: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) netlayer.AcceptError!?usize,
-        finish_accept_detailed: ?*const fn (ctx: *anyopaque, listener_ctx: *anyopaque) RawFinishAcceptOutcome = null,
-        /// Stop accepting. Idempotent; later accept records drain to no owned
-        /// connection and the resident rejects new inbound channels.
+        finish_accept: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) RawFinishAcceptOutcome,
+        /// Stop accepting. An asynchronously retiring resident returns null,
+        /// emits `ev_listen` for this listener's route after its barrier joins,
+        /// then makes the cleanup chain claimable through the completion
+        /// cancel callback. Later accept records drain to no owned connection.
         stop_listen: *const fn (ctx: *anyopaque, listener_ctx: *anyopaque) ?foundation.FailureChain,
     };
 
     pub const ListenCompletionVTable = struct {
         /// Claim a listener after `ev_listen`. The route is consumed on every
         /// return path.
-        finish: *const fn (ctx: *anyopaque, route_id: usize) netlayer.ListenError!*anyopaque,
-        /// Abandon pending setup. Idempotent; a later readiness record drains
-        /// to nothing.
+        finish: *const fn (ctx: *anyopaque, route_id: usize) RawListenFinishOutcome,
+        /// Abandon pending setup. A resident whose retirement is asynchronous
+        /// returns null, emits `ev_listen` after the barrier joins, and returns
+        /// the claim-once cleanup chain when called again for the route. The
+        /// same callback claims an active listener's asynchronous stop result.
         cancel: *const fn (ctx: *anyopaque, route_id: usize) ?foundation.FailureChain,
     };
 
+    pub fn adaptListenerLocator(comptime callback: fn (*anyopaque, *anyopaque, []const u8, std.mem.Allocator) netlayer.ListenError!model.PeerLocator) *const fn (*anyopaque, *anyopaque, []const u8, std.mem.Allocator) netlayer.ListenerLocatorOutcome {
+        return struct {
+            fn call(ctx: *anyopaque, listener_ctx: *anyopaque, transport: []const u8, allocator: std.mem.Allocator) netlayer.ListenerLocatorOutcome {
+                return .{ .locator = callback(ctx, listener_ctx, transport, allocator) catch |err|
+                    return .{ .failed = .init(err) } };
+            }
+        }.call;
+    }
+
+    pub fn adaptListenerCanonicalize(comptime callback: fn (*anyopaque, *anyopaque, []const u8, std.mem.Allocator, model.PeerLocator) netlayer.ListenError!model.PeerLocator) *const fn (*anyopaque, *anyopaque, []const u8, std.mem.Allocator, model.PeerLocator) netlayer.ListenerLocatorOutcome {
+        return struct {
+            fn call(ctx: *anyopaque, listener_ctx: *anyopaque, transport: []const u8, allocator: std.mem.Allocator, locator: model.PeerLocator) netlayer.ListenerLocatorOutcome {
+                return .{ .locator = callback(ctx, listener_ctx, transport, allocator, locator) catch |err|
+                    return .{ .failed = .init(err) } };
+            }
+        }.call;
+    }
+
+    pub fn adaptRestorationState(comptime callback: fn (*anyopaque, *anyopaque, []u8) netlayer.RestorationStateError!usize) *const fn (*anyopaque, *anyopaque, []u8) netlayer.ListenerRestorationOutcome {
+        return struct {
+            fn call(ctx: *anyopaque, listener_ctx: *anyopaque, out: []u8) netlayer.ListenerRestorationOutcome {
+                return .{ .size = callback(ctx, listener_ctx, out) catch |err|
+                    return .{ .failed = .init(err) } };
+            }
+        }.call;
+    }
+
+    pub fn adaptFinishAccept(comptime callback: fn (*anyopaque, *anyopaque) netlayer.AcceptError!?usize) *const fn (*anyopaque, *anyopaque) RawFinishAcceptOutcome {
+        return struct {
+            fn call(ctx: *anyopaque, listener_ctx: *anyopaque) RawFinishAcceptOutcome {
+                return .{ .connection = callback(ctx, listener_ctx) catch |err|
+                    return .{ .failed = .init(err) } };
+            }
+        }.call;
+    }
+
     pub const Dialer = struct {
         resident: MultiplexedResident,
+        ops: *const DialVTable,
 
         fn operations(self: Dialer) *const DialVTable {
-            return if (self.resident.vtable.dial) |*ops| ops else unreachable;
+            return self.ops;
         }
 
         pub fn startDial(
@@ -325,9 +377,10 @@ pub const MultiplexedResident = struct {
 
     pub const Acceptor = struct {
         resident: MultiplexedResident,
+        ops: *const ListenVTable,
 
         fn operations(self: Acceptor) *const ListenVTable {
-            return if (self.resident.vtable.listen) |*ops| ops else unreachable;
+            return self.ops;
         }
 
         pub fn listen(
@@ -336,29 +389,33 @@ pub const MultiplexedResident = struct {
             transport: []const u8,
             requested_designator: []const u8,
             options: netlayer.OperationOptions,
-        ) netlayer.ListenError!ListenResult {
-            const listener_ctx = try self.operations().listen(
+        ) ListenStartOutcome {
+            const outcome = self.operations().listen(
                 self.resident.ctx,
                 route_id,
                 transport,
                 requested_designator,
                 options,
             );
-            return switch (listener_ctx) {
-                .ready => |ctx| .{ .ready = .{
-                    .acceptor = self,
-                    .ctx = ctx,
-                    .route_id = route_id,
-                    .transport = transport,
-                } },
-                .pending => blk: {
-                    const completion = self.operations().completion orelse unreachable;
-                    break :blk .{ .pending = .{
+            return switch (outcome) {
+                .failed => |failure| .{ .failed = failure },
+                .admitted => |listener_ctx| switch (listener_ctx) {
+                    .ready => |ctx| .{ .admitted = .{ .ready = .{
                         .acceptor = self,
+                        .ctx = ctx,
                         .route_id = route_id,
                         .transport = transport,
-                        .completion = completion,
-                    } };
+                    } } },
+                    .pending => blk: {
+                        const completion = self.operations().completion orelse
+                            return .{ .failed = .init(error.ProviderContract) };
+                        break :blk .{ .admitted = .{ .pending = .{
+                            .acceptor = self,
+                            .route_id = route_id,
+                            .transport = transport,
+                            .completion = completion,
+                        } } };
+                    },
                 },
             };
         }
@@ -374,8 +431,8 @@ pub const MultiplexedResident = struct {
         transport: []const u8,
         completion: ListenCompletionVTable,
 
-        pub fn id(self: ListenAttempt) usize {
-            return self.route_id orelse unreachable;
+        pub fn id(self: ListenAttempt) ?usize {
+            return self.route_id;
         }
 
         pub fn deinit(self: *ListenAttempt) ?foundation.FailureChain {
@@ -384,20 +441,33 @@ pub const MultiplexedResident = struct {
             return self.completion.cancel(self.acceptor.resident.ctx, route_id);
         }
 
-        pub fn finish(self: *ListenAttempt) netlayer.ListenError!Listener {
-            const route_id = self.id();
+        pub fn finish(self: *ListenAttempt) ListenFinishOutcome {
+            const route_id = self.route_id orelse
+                return .{ .failed = .init(error.ProviderContract) };
             self.route_id = null;
-            const ctx = try self.completion.finish(
+            return switch (self.completion.finish(
                 self.acceptor.resident.ctx,
                 route_id,
-            );
-            return .{
-                .acceptor = self.acceptor,
-                .ctx = ctx,
-                .route_id = route_id,
-                .transport = self.transport,
+            )) {
+                .failed => |failure| .{ .failed = failure },
+                .listener => |ctx| .{ .ready = .{
+                    .acceptor = self.acceptor,
+                    .ctx = ctx,
+                    .route_id = route_id,
+                    .transport = self.transport,
+                } },
             };
         }
+    };
+
+    pub const ListenStartOutcome = union(enum) {
+        admitted: ListenResult,
+        failed: netlayer.ListenFailure,
+    };
+
+    pub const ListenFinishOutcome = union(enum) {
+        ready: Listener,
+        failed: netlayer.ListenFailure,
     };
 
     pub const ListenResult = union(enum) {
@@ -427,6 +497,16 @@ pub const MultiplexedResident = struct {
             self: Listener,
             allocator: std.mem.Allocator,
         ) netlayer.ListenError!model.PeerLocator {
+            return switch (self.localLocatorOutcome(allocator)) {
+                .locator => |locator| locator,
+                .failed => |failure| netlayer.projectListenError(failure),
+            };
+        }
+
+        pub fn localLocatorOutcome(
+            self: Listener,
+            allocator: std.mem.Allocator,
+        ) netlayer.ListenerLocatorOutcome {
             return self.acceptor.operations().local_locator(
                 self.acceptor.resident.ctx,
                 self.ctx,
@@ -440,6 +520,17 @@ pub const MultiplexedResident = struct {
             allocator: std.mem.Allocator,
             locator: model.PeerLocator,
         ) netlayer.ListenError!model.PeerLocator {
+            return switch (self.canonicalizeLocatorOutcome(allocator, locator)) {
+                .locator => |canonical| canonical,
+                .failed => |failure| netlayer.projectListenError(failure),
+            };
+        }
+
+        pub fn canonicalizeLocatorOutcome(
+            self: Listener,
+            allocator: std.mem.Allocator,
+            locator: model.PeerLocator,
+        ) netlayer.ListenerLocatorOutcome {
             return self.acceptor.operations().canonicalize_locator(
                 self.acceptor.resident.ctx,
                 self.ctx,
@@ -450,26 +541,27 @@ pub const MultiplexedResident = struct {
         }
 
         pub fn restorationState(self: Listener, out: []u8) netlayer.RestorationStateError!?usize {
-            const f = self.acceptor.operations().restoration_state orelse return null;
-            return try f(self.acceptor.resident.ctx, self.ctx, out);
+            return switch (self.restorationStateOutcome(out)) {
+                .unsupported => null,
+                .size => |needed| needed,
+                .failed => error.ProviderFailure,
+            };
+        }
+
+        pub fn restorationStateOutcome(self: Listener, out: []u8) netlayer.ListenerRestorationOutcome {
+            const f = self.acceptor.operations().restoration_state orelse return .unsupported;
+            return f(self.acceptor.resident.ctx, self.ctx, out);
         }
 
         pub fn finishAccept(self: Listener) netlayer.AcceptError!?ClaimedConnection {
-            const id = try self.acceptor.operations().finish_accept(
-                self.acceptor.resident.ctx,
-                self.ctx,
-            ) orelse return null;
-            return .{ .resident = self.acceptor.resident, .id = id };
+            return switch (self.finishAcceptOutcome()) {
+                .connection => |connection| connection,
+                .failed => |failure| failure.classification,
+            };
         }
 
-        pub fn finishAcceptDetailed(self: Listener) FinishAcceptOutcome {
-            const result: RawFinishAcceptOutcome = if (self.acceptor.operations().finish_accept_detailed) |finish|
-                finish(self.acceptor.resident.ctx, self.ctx)
-            else blk: {
-                const id = self.acceptor.operations().finish_accept(self.acceptor.resident.ctx, self.ctx) catch |err|
-                    break :blk RawFinishAcceptOutcome{ .failed = .init(err) };
-                break :blk RawFinishAcceptOutcome{ .connection = id };
-            };
+        pub fn finishAcceptOutcome(self: Listener) FinishAcceptOutcome {
+            const result = self.acceptor.operations().finish_accept(self.acceptor.resident.ctx, self.ctx);
             return switch (result) {
                 .connection => |id| .{ .connection = if (id) |value| .{ .resident = self.acceptor.resident, .id = value } else null },
                 .failed => |failure| .{ .failed = failure },
@@ -494,8 +586,8 @@ pub const MultiplexedResident = struct {
     }
 
     pub fn dialer(self: MultiplexedResident) ?Dialer {
-        if (self.vtable.dial == null) return null;
-        return .{ .resident = self };
+        const ops = if (self.vtable.dial) |*value| value else return null;
+        return .{ .resident = self, .ops = ops };
     }
 
     pub fn externalClaimer(self: MultiplexedResident) ?ExternalClaimer {
@@ -504,8 +596,8 @@ pub const MultiplexedResident = struct {
     }
 
     pub fn acceptor(self: MultiplexedResident) ?Acceptor {
-        if (self.vtable.listen == null) return null;
-        return .{ .resident = self };
+        const ops = if (self.vtable.listen) |*value| value else return null;
+        return .{ .resident = self, .ops = ops };
     }
 
     pub fn readinessFd(self: MultiplexedResident) i32 {

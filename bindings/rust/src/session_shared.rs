@@ -1,7 +1,6 @@
 //! Per-session capability support and shared state: [`Caretaker`] and
 //! [`SessionShared`]. [`Session`](crate::Session) is the application handle
 //! over one `SessionShared`; pump/host/trampoline/gc borrow `SessionShared` directly.
-//! Binding spine Pass 5 (session extraction).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -359,11 +358,7 @@ impl SessionShared {
 			self.guard_open()?;
 			self.drain_gc()?;
 		}
-		let cell = Box::into_raw(Box::new(ActorCell {
-			behavior: RefCell::new(behavior),
-			context: self.host.retained_context().expect("every Host owns a Context"),
-			diagnostic_id: self.host.diagnostic_id(),
-		}));
+		let cell = self.host.actor_cell(behavior)?;
 		let id = match turn {
 			Some(turn) => turn_spawn(turn, cell)?,
 			None => {
@@ -405,11 +400,7 @@ impl SessionShared {
 	pub(crate) fn publish_actor(self: &Rc<SessionShared>, name: &str, behavior: InternalBehavior) -> Result<Ref> {
 		self.guard_open()?;
 		self.drain_gc()?;
-		let cell = Box::into_raw(Box::new(ActorCell {
-			behavior: RefCell::new(behavior),
-			context: self.host.retained_context().expect("every Host owns a Context"),
-			diagnostic_id: self.host.diagnostic_id(),
-		}));
+		let cell = self.host.actor_cell(behavior)?;
 		let mut reference = sys::PancakeReference { id: 0 };
 		let rc = unsafe {
 			ffi::pancake_host_session_publish(

@@ -6,7 +6,7 @@ as a whole.
 
 The code is the specification. `src/engine/temporal/time-span.ts` holds the
 storage shape and the gesture rewrites, `doc-resolver.ts` holds the table of
-which reader reads which layer, and `authoring/events.ts::moveEvent` pairs an
+which reader reads which layer, and `authoring/moves.ts::moveEvent` pairs an
 observation move with its entity patch. This file is kept for the reasoning the
 type signatures do not carry.
 

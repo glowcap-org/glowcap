@@ -5,6 +5,7 @@
 // lifetime remain in the native archive and generic driver.
 
 import {
+	abiLayout,
 	abortable,
 	Connector,
 	ffi,
@@ -13,64 +14,54 @@ import {
 	outPointer,
 	PancakeError,
 	readErrorSlot,
+	RELAY_CONFIG_ABI_VERSION,
+	RELAY_CONFIG_ABI_VERSION_OFF,
+	RELAY_CONFIG_REGISTER_URL_LEN_OFF,
+	RELAY_CONFIG_REGISTER_URL_OFF,
+	RELAY_CONFIG_RELAY_URL_LEN_OFF,
+	RELAY_CONFIG_RELAY_URL_OFF,
+	RELAY_CONFIG_SIZE,
+	RELAY_CONFIG_STRUCT_SIZE_OFF,
+	RELAY_CONFIG_TRUST_OFF,
+	RELAY_CONFIG_TRUST_PEM_LEN_OFF,
+	RELAY_CONFIG_TRUST_PEM_OFF,
+	RELAY_TRUST_COPIED_PEM,
+	RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF,
+	RELAY_TRUST_SUMMARY_LOADED_OFF,
+	RELAY_TRUST_SUMMARY_SIZE,
+	RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF,
+	RELAY_TRUST_SYSTEM,
 	requireOffThreadFfi,
+	retainCleanupFailures,
 	Session,
 	TRANSPORT_PROVIDER_SIZE,
 } from "@pancake/runtime/transport";
-import type { DriverProvider, Locator, ProviderTarget, Ptr } from "@pancake/runtime/transport";
+import type { DriverProvider, ProviderTarget, Ptr } from "@pancake/runtime/transport";
 import { relayS } from "./ffi.ts";
 import { INVALID_ARGUMENT, TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY } from "@pancake/abi";
+import { dialUrl, routeFromLocator } from "./route.ts";
 
 const OK = 0;
-const RENDEZVOUS_RELAY_HINT = "rendezvous-relay";
 const encoder = new TextEncoder();
-
-function profileLocator(transport: string, designator: string, relayUrl: string): Locator {
-	return {
-		transport,
-		designator,
-		hints: new Map([[RENDEZVOUS_RELAY_HINT, relayUrl]]),
-		hintWireForm: "map",
-	};
-}
-
-/** The identity-addressed cleartext relay profile. */
-export const keyed = {
-	locator(designator: string, relayUrl: string): Locator {
-		return profileLocator(TRANSPORT_KEYED_RELAY, designator, relayUrl);
-	},
-};
-
-/** The Noise_XK-sealed relay profile. */
-export const noise = {
-	locator(designator: string, relayUrl: string): Locator {
-		return profileLocator(TRANSPORT_NOISE_RELAY, designator, relayUrl);
-	},
-};
-
-export function routeFromLocator(locator: Locator): string | null {
-	const value = locator.hints.get(RENDEZVOUS_RELAY_HINT);
-	if (value == null) return null;
-	if (typeof value !== "string" || value.length === 0) {
-		throw new PancakeError(
-			INVALID_ARGUMENT,
-			"rendezvous-relay must be a non-empty string hint",
-		);
-	}
-	return value;
-}
-
-export function dialUrl(route: string, designator: string): string {
-	const url = new URL(route);
-	url.searchParams.append("rendezvous", designator);
-	return url.toString();
-}
 
 export interface RelayOptions {
 	/** WebSocket URL used for outbound relay legs. */
 	readonly relayUrl: string;
 	/** Registration URL used by listeners; omit for a dial-only provider. */
 	readonly registerUrl?: string;
+	/** Immutable trust snapshot used by native WSS opens. */
+	readonly trust?: NativeTrust;
+}
+
+export type NativeTrust =
+	| { readonly kind: "system" }
+	| { readonly kind: "copied-pem"; readonly pem: Uint8Array };
+
+/** Immutable result of loading the native relay's trust snapshot. */
+export interface NativeTrustSummary {
+	readonly loaded: number;
+	readonly skippedByEngine: number;
+	readonly firstSkippedEngineCode: number | null;
 }
 
 function relayLastError(): string | null {
@@ -89,40 +80,75 @@ function checkRelay(code: number): void {
 function encodeConfig(options: RelayOptions): { struct: Uint8Array; keepAlive: Uint8Array[] } {
 	const relay = encoder.encode(options.relayUrl);
 	const register = encoder.encode(options.registerUrl ?? "");
-	const struct = new Uint8Array(32);
+	const trust = options.trust ?? { kind: "system" };
+	const pem = trust.kind === "copied-pem" ? trust.pem : new Uint8Array(0);
+	const struct = new Uint8Array(RELAY_CONFIG_SIZE);
 	const dv = new DataView(struct.buffer);
-	const put = (offset: number, bytes: Uint8Array): void => {
-		dv.setBigUint64(offset, bytes.length === 0 ? 0n : ffi.pointerOf(bytes), true);
-		dv.setBigUint64(offset + 8, BigInt(bytes.length), true);
+	const put = (pointerOffset: number, lengthOffset: number, bytes: Uint8Array): void => {
+		abiLayout.setPtr(dv, pointerOffset, bytes.length === 0 ? 0n : ffi.pointerOf(bytes));
+		abiLayout.setUsize(dv, lengthOffset, bytes.length);
 	};
-	put(0, relay);
-	put(16, register);
-	return { struct, keepAlive: [relay, register] };
+	dv.setUint32(RELAY_CONFIG_ABI_VERSION_OFF, RELAY_CONFIG_ABI_VERSION, true);
+	abiLayout.setUsize(dv, RELAY_CONFIG_STRUCT_SIZE_OFF, struct.byteLength);
+	put(RELAY_CONFIG_RELAY_URL_OFF, RELAY_CONFIG_RELAY_URL_LEN_OFF, relay);
+	put(RELAY_CONFIG_REGISTER_URL_OFF, RELAY_CONFIG_REGISTER_URL_LEN_OFF, register);
+	dv.setUint32(
+		RELAY_CONFIG_TRUST_OFF,
+		trust.kind === "system" ? RELAY_TRUST_SYSTEM : RELAY_TRUST_COPIED_PEM,
+		true,
+	);
+	put(RELAY_CONFIG_TRUST_PEM_OFF, RELAY_CONFIG_TRUST_PEM_LEN_OFF, pem);
+	return { struct, keepAlive: [relay, register, pem] };
 }
 
 function openRuntime(options: RelayOptions): Ptr {
 	requireOffThreadFfi("relay", "native provider lifecycle");
 	const { struct, keepAlive } = encodeConfig(options);
-	const out = new Uint8Array(8);
+	const out = new Uint8Array(abiLayout.ptrSize);
 	checkRelay(relayS.pancake_relay_runtime_new(struct, out));
 	void keepAlive;
 	return outPointer(out);
 }
 
+function trustSummary(raw: Ptr): NativeTrustSummary {
+	const out = new Uint8Array(RELAY_TRUST_SUMMARY_SIZE);
+	checkRelay(relayS.pancake_relay_runtime_trust_summary(raw, out));
+	const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+	const firstSkippedEngineCode = view.getInt32(RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF, true);
+	return {
+		loaded: Number(abiLayout.getUsize(view, RELAY_TRUST_SUMMARY_LOADED_OFF)),
+		skippedByEngine: Number(abiLayout.getUsize(view, RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF)),
+		firstSkippedEngineCode: firstSkippedEngineCode === 0 ? null : firstSkippedEngineCode,
+	};
+}
+
 /** Install one shared keyed-relay/noise-relay package into a native loop. */
-export async function installProvider(loop: ProviderTarget, options: RelayOptions): Promise<void> {
+export async function installProvider(
+	loop: ProviderTarget,
+	options: RelayOptions,
+): Promise<NativeTrustSummary> {
 	const raw = openRuntime(options);
+	let summary: NativeTrustSummary;
 	try {
+		summary = trustSummary(raw);
 		const packageBytes = new Uint8Array(TRANSPORT_PROVIDER_SIZE);
 		checkRelay(relayS.pancake_relay_transport_provider(raw, packageBytes));
 		loop.installProvider((register) => register(packageBytes));
-	} finally {
-		// Registration retains the runtime; this drops only the constructor lease.
-		await new NativeDiagnostic("relay").check(
-			"runtime release",
-			(error, cap, errorLen) => relayS.pancake_relay_runtime_release_with_diagnostic(raw, error, cap, errorLen),
-		);
+	} catch (primary) {
+		throw await retainCleanupFailures(primary, [
+			() =>
+				new NativeDiagnostic("relay").check(
+					"runtime release after refused installation",
+					(error, cap, errorLen) => relayS.pancake_relay_runtime_release(raw, error, cap, errorLen),
+				),
+		]);
 	}
+	// Registration retained the runtime; this drops only the constructor lease.
+	await new NativeDiagnostic("relay").check(
+		"runtime release",
+		(error, cap, errorLen) => relayS.pancake_relay_runtime_release(raw, error, cap, errorLen),
+	);
+	return summary;
 }
 
 /** Configure this archive's keyed-relay/noise-relay package for `connect`. */
@@ -130,31 +156,36 @@ export function provider(
 	options: RelayOptions,
 ): DriverProvider {
 	return {
-		install(loop) {
-			return installProvider(loop, options);
+		async install(loop) {
+			await installProvider(loop, options);
 		},
 	};
 }
 
-/** Configure the explicit cleartext keyed-relay byte connector. Noise relay
- * requires the native provider because sealing is owned below the Host. */
+/** Configure the managed WebSocket connector. The byte-fed Host applies the
+ * Noise channel for `noise-relay`; the connector remains byte plumbing. */
 export function connector(): Connector {
-	return new Connector([TRANSPORT_KEYED_RELAY], async (host, locator, request) => {
+	return new Connector([TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY], async (host, locator, request) => {
 		const route = routeFromLocator(locator);
 		if (route == null) {
 			throw new PancakeError(
 				INVALID_ARGUMENT,
-				`keyed-relay connector requires a rendezvous-relay hint; got transport=${locator.transport} designator=${
+				`${locator.transport} connector requires a rendezvous-relay hint; got designator=${
 					locator.designator.slice(0, 16)
 				}… hints=[${[...locator.hints.keys()].join(",")}] wireForm=${locator.hintWireForm}`,
 			);
 		}
-		const channel = await abortable(
-			openWebSocketChannel(dialUrl(route, locator.designator)),
+		const channel = await openWebSocketChannel(
+			dialUrl(route, locator.designator),
+			undefined,
 			request.signal,
-			(late) => late.close(),
 		);
-		const cancel = (): void => channel.close();
+		const cancel = (): void => {
+			// The enclosing refused connect awaits this exact idempotent barrier and
+			// attaches its failure to that primary. This guard only prevents the DOM
+			// event callback from creating an unhandled rejection first.
+			void channel.close().catch(() => {});
+		};
 		request.signal?.addEventListener("abort", cancel, { once: true });
 		try {
 			return await abortable(
@@ -165,11 +196,11 @@ export function connector(): Connector {
 					request.handshakeTimeoutMs,
 				),
 				request.signal,
+				(error) => host.recordCallerlessBindingFailure("relay.session.cancel.cleanup", error),
 				(session) => session.closeTransport(),
 			);
 		} catch (error) {
-			channel.close();
-			throw error;
+			throw await retainCleanupFailures(error, [() => channel.close()]);
 		} finally {
 			request.signal?.removeEventListener("abort", cancel);
 		}

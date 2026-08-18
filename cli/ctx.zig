@@ -3,8 +3,10 @@ const std = @import("std");
 const pancake = @import("pancake");
 const identity_mod = @import("operability/identity.zig");
 const state_lock = @import("operability/state_lock.zig");
+const relay_runtime = @import("ocapn/relay_runtime.zig");
 
 const crypto = pancake.foundation.crypto;
+const FailureChain = pancake.foundation.FailureChain;
 const Session = pancake.driver.Session;
 const Io = std.Io;
 
@@ -37,7 +39,7 @@ pub const Ctx = struct {
     /// is always tcp; slots 1 and 2 join when `PANCAKE_RENDEZVOUS` configures
     /// the relay provider's clear and sealed rendezvous profiles.
     dial_resident: pancake.net.tcp.Resident = undefined,
-    rendezvous_provider: ?pancake.net.relay.Provider = null,
+    rendezvous_provider: ?relay_runtime.Provider = null,
     dial_netlayers: [3]pancake.net.netlayer.Netlayer = undefined,
     session: ?*Session = null,
     /// The non-argv fronts' background listener (`listen` on MCP or the
@@ -129,28 +131,60 @@ pub const Ctx = struct {
         cap.appendSlice(self.gpa, body.items) catch {};
     }
 
-    pub fn closeSession(self: *Ctx) void {
+    /// Close only the retained CapTP session. Relay transport ownership is
+    /// separate so an atomic session replacement can keep the shared provider
+    /// alive for the new session.
+    pub fn closeHeldSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+        var failure: ?FailureChain = null;
         if (self.session) |s| {
+            s.close(pending) catch |err| {
+                failure = .init(err);
+            };
             s.deinit();
             self.session = null;
         }
+        return failure;
+    }
+
+    /// Join the context-owned relay provider. Refusal consumes nothing, so the
+    /// slot remains populated and a later explicit close or process teardown
+    /// can retry the same barrier.
+    pub fn closeRelayProvider(self: *Ctx) ?FailureChain {
         if (self.rendezvous_provider) |*provider| {
-            provider.deinit();
+            const failure = relay_runtime.deinitAndReport(self, provider);
+            if (failure != null) return failure;
             self.rendezvous_provider = null;
         }
+        return null;
+    }
+
+    /// Settle the held session first, then its transport owner, preserving the
+    /// session refusal as primary and provider retirement as a consequence.
+    pub fn closeSession(self: *Ctx, pending: pancake.driver.PendingWork) ?FailureChain {
+        var failure = self.closeHeldSession(pending);
+        if (self.closeRelayProvider()) |cleanup| {
+            if (failure) |*primary|
+                primary.noteChain(cleanup)
+            else
+                failure = cleanup;
+        }
+        return failure;
     }
 
     /// Stop the background listener's accept thread and free it. Idempotent.
     pub fn closeBackgroundListener(self: *Ctx) void {
         if (self.background_listener) |handle| {
-            handle.shutdown();
+            handle.shutdown(self);
             self.background_listener = null;
         }
     }
 
     pub fn deinit(self: *Ctx) void {
         self.closeBackgroundListener();
-        self.closeSession();
+        if (self.closeSession(.cancel)) |failure| self.logErr(
+            "context cleanup: {s} (and {d} later failure(s))",
+            .{ failure.primaryName(), failure.secondary_count },
+        );
         if (self.last_locator) |loc| {
             self.gpa.free(loc);
             self.last_locator = null;

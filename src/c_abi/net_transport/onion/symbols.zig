@@ -14,24 +14,16 @@ pub const OmittedFamily = shared.symbols.OmittedFamily;
 pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
+    .{ .name = "pancake_onion_archive_fingerprint" },
     .{ .name = "pancake_onion_last_error", .out_params = &.{0} },
     .{ .name = "pancake_onion_transport_provider", .out_params = &.{1} },
     .{ .name = "pancake_onion_netlayer_new", .out_params = &.{1} },
     .{ .name = "pancake_onion_netlayer_shutdown" },
     .{
         .name = "pancake_onion_netlayer_release",
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_netlayer_release_with_diagnostic",
         .out_params = &.{ 1, 3 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     // Every row below reaches Tor, so each is both `blocking` (it may park the
     // calling OS thread) and `nonblocking` (a JS runtime must dispatch it off the
@@ -48,51 +40,21 @@ pub const symbols = [_]Symbol{
     // undetached service.
     .{
         .name = "pancake_onion_connect",
-        .out_params = &.{5},
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_connect_with_diagnostic",
         .out_params = &.{ 5, 6, 8 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     .{
         .name = "pancake_onion_listen",
-        .out_params = &.{ 1, 3, 4, 6, 7 },
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_listen_with_diagnostic",
         .out_params = &.{ 1, 3, 4, 6, 7, 8, 10 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     .{
         .name = "pancake_onion_listener_wait",
-        .out_params = &.{2},
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_listener_wait_with_diagnostic",
         .out_params = &.{ 2, 3, 5 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     // The readiness half: both return at once, so neither is blocking in either
     // sense. An embedder that polls these never reaches the blocking rows for the
@@ -101,69 +63,30 @@ pub const symbols = [_]Symbol{
     .{ .name = "pancake_onion_conn_readiness_fd", .out_params = &.{1} },
     .{
         .name = "pancake_onion_accept",
-        .out_params = &.{3},
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_accept_with_diagnostic",
         .out_params = &.{ 3, 4, 6 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     .{
         .name = "pancake_onion_conn_read_frame",
-        .out_params = &.{1},
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_conn_read_frame_with_diagnostic",
         .out_params = &.{ 1, 2, 4 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     .{
         .name = "pancake_onion_conn_write_frame",
-        .out_params = &.{},
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_conn_write_frame_with_diagnostic",
         .out_params = &.{ 2, 4 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     .{ .name = "pancake_onion_conn_shutdown" },
-    .{ .name = "pancake_onion_conn_release", .blocking = true, .nonblocking = true },
+    .{ .name = "pancake_onion_conn_release", .out_params = &.{ 1, 3 }, .blocking = true, .nonblocking = true },
     .{ .name = "pancake_onion_listener_shutdown" },
     .{
         .name = "pancake_onion_listener_release",
-        .blocking = true,
-        .nonblocking = true,
-        .ts_omit = shared.symbols.diagnosed.ts_uses_companion,
-    },
-    .{
-        .name = "pancake_onion_listener_release_with_diagnostic",
         .out_params = &.{ 1, 3 },
         .blocking = true,
         .nonblocking = true,
-        .rust_omit = shared.symbols.diagnosed.rust_uses_tls,
-        .python_omit = shared.symbols.diagnosed.python_uses_tls,
-        .racket_omit = shared.symbols.diagnosed.racket_uses_tls,
     },
     // The rows below are omitted from the TypeScript table, each for the reason
     // on its row.

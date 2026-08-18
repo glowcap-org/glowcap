@@ -30,22 +30,19 @@ pub const step_name = "gen-header-net-transport-tcp";
 // `pub export fn pancake_tcp_*`
 // cannot silently miss the header while the gate stays green.
 const emitted_fn_names = [_][]const u8{
+    "pancake_tcp_archive_fingerprint",
     "pancake_tcp_netlayer_new",
     "pancake_tcp_netlayer_new_in",
     "pancake_tcp_transport_provider",
     "pancake_tcp_netlayer_shutdown",
     "pancake_tcp_netlayer_release",
     "pancake_tcp_connect",
-    "pancake_tcp_connect_with_diagnostic",
     "pancake_tcp_listen",
     "pancake_tcp_listener_port",
     "pancake_tcp_listener_readiness_fd",
     "pancake_tcp_accept",
-    "pancake_tcp_accept_with_diagnostic",
     "pancake_tcp_conn_read_frame",
-    "pancake_tcp_conn_read_frame_with_diagnostic",
     "pancake_tcp_conn_write_frame",
-    "pancake_tcp_conn_write_frame_with_diagnostic",
     "pancake_tcp_conn_shutdown",
     "pancake_tcp_conn_release",
     "pancake_tcp_listener_shutdown",
@@ -153,30 +150,27 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
+    try emitFn(&b, gpa, "pancake_tcp_archive_fingerprint", &.{}, "Return the exact callable-surface fingerprint of this archive. A dynamic loader must compare it with the binding-generated PANCAKE_TCP_ARCHIVE_FINGERPRINT before calling any other pancake_tcp_* function.");
     try emitFn(&b, gpa, "pancake_tcp_netlayer_new", &.{ "config", "out_netlayer" }, "Create the netlayer handle that owns the blocking I/O backend, allocating\nthrough the library allocator. `config` is required and supplies inherited\nstream defaults. Release with pancake_tcp_netlayer_release after releasing\nevery endpoint made from it.");
     try emitFn(&b, gpa, "pancake_tcp_netlayer_new_in", &.{ "context", "config", "out_netlayer" }, "Create a netlayer whose backend and per-connection buffers allocate through\n`context`, with the same required configuration.");
     try emitFn(&b, gpa, "pancake_tcp_transport_provider", &.{ "netlayer", "out_provider" }, "Fill out_provider with this runtime's complete TCP package: tcp, keyed-tcp,\nand noise-tcp. Install it once with pancake_driver_add_provider. The driver\nacquires the provider lease through retain and releases it after all transport\nuse retires; release the TCP runtime only after the driver is released.");
     try emitFn(&b, gpa, "pancake_tcp_netlayer_shutdown", &.{"netlayer"}, "Seal connect admission and request cancellation of a connect already in\nprogress, without freeing netlayer. Call this before joining a foreign thread\ninside pancake_tcp_connect. Idempotent.");
     try emitFn(&b, gpa, "pancake_tcp_netlayer_release", &.{"netlayer"}, "Release the netlayer and its I/O backend after every connection and listener\nmade from it is released. First stop new calls, invoke shutdown, and join the\nembedding's operation leases; release must not race call initiation.");
-    const diagnosed_doc = "The same operation as its unsuffixed sibling, plus an atomic diagnostic\ncapture for runtimes that dispatch native calls to worker threads. out_error_len\nis required and receives the full diagnostic length; out_error receives at most\nerror_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.";
+    const optional_diagnostic_doc = "out_error/out_error_len optionally capture this call's diagnostic before an\noff-thread runtime regains control: omit all three diagnostic arguments, or\nprovide out_error_len. It receives the full length; out_error receives at most\nerror_cap - 1 bytes and is NUL-terminated when error_cap is nonzero.";
 
-    try emitFn(&b, gpa, "pancake_tcp_connect", &.{ "netlayer", "host", "host_len", "port", "options", "codec", "max_frame_bytes", "out_conn" }, "Connect to host:port and return an owned connection framing on `codec`,\nrefusing inbound frames over max_frame_bytes. `options == NULL` inherits the\nnetlayer's stream defaults; a nonnull zeroed value disables keepalive for this\nconnection. Blocking; `host` is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a\nbad option, codec, frame cap, or address; PANCAKE_ERR_IO (see\npancake_tcp_last_error) when the dial fails. Release with pancake_tcp_conn_release.");
-    try emitFn(&b, gpa, "pancake_tcp_connect_with_diagnostic", &.{ "netlayer", "host", "host_len", "port", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_tcp_connect", &.{ "netlayer", "host", "host_len", "port", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, "Connect to host:port and return an owned connection framing on `codec`,\nrefusing inbound frames over max_frame_bytes. `options == NULL` inherits the\nnetlayer's stream defaults; a nonnull zeroed value disables keepalive for this\nconnection. Blocking; `host` is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a\nbad option, codec, frame cap, or address; PANCAKE_ERR_IO when the dial fails.\nRelease with pancake_tcp_conn_release.\n\n" ++ optional_diagnostic_doc);
     try emitFn(&b, gpa, "pancake_tcp_listen", &.{ "netlayer", "host", "host_len", "port", "out_listener" }, "Bind and listen on host:port (port 0 picks an OS-chosen port; read it back\nwith pancake_tcp_listener_port). Release with pancake_tcp_listener_release.");
     try emitFn(&b, gpa, "pancake_tcp_listener_port", &.{ "listener", "out_port" }, "The OS-resolved local port of a listener (useful after binding to port 0).");
     try emitFn(&b, gpa, "pancake_tcp_listener_readiness_fd", &.{ "listener", "out_fd" }, "Return the borrowed listening descriptor. Park an external reactor on it and\ncall pancake_tcp_accept after it is readable. Readiness is advisory: serialize\naccept consumers when the reactor must not park. The listener owns the fd; do\nnot close it or use it after pancake_tcp_listener_release.");
-    try emitFn(&b, gpa, "pancake_tcp_accept", &.{ "listener", "options", "codec", "max_frame_bytes", "out_conn" }, "Block until a client connects, returning an owned connection framing on\n`codec`. `options` has the same inherit-or-override contract as pancake_tcp_connect.");
-    try emitFn(&b, gpa, "pancake_tcp_accept_with_diagnostic", &.{ "listener", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
-    try emitFn(&b, gpa, "pancake_tcp_conn_read_frame", &.{ "conn", "out_frame" }, "Block for one whole frame as an owned managed frame. Returns PANCAKE_ERR_CLOSED\non graceful EOF, PANCAKE_ERR_IO on a socket fault.");
-    try emitFn(&b, gpa, "pancake_tcp_conn_read_frame_with_diagnostic", &.{ "conn", "out_frame", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
-    try emitFn(&b, gpa, "pancake_tcp_conn_write_frame", &.{ "conn", "frame" }, "Write one frame's borrowed bytes and flush. Returns PANCAKE_ERR_CLOSED after\nshutdown begins.");
-    try emitFn(&b, gpa, "pancake_tcp_conn_write_frame_with_diagnostic", &.{ "conn", "frame", "out_error", "error_cap", "out_error_len" }, diagnosed_doc);
+    try emitFn(&b, gpa, "pancake_tcp_accept", &.{ "listener", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, "Block until a client connects, returning an owned connection framing on\n`codec`. `options` has the same inherit-or-override contract as\npancake_tcp_connect.\n\n" ++ optional_diagnostic_doc);
+    try emitFn(&b, gpa, "pancake_tcp_conn_read_frame", &.{ "conn", "out_frame", "out_error", "error_cap", "out_error_len" }, "Block for one whole frame as an owned managed frame. Returns PANCAKE_ERR_CLOSED\non graceful EOF, PANCAKE_ERR_IO on a socket fault.\n\n" ++ optional_diagnostic_doc);
+    try emitFn(&b, gpa, "pancake_tcp_conn_write_frame", &.{ "conn", "frame", "out_error", "error_cap", "out_error_len" }, "Write one frame's borrowed bytes and flush. Returns PANCAKE_ERR_CLOSED after\nshutdown begins.\n\n" ++ optional_diagnostic_doc);
     try emitFn(&b, gpa, "pancake_tcp_conn_shutdown", &.{"conn"}, "Seal native admission and interrupt blocked reads and writes without freeing\nthe connection. May race operations; join the embedding's leases before release.\nIdempotent. Returns PANCAKE_ERR_IO when the socket cannot be interrupted; the\ntransport last-error slot names the cause.");
-    try emitFn(&b, gpa, "pancake_tcp_conn_release", &.{"conn"}, "After stopping new calls, invoke shutdown, join admitted operations, and free\nthe handle. Returns the shutdown outcome after completing the ownership sweep.\nRelease must not race call initiation.");
+    try emitFn(&b, gpa, "pancake_tcp_conn_release", &.{ "conn", "out_error", "error_cap", "out_error_len" }, "After stopping new calls, invoke shutdown, join admitted operations, and free\nthe handle. Returns the shutdown outcome after completing the ownership sweep.\nRelease must not race call initiation.\n\n" ++ optional_diagnostic_doc);
     try emitFn(&b, gpa, "pancake_tcp_listener_shutdown", &.{"listener"}, "Seal native accept admission and interrupt a blocked accept without freeing the\nlistener. May race operations; join the embedding's leases before release.\nIdempotent; the listener's pre-opened wake channel makes this operation infallible.");
     try emitFn(&b, gpa, "pancake_tcp_listener_release", &.{"listener"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the listener. Release must not race call initiation.");
 
-    try emitFn(&b, gpa, "pancake_tcp_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last TCP-transport error into out_buf, the tcp\nsibling of pancake_last_error, reading this archive's own per-thread slot. A\npancake_tcp_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set.");
+    try emitFn(&b, gpa, "pancake_tcp_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last TCP-transport error into out_buf, the tcp\nsibling of pancake_last_error, reading this archive's own per-thread slot. A\npancake_tcp_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set." ++ header_emit.last_error_freshness_doc);
     try emitFn(&b, gpa, "pancake_tcp_clear_last_error", &.{}, "Clear the calling thread's TCP-transport last-error slot.");
 
     try b.appendSlice(gpa,

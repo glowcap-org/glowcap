@@ -1,34 +1,45 @@
 //! The relay provider package. One configured provider realizes both the
 //! cleartext `keyed-relay` and Noise-sealed `noise-relay` transport profiles.
-//! RFC 6455 and URL grammar live in `keyed_relay/protocol.zig`, resident socket
-//! ownership in `keyed_relay/resident.zig`, and completion-only operation
-//! accounting and buffer lending in `keyed_relay/completion.zig`.
+//! Relay route policy lives in `keyed_relay/route.zig`, reusable RFC 6455
+//! grammar in `websocket/client_protocol.zig`, resident socket ownership in
+//! `keyed_relay/resident.zig`, and completion-only operation accounting and
+//! buffer lending in `keyed_relay/completion.zig`.
 
 const model = @import("model");
-const protocol = @import("keyed_relay/protocol.zig");
+const builtin = @import("builtin");
+const address_race = @import("keyed_relay/address_race.zig");
+const blocking_frame = @import("keyed_relay/blocking_frame.zig");
+const endpoint_race = @import("keyed_relay/endpoint_race.zig");
+const protocol = @import("../websocket/client_protocol.zig");
+const profile = @import("keyed_relay/profile.zig");
+const provider = @import("keyed_relay/provider.zig");
+const route = @import("keyed_relay/route.zig");
 const resident = @import("keyed_relay/resident.zig");
 const completion = @import("keyed_relay/completion.zig");
+const configuration = @import("keyed_relay/configuration.zig");
 
 pub const transport_name = resident.transport_name;
-pub const rendezvous_query = protocol.rendezvous_query;
-pub const register_query = protocol.register_query;
-pub const rendezvous_relay_hint = protocol.rendezvous_relay_hint;
-pub const max_rendezvous_relay_hint_bytes = protocol.max_rendezvous_relay_hint_bytes;
+pub const rendezvous_query = route.rendezvous_query;
+pub const register_query = route.register_query;
+pub const rendezvous_relay_hint = route.rendezvous_relay_hint;
+pub const max_rendezvous_relay_hint_bytes = route.max_rendezvous_relay_hint_bytes;
 pub const Opcode = protocol.Opcode;
 pub const OutgoingOpcode = protocol.OutgoingOpcode;
 pub const FrameHeader = protocol.FrameHeader;
-pub const FrameError = resident.FrameError;
+pub const FrameError = blocking_frame.FrameError;
 pub const max_control_payload = protocol.max_control_payload;
 pub const max_header_len = protocol.max_header_len;
-pub const readFrameHeader = resident.readFrameHeader;
+pub const readFrameHeader = blocking_frame.readFrameHeader;
 pub const writeFrameHeader = protocol.writeFrameHeader;
 pub const acceptKey = protocol.acceptKey;
-pub const RelayUrl = protocol.RelayUrl;
+pub const RelayUrl = route.RelayUrl;
+pub const Scheme = route.Scheme;
+pub const OpenRequest = route.OpenRequest;
 pub const validateClosePayload = protocol.validateClosePayload;
 pub const validUpgradeResponse = protocol.validUpgradeResponse;
 pub const Resident = resident.Resident;
-pub const Provider = resident.Provider;
-pub const ChannelProfile = resident.ChannelProfile;
+pub const Provider = provider.Provider;
+pub const ChannelProfile = profile.Channel;
 pub const RawConnection = resident.RawConnection;
 pub const RawListener = resident.RawListener;
 
@@ -37,6 +48,12 @@ pub const DialResolver = completion.DialResolver;
 pub const RelayOptions = completion.RelayOptions;
 pub const CompletionBackend = completion.CompletionBackend;
 pub const default_send_staging_bytes = completion.default_send_staging_bytes;
+pub const validateConfigurationUrls = configuration.validateUrls;
+
+pub const white_box = if (builtin.is_test) struct {
+    pub const FailureLedger = address_race.FailureLedger;
+    pub const pollable_address_race = endpoint_race.white_box;
+} else struct {};
 
 fn Profile(comptime transport: model.transport.Known) type {
     const metadata = transport.metadata();

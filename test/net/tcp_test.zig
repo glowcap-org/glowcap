@@ -120,6 +120,22 @@ test "tcp loopback: handshake to open + bootstrap fetch round-trip" {
     try server_result;
 }
 
+test "tcp listener owns its address exclusively" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    defer listener.deinit();
+
+    if (tcp.Listener.bind(io, listener.localAddress())) |second_value| {
+        var second = second_value;
+        second.deinit();
+        return error.TestUnexpectedResult;
+    } else |err| try std.testing.expectEqual(error.AddressInUse, err);
+}
+
 test "tcp.locator formats a host:port designator into fixed-width caller storage" {
     // `locator` takes a `*[designator_buf_len]u8`, so a short buffer cannot be
     // passed and the internal format is infallible. The widest designator (a
@@ -151,6 +167,44 @@ fn acceptUntilListenerClose(listener: *tcp.Listener, allocator: std.mem.Allocato
         error.ConnectionLost,
         listener.accept(&peer, &read_buf, &write_buf, .{}),
     );
+}
+
+test "tcp listener restarted onto its port reclaims it from TIME_WAIT" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var first = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    const address = first.localAddress();
+
+    // One raw connection whose server side closes first: the shutdown order
+    // that leaves the port's TIME_WAIT sockets with the listener. The kernel
+    // lets a rebind reclaim past them only when both listener generations set
+    // SO_REUSEADDR (`socket.openListenerReuseAddr` documents the contract),
+    // so before that landed this rebind lost the port for the TIME_WAIT
+    // minute — exactly how a stateful server restarted onto its pinned port
+    // failed under load.
+    var client = try io.concurrent(readUntilEof, .{ io, address });
+    const served = try first.acceptStream();
+    served.close(io);
+    try client.await(io);
+    first.deinit();
+
+    var second = try tcp.Listener.bind(io, address);
+    second.deinit();
+}
+
+/// Dial `address`, wait for the far side's close, then close. Keeping the
+/// client open across the server's close is what puts the TIME_WAIT on the
+/// server side.
+fn readUntilEof(io: std.Io, address: ip.IpAddress) !void {
+    const stream = try ip.IpAddress.connect(&address, io, .{ .mode = .stream });
+    defer stream.close(io);
+    var byte: [1]u8 = undefined;
+    var reader = stream.reader(io, &byte);
+    var sink: [1]u8 = undefined;
+    _ = reader.interface.readSliceShort(&sink) catch {};
 }
 
 test "tcp listener close wakes and joins a blocked accept" {

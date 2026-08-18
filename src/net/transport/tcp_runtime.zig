@@ -6,6 +6,7 @@
 //! and C callbacks both project this same runtime instead of reimplementing it.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const poll = @import("../poll.zig");
 const socket = @import("../socket.zig");
@@ -113,10 +114,52 @@ pub const Listener = struct {
         const wake = try wake_channel.WakeChannel.open();
         errdefer wake.deinit();
         return .{
-            .server = try IpAddress.listen(&address, io, .{ .reuse_address = true }),
+            .server = try listenExclusiveReuseAddr(io, address),
             .io = io,
             .wake = wake,
         };
+    }
+
+    /// `IpAddress.listen` with `SO_REUSEADDR` alone. Zig's `reuse_address`
+    /// option enables both SO_REUSEADDR and SO_REUSEPORT on POSIX, and port
+    /// sharing is a load-balancer policy, not a safe default for an
+    /// identity-bearing OCapN listener: two Hosts on one address would make
+    /// the kernel choose which peer a dial reaches. So the IPv4 path builds
+    /// the listener through `socket.openListenerReuseAddr`, taking the
+    /// restart contract that helper documents without the port sharing.
+    /// IPv6 and non-POSIX targets keep the plain std listen and with it the
+    /// old restart behavior; nothing in this tree binds a blocking IPv6
+    /// listener today, and that boundary is named here rather than papered
+    /// over with untested sockaddr packing.
+    fn listenExclusiveReuseAddr(io: std.Io, address: IpAddress) IpAddress.ListenError!Server {
+        const os: socket.Os = switch (builtin.os.tag) {
+            .linux => .linux,
+            .macos => .darwin,
+            else => return IpAddress.listen(&address, io, .{}),
+        };
+        switch (address) {
+            .ip6 => return IpAddress.listen(&address, io, .{}),
+            .ip4 => |ip4| {
+                const bound = socket.openListenerReuseAddr(
+                    os,
+                    .{ .bytes = ip4.bytes, .port = ip4.port },
+                    std.Io.net.default_kernel_backlog,
+                ) catch |err| return switch (err) {
+                    // The one refusal a pinned-port restart acts on keeps its
+                    // name; the rest of the raw-socket set collapses to the
+                    // std vocabulary this signature already speaks.
+                    error.AddressInUse => error.AddressInUse,
+                    else => error.SystemResources,
+                };
+                return .{
+                    .socket = .{
+                        .handle = bound.fd,
+                        .address = .{ .ip4 = .{ .bytes = ip4.bytes, .port = bound.port } },
+                    },
+                    .options = {},
+                };
+            },
+        }
     }
 
     pub fn localAddress(self: *const Listener) IpAddress {

@@ -41,6 +41,7 @@ pub const ctxFromOpaque = abi.ctxFromOpaque;
 /// Create a context that allocates through the library-owned allocator. Release
 /// it with `pancake_context_release` after releasing every handle created in it.
 pub export fn pancake_context_new(out_context: ?*?*PancakeContext) i32 {
+    abi.lastErrorClear();
     const slot = out_context orelse return PANCAKE_ERR_NULL_POINTER;
     const ctx = library_allocator.create(Context) catch {
         abi.setLastError("context_new: OutOfMemory", .{});
@@ -69,6 +70,7 @@ pub export fn pancake_context_new(out_context: ?*?*PancakeContext) i32 {
 /// both must stay valid until `pancake_context_release`, or every later
 /// allocation through the context's handles is undefined behavior.
 pub export fn pancake_context_new_with_allocator(spec: ?*const PancakeAllocator, out_context: ?*?*PancakeContext) i32 {
+    abi.lastErrorClear();
     const slot = out_context orelse return PANCAKE_ERR_NULL_POINTER;
     const s = spec orelse return PANCAKE_ERR_NULL_POINTER;
     const alloc_fn = s.alloc orelse return PANCAKE_ERR_NULL_POINTER;
@@ -121,6 +123,7 @@ pub export fn pancake_context_allocate_lifecycle_id(
     context: ?*PancakeContext,
     out_id: ?*u64,
 ) i32 {
+    abi.lastErrorClear();
     const ctx = ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_id orelse return PANCAKE_ERR_NULL_POINTER;
     slot.* = ctx.lifecycle_ids.allocate() catch {
@@ -137,6 +140,7 @@ pub export fn pancake_context_report_failure(
     context: ?*PancakeContext,
     report: ?*const abi.PancakeFailureReport,
 ) i32 {
+    abi.lastErrorClear();
     const ctx = ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const report_ptr = report orelse return PANCAKE_ERR_NULL_POINTER;
     // Read only the fixed prefix until the caller has proved that the complete
@@ -173,6 +177,7 @@ pub export fn pancake_context_next_failure(
     payload_cap: usize,
     out_required: ?*usize,
 ) i32 {
+    abi.lastErrorClear();
     const ctx = ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const event = out_event orelse return PANCAKE_ERR_NULL_POINTER;
     const required = out_required orelse return PANCAKE_ERR_NULL_POINTER;

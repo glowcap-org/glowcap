@@ -14,6 +14,7 @@
 
 import type { RelayChannel } from "./relay.ts";
 import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "./ws_relay.ts";
+import { recordProcessBindingFailure } from "@pancake/runtime/transport";
 
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 
@@ -83,7 +84,7 @@ export class Rendezvous {
 		socket.addEventListener("error", entry.onDrop);
 		if (Rendezvous.#socketClosing(socket) || this.#closed) {
 			this.#detach(entry);
-			entry.channel.close();
+			this.#closeHeld(entry, "relay.rendezvous.register.rollback");
 			return false;
 		}
 		const queue = this.#held.get(designator);
@@ -103,7 +104,7 @@ export class Rendezvous {
 			queue.splice(at, 1);
 			this.#heldCount--;
 			this.#detach(entry);
-			entry.channel.close();
+			this.#closeHeld(entry, "relay.rendezvous.registration.close");
 		}
 		if (queue.length === 0) this.#held.delete(entry.designator);
 	}
@@ -111,6 +112,10 @@ export class Rendezvous {
 	#detach(entry: Held): void {
 		entry.socket.removeEventListener("close", entry.onDrop);
 		entry.socket.removeEventListener("error", entry.onDrop);
+	}
+
+	#closeHeld(entry: Held, operation: string): void {
+		void entry.channel.close().catch((error) => recordProcessBindingFailure(operation, error));
 	}
 
 	/** Whether an identity currently holds at least one socket (an
@@ -167,7 +172,7 @@ export class Rendezvous {
 		this.#heldCount = 0;
 		for (const entry of entries) {
 			this.#detach(entry);
-			entry.channel.close();
+			this.#closeHeld(entry, "relay.rendezvous.shutdown.close");
 		}
 	}
 }

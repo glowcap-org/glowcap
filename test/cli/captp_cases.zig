@@ -195,7 +195,7 @@ test "MCP locator call retains session for a follow-up call" {
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdCall(&client, &second_parsed));
     try std.testing.expect(std.mem.indexOf(u8, client_capture.items, "Hello, again") != null);
 
-    client.closeSession();
+    _ = client.closeSession(.cancel);
     const host_code = try host_future.await(io);
     try std.testing.expectEqual(cli.exit_codes.ok, host_code);
 }
@@ -409,7 +409,7 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
     // Closing the session fires every listener still on the vat; a wait that
     // died above must have taken its listener with it, not left one aimed at
     // the freed Active.
-    client.closeSession();
+    _ = client.closeSession(.cancel);
 }
 
 test "publishBuiltin rejects unknown names" {

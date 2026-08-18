@@ -20,7 +20,7 @@
  * says and what the Build-mode picker offers.
  */
 
-import type { AttributionStanding, EndpointAttribution } from "../../schema/topology.ts";
+import type { AttributionStanding, EndpointAttribution } from "../../schema/session-end.ts";
 import type { ReferenceEntry } from "./entry.ts";
 
 /** The kinds of evidence, strongest first, which is the order the rows read

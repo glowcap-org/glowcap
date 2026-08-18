@@ -11,6 +11,7 @@
 ;; consumer `zig build bindings` runs.
 
 (require net/base64
+         (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
          "pancake.rkt"
@@ -40,10 +41,11 @@
          "private/gc.rkt"
          "private/vat.rkt"
          "private/ffi-host.rkt"
+         "private/ffi-ocapn.rkt"
          "private/ffi-shared.rkt"
          "private/errors.rkt"
          "private/constants.rkt"
-         "private/codec.rkt"
+         "private/abi-value.rkt"
          (only-in "private/loop.rkt"
                   open-driver-loop driver-loop-start! driver-loop-abort!
                   loop-background-failed!
@@ -112,6 +114,53 @@
              (format "ABI translation changed or retried ~a" name))]))
 
 (printf "racket zig-smoke OK: every reflected C ABI return code translates exactly once\n")
+
+;; The literal structured failure vector exercised by Zig, C, Rust,
+;; TypeScript, and Python. This crosses the native Context seam; Racket owns
+;; only the pins and the projection into its immutable failure-event value.
+(define matrix-host (make-host (make-bytes 32 9)))
+(define matrix-operation #"listener.close")
+(define matrix-primary-name #"CloseFailed")
+(define matrix-primary-message #"socket refused shutdown")
+(define matrix-secondary-name #"ReleaseFailed")
+(define matrix-secondary-message #"descriptor remained live")
+(define matrix-report
+  (make-PancakeFailureReport
+   1 (ctype-sizeof _PancakeFailureReport)
+   FAILURE-LAYER-TRANSPORT FAILURE-SCOPE-LISTENER
+   31 47 ERR-IO ERR-INTERNAL 2
+   (pin-immobile matrix-operation) (bytes-length matrix-operation)
+   (pin-immobile matrix-primary-name) (bytes-length matrix-primary-name)
+   (pin-immobile matrix-primary-message) (bytes-length matrix-primary-message)
+   (pin-immobile matrix-secondary-name) (bytes-length matrix-secondary-name)
+   (pin-immobile matrix-secondary-message) (bytes-length matrix-secondary-message)))
+(call-with-host
+ matrix-host
+ (lambda ()
+   (check (pancake_context_report_failure (host-context matrix-host) matrix-report))))
+(define matrix-failures (host-take-failures! matrix-host))
+(define matrix-failure (and (= (length matrix-failures) 1) (car matrix-failures)))
+(expect (and matrix-failure
+             (= (failure-event-sequence matrix-failure) 1)
+             (= (failure-event-dropped-before matrix-failure) 0)
+             (eq? (failure-event-layer matrix-failure) 'transport)
+             (eq? (failure-event-scope matrix-failure) 'listener)
+             (= (failure-event-scope-id matrix-failure) 31)
+             (= (failure-event-operation-id matrix-failure) 47)
+             (= (failure-event-primary-result matrix-failure) ERR-IO)
+             (= (failure-event-secondary-result matrix-failure) ERR-INTERNAL)
+             (= (failure-event-secondary-count matrix-failure) 2)
+             (equal? (failure-event-operation matrix-failure) "listener.close")
+             (equal? (failure-event-primary-name matrix-failure) "CloseFailed")
+             (equal? (failure-event-primary-message matrix-failure)
+                     "socket refused shutdown")
+             (equal? (failure-event-secondary-name matrix-failure) "ReleaseFailed")
+             (equal? (failure-event-secondary-message matrix-failure)
+                     "descriptor remained live")
+             (null? (host-take-failures! matrix-host)))
+        "Context preserves the cross-language native failure vector exactly once")
+(host-close! matrix-host)
+(printf "racket zig-smoke OK: Context preserves the cross-language native failure vector exactly once\n")
 
 (expect (with-handlers ([exn:fail? (lambda (_) #t)])
           (make-byte-connector '() void)
@@ -225,40 +274,6 @@
 (expect (eq? repeated-iroh-background-failure iroh-background-failure)
         "repeated iroh endpoint close retains its readiness-loop failure")
 
-;; A WebSocket read exception is not EOF. The transport preserves it exactly,
-;; joins its close worker, and keeps the earlier read failure ahead of a later
-;; close failure at every observing surface.
-(define websocket-read-failure
-  (exn:fail "WebSocket receive failed" (current-continuation-marks)))
-(define websocket-close-failure
-  (exn:fail "WebSocket close failed" (current-continuation-marks)))
-(define failed-websocket-transport
-  (ws-transport
-   "ws://failure.invalid/"
-   #:connect (lambda (_url) 'fake-websocket)
-   #:recv (lambda (_connection #:payload-type _payload-type)
-            (raise websocket-read-failure))
-   #:send (lambda (_connection _bytes #:payload-type _payload-type) (void))
-   #:close (lambda (_connection) (raise websocket-close-failure))))
-(define observed-websocket-read-failure
-  (with-handlers ([exn:fail? values])
-    ((async-transport-read-some! failed-websocket-transport) (make-semaphore 0))
-    #f))
-(expect (eq? observed-websocket-read-failure websocket-read-failure)
-        "WebSocket read preserves its exact receive exception")
-(define observed-websocket-close-failure
-  (with-handlers ([exn:fail? values])
-    ((async-transport-close! failed-websocket-transport))
-    #f))
-(expect (eq? observed-websocket-close-failure websocket-read-failure)
-        "WebSocket close retains the earlier receive exception")
-(define repeated-websocket-close-failure
-  (with-handlers ([exn:fail? values])
-    ((async-transport-close! failed-websocket-transport))
-    #f))
-(expect (eq? repeated-websocket-close-failure websocket-read-failure)
-        "repeated WebSocket close retains its first task failure")
-
 ;; Callerless drain fires belong to their Host. One failed fire cannot stop a
 ;; sibling, and explicit close returns the exact first scheduling failure.
 (define drain-fire-failure-host (make-fresh-host))
@@ -281,32 +296,29 @@
 (expect (eq? observed-drain-fire-failure drain-fire-failure)
         "Host close returns the exact deferred-fire failure")
 
-;; Establishment keeps its operation failure primary while retaining a failed
-;; transport rollback on the Host that owns the attempted session.
+;; Establishment keeps its operation failure primary and attaches a failed
+;; transport rollback to it; Host teardown must not observe a duplicate.
 (define establish-cleanup-host (make-fresh-host))
 (define establish-primary-failure
-  (exn:fail "session establishment failed" (current-continuation-marks)))
+  (exn:fail:pancake "session establishment failed" (current-continuation-marks) ERR-IO #f #f #f #f 0))
 (define establish-close-failure
-  (exn:fail "failed establishment transport close failed"
-            (current-continuation-marks)))
+  (exn:fail:pancake "failed establishment transport close failed" (current-continuation-marks) ERR-INTERNAL #f #f #f #f 0))
 (define failed-establish-transport
-  (async-transport void void (lambda (_wake) eof)
-                   (lambda () (raise establish-close-failure))))
+  (async-transport void void (lambda (_wake) eof) (lambda () (raise establish-close-failure))))
 (define observed-establish-primary
   (with-handlers ([exn:fail? values])
-    (establish-closing-transport
-     establish-cleanup-host
-     failed-establish-transport
-     (lambda () (raise establish-primary-failure)))
+    (establish-closing-transport establish-cleanup-host failed-establish-transport
+                                 (lambda () (raise establish-primary-failure)))
     #f))
-(expect (eq? observed-establish-primary establish-primary-failure)
-        "establishment preserves its primary operation failure")
+(expect (and (exn:fail:pancake? observed-establish-primary)
+             (equal? (exn-message observed-establish-primary) (exn-message establish-primary-failure))
+             (= (exn:fail:pancake-secondary-code observed-establish-primary) ERR-INTERNAL)
+             (= (exn:fail:pancake-secondary-count observed-establish-primary) 1))
+        "establishment preserves its primary and attaches rollback failure")
 (define observed-establish-close-failure
-  (with-handlers ([exn:fail? values])
-    (host-close! establish-cleanup-host)
-    #f))
-(expect (eq? observed-establish-close-failure establish-close-failure)
-        "Host close returns failed-establishment cleanup failure")
+  (with-handlers ([exn:fail? values]) (host-close! establish-cleanup-host) #f))
+(expect (not observed-establish-close-failure)
+        "Host close does not duplicate failed-establishment cleanup failure")
 
 ;; A collected wrapper cannot own its own release failure, and the collector
 ;; is not an application exception boundary. The process journal normalizes
@@ -382,7 +394,7 @@
 
 (define typed-runtime-failure
   (exn:fail:pancake "typed primary" (current-continuation-marks)
-                    ERR-IO #f ERR-INTERNAL "PancakeError" 2))
+                    ERR-IO #f #f ERR-INTERNAL "PancakeError" 2))
 (record-runtime-failure! 'transport "listener.close" typed-runtime-failure)
 (define typed-runtime-event (car (take-runtime-failures!)))
 (expect (and (= (failure-event-primary-result typed-runtime-event) ERR-IO)
@@ -835,8 +847,9 @@
                 (encode-peer-locator
                  (locator TRANSPORT-TCP
                           (tcp-address-designator "127.0.0.1" (server-port hl-server))
-                          (hash)
-                          'boolean-false)))
+                          (hash "pancake/features"
+                                "pipelining,handoff,wire_delta,sturdyref,untag")
+                          'map)))
         "listen/accept: the host advertised the listener's complete locator record")
 (define hl-svc (session-fetch hl-session "svc"))
 (expect (equal? "hello pancake" (session-send hl-session hl-svc 'greet "pancake"))
@@ -1107,7 +1120,7 @@
        (session-publish hsession "board"
                      (lambda (bcom)
                        (methods
-                        [(echo big k bs) (list big k bs)])))
+                        [(echo big k bs record err) (list big k bs record err)])))
        (semaphore-post cx-ready)
        (session-serve hsession)
        (channel-put cx-ch 'served)))))
@@ -1115,16 +1128,18 @@
 (semaphore-wait cx-ready)
 (define cx-svc (session-fetch cx-session "board"))
 (define cx-big (expt 2 80))
-(expect (equal? (list cx-big (kw "prio") #"hi")
-                (session-send cx-session cx-svc 'echo cx-big (kw "prio") #"hi"))
-        "capnp: big-integer + keyword + bytes args round-trip a Cap'n Proto session")
+(define cx-struct (struct-arg (list (cons "count" 7) (cons "name" "widget"))))
+(define cx-error (error-arg "failure is a value"))
+(expect (equal? (list cx-big (kw "prio") #"hi" cx-struct cx-error)
+                (session-send cx-session cx-svc 'echo cx-big (kw "prio") #"hi" cx-struct cx-error))
+        "capnp: big-integer + keyword + bytes + Struct + Error args round-trip a Cap'n Proto session")
 (session-close! cx-session)
 (define cx-host-result (channel-get cx-ch))
 (when (exn? cx-host-result) (raise cx-host-result))
 (expect (eq? 'served cx-host-result) "capnp: host served to a clean close")
 (server-close! cx-server)
 
-(printf "racket zig-smoke OK: a capnp session opens through #:codec and big-integer + keyword args round-trip\n")
+(printf "racket zig-smoke OK: a capnp session opens and big-integer + keyword + Struct + Error args round-trip\n")
 
 ;; ── A byte-sniffing TCP relay ─────────────────────────────────────────────────
 ;; A relay between a dialing client and `target-port` that watches every
@@ -1133,7 +1148,8 @@
 ;; stay fully high-level; the relay is how the dogfood observes — or severs —
 ;; the wire between them without a raw peer.
 (define (start-sniffing-relay target-port on-chunk
-                              #:before-connect [before-connect void])
+                              #:before-connect [before-connect void]
+                              #:on-return-chunk [on-return-chunk #f])
   (define lst (tcp-listen 0 4 #t "127.0.0.1"))
   (define-values (_h port _rh _rp) (tcp-addresses lst #t))
   (thread
@@ -1161,58 +1177,88 @@
                     [(and watch (eq? 'close (watch chunk))) (close-all!)]
                     [else (write-bytes chunk out) (flush-output out) (loop)])]))))))
        (pump-side cin sout on-chunk)
-       (pump-side sin cout #f))))
+       (pump-side sin cout on-return-chunk))))
   (values lst port))
 
-;; ── Distributed GC (ADR-0063): a dropped fetched import releases its export ──
-;; Opt the client into GC; once on, a far capability returned by `session-fetch`
-;; releases its import — one `op:gc-export` — when the collector reclaims the
-;; last reference to it. Both ends are fully high-level; the release is
-;; asserted on the wire itself, through a sniffing relay between them (the
-;; partner's engine consumes `op:gc-export` internally, so only the bytes in
-;; flight prove it shipped). The client fetches a cap inside a thunk so it
-;; falls out of scope, drops it, and forces collection; the finalizer parks the
-;; release, and the next `session-fetch` drains it to the wire where the relay
-;; sees it.
+;; ── Distributed GC (ADR-0063): every projected application occurrence ────────
+;; Fetch results, nested send replies, and nested delivered arguments each own
+;; one finalizer release. The relay observes both real wire directions before
+;; teardown, so a session-close sweep cannot satisfy the proof accidentally.
 (define gc-server (listen "127.0.0.1" 0))
 (define gc-ready (make-semaphore 0))
 (define gc-host
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-       (define hsession (accept gc-server))
-       (session-publish hsession "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
+       (define hsession (session-with-gc! (accept gc-server)))
+       (define delegated
+         (session-spawn hsession (lambda (bcom) (methods [(ping) (sym "alive")]))))
+       (session-publish
+        hsession "factory"
+        (lambda (bcom)
+          (methods
+           [(reply) (struct-arg (list (cons "nested" (list delegated))))]
+           [(accept payload)
+            (expect (and (struct-arg? payload)
+                         (equal? "nested" (caar (struct-arg-entries payload)))
+                         (list? (cdar (struct-arg-entries payload)))
+                         (ref? (car (cdar (struct-arg-entries payload)))))
+                    "gc: server received a nested capability argument")
+            (void)]
+           [(tick) (void)])))
        (semaphore-post gc-ready)
        (session-serve hsession)))))
-(define gc-saw (box #f))
+(define gc-to-server (box 0))
+(define gc-to-client (box 0))
+(define gc-needle #"op:gc-export")
+(define (make-gc-scanner count)
+  (define tail #"")
+  (lambda (chunk)
+    (define combined (bytes-append tail chunk))
+    (set-box! count (+ (unbox count)
+                       (length (regexp-match-positions* #rx#"op:gc-export" combined))))
+    (define keep (min (bytes-length combined) (sub1 (bytes-length gc-needle))))
+    (set! tail (subbytes combined (- (bytes-length combined) keep)))
+    #f))
 (define-values (gc-relay gc-relay-port)
   (start-sniffing-relay (server-port gc-server)
-                        (lambda (chunk)
-                          (when (regexp-match? #rx#"op:gc-export" chunk) (set-box! gc-saw #t))
-                          #f)))
+                        (make-gc-scanner gc-to-server)
+                        #:on-return-chunk (make-gc-scanner gc-to-client)))
 (define gc-session (session-with-gc! (open-test-session (tcp-locator "127.0.0.1" gc-relay-port))))
 (semaphore-wait gc-ready)
-;; Fetch and drop inside a thunk so the capability falls out of scope (a
-;; module-level binding would root it forever and never finalize).
-(define (gc-fetch-and-drop!)
-  (define cap (session-fetch gc-session "svc"))
-  (expect (ref? cap) "gc: fetched a capability")
+(define (wait-for-gc! count expected label)
+  (let loop ([i 0])
+    (collect-garbage)
+    (sleep 0.02)
+    (unless (or (>= (unbox count) expected) (>= i 100)) (loop (add1 i))))
+  (expect (>= (unbox count) expected) label))
+(define gc-factory (box (session-fetch gc-session "factory")))
+(define (gc-reply-and-drop!)
+  (define reply (session-send gc-session (unbox gc-factory) 'reply))
+  (expect (and (struct-arg? reply)
+               (equal? "nested" (caar (struct-arg-entries reply)))
+               (list? (cdar (struct-arg-entries reply)))
+               (ref? (car (cdar (struct-arg-entries reply)))))
+          "gc: send reply carried a nested capability")
   (void))
-(gc-fetch-and-drop!)
-;; Force collection, then re-fetch to drain the parked release, until the relay
-;; sees the gc-export on the wire (or we exhaust the budget).
-(let loop ([i 0])
-  (collect-garbage)
-  (sleep 0.02)
-  (session-fetch gc-session "svc")
-  (unless (or (unbox gc-saw) (>= i 100)) (loop (add1 i))))
-(expect (unbox gc-saw) "gc: the wire carried op:gc-export for the dropped fetched import")
+(gc-reply-and-drop!)
+(wait-for-gc! gc-to-server 1 "gc: nested send reply released")
+(define gc-callback
+  (session-spawn gc-session (lambda (bcom) (methods [(ping) (sym "client")]))))
+(session-send gc-session (unbox gc-factory) 'accept
+              (struct-arg (list (cons "nested" (list gc-callback)))))
+;; Move the serving loop past the callback frame that owned the delivered
+;; arguments before asking Racket's collector to prove their death.
+(session-send gc-session (unbox gc-factory) 'tick)
+(wait-for-gc! gc-to-client 1 "gc: nested delivered argument released")
+(set-box! gc-factory #f)
+(wait-for-gc! gc-to-server 2 "gc: fetched capability released")
 (session-close! gc-session)
 (void (sync/timeout 2 (thread-dead-evt gc-host)))
 (tcp-close gc-relay)
 (server-close! gc-server)
 
-(printf "racket zig-smoke OK: a dropped fetched import releases its export when GC is opted in\n")
+(printf "racket zig-smoke OK: GC releases fetched, replied, and delivered capability occurrences\n")
 
 ;; ── Byte-fed sessions: minting a Host session over any transport ──────────────
 ;; The host archive is byte-fed (ADR-0072), so a session needs no socket:
@@ -1446,28 +1492,37 @@
 
 (printf "racket zig-smoke OK: self-spawned sends resolve in process and failures are typed\n")
 
-;; ── Foreign argument: a capability from another connection fails closed ───────
-;; A capability fetched on one connection cannot ride another connection's send
-;; as an argument — the host refuses the send whole (typed INVALID_ARGUMENT)
-;; rather than mis-encode a reference the partner never imported — and the
-;; refusal walks containers, so hiding the foreign capability inside a list
-;; changes nothing. Two listens give two partner designators so one client host
-;; can hold both sessions (a second dial to the same address refuses
-;; SessionPairExists).
+;; ── Cross-connection argument: inline handoff routes the capability ───────────
+;; A capability fetched on one connection can ride another connection's send
+;; through the draft's inline handoff projection. Nesting it in a list preserves
+;; the explicit route. Core and live-Goblins scenarios own redemption semantics;
+;; this binding dogfood proves Racket projects the nested promise as a Ref.
 (define fa-server-1 (listen "127.0.0.1" 0))
 (define fa-server-2 (listen "127.0.0.1" 0))
 (define fa-ready-1 (make-semaphore 0))
 (define fa-ready-2 (make-semaphore 0))
-(define (fa-serve! server ready)
+(define (fa-serve! server ready role)
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
        (define hsession (accept server))
-       (session-publish hsession "svc" (lambda (bcom) (methods [(echo x) x])))
+       (session-publish
+        hsession "svc"
+        (lambda (bcom)
+          (case role
+            [(exporter) (methods [(ping x) x])]
+            [(recipient)
+             (methods
+              [(use payload)
+               (expect (and (list? payload)
+                            (= 3 (length payload))
+                            (ref? (cadr payload)))
+                       "foreign arg: recipient observed the nested handoff promise")
+               (sym "received-handoff")])])))
        (semaphore-post ready)
        (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))))
-(void (fa-serve! fa-server-1 fa-ready-1))
-(void (fa-serve! fa-server-2 fa-ready-2))
+(void (fa-serve! fa-server-1 fa-ready-1 'exporter))
+(void (fa-serve! fa-server-2 fa-ready-2 'recipient))
 (define fa-session-1 (open-test-session (tcp-locator "127.0.0.1" (server-port fa-server-1))))
 (semaphore-wait fa-ready-1)
 (define fa-session-2 (open-test-session (tcp-locator "127.0.0.1" (server-port fa-server-2))
@@ -1475,18 +1530,15 @@
 (semaphore-wait fa-ready-2)
 (define fa-cap-1 (session-fetch fa-session-1 "svc"))
 (define fa-cap-2 (session-fetch fa-session-2 "svc"))
-(define fa-refused
-  (with-handlers ([exn:fail:pancake? values])
-    (session-send fa-session-2 fa-cap-2 'echo (list 1 fa-cap-1 2))
-    'no-error))
-(expect (exn:fail:pancake? fa-refused) "foreign arg: the cross-connection send was refused")
-(expect (equal? ERR-INVALID-ARGUMENT (exn:fail:pancake-code fa-refused)) "foreign arg: code is PANCAKE_ERR_INVALID_ARGUMENT")
+(define fa-result (session-send fa-session-2 fa-cap-2 'use (list 1 fa-cap-1 2)))
+(expect (equal? (sym "received-handoff") fa-result)
+        "foreign arg: the recipient received the nested capability")
 (session-close! fa-session-1)
 (session-close! fa-session-2)
 (server-close! fa-server-1)
 (server-close! fa-server-2)
 
-(printf "racket zig-smoke OK: a foreign capability in argument position fails closed, containers included\n")
+(printf "racket zig-smoke OK: a nested cross-connection argument projects as a Ref\n")
 
 ;; ── Promise pipelining: the questioner's half (ADR-0007) ──────────────────────
 ;; `session-send-promise` returns a far vow that is itself a `send` target, so
@@ -3020,7 +3072,7 @@
       (define-values (rc id)
         (pancake_host_session_fetch (session-ptr c) (pin-immobile nb) (bytes-length nb)))
       (check/host rc)
-      (define fresh (session-vow c id 'pending '()))
+      (define fresh (session-vow c id 'pending '() #f))
       (register-vow! m fresh)
       ;; The drain parks the fetch deliver on the connection's pending-writes
       ;; FIFO; `with-host-drain` runs the write once the lock releases, like

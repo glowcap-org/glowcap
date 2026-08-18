@@ -46,6 +46,59 @@ test "TCP configuration rejects absent and partial keepalive defaults" {
     try std.testing.expect(netlayer == null);
 }
 
+test "TCP blocking calls have one optional diagnostic contract" {
+    var netlayer: ?*ct.PancakeTcpNetlayer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_netlayer_new(&tcp_config, &netlayer));
+    const netlayer_ptr = netlayer.?;
+    defer ct.pancake_tcp_netlayer_release(netlayer_ptr);
+
+    var conn: ?*ct.PancakeTcpConn = null;
+    var diagnostic: [128]u8 = undefined;
+    var diagnostic_len: usize = 0;
+    const invalid_host = "not-an-ip-address";
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        ct.pancake_tcp_connect(
+            netlayer_ptr,
+            invalid_host.ptr,
+            invalid_host.len,
+            1,
+            null,
+            c.PANCAKE_CODEC_SYRUP,
+            frame_cap,
+            &conn,
+            &diagnostic,
+            diagnostic.len,
+            &diagnostic_len,
+        ),
+    );
+    try std.testing.expect(conn == null);
+    try std.testing.expectEqualStrings(
+        "connect: invalid address: InvalidAddress",
+        diagnostic[0..diagnostic_len],
+    );
+
+    // A partial diagnostic request is rejected before the operation starts.
+    // It cannot silently run the dial and then replace its outcome.
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        ct.pancake_tcp_connect(
+            netlayer_ptr,
+            invalid_host.ptr,
+            invalid_host.len,
+            1,
+            null,
+            c.PANCAKE_CODEC_SYRUP,
+            frame_cap,
+            &conn,
+            &diagnostic,
+            diagnostic.len,
+            null,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 0), ct.pancake_tcp_last_error(null, 0));
+}
+
 const AcceptArgs = struct {
     listener: *ct.PancakeTcpListener,
     result: anyerror!void = {},
@@ -60,8 +113,8 @@ const ParkedTcpAccept = struct {
 fn parkedTcpAccept(args: *ParkedTcpAccept) void {
     var conn: ?*ct.PancakeTcpConn = null;
     args.started.store(true, .release);
-    args.result = ct.pancake_tcp_accept(args.listener, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
-    if (conn) |owned| _ = ct.pancake_tcp_conn_release(owned);
+    args.result = ct.pancake_tcp_accept(args.listener, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null);
+    if (conn) |owned| _ = ct.pancake_tcp_conn_release(owned, null, 0, null);
 }
 
 const ParkedTcpRead = struct {
@@ -73,7 +126,7 @@ const ParkedTcpRead = struct {
 fn parkedTcpRead(args: *ParkedTcpRead) void {
     var managed: c.PancakeManagedFrame = undefined;
     args.started.store(true, .release);
-    args.result = ct.pancake_tcp_conn_read_frame(args.conn, &managed);
+    args.result = ct.pancake_tcp_conn_read_frame(args.conn, &managed, null, 0, null);
     if (args.result == c.PANCAKE_OK) c.pancake_managed_frame_release(&managed);
 }
 
@@ -83,13 +136,13 @@ fn acceptThread(args: *AcceptArgs) void {
 
 fn acceptOnce(args: *AcceptArgs) !void {
     var conn: ?*ct.PancakeTcpConn = null;
-    if (ct.pancake_tcp_accept(args.listener, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
+    if (ct.pancake_tcp_accept(args.listener, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null) != c.PANCAKE_OK)
         return error.AcceptFailed;
     const conn_ptr = conn orelse return error.AcceptNull;
-    defer _ = ct.pancake_tcp_conn_release(conn_ptr);
+    defer _ = ct.pancake_tcp_conn_release(conn_ptr, null, 0, null);
 
     var managed: c.PancakeManagedFrame = undefined;
-    if (ct.pancake_tcp_conn_read_frame(conn_ptr, &managed) != c.PANCAKE_OK) return error.ReadFailed;
+    if (ct.pancake_tcp_conn_read_frame(conn_ptr, &managed, null, 0, null) != c.PANCAKE_OK) return error.ReadFailed;
     defer c.pancake_managed_frame_release(&managed);
 
     const bytes = (managed.bytes orelse return error.NullFrame)[0..managed.len];
@@ -130,7 +183,7 @@ test "host allocator balances a TCP handle family and owned frame" {
     var conn: ?*ct.PancakeTcpConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
+        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn, null, 0, null),
     );
     const conn_ptr = conn.?;
 
@@ -139,10 +192,29 @@ test "host allocator balances a TCP handle family and owned frame" {
         .len = frame.len,
         .shape = c.PANCAKE_FRAME_SHAPE_BYTE,
     };
-    const write_rc = ct.pancake_tcp_conn_write_frame(conn_ptr, &outbound);
+    const write_rc = ct.pancake_tcp_conn_write_frame(conn_ptr, &outbound, null, 0, null);
 
     accept_future.await(io);
-    try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_conn_release(conn_ptr));
+
+    // Malformed optional diagnostic plumbing is refused before consuming the
+    // connection. The subsequent diagnosed release proves ownership remained
+    // with the caller and that success clears the worker-local slot.
+    var release_diagnostic: [64]u8 = undefined;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        ct.pancake_tcp_conn_release(conn_ptr, &release_diagnostic, release_diagnostic.len, null),
+    );
+    var release_diagnostic_len: usize = std.math.maxInt(usize);
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        ct.pancake_tcp_conn_release(
+            conn_ptr,
+            &release_diagnostic,
+            release_diagnostic.len,
+            &release_diagnostic_len,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 0), release_diagnostic_len);
     ct.pancake_tcp_listener_release(listener_ptr);
     ct.pancake_tcp_netlayer_release(netlayer_ptr);
     c.pancake_context_release(ctx_ptr);
@@ -176,12 +248,12 @@ test "tcp connect and accept reject the unknown codec selector" {
     var conn: ?*ct.PancakeTcpConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, 1, null, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn),
+        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, 1, null, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn, null, 0, null),
     );
     try std.testing.expect(conn == null);
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        ct.pancake_tcp_accept(listener_ptr, null, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn),
+        ct.pancake_tcp_accept(listener_ptr, null, c.PANCAKE_CODEC_UNKNOWN, frame_cap, &conn, null, 0, null),
     );
     try std.testing.expect(conn == null);
 }
@@ -212,9 +284,9 @@ test "tcp listener readiness fd is level-readable until accept" {
     var dialed: ?*ct.PancakeTcpConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &dialed),
+        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &dialed, null, 0, null),
     );
-    defer _ = ct.pancake_tcp_conn_release(dialed.?);
+    defer _ = ct.pancake_tcp_conn_release(dialed.?, null, 0, null);
     pollfd[0].revents = 0;
     try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&pollfd, 1000));
     try std.testing.expect(pollfd[0].revents & std.posix.POLL.IN != 0);
@@ -222,9 +294,9 @@ test "tcp listener readiness fd is level-readable until accept" {
     var accepted: ?*ct.PancakeTcpConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        ct.pancake_tcp_accept(listener_ptr, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &accepted),
+        ct.pancake_tcp_accept(listener_ptr, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &accepted, null, 0, null),
     );
-    defer _ = ct.pancake_tcp_conn_release(accepted.?);
+    defer _ = ct.pancake_tcp_conn_release(accepted.?, null, 0, null);
 }
 
 test "tcp release resolves a racing native accept" {
@@ -272,13 +344,13 @@ test "tcp release resolves a racing native accept" {
     var dialed: ?*ct.PancakeTcpConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &dialed),
+        ct.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &dialed, null, 0, null),
     );
-    defer _ = ct.pancake_tcp_conn_release(dialed.?);
+    defer _ = ct.pancake_tcp_conn_release(dialed.?, null, 0, null);
     var accepted: ?*ct.PancakeTcpConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        ct.pancake_tcp_accept(pair_listener, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &accepted),
+        ct.pancake_tcp_accept(pair_listener, null, c.PANCAKE_CODEC_SYRUP, frame_cap, &accepted, null, 0, null),
     );
     const accepted_ptr = accepted.?;
 
@@ -296,5 +368,5 @@ test "tcp release resolves a racing native accept" {
     try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_conn_shutdown(accepted_ptr));
     read_future.await(io);
     try std.testing.expect(parked_read.result != c.PANCAKE_OK);
-    try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_conn_release(accepted_ptr));
+    try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_conn_release(accepted_ptr, null, 0, null));
 }

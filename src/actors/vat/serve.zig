@@ -31,7 +31,7 @@ const releaseBox = boxed.releaseBox;
 /// Heap context a forwarded turn's vow listener carries: the vat to resolve
 /// against and the deferred inbound answer. Freed by the listener once it fires
 /// (on settle, or on a disconnect break via `breakFarVows`).
-pub const ForwardContext = struct { vat: *Vat, port: *Port, answer: model.AnswerPosition };
+pub const ForwardContext = struct { vat: *Vat, port: *Port, answer: model.AnswerName };
 
 /// Every fallible resource needed to hand a served turn's answer to a vow.
 /// A no-answer deliver needs no listener; an answered deliver reserves both
@@ -164,7 +164,7 @@ pub fn forwardTurnVow(self: *Vat, turn: *Turn, vow: vat_mod.Vow) anyerror!void {
 pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, event: *engine.Event) !bool {
     const body = event.view() catch return false;
     return switch (body) {
-        .deliver => |deliver| serveDeliver(self, port, ingress, deliver),
+        .deliver => |deliver| serveDeliver(self, port, ingress, deliver, try event.deliverAnswerName()),
         .resolve => |resolve| blk: {
             var handled = try serveResolve(self, port, resolve);
             for (event.resolveAliases()) |answer| {
@@ -181,14 +181,19 @@ pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, eve
 /// The deliver arm of `serve`: run the bound actor's turn against the
 /// borrowed wire message and resolve (or break) the inbound answer,
 /// consulting the resolve interceptor on the fulfilled path.
-fn serveDeliver(self: *Vat, port: *Port, ingress: vat_mod.IngressId, deliver: model.view.Deliver) !bool {
+fn serveDeliver(
+    self: *Vat,
+    port: *Port,
+    ingress: vat_mod.IngressId,
+    deliver: model.view.Deliver,
+    answer: ?model.AnswerName,
+) !bool {
     const export_position = deliver.target.exportPosition() orelse return false;
     // V1.0: a resolver-only deliver carries no wire answer but names a resolver
     // descriptor. The engine maps it to the virtual answer it installed, so the
     // resolve reaches the partner. The engine owns that mapping, so the vat never
     // decodes the descriptor. Without a peer (no wire), only an explicit wire
     // answer exists.
-    const answer = port.peer.answerForDeliver(deliver);
     const local_id = port.exports.get(export_position.int()) orelse {
         // The bootstrap position is engine-owned: the peer
         // auto-answers its delivers (`fetch`, gift deposit /
@@ -472,14 +477,14 @@ pub fn refForExport(port: *const Port, position: u64) ?Ref {
     return .{ .local = local_id };
 }
 
-pub fn resolveFulfill(port: *Port, answer: ?model.AnswerPosition, reply: model.Argument) !void {
+pub fn resolveFulfill(port: *Port, answer: ?model.AnswerName, reply: model.Argument) !void {
     const ans = answer orelse return;
-    try port.peer.sendCopying(.{ .resolve = .{ .answer = ans, .resolution = .{ .fulfill = reply } } });
+    try port.peer.sendAnswerResolutionCopying(ans, .{ .fulfill = reply });
 }
 
-pub fn resolveBreak(port: *Port, answer: ?model.AnswerPosition, message: []const u8) !void {
+pub fn resolveBreak(port: *Port, answer: ?model.AnswerName, message: []const u8) !void {
     const ans = answer orelse return;
-    try port.peer.sendCopying(.{ .resolve = .{ .answer = ans, .resolution = .{ .@"break" = .{ .message = message } } } });
+    try port.peer.sendAnswerResolutionCopying(ans, .{ .@"break" = .{ .message = message } });
 }
 
 /// Split an inbound deliver's args into a method verb and its arguments: a

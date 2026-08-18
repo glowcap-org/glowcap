@@ -1,6 +1,6 @@
 // Hermetic goldens for page settings. The URL wins when it names a value;
 // storage fills in when it does not.
-import { dmFrom, vizFrom, vizWsUrl, writeSearch } from "../web/ui/prefs.ts";
+import { dmFrom, originVizUrl, vizFrom, writeSearch } from "../web/ui/prefs.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("dm: URL relay wins over stored webrtc", () => {
@@ -49,16 +49,15 @@ Deno.test("writeSearch: relay and viz land; webrtc and a blank viz come off", ()
 	assertEquals(url.searchParams.get("viz"), "ws://127.0.0.1:9/", "trimmed viz");
 });
 
-Deno.test("vizWsUrl: http is ws, https is wss, junk port is null", () => {
+Deno.test("originVizUrl: http is ws, https is wss, on the page's own host", () => {
 	assertEquals(
-		vizWsUrl("9300", { protocol: "http:", hostname: "rooms.test" }),
-		"ws://rooms.test:9300/",
-		"http",
+		originVizUrl({ protocol: "http:", host: "rooms.test:8000" }),
+		"ws://rooms.test:8000/viz",
+		"ws",
 	);
 	assertEquals(
-		vizWsUrl("9300", { protocol: "https:", hostname: "rooms.test" }),
-		"wss://rooms.test:9300/",
-		"https",
+		originVizUrl({ protocol: "https:", host: "rooms.test" }),
+		"wss://rooms.test/viz",
+		"wss",
 	);
-	assertEquals(vizWsUrl("nope", { protocol: "http:", hostname: "rooms.test" }), null, "junk");
 });

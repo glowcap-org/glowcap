@@ -7,7 +7,7 @@
 
 (require ffi/unsafe
          "constants.rkt"
-         "codec.rkt"
+         "abi-value.rkt"
          "ffi-ocapn.rkt"
          "errors.rkt")
 

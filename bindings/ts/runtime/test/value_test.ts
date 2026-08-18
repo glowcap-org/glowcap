@@ -3,11 +3,13 @@ import {
 	CAPTP_V1_0,
 	CODEC_CAPNP,
 	CODEC_SYRUP,
+	FEATURE_BASELINE,
 	FEATURE_FULL,
 	FEATURE_HANDOFF,
 	FEATURE_PIPELINING,
+	FEATURE_UNTAG,
 } from "@pancake/abi";
-import { type CaptpVersion, captpVersionId, type Codec, codecId, featureMask } from "../value.ts";
+import { type CaptpVersion, captpVersionId, type Codec, codecId, featureMask, refFromId } from "../value.ts";
 
 function assertEquals(actual: unknown, expected: unknown): void {
 	if (actual !== expected) {
@@ -44,11 +46,13 @@ Deno.test("captpVersionId names only concrete CapTP profiles", () => {
 
 Deno.test("featureMask composes known features and rejects unknown mask bits", () => {
 	assertEquals(featureMask("full"), FEATURE_FULL);
+	assertEquals(featureMask("baseline"), FEATURE_BASELINE);
 	assertEquals(
 		featureMask(FEATURE_PIPELINING + FEATURE_HANDOFF),
 		FEATURE_PIPELINING + FEATURE_HANDOFF,
 	);
 	assertEquals(featureMask(["pipelining", "handoff"]), FEATURE_PIPELINING + FEATURE_HANDOFF);
+	assertEquals(featureMask(["untag"]), FEATURE_UNTAG);
 	assertThrows(() => featureMask(FEATURE_FULL + 1), "unknown OCapN feature mask");
 	assertThrows(() => featureMask(-1), "unknown OCapN feature mask");
 	assertThrows(() => featureMask(0x8000_0000), "unknown OCapN feature mask");
@@ -58,4 +62,15 @@ Deno.test("featureMask composes known features and rejects unknown mask bits", (
 		() => featureMask(0x1_0000_0000 + FEATURE_PIPELINING),
 		"unknown OCapN feature mask",
 	);
+});
+
+Deno.test("Ref equality follows opaque Host identity, not wrapper occurrence", () => {
+	const first = refFromId(17n);
+	const repeated = refFromId(17n);
+	const other = refFromId(18n);
+	assertEquals(first === repeated, false);
+	assertEquals(first.equals(repeated), true);
+	assertEquals(first.equals(other), false);
+	first.markReleased();
+	assertEquals(first.equals(repeated), true);
 });

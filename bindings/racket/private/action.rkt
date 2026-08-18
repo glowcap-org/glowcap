@@ -17,7 +17,7 @@
          "constants.rkt"
          "ffi-host.rkt"
          "errors.rkt"
-         "codec.rkt"
+         "abi-value.rkt"
          "vat.rkt"
          "host.rkt"
          "pump.rkt"
@@ -47,15 +47,24 @@
 ;; next pop frees them. Caller holds the host lock; arms must not await.
 (define (park-host-actions! m)
   (define parked '())
+  (define callback-failure #f)
   (define (arm _ctx _host action out-progressed)
-    (define decoded (host-decode-action! action arg<-c))
-    (set! parked (cons decoded parked))
-    (when out-progressed
-      (ptr-set! out-progressed _uint32 1))
-    OK)
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (error)
+                       (set! callback-failure error)
+                       ERR-INTERNAL)])
+      (define decoded (host-decode-action! action arg<-c))
+      (set! parked (cons decoded parked))
+      (when out-progressed
+        (ptr-set! out-progressed _uint32 1))
+      OK))
   (define arm-cb (function-ptr arm _PancakeHostPumpArmFn))
   (define hooks (make-PancakeHostPumpHooks #f arm-cb arm-cb arm-cb arm-cb arm-cb))
   (define-values (rc _drained yielded) (pancake_host_pump_drain (host-ptr m) hooks))
+  (when callback-failure
+    (raise-pancake 'pancake ERR-INTERNAL
+                   "ABI returned an invalid host action: ~a"
+                   callback-failure))
   (check/host rc)
   (values (reverse parked) (not (zero? yielded))))
 
@@ -237,7 +246,7 @@
          ;; bumps below, forcing one more progress check instead of parking
          ;; over undrained work.
          (define effects (drain-host-actions! m))
-         (unless (= lifecycle LIFECYCLE-CLOSED)
+         (unless (lifecycle-closed? lifecycle)
            (define-values (wrc w)
              (pancake_host_close_wait_ms (host-ptr m) (monotonic-ms)))
            (check/host wrc)
@@ -246,7 +255,7 @@
     (run-drain-effects! m fx)
     (when (drain-effects-productive? fx) (host-bump-progress! m))
     (cond
-      [(= state LIFECYCLE-CLOSED) close-code]
+      [(lifecycle-closed? state) close-code]
       [(>= wait-ms 0) (sync/timeout (/ wait-ms 1000.0) gen) (loop)]
       [else (sync gen) (loop)])))
 

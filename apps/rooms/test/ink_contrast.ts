@@ -37,7 +37,21 @@ export function inkContrast(page: Page, selector: string): Promise<{ ratio: numb
 		// which would quietly measure the wrong colour. Offering the same value
 		// against two different starting fills catches that: a value it took reads
 		// back the same both times.
-		const takes = (css: string): boolean => {
+		// A colour the canvas will not parse, rewritten into one it will. A
+		// `color-mix()` computes to `color(srgb …)`, which this Chromium's canvas
+		// does not take — and the check below is right to refuse what it cannot
+		// read, so without this every stack with a mixed wash anywhere above it
+		// measures as "no answer". Which is most of the page's own surfaces.
+		const canvasColour = (css: string): string => {
+			const parts = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)$/
+				.exec(css.trim());
+			if (parts === null) return css;
+			const channel = (n: string) => Math.round(Math.min(1, Math.max(0, Number(n))) * 255);
+			const alpha = parts[4] === undefined ? 1 : Number(parts[4]);
+			return `rgba(${channel(parts[1])}, ${channel(parts[2])}, ${channel(parts[3])}, ${alpha})`;
+		};
+		const takes = (raw: string): boolean => {
+			const css = canvasColour(raw);
 			ctx.fillStyle = "#000000";
 			ctx.fillStyle = css;
 			const first = ctx.fillStyle;
@@ -49,9 +63,9 @@ export function inkContrast(page: Page, selector: string): Promise<{ ratio: numb
 			const d = ctx.getImageData(0, 0, 1, 1).data;
 			return [d[0], d[1], d[2], d[3]];
 		};
-		const lay = (css: string, alpha = 1) => {
+		const lay = (raw: string, alpha = 1) => {
 			ctx.globalAlpha = alpha;
-			ctx.fillStyle = css;
+			ctx.fillStyle = canvasColour(raw);
 			ctx.fillRect(0, 0, 1, 1);
 			ctx.globalAlpha = 1;
 		};

@@ -18,7 +18,7 @@ import type { TimelineEvent } from "./timeline.ts";
  *
  * One module owns: the bundle index, the Bezier curve, and the
  * per-curve evaluation/tangent helpers. Both edge rendering
- * (Stage) and message-in-flight positioning (animation-system)
+ * (Stage) and message-in-flight positioning (message-flight-system)
  * read from the same source so an edge and a message on it stay
  * geometrically aligned to the pixel. That source is
  * `drawnSessionCurve` rather than `sessionCurve`: an edge whose far end is a

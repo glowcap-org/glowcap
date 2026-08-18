@@ -116,7 +116,16 @@ pub fn encodeResolveAsCallback(
     resolver_import: model.ImportPosition,
     pending_charge: usize,
 ) !void {
-    var args: [2]model.Argument = switch (resolve.resolution) {
+    return encodeResolutionAsCallback(peer, resolve.resolution, resolver_import, pending_charge);
+}
+
+pub fn encodeResolutionAsCallback(
+    peer: *Peer,
+    resolution: model.Resolution,
+    resolver_import: model.ImportPosition,
+    pending_charge: usize,
+) !void {
+    var args: [2]model.Argument = switch (resolution) {
         .fulfill => |value| .{ .{ .symbol = "fulfill" }, value },
         .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
     };
@@ -147,10 +156,10 @@ pub fn encodeResolveAsCallback(
 /// The other half of the V1.0 round trip — recognizing a deliver *to* one of
 /// our resolver exports — is version-neutral and lives in the inbound
 /// classifier (`engine.inbound.classifyInboundDeliver`, ADR-0095).
-pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model.AnswerPosition {
-    var installed_virtual: ?model.AnswerPosition = null;
+pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model.VirtualAnswer {
+    var installed_virtual: ?model.AnswerName = null;
     errdefer if (installed_virtual) |answer|
-        peer.session_state.abandonUnsharedInboundAnswer(answer);
+        peer.session_state.abandonUnsharedInboundAnswerNamed(answer);
 
     if (deliver.resolve_me_desc) |rmd| {
         if (rmd.position()) |import_position| {
@@ -159,15 +168,15 @@ pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model
             // allocate a fresh virtual answer (the V1.0 fetch-with-resolver
             // pattern the OCapN suite uses: no answer-position on the wire,
             // only a resolve-me-desc).
-            const answer = deliver.answer orelse blk: {
-                // `answerPosition` is the one named crossing where a
-                // synthesized answer takes a wire-shaped seat (ADR-0091).
-                const virtual = peer.session_state.allocateInboundAnswer().answerPosition();
+            const answer = if (deliver.answer) |wire|
+                model.AnswerName.fromWire(wire)
+            else blk: {
+                const virtual = model.AnswerName.fromVirtual(try peer.session_state.allocateInboundAnswer());
                 // Install before the resolver row below: a swallowed failure
                 // here would leave `v1_0_inbound_resolver_link` referencing a
                 // virtual answer absent from `inbound_answers`, breaking the
                 // authoritative-state invariant on OOM.
-                try peer.session_state.installInboundAnswer(virtual);
+                try peer.session_state.installInboundAnswerNamed(virtual);
                 installed_virtual = virtual;
                 break :blk virtual;
             };
@@ -175,7 +184,7 @@ pub fn registerPartnerResolver(peer: *Peer, deliver: model.view.Deliver) !?model
             // A resolver-only deliver (no wire answer) surfaces with the virtual
             // answer so the application's reply has a target; a deliver that
             // already carried a wire answer surfaces unchanged.
-            if (deliver.answer == null) return answer;
+            if (deliver.answer == null) return answer.virtual;
         }
     }
     return null;

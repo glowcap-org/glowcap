@@ -9,13 +9,13 @@
 //! One exception to "the vat did not retain it, so nobody did": an event the
 //! before-serve hook *claimed* never reaches the vat, and the node may have
 //! retained something from it. A proxy home-listener fire that settles to a
-//! capability is the live case — `Node.giftRelayedCapability` enrolls that
-//! import and deposits it later, once the embedder answers `need_gift_id`, so
-//! releasing it on the way out of the same turn would gc the gift out from
-//! under its own deposit. A host that turns `gc_stateless` on for a session
-//! under a `Node` has to skip emission for claimed events; the stateless hosts
-//! that use it today run a bare `Served` with no node, so nothing reaches this
-//! case yet.
+//! capability is the live case — Host projection transfers a retain into
+//! `Node.stageInlinePassable`, which deposits it after the embedder answers
+//! `need_gift_id`. Releasing the claimed observation on the way out of that
+//! same turn would gc the gift from under its own deposit. A host that turns
+//! `gc_stateless` on for a session under a `Node` has to skip emission for
+//! claimed events; the stateless hosts that use it today run a bare `Served`
+//! with no node, so nothing reaches this case yet.
 
 const std = @import("std");
 const engine = @import("engine");

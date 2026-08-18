@@ -53,9 +53,19 @@ services:
       DENO_DIR: /deno-dir
       # One room authority across child and container restarts. This keeps the
       # iroh endpoint id and every issued durable room link stable.
-      ROOMS_STATE: /state
+      PANCAKE_ROOMS_STATE: /state
       # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-peer / cross-container).
-      ROOMS_REACHABILITY: discovery
+      PANCAKE_ROOMS_REACHABILITY: discovery
+      # Same as starting with --diagnostics: mint inspect and print its swiss number.
+      # PANCAKE_ROOMS_DIAGNOSTICS: "1"
+      # Same as starting with --admin-listeners: mint the listener-admin
+      # capability and print its swiss number.
+      # PANCAKE_ROOMS_ADMIN_LISTENERS: "1"
+      # Same as starting with --viz: serve the live timeline endpoint (default
+      # port 9300) and mint the viz capability it requires of every socket; its
+      # swiss number prints beside the other two. PANCAKE_ROOMS_VIZ_PORT only
+      # changes the port.
+      # PANCAKE_ROOMS_VIZ: "1"
     volumes:
       # The TypeScript source and the prebuilt .so, both read-only mounts — neither
       # is baked into the image. Build the .so in the dev container first (above).
@@ -64,6 +74,20 @@ services:
       # A writable module cache, since the source mount is read-only.
       - rooms-deno-cache:/deno-dir
       - rooms-state:/state
+    # Alive is not the same as serving. `/locator` answers only once the page is
+    # being served *and* the room server it supervises has announced itself, so
+    # it is the one probe that tells a working deployment from a container that
+    # is up and useless — the state an operator otherwise finds out about from
+    # somebody in the room. Deno is the only tool in this image, and needs
+    # nothing but loopback to ask.
+    healthcheck:
+      test: ["CMD", "deno", "run", "--allow-net=127.0.0.1:8000", "--allow-env", "/repo/apps/rooms/web/deploy/healthcheck.ts"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The room server is spawned at startup and announces when it is ready;
+      # until then the container is starting rather than unhealthy.
+      start_period: 90s
     restart: unless-stopped
     networks:
       - rooms-net

@@ -20,7 +20,7 @@ const vocab = @import("vocab.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
-const actorIdOf = host_mod.actorIdOf;
+const localActorId = host_mod.localActorId;
 const foundation = @import("foundation");
 const crypto = foundation.crypto;
 
@@ -54,7 +54,7 @@ pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
     if (self.giftables.getPtr(name)) |existing| {
         const displaced = existing.actor;
         existing.actor = actor;
-        self.vat.releaseActor(actorIdOf(displaced));
+        self.vat.releaseActor(localActorId(displaced) catch unreachable);
         return;
     }
     const owned = try self.allocator.dupe(u8, name);
@@ -111,7 +111,7 @@ pub fn unpublish(
     // Release the alias root the row adopted (ADR-0101): with no other
     // rooting relationship, the actor is reclaimed here rather than at
     // Host teardown.
-    self.vat.releaseActor(actorIdOf(removed.value.actor));
+    self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
 }
 
 /// A minted durable swiss name: fixed-size, POD, returned by value so
@@ -205,7 +205,7 @@ pub fn removeDurable(
     if (!engine.isDurableSwiss(swiss)) return error.NotDurableName;
     const removed = self.giftables.fetchRemove(swiss) orelse return error.UnknownPublication;
     self.allocator.free(@constCast(removed.value.name));
-    self.vat.releaseActor(actorIdOf(removed.value.actor));
+    self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
 }
 
 /// What authenticated the durable identity a partner advertised (ADR-0105).

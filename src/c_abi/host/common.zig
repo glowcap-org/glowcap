@@ -69,7 +69,8 @@ pub const Instance = struct {
     core: Host,
     allocator: std.mem.Allocator,
     /// Stable identity in the owning Context's diagnostic namespace, or zero
-    /// for the context-less compatibility constructor.
+    /// for the context-less convenience constructor, which has no Context
+    /// diagnostic namespace to allocate from.
     diagnostic_id: u64,
     drive_owner: DriveOwner = .embedder,
     /// The C trace callback (`pancake_host_set_trace`), bridged onto the
@@ -403,6 +404,11 @@ pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!sha
             out.bytes = bytes.ptr;
             out.bytes_len = bytes.len;
         },
+        .@"error" => |reason| {
+            out.kind = shared.PANCAKE_ARG_ERROR;
+            out.bytes = reason.message.ptr;
+            out.bytes_len = reason.message.len;
+        },
         .void => out.kind = shared.PANCAKE_ARG_VOID,
         .capability => |capability| {
             out.kind = shared.PANCAKE_ARG_REFERENCE;
@@ -439,7 +445,20 @@ pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!sha
             out.bytes = big.digits.ptr;
             out.bytes_len = big.digits.len;
         },
-        .@"struct" => return error.UnsupportedValue,
+        .@"struct" => |entries| {
+            out.kind = shared.PANCAKE_ARG_STRUCT;
+            const projected = try arena.alloc(shared.PancakeArgument, entries.len * 2);
+            for (entries, 0..) |entry, i| {
+                var key = shared.zero_argument;
+                key.kind = shared.PANCAKE_ARG_STRING;
+                key.bytes = entry.key.ptr;
+                key.bytes_len = entry.key.len;
+                projected[i * 2] = key;
+                projected[i * 2 + 1] = try valueToC(arena, entry.value);
+            }
+            out.items = projected.ptr;
+            out.items_len = projected.len;
+        },
     }
     return out;
 }

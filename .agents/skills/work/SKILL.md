@@ -152,6 +152,14 @@ When host tooling is missing but the devcontainer is already running, invoke the
 same command through `.agents/skills/work/bin/pancake-dev`, for example
 `.agents/skills/work/bin/pancake-dev zig build source-check`.
 
+When the user has directed worktree commits into the shared `dev` integration
+ref, start a clean work stint with
+`.agents/skills/work/bin/pancake-integrate --sync`; it rebases onto the current
+`main` and `dev` without publishing. Commit only explicit owned paths, then run
+`.agents/skills/work/bin/pancake-integrate` without the flag to absorb both
+shared lines again and fast-forward `dev`. Both modes discover the current
+branch from Git; the worktree/container name is deliberately not an input.
+
 ## 5. Compound (leave the next agent better off)
 
 - Update `docs/shipped.md` and `docs/boundaries.md` when behavior or boundaries

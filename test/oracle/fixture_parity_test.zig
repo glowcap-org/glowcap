@@ -63,20 +63,18 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     const allocator = std.testing.allocator;
     const cross_peer = @import("../support/cross_peer.zig");
 
-    var gifter = pancake.ocapn.engine.Peer.init(allocator);
-    defer gifter.deinit();
-    var recipient_from_gifter = pancake.ocapn.engine.Peer.init(allocator);
-    defer recipient_from_gifter.deinit();
+    var give_pair = try cross_peer.GivePair.init(allocator, &handoff_fixtures.recipient_key);
+    defer give_pair.deinit();
     var recipient_to_exporter = pancake.ocapn.engine.Peer.init(allocator);
     defer recipient_to_exporter.deinit();
     var exporter = pancake.ocapn.engine.Peer.init(allocator);
     defer exporter.deinit();
 
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, handoff_fixtures.give(), null);
+    try cross_peer.deliverGive(&give_pair.sender, &give_pair.recipient, &exporter, handoff_fixtures.give());
     try std.testing.expect(exporter.giftRegistry().giftLive(handoff_fixtures.gift_id[0..]));
 
     {
-        var event = recipient_from_gifter.pollEvent().?;
+        var event = give_pair.recipient.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(pancake.ocapn.engine.EventKind.deliver, event.kind());
     }

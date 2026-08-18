@@ -3,6 +3,8 @@
 	<head id="head">
 		<meta charset="utf-8">
 		<meta name="viewport" content="initial-scale=1, width=device-width">
+		<!-- Code and locators in the docs are not phone numbers. -->
+		<meta name="format-detection" content="telephone=no">
 		<title :text="$page.title.suffix(' · pancake')"></title>
 		<meta name="description" content="$page.description">
 		<link rel="icon" type="image/svg+xml" href="$site.asset('favicon.svg').link()">
@@ -18,7 +20,13 @@
 		<link rel="prefetch" as="font" type="font/woff2" href="$site.asset('fonts/ibm-plex-mono-latin-400-italic.woff2').link()" crossorigin>
 		<link rel="prefetch" as="font" type="font/woff2" href="$site.asset('fonts/ibm-plex-mono-latin-600-normal.woff2').link()" crossorigin>
 		<link type="text/css" rel="stylesheet" href="$site.asset('tokens.css').link()">
+		<link type="text/css" rel="stylesheet" href="$site.asset('mark.css').link()">
 		<link type="text/css" rel="stylesheet" href="$site.asset('style.css').link()">
+		<link type="text/css" rel="stylesheet" href="$site.asset('prose.css').link()">
+		<link type="text/css" rel="stylesheet" href="$site.asset('syntax.css').link()">
+		<link type="text/css" rel="stylesheet" href="$site.asset('cards.css').link()">
+		<link type="text/css" rel="stylesheet" href="$site.asset('footer.css').link()">
+		<link type="text/css" rel="stylesheet" href="$site.asset('narrow.css').link()">
 		<script>
 			// Stamp a remembered theme choice before the first paint, so a reader
 			// who picked light on a dark desktop never sees a flash of the other
@@ -38,8 +46,8 @@
 		<a class="skip-link" href="#content">Skip to content</a>
 		<header class="site-header">
 			<a class="brand" href="$site.page('').link()">
-				<span class="brand-mark" aria-hidden="true"></span>
-				<span class="brand-name">pancake</span>
+				<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i class="mark-piece mark-cake-2"></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></span>
+				<span class="wordmark"><span>pancake</span></span>
 			</a>
 			<nav class="top-nav" aria-label="Site">
 				<a href="$site.page('reference').link()">API reference</a>
@@ -69,7 +77,7 @@
 						<a class="$site.page('bindings/racket').isCurrent().then('is-current', '')" href="$site.page('bindings/racket').link()">Racket</a>
 						<a class="$site.page('bindings/browser').isCurrent().then('is-current', '')" href="$site.page('bindings/browser').link()">In the browser</a>
 					</div>
-					<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Examples &amp; demo apps</a>
+				<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Rooms &amp; examples</a>
 					<span class="nav-heading">Explore</span>
 					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
 					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
@@ -107,7 +115,10 @@
 			<hr>
 			<div class="footer-cols">
 				<div class="footer-brand">
-					<img src="$site.asset('favicon.svg').link()" alt="" width="22" height="22">
+					<a class="brand" href="$site.page('').link()">
+						<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-cake-3"></i><i class="mark-piece mark-cake-2"></i><i class="mark-piece mark-cake-1"></i><i class="mark-piece mark-butter"></i></span>
+						<span class="wordmark"><span>pancake</span></span>
+					</a>
 					<p>An object-capability RPC library for OCapN, written in Zig. Two programs hand each other references to live objects, and holding one is the whole permission to call it.</p>
 				</div>
 				<nav aria-label="Learn">
@@ -118,6 +129,7 @@
 				</nav>
 				<nav aria-label="Build">
 					<h2>Build</h2>
+					<a href="$site.page('examples').link()">Rooms</a>
 					<a href="$site.page('start').link()">Start building</a>
 					<a href="$site.page('bindings').link()">Bindings</a>
 					<a href="$site.page('reference').link()">API reference</a>
@@ -240,6 +252,7 @@
 			// Every standalone listing gets a copy button. Blocks inside a
 			// `code-tabs` group already got one above, on the tab strip.
 			for (const pre of document.querySelectorAll(".prose pre")) {
+				pre.setAttribute("translate", "no");
 				if (pre.closest(".code-tabs")) continue;
 				const wrap = document.createElement("div");
 				wrap.className = "code-block";

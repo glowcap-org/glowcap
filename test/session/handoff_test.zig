@@ -1,0 +1,324 @@
+//! Handoff and feature gates at the session boundary: nested gives need the
+//! negotiated feature, inbound admission checks recipient and gift-id domain
+//! atomically, outbound gives need the partner session key, and listen and
+//! sturdyref payloads stay behind their gates.
+
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.ocapn.model;
+const session = pancake.ocapn.session;
+const syrup = pancake.ocapn.codec.syrup;
+const capnp = pancake.ocapn.codec.capnp;
+
+const harness = @import("session_harness.zig");
+const startSessionMessage = harness.startSessionMessage;
+const startSessionMessageWithKey = harness.startSessionMessageWithKey;
+
+test "nested handoff values require the negotiated handoff feature" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{ .features = .{
+        .pipelining = true,
+        .handoff = false,
+        .wire_delta = true,
+        .sturdyref = true,
+    } });
+    defer s.deinit();
+    try s.registerImport(.from(7));
+    try s.registerExport(.from(8));
+
+    var handoff: model.Handoff = .{ .give = .{
+        .recipient_key = "recipient",
+        .exporter = .{ .transport = "onion", .designator = "exporter" },
+        .gifter_exporter_session = "session",
+        .gifter_side = "gifter",
+        .gift_id = "gift",
+        .signature = "signature",
+    } };
+    var args = [_]model.Argument{.{ .handoff = &handoff }};
+
+    const outbound = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+    } };
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(outbound));
+
+    const inbound = model.Message{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(8) },
+        .args = &args,
+    } };
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordRecv(inbound));
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
+}
+
+test "session rejects a malformed nested handoff give" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(1));
+
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = &.{},
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
+        .gifter_exporter_session = &.{},
+        .gifter_side = &.{},
+        .gift_id = &.{},
+        .signature = &.{},
+    } };
+    try std.testing.expectError(session.Error.MalformedMessage, s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{.{ .handoff = &handoff }},
+    } }));
+}
+
+test "inbound give admission rejects wrong recipient and gift width atomically" {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    const allocator = failing.allocator();
+    var s = session.Session.initWith(allocator, .{
+        .negotiating = true,
+        .captp_version = .v1_0,
+    });
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        s.deinit();
+    }
+
+    const local_key = [_]u8{0x31} ** 32;
+    const remote_key = [_]u8{0x32} ** 32;
+    try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
+    try s.recordRecv(startSessionMessageWithKey(.v1_0, &remote_key));
+    s.captp_version = .next;
+
+    const session_name = [_]u8{0x41} ** 32;
+    const gifter_side = [_]u8{0x42} ** 32;
+    const valid_gift_id = [_]u8{0x43} ** model.HANDOFF_GIFT_ID_BYTES;
+    const wrong_key = [_]u8{0x44} ** 32;
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = &wrong_key,
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
+        .gifter_exporter_session = &session_name,
+        .gifter_side = &gifter_side,
+        .gift_id = &valid_gift_id,
+        .signature = "signature",
+    } };
+    var inbound = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } },
+        .args = &.{.{ .handoff = &handoff }},
+        .answer = .from(41),
+    } };
+
+    // No allocation is available after handshake. Admission must refuse before
+    // answer installation or any downstream Host locator/dial work.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(session.Error.InvalidGift, s.recordRecv(inbound));
+    try std.testing.expect(s.inboundAnswer(.from(41)) == null);
+    try std.testing.expectError(session.Error.InvalidGift, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
+    try std.testing.expect(s.inboundAnswer(.from(41)) == null);
+
+    handoff.give.recipient_key = &local_key;
+    handoff.give.gift_id = "short";
+    inbound.deliver.answer = .from(42);
+    try std.testing.expectError(session.Error.MalformedMessage, s.recordRecv(inbound));
+    try std.testing.expect(s.inboundAnswer(.from(42)) == null);
+    try std.testing.expectError(session.Error.MalformedMessage, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
+    try std.testing.expect(s.inboundAnswer(.from(42)) == null);
+}
+
+test "v1 inbound give admission enforces recipient and gift-id domain" {
+    var s = session.Session.initWith(std.testing.allocator, .{ .negotiating = true });
+    defer s.deinit();
+
+    const local_key = [_]u8{0x51} ** 32;
+    const remote_key = [_]u8{0x52} ** 32;
+    try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
+    try s.recordRecv(startSessionMessageWithKey(.v1_0, &remote_key));
+
+    const valid_gift_id = [_]u8{0x53} ** model.HANDOFF_GIFT_ID_BYTES;
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = "not-this-session-key",
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
+        .gifter_exporter_session = "session",
+        .gifter_side = "gifter",
+        .gift_id = &valid_gift_id,
+        .signature = "signature",
+    } };
+    var inbound = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } },
+        .args = &.{.{ .handoff = &handoff }},
+        .answer = .from(51),
+    } };
+
+    try std.testing.expectError(session.Error.InvalidGift, s.recordRecv(inbound));
+    try std.testing.expect(s.inboundAnswer(.from(51)) == null);
+    try std.testing.expectError(session.Error.InvalidGift, s.recordRecvView(model.view.Body.fromOwned(&inbound)));
+    try std.testing.expect(s.inboundAnswer(.from(51)) == null);
+
+    // A short gift id is admitted here: refusing one retires the session before
+    // the handoff is read, and the pinned suite gives `my-gift` (ocapn-findings).
+    handoff.give.recipient_key = &local_key;
+    handoff.give.gift_id = "short";
+    inbound.deliver.answer = .from(52);
+    try s.recordRecv(inbound);
+    try std.testing.expect(s.inboundAnswer(.from(52)) != null);
+}
+
+test "outbound give admission requires the partner session key" {
+    var s = session.Session.initWith(std.testing.allocator, .{ .negotiating = true });
+    defer s.deinit();
+
+    const local_key = [_]u8{0x61} ** 32;
+    const partner_key = [_]u8{0x62} ** 32;
+    const gift_id = [_]u8{0x63} ** model.HANDOFF_GIFT_ID_BYTES;
+    try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
+    try s.recordRecv(startSessionMessageWithKey(.v1_0, &partner_key));
+
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = &local_key,
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
+        .gifter_exporter_session = "session",
+        .gifter_side = "gifter",
+        .gift_id = &gift_id,
+        .signature = "signature",
+    } };
+    const outbound = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(session.BOOTSTRAP_POSITION) },
+        .args = &.{.{ .handoff = &handoff }},
+    } };
+
+    try std.testing.expectError(session.Error.InvalidGift, s.recordSend(outbound));
+
+    handoff.give.recipient_key = &partner_key;
+    try s.recordSend(outbound);
+}
+
+test "session feature gates listen and sturdyref-bearing payloads" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .captp_version = model.CaptpVersion.next,
+        .features = model.FeatureSet.minimum(),
+    });
+    defer s.deinit();
+    try s.registerImport(.from(1));
+    try s.registerExport(.from(2));
+
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(.{
+        .listen = .{
+            .target = .{ .far = .{ .import_position = .from(1) } },
+            .listener = .{ .near = .{ .export_position = .from(2) } },
+            .mode = .settling_only,
+        },
+    }));
+
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(.{
+        .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(1) } },
+            .args = &.{.{ .reference = .{ .sturdy = &.{
+                .peer = .{ .transport = "memory", .designator = "host" },
+                .swissnum = &.{ 1, 2, 3 },
+            } } }},
+            .answer = null,
+        },
+    }));
+
+    try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordRecv(.{
+        .gc_export = .{
+            .positions = &.{2},
+            .deltas = &.{1},
+        },
+    }));
+}
+
+test "listen target and listener descriptor roles match on owned and borrowed paths" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .captp_version = .next,
+        .features = model.FeatureSet.full(),
+    });
+    defer s.deinit();
+    try s.registerImport(.from(1));
+    try s.registerExport(.from(2));
+    try s.registerExport(.from(3));
+
+    // Open one answer in each direction. They are the only integers legal in a
+    // `desc:answer` target on their respective paths.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{},
+        .answer = .from(20),
+    } });
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = model.NearRef.object(3) },
+        .args = &.{},
+        .answer = .from(30),
+    } });
+
+    // Outbound: target is the partner's export or our live answer; listener is
+    // our export and therefore encodes as desc:import-*.
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(1) },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } });
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(20) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .near = model.NearRef.object(3) },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } }));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(1) },
+        .listener = .{ .far = model.FarRef.object(1) },
+        .mode = .settling_only,
+    } }));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(99) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } }));
+
+    // Inbound roles are the exact perspective flip. A failed listen does not
+    // install the introduced listener import on either recv representation.
+    const valid_inbound = model.Message{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(30) } },
+        .listener = .{ .far = model.FarRef.object(4) },
+        .mode = .settling_only,
+    } };
+    const wrong_target = model.Message{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(1) },
+        .listener = .{ .far = model.FarRef.object(4) },
+        .mode = .settling_only,
+    } };
+    const wrong_listener = model.Message{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(30) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } };
+    const dead_answer = model.Message{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(99) } },
+        .listener = .{ .far = model.FarRef.object(4) },
+        .mode = .settling_only,
+    } };
+    inline for (.{ wrong_target, wrong_listener, dead_answer }) |invalid| {
+        try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&invalid)));
+        try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(invalid));
+        try std.testing.expect(!s.hasImport(.from(4)));
+    }
+    try s.recordRecvView(model.view.Body.fromOwned(&valid_inbound));
+    try s.recordRecv(valid_inbound);
+
+    // GC, rather than settlement, ends answer-target liveness in both
+    // directions.
+    try s.recordSend(.{ .gc_answer = .{ .positions = &.{20} } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(20) } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .mode = .settling_only,
+    } }));
+    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{30} } });
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&valid_inbound)));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(valid_inbound));
+}

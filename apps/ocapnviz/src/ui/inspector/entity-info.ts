@@ -9,7 +9,7 @@
  * references stay visible instead of silently disappearing.
  */
 
-import { SESSION_SIDES } from "../../schema/topology.ts";
+import { SESSION_SIDES } from "../../schema/session-end.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findPeer, findSession } from "../../engine/world.ts";
 import { findMessageInDoc } from "../../engine/event-helpers.ts";

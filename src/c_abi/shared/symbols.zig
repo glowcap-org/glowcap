@@ -64,13 +64,3 @@ pub const OmittedFamily = struct {
     prefix: []const u8,
     reason: []const u8,
 };
-
-/// Binding-policy reasons shared by every transport's diagnosed companion
-/// rows. The symbol inventories remain explicit; only the cross-language rule
-/// has one authority.
-pub const diagnosed = struct {
-    pub const ts_uses_companion = "superseded: TypeScript uses the diagnosed companion so an off-thread call returns its own diagnostic";
-    pub const rust_uses_tls = "unused: synchronous Rust reads the calling thread's transport diagnostic directly";
-    pub const python_uses_tls = "unused: synchronous Python reads the calling thread's transport diagnostic directly";
-    pub const racket_uses_tls = "unused: synchronous Racket reads the calling thread's transport diagnostic directly";
-};

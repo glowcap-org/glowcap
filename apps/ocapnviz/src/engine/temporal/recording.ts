@@ -23,16 +23,8 @@
 
 import { z } from "zod";
 import { Provenance } from "../../schema/provenance.ts";
-import {
-  CaptpVersion,
-  Codec,
-  EndpointAttribution,
-  PeerProfile,
-  SessionEndpoint,
-  SessionSide,
-  SessionState,
-  Transport,
-} from "../../schema/topology.ts";
+import { CaptpVersion, Codec, PeerProfile, SessionState, Transport } from "../../schema/topology.ts";
+import { EndpointAttribution, SessionEndpoint, SessionSide } from "../../schema/session-end.ts";
 
 /** Common envelope on every observation. */
 const observationBase = {

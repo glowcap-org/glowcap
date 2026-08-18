@@ -30,6 +30,7 @@ pub export fn pancake_host_turn_session(
     turn: ?*PancakeHostTurn,
     out_session: ?*?*c.PancakeHostSession,
 ) i32 {
+    shared.lastErrorClear();
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_session orelse return PANCAKE_ERR_NULL_POINTER;
     slot.* = @ptrCast(sessionOfTurn(t));
@@ -46,6 +47,7 @@ pub export fn pancake_host_turn_defer(
     turn: ?*PancakeHostTurn,
     out_resolver_id: ?*u64,
 ) i32 {
+    shared.lastErrorClear();
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_resolver_id orelse return PANCAKE_ERR_NULL_POINTER;
     const session = sessionOfTurn(t);
@@ -72,6 +74,7 @@ pub export fn pancake_host_turn_forward(
     args_len: usize,
     out_reply: ?*shared.PancakeArgument,
 ) i32 {
+    shared.lastErrorClear();
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_reply orelse return PANCAKE_ERR_NULL_POINTER;
@@ -102,6 +105,7 @@ pub export fn pancake_host_turn_send(
     args_len: usize,
     out_vow: ?*u64,
 ) i32 {
+    shared.lastErrorClear();
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
@@ -127,6 +131,7 @@ pub export fn pancake_host_turn_tell(
     args: ?[*]const shared.PancakeArgument,
     args_len: usize,
 ) i32 {
+    shared.lastErrorClear();
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const target_ptr = target orelse return PANCAKE_ERR_NULL_POINTER;
     const session = sessionOfTurn(t);
@@ -154,6 +159,7 @@ pub export fn pancake_host_turn_spawn(
     free: ?c.PancakeHostCtxFree,
     out_ref: ?*shared.PancakeReference,
 ) i32 {
+    shared.lastErrorClear();
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const b = behavior orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_ref orelse return PANCAKE_ERR_NULL_POINTER;
@@ -173,6 +179,7 @@ pub export fn pancake_host_turn_spawn(
 /// `out_reply` untouched and return `PANCAKE_OK` from the behavior, whose
 /// return value then resolves nothing. `message` is borrowed and copied.
 pub export fn pancake_host_turn_break(turn: ?*PancakeHostTurn, message: ?[*]const u8, message_len: usize) i32 {
+    shared.lastErrorClear();
     const t = turnFrom(turn) orelse return PANCAKE_ERR_NULL_POINTER;
     const msg = shared.sliceFromC(message, message_len) catch |err| return shared.marshalErrorToCode(err);
     t.breakWith(msg) catch |err| return errToCode(err);

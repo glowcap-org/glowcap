@@ -90,12 +90,18 @@ pub const OperationOwner = struct {
         };
     }
 
-    pub fn reap(self: *OperationOwner, operation: *CancelableOperation) void {
-        self.queueOperation(operation, .reap);
+    /// Queue normal retirement. False means no new queue entry was created:
+    /// shutdown or another path already owns retirement, or this is not the
+    /// operation's owner. A duplicate request is therefore an idempotent
+    /// handoff rather than a process-fatal assertion.
+    pub fn reap(self: *OperationOwner, operation: *CancelableOperation) bool {
+        return self.queueOperation(operation, .reap);
     }
 
-    pub fn cancel(self: *OperationOwner, operation: *CancelableOperation) void {
-        self.queueOperation(operation, .cancel);
+    /// Queue cancellation and retirement. False has the same already-owned
+    /// meaning as `reap`; the operation still retires exactly once.
+    pub fn cancel(self: *OperationOwner, operation: *CancelableOperation) bool {
+        return self.queueOperation(operation, .cancel);
     }
 
     /// Seal admission and request cancellation without waiting on the caller's
@@ -159,11 +165,12 @@ pub const OperationOwner = struct {
         }
     }
 
-    fn acquireAdmission(self: *OperationOwner) error{Closing}!void {
+    fn acquireAdmission(self: *OperationOwner) error{ Closing, ConcurrencyUnavailable }!void {
         var state = self.admission.load(.acquire);
         while (true) {
             if (state & closing_bit != 0) return error.Closing;
-            std.debug.assert(state & admission_mask != admission_mask);
+            if (state & admission_mask == admission_mask)
+                return error.ConcurrencyUnavailable;
             if (self.admission.cmpxchgWeak(state, state + 1, .acquire, .monotonic)) |observed| {
                 state = observed;
                 continue;
@@ -172,9 +179,12 @@ pub const OperationOwner = struct {
         }
     }
 
-    fn queueOperation(self: *OperationOwner, operation: *CancelableOperation, disposition: CancelableOperation.Disposition) void {
+    fn queueOperation(self: *OperationOwner, operation: *CancelableOperation, disposition: CancelableOperation.Disposition) bool {
         self.operation_mutex.lock();
-        std.debug.assert(operation.owner == self and !operation.queued);
+        if (operation.owner != self or operation.queued) {
+            self.operation_mutex.unlock();
+            return false;
+        }
         operation.queued = true;
         operation.disposition = disposition;
         operation.queue_next = null;
@@ -182,6 +192,7 @@ pub const OperationOwner = struct {
         self.queued_tail = operation;
         self.operation_mutex.unlock();
         self.cancel_ready.post(self.io);
+        return true;
     }
 
     fn queueAllActiveForCancellation(self: *OperationOwner) void {

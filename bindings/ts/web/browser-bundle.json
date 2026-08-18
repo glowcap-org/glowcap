@@ -3,15 +3,16 @@
 	"compilerOptions": {
 		"jsx": "react-jsx",
 		"jsxImportSource": "react",
-		"jsxImportSourceTypes": "npm:@types/react@19.2.2"
+		"jsxImportSourceTypes": "npm:@types/react@19.2.18"
 	},
 	"imports": {
-		"react": "npm:react@19.2.0",
-		"@types/react": "npm:@types/react@19.2.2",
-		"@types/react-dom": "npm:@types/react-dom@19.2.1",
-		"react/jsx-runtime": "npm:react@19.2.0/jsx-runtime",
-		"react-dom": "npm:react-dom@19.2.0",
-		"react-dom/client": "npm:react-dom@19.2.0/client",
+		"react": "npm:react@19.2.8",
+		"@types/react": "npm:@types/react@19.2.18",
+		"@types/react-dom": "npm:@types/react-dom@19.2.4",
+		"react/jsx-runtime": "npm:react@19.2.8/jsx-runtime",
+		"react-dom": "npm:react-dom@19.2.8",
+		"react-dom/client": "npm:react-dom@19.2.8/client",
+		"react-router": "npm:react-router@7.18.2",
 		"@pancake/web": "./mod.ts",
 		"@pancake/runtime": "../runtime/mod.ts",
 		"@pancake/runtime/websocket": "../runtime/websocket.ts",

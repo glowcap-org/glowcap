@@ -4,7 +4,7 @@
 // shared in `runDmHandoff`. Run by `zig build demo-rooms-dm-iroh`.
 
 import * as iroh from "@pancake/iroh";
-import { runDmHandoff, waitUntil } from "../lib/dm_handoff.ts";
+import { runDmHandoff, waitUntil } from "./dm_handoff.ts";
 import { roomsHost } from "../lib/locator.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 

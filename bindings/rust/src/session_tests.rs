@@ -1328,6 +1328,11 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 				big.clone(),
 				Argument::Keyword("prio".into()),
 				Argument::Bytes(b"hi".to_vec()),
+				Argument::Error("failure is a value".into()),
+				Argument::Struct(vec![
+					("count".into(), Argument::Integer(7)),
+					("name".into(), Argument::String("widget".into())),
+				]),
 			];
 			let reply = session.send(&echo, "roundtrip", &args).await.unwrap();
 			assert_eq!(reply, Argument::List(args));
@@ -1343,8 +1348,10 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 struct Scanning<S> {
 	inner: S,
 	needle: &'static [u8],
-	seen: Rc<Cell<bool>>,
-	tail: Vec<u8>,
+	read_seen: Option<Rc<Cell<bool>>>,
+	write_seen: Option<Rc<Cell<bool>>>,
+	read_tail: Vec<u8>,
+	write_tail: Vec<u8>,
 }
 
 impl<S> Scanning<S> {
@@ -1352,20 +1359,35 @@ impl<S> Scanning<S> {
 		Scanning {
 			inner,
 			needle,
-			seen,
-			tail: Vec::new(),
+			read_seen: Some(seen),
+			write_seen: None,
+			read_tail: Vec::new(),
+			write_tail: Vec::new(),
 		}
 	}
 
-	fn scan(&mut self, fresh: &[u8]) {
-		self.tail.extend_from_slice(fresh);
-		if self.tail.windows(self.needle.len()).any(|window| window == self.needle) {
-			self.seen.set(true);
+	fn duplex(inner: S, needle: &'static [u8], read_seen: Rc<Cell<bool>>, write_seen: Rc<Cell<bool>>) -> Scanning<S> {
+		Scanning {
+			inner,
+			needle,
+			read_seen: Some(read_seen),
+			write_seen: Some(write_seen),
+			read_tail: Vec::new(),
+			write_tail: Vec::new(),
+		}
+	}
+
+	fn scan(needle: &[u8], seen: Option<&Rc<Cell<bool>>>, tail: &mut Vec<u8>, fresh: &[u8]) {
+		tail.extend_from_slice(fresh);
+		if tail.windows(needle.len()).any(|window| window == needle) {
+			if let Some(seen) = seen {
+				seen.set(true);
+			}
 		}
 		// Keep only enough tail to catch a needle across chunk boundaries.
-		let keep = self.needle.len().saturating_sub(1);
-		if self.tail.len() > keep {
-			self.tail.drain(..self.tail.len() - keep);
+		let keep = needle.len().saturating_sub(1);
+		if tail.len() > keep {
+			tail.drain(..tail.len() - keep);
 		}
 	}
 }
@@ -1380,7 +1402,9 @@ impl<S: AsyncRead + Unpin> AsyncRead for Scanning<S> {
 		let poll = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
 		if let std::task::Poll::Ready(Ok(())) = &poll {
 			let fresh = buf.filled()[before..].to_vec();
-			self.scan(&fresh);
+			let needle = self.needle;
+			let seen = self.read_seen.as_ref().map(Rc::clone);
+			Self::scan(needle, seen.as_ref(), &mut self.read_tail, &fresh);
 		}
 		poll
 	}
@@ -1392,7 +1416,13 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Scanning<S> {
 		cx: &mut std::task::Context<'_>,
 		src: &[u8],
 	) -> std::task::Poll<std::io::Result<usize>> {
-		std::pin::Pin::new(&mut self.inner).poll_write(cx, src)
+		let poll = std::pin::Pin::new(&mut self.inner).poll_write(cx, src);
+		if let std::task::Poll::Ready(Ok(written)) = &poll {
+			let needle = self.needle;
+			let seen = self.write_seen.as_ref().map(Rc::clone);
+			Self::scan(needle, seen.as_ref(), &mut self.write_tail, &src[..*written]);
+		}
+		poll
 	}
 
 	fn poll_flush(
@@ -1420,61 +1450,105 @@ async fn wait_for(flag: &Rc<Cell<bool>>, what: &str) {
 	panic!("timed out waiting for {what}");
 }
 
-// Distributed GC (ADR-0063), opt-in: a client that enables GC and fetches a
-// capability releases its import — a single `op:gc-exports`, routed through
-// the host by its node-unique token — when the last `Ref` to it drops, so
-// the partner can release the matching export. The partner observes the
-// release frame on its own wire through a scanning transport.
+// Distributed GC (ADR-0063), opt-in: every newly projected application
+// capability occurrence receives one death rite, whether it came from fetch,
+// a nested send reply, or a nested delivered argument. The duplex scanner
+// proves both directions on the real wire; keeping the other handles live
+// isolates each release rather than accepting a teardown side effect.
+async fn serve_gc_tracking(server: tcp::Server) {
+	// The public server is intentional: its callbacks run under the native
+	// driver loop's Host bracket, so this proves turn->actual-Session recovery
+	// rather than only the simpler byte-fed Session bracket.
+	let session = server.accept().await.unwrap().with_gc();
+	let delegated = session.spawn(|_verb, _args| Ok(Argument::Void)).unwrap();
+	let delegated_reply = delegated.clone();
+	session
+		.publish("factory", move |verb, args| match verb {
+			"reply" => Ok(Argument::Struct(vec![(
+				"nested".to_string(),
+				Argument::List(vec![Argument::Reference(delegated_reply.clone())]),
+			)])),
+			"accept" => {
+				assert!(matches!(
+					args,
+					[Argument::Struct(entries)]
+						if matches!(entries.as_slice(), [(name, Argument::List(items))]
+							if name == "nested" && matches!(items.as_slice(), [Argument::Reference(_)]))
+				));
+				Ok(Argument::Void)
+			}
+			other => Err(format!("unexpected verb {other}")),
+		})
+		.unwrap();
+	session.serve().await.unwrap();
+}
+
+async fn exercise_gc_tracking(
+	addr: std::net::SocketAddr,
+	client_to_server_gc: Rc<Cell<bool>>,
+	server_to_client_gc: Rc<Cell<bool>>,
+) {
+	let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+	let peer = stream.peer_addr().unwrap();
+	let designator = crate::tcp::address_designator(&peer.ip().to_string(), peer.port());
+	let stream = Scanning::duplex(
+		stream,
+		b"op:gc-export",
+		Rc::clone(&server_to_client_gc),
+		Rc::clone(&client_to_server_gc),
+	);
+	let captp = Host::new_host();
+	let session = Session::establish_dialed_locator(
+		captp.shared(),
+		&crate::Locator::bare(crate::abi_constants::TRANSPORT_TCP, &designator),
+		stream,
+		Some(HANDSHAKE_TIMEOUT),
+		None,
+	)
+	.await
+	.unwrap()
+	.with_gc();
+	let factory = session.fetch("factory").await.unwrap();
+	let reply = session.send(&factory, "reply", &[]).await.unwrap();
+	assert!(matches!(
+		&reply,
+		Argument::Struct(entries)
+			if matches!(entries.as_slice(), [(name, Argument::List(items))]
+				if name == "nested" && matches!(items.as_slice(), [Argument::Reference(_)]))
+	));
+	drop(reply);
+	wait_for(&client_to_server_gc, "the nested send reply release").await;
+
+	let callback = session.spawn(|_verb, _args| Ok(Argument::Void)).unwrap();
+	let inbound = [Argument::Struct(vec![(
+		"nested".to_string(),
+		Argument::List(vec![Argument::Reference(callback)]),
+	)])];
+	assert_eq!(
+		session.send(&factory, "accept", &inbound).await.unwrap(),
+		Argument::Void
+	);
+	wait_for(&server_to_client_gc, "the nested delivered argument release").await;
+
+	client_to_server_gc.set(false);
+	drop(factory);
+	wait_for(&client_to_server_gc, "the fetched capability release").await;
+	session.close(crate::PendingWork::Cancel).await.unwrap();
+}
+
 #[tokio::test]
-async fn dropping_a_fetched_cap_releases_its_import_when_gc_is_on() {
+async fn gc_tracks_fetch_replies_and_delivered_arguments() {
 	let local = LocalSet::new();
 	local
-		.run_until(async {
-			let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-			let addr = listener.local_addr().unwrap();
-			let seen = Rc::new(Cell::new(false));
-
-			let seen_by_host = Rc::clone(&seen);
-			let host = tokio::task::spawn_local(async move {
-				let (stream, _) = listener.accept().await.unwrap();
-				let designator = match stream.local_addr() {
-					Ok(a) => crate::tcp::address_designator(&a.ip().to_string(), a.port()),
-					Err(_) => crate::tcp::address_designator("127.0.0.1", 0),
-				};
-				let stream = Scanning::new(stream, b"op:gc-export", seen_by_host);
-				let captp = Host::new_host();
-				let session = Session::establish_accepted(
-					captp.shared(),
-					crate::abi_constants::TRANSPORT_TCP,
-					sys::DESIGNATOR_SCHEME_ADDRESS,
-					"",
-					stream,
-					&designator,
-					Some(HANDSHAKE_TIMEOUT),
-					None,
-				)
-				.await
-				.unwrap();
-				session.publish("svc", |_verb, _args| Ok(Argument::Void)).unwrap();
-				session.serve().await.unwrap();
-			});
-
-			let session = connect(
-				&crate::tcp::locator(&addr.ip().to_string(), addr.port()),
-				ConnectOptions::default(),
-			)
-			.await
-			.unwrap()
-			.with_gc();
-			let cap = session.fetch("svc").await.unwrap();
-			// Dropping the only handle parks the token; the serve task drains
-			// it into one `pancake_host_ref_release`, which rides the wire as
-			// op:gc-exports.
-			drop(cap);
-			wait_for(&seen, "the partner to observe op:gc-exports").await;
-			session.close(crate::PendingWork::Cancel).await.unwrap();
+		.run_until(Box::pin(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let addr = std::net::SocketAddr::from(([127, 0, 0, 1], server.port().unwrap()));
+			let client_to_server_gc = Rc::new(Cell::new(false));
+			let server_to_client_gc = Rc::new(Cell::new(false));
+			let host = tokio::task::spawn_local(serve_gc_tracking(server));
+			exercise_gc_tracking(addr, client_to_server_gc, server_to_client_gc).await;
 			host.await.unwrap();
-		})
+		}))
 		.await;
 }
 

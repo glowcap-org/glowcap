@@ -73,6 +73,7 @@ pub const trace = @import("trace.zig");
 pub const CrossedHellos = crossed_hellos.CrossedHellos;
 pub const DialTarget = crossed_hellos.DialTarget;
 pub const HostError = host.HostError;
+pub const SessionReleaseError = host.SessionReleaseError;
 pub const HostInitError = host.Host.InitError;
 pub const PendingWork = close.PendingWork;
 pub const PendingWorkInput = close.PendingWorkInput;

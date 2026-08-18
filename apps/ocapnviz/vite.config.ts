@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import deno from "@deno/vite-plugin";
+import { devListen } from "./vite-dev-listen.ts";
 
 // Deno runs Vite via `npm:vite` (see `deno.json` tasks).
 // `@deno/vite-plugin` teaches Vite to use Deno's resolver for bare
@@ -72,7 +73,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: "127.0.0.1",
+    ...devListen(Deno.env.get("OCAPNVIZ_HOST")),
     port: 5173,
     warmup: {
       clientFiles: [

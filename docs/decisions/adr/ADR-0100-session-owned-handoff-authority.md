@@ -7,7 +7,7 @@ decision: "Each CapTP Peer owns its session's deposited gifts, accepted replay c
 supersedes: [ADR-0056]
 superseded_by: []
 amends: [ADR-0025, ADR-0066, ADR-0068, ADR-0072, ADR-0083, ADR-0096]
-amended_by: [ADR-0113]
+amended_by: [ADR-0113, ADR-0116]
 ---
 
 # ADR-0100 Session-owned handoff authority
@@ -121,6 +121,11 @@ live shell at mint, so notification after authority mutation allocates nothing;
 a drive-side OOM retains the scalar wake and requeues the receiver before it
 propagates.
 
+ADR-0116 also gives the Node bounded, in-flight coordination ownership while an
+outbound Passable value waits for inline object gifts. That transaction stores
+no deposited gift or replay authority. The exporter Peers acquire those facts
+only when the complete local transaction commits.
+
 The pending-withdraw cap is checked against the borrowed request before the
 handoff is materialized or signatures are canonicalized. Once admitted, the
 pending-group allocation and scheduler dependency are reserved before replay
@@ -132,12 +137,12 @@ therefore leaves no pending row, accepted count, or orphan dependency.
 - [`test/engine/gift_registry_test.zig`](../../../test/engine/gift_registry_test.zig)
   pins session-local id namespaces, scalar accepted/emitted counts,
   re-deposit replacement, and bounded live rows.
-- [`test/engine/cross_peer_test.zig`](../../../test/engine/cross_peer_test.zig)
+- [`test/engine/cross_peer/parked_test.zig`](../../../test/engine/cross_peer/parked_test.zig)
   pins live-session resolution, signature verification, verify-before-wait,
   replay rejection, exact-target projection, admission OOM rollback, and the
   borrowed immediate-withdraw path's allocation count. The admission sweep uses
   an adopted Peer and includes scheduler-dependency allocation.
-- [`test/engine/node_test.zig`](../../../test/engine/node_test.zig) pins exact
+- [`test/engine/node/`](../../../test/engine/node/) pins exact
   gift dependencies, deposit and protocol-close notification, targeted receiver
   selection, change consumption, failed adopted-peer registration cleanup, and
   scheduler backing release at total quiescence. A 256-row pressure scenario
@@ -148,7 +153,7 @@ therefore leaves no pending row, accepted count, or orphan dependency.
   scheduler callbacks by hand. The suite also decodes automatic withdrawals on
   fresh exporter sessions. V1 requires Node-lifetime counts `0`, then `1`,
   while next requires session-local counts `0`, then `0`.
-- [`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig)
+- [`test/driver/core_host/`](../../../test/driver/core_host/)
   pins the production Host directory, the close-after-deposit failure, and both
   outcomes of one discriminating early-withdraw composition. A deposit arriving
   on a distinct Gifter–Exporter Port traverses Node and Host to settle and flush

@@ -2,17 +2,17 @@
  * One Pixi `Graphics` for every session wire.
  *
  * Dirty wires mark the batch; `flush` clear+restrokes once so a moving
- * peer pays one upload instead of one per incident edge. Stroke helpers
- * (`strokeCurve` / `strokeDashedCurve`) and per-session hit proxies,
- * halos, and chips stay outside this class — only GPU buffer ownership
- * for the wire ink lives here.
+ * peer pays one upload instead of one per incident edge. How a curve is
+ * inked (`strokeCurve` / `strokeDashedCurve` in `edge-stroke.ts`) and
+ * per-session hit proxies, halos, and chips stay outside this class —
+ * only GPU buffer ownership for the wire ink lives here.
  */
 
 import { Graphics } from "pixi.js";
 import type { SessionCurve } from "../engine/session-geometry.ts";
 import type { CodecLineStyle } from "./palette.ts";
 import { DASH_PATTERN, DOT_PATTERN } from "./palette.ts";
-import { strokeCurve, strokeDashedCurve } from "./draw-helpers.ts";
+import { strokeCurve, strokeDashedCurve } from "./edge-stroke.ts";
 
 export type EdgeStrokeSpec = {
   curve: SessionCurve;

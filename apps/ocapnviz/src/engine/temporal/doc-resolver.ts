@@ -11,7 +11,7 @@
  *   Empty-span check (is it visible?)       → effective.duration <= 0
  *   Undo / wire format                      → stored only
  *
- * Hit-test in particular: see `Scrubber.tsx::hitTestEvents`. It calls
+ * Hit-test in particular: see `event-hit.ts::hitTestEvents`. It calls
  * `peerEffective` / `sessionEffective` / `messageEffective` so the
  * clickable region of a span is exactly what the renderer painted.
  *
@@ -38,14 +38,16 @@
  *     interpret it as "deleted".
  */
 
-import type {
-  EndpointAttachment,
-  EndpointAttribution,
-  PeerProfile,
-  SessionEndpoint,
-  SessionSide,
-} from "../../schema/topology.ts";
-import { endpointAttachment, endpointNodeId, sessionEndpoint, SessionState } from "../../schema/topology.ts";
+import { type PeerProfile, SessionState } from "../../schema/topology.ts";
+import {
+  type EndpointAttachment,
+  endpointAttachment,
+  type EndpointAttribution,
+  endpointNodeId,
+  type SessionEndpoint,
+  sessionEndpoint,
+  type SessionSide,
+} from "../../schema/session-end.ts";
 import type { SessionDefinition, TimelineDocument } from "../timeline.ts";
 import { effectiveOf } from "./effective.ts";
 import { intrinsicOf } from "./inheritance.ts";

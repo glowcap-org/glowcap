@@ -60,10 +60,8 @@ pub const Error = error{
     ReservedDurableNamespace,
     MalformedMessage,
     /// A reference or position claim that does not exist for this session: an
-    /// unheld import/export named where a held one is required, an unknown
-    /// answer, or an inbound `answer-pos` at or above
-    /// `VIRTUAL_INBOUND_ANSWER_BASE`, the range reserved for
-    /// session-allocated virtual answers.
+    /// unheld import/export named where a held one is required, or an unknown
+    /// answer.
     InvalidReference,
     FeatureNotNegotiated,
     SessionClosed,
@@ -141,6 +139,10 @@ pub const Error = error{
     /// naming another's, so walking past it is refused rather than allowed to
     /// alias. Projects to `resource_exhausted`.
     ExportRangeExhausted,
+    /// This session minted every virtual answer identity available to V1.0
+    /// resolver-only calls. Refusal preserves monotonic identity instead of
+    /// wrapping onto a stale local answer.
+    VirtualAnswerSpaceExhausted,
     /// A set argument carried two Equal elements. A set admits each member
     /// once, so a duplicate is a second wire encoding of one value and is
     /// refused rather than admitted: inbound as the codec-neutral twin of the
@@ -173,33 +175,6 @@ pub const Error = error{
 /// (`validateSend`). The bootstrap export therefore lives exactly as long as
 /// the session.
 pub const BOOTSTRAP_POSITION: u64 = 0;
-
-/// Base of the inbound-answer position range reserved for virtual answers the
-/// session allocates itself (`Session.allocateInboundAnswer`, the V1.0
-/// resolver-only fetch pattern). An inbound claim at or above it is refused
-/// (`Error.InvalidReference`); the refusal classifies through
-/// `model.AnswerName`, never a re-typed compare.
-///
-/// The value lives with the space it partitions, in `model/position.zig`,
-/// beside `model.AnswerName` which is the only thing that reads it directly.
-/// Two declarations of one boundary is the drift this re-export prevents.
-pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = model.VIRTUAL_INBOUND_ANSWER_BASE;
-
-/// The base of the reserved redeemed-handoff-token far-id range (ADR-0066): the
-/// cross-connection node (`engine.Node`) mints application-facing tokens from
-/// this value upward and routes any far id at or above it to a redeemed
-/// capability. Those tokens never travel the wire, so a partner-introduced far
-/// import at or above this base could only alias one — the node would reroute
-/// the application's send to a different connection's capability. Session
-/// validation refuses a partner introduction in this range, exactly as it
-/// refuses a partner answer claim in the virtual range above, so a far id the
-/// application holds at or above the base is provably a node token, never a
-/// partner import. `engine.Node` re-exports this as `REDEEMED_TOKEN_BASE`.
-///
-/// The value lives with the space it partitions, in `model/position.zig`,
-/// beside `model.ImportName` which is the only thing that reads it directly.
-/// Two declarations of one boundary is the drift this re-export prevents.
-pub const REDEEMED_TOKEN_BASE: u64 = model.REDEEMED_TOKEN_BASE;
 
 /// Resolver-link bookkeeping: the two position-keyed maps that say which of our
 /// outbound answers a local export settles, and which resolver import the
@@ -258,6 +233,7 @@ pub const NodeSettlingResolver = struct {
 
 pub const ResolverPurpose = union(enum) {
     application_answer: model.AnswerPosition,
+    local_promise_answer: model.AnswerName,
     node_settling: NodeSettlingResolver,
     retired: RetiredResolver,
     shortening_pending: PromiseIncarnation,
@@ -266,7 +242,7 @@ pub const ResolverPurpose = union(enum) {
 pub const ShorteningNomination = shortening.Nomination;
 pub const SettlingMovePlan = imported_promise.SettlingMovePlan;
 const OutboundResolverLink = bimap.BiMap(model.ExportPosition, ResolverPurpose);
-const InboundResolverLink = bimap.BiMap(model.AnswerPosition, model.ImportPosition);
+const InboundResolverLink = bimap.BiMap(model.AnswerName, model.ImportPosition);
 
 pub const State = enum {
     negotiating,
@@ -295,7 +271,8 @@ pub const ProjectionKind = answers.ProjectionKind;
 pub const ProjectionIndex = answers.ProjectionIndex;
 pub const deinitProjection = answers.deinitProjection;
 pub const AnswerView = answers.AnswerView;
-pub const AnswerTable = answers.AnswerTable;
+pub const InboundAnswerTable = answers.InboundAnswerTable;
+pub const OutboundAnswerTable = answers.OutboundAnswerTable;
 
 pub const inspect = @import("inspect.zig");
 pub const ExportView = inspect.ExportView;
@@ -389,6 +366,14 @@ pub const Session = struct {
     /// The partner's, or the baseline before its hello has arrived. The
     /// session records the claim; the engine decides with it.
     partner_preference: model.Preference = .{},
+    /// Whether this partner is known to be pancake before our hello states a
+    /// preference, which on onion is the licence to state one at all
+    /// (ADR-0118). The engine mints it at exactly two seams, and the pinned
+    /// Goblins onion netlayer can produce neither: a dial handed a
+    /// `pancake/*`-hinted locator (`Peer.noteKnownPancakePartner`), and a
+    /// deferred onion accept whose inbound hello stated a non-baseline
+    /// preference (`Peer.answerDeferredHello`).
+    partner_known_pancake: bool = false,
     features: model.FeatureSet,
     limits: SessionLimits,
     next_export_position: u64,
@@ -413,11 +398,9 @@ pub const Session = struct {
     /// outbound answers are independent of the partner's inbound answer positions.
     next_outbound_answer: u64 = 0,
     /// Virtual answers allocated by V1.0 resolver-only fetches (the partner sent
-    /// `resolve_me_desc` with no `answer_position`). Allocated from
-    /// `VIRTUAL_INBOUND_ANSWER_BASE` upward; the partner is refused that range
-    /// in validation, which is what keeps the namespaces disjoint (answer
-    /// positions are partner-named, so a bare offset alone would not).
-    next_virtual_inbound_answer: u64 = VIRTUAL_INBOUND_ANSWER_BASE,
+    /// `resolve_me_desc` with no `answer_position`). This counter belongs to a
+    /// typed namespace disjoint from every partner-selected wire answer.
+    next_virtual_inbound_answer: u64 = 1,
     /// One per-session bump arena owning the byte keys/values of the *monotonic*
     /// byte-keyed tables — `bootstrap` swissnums, partner key/location bytes,
     /// and interned third-party import host designators — none of which ever
@@ -449,8 +432,8 @@ pub const Session = struct {
     recv_scratch: std.heap.ArenaAllocator,
     exports: ExportTable,
     imports: ImportTable,
-    inbound_answers: AnswerTable,
-    outbound_answers: AnswerTable,
+    inbound_answers: InboundAnswerTable,
+    outbound_answers: OutboundAnswerTable,
     /// Promises imported from a third party via handoff (ADR-0009), keyed by
     /// import position for O(1) lookup. Host designators are interned in
     /// `key_arena`; each row owns its listen cell and stored relayed resolution.
@@ -724,6 +707,8 @@ pub const Session = struct {
     pub const awaitsPartnerHello = handshake.awaitsPartnerHello;
     pub const transitionToOpen = handshake.transitionToOpen;
     pub const partnerSessionKey = handshake.partnerSessionKey;
+    pub const partnerKnownPancake = handshake.partnerKnownPancake;
+    pub const statesUpgradedProfile = handshake.statesUpgradedProfile;
     pub const localSessionKey = handshake.localSessionKey;
     pub const partnerDesignator = handshake.partnerDesignator;
     pub const partnerLocatorRaw = handshake.partnerLocatorRaw;
@@ -809,6 +794,8 @@ pub const Session = struct {
         try self.installAnswer(.inbound, id);
     }
 
+    pub const installInboundAnswerNamed = apply.installInboundAnswerNamed;
+
     /// Install `id` as a pending outbound answer we await resolution for.
     /// The position must be fresh; one live row cannot name two questions.
     pub fn installOutboundAnswer(self: *Session, id: model.AnswerPosition) !void {
@@ -832,6 +819,17 @@ pub const Session = struct {
                 .start_session, .abort => {},
                 else => return Error.UnexpectedMessage,
             },
+            .open => {},
+        }
+    }
+
+    /// Admit a semantic operation that has no wire-message tag of its own.
+    /// These operations are ordinary open-session traffic: unlike
+    /// `start-session` and `abort`, none is legal while negotiating.
+    fn admitOpen(self: *const Session) Error!void {
+        switch (self.state) {
+            .closed => return Error.SessionClosed,
+            .negotiating => return Error.UnexpectedMessage,
             .open => {},
         }
     }
@@ -868,6 +866,22 @@ pub const Session = struct {
             .resolve => |resolve| try self.applySentResolve(resolve),
             else => try self.applySend(message),
         }
+    }
+
+    /// Record one semantic inbound-answer settlement whose identity may be a
+    /// wire position or a session-local virtual answer. Consumes `resolution`
+    /// on every outcome, exactly like the `.resolve` arm of `recordSend`.
+    pub fn recordSentResolutionNamed(
+        self: *Session,
+        answer: model.AnswerName,
+        resolution: model.Resolution,
+    ) !void {
+        var apply_owns_resolution = false;
+        errdefer if (!apply_owns_resolution) model.freeResolution(self.allocator, resolution);
+        try self.admitOpen();
+        try validate.validateSentResolutionNamed(self, answer, resolution);
+        apply_owns_resolution = true;
+        try apply.applySentResolutionNamed(self, answer, resolution);
     }
 
     pub fn recordRecv(self: *Session, message: model.Message) !void {
@@ -1046,41 +1060,17 @@ pub const Session = struct {
         return self.store_stamp_counter;
     }
 
-    pub fn inboundAnswer(self: *Session, id: model.AnswerPosition) ?AnswerView {
-        const entry = self.inbound_answers.getPtr(id) orelse return null;
-        return AnswerView.of(entry);
-    }
-
-    /// Live inbound answer to Slot.
-    pub fn inboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
-        const cell = self.inbound_answers.getPtr(id) orelse return null;
-        return cell.binding;
-    }
-
-    /// Whether `id` is a known inbound answer — the existence probe the
-    /// pipeline's guards read, without materializing an `AnswerView`.
-    pub fn hasInboundAnswer(self: *const Session, id: model.AnswerPosition) bool {
-        return self.inbound_answers.contains(id);
-    }
-
-    /// The identity stamp of the live inbound-answer row at `id`, or null when
-    /// absent — the value a queued listener-fire carrier compares at encode to
-    /// tell this row instance from a released-and-reused position.
-    pub fn inboundAnswerRowId(self: *Session, id: model.AnswerPosition) ?u64 {
-        const entry = self.inbound_answers.getPtr(id) orelse return null;
-        return entry.row_id;
-    }
-
-    pub fn outboundAnswer(self: *Session, id: model.AnswerPosition) ?AnswerView {
-        const entry = self.outbound_answers.getPtr(id) orelse return null;
-        return AnswerView.of(entry);
-    }
-
-    /// Live outbound answer to Slot.
-    pub fn outboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
-        const cell = self.outbound_answers.getPtr(id) orelse return null;
-        return cell.binding;
-    }
+    // Read-only answer lookups live in `inspect.zig` beside the other
+    // non-mutating table walks; each is presented as this Session's own.
+    pub const inboundAnswer = inspect.inboundAnswer;
+    pub const inboundAnswerNamed = inspect.inboundAnswerNamed;
+    pub const inboundAnswerSlot = inspect.inboundAnswerSlot;
+    pub const hasInboundAnswer = inspect.hasInboundAnswer;
+    pub const hasInboundAnswerNamed = inspect.hasInboundAnswerNamed;
+    pub const inboundAnswerRowId = inspect.inboundAnswerRowId;
+    pub const inboundAnswerRowIdNamed = inspect.inboundAnswerRowIdNamed;
+    pub const outboundAnswer = inspect.outboundAnswer;
+    pub const outboundAnswerSlot = inspect.outboundAnswerSlot;
 
     pub fn hasExport(self: *const Session, id: model.ExportPosition) bool {
         return self.exports.contains(id);
@@ -1143,10 +1133,78 @@ pub const Session = struct {
     /// projects it — the render path reads the row, it does not decide the kind
     /// (ADR-0080).
     pub fn allocatePromiseExport(self: *Session) !model.ExportPosition {
+        if (self.next_export_position >= self.export_position_end) return Error.ExportRangeExhausted;
         const id = model.ExportPosition.from(self.next_export_position);
         try self.exports.registerPromise(self.allocator, id);
         self.next_export_position += 1;
         return id;
+    }
+
+    /// Mint one locally-owned promise projection. The export is the reference
+    /// sent to the partner; the virtual inbound answer is the settlement cell
+    /// on which this session queues calls and listeners. Their explicit link
+    /// is authoritative because CapTP gives the two namespaces independent
+    /// position allocators.
+    pub fn allocateLocalPromiseProjection(self: *Session) !struct {
+        export_position: model.ExportPosition,
+        answer_name: model.AnswerName,
+    } {
+        const export_position = try self.allocatePromiseExport();
+        errdefer self.releaseUnsharedExport(export_position);
+        const answer_name = model.AnswerName.fromVirtual(try self.allocateInboundAnswer());
+        try self.installInboundAnswerNamed(answer_name);
+        errdefer self.abandonUnsharedInboundAnswerNamed(answer_name);
+        try self.outbound_resolver_link.put(self.allocator, export_position, .{
+            .local_promise_answer = answer_name,
+        });
+        return .{
+            .export_position = export_position,
+            .answer_name = answer_name,
+        };
+    }
+
+    pub fn answerForLocalPromiseExport(
+        self: *const Session,
+        export_position: model.ExportPosition,
+    ) ?model.AnswerName {
+        const purpose = self.outbound_resolver_link.getByKey(export_position) orelse return null;
+        return switch (purpose) {
+            .local_promise_answer => |answer| answer,
+            else => null,
+        };
+    }
+
+    /// Roll back a projection that never crossed the wire. Both rows are
+    /// still pending at their local baseline by construction.
+    pub fn abandonLocalPromiseProjection(
+        self: *Session,
+        export_position: model.ExportPosition,
+    ) void {
+        const answer_name = self.answerForLocalPromiseExport(export_position) orelse unreachable;
+        std.debug.assert(self.outbound_resolver_link.removeByKey(export_position));
+        self.abandonUnsharedInboundAnswerNamed(answer_name);
+        self.releaseUnsharedExport(export_position);
+    }
+
+    /// Reclaim a local promise projection once its partner-held references are
+    /// gone and settlement consequences have drained. The export's local
+    /// baseline is this link's ownership, not an independent application root;
+    /// release it together with the private answer. A pending answer stays
+    /// even after wire GC because already-admitted pipelined calls still need a
+    /// terminal outcome.
+    pub fn retireReleasedLocalPromiseAnswer(
+        self: *Session,
+        answer_name: model.AnswerName,
+    ) void {
+        const export_position = self.outbound_resolver_link.getByValue(.{
+            .local_promise_answer = answer_name,
+        }) orelse return;
+        if (self.exports.wireHeld(export_position) != 0 or !self.answerResolvedNamed(answer_name)) return;
+        std.debug.assert(self.outbound_resolver_link.removeByKey(export_position));
+        self.releaseUnsharedExport(export_position);
+        const entry = self.inbound_answers.getPtr(answer_name) orelse unreachable;
+        deinitAnswerCell(self.allocator, entry);
+        self.inbound_answers.remove(answer_name);
     }
 
     /// Release an export this session just allocated with `allocateExport` and
@@ -1188,31 +1246,35 @@ pub const Session = struct {
     /// `op:gc-answers`. The caller owns a new pending count-1 row by construction;
     /// the monotonic virtual position allocator remains advanced on rollback.
     pub fn abandonUnsharedInboundAnswer(self: *Session, id: model.AnswerPosition) void {
+        return self.abandonUnsharedInboundAnswerNamed(.fromWire(id));
+    }
+
+    pub fn abandonUnsharedInboundAnswerNamed(self: *Session, id: model.AnswerName) void {
         const entry = self.inbound_answers.getPtr(id) orelse unreachable;
         std.debug.assert(entry.status() == .pending and entry.count == 1);
         deinitAnswerCell(self.allocator, entry);
         self.inbound_answers.remove(id);
     }
 
-    /// The node-unique token this session's import `position` was enrolled
+    /// The node-unique route id this session's import `position` was enrolled
     /// under (ADR-0069), or null when it has none yet. Enrolling the same
-    /// import twice must name it by the same token, or one capability would
+    /// import twice must name it by the same route id, or one capability would
     /// wear two identities and each enrollment would leave a routing row
     /// behind, so the node reads this before minting.
-    pub fn foreignTokenFor(self: *const Session, position: model.ImportPosition) ?u64 {
-        return self.imports.tokenOf(position);
+    pub fn foreignRouteIdFor(self: *const Session, position: model.ImportPosition) ?model.CapabilityRouteId {
+        return self.imports.routeIdOf(position);
     }
 
-    /// Record the token an import was enrolled under. The token is kept on the
+    /// Record the route id an import was enrolled under. The id is kept on the
     /// import row, so releasing the import forgets it in the same step.
-    pub fn noteForeignToken(self: *Session, position: model.ImportPosition, token: u64) !void {
-        return self.imports.noteToken(self.allocator, position, token);
+    pub fn noteForeignRouteId(self: *Session, position: model.ImportPosition, route_id: model.CapabilityRouteId) !void {
+        return self.imports.noteRouteId(self.allocator, position, route_id);
     }
 
-    /// Undo a freshly installed Node token that no application operation made
+    /// Undo a freshly installed Node route id that no application operation made
     /// observable. Other identity attached to the import row remains intact.
-    pub fn abandonForeignToken(self: *Session, position: model.ImportPosition, token: u64) void {
-        self.imports.abandonToken(position, token);
+    pub fn abandonForeignRouteId(self: *Session, position: model.ImportPosition, route_id: model.CapabilityRouteId) void {
+        self.imports.abandonRouteId(position, route_id);
     }
 
     /// Opaque Host capability attached to this live import incarnation.
@@ -1241,7 +1303,7 @@ pub const Session = struct {
     }
 
     /// Forget the expected Host identity without disturbing the orthogonal
-    /// Node routing token that may coexist on the row.
+    /// Node route id that may coexist on the row.
     pub fn forgetHostCapability(self: *Session, position: model.ImportPosition, ref: u64) void {
         self.imports.forgetHostRef(position, ref);
     }
@@ -1343,6 +1405,10 @@ pub const Session = struct {
     /// and be `pending`; a resolved or unknown answer is the caller's contract
     /// violation, surfaced as `Error.InvalidReference`.
     pub fn enqueuePipelinedCall(self: *Session, answer_position: model.AnswerPosition, message: model.Message) !void {
+        return self.enqueuePipelinedCallNamed(.fromWire(answer_position), message);
+    }
+
+    pub fn enqueuePipelinedCallNamed(self: *Session, answer_position: model.AnswerName, message: model.Message) !void {
         errdefer model.freeMessage(self.allocator, message);
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
@@ -1358,6 +1424,10 @@ pub const Session = struct {
     /// an empty slice for an unknown answer or empty queue. The caller owns the
     /// returned slice (free each message, then free the slice with `allocator`).
     pub fn takePipelinedCalls(self: *Session, answer_position: model.AnswerPosition) ![]model.Message {
+        return self.takePipelinedCallsNamed(.fromWire(answer_position));
+    }
+
+    pub fn takePipelinedCallsNamed(self: *Session, answer_position: model.AnswerName) ![]model.Message {
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return &.{};
         const payload = entry.payload orelse return &.{};
@@ -1371,6 +1441,10 @@ pub const Session = struct {
     /// answer or no listeners. The caller owns the returned slice and frees it
     /// with `allocator`; the entries themselves are POD.
     pub fn takePipelinedListeners(self: *Session, answer_position: model.AnswerPosition) ![]ListenerEntry {
+        return self.takePipelinedListenersNamed(.fromWire(answer_position));
+    }
+
+    pub fn takePipelinedListenersNamed(self: *Session, answer_position: model.AnswerName) ![]ListenerEntry {
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return &.{};
         const payload = entry.payload orelse return &.{};
@@ -1416,6 +1490,10 @@ pub const Session = struct {
     /// resolved (a late listener, the engine fires it immediately from the
     /// stored resolution).
     pub fn installListener(self: *Session, answer_position: model.AnswerPosition, listener: ListenerEntry) !void {
+        return self.installListenerNamed(.fromWire(answer_position), listener);
+    }
+
+    pub fn installListenerNamed(self: *Session, answer_position: model.AnswerName, listener: ListenerEntry) !void {
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
         const installed = if (entry.payload) |p| p.listeners.len() else 0;
@@ -1438,6 +1516,10 @@ pub const Session = struct {
     /// engine's `installAnswerListener` gates the same way (peek first, install
     /// only when pending).
     pub fn installProjection(self: *Session, answer_position: model.AnswerPosition, projection: Projection) !void {
+        return self.installProjectionNamed(.fromWire(answer_position), projection);
+    }
+
+    pub fn installProjectionNamed(self: *Session, answer_position: model.AnswerName, projection: Projection) !void {
         errdefer deinitProjection(self.allocator, projection);
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
@@ -1457,6 +1539,10 @@ pub const Session = struct {
     /// no projections. The caller owns the returned slice (release each entry
     /// with `deinitProjection`, then free the slice with `allocator`).
     pub fn takeProjections(self: *Session, answer_position: model.AnswerPosition) ![]Projection {
+        return self.takeProjectionsNamed(.fromWire(answer_position));
+    }
+
+    pub fn takeProjectionsNamed(self: *Session, answer_position: model.AnswerName) ![]Projection {
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return &.{};
         const payload = entry.payload orelse return &.{};
@@ -1468,6 +1554,10 @@ pub const Session = struct {
     /// resolved. Replaces any prior stored resolution. On failure the resolution
     /// is freed.
     pub fn storeResolution(self: *Session, answer_position: model.AnswerPosition, resolution: model.Resolution) !void {
+        return self.storeResolutionNamed(.fromWire(answer_position), resolution);
+    }
+
+    pub fn storeResolutionNamed(self: *Session, answer_position: model.AnswerName, resolution: model.Resolution) !void {
         const entry = self.inbound_answers.getPtr(answer_position) orelse {
             model.freeResolution(self.allocator, resolution);
             return Error.InvalidReference;
@@ -1489,6 +1579,10 @@ pub const Session = struct {
     /// Borrow the stored resolution for `answer_position`, if the answer resolved and
     /// retained it. The borrow is valid until the answer is mutated or removed.
     pub fn peekResolution(self: *Session, answer_position: model.AnswerPosition) ?*const model.Resolution {
+        return self.peekResolutionNamed(.fromWire(answer_position));
+    }
+
+    pub fn peekResolutionNamed(self: *Session, answer_position: model.AnswerName) ?*const model.Resolution {
         const entry = self.inbound_answers.getPtr(answer_position) orelse return null;
         const payload = entry.payload orelse {
             std.debug.assert(entry.status() == .pending);
@@ -1504,6 +1598,10 @@ pub const Session = struct {
 
     /// Whether `answer_position` is a known inbound answer that has resolved.
     pub fn answerResolved(self: *Session, answer_position: model.AnswerPosition) bool {
+        return self.answerResolvedNamed(.fromWire(answer_position));
+    }
+
+    pub fn answerResolvedNamed(self: *Session, answer_position: model.AnswerName) bool {
         const entry = self.inbound_answers.getPtr(answer_position) orelse return false;
         return entry.status() != .pending;
     }

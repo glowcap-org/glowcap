@@ -32,8 +32,10 @@ use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
 use tokio::sync::{oneshot, Notify};
 
+use crate::driver_event::{decode as decode_event, failure_error as driver_event_failure};
+pub use crate::driver_event::{DriverEventFailure, LoopEvent};
 use crate::host::{drain_pending_releases, try_spawn_local, try_spawn_local_handle, HostShared};
-use crate::host_action_gen::{self, HostAction};
+use crate::host_action_gen::HostAction;
 use crate::session::Session;
 use crate::session_shared::{io_err, SessionShared};
 use crate::sys::driver::{PancakeDriverEvent, PancakeDriverLoop, PancakeDriverOptions, PancakeTransportProvider};
@@ -74,49 +76,6 @@ impl Provider {
 	pub(crate) async fn install(&self, lp: Rc<LoopShared>) -> Result<()> {
 		(self.install)(lp).await
 	}
-}
-
-/// One drained loop event, in owned form (the C views die at the next pop).
-pub enum LoopEvent {
-	/// The admitted dial named by the operation id opened; the session handle takes
-	/// every `pancake_host_*` verb.
-	Opened {
-		operation_id: u64,
-		session: *mut ffi_host::PancakeHostSession,
-	},
-	OpenFailed {
-		operation_id: u64,
-		failure: DriverEventFailure,
-	},
-	ListenerReady {
-		listener: u64,
-	},
-	ListenerFailed {
-		listener: u64,
-		failure: DriverEventFailure,
-	},
-	Accepted {
-		listener: u64,
-		session: *mut ffi_host::PancakeHostSession,
-	},
-	/// The wire closed inside a step; the handle stays valid until
-	/// [`DriverLoop::session_release`], its vows already broken.
-	SessionClosed {
-		session: *mut ffi_host::PancakeHostSession,
-		failure: Option<DriverEventFailure>,
-	},
-	/// A vow settled with no in-process listener, in the byte-fed queue's own
-	/// decoded shape (`Settle` or `Fail`).
-	Completion(HostAction),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DriverEventFailure {
-	pub primary_result: i32,
-	pub primary_name: String,
-	pub secondary_result: i32,
-	pub secondary_count: u32,
-	pub secondary_name: String,
 }
 
 /// One stepping native loop over one multi-session host.
@@ -198,9 +157,13 @@ impl DriverLoop {
 				loop_._context = Some(context);
 				Ok(loop_)
 			}
-			Err(err) => {
-				unsafe { ffi_host::pancake_host_release(host) };
-				Err(err)
+			Err(primary) => {
+				let cleanup_rc = unsafe { ffi_host::pancake_host_release(host) };
+				let cleanup = crate::host::check_host(cleanup_rc);
+				if !crate::lifecycle::release_consumed(cleanup_rc) {
+					core::mem::forget(context);
+				}
+				Err(crate::retain_cleanup_failure(primary, cleanup))
 			}
 		}
 	}
@@ -234,8 +197,7 @@ impl DriverLoop {
 	/// Install one provider package. Native registration retains its callback
 	/// context before publication and releases it during loop teardown.
 	pub fn add_provider(&self, provider: ProviderPackage<'_>) -> Result<()> {
-		check(unsafe { ffi::pancake_driver_add_provider(self.raw, &provider.package) })?;
-		Ok(())
+		crate::driver_failure::add_provider(self.raw, &provider.package)
 	}
 
 	/// Report whether the native provider registry owns `transport`.
@@ -348,7 +310,7 @@ impl DriverLoop {
 	/// Stop one listener. Events committed before close remain drainable; no
 	/// later accepted event can name it after this returns.
 	pub fn close_listener(&self, listener: u64) -> Result<()> {
-		check(unsafe { ffi::pancake_driver_listener_close(self.raw, listener) })
+		crate::driver_failure::close_listener(self.raw, listener)
 	}
 
 	/// Resolve and claim the exporter session named by one Host capability.
@@ -421,7 +383,7 @@ impl DriverLoop {
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			check(rc)?;
 		}
-		Ok((lifecycle == sys::LIFECYCLE_CLOSED, rc))
+		Ok((crate::lifecycle_is_closed(lifecycle)?, rc))
 	}
 
 	/// Make a parked step return, from any thread — the family's one
@@ -448,7 +410,7 @@ impl DriverLoop {
 		if rc != sys::OK && rc != sys::ERR_TIMEOUT {
 			check(rc)?;
 		}
-		Ok((lifecycle == sys::LIFECYCLE_CLOSED, rc))
+		Ok((crate::lifecycle_is_closed(lifecycle)?, rc))
 	}
 
 	/// The longest a close driver may park before stepping again with a zero
@@ -473,72 +435,12 @@ impl DriverLoop {
 		if self.released.get() {
 			return Ok(());
 		}
-		check(unsafe { ffi::pancake_driver_release(self.raw) })?;
-		self.released.set(true);
-		Ok(())
-	}
-}
-
-fn decode_event(event: &PancakeDriverEvent) -> Result<LoopEvent> {
-	let decoded = match event.kind {
-		sys::DRIVER_EVENT_OPENED => LoopEvent::Opened {
-			operation_id: event.operation_id,
-			session: event.session,
-		},
-		sys::DRIVER_EVENT_OPEN_FAILED => LoopEvent::OpenFailed {
-			operation_id: event.operation_id,
-			failure: decode_failure(event),
-		},
-		sys::DRIVER_EVENT_LISTENER_READY => LoopEvent::ListenerReady {
-			listener: event.listener_id,
-		},
-		sys::DRIVER_EVENT_LISTENER_FAILED => LoopEvent::ListenerFailed {
-			listener: event.listener_id,
-			failure: decode_failure(event),
-		},
-		sys::DRIVER_EVENT_ACCEPTED => LoopEvent::Accepted {
-			listener: event.listener_id,
-			session: event.session,
-		},
-		sys::DRIVER_EVENT_SESSION_CLOSED => LoopEvent::SessionClosed {
-			session: event.session,
-			failure: (event.primary_result != sys::OK).then(|| decode_failure(event)),
-		},
-		sys::DRIVER_EVENT_COMPLETION => {
-			if !host_action_gen::is_known_kind(event.action.kind) {
-				return Err(Error::with_detail(
-					sys::ERR_INTERNAL,
-					format!("driver returned unknown host action kind {}", event.action.kind),
-				));
-			}
-			LoopEvent::Completion(host_action_gen::decode(&event.action))
+		let (code, outcome) = crate::driver_failure::release(self.raw);
+		if crate::lifecycle::release_consumed(code) {
+			self.released.set(true);
 		}
-		_ => {
-			return Err(Error::with_detail(
-				sys::ERR_INTERNAL,
-				format!("driver returned unknown event kind {}", event.kind),
-			));
-		}
-	};
-	Ok(decoded)
-}
-
-fn decode_failure(event: &PancakeDriverEvent) -> DriverEventFailure {
-	DriverEventFailure {
-		primary_result: event.primary_result,
-		primary_name: message_of(event.primary_name, event.primary_name_len),
-		secondary_result: event.secondary_result,
-		secondary_count: event.secondary_count,
-		secondary_name: message_of(event.secondary_name, event.secondary_name_len),
+		outcome
 	}
-}
-
-fn message_of(ptr: *const u8, len: usize) -> String {
-	if ptr.is_null() || len == 0 {
-		return String::new();
-	}
-	let view = unsafe { core::slice::from_raw_parts(ptr, len) };
-	String::from_utf8_lossy(view).into_owned()
 }
 
 impl Drop for DriverLoop {
@@ -547,20 +449,6 @@ impl Drop for DriverLoop {
 			crate::record_runtime_failure(crate::FailureLayer::Driver, "driver-loop-drop-release", error);
 		}
 	}
-}
-
-fn driver_event_failure(failure: DriverEventFailure, operation: &str) -> Error {
-	let detail = if failure.primary_name.is_empty() {
-		format!("{operation} failed")
-	} else {
-		format!("{operation} failed: {}", failure.primary_name)
-	};
-	let mut error = Error::with_detail(failure.primary_result, detail);
-	if failure.secondary_count != 0 {
-		error = error.with_secondary(Error::with_detail(failure.secondary_result, failure.secondary_name));
-		error.secondary_count = failure.secondary_count;
-	}
-	error
 }
 
 fn loop_closed_error() -> Error {

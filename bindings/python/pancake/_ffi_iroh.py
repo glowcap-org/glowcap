@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import ctypes
 
+from ._archive_contract import require_archive_fingerprint
+from ._constants import IROH_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
 from ._pin import pin_struct
 from ._lib_resolve import _lib_file, _lib_path
@@ -60,6 +62,7 @@ pin_struct(_IrohConfig, "PANCAKE_IROH_CONFIG")
 
 def _load_iroh():
     lib = ctypes.CDLL(str(_IROH_LIB_PATH))
+    require_archive_fingerprint(lib, "iroh", IROH_ARCHIVE_FINGERPRINT)
     for name, (argtypes, restype) in iroh_sigs(
         _IrohReadyEvent, _IrohConfig, _TransportProvider
     ).items():

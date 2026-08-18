@@ -14,6 +14,9 @@
 // and `wss://` once the page is served over HTTPS. TCP relay reaches only the
 // room server; iroh relay accepts any ocapn:// URI (verified by keyed
 // handshake), enabling third-party handoff for browser-peer direct messages.
+// An `ocapn://…onion` target must name the supervised room's own service, and
+// is carried to that service's local forward endpoint — the same bytes a Tor
+// circuit would deliver there, without the circuit.
 // A cold-dial to a browser is a bridge, not a dial: `/relay?rendezvous=<id>`.
 //
 // This process also supervises the room server as a child: it respawns it if it
@@ -28,21 +31,16 @@
 // a terminal (`chat.ts <locator> <room> <nick>`) at the same time.
 
 import { Directory } from "../lib/room_client.ts";
-import { classifyRelayTarget, type RelayTarget } from "./relay_target.ts";
 import { dial, isUriLocator, loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
+import { addressDesignator } from "@pancake/tcp";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 import { nextRestartWait } from "./restart.ts";
 import { Reachability } from "@pancake/iroh";
-import {
-	bridgeRendezvous,
-	isRendezvousDesignator,
-	parseTcpPeers,
-	registerRendezvous,
-	relayAllowed,
-	relayOriginAllowed,
-	relayToTarget,
-	shutdownRelay,
-} from "./relay.ts";
+import { parseTcpPeers, shutdownRelay } from "./relay.ts";
+import { prepareAndListen } from "./serve_http.ts";
+import { ensureTor, type TorEndpoints } from "./tor.ts";
+import { flagOrEnv, optionalEnv, transportChoice, vizPortChoice } from "../lib/env.ts";
+import { BOOT_CAPS } from "../lib/boot_caps.ts";
 
 // Positional args are the HTTP port and the room port; flags start with `--`.
 const flags = Deno.args.filter((a) => a.startsWith("--"));
@@ -51,45 +49,86 @@ const HTTP_PORT = Number(positional[0] ?? "8000");
 // A fixed room port (override as the 2nd positional arg) so a TCP room is stable
 // across server restarts and CLI clients always know where to connect.
 const ROOM_PORT = positional[1] ?? "9099";
-// `--transport=iroh` (or `ROOMS_TRANSPORT=iroh`) runs the room over iroh, and the
-// server then announces an ocapn:// URI, so ROOM_PORT is ignored. The env var is a
-// convenience for manual runs and is read only when env access is granted, so the
-// default permission set never trips.
-const flagTransport = flags.find((a) => a.startsWith("--transport="))?.slice("--transport=".length);
-const envAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_TRANSPORT" })
-	.state === "granted";
-const chosenTransport = flagTransport ?? (envAllowed ? Deno.env.get("ROOMS_TRANSPORT") : undefined);
-const TRANSPORT = chosenTransport === "iroh" ? "iroh" : "tcp";
-// The live timeline endpoint the room server serves when ROOMS_VIZ_PORT is set
-// (the child inherits this environment). The page asks for it at `/viz` and
-// publishes its own trace there, which is the only way a direct message — a
-// session between two members that this server never carries — reaches the
-// timeline. Empty when tracing is off, and the page then installs no tap.
-const vizEnvAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_VIZ_PORT" })
-	.state === "granted";
-const VIZ_PORT = (vizEnvAllowed ? Deno.env.get("ROOMS_VIZ_PORT")?.trim() : undefined) ?? "";
+// `--diagnostics` (or `PANCAKE_ROOMS_DIAGNOSTICS=1`) mints an unguessable
+// inspect capability on the room server and prints it here; `--admin-listeners`
+// (or `PANCAKE_ROOMS_ADMIN_LISTENERS=1`) mints the listener-admin capability
+// the same way. Neither is a page flag: the Operations modal takes each by
+// fetching its swiss number on the live directory session, the same way it
+// fetches `directory`.
+const DIAGNOSTICS = flagOrEnv(flags, BOOT_CAPS.diagnostics.flag, BOOT_CAPS.diagnostics.env);
+const ADMIN_LISTENERS = flagOrEnv(flags, BOOT_CAPS.adminListeners.flag, BOOT_CAPS.adminListeners.env);
+// `--viz` (or `PANCAKE_ROOMS_VIZ=1`) has the room server serve the live
+// timeline endpoint and mint the viz capability, the same enabling shape as
+// the two above.
+const VIZ = flagOrEnv(flags, BOOT_CAPS.viz.flag, BOOT_CAPS.viz.env);
+// `--transport=<tcp|iroh|onion>` (or `PANCAKE_ROOMS_TRANSPORT`) picks the room's wire.
+// Over iroh and onion the server announces an ocapn:// URI; over onion ROOM_PORT
+// becomes the local endpoint Tor forwards the service to, which is also where
+// the relay reaches it. The last flag wins, so a build step that bakes a default
+// (`rooms-web` bakes iroh) can still be overridden with `-- --transport=…`. The
+// env var is a convenience for manual runs and is read only when env access is
+// granted, so the default permission set never trips.
+const flagTransport = flags.findLast((a) => a.startsWith("--transport="))?.slice("--transport=".length);
+const TRANSPORT = (() => {
+	try {
+		return transportChoice(flagTransport);
+	} catch (err) {
+		console.error(`rooms: ${err instanceof Error ? err.message : err}`);
+		Deno.exit(2);
+	}
+})();
+// `--bind=<host>` and `--announce-host=<host>` are the TCP room's LAN knobs,
+// forwarded to the spawned server as the `PANCAKE_ROOMS_BIND` and
+// `PANCAKE_ROOMS_ANNOUNCE_HOST` env vars it already honors (setting the env
+// vars directly keeps working): the bind host it listens on (default
+// 127.0.0.1), and the dialable hostname it prints and advertises. `tcp` is
+// cleartext and proves no peer, so exposing it on a LAN shows the conversation
+// to that network.
+const flagBind = flags.findLast((a) => a.startsWith("--bind="))?.slice("--bind=".length) || undefined;
+const flagAnnounceHost = flags.findLast((a) => a.startsWith("--announce-host="))?.slice("--announce-host=".length) ||
+	undefined;
+const BIND_HOST = flagBind ?? optionalEnv("PANCAKE_ROOMS_BIND") ?? "127.0.0.1";
+const ANNOUNCE_HOST = flagAnnounceHost ?? optionalEnv("PANCAKE_ROOMS_ANNOUNCE_HOST");
+// The port the room server's live timeline endpoint binds while `--viz` is on:
+// the canonical default unless `PANCAKE_ROOMS_VIZ_PORT` overrides it, resolved
+// here with the same `vizPortChoice` the child uses so the origin door and the
+// endpoint cannot disagree. The page publishes its own trace through that
+// door — `/viz` and `/publish` upgrades are carried to the endpoint — which is
+// the only way a direct message (a session between two members that this
+// server never carries) reaches the timeline. Empty when viz is off, and the
+// page then installs no tap. Enabling also mints the viz capability the
+// endpoint requires of every socket; the page publishes only while a reader
+// holds that swiss (the "Protocol visualizer" toggle in Settings under
+// Advanced).
+const VIZ_PORT = (() => {
+	if (!VIZ) return "";
+	try {
+		return vizPortChoice();
+	} catch (err) {
+		console.error(`rooms: ${err instanceof Error ? err.message : err}`);
+		Deno.exit(2);
+	}
+})();
 // Cleartext-TCP peers a browser may open a direct message to, as
 // `host:port,host:port`. The relay dials iroh anywhere and TCP only where it is
 // told, because a TCP address can be any service on the network rather than an
 // OCapN peer holding a key (`relayAllowed`). A member reachable only over
 // cleartext TCP — a Goblins vat on a TCP netlayer — belongs here; one on iroh
 // needs no entry.
-const tcpPeersAllowed = Deno.permissions.querySync({
-	name: "env",
-	variable: "PANCAKE_RELAY_TCP_PEERS",
-}).state === "granted";
-const RELAY_TCP_PEERS = parseTcpPeers(
-	tcpPeersAllowed ? Deno.env.get("PANCAKE_RELAY_TCP_PEERS") : undefined,
-);
+const RELAY_TCP_PEERS = parseTcpPeers(optionalEnv("PANCAKE_RELAY_TCP_PEERS"));
+// A browser served on the announce host dials the room as `<host>:<port>`, so
+// that pair joins the allow-list beside the operator-named peers: it is still
+// only the room server, under the name this deployment tells browsers to use.
+if (ANNOUNCE_HOST !== undefined && TRANSPORT === "tcp") {
+	RELAY_TCP_PEERS.push({ hostname: ANNOUNCE_HOST, port: Number(ROOM_PORT) });
+}
 const ROOT = new URL(".", import.meta.url).pathname;
 // A supervised child is another process incarnation of the same room server,
 // not a new authority. Keep its Host identity and durable room publications in
 // one state directory for the supervisor's whole lifetime. An operator-supplied
-// ROOMS_STATE survives the supervisor too; the temporary default is removed
-// when this development process stops.
-const stateEnvAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_STATE" })
-	.state === "granted";
-const configuredRoomState = stateEnvAllowed ? Deno.env.get("ROOMS_STATE")?.trim() : undefined;
+// PANCAKE_ROOMS_STATE survives the supervisor too; the temporary default is
+// removed when this development process stops.
+const configuredRoomState = optionalEnv("PANCAKE_ROOMS_STATE");
 const temporaryRoomState = configuredRoomState ? null : await Deno.makeTempDir({ prefix: "pancake-rooms-" });
 const ROOM_STATE = configuredRoomState || temporaryRoomState!;
 // `--no-lock` on both arms, because this process spawns the room server as a
@@ -133,6 +172,13 @@ globalThis.addEventListener("unhandledrejection", (event) => {
 const shutdown = new AbortController();
 let roomLocator = "";
 let child: Deno.ChildProcess | null = null;
+// The Tor whose endpoints the onion room server receives. Owned here rather
+// than by the child, so a respawned child keeps the same daemon and, with the
+// service key the server stores under PANCAKE_ROOMS_STATE, the same onion address.
+let tor: TorEndpoints | null = null;
+// Tor's control round-trip can sit behind a still-bootstrapping daemon, so the
+// onion announce gets a longer leash than a local bind.
+const ANNOUNCE_DEADLINE_MS = TRANSPORT === "onion" ? 60_000 : 10_000;
 
 // Stopping, stated with the state it stops and above everything that can ask
 // for it. It used to sit at the foot of the file, which read fine and was a
@@ -162,6 +208,14 @@ async function stop(requestedExitCode: number): Promise<never> {
 		await owned.status;
 	}
 	let exitCode = requestedExitCode;
+	if (tor !== null) {
+		try {
+			await tor.stop();
+		} catch (err) {
+			exitCode = 1;
+			console.error("rooms: could not stop the private Tor:", err);
+		}
+	}
 	if (temporaryRoomState !== null) {
 		try {
 			await Deno.remove(temporaryRoomState, { recursive: true });
@@ -182,27 +236,64 @@ function requestStop(exitCode: number): void {
 }
 
 function spawnRoomServer(): Deno.ChildProcess {
+	// The onion arm keeps ROOM_PORT as its positional: the server binds it as
+	// the local endpoint Tor forwards the service to, which is also where the
+	// relay reaches the room for this page's tabs.
 	const serverArgs = TRANSPORT === "iroh"
 		? [`${ROOT}../server/main.ts`, "--transport=iroh"]
+		: TRANSPORT === "onion"
+		? [`${ROOT}../server/main.ts`, "--transport=onion", ROOM_PORT]
 		: [`${ROOT}../server/main.ts`, ROOM_PORT];
+	if (DIAGNOSTICS) serverArgs.push(BOOT_CAPS.diagnostics.flag);
+	if (ADMIN_LISTENERS) serverArgs.push(BOOT_CAPS.adminListeners.flag);
+	if (VIZ) serverArgs.push(BOOT_CAPS.viz.flag);
 	return new Deno.Command("deno", {
 		args: [...DENO_FLAGS, ...serverArgs],
-		env: { ROOMS_STATE: ROOM_STATE },
+		env: {
+			PANCAKE_ROOMS_STATE: ROOM_STATE,
+			// This supervisor owns the operator-facing boot block, so the child
+			// keeps its stderr to the greppable `ROOMS-*` token lines.
+			PANCAKE_ROOMS_SUPERVISED: "1",
+			...(DIAGNOSTICS ? { PANCAKE_ROOMS_DIAGNOSTICS: "1" } : {}),
+			...(ADMIN_LISTENERS ? { PANCAKE_ROOMS_ADMIN_LISTENERS: "1" } : {}),
+			...(VIZ ? { PANCAKE_ROOMS_VIZ: "1" } : {}),
+			// The LAN flags ride to the server as the env vars it honors; env
+			// vars an operator set directly are inherited untouched.
+			...(flagBind !== undefined ? { PANCAKE_ROOMS_BIND: flagBind } : {}),
+			...(flagAnnounceHost !== undefined ? { PANCAKE_ROOMS_ANNOUNCE_HOST: flagAnnounceHost } : {}),
+			...(tor !== null ? { PANCAKE_ONION_SOCKS: tor.socks, PANCAKE_ONION_CONTROL: tor.control } : {}),
+		},
 		stdout: "piped",
 		stderr: "inherit",
 	}).spawn();
 }
 
-// Whether the fixed TCP room port is already bound — an orphaned server from a
-// previous run, say. iroh has no fixed port to probe, so this only applies to TCP.
+// Whether the fixed room port is already bound — an orphaned server from a
+// previous run, say. iroh has no fixed port to probe; TCP binds the configured
+// bind host, and an onion room binds loopback as the service's local forward
+// endpoint.
 function roomPortInUse(): boolean {
-	if (TRANSPORT !== "tcp") return false;
+	if (TRANSPORT === "iroh") return false;
 	try {
-		Deno.listen({ hostname: "127.0.0.1", port: Number(ROOM_PORT) }).close();
+		Deno.listen({
+			hostname: TRANSPORT === "onion" ? "127.0.0.1" : BIND_HOST,
+			port: Number(ROOM_PORT),
+		}).close();
 		return false;
 	} catch {
 		return true;
 	}
+}
+
+// Where an already-running TCP room server is dialed for attach checks: the
+// configured bind host, with the any-address forms folded to loopback because
+// this process shares the machine with that server. Both arms join host and
+// port through the core grammar, so an IPv6 bind host stays well-formed.
+function attachDesignator(): string {
+	if (BIND_HOST === "0.0.0.0" || BIND_HOST === "::" || BIND_HOST === "[::]" || BIND_HOST === "127.0.0.1") {
+		return loopbackTcpDesignator(Number(ROOM_PORT));
+	}
+	return addressDesignator(BIND_HOST, Number(ROOM_PORT));
 }
 
 // Whether `locator` answers as a rooms directory. Used to tell an orphaned rooms
@@ -256,7 +347,7 @@ async function respawnOwnedServer(): Promise<void> {
 		}
 		try {
 			child = spawnRoomServer();
-			roomLocator = await readAnnouncedLocator(child);
+			roomLocator = await readAnnouncedLocator(child, ANNOUNCE_DEADLINE_MS);
 		} catch (err) {
 			// A child that started and then would not announce is still running and
 			// still holding whatever the next one needs, so it goes before the next
@@ -287,7 +378,7 @@ async function watchAttachedServer(): Promise<void> {
 
 		console.error("rooms: attached room server is gone; taking over…");
 		if (roomPortInUse()) {
-			const existing = loopbackTcpDesignator(Number(ROOM_PORT));
+			const existing = attachDesignator();
 			if (await isRoomsServer(existing)) {
 				roomLocator = existing;
 				console.error(
@@ -302,8 +393,15 @@ async function watchAttachedServer(): Promise<void> {
 		}
 		try {
 			child = spawnRoomServer();
-			roomLocator = await readAnnouncedLocator(child);
+			roomLocator = await readAnnouncedLocator(child, ANNOUNCE_DEADLINE_MS);
 			console.error(`rooms: now supervising room server at ${roomLocator}`);
+			// The taken-over child minted fresh swiss numbers in this
+			// supervisor's state, so the ones on screen no longer answer.
+			const held = await heldOperatorCapabilities();
+			if (held.length > 0) {
+				console.error("rooms: operator capabilities republished:");
+				for (const row of capabilityRows(held)) console.error(row);
+			}
 			await respawnOwnedServer();
 			return;
 		} catch (err) {
@@ -320,7 +418,18 @@ async function superviseServer(): Promise<void> {
 	// and watch it so we take ownership if it later dies. When something unrelated
 	// holds the port, say so plainly and stop.
 	if (roomPortInUse()) {
-		const existing = loopbackTcpDesignator(Number(ROOM_PORT));
+		// An onion room cannot be re-attached through its local forward
+		// endpoint: the onion address it answers under cannot be recovered from
+		// that endpoint, so a locator taken this way would announce the wrong
+		// transport. Say so and stop rather than serve a misnamed room.
+		if (TRANSPORT === "onion") {
+			console.error(
+				`rooms: port ${ROOM_PORT} is already in use, so the onion service's local forward endpoint cannot bind.\n` +
+					`       Stop whatever holds it, or start with a free room port.`,
+			);
+			await stop(1);
+		}
+		const existing = attachDesignator();
 		if (await isRoomsServer(existing)) {
 			roomLocator = existing;
 			console.error(
@@ -339,7 +448,7 @@ async function superviseServer(): Promise<void> {
 
 	child = spawnRoomServer();
 	try {
-		roomLocator = await readAnnouncedLocator(child);
+		roomLocator = await readAnnouncedLocator(child, ANNOUNCE_DEADLINE_MS);
 	} catch (err) {
 		console.error(
 			`rooms: the room server did not start: ${err instanceof Error ? err.message : err}`,
@@ -351,403 +460,119 @@ async function superviseServer(): Promise<void> {
 	void respawnOwnedServer();
 }
 
-await superviseServer();
-console.log(`rooms web UI:   http://localhost:${HTTP_PORT}`);
-console.log(`rooms locator:  http://localhost:${HTTP_PORT}/locator`);
-console.log(
-	`rooms server:   ${roomLocator}  (join from a terminal too:`,
-);
-console.log(
-	`                deno ${DENO_FLAGS.join(" ")} ${ROOT}../clients/deno/chat.ts ${roomLocator} <room> <nick>)`,
-);
+/** Read an operations capability's swiss only after this process spawned the
+ * room server that wrote it. Attach mode shares another process's port, not
+ * this supervisor's empty `PANCAKE_ROOMS_STATE`, so reading our file there would print
+ * a name nothing answers. One table row per capability, so the diagnostics and
+ * listener-admin announcements cannot drift apart. */
+const OPERATIONS_CAPS = [
+	{ enabled: () => ADMIN_LISTENERS, ...BOOT_CAPS.adminListeners },
+	{ enabled: () => DIAGNOSTICS, ...BOOT_CAPS.diagnostics },
+	// Enabling the timeline endpoint is what mints its capability: the swiss
+	// below admits every viz socket, producers and viewers alike.
+	{ enabled: () => VIZ, ...BOOT_CAPS.viz },
+] as const;
 
-// The browser UI lives in ui/: page.html, page.css, and a set of React components
-// entered through main.tsx. page.html and page.css are read fresh on each request, so
-// editing them shows on a browser refresh with no restart. The components are authored in
-// TypeScript and JSX (ui/deno.json targets the DOM libs) and served as JavaScript: a
-// pre-built ui/page.js is used if present — the deploy builds it ahead of time with
-// `deno bundle`, so the runtime does not need to download bundler dependencies —
-// otherwise the bundle is built here. Either way it is rebuilt whenever a module it was
-// built from is newer than it, so a reload shows an edit. Everything is served with
-// no-store, so a browser always fetches the current build.
-const UI_DIR = `${ROOT}ui/`;
-// Every directory the browser bundle draws modules from. A staleness check that
-// misses one serves code from before an edit while the page assets around it are
-// current, which reads as "my change did nothing" and is very hard to see.
-const SOURCE_DIRS = [UI_DIR, `${ROOT}../lib/`, `${ROOT}../../../bindings/ts/`];
-// Not minified, so the served bundle stays readable in the browser's view-source.
-// A production build can shrink it a lot by adding "--minify" to a pre-built
-// page.js (see deploy/README.md).
-const BROWSER_BUNDLE_CONFIG = `${ROOT}../../../bindings/ts/web/browser-bundle.json`;
-const WASM_PATH = `${ROOT}../../../zig-out/wasm/pancake_host.wasm`;
-async function bundleClient(): Promise<string> {
-	const { code, stdout, stderr } = await new Deno.Command("deno", {
-		args: [
-			"bundle",
-			"--platform",
-			"browser",
-			"--no-lock",
-			"--quiet",
-			"--config",
-			BROWSER_BUNDLE_CONFIG,
-			`${UI_DIR}main.tsx`,
-		],
-		stdout: "piped",
-		stderr: "piped",
-	}).output();
-	if (code !== 0) {
-		throw new Error(new TextDecoder().decode(stderr).trim() || "deno bundle failed");
-	}
-	return new TextDecoder().decode(stdout);
-}
-// The newest modification time across every module the bundle is built from, or
-// null if none can be read. It walks, rather than reading one directory, so
-// putting a component in a subdirectory cannot quietly stop the staleness check
-// from seeing it.
-async function newestSourceTime(): Promise<number | null> {
-	let newest: number | null = null;
-	const note = (at: number | undefined) => {
-		if (at !== undefined && (newest === null || at > newest)) newest = at;
-	};
-	const walk = async (dir: string): Promise<void> => {
+async function heldOperatorCapabilities(): Promise<{ label: string; swiss: string }[]> {
+	const held: { label: string; swiss: string }[] = [];
+	for (const cap of OPERATIONS_CAPS) {
+		if (!cap.enabled()) continue;
 		try {
-			for await (const entry of Deno.readDir(dir)) {
-				const path = `${dir}${entry.name}`;
-				if (entry.isDirectory) {
-					// Installed packages are not what anyone is editing, and
-					// walking them costs more than the check is worth.
-					if (entry.name !== "node_modules") await walk(`${path}/`);
-					continue;
-				}
-				if (!entry.isFile) continue;
-				if (!/\.(tsx?|css|html)$/.test(entry.name)) continue;
-				note((await Deno.stat(path)).mtime?.getTime());
+			const swiss = (await Deno.readTextFile(`${ROOM_STATE}/${cap.file}`)).trim();
+			if (swiss !== "") {
+				held.push({ label: cap.label, swiss });
+				continue;
 			}
 		} catch {
-			// A directory that cannot be read says nothing about staleness.
+			// Fall through: the child did not write a swiss.
 		}
-	};
-	for (const dir of SOURCE_DIRS) await walk(dir);
-	return newest;
+		console.error(`rooms: ${cap.flag} was set but the room server did not publish its capability`);
+	}
+	return held;
 }
 
-/** The bundle being served, and the newest source time it was built from.
- *
- * A bundle is stale the moment a module it was built from is newer than it, and
- * that is one rule whether the bundle came off disk or was built here. It is
- * the only thing the page loads that could go quietly out of date: page.html,
- * page.css, and the wasm module are all read fresh per request, so a stale
- * bundle serves old code inside a page that otherwise reloaded, and the edit
- * looks like it did nothing. */
-let pageJs = "";
-let pageJsAt = 0;
-/** The source time a rebuild already failed on, so a broken edit is reported
- * once rather than on every page load. Moving a source retries. */
-let failedSourceAt = 0;
-/** The rebuild in flight, so concurrent page loads share one, and the source
- * time it is building for. A page load that joins a build already running has
- * to report against that build's source time, not its own. */
-let rebuilding: { at: number; done: Promise<void> } | null = null;
-
-async function bundleInto(sourceAt: number): Promise<void> {
-	const code = await bundleClient();
-	pageJs = code;
-	pageJsAt = sourceAt;
+/** The aligned label-and-value lines of the operator-capability table, shared
+ * by the boot block and a take-over's re-announcement so the two cannot say
+ * it differently. */
+function capabilityRows(held: readonly { label: string; swiss: string }[]): string[] {
+	const width = Math.max(...held.map((cap) => cap.label.length));
+	return held.map((cap) => `  ${cap.label.padEnd(width)}   ${cap.swiss}`);
 }
 
-/** Bring the bundle up to date if a module it was built from has moved. Returns
- * the reason a rebuild failed, or null when there was nothing to do or it
- * worked. A failure leaves the last good build standing: a deployment with no
- * bundler has one prepared, and a syntax error mid-edit should not take the
- * page down. */
-async function refreshPageJs(): Promise<string | null> {
-	const sourceAt = await newestSourceTime();
-	if (sourceAt === null || sourceAt <= pageJsAt || sourceAt === failedSourceAt) return null;
-	if (rebuilding === null) rebuilding = { at: sourceAt, done: bundleInto(sourceAt) };
-	const attempt = rebuilding;
+/** The serving block: everything an operator needs, in one piece, printed
+ * once the HTTP server is actually listening so the ready line under it is
+ * true. Labels sit in one aligned column and every copyable value — URL,
+ * locator, terminal command, swiss — ends its own line, with no prose to
+ * trim out of a selection. Startup chatter (tor, iroh, the room child's
+ * token lines) has already happened by the time this prints, so the block
+ * stays whole. */
+async function printServingBlock(): Promise<void> {
+	const held = await heldOperatorCapabilities();
+	console.log("rooms: serving");
+	console.log("");
+	console.log(`  web ui           http://localhost:${HTTP_PORT}`);
+	console.log(`  web locator      http://localhost:${HTTP_PORT}/locator`);
+	console.log(`  room directory   ${roomLocator}`);
+	console.log("");
+	if (TRANSPORT === "onion") {
+		console.log("  The onion address may take some seconds to become dialable from outside");
+		console.log("  while Tor publishes it; this page's own tabs reach the room at once.");
+		console.log("  A terminal client needs an onion-capable runtime; the working example");
+		console.log("  is apps/rooms/demos/onion_demo.ts.");
+	} else {
+		// The client's own grant, not this supervisor's DENO_FLAGS: chat.ts
+		// dials and reads, and pasting a supervisor-only write grant (the temp
+		// state directory) into a shell would outlive both. The path is
+		// resolved so the pasted line carries no `..`.
+		const chatFlags = [
+			"--allow-ffi",
+			"--allow-read",
+			"--allow-net",
+			"--allow-env",
+			"--no-lock",
+			...(TRANSPORT === "iroh" ? ["--unstable-ffi"] : []),
+		];
+		const chat = new URL(`file://${ROOT}../clients/deno/chat.ts`).pathname;
+		console.log("  join from a terminal:");
+		console.log(`  deno run ${chatFlags.join(" ")} ${chat} ${roomLocator} <room> <nick>`);
+	}
+	if (held.length > 0) {
+		console.log("");
+		console.log("  operator capabilities, paste each when flipping its toggle on in Settings under Advanced:");
+		for (const row of capabilityRows(held)) console.log(row);
+	}
+	console.log("");
+	console.log("rooms: ready");
+}
+
+// The onion room needs a Tor before its first child spawns. Endpoints already
+// named in the environment are honored; otherwise a private daemon starts here
+// and stops with this process.
+if (TRANSPORT === "onion") {
 	try {
-		await attempt.done;
-		return null;
+		tor = await ensureTor();
 	} catch (err) {
-		// The failure belongs to the source time the build was actually for. A
-		// load that joined a build already running would otherwise blame its own
-		// newer edit for a build nobody ran on it, and then skip the rebuild that
-		// edit is owed.
-		failedSourceAt = attempt.at;
-		return reasonOf(err);
-	} finally {
-		if (rebuilding === attempt) rebuilding = null;
+		console.error(`rooms: ${err instanceof Error ? err.message : err}`);
+		await stop(1);
 	}
 }
 
-// The deploy path: a bundle prepared ahead of time, so the runtime needs no
-// bundler. `refreshPageJs` holds it to the same staleness rule as one built
-// here, and if there is no bundler to rebuild with, this is what stands.
-try {
-	pageJs = await Deno.readTextFile(`${UI_DIR}page.js`);
-	pageJsAt = (await Deno.stat(`${UI_DIR}page.js`)).mtime?.getTime() ?? 0;
-} catch {
-	// No prepared bundle: one is built below, which is the dev default.
-}
-// Build at startup rather than on the first page load, so a bundler failure is
-// an error in the terminal the server was started from.
-const startupFailure = await refreshPageJs();
-if (pageJs === "") {
-	console.error(
-		`rooms: could not build the browser UI: ${startupFailure ?? "no bundle produced"}`,
-	);
-	await stop(1);
-}
-if (startupFailure !== null) {
-	console.warn(`rooms: could not rebundle (${startupFailure}); serving ui/page.js as built`);
-}
+await superviseServer();
 
-// no-store so a browser (iOS Safari especially) never serves a stale asset after the
-// server is updated — every load fetches the current build.
-// A short human reason from any thrown value.
-function reasonOf(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
-}
+await prepareAndListen({
+	root: ROOT,
+	httpPort: HTTP_PORT,
+	signal: shutdown.signal,
+	roomPort: ROOM_PORT,
+	relayTcpPeers: RELAY_TCP_PEERS,
+	vizPort: VIZ_PORT,
+	locator: () => roomLocator,
+	stop,
+});
 
-function asset(body: string, type: string): Response {
-	return new Response(body, {
-		headers: { "content-type": type, "cache-control": "no-store" },
-	});
-}
-// The typefaces ui/tokens.css names, by exact filename. Fonts are immutable once
-// published, so unlike the page assets they are cached hard.
-const FONTS = new Set([
-	"ibm-plex-sans-latin-wght-normal.woff2",
-	"ibm-plex-sans-latin-wght-italic.woff2",
-	"ibm-plex-mono-latin-400-normal.woff2",
-	"ibm-plex-mono-latin-400-italic.woff2",
-	"ibm-plex-mono-latin-600-normal.woff2",
-]);
-
-async function serveFont(name: string): Promise<Response> {
-	if (!FONTS.has(name)) return new Response("not found\n", { status: 404 });
-	try {
-		return new Response(await Deno.readFile(`${UI_DIR}fonts/${name}`), {
-			headers: {
-				"content-type": "font/woff2",
-				"cache-control": "public, max-age=31536000, immutable",
-			},
-		});
-	} catch (err) {
-		return new Response(`rooms: could not read ui/fonts/${name}: ${reasonOf(err)}`, {
-			status: 500,
-		});
-	}
-}
-
-// Read a UI file fresh for each request, so editing page.html or page.css shows on a
-// browser refresh without restarting this process.
-async function serveUi(name: string, type: string): Promise<Response> {
-	try {
-		return asset(await Deno.readTextFile(`${UI_DIR}${name}`), type);
-	} catch (err) {
-		return new Response(`rooms: could not read ui/${name}: ${reasonOf(err)}`, { status: 500 });
-	}
-}
-
-// ── The byte relay ───────────────────────────────────────────────────────
-// A browser peer speaks OCapN itself but cannot open a socket directly, so this
-// endpoint carries its bytes. A *dial* rides `/relay?target=<locator>`: a
-// `host:port` reaches the room server over TCP, an `ocapn://…iroh` URI reaches a
-// member over iroh (relay.ts dials and pipes without parsing, so the keyed
-// handshake rides through end to end). A *cold-dial* to a browser is a different
-// operation — a bridge, not a dial — so it has its own path: `/relay?rendezvous=
-// <designator>` bridges onto the inbound socket the browser holds by registering
-// at `/register?id=<designator>` (ADR-0088). The allow-list keeps TCP on the room
-// server only; an ocapn:// dial target may name any iroh node, key-verified end
-// to end.
-//
-// A relay session is a persistent, mostly-quiet byte pipe (a chat peer types
-// rarely), so liveness is the WebSocket ping/pong, not a byte-traffic idle
-// timeout that cannot tell a live-but-quiet peer from a dead one (that byte-idle
-// is off in relay.ts, or a quiet peer would be dropped and reconnect every
-// idle window). Deno pings; a live browser auto-pongs and stays connected, and a
-// dead one is reclaimed after this many seconds.
-const RELAY_WS_IDLE_TIMEOUT_S = 120;
-
-try {
-	Deno.serve({ port: HTTP_PORT, signal: shutdown.signal }, (req) => {
-		const url = new URL(req.url);
-		// A browser that cannot be dialed registers its keyed identity and a held
-		// inbound socket here; a peer redeeming an introduction to it dials
-		// `/relay?rendezvous=<designator>` and is bridged onto the held socket
-		// (ADR-0088). Byte-transparent like every relay leg.
-		if (url.pathname === "/register") {
-			const id = url.searchParams.get("id");
-			if (!id) {
-				return new Response("rooms: register requires ?id=<designator>\n", { status: 400 });
-			}
-			if (!isRendezvousDesignator(id)) {
-				return new Response("rooms: invalid rendezvous designator\n", { status: 400 });
-			}
-			if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
-				return new Response("rooms: cross-origin register refused\n", { status: 403 });
-			}
-			// A held registration parks idle until a cold-dial bridges it, so it
-			// needs its own liveness bound: Deno pings the socket and closes it if
-			// no pong lands within `idleTimeout` (ADR-0086's idle reclaim is scoped
-			// to a *bridged* pair, not a held idle one). A live browser auto-pongs
-			// and stays registered; a peer that died without a clean close (mobile
-			// sleep, a dropped network) is reclaimed here, so `Rendezvous.has`
-			// never reports a corpse as present and a dialer never bridges a corpse.
-			const { socket, response } = Deno.upgradeWebSocket(req, { idleTimeout: 30 });
-			registerRendezvous(socket, id);
-			return response;
-		}
-		if (url.pathname === "/relay") {
-			// A cold-dial to a browser is a *bridge* to a held socket, not a dial, so
-			// it is its own path: `?rendezvous=<designator>` bridges onto the inbound
-			// socket that identity holds here (ADR-0088).
-			const rendezvousId = url.searchParams.get("rendezvous");
-			if (rendezvousId) {
-				if (!isRendezvousDesignator(rendezvousId)) {
-					return new Response("rooms: invalid rendezvous designator\n", { status: 400 });
-				}
-				if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
-					return new Response("rooms: cross-origin relay refused\n", { status: 403 });
-				}
-				const { socket, response } = Deno.upgradeWebSocket(req, {
-					idleTimeout: RELAY_WS_IDLE_TIMEOUT_S,
-				});
-				bridgeRendezvous(socket, rendezvousId);
-				return response;
-			}
-			// A dial: `?target=<locator>` — a `host:port` dials TCP, an `ocapn://` URI
-			// dials iroh. The shared `classifyRelayTarget` sorts the locator once
-			// through the core; the classified target then gates admission and drives
-			// the dial. A cold-dial to a browser is a bridge, not a dial, and took the
-			// `?rendezvous=` branch above.
-			const target = url.searchParams.get("target");
-			if (!target) {
-				return new Response(
-					"rooms: relay requires ?target=<host:port | ocapn:// URI> or ?rendezvous=<id>\n",
-					{ status: 400 },
-				);
-			}
-			if (target.length > 2048) {
-				return new Response("rooms: relay target too long\n", { status: 400 });
-			}
-			let classified: RelayTarget;
-			try {
-				classified = classifyRelayTarget(target);
-			} catch {
-				return new Response("rooms: unparseable relay target locator\n", { status: 400 });
-			}
-			if (!relayAllowed(classified, Number(ROOM_PORT), RELAY_TCP_PEERS)) {
-				return new Response(
-					`rooms: relay target not allowed (TCP relay reaches 127.0.0.1:${ROOM_PORT} ` +
-						`and the peers named in PANCAKE_RELAY_TCP_PEERS)\n`,
-					{ status: 403 },
-				);
-			}
-			if (!relayOriginAllowed(req.headers.get("origin"), req.headers.get("host"))) {
-				return new Response("rooms: cross-origin relay refused\n", { status: 403 });
-			}
-			const { socket, response } = Deno.upgradeWebSocket(req, {
-				idleTimeout: RELAY_WS_IDLE_TIMEOUT_S,
-			});
-			relayToTarget(socket, classified);
-			return response;
-		}
-		// CapTP peers (rooms-peer) bootstrap the live ocapn:// locator over HTTP
-		// on the shared Docker network, then dial via iroh Discovery — not CapTP
-		// over this port.
-		if (url.pathname === "/locator") {
-			if (!roomLocator) {
-				return new Response("rooms: locator not ready\n", { status: 503 });
-			}
-			return new Response(`${roomLocator}\n`, {
-				headers: {
-					"content-type": "text/plain; charset=utf-8",
-					"cache-control": "no-store",
-				},
-			});
-		}
-		// Where a browser member publishes its own trace, so its direct
-		// messages appear on the same timeline as the room's own sessions. The
-		// page builds the socket URL against its own hostname, so this answers
-		// with the port alone; a run whose endpoint is not reachable from the
-		// browser sets the URL in Settings, or passes `?viz=<ws url>` on the page.
-		if (url.pathname === "/viz") {
-			if (VIZ_PORT === "") {
-				return new Response("rooms: no live timeline endpoint\n", { status: 404 });
-			}
-			if (VIZ_PORT === "0") {
-				// An ephemeral endpoint port is chosen inside the room server
-				// and announced on its stderr, which this process passes
-				// through rather than reading. Nothing here can name it.
-				return new Response(
-					"rooms: the live timeline endpoint took an ephemeral port; " +
-						"set ROOMS_VIZ_PORT to a fixed one, or open the page with ?viz=<ws url>\n",
-					{ status: 409 },
-				);
-			}
-			return new Response(`${VIZ_PORT}\n`, {
-				headers: {
-					"content-type": "text/plain; charset=utf-8",
-					"cache-control": "no-store",
-				},
-			});
-		}
-		if (url.pathname === "/page.js") {
-			return (async () => {
-				const failed = await refreshPageJs();
-				if (failed !== null) {
-					console.warn(
-						`rooms: could not rebuild the browser UI (${failed}); serving the last build`,
-					);
-				}
-				return asset(pageJs, "text/javascript; charset=utf-8");
-			})();
-		}
-		// The browser peer's wasm Host module (ADR-0070), fetched by the page's
-		// `@pancake/web` init. Read fresh so a rebuilt module serves without a
-		// restart, like the page assets.
-		if (url.pathname === "/pancake_host.wasm") {
-			return (async () => {
-				try {
-					const bytes = await Deno.readFile(WASM_PATH);
-					return new Response(bytes, {
-						headers: {
-							"content-type": "application/wasm",
-							"cache-control": "no-store",
-						},
-					});
-				} catch {
-					return new Response(
-						"rooms: pancake_host.wasm not built (zig build wasm-driver)\n",
-						{
-							status: 503,
-						},
-					);
-				}
-			})();
-		}
-		if (url.pathname === "/page.css") return serveUi("page.css", "text/css; charset=utf-8");
-		// The shared UI core (ui/tokens.css), reached through a symlink in ui/.
-		if (url.pathname === "/tokens.css") return serveUi("tokens.css", "text/css; charset=utf-8");
-		// The typefaces ui/tokens.css declares. Served from an allowlist rather than
-		// by joining the request path onto a directory, so a crafted path cannot
-		// walk out of ui/fonts and read the rest of the machine.
-		if (url.pathname.startsWith("/fonts/")) {
-			return serveFont(url.pathname.slice("/fonts/".length));
-		}
-		return serveUi("page.html", "text/html; charset=utf-8");
-	});
-} catch (err) {
-	// The usual cause is a second serve.ts on the same HTTP port; say so and stop the
-	// child we just started rather than leave it orphaned.
-	console.error(
-		`rooms: could not serve on http port ${HTTP_PORT} (${err instanceof Error ? err.message : err}).\n` +
-			`       Another rooms web UI may already be on it; try a different port, e.g. serve.ts ${HTTP_PORT + 1}`,
-	);
-	await stop(1);
-}
+// Last, after everything above is serving: one block, ending on the ready
+// line, because the last lines are the ones an operator sees.
+await printServingBlock();
 
 Deno.addSignalListener("SIGINT", () => requestStop(0));
 Deno.addSignalListener("SIGTERM", () => requestStop(0));

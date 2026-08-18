@@ -8,7 +8,9 @@
 ;; Run via `zig build racket-keyed-relay-rendezvous` (the harness passes
 ;; `<locator>`).
 
-(require "../../racket/pancake.rkt"
+(require racket/port
+         racket/string
+         "../../racket/pancake.rkt"
          "../../racket/pancake-relay.rkt")
 
 (define (fail msg)
@@ -19,11 +21,53 @@
 (when (< (vector-length argv) 1)
   (fail "usage: racket_client.rkt <locator>"))
 (define locator (vector-ref argv (sub1 (vector-length argv))))
+(define partner (parse-locator locator))
+(define native-relay-url (getenv "PANCAKE_PROOF_NATIVE_RELAY_URL"))
+(define native-ca-file (getenv "PANCAKE_PROOF_NATIVE_RELAY_CA_FILE"))
+
+(define (expect-native-refusal route trust-pem cause)
+  (define rt
+    (open-runtime
+     #:providers (list (relay-provider #:relay-url route #:trust-pem trust-pem))))
+  (define refused
+    (with-handlers ([exn:fail:pancake? values])
+      (define unexpected
+        (runtime-connect rt (keyed-relay-locator (locator-designator partner) route)))
+      (session-close! unexpected)
+      #f))
+  (runtime-close! rt)
+  (unless refused
+    (fail (format "native WSS unexpectedly accepted ~a" cause)))
+  (define carrier (exn:fail:pancake-carrier-failure refused))
+  (unless (and carrier
+               (eq? (carrier-failure-phase carrier) 'secure-handshake)
+               (positive? (carrier-failure-verification-flags carrier)))
+    (fail (format "native WSS omitted secure-handshake verification detail: ~a"
+                  (exn-message refused))))
+  (unless (string-contains? (exn-message refused) cause)
+    (fail (format "native WSS reported ~s, expected ~a"
+                  (exn-message refused) cause))))
 
 (define m (make-fresh-host))
+(define composition
+  (cond
+    [(not native-relay-url)
+     (list 'connectors (list (relay-connector)))]
+    [else
+     (unless native-ca-file
+       (fail "native WSS proof needs PANCAKE_PROOF_NATIVE_RELAY_CA_FILE"))
+     (define pem (call-with-input-file native-ca-file port->bytes))
+     (define wrong-host
+       (string-replace native-relay-url "//localhost:" "//127.0.0.1:"))
+     (expect-native-refusal wrong-host pem "CertificateNameMismatch")
+     (expect-native-refusal native-relay-url #f "CertificateUntrusted")
+     (list 'providers
+           (list (relay-provider #:relay-url native-relay-url #:trust-pem pem)))]))
 (define runtime
-  (open-runtime #:connectors (list (relay-connector)) #:adopt-host m))
-(define session (runtime-connect runtime (parse-locator locator)))
+  (if (eq? (car composition) 'providers)
+      (open-runtime #:providers (cadr composition) #:adopt-host m)
+      (open-runtime #:connectors (cadr composition) #:adopt-host m)))
+(define session (runtime-connect runtime partner))
 (define greeter (session-fetch session "greeter"))
 (define reply (session-send session greeter 'greet "racket"))
 (unless (equal? reply "hello racket, cold-dialed by rendezvous")

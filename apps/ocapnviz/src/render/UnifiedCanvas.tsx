@@ -177,7 +177,7 @@ export function UnifiedCanvas(
   // attached to sprites. By making `default` a function instead of a string,
   // Pixi's write lands on the value the scene last asked for instead of a
   // literal `"default"`. That reset was the "Space-held, hover off peer →
-  // cursor reverts to an arrow" bug. Doc § 10 (single cursor authority).
+  // cursor reverts to an arrow" bug. Doc cursor.md (single cursor authority).
   useEffect(() => {
     const app = appRef.current;
     if (!app) return;

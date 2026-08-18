@@ -16,7 +16,7 @@
 // that left.
 
 import { parseRecord, replayLines, startViz, type VizServer } from "../server/viz.ts";
-import { announceLines, publishUrl } from "../lib/viz_publish.ts";
+import { announceLines, publishUrl, vizCapUrl } from "../lib/viz_publish.ts";
 import { Host, parseSturdyRef, Session, webSocketChannel } from "@pancake/runtime";
 import type { TraceEvent } from "@pancake/runtime";
 import { assertEquals } from "./assert.ts";
@@ -26,6 +26,10 @@ function assert(ok: boolean, what: string): void {
 }
 
 type Stamped = { seq: number; line: string };
+
+/** The capability every socket here presents. Admission itself — a socket
+ * refused without it, writes never landing — is `viz_cap_test.ts`'s subject. */
+const CAP = "f0".repeat(32);
 
 const stamp = (seq: number): Stamped => ({ seq, line: `{"seq":${seq}}` });
 const replayed = (seq: number): string => `{"replay":true,"seq":${seq}}`;
@@ -180,7 +184,7 @@ class Viewer {
 		const port = await viz.ready;
 		const sturdyref = await viz.sturdyref;
 		const locator = parseSturdyRef(sturdyref, "v1_0").locator;
-		const socket = new WebSocket(`ws://127.0.0.1:${port}/`);
+		const socket = new WebSocket(vizCapUrl(`ws://127.0.0.1:${port}/`, CAP));
 		await opened(socket);
 		const host = new Host(); // rooms-profile-exempt: production ocapnviz's v1.0 peer.
 		const session = await Session.establishDialedLocator(
@@ -236,7 +240,7 @@ function opened(socket: WebSocket): Promise<void> {
 }
 
 async function publisher(port: number): Promise<WebSocket> {
-	const socket = new WebSocket(`ws://127.0.0.1:${port}/publish`);
+	const socket = new WebSocket(vizCapUrl(`ws://127.0.0.1:${port}/publish`, CAP));
 	await opened(socket);
 	return socket;
 }
@@ -263,7 +267,7 @@ Deno.test("two producers' identical session ids stay apart", async () => {
 	// The load-bearing one. Both producers name their first session `live-h1-s1`
 	// because both count from one. Without a scope assigned here, a viewer would
 	// braid two unrelated sessions into a single row.
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const viewer = await Viewer.connect(viz);
@@ -289,7 +293,7 @@ Deno.test("two producers' identical session ids stay apart", async () => {
 });
 
 Deno.test("the room's own trace is scoped like any other producer's", async () => {
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const viewer = await Viewer.connect(viz);
@@ -321,7 +325,7 @@ Deno.test("both ends of one wire reach the viewer", async () => {
 	// both arrive, each carrying the wire name and the per-message tags the
 	// viewer folds them together on.
 	const wire = "a".repeat(64);
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const viewer = await Viewer.connect(viz);
@@ -368,7 +372,7 @@ Deno.test("both ends of one wire reach the viewer", async () => {
 Deno.test("two different wires both draw", async () => {
 	// Two producers arriving together are two conversations, and the endpoint
 	// keeps their ids apart whatever wires they name.
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const viewer = await Viewer.connect(viz);
@@ -388,7 +392,7 @@ Deno.test("one end closing a wire reaches the viewer", async () => {
 	// forward could close its session and the feed stayed silent, so a direct
 	// message closed from the receiving tab never ended in the picture.
 	const wire = "c".repeat(64);
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const viewer = await Viewer.connect(viz);
@@ -426,7 +430,7 @@ Deno.test("a producer that leaves takes its sessions with it", async () => {
 	// running is not something anyone here observed, and `ocapn.` is the
 	// vocabulary for what a producer observed. The endpoint reports the
 	// departure and the viewer works out what that means for its picture.
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const viewer = await Viewer.connect(viz);
@@ -449,7 +453,7 @@ Deno.test("a producer that leaves takes its sessions with it", async () => {
 });
 
 Deno.test("a late viewer replays the live topology and no traffic", async () => {
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const peer = await publisher(port);
@@ -486,8 +490,10 @@ Deno.test("a late viewer replays the live topology and no traffic", async () => 
 
 Deno.test("a publisher receives nothing the endpoint forwards", async () => {
 	// The socket goes one way by construction: telemetry converges, and a
-	// producer connection must never become a channel between peers.
-	const viz = startViz(0);
+	// producer connection must never become a channel between peers. The one
+	// thing it ever hears is the endpoint's own admission mark, which forwards
+	// nothing and names nobody.
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const alice = await publisher(port);
@@ -496,7 +502,11 @@ Deno.test("a publisher receives nothing the endpoint forwards", async () => {
 		const bob = await publisher(port);
 		bob.send(openRecord("live-h1-s1", "bob", "room"));
 		await settle();
-		assertEquals(received, []);
+		const kinds = received.map((line) => (JSON.parse(line) as { kind?: string }).kind);
+		assert(
+			kinds.every((kind) => kind === "trace.publish-ready") && kinds.length <= 1,
+			`a producer heard more than its admission: ${JSON.stringify(received)}`,
+		);
 		alice.close();
 		bob.close();
 	} finally {
@@ -510,7 +520,7 @@ Deno.test("a viewer is told where its replay ends", async () => {
 	// name is further down the same batch, then take it back — inventing the
 	// learning sequence a live feed genuinely goes through. The mark lets it
 	// treat the batch as one picture instead.
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const peer = await publisher(port);
@@ -539,7 +549,7 @@ Deno.test("an empty replay completes and excludes the viewer's own session", asy
 	// whole picture, and "nothing" is a whole picture. Without the mark it
 	// would hold an empty batch until the first live record — and a quiet
 	// room may not send one for minutes.
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	try {
 		const viewer = await Viewer.connect(viz);
 		await viewer.expect("trace.replay-end", 1);
@@ -551,7 +561,7 @@ Deno.test("an empty replay completes and excludes the viewer's own session", asy
 });
 
 Deno.test("a slow viewer is closed on overflow without taking the endpoint down", async () => {
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	try {
 		const viewer = await Viewer.connect(viz);
 		await viewer.expect("trace.replay-end", 1);
@@ -608,7 +618,7 @@ Deno.test("a producer cannot forge the end of a replay", async () => {
 		null,
 	);
 	// And it does not reach a viewer even when a producer sends one.
-	const viz = startViz(0);
+	const viz = startViz(0, CAP);
 	const port = await viz.ready;
 	try {
 		const viewer = await Viewer.connect(viz);

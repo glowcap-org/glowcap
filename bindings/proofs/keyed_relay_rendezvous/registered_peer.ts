@@ -7,15 +7,15 @@
 //
 // Headless on purpose: `serveRendezvous` is runtime-neutral stack code over
 // the `WebSocket` global, so the same accept path a browser tab runs is proven
-// here without a browser. Run by `harness.ts` with the relay's port as argv;
+// here without a browser. Run by `harness.ts` with the relay URL as argv;
 // prints `REGISTERED-PEER-READY <designator>` once the first registration is
-// in flight.
+// open and held by the relay.
 
 import { formatLocatorUri, Host, serveRendezvous, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
 
-const relayPort = Number(Deno.args[0]);
-if (!Number.isInteger(relayPort) || relayPort <= 0) {
-	console.error("usage: registered_peer.ts <relay-port>");
+const relayUrl = new URL(Deno.args[0] ?? "");
+if ((relayUrl.protocol !== "ws:" && relayUrl.protocol !== "wss:") || relayUrl.pathname !== "/relay") {
+	console.error("usage: registered_peer.ts <ws-or-wss-relay-url>");
 	Deno.exit(2);
 }
 
@@ -30,10 +30,15 @@ const rendezvous = serveRendezvous(
 	host,
 	TRANSPORT_KEYED_RELAY,
 	{
-		registerUrl: (id) => `ws://127.0.0.1:${relayPort}/register?id=${encodeURIComponent(id)}`,
-		relayUrl: `ws://127.0.0.1:${relayPort}/relay`,
+		registerUrl: (id) => {
+			const register = new URL("/register", relayUrl);
+			register.searchParams.set("id", id);
+			return register.href;
+		},
+		relayUrl: relayUrl.href,
 	},
 	{ onError: (err) => console.error("registered peer: rendezvous error:", err) },
 );
 
+await rendezvous.ready();
 console.log(`REGISTERED-PEER-READY ${formatLocatorUri(rendezvous.locator)}`);

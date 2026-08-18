@@ -109,6 +109,10 @@ class Runtime:
             self._terminal_failures, self._terminal_failure_count, error
         )
 
+    def _raise_terminal_failure(self) -> None:
+        if self._terminal_failures:
+            raise self._terminal_failures[0]
+
     @property
     def terminal_failures(self) -> tuple[BaseException, ...]:
         """Runtime-owned failures in observation order."""
@@ -288,25 +292,44 @@ class Runtime:
     ) -> None:
         _close_options(pending, grace)
         if self._closed:
+            self._raise_terminal_failure()
             return
-        if self._opening is not None and not self._opening.done():
+        opening_error: Optional[BaseException] = None
+        cancellation: Optional[asyncio.CancelledError] = None
+        if self._opening is not None:
             try:
                 await asyncio.shield(self._opening)
-            except BaseException:
-                pass
+            except asyncio.CancelledError as error:
+                # The setup task is Runtime-owned and shielded from arbitrary
+                # waiters. A cancelled close must still join it and retire any
+                # Host it publishes before returning cancellation to its owner.
+                cancellation = error
+                try:
+                    await asyncio.shield(self._opening)
+                except BaseException as settled_error:
+                    opening_error = settled_error
+            except BaseException as error:
+                opening_error = error
+        close_error: Optional[BaseException] = None
         if self._host is not None:
             try:
                 await self._host.close(pending, grace=grace)
             except BaseException as error:
                 self._record_terminal_failure(error)
-                raise
+                close_error = error
             finally:
                 if self._host.released:
                     self._closed = True
-            return
-        # A Runtime never opened owns no Host, provider, connector task, or
-        # admitted operation. Closing it is therefore a local no-op barrier.
-        self._closed = True
+        else:
+            # A Runtime that never committed an open Host owns no provider,
+            # connector task, or admitted operation after `_open` unwinds.
+            self._closed = True
+        if cancellation is not None:
+            raise cancellation
+        if opening_error is not None:
+            raise opening_error
+        if close_error is not None:
+            raise close_error
 
 
 async def dial_parsed_locator(

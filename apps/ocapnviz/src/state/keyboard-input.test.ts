@@ -214,7 +214,7 @@ Deno.test("one key means one gesture", () => {
 Deno.test("a claim ends at its key's release and says nothing more", () => {
   // The claim is the whole of what this layer asserts. What became
   // of a gesture the key started is the pointer FSM's, and
-  // `pointer-machine.test.ts` pins it: releasing Space during a pan
+  // `pointer-machine-test/space-pan.test.ts` pins it: releasing Space during a pan
   // leaves a pan running, while releasing it during a marquee that
   // Space interrupted puts the marquee back. Neither outcome is
   // visible from here, and this layer must not pretend otherwise.

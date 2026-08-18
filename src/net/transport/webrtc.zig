@@ -450,7 +450,7 @@ pub const Resident = struct {
 // ── Completion backend: many WebRTC peers on one `completion.Loop` ────────────
 
 const completion = net.completion;
-const ScratchPool = completion.ScratchPool;
+const BufferPool = completion.BufferPool;
 const crypto = foundation.crypto;
 
 /// The largest SDP or ICE payload the backend's signaling scratch admits, the
@@ -663,7 +663,7 @@ pub const Backend = struct {
     /// without allocating or deallocating at each wake.
     signal_work: std.ArrayList(SignalIn) = .empty,
     next_fd: Fd = 1,
-    scratch_pool: ScratchPool,
+    buffer_pool: BufferPool,
 
     /// Bind a backend to `resident` and the signaling authority its dials
     /// speak through. The readiness fd is latched here, not in `openListener`:
@@ -677,8 +677,8 @@ pub const Backend = struct {
     ) !Backend {
         const signal_wake = try net.wake_channel.WakeChannel.open();
         errdefer signal_wake.deinit();
-        var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
-        errdefer scratch_pool.deinit();
+        var buffer_pool = try BufferPool.init(allocator, read_buffers, read_buffer_bytes);
+        errdefer buffer_pool.deinit();
         var signal_in = std.ArrayList(SignalIn).empty;
         errdefer signal_in.deinit(allocator);
         try signal_in.ensureTotalCapacity(allocator, max_signal_in);
@@ -706,7 +706,7 @@ pub const Backend = struct {
             .signal_wake = signal_wake,
             .signal_work = signal_work,
             .accept_stash = accept_stash,
-            .scratch_pool = scratch_pool,
+            .buffer_pool = buffer_pool,
         };
     }
 
@@ -744,7 +744,7 @@ pub const Backend = struct {
         self.signal_payloads.deinit(self.allocator);
         self.signal_wake.deinit();
         self.ready.deinit(self.allocator);
-        self.scratch_pool.deinit();
+        self.buffer_pool.deinit();
     }
 
     fn freeQueued(self: *Backend, queued: SignalIn) void {
@@ -943,8 +943,8 @@ pub const Backend = struct {
         _ = fd;
     }
 
-    pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
-        self.scratch_pool.release(@intCast(comp.recv_token));
+    pub fn recycleBorrowed(self: *Backend, comp: completion.Completion) void {
+        self.buffer_pool.release(@intCast(comp.borrowed.token));
     }
 
     /// The signaling-authorized remote identity for `fd`'s connection
@@ -1006,12 +1006,11 @@ pub const Backend = struct {
             self.ready.appendAssumeCapacity(comp);
             return;
         }
-        if (self.scratch_pool.acquire()) |idx| {
-            const buf = self.scratch_pool.buffer(idx);
+        if (self.buffer_pool.acquire()) |idx| {
+            const buf = self.buffer_pool.buffer(idx);
             if (entry.peer.tryRead(buf)) |n| {
                 comp.result = @intCast(n);
-                comp.recv_bytes = buf[0..n];
-                comp.recv_token = idx;
+                comp.borrowed = .recv(buf[0..n], idx);
                 // More may still be buffered: leave the hint so the next
                 // submitRecv completes without waiting for another edge.
                 entry.pending.readable_hint = true;
@@ -1019,17 +1018,17 @@ pub const Backend = struct {
                 error.WouldBlock => {
                     // Edge spent without bytes: keep the pending recv; a later
                     // readable will retry.
-                    self.scratch_pool.release(idx);
+                    self.buffer_pool.release(idx);
                     entry.pending.readable_hint = false;
                     return;
                 },
                 error.Closed => {
                     comp.result = 0;
-                    self.scratch_pool.release(idx);
+                    self.buffer_pool.release(idx);
                     entry.pending.readable_hint = false;
                 },
                 error.Failed => {
-                    self.scratch_pool.release(idx);
+                    self.buffer_pool.release(idx);
                     entry.pending.readable_hint = false;
                     comp.failure = error.WebRtcReadFailed;
                 },

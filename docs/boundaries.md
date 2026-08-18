@@ -1,9 +1,8 @@
 # Known limitations
 
-These are the limits that can change a deployment or API choice. This page is
-not a backlog or a design history. [What ships](shipped.md) is the feature
-inventory, [stability](stability.md) says how each surface is tested, and the
-[roadmap](roadmap.md) owns future work.
+These are the limits that can change a deployment or API choice. [What ships](shipped.md)
+is the feature inventory. [Stability](stability.md) says how each surface is
+tested. The [roadmap](roadmap.md) owns future work.
 
 ## Transports and peer identity
 
@@ -18,7 +17,7 @@ inventory, [stability](stability.md) says how each surface is tested, and the
 - **`keyed-tcp` and `keyed-relay` are cleartext and unauthenticated.** Their key
   designator is a stable dial target, but the channel proves no possession of
   it. Anyone on the path reads and can alter every frame; on `keyed-relay` that
-  includes the relay operator, whose leg the native resident opens as `ws://`.
+  includes the relay operator even when the carrier leg itself uses WSS.
   Prefer `noise-tcp` or `noise-relay` for pancake-to-pancake sealed channels,
   iroh when discovery or NAT traversal is needed, and WebRTC for a direct
   browser channel.
@@ -43,9 +42,21 @@ inventory, [stability](stability.md) says how each surface is tested, and the
   installation from every native binding. Live steps need `tor`
   and outbound network access, so they remain siblings of `check`. No recorded
   live-Tor scale run exists.
-- **An onion session runs the `1.0` profile.** The hints that would state a
-  wire-profile preference cannot ride an onion locator, so two pancake peers over
-  Tor settle the baseline rather than `pancake-next` (ADR-0108).
+- **An onion session upgrades past the `1.0` profile only when the partner is
+  known to be pancake.** The pinned Goblins accepts a hinted hello on any
+  transport, and `zig build goblins-onion` probes that live. Its dial arm
+  still refuses a hinted onion locator, and gift withdrawal is keyed by the
+  full node value, so every onion locator on the wire stays bare. A pancake
+  peer states a preferred profile over onion only when it already knows the
+  other side: it was handed the pancake-hinted form of the address, or it is
+  answering a hello that stated a preference. A host on the default baseline
+  profile, and every Goblins session, settles the baseline. Two pancake peers
+  that both know each other settle `pancake-next` over Tor.
+  [ADR-0108](decisions/adr/ADR-0108-onion-netlayer.md) records the locator
+  rule.
+  [ADR-0118](decisions/adr/ADR-0118-onion-profile-by-knowledge.md) records
+  when that offer is allowed. `conformance/ocapn-findings` is the Goblins
+  behavior record.
 - **iroh reachability is not fully exercised in CI.** The loop checks
   multiplexing, and opt-in checks cover discovery and relay use from one host.
   They do not cover hole-punching between separate NATs.
@@ -188,18 +199,6 @@ not ship a native Zig QUIC or WebRTC stack.
   sturdyref's peer against the session it selects or dials. An accepted
   plain-TCP session is refused by default; only the native low-level
   `assertion_only` opt-in proceeds, and it reports that provenance.
-- **The opt-in GC finalizer tracks the `fetch` seam only
-  ([ADR-0063](decisions/adr/ADR-0063-finalizer-driven-distributed-gc.md)).**
-  Other classes already have owners:
-  - near references: actor-roots policy, plus the deterministic release verb;
-  - dropped reply promises: single-reference answers, released by the
-    stateless policy;
-  - enlivened capabilities: the enliven dedup cache;
-  - bootstrap: refused in a `gc-exports` by send validation.
-  One real deferral remains: capabilities lifted from a send reply or a
-  delivered argument (including a redeemed handoff) are not finalizer-tracked.
-  They release at session teardown, and every binding has `release` for reclaiming
-  one by hand before that.
 - **The public API and ABI are not stable.** There are no release tags or
   compatibility guarantees yet. Pin a commit when consuming the package.
 
@@ -225,61 +224,13 @@ assets are not published.
   older CapTP designs (streams, equality queries, a `draining` lifecycle)
   exist in neither the pinned draft nor Goblins, so their absence here is not
   an interop gap.
-- **Foreign promises have a narrower path than foreign objects.** Passing a
-  promise from one session as a `send` or `tell` argument on another is
-  refused. A relayed settlement can carry a plain value, a break, a sturdyref,
-  or a capability introduced by handoff. A promise, a locally exported object,
-  or a capability nested inside a container settles broken instead.
-- **Goblins indexes exporter sessions by the complete locator.** A give must
-  therefore carry the same locator snapshot the exporter advertises in its
-  hello. pancake keeps that snapshot on the peer instead of reconstructing it
-  at the handoff site. Onion locators remain the stable
-  `(onion, service-id, #f)` value Goblins expects. An iroh deployment without
-  reachability may refresh `direct-addresses`; the new snapshot applies to
-  subsequent sessions and gifts. This upstream lookup behavior is pinned
-  interop evidence, not a pancake architecture boundary.
-- **Handoff is return-based.** A capability from another session can be
-  returned as an answer, but it cannot be pushed as an argument: pancake
-  refuses that argument whole rather than mis-encoding it. The draft's CapTP
-  specification does describe the argument case, so this is a gap in pancake
-  rather than in the protocol. There, the gifter puts the signed
-  `desc:handoff-give` inline in any place that takes a Passable value,
-  `op:deliver` arguments among them. The receiver builds a local promise for
-  it, redeems against the exporter, and resolves that promise with what comes
-  back. Implementing it means both halves. The gifter must hold its deliver
-  until the embedder answers `need_gift_id`, and the receiver must accept a
-  give in an argument position, where `Host.liftValue` refuses one today. An
-  application that needs to push a capability passes a promise for the
-  eventual answer instead.
 - **Handoff signatures always use Syrup.** That signing domain does not change
   when the surrounding session uses Cap'n Proto.
-- **Remote equality holds per exporter session, not across parallel
-  sessions.** A target reached directly and through handoff on the same live
-  exporter session lifts to one Host identity and compares Equal. Two
-  independently established sessions to the same peer carry no stable target
-  id from which pancake could infer equality. A key-designator transport now
-  recognises the peer itself, so a second session to one is collapsed rather
-  than established; where two do coexist, their targets stay unrelated.
-- **Projection responder coverage is partly in-tree.** Field, index, and tag
-  projections are implemented. The upstream suite does not cover them, and
-  Goblins has no `op:untag`; default `1.0` refuses it, so only `pancake-next`
-  has tag projection. `zig build goblins-interop` proves a live Goblins
-  netlayer can write canonical `op:get` and `op:index` frames, and that
-  pancake settles the projected answers through the V1.0 resolver-callback
-  form Goblins uses. That Racket path still bypasses a public Goblins
-  application-level projection API, so the remaining live gap is `op:untag`.
-- **One-way send uses `op:deliver` without an answer.** The draft folded
-  one-way delivery into `op:deliver` with a false answer and resolver, and
-  that is the frame pancake sends; no separate `op:deliver-only` operation
-  exists in the pinned draft, the upstream suite, or Goblins. A live Goblins
-  vat accepts that frame: `zig build goblins-interop` sends two one-way
-  delivers to a stateful actor and then reads the count back through an
-  answered call, which is the only way an unanswered send can prove it
-  arrived.
-- **Two position ranges are reserved internally.** A peer-supplied import at or
-  above 2^60, or answer position at or above 2^63, is refused so it cannot
-  collide with pancake's internal handoff and virtual-answer ranges. Proven
-  peers count upward from zero, so this fails closed before affecting them.
+- **Remote equality does not cross unrelated sessions.** A proved exporter
+  session gives direct and handed-off references one Host identity. Two
+  independently established sessions without durable peer proof carry no
+  stable target id from which pancake could infer that identity, so their
+  targets remain unrelated even when their locators look alike.
 
 Cap'n Proto is a pancake-to-pancake format. The project does not publish a
 fixed speed ratio between the codecs; `zig build bench-codec` measures the
@@ -299,12 +250,36 @@ WebRTC supplies encryption and signaling authority. `noise-relay` seals the
 CapTP stream end to end (ADR-0107).
 
 `zig build bindings-keyed-relay-rendezvous` proves Deno, Python, Rust, Racket,
-and the native CLI honor locator-carried routes over a deliberately dead local
-fallback. `zig build zig-keyed-relay-register` proves the CLI registration
+and the native CLI honor locator-carried routes over a local fallback that is
+not running. `zig build zig-keyed-relay-register` proves the CLI registration
 half. The relay provider archive owns both `keyed-relay` and `noise-relay`,
-including native dial and registration through the generic driver. A real
-browser does not currently compose that provider: browser peers use WebRTC for
-an authenticated channel, or explicit cleartext `keyed-relay` rendezvous.
+including native dial and registration through the generic driver. The
+managed browser connector carries both profiles, while the byte-fed Host owns
+Noise sealing. `zig build web-peer-test` drives that path in Chromium and has
+the native CLI call an object hosted in the page over `noise-relay`.
+
+`zig build bindings-native-wss-relay` additionally runs every native binding
+against one local WSS authority. Each binding observes exact hostname and
+unknown-authority refusals from the shared C provider, then completes a call
+and joins the session close barrier. The binding rows prove projection and
+foreign linkage; the Zig TLS scenarios remain the semantic authority.
+
+That proof uses a loopback `wss://` relay and a fixture authority copied into
+the native process. The optional native Zig relay module and the C relay
+archive compose a pollable WSS carrier with immutable
+system or copied-PEM trust, SNI, and hostname verification. The completion-loop
+relay path drives the same neutral TLS transform below the existing WebSocket
+machine without a thread or second framing pass. Its deterministic engine gate
+proves transition, refusal, cleanup, and footprint behavior. `zig build
+native-tls-build` uses real local certificate chains for both carriers. It
+proves success, unknown and expired authorities, hostname and SNI refusal,
+peer alerts, malformed TLS, and authenticated truncation without
+`close_notify`. It also proves completion delivery of the terminal TLS close
+record and a hostname open through its asynchronous resolver and bounded
+eight-seat address race. No public-certificate relay check yet proves a native
+peer reaching a browser through a deployed secure route; the recurring proof
+deliberately owns its local authority so expiry, hostname, and plaintext
+observation stay deterministic.
 Native `rooms-peer` composes iroh and keyed-relay, not WebRTC, so it cannot
 cold-introduce to a default browser tab. It answers on the inbound reply
 capability. A tab that wants native-initiated DMs picks Via this server (relay)

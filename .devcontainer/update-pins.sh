@@ -66,6 +66,16 @@ github_asset_sha256() {
     rm -f "${tmp}"
 }
 
+# SHA-256 of a download that publishes no hash of its own: fetch it and hash
+# what arrived.
+url_sha256() {
+    local url="$1" tmp
+    tmp="$(mktemp -t pancake-update-pins-XXXXXX)"
+    fetch --output "${tmp}" "${url}"
+    sha256sum "${tmp}" | cut -d' ' -f1
+    rm -f "${tmp}"
+}
+
 require_hex64() {
     if ! [[ "$2" =~ ^[0-9a-f]{64}$ ]]; then
         echo "update-pins: $1: not a SHA-256: '$2'" >&2
@@ -81,7 +91,7 @@ require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-ALL_DEPS="zig rust rustup-init deno node bun playwright uv python serena claude codex opencode devcontainer-cli racket goblins"
+ALL_DEPS="zig rust rustup-init deno node bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 dep_var() {
     case "$1" in
@@ -97,6 +107,7 @@ dep_var() {
         serena) echo SERENA_AGENT_VERSION ;;
         claude) echo CLAUDE_CODE_VERSION ;;
         codex) echo CODEX_VERSION ;;
+        cursor-agent) echo CURSOR_AGENT_VERSION ;;
         opencode) echo OPENCODE_VERSION ;;
         devcontainer-cli) echo DEVCONTAINER_CLI_VERSION ;;
         racket) echo RACKET_VERSION ;;
@@ -110,7 +121,7 @@ dep_var() {
 
 dep_class() {
     case "$1" in
-        uv | serena | claude | codex | opencode | devcontainer-cli) echo safe ;;
+        uv | serena | claude | codex | cursor-agent | opencode | devcontainer-cli) echo safe ;;
         racket | goblins) echo manual ;;
         *) echo gated ;;
     esac
@@ -159,6 +170,11 @@ latest_version() {
         serena) fetch https://pypi.org/pypi/serena-agent/json | jq -r .info.version ;;
         claude) npm_latest @anthropic-ai/claude-code ;;
         codex) npm_latest @openai/codex ;;
+        # Cursor publishes no version index for the agent CLI. Its own install
+        # script is the release channel: it hardcodes the current build into
+        # the download URL, so read the build out of the URL.
+        cursor-agent) fetch https://cursor.com/install \
+            | sed -n 's|^.*downloads\.cursor\.com/lab/\([^/]*\)/.*$|\1|p' | sort -u ;;
         opencode) github_latest_tag sst/opencode | sed 's/^v//' ;;
         devcontainer-cli) npm_latest @devcontainers/cli ;;
         racket) fetch https://download.racket-lang.org/all-versions.html \
@@ -285,6 +301,12 @@ EOF
             replace_arch_hashes "${file}" uv_sha256 \
                 "$(github_asset_sha256 astral-sh/uv "${version}" uv-x86_64-unknown-linux-gnu.tar.gz)" \
                 "$(github_asset_sha256 astral-sh/uv "${version}" uv-aarch64-unknown-linux-gnu.tar.gz)"
+            ;;
+        cursor-agent)
+            local cursor_base="https://downloads.cursor.com/lab/${version}/linux"
+            replace_arch_hashes "${file}" cursor_agent_sha256 \
+                "$(url_sha256 "${cursor_base}/x64/agent-cli-package.tar.gz")" \
+                "$(url_sha256 "${cursor_base}/arm64/agent-cli-package.tar.gz")"
             ;;
         opencode)
             replace_arch_hashes "${file}" opencode_sha256 \

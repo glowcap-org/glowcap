@@ -20,6 +20,7 @@
 const std = @import("std");
 
 const identity = @import("identity.zig");
+const said = @import("said.zig");
 
 const enc = std.base64.url_safe_no_pad.Encoder;
 
@@ -65,7 +66,7 @@ fn payloadBytes(buf: []u8, f: Facts) []const u8 {
 /// Emit one Episode line. Returns an owned JSON line (no trailing newline). The
 /// `signer` provides the authoritative KERI key that countersigns the ephemeral.
 pub fn emit(allocator: std.mem.Allocator, io: std.Io, signer: *const identity.Identity, f: Facts) Error![]u8 {
-    const ephemeral = try identity.Key.random(io);
+    const ephemeral = try said.Key.random(io);
 
     var payload_buf: [1024]u8 = undefined;
     const payload = payloadBytes(&payload_buf, f);
@@ -125,7 +126,7 @@ pub fn verify(allocator: std.mem.Allocator, line: []const u8) Error!void {
     const csig = try decodeSig(csig_b64);
 
     // Link 1: the signer's authoritative key countersigned this ephemeral key.
-    try identity.verify(signer_vk, &ephemeral, csig);
+    try said.verify(signer_vk, &ephemeral, csig);
 
     // Link 2: the ephemeral key signed exactly this payload.
     const f = Facts{
@@ -140,7 +141,7 @@ pub fn verify(allocator: std.mem.Allocator, line: []const u8) Error!void {
     };
     var payload_buf: [1024]u8 = undefined;
     const payload = payloadBytes(&payload_buf, f);
-    try identity.verify(ephemeral, payload, psig);
+    try said.verify(ephemeral, payload, psig);
 }
 
 fn strField(obj: std.json.ObjectMap, key: []const u8) ?[]const u8 {
@@ -161,9 +162,9 @@ fn intField(obj: std.json.ObjectMap, key: []const u8) ?i64 {
 
 /// Decode a `code`-prefixed base64url verkey (drop the 1-char derivation code).
 fn decodeKey(b64: []const u8) Error![32]u8 {
-    return identity.decodeVerkey(b64) catch Error.BadEpisode;
+    return said.decodeVerkey(b64) catch Error.BadEpisode;
 }
 
 fn decodeSig(b64: []const u8) Error![64]u8 {
-    return identity.decodeSig(b64) catch Error.BadEpisode;
+    return said.decodeSig(b64) catch Error.BadEpisode;
 }

@@ -19,6 +19,7 @@ const cmd_types = @import("../cmd/types.zig");
 const argv = @import("../argv.zig");
 const exit_codes = @import("../exit_codes.zig");
 const ocapn = @import("mod.zig");
+const relay_runtime = @import("relay_runtime.zig");
 const signals = @import("../operability/signals.zig");
 
 const driver = pancake.driver;
@@ -33,7 +34,7 @@ pub const Handle = struct {
     /// `start`'s frame because the server borrows one for the accept thread's
     /// whole life; which one is chosen is `ocapn.listenTarget`'s decision.
     tcp: pancake.net.tcp.Resident = undefined,
-    relay: ?pancake.net.relay.Resident = null,
+    relay: ?relay_runtime.Provider = null,
     server: *driver.Server,
     thread: std.Thread = undefined,
     stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -63,11 +64,13 @@ pub const Handle = struct {
     /// handshake budget and does not consult the latch. A partner that
     /// connects and then says nothing therefore delays a `close` by that
     /// budget rather than by a poll interval.
-    pub fn shutdown(handle: *Handle) void {
+    pub fn shutdown(handle: *Handle, ctx: *Ctx) void {
         handle.stop.store(true, .release);
         handle.thread.join();
         handle.server.deinit();
-        if (handle.relay) |*resident| resident.deinit();
+        if (handle.relay) |*provider| {
+            _ = relay_runtime.deinitAndReport(ctx, provider);
+        }
         if (handle.publish) |name| handle.gpa.free(name);
         handle.gpa.free(handle.locator);
         handle.gpa.destroy(handle);
@@ -109,7 +112,9 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     // a flag and released by `defer`, which covers every exit.
     var handed_over = false;
     defer if (!handed_over) {
-        if (handle.relay) |*resident| resident.deinit();
+        if (handle.relay) |*provider| {
+            _ = relay_runtime.deinitAndReport(ctx, provider);
+        }
         ctx.gpa.destroy(handle);
     };
     const target = ocapn.listenTarget(
@@ -121,7 +126,8 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         &handle.relay,
     ) catch |err| switch (err) {
         error.Usage => return exit_codes.usage,
-        else => return err,
+        error.OutOfMemory => return err,
+        else => return exit_codes.dial,
     };
     var server = driver.listen(ctx.gpa, target.netlayer, .{ .designator = target.designator }, accept_id, ocapn.sessionOpts()) catch |err| {
         ctx.logErr("listen: {s}", .{@errorName(err)});

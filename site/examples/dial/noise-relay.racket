@@ -2,7 +2,7 @@
 
 ;; Noise_XK seals the CapTP stream end to end through the relay.
 (define peer-key "<64 lowercase hex characters from the server>")
-(define relay-url "wss://relay.example/rendezvous")
+(define relay-url "ws://192.0.2.10:8080/relay")
 (define partner (noise-relay-locator peer-key relay-url))
 (define runtime
   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))

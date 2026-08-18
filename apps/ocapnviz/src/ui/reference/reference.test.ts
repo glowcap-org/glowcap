@@ -12,17 +12,19 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
-  ATTRIBUTION_STANDING,
   CAPTP_VERSION_REFERENCE_OPTIONS,
   CODEC_REFERENCE_OPTIONS,
-  EndpointAttribution,
   PROFILE_OPTIONS,
-  SESSION_SIDES,
   SessionState,
   TRANSPORT_OPTIONS,
   type TransportOption,
-  UNATTRIBUTED_WORD,
 } from "../../schema/topology.ts";
+import {
+  ATTRIBUTION_STANDING,
+  EndpointAttribution,
+  SESSION_SIDES,
+  UNATTRIBUTED_WORD,
+} from "../../schema/session-end.ts";
 import { scenarios } from "../../fixtures/index.ts";
 import type { TimelineEvent } from "../../engine/timeline.ts";
 import { observationsOf } from "../../engine/temporal/recording-access.ts";

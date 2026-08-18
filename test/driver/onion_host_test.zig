@@ -92,3 +92,92 @@ fn clientHalf(allocator: std.mem.Allocator, io: std.Io, socks: []const u8) !void
     try std.testing.expect(reply == .fulfilled and reply.fulfilled == .string);
     try std.testing.expectEqualStrings(greeting, reply.fulfilled.string);
 }
+
+const next_opts: driver.SessionOptions = .{
+    .frame_cap = 4096,
+    .handshake = .{ .ms = 10_000 },
+    .settle = .{ .ms = 10_000 },
+    .codec = .capnp,
+    .captp_version = .next,
+};
+
+test "onion profile by knowledge: a hinted dial settles pancake-next, a bare dial the baseline" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var daemon = try fake.Daemon.start(allocator, io);
+    defer daemon.stop();
+
+    var host_res: onion.Resident = .{ .io = io, .config = .{
+        .socks = daemon.socksText(),
+        .control_endpoint = daemon.controlText(),
+    } };
+    var server = try driver.listen(allocator, host_res.netlayer(), .{ .designator = "" }, .ephemeral, next_opts);
+    defer server.deinit();
+
+    // Handed the pancake-hinted form of the address, the dialer knows its
+    // acceptor is pancake, states its real preference, and the deferred
+    // acceptor hello mirrors it (ADR-0118). The session settles the full
+    // configured profile and carries a call on it.
+    {
+        var host_future = try io.concurrent(hostOnce, .{server});
+        var splice = try io.concurrent(fake.Daemon.spliceDial, .{daemon});
+        const client_result = profileClient(allocator, io, daemon.socksText(), .hinted, .next, .capnp);
+        const host_result = host_future.await(io);
+        try splice.await(io);
+        try client_result;
+        try host_result;
+    }
+
+    // The bare canonical form mints no knowledge: both hellos stay bare and
+    // the same two peers settle the baseline, exactly what a Goblins partner
+    // would observe on this wire.
+    {
+        var host_future = try io.concurrent(hostOnce, .{server});
+        var splice = try io.concurrent(fake.Daemon.spliceDial, .{daemon});
+        const client_result = profileClient(allocator, io, daemon.socksText(), .bare, .v1_0, .syrup);
+        const host_result = host_future.await(io);
+        try splice.await(io);
+        try client_result;
+        try host_result;
+    }
+}
+
+fn profileClient(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    socks: []const u8,
+    form: enum { hinted, bare },
+    want_version: model.CaptpVersion,
+    want_codec: model.CodecId,
+) !void {
+    var res: onion.Resident = .{ .io = io, .config = .{ .socks = socks } };
+    const layers = [_]net.netlayer.Netlayer{res.netlayer()};
+    const profile_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_captp_version,
+        .value = .{ .string = model.CaptpVersion.next.wireString() },
+    }};
+    var session = try driver.connect(allocator, &layers, .{
+        .transport = onion.transport_name,
+        .designator = fake.service_id,
+        .hints = switch (form) {
+            .hinted => .{ .entries = &profile_hints },
+            .bare => model.Hints.emptyFalse(),
+        },
+    }, .ephemeral, next_opts);
+    defer session.deinit();
+
+    const state = &session.hs.served.port.peer.session_state;
+    try std.testing.expectEqual(want_version, state.captp_version);
+    try std.testing.expectEqual(want_codec, state.codec);
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const greeter = try session.fetch("greeter");
+    const reply = try session.call(greeter, "greet", &.{}, arena_state.allocator());
+    try std.testing.expect(reply == .fulfilled and reply.fulfilled == .string);
+    try std.testing.expectEqualStrings(greeting, reply.fulfilled.string);
+}

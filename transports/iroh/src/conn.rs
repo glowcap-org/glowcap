@@ -1,0 +1,189 @@
+//! The blocking per-connection surface: remote identity, read, write,
+//! flush, and the close/free release pair every ownership mode funnels into.
+
+use super::*;
+
+/// Write the connection's QUIC-authenticated remote endpoint id — the 32-byte
+/// Ed25519 public key TLS verified during the handshake — into `out_key32`.
+/// This is the transport-layer peer proof the driver installs as pre-feed
+/// CapTP hello policy on accept paths (ADR-0097); a dial already carries the
+/// same guarantee, since iroh refuses to connect to any endpoint but the id
+/// it was asked for. Returns 0 on success, -1 on failure. Borrows the handle.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_remote_node_id(conn: *const PancakeIrohConn, out_key32: *mut u8) -> i32 {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		let conn = unsafe { &*conn };
+		*conn.conn.remote_id().as_bytes()
+	}));
+	match result {
+		Ok(bytes) => {
+			unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_key32, 32) };
+			0
+		}
+		Err(_) => -1,
+	}
+}
+
+/// Read up to `len` bytes from the stream into `buf`, blocking until at least
+/// one byte arrives. Returns the byte count (> 0), 0 at clean end of stream
+/// (the partner finished its send side or closed the connection cleanly), or
+/// -1 on error. Borrows the handle.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_read(conn: *mut PancakeIrohConn, buf: *mut u8, len: usize) -> isize {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		let conn = unsafe { &*conn };
+		let dest = unsafe { std::slice::from_raw_parts_mut(buf, len) };
+		let mut guard = match conn.recv.lock() {
+			Ok(guard) => guard,
+			Err(_) => return -1,
+		};
+		// The stream was moved into the reader task by `conn_set_nonblocking`;
+		// the blocking read is no longer this caller's to make.
+		let recv = match guard.as_mut() {
+			Some(recv) => recv,
+			None => return -1,
+		};
+		use iroh::endpoint::{ConnectionError, ReadError};
+		match conn.rt.block_on(recv.read(dest)) {
+			Ok(Some(n)) => n as isize,
+			Ok(None) => 0,
+			// A clean connection-level close is end-of-stream, not a fault.
+			Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(_)))
+			| Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => 0,
+			Err(_) => -1,
+		}
+	}));
+	result.unwrap_or(-1)
+}
+
+/// Write all `len` bytes from `buf` to the stream, blocking until accepted by
+/// the QUIC flow-control window. Returns `len`, or -1 on error. Borrows the
+/// handle.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_write(conn: *mut PancakeIrohConn, buf: *const u8, len: usize) -> isize {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		let conn = unsafe { &*conn };
+		let src = unsafe { std::slice::from_raw_parts(buf, len) };
+		let mut guard = match conn.send.lock() {
+			Ok(guard) => guard,
+			Err(_) => return -1,
+		};
+		let send = match guard.as_mut() {
+			Some(send) => send,
+			None => return -1,
+		};
+		match conn.rt.block_on(send.write_all(src)) {
+			Ok(()) => len as isize,
+			Err(_) => -1,
+		}
+	}));
+	result.unwrap_or(-1)
+}
+
+/// Report stream health after writes. QUIC transmits written bytes eagerly, so
+/// there is no buffered data to push; this returns 0 while the connection is
+/// alive and -1 once it is closed or lost. Borrows the handle.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_flush(conn: *mut PancakeIrohConn) -> i32 {
+	let result = catch_unwind(AssertUnwindSafe(|| {
+		let conn = unsafe { &*conn };
+		if conn.conn.close_reason().is_some() {
+			-1
+		} else {
+			0
+		}
+	}));
+	result.unwrap_or(-1)
+}
+
+/// Gracefully close the connection: finish the send stream (the partner's read
+/// sees clean end of stream) and queue a QUIC close. Idempotent; safe to call
+/// before `pancake_iroh_sidecar_conn_free`. Borrows the handle.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_close(conn: *mut PancakeIrohConn) {
+	if conn.is_null() {
+		return;
+	}
+	let writers = unsafe { &*conn }.writers.clone();
+	if catch_unwind(AssertUnwindSafe(|| {
+		let conn = unsafe { &*conn };
+		// On the readiness surface, ownership has already transferred to the
+		// tasks. Let the writer drain every admitted byte and finish its stream;
+		// closing the QUIC connection here would discard the final owned batch.
+		if let Some(nb) = conn.nb.get() {
+			let mut out = nb.outbound.lock().unwrap_or_else(|poisoned| {
+				conn.writers.record_failure();
+				poisoned.into_inner()
+			});
+			out.closed = true;
+			drop(out);
+			nb.close_work.notify_one();
+			nb.write_work.notify_one();
+			return;
+		}
+		if let Ok(mut send) = conn.send.try_lock() {
+			// Best-effort graceful finish, but only when no writer is mid-call:
+			// blocking on `send` here would deadlock a writer parked on QUIC
+			// flow control, which the `conn.close()` below is what unblocks.
+			if let Some(send) = send.as_mut() {
+				if send.finish().is_err() {
+					conn.writers.record_failure();
+				}
+			}
+		}
+		// The compatibility surface may have a thread parked in a blocking call;
+		// close the connection to wake it without waiting on its stream lock.
+		conn.conn.close(0u32.into(), b"");
+	}))
+	.is_err()
+	{
+		writers.record_failure();
+	}
+}
+
+/// Release a connection handle. Closes the connection if still open. Every
+/// connection must be freed before its endpoint.
+///
+/// Safe to call while another thread is parked in a blocking `conn_read` or
+/// `conn_write` on the same handle (the teardown a binding hits when it releases
+/// a connection whose inbound loop is still parked on a read): closing the QUIC
+/// connection makes the parked call return at once, and acquiring both stream
+/// locks before the drop fences against it, once the locks are free, no
+/// blocking call is still borrowing this box, so the free below cannot race one.
+#[no_mangle]
+pub extern "C" fn pancake_iroh_sidecar_conn_free(conn: *mut PancakeIrohConn) {
+	if conn.is_null() {
+		return;
+	}
+	// Unblock any parked blocking read/write (closes the connection without
+	// taking a stream lock, so a writer parked on flow control cannot deadlock).
+	pancake_iroh_sidecar_conn_close(conn);
+	let nonblocking = unsafe { (&*conn).nb.get().is_some() };
+	if !nonblocking {
+		let _ = catch_unwind(AssertUnwindSafe(|| {
+			let conn_ref = unsafe { &*conn };
+			// Fence: wait out an in-flight blocking call. A reader/writer holds
+			// `recv`/`send` for the whole `block_on`; once close has unblocked it,
+			// acquiring both locks proves the call has returned its borrow. The
+			// guards drop at the end of this block, before the box is freed.
+			let _recv = conn_ref.recv.lock();
+			let _send = conn_ref.send.lock();
+		}));
+	}
+	let writers = unsafe { &*conn }.writers.clone();
+	if catch_unwind(AssertUnwindSafe(|| {
+		let inner = *unsafe { Box::from_raw(conn) };
+		// The reader has no useful work after local release; abort it. The writer
+		// owns every byte `conn_try_write` admitted, so detach it. Its writer permit
+		// remains the endpoint's explicit barrier before runtime shutdown, without
+		// retaining one completed JoinHandle per lifetime connection.
+		if let Some((reader, writer)) = inner.nb_tasks.into_inner() {
+			reader.abort();
+			drop(writer);
+		}
+	}))
+	.is_err()
+	{
+		writers.record_failure();
+	}
+}

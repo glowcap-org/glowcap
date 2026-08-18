@@ -1,0 +1,164 @@
+/* ── Composer ─────────────────────────────────────────────────────────── */
+/* Every control shares --control-h and centers its own contents, and the row
+   bottom-aligns them. A single line is therefore even top and bottom, and the
+   buttons stay pinned to the bottom as the textarea grows. */
+/* It belongs to the message column, not to the window. As a row of the whole
+   work area it ran the full width, under the roster as well, and the roster's
+   fill stopped short above it: a band across the screen that changed colour for
+   no reason a reader could name, and that stayed put while the column beside it
+   grew and shrank with the panels.
+
+   Here it floats over the bottom of the column it serves, so it takes that
+   column's width and follows it. The messages pass underneath and dissolve into
+   paper on the way, which is the topbar's frosted edge answered at the other
+   end of the page: the fade is the boundary, and there is no line to draw. */
+.composer {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	padding: var(--composer-fade) 20px calc(20px + env(safe-area-inset-bottom));
+	background: linear-gradient(to top,
+		var(--paper) calc(100% - var(--composer-fade)),
+		transparent 100%);
+}
+/* One line above the input, shared by the two things that ever want it: who else
+   is typing, and the shortcut reminder while you are composing. They are rarely
+   both true and never both worth reading, so they take turns in one reserved row
+   rather than each holding a row of their own — which is what made the band tall
+   enough to notice. Reserved, not grown on demand, because the band is anchored
+   to the bottom of the message column: anything that changes its height moves its
+   top edge, and the top edge is the dissolve. */
+.composer-status {
+	position: relative;
+	height: var(--composer-status-h);
+	/* Clear of the field below it. Sat directly on the input's border, the line's
+	   descenders came within three pixels of it, and the two read as one crowded
+	   block rather than a caption and the thing it captions. Its clearance above
+	   comes from the composer's own top padding, since that is the side the
+	   messages arrive from. Measured between the glyphs, not the boxes: the boxes
+	   agreed while the ink was two pixels apart. */
+	margin-bottom: var(--composer-status-gap);
+}
+.typing,
+.composer .hint {
+	position: absolute;
+	/* Aligned with the text you are writing: the input's own left padding plus
+	   its border, so the status line and the caret start on one edge. */
+	inset: 0 6px 0 15px;
+	line-height: 15px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--ink-soft);
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+.typing {
+	font-size: var(--type-caption);
+	font-style: italic;
+}
+.typing.show {
+	opacity: 1;
+}
+.composer .hint {
+	font-size: 11.5px;
+}
+/* The shortcut hint appears while the field has the caret and nothing typed
+   yet: it teaches the first keystroke, and once words are down it is furniture
+   under them. The room's cap stays as long as the caret does, because it is
+   about the words being typed. Both yield to the typing line whenever someone
+   else is at their keyboard. The row's height is reserved either way, so the
+   field never moves when a line comes or goes. */
+.composer:has(form:focus-within):has(textarea:placeholder-shown) .hint,
+.composer:has(form:focus-within) .hint.room-cap {
+	opacity: 1;
+}
+.composer:has(.typing.show) .hint:not(.over) {
+	opacity: 0;
+}
+/* Past the room's cap the draft will not go, so this stays up even when the
+   field has lost the caret or someone else is typing. The colour is the same
+   danger the field refusals use, not the quiet ink the "bytes left" line wears. */
+.hint.room-cap.over {
+	color: var(--danger);
+	font-weight: 700;
+}
+.composer .hint.room-cap.over {
+	opacity: 1;
+}
+/* Rewriting a line already posted. It sits above the field rather than inside
+   it, so the words being changed are not competing with a label, and it carries
+   the way out beside its name because Escape is not discoverable. */
+/* A strip that comes out from behind the composer rather than sitting on top of
+   it. Its box carries on past the composer's top edge — the padding below its
+   words is the part that goes under — and the composer, which is opaque and
+   comes after it, paints over that: no bottom edge, no bottom corners, the
+   sides running down out of sight. A strip that stopped short instead read as a
+   second box stacked above the first. */
+.changing-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	padding: 3px 4px 3px 12px;
+	padding-bottom: calc(3px + var(--tuck));
+	margin-bottom: calc(4px - var(--tuck));
+	border: 1px solid var(--rule);
+	border-bottom: none;
+	border-radius: 10px 10px 0 0;
+	background: var(--paper);
+	--tuck: 14px;
+}
+.changing-said {
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+}
+.composer form {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-card);
+	padding: 8px;
+	background: var(--paper-raised);
+	box-shadow: var(--shadow-sm);
+}
+.composer-input {
+	width: 100%;
+}
+.composer-actions,
+.composer-actions-left {
+	display: flex;
+	align-items: center;
+}
+.composer-actions {
+	justify-content: space-between;
+	width: 100%;
+}
+.composer-actions-left {
+	gap: 2px;
+}
+.composer form:focus-within {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.composer textarea {
+	flex: 1;
+	font: inherit;
+	line-height: var(--composer-line);
+	border: 0;
+	background: none;
+	color: var(--ink);
+	width: 100%;
+	padding: 5px 6px;
+	margin: 0;
+	outline: none;
+	resize: none;
+	height: var(--control-h);
+	min-height: var(--control-h);
+	max-height: 140px;
+}
+.composer textarea::placeholder {
+	color: var(--ink-soft);
+}

@@ -6,16 +6,13 @@
  * traffic-light style.
  */
 
+import type { CaptpVersion, Codec, PeerProfile, SessionState } from "../schema/topology.ts";
 import {
   ATTRIBUTION_STANDING,
   type AttributionStanding,
-  type CaptpVersion,
-  type Codec,
   type EndpointAttribution,
-  type PeerProfile,
-  type SessionState,
   UNATTRIBUTED_WORD,
-} from "../schema/topology.ts";
+} from "../schema/session-end.ts";
 import { CAPTP_VERSION_COLORS, colorForProfile, lineStyleForCodec, PROFILE_FALLBACK_COLOR } from "../render/palette.ts";
 import type { PeerActivity } from "../render/types.ts";
 import { c, FONT, RADIUS, SIZE, SPACE, WEIGHT } from "./tokens.ts";

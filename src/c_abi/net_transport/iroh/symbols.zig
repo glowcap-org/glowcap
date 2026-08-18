@@ -16,19 +16,21 @@ pub const OmittedFamily = shared.symbols.OmittedFamily;
 pub const omitted_families = [_]OmittedFamily{};
 
 pub const symbols = [_]Symbol{
+    .{ .name = "pancake_iroh_archive_fingerprint" },
     .{ .name = "pancake_iroh_last_error", .out_params = &.{0} },
-    .{ .name = "pancake_iroh_netlayer_new", .out_params = &.{3}, .nonblocking = true, .blocking = true },
     .{
-        .name = "pancake_iroh_netlayer_new_with_diagnostic",
+        .name = "pancake_iroh_netlayer_new",
         .out_params = &.{ 3, 4, 6 },
         .nonblocking = true,
         .blocking = true,
-        .rust_omit = "unused: Rust calls the synchronous constructor and reads TLS diagnostics on the same thread",
-        .python_omit = "unused: Python reads TLS diagnostics inside the same to_thread worker as construction",
-        .racket_omit = "unused: Racket's blocking FFI call preserves the constructor thread for last-error lookup",
     },
     .{ .name = "pancake_iroh_netlayer_close", .nonblocking = true, .blocking = true },
-    .{ .name = "pancake_iroh_netlayer_release", .nonblocking = true, .blocking = true },
+    .{
+        .name = "pancake_iroh_netlayer_release",
+        .out_params = &.{ 1, 3 },
+        .nonblocking = true,
+        .blocking = true,
+    },
     .{ .name = "pancake_iroh_netlayer_node_id", .out_params = &.{ 1, 3 } },
     .{ .name = "pancake_iroh_netlayer_direct_addrs", .out_params = &.{ 1, 3 } },
     .{ .name = "pancake_iroh_conn_release" },
@@ -56,15 +58,6 @@ pub const symbols = [_]Symbol{
     },
     .{
         .name = "pancake_iroh_netlayer_new_in",
-        .nonblocking = true,
-        .blocking = true,
-        .ts_omit = "unused: the TS binding keeps its transports on the library allocator",
-        .rust_omit = "unused: the Rust binding keeps its transports on the library allocator",
-        .python_omit = "unused: the Python binding keeps its transports on the library allocator",
-        .racket_omit = "unused: the Racket binding keeps its transports on the library allocator",
-    },
-    .{
-        .name = "pancake_iroh_netlayer_new_with_diagnostic_in",
         .out_params = &.{ 4, 5, 7 },
         .nonblocking = true,
         .blocking = true,

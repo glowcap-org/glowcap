@@ -57,6 +57,7 @@ pub const PANCAKE_FAILURE_TRUNCATED_SECONDARY_MESSAGE = failure_diagnostics.trun
 /// (`symbols.zig`): crossing semantics per export, for the binding FFI-table
 /// generators.
 pub const symbols = @import("symbols.zig");
+pub const archive_contract = @import("archive_contract.zig");
 
 /// The multiplexed-transport table layout (ADR-0112): how a sidecar transport
 /// archive plugs its multiplexed transport into the driver archive.
@@ -176,12 +177,10 @@ pub const PANCAKE_ERR_MALFORMED: i32 = -9;
 /// An inbound frame exceeded the endpoint's `max_frame_bytes`.
 pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -10;
 /// A value *sent* across the typed surface uses a variant the C ABI cannot carry:
-/// a `handoff` argument, an OCapN Struct argument (there is no `PANCAKE_ARG_STRUCT`),
-/// or a `sturdy`/`broken` reference target. Those are refused loudly with this
-/// code rather than marshalled wrong. (`set`, `tagged`, and `keyword` arguments
-/// do carry, both directions.) A *received* Struct, `sturdy`, or `broken` value
-/// is a separate case: a Struct projects as its raw wire frame, and a `sturdy`/
-/// `broken` reference projects lossily — the kind is reported but its
+/// a `handoff` argument or a `sturdy`/`broken` reference target. Those are
+/// refused loudly with this code rather than marshalled wrong. (`set`,
+/// `tagged`, `keyword`, and `struct` arguments do carry, both directions.) A
+/// received `sturdy`/`broken` reference projects lossily — the kind is reported but its
 /// swissnum/detail is dropped — since the deliver was authored by the partner,
 /// not refused on this consumer's behalf.
 pub const PANCAKE_ERR_UNSUPPORTED_VALUE: i32 = -11;
@@ -274,14 +273,17 @@ pub const PANCAKE_CODEC_CAPNP: u32 = 2;
 pub const PANCAKE_CAPTP_V1_0: u32 = 0;
 pub const PANCAKE_CAPTP_NEXT: u32 = 1;
 
-/// Feature-offer bitmask for the optional CapTP features a Host advertises.
-/// `FULL` is the default interop posture; `MINIMUM` advertises only Deliver,
-/// Resolve, and Abort. Unknown bits are refused so a caller cannot accidentally
-/// believe it enabled a feature this build does not know how to gate.
+/// Feature-offer bitmask for optional CapTP behavior a Host advertises.
+/// `FULL` is every behavior Pancake implements; `MINIMUM` advertises only
+/// Deliver, Resolve, and Abort. An absent peer hint means
+/// `model.FeatureSet.baseline()`, which deliberately excludes outbound untag.
+/// Unknown bits are refused so a caller cannot accidentally believe it enabled
+/// behavior this build does not know how to gate.
 pub const PANCAKE_FEATURE_PIPELINING: u32 = 1 << 0;
 pub const PANCAKE_FEATURE_HANDOFF: u32 = 1 << 1;
 pub const PANCAKE_FEATURE_WIRE_DELTA: u32 = 1 << 2;
 pub const PANCAKE_FEATURE_STURDYREF: u32 = 1 << 3;
+pub const PANCAKE_FEATURE_UNTAG: u32 = 1 << 4;
 pub const PANCAKE_FEATURE_MINIMUM: u32 = 0;
 
 const FeatureSpec = struct {
@@ -294,6 +296,7 @@ const feature_specs = [_]FeatureSpec{
     .{ .field = "handoff", .bit = PANCAKE_FEATURE_HANDOFF },
     .{ .field = "wire_delta", .bit = PANCAKE_FEATURE_WIRE_DELTA },
     .{ .field = "sturdyref", .bit = PANCAKE_FEATURE_STURDYREF },
+    .{ .field = "untag", .bit = PANCAKE_FEATURE_UNTAG },
 };
 
 fn featureFullMask() u32 {
@@ -303,6 +306,7 @@ fn featureFullMask() u32 {
 }
 
 pub const PANCAKE_FEATURE_FULL: u32 = featureFullMask();
+pub const PANCAKE_FEATURE_BASELINE: u32 = featureSetToC(model.FeatureSet.baseline());
 
 comptime {
     const fields = @typeInfo(model.FeatureSet).@"struct".fields;
@@ -372,7 +376,7 @@ pub fn codecFromC(codec: u32) ?model.CodecId {
     };
 }
 
-/// Validate the framing pair shared by the compatibility transport fronts.
+/// Validate the framing pair shared by the explicit blocking transport fronts.
 /// The stable result remains INVALID_ARGUMENT; this helper makes the archive's
 /// last-error detail identical instead of letting each transport forget or
 /// paraphrase one half of the same C contract.
@@ -718,6 +722,23 @@ pub fn setLastError(comptime fmt: []const u8, args: anytype) void {
     last_error_len = w.end;
 }
 
+/// Retain the textual projection of the same bounded failure-chain fact used
+/// by structured provider reports. The structured record is authoritative;
+/// this archive-local slot is the immediate per-call explanation for direct C
+/// consumers.
+pub fn setLastErrorChain(prefix: []const u8, failure: foundation.FailureChain) void {
+    if (failure.secondaryName()) |secondary_name| {
+        setLastError("{s}: {s}; cleanup: {s} ({d} secondary failures)", .{
+            prefix,
+            failure.primaryName(),
+            secondary_name,
+            failure.secondary_count,
+        });
+    } else {
+        setLastError("{s}: {s}", .{ prefix, failure.primaryName() });
+    }
+}
+
 /// Record the concrete cause before projecting it into the deliberately small
 /// C error vocabulary. Generic codes are useful for portable branching; the
 /// per-thread detail is what makes the failure diagnosable.
@@ -757,10 +778,17 @@ pub fn captureCallError(
     code: i32,
     out_buf: ?[*]u8,
     cap: usize,
-    out_len: *usize,
+    out_len: ?*usize,
 ) i32 {
-    out_len.* = lastErrorRead(out_buf, cap);
+    if (out_len) |len| len.* = lastErrorRead(out_buf, cap);
     return code;
+}
+
+/// A caller-buffer diagnostic is either wholly omitted or has a length slot.
+/// Validate this before starting an effect so malformed optional plumbing can
+/// never perform the operation and then replace its outcome.
+pub fn optionalCallErrorOutputIsValid(out_buf: ?[*]u8, cap: usize, out_len: ?*usize) bool {
+    return out_len != null or (out_buf == null and cap == 0);
 }
 
 // ── Typed OCapN value vocabulary ─────────────────────────────────────────────
@@ -790,6 +818,13 @@ pub const PANCAKE_ARG_KEYWORD: u32 = 11;
 /// `boolean` carries the sign (1 = negative). A magnitude that fits `int64_t`
 /// belongs in `PANCAKE_ARG_INTEGER` and is refused here.
 pub const PANCAKE_ARG_BIG_INTEGER: u32 = 12;
+/// An OCapN Struct. `items` is an even-length sequence of alternating
+/// `_STRING` keys and values. Keys must be unique. The alternating tree keeps
+/// the C waist recursive without adding a second mutually-recursive ABI type.
+pub const PANCAKE_ARG_STRUCT: u32 = 13;
+/// An OCapN Error value. `bytes`/`bytes_len` carry its message. This is a
+/// fulfilled value; `PANCAKE_RESOLUTION_BREAK` remains the rejected outcome.
+pub const PANCAKE_ARG_ERROR: u32 = 14;
 
 pub const PANCAKE_RESOLUTION_FULFILL: u32 = 0;
 pub const PANCAKE_RESOLUTION_BREAK: u32 = 1;
@@ -800,19 +835,25 @@ pub const PANCAKE_RESOLUTION_BREAK: u32 = 1;
 pub const PANCAKE_RESOLUTION_HANDOFF: u32 = 2;
 
 /// An opaque capability identity owned by one `PancakeHost`. The integer has no
-/// wire meaning and cannot be combined with a caller-selected session.
+/// wire meaning and cannot be combined with a caller-selected session. Equal
+/// ids name the same Host capability; the C issuer keeps ids distinct across
+/// Hosts and never reuses a retired id.
 pub const PancakeReference = extern struct {
     id: u64,
 };
 
 /// A passable argument value. `kind` selects which field is live. `bytes`/
-/// `bytes_len` carry `_BYTES`/`_STRING`/`_SYMBOL`/`_KEYWORD`; `items`/
+/// `bytes_len` carry `_BYTES`/`_STRING`/`_SYMBOL`/`_KEYWORD`/`_ERROR`; `items`/
 /// `items_len` carry a `_LIST`'s or `_SET`'s elements. A `_TAGGED` uses both:
 /// the tag in `bytes`/`bytes_len` and the value list in `items`/`items_len`.
 /// A `_BIG_INTEGER` carries the canonical decimal magnitude in `bytes`/
 /// `bytes_len` (ASCII digits, no leading zero) and the sign in `boolean`
 /// (1 = negative); a magnitude that fits `int64_t` belongs in `_INTEGER` and
-/// is refused here. On a projected (received) value the pointers alias the
+/// is refused here. An `_ERROR` is a fulfilled OCapN Error value whose bytes
+/// are its message; it is distinct from a rejected resolution. A `_STRUCT`
+/// carries alternating `_STRING` key/value
+/// children in `items`; its count is therefore always even. On a projected
+/// (received) value the pointers alias the
 /// owning arena and are valid until the matching `*_release`.
 pub const PancakeArgument = extern struct {
     kind: u32,
@@ -985,6 +1026,7 @@ fn valueFromCImpl(
         PANCAKE_ARG_BYTES => .{ .bytes = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_STRING => .{ .string = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_SYMBOL => .{ .symbol = try leafFromC(arena, c_arg, own_bytes) },
+        PANCAKE_ARG_ERROR => .{ .@"error" = .{ .message = try leafFromC(arena, c_arg, own_bytes) } },
         PANCAKE_ARG_VOID => .{ .void = {} },
         PANCAKE_ARG_REFERENCE => switch (reference_field) {
             .reference => .{ .reference = try ref_from_c(ref_ctx, c_arg.reference) },
@@ -1007,8 +1049,62 @@ fn valueFromCImpl(
             if (!big.isCanonical()) break :blk error.UnsupportedValue;
             break :blk .{ .big_integer = big };
         },
+        PANCAKE_ARG_STRUCT => .{ .@"struct" = try structFromCImpl(
+            Output,
+            reference_field,
+            RefError,
+            ref_ctx,
+            ref_from_c,
+            arena,
+            c_arg.items,
+            c_arg.items_len,
+            next,
+            own_bytes,
+        ) },
         else => error.UnsupportedValue,
     };
+}
+
+fn structFromCImpl(
+    comptime Output: type,
+    comptime reference_field: ReferenceField,
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_from_c: anytype,
+    arena: std.mem.Allocator,
+    items: ?[*]const PancakeArgument,
+    len: usize,
+    depth: usize,
+    comptime own_bytes: bool,
+) (MarshalError || RefError)![]const std.meta.Child(@FieldType(Output, "struct")) {
+    if (len % 2 != 0) return error.UnsupportedValue;
+    if (len == 0) return &.{};
+    const p = items orelse return error.NullPointer;
+    const Entry = std.meta.Child(@FieldType(Output, "struct"));
+    const out = try arena.alloc(Entry, len / 2);
+    for (out, 0..) |*entry, i| {
+        const key_arg = p[i * 2];
+        if (key_arg.kind != PANCAKE_ARG_STRING) return error.UnsupportedValue;
+        const key = try leafFromC(arena, key_arg, own_bytes);
+        for (out[0..i]) |prior| {
+            if (std.mem.eql(u8, prior.key, key)) return error.UnsupportedValue;
+        }
+        entry.* = .{
+            .key = key,
+            .value = try valueFromCImpl(
+                Output,
+                reference_field,
+                RefError,
+                ref_ctx,
+                ref_from_c,
+                arena,
+                p[i * 2 + 1],
+                depth,
+                own_bytes,
+            ),
+        };
+    }
+    return out;
 }
 
 /// A leaf's byte slice: borrowed from the C argument, or duped into `arena`
@@ -1104,6 +1200,11 @@ pub fn argumentToCWith(
             c_arg.bytes = b.ptr;
             c_arg.bytes_len = b.len;
         },
+        .@"error" => |reason| {
+            c_arg.kind = PANCAKE_ARG_ERROR;
+            c_arg.bytes = reason.message.ptr;
+            c_arg.bytes_len = reason.message.len;
+        },
         .void => c_arg.kind = PANCAKE_ARG_VOID,
         .reference => |r| {
             c_arg.kind = PANCAKE_ARG_REFERENCE;
@@ -1140,12 +1241,25 @@ pub fn argumentToCWith(
             c_arg.bytes = big.digits.ptr;
             c_arg.bytes_len = big.digits.len;
         },
+        .@"struct" => |entries| {
+            c_arg.kind = PANCAKE_ARG_STRUCT;
+            const arr = try arena.alloc(PancakeArgument, entries.len * 2);
+            for (entries, 0..) |entry, i| {
+                var key = zero_argument;
+                key.kind = PANCAKE_ARG_STRING;
+                key.bytes = entry.key.ptr;
+                key.bytes_len = entry.key.len;
+                arr[i * 2] = key;
+                arr[i * 2 + 1] = try argumentToCWith(RefError, ref_ctx, ref_to_c, arena, entry.value);
+            }
+            c_arg.items = arr.ptr;
+            c_arg.items_len = arr.len;
+        },
         // Exhaustive on purpose: the model arms with no C mapping are named
         // here, so a new `model.Argument` arm stops this build at the boundary
         // that must decide how (or whether) the typed surface carries it,
-        // rather than degrading silently to the opaque-frame fallback. `.@"struct"`
-        // has no PANCAKE_ARG_STRUCT and rides the raw-frame projection instead.
-        .@"error", .handoff, .@"struct" => return error.UnsupportedValue,
+        // rather than degrading silently to the opaque-frame fallback.
+        .handoff => return error.UnsupportedValue,
     }
     return c_arg;
 }

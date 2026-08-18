@@ -43,6 +43,7 @@ const ALICE_FILE = "attachment over the introduced WebRTC line";
 const ALICE_FILE_TWO = "a second capability on that same direct message";
 const REPLY_TEXT = "got it Alice, replying over the same connection";
 const BOB_FILE = "attachment over the inbound reply capability";
+const SWAPPED_FILE = "the file Alice put in place of the first one";
 const SECOND_TEXT = "hi again Bob, on a second line after I closed the first";
 const SECOND_REPLY = "still here Alice, on the new connection";
 
@@ -246,6 +247,58 @@ try {
 	// completion of a direct line between two peers that both refuse a listener.
 	await awaitBubble(alice.tab, REPLY_TEXT, "Alice");
 	await downloadFile(alice.tab, "from-bob.txt", BOB_FILE, "Alice");
+
+	// A direct file line is a line, editable after the fact like a room's. Alice
+	// changes the files on the message she sent: she drops the first, keeps the
+	// second, and adds a new one. There is no room in the path — the handle she
+	// holds is one Bob minted on their direct connection — and Bob, who is the
+	// durable owner of a direct line's display, redraws the message in place. The
+	// kept file is never re-sent; only the new one crosses.
+	{
+		const line = alice.tab.locator('.bubble:has-text("two files on our direct line")').last();
+		await line.hover();
+		await line.getByLabel("More for this message").click();
+		await alice.tab.locator('.line-menu [role=menuitem]:has-text("Edit")').click();
+		await alice.tab.waitForSelector('#changing:has-text("files")', { timeout: 10_000 })
+			.catch(() => fail("editing a direct file line did not open the composer on its files"));
+		await alice.tab.click('.composer-file:has-text("from-alice.txt") .composer-file-remove');
+		await alice.tab.setInputFiles("#filePick", {
+			name: "swapped-in.txt",
+			mimeType: "text/plain",
+			buffer: Buffer.from(SWAPPED_FILE),
+		});
+		await alice.tab.waitForSelector('.composer-file:has-text("swapped-in.txt")', { timeout: 10_000 })
+			.catch(() => fail("the replacement direct file was not attached to the change"));
+		await alice.tab.fill("#line", "swapped one file on our direct line");
+		await alice.tab.click("#sendBtn");
+		// Bob redraws the same line: the kept file and the new one, the dropped one
+		// gone, and the new one's bytes fetch over the same direct connection.
+		await sameBubble(bob.tab, ["also-from-alice.txt", "swapped-in.txt"], "Bob");
+		await bob.tab.waitForFunction(
+			() =>
+				![...document.querySelectorAll(".attach-file .name")].some((name) =>
+					name.textContent === "from-alice.txt"
+				),
+			undefined,
+			{ timeout: 30_000 },
+		).catch(() => fail("Bob still showed the file Alice dropped from the direct line"));
+		await downloadFile(bob.tab, "swapped-in.txt", SWAPPED_FILE, "Bob");
+
+		// And taking the whole line back reaches Bob too: the message goes, its
+		// files with it.
+		const refiled = alice.tab.locator('.bubble:has-text("swapped one file on our direct line")').last();
+		await refiled.hover();
+		await refiled.getByLabel("More for this message").click();
+		await alice.tab.locator('.line-menu [role=menuitem]:has-text("Delete")').click();
+		await bob.tab.waitForFunction(
+			() =>
+				![...document.querySelectorAll(".attach-file .name")].some((name) =>
+					name.textContent === "swapped-in.txt"
+				),
+			undefined,
+			{ timeout: 30_000 },
+		).catch(() => fail("withdrawing a direct file line did not take its file away for Bob"));
+	}
 
 	// The rail is one rail. A direct line's row is the same object as a room's —
 	// a mark, a name, and the marks that end it — so the mark that closes it has

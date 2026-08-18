@@ -20,7 +20,7 @@ implemented and held by `test/actors/resolver_vow_test.zig`. Stage 2 — the
 Host-tier atomic deferral (`Host.deferTurn`, the settle verbs, and the hidden
 session-less vow row beneath them) and its C exports
 — is implemented and held by the resolver scenarios in
-`test/driver/core_host_test.zig` and `test/c_abi/host_test.zig`. Stage 3 —
+`test/driver/core_host/defer_test.zig` and `test/c_abi/host_test.zig`. Stage 3 —
 the binding veneers — is implemented with a live proof per binding: the
 TypeScript and Python bindings auto-defer a behavior that returns a promise
 or awaitable (their smokes' async-worker scenes, on Deno, Bun, and asyncio),

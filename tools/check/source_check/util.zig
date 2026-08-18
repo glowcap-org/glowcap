@@ -40,6 +40,52 @@ pub fn expectFileContains(
     }
 }
 
+/// Concatenate every file in `dir_path` whose name `keep` accepts, sorted.
+pub fn concatDirFiles(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    dir_path: []const u8,
+    keep: *const fn (name: []const u8) bool,
+) !?[]u8 {
+    var names: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (names.items) |n| gpa.free(n);
+        names.deinit(gpa);
+    }
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (true) {
+        const entry = (it.next(io) catch return null) orelse break;
+        if (entry.kind == .directory) continue;
+        if (!keep(entry.name)) continue;
+        const owned_name = try gpa.dupe(u8, entry.name);
+        errdefer gpa.free(owned_name);
+        try names.append(gpa, owned_name);
+    }
+    std.mem.sort([]const u8, names.items, {}, struct {
+        fn less(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.less);
+
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(gpa);
+    for (names.items) |name| {
+        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, name });
+        defer gpa.free(path);
+        const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
+            buf.deinit(gpa);
+            return null;
+        };
+        defer gpa.free(body);
+        try buf.appendSlice(gpa, body);
+        try buf.append(gpa, '\n');
+    }
+    return try buf.toOwnedSlice(gpa);
+}
+
 pub fn fileContains(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -128,7 +174,7 @@ pub const CaptpWireArm = struct { tag: []const u8, wire: []const u8 };
 /// from `tools/check/`, which no `src/` path is importable from. It lives here
 /// because two checks read the same switch and a second parser would be the
 /// duplication they exist to refuse: `c_abi.checkTraceVocabulary` holds the
-/// four producers to these words, and `binding_spine.checkTraceViewerVocabulary`
+/// four producers to these words, and `binding_spine/viewer.zig`
 /// holds the viewer that reads them.
 ///
 /// An empty result means the switch's shape moved. Every caller reports that as
@@ -212,4 +258,86 @@ pub fn collectBulletSpans(gpa: std.mem.Allocator, section: []const u8, out: *std
         const close = std.mem.indexOfScalar(u8, after_tick, '`') orelse continue;
         try out.append(gpa, after_tick[0..close]);
     }
+}
+
+/// The sources that register build steps: the root `build.zig` plus every
+/// composed step-registration module under `tools/build/`, concatenated into
+/// one owned buffer so a textual step scan sees the whole graph the root
+/// composes. Callers free the result.
+pub fn readBuildStepSources(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+) ![]u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(gpa);
+    const root_src = try root.readFileAlloc(io, "build.zig", gpa, .limited(1 << 21));
+    defer gpa.free(root_src);
+    try buf.appendSlice(gpa, root_src);
+    var dir = try root.openDir(io, "tools/build", .{ .iterate = true });
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind == .directory) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
+        const src = try dir.readFileAlloc(io, entry.name, gpa, .limited(1 << 21));
+        defer gpa.free(src);
+        try buf.append(gpa, '\n');
+        try buf.appendSlice(gpa, src);
+    }
+    return buf.toOwnedSlice(gpa);
+}
+
+/// Find the `{ ... }` block opened by the `{`-terminated `marker`, matching
+/// braces so a nested struct literal inside the block cannot close it early.
+/// Returns the interior (excluding the outer braces), or `null` when the
+/// marker is absent or its brace never closes.
+pub fn extractBraceBlock(text: []const u8, marker: []const u8) ?[]const u8 {
+    std.debug.assert(std.mem.endsWith(u8, marker, "{"));
+    const start = std.mem.indexOf(u8, text, marker) orelse return null;
+    const open = start + marker.len - 1;
+    var depth: usize = 1;
+    var i = open + 1;
+    while (i < text.len) : (i += 1) {
+        switch (text[i]) {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if (depth == 0) return text[open + 1 .. i];
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+/// Whether `haystack` contains `needle` as a whole symbol rather than as the
+/// prefix of a longer one. The bans and presence checks above name FFI symbols
+/// and call spellings, so a plain substring match reads
+/// `pancake_host_session_published_ref` as a use of
+/// `pancake_host_session_publish` and refuses a sibling verb that never broke the
+/// rule. A required needle has the same defect facing the other way: a longer
+/// sibling would satisfy it. Boundaries are only required at an end whose own
+/// character is part of an identifier, so a needle spelled with trailing
+/// punctuation (`"return sendLocal("`) still matches.
+///
+/// A needle that begins with an identifier character no longer matches mid-
+/// identifier, so `"tell_local("` is not found inside `"run_tell_local("`. Spell
+/// such a needle with whatever precedes it when that is what you meant.
+pub fn containsAsSymbol(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return false;
+    const identLike = struct {
+        fn f(ch: u8) bool {
+            return std.ascii.isAlphanumeric(ch) or ch == '_';
+        }
+    }.f;
+    var from: usize = 0;
+    while (std.mem.indexOfPos(u8, haystack, from, needle)) |at| {
+        from = at + 1;
+        if (identLike(needle[0]) and at > 0 and identLike(haystack[at - 1])) continue;
+        const end = at + needle.len;
+        if (identLike(needle[needle.len - 1]) and end < haystack.len and identLike(haystack[end])) continue;
+        return true;
+    }
+    return false;
 }

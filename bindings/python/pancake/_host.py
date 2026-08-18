@@ -38,7 +38,7 @@ from typing import (
 
 from . import _constants as _abi
 from ._action import _park_actions, _run_action
-from ._codec import _arg_to_c, _captp_version_id, _codec_id, _feature_mask, _ref_to_c
+from ._abi_value import _arg_to_c, _captp_version_id, _codec_id, _feature_mask, _ref_to_c
 from ._errors import (
     PancakeError,
     _check_host,
@@ -56,7 +56,14 @@ if TYPE_CHECKING:
     from ._session import Session
     from ._transport import Connector
 from ._ffi_host import _host
-from ._lifecycle import PendingWork, _UNSET, _close_options, _monotonic_ms
+from ._lifecycle import (
+    PendingWork,
+    _UNSET,
+    _close_options,
+    _lifecycle_closed,
+    _monotonic_ms,
+    _release_consumed,
+)
 from ._ffi_ocapn import _byte_buf
 from ._trampoline import (
     _BehaviorEntry,
@@ -103,14 +110,22 @@ class _HostFinalizerState:
     allocator alive until that release completes.
     """
 
-    __slots__ = ("raw", "giftables", "displaced", "hosted", "context")
+    __slots__ = (
+        "raw",
+        "giftables",
+        "displaced",
+        "hosted",
+        "context",
+        "diagnostic_id",
+    )
 
-    def __init__(self, raw, giftables, displaced, hosted, context) -> None:
+    def __init__(self, raw, giftables, displaced, hosted, context, diagnostic_id) -> None:
         self.raw = raw
         self.giftables = giftables
         self.displaced = displaced
         self.hosted = hosted
         self.context = context
+        self.diagnostic_id = diagnostic_id
 
 
 def _release_finalizer_state(state: _HostFinalizerState, *, checked: bool) -> None:
@@ -119,15 +134,53 @@ def _release_finalizer_state(state: _HostFinalizerState, *, checked: bool) -> No
     if not raw:
         return
     rc = _host.pancake_host_release(raw)
-    if checked:
-        _check_host(rc)
-    elif rc != _abi.OK:
+    if rc == _abi.OK:
+        _retire_finalizer_state(state)
+        return
+    failure = _host_error(rc)
+    # INVALID_ARGUMENT is the only pre-consumption refusal. Every other
+    # status is a completed teardown outcome; retrying it would call through a
+    # dangling Host pointer.
+    if not _release_consumed(rc):
+        if checked:
+            raise failure
         if _inside_turn():
             _parked_releases().append(lambda: _release_finalizer_state(state, checked=False))
         else:
             _defer_finalizer_state(state)
         return
+    if not checked:
+        _report_finalizer_release_failure(state, failure)
     _retire_finalizer_state(state)
+    if checked:
+        raise failure
+
+
+def _report_finalizer_release_failure(
+    state: _HostFinalizerState, failure: BaseException
+) -> None:
+    """Retain a consumed finalizer failure at the surviving diagnostic owner."""
+    context = state.context
+    if context is None:
+        _record_runtime_failure(FailureLayer.BINDING, "host.finalizer.release", failure)
+        return
+    try:
+        context._report_failure(
+            layer=_abi.FAILURE_LAYER_BINDING,
+            scope=_abi.FAILURE_SCOPE_HOST,
+            scope_id=state.diagnostic_id,
+            operation="host.finalizer.release",
+            primary_name=type(failure).__name__,
+            primary_result=getattr(failure, "code", _abi.ERR_INTERNAL),
+            primary_message=str(failure),
+        )
+    except BaseException as recorder_error:
+        _record_runtime_failure(FailureLayer.BINDING, "host.finalizer.release", failure)
+        _record_runtime_failure(
+            FailureLayer.BINDING,
+            "host.finalizer.release.diagnostic",
+            recorder_error,
+        )
 
 
 def _retire_finalizer_state(state: _HostFinalizerState) -> None:
@@ -153,6 +206,19 @@ def _defer_finalizer_state(state: _HostFinalizerState) -> None:
             return
         _deferred_finalizer_ids.add(state_id)
         _deferred_finalizer_states.append(state)
+
+
+def _release_unpublished_host(raw, context) -> Optional[BaseException]:
+    """Release construction-owned Host authority without orphaning its Context."""
+    state = _HostFinalizerState(raw, {}, [], {}, context, 0)
+    rc = _host.pancake_host_release(raw)
+    if _release_consumed(rc):
+        _retire_finalizer_state(state)
+    else:
+        # The failed construction has no wrapper that can retry. Transfer the
+        # still-live Host and its allocation policy to the process retry owner.
+        _defer_finalizer_state(state)
+    return None if rc == _abi.OK else _host_error(rc)
 
 
 def _drain_deferred_finalizer_states() -> None:
@@ -202,13 +268,14 @@ class _VowRow:
     exists, so an unobserved broken answer never warns "exception was never
     retrieved"."""
 
-    __slots__ = ("state",)
+    __slots__ = ("state", "track_gc")
 
-    def __init__(self):
+    def __init__(self, track_gc: bool = False):
         # Exactly one of three shapes, so "settled with a live waiter" cannot
         # exist: _MINTED (registered), an asyncio.Future (a parked waiter), or
         # an (ok, payload) tuple (a settled outcome).
         self.state = _MINTED
+        self.track_gc = track_gc
 
 
 class Host:
@@ -348,6 +415,7 @@ class Host:
                 self._displaced_giftables,
                 self._hosted,
                 context,
+                self._diagnostic_id,
             )
             self._finalizer = None
             assert _driver_loop is not None
@@ -388,11 +456,10 @@ class Host:
         try:
             _check_host(_host.pancake_host_diagnostic_id(out, ctypes.byref(diagnostic_id)))
         except BaseException as error:
-            cleanup_rc = _host.pancake_host_release(out)
-            context._release_handle()
+            cleanup = _release_unpublished_host(out, context)
             self._raw = None
-            if cleanup_rc != _abi.OK:
-                _retain_cleanup_failure(error, _host_error(cleanup_rc))
+            if cleanup is not None:
+                _retain_cleanup_failure(error, cleanup)
             raise
         self._diagnostic_id = diagnostic_id.value
         self._finalizer_state = _HostFinalizerState(
@@ -401,6 +468,7 @@ class Host:
             self._displaced_giftables,
             self._hosted,
             context,
+            self._diagnostic_id,
         )
         self._finalizer = weakref.finalize(
             self,
@@ -446,12 +514,12 @@ class Host:
         """
         if self._raw is None:
             return
+        self._release_started = True
         for session in list(self._sessions.values()):
             session._native_owner_did_release()
         self._sessions.clear()
         _trace._detach_host(self)
         self._raw = None
-        self._release_started = True
         self._driver_loop = None
         state = self._finalizer_state
         if state is not None:
@@ -463,6 +531,11 @@ class Host:
         self._vows.clear()
         self._unobserved.clear()
         self._behavior_entries.clear()
+
+    def _track_session_retirement_failure(self, error: BaseException) -> None:
+        """Retain a session cleanup consequence once Host/loop close owns it."""
+        if self._release_started:
+            self._record_terminal_failure(error)
 
     def take_failures(self):
         """Claim callerless failures retained by this Host's Context."""
@@ -781,12 +854,17 @@ class Host:
         state = self._finalizer_state
 
         def release_host() -> None:
-            _release_finalizer_state(state, checked=True)
-            finalizer.detach()
-            _trace._detach_host(self)
-            self._raw = None
-            self._connectors.clear()
-            self._behavior_entries.clear()
+            try:
+                _release_finalizer_state(state, checked=True)
+            finally:
+                # A teardown failure consumes the native Host. Only a
+                # pre-commit INVALID_ARGUMENT refusal leaves state.raw live.
+                if not state.raw:
+                    finalizer.detach()
+                    _trace._detach_host(self)
+                    self._raw = None
+                    self._connectors.clear()
+                    self._behavior_entries.clear()
 
         if _inside_turn():
             self.park_release(release_host)
@@ -852,8 +930,12 @@ class Host:
             rc = _host.pancake_host_close_progress(raw, _monotonic_ms(), ctypes.byref(state))
             if rc not in (_abi.OK, _abi.ERR_TIMEOUT):
                 _check_host(rc)
-            timed_out = timed_out or rc == _abi.ERR_TIMEOUT
-            if state.value == _abi.LIFECYCLE_CLOSED:
+            if rc == _abi.ERR_TIMEOUT and not timed_out:
+                timed_out = True
+                self._record_terminal_failure(
+                    PancakeError(_abi.ERR_TIMEOUT, "finish close exhausted its grace period")
+                )
+            if _lifecycle_closed(state.value):
                 break
             # A spent grace escalates inside the progress call and queues
             # teardown actions; drain them before parking. A drain that ran
@@ -867,8 +949,6 @@ class Host:
         self._unobserved.clear()
         self._finish_release()
         self._raise_terminal_failure()
-        if timed_out:
-            raise PancakeError(_abi.ERR_TIMEOUT, "finish close exhausted its grace period")
 
     async def _drive_owned_release(self) -> None:
         """Drive byte-fed release and retain its exact terminal failure."""
@@ -1245,11 +1325,11 @@ class Host:
 
     # ── The vow table ──────────────────────────────────────────────────────────
 
-    def vow_minted(self, vow: int) -> None:
+    def vow_minted(self, vow: int, *, track_gc: bool = False) -> None:
         """Record a freshly minted vow so the drain can route its completion.
         Runs in the same synchronous block as the minting FFI call, so no drain
         can pop the completion first. Binding-internal."""
-        self._vows[vow] = _VowRow()
+        self._vows[vow] = _VowRow(track_gc)
 
     def await_vow(self, vow: int) -> "asyncio.Future":
         """A future for the vow's eventual outcome: the fulfilled wire value,
@@ -1286,6 +1366,8 @@ class Host:
         row = self._vows.get(vow)
         if row is None:
             return  # an outcome nobody registered for
+        if ok and row.track_gc:
+            payload = self._gc.track_argument(payload)
         if isinstance(row.state, asyncio.Future):
             waiter = row.state
             del self._vows[vow]

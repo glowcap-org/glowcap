@@ -3,7 +3,7 @@ id: ADR-0063
 status: accepted
 date: 2026-06-18
 tags: [gc, bindings, memory]
-decision: "A binding may opt a connection into finalizer-driven distributed GC: each far reference lifted from the wire owns one wire-count unit and enqueues one op:gc-exports delta when the language reclaims it; the feature is off by default and the sans-io core is unchanged."
+decision: "A binding may opt a session into finalizer-driven distributed GC: every capability occurrence projected into application data by that session owns one Host release unit, and its language finalizer returns that unit through pancake_host_ref_release; the feature is off by default, failure stays at the Host barrier, and the wire-delta core remains runtime-neutral."
 supersedes: []
 superseded_by: []
 ---
@@ -33,49 +33,67 @@ nondeterministic, possibly-never finalization.
 
 ## Decision
 
-A connection may be opted into GC at construction (`gc` option, **off by
-default**). When on, the `far` reference a `fetch` returns owns exactly one
-wire-count unit and registers a language finalizer. When the language reclaims
-the handle, the finalizer enqueues a single `op:gc-exports` delta of 1 for that
-import position; the connection's serve loop drains that queue with mutable peer
-access and calls `pancake_peer_send_gc_export`. Near references, promises,
-sturdyrefs, broken references, the bootstrap import (position 0, which
-send-validation refuses in a `gc-exports`), and redeemed-handoff tokens
-(synthetic far ids the machine router mints, never wire imports) are never
-registered.
+A session may be opted into GC with its binding's `with_gc` / `withGc` verb
+(**off by default**). The opt-in applies at the application-projection seam:
 
-`fetch` is the one tracked site because it is the same seam in every binding,
-the connection mints the `Ref` itself, in one place, with full context: so the
-feature is identical across the four. The other ways a far import reaches an
-application (a reply lifted from a `send`, an argument lifted from an inbound
-deliver, an `enliven` result) are deliberately *not* tracked: see Scope.
+- a `fetch` result;
+- a fulfilled far `send`, `listen`, or projection result; and
+- every capability nested anywhere in an inbound delivered argument, including
+  a redeemed handoff promise.
 
-The per-handle-equals-one-unit rule is what makes the accounting exact without a
-shared registry or identity dedup: the session added one count per wire
-occurrence, the binding lifts each occurrence into exactly one finalizable
-handle, and each handle releases exactly one. N occurrences cost N units and N
-deltas; language-level sharing (an `Arc`, an object passed by reference) keeps
-clones on the one unit, so a clone never double-releases. The resurrection race
+Each occurrence receives one language finalizer before application code, a vow
+waiter, or the bounded unobserved-outcome store can retain it. The policy is
+sampled when the operation is minted, or when the inbound turn begins; changing
+the opt-in later does not rewrite an already-admitted value's ownership.
+
+The finalizer carries only the opaque Host capability id. It parks one release
+unit on Host-owned state, outside the collector callback, and the binding's
+ordinary runtime/pump thread invokes `pancake_host_ref_release`. The Host alone
+decides whether that identity releases a local root, a direct import, or a
+routed handoff and emits any required `op:gc-exports`. Bindings do not inspect
+id ranges or duplicate routing policy.
+
+The per-occurrence-equals-one-unit rule is what makes the accounting exact
+without a binding-side identity registry: native projection owns one Host
+retain for each capability leaf, the binding lifts each leaf into exactly one
+finalizable handle, and each handle releases exactly one. For a far import,
+N wire occurrences cost N import-count units and eventually N deltas;
+language-level sharing (`Rc`, or an object passed by reference) shares the one
+guard, so a clone never double-releases. The resurrection race
 (`05-gc.md` GC-3) stays benign: a re-import arriving as the last handle dies is
 a fresh occurrence with its own fresh unit, and the delta the dying handle emits
 is the one the session already counted.
 
-Finalization is best-effort by construction. A delta that never fires (the
-language never reclaims the handle, or the session closed first) costs a
-stranded table row reclaimed at teardown, never a correctness fault, never an
-underflow, because the binding only registers references the session actually
-counted. The finalizer-to-serve-loop queue mirrors the one ADR-0012's enliven cache
-uses in the Rust driver: a finalizer cannot reach the `!Send` peer, so it parks
-the position on a shared queue the loop owns.
+Finalization is best-effort by construction. A release that never fires (the
+language never reclaims the handle, or the Host closes first) leaves ownership
+to deterministic Host/session teardown; it never becomes a correctness fault
+or an underflow. A finalizer cannot drive a `!Send` Host or cross an FFI boundary
+from a collector thread, so it only parks the id and schedules ordinary Host
+progress.
 
-The sans-io core is untouched: this is adapter policy over the existing
-`gc_export` message and the existing import-table accounting
+Session teardown makes every remote capability homed there unusable at once,
+but preserves a release-only Host row containing only the opaque id and the
+already-issued application-retain count. A later finalizer therefore consumes
+its exact unit as a wire-free success instead of retrying `UnknownCapability`
+forever. The row disappears with the final unit; its retained population is
+bounded by handles that existed when the session closed, and it cannot be used,
+canonicalized, or projected onto another session.
+
+Release is transactional with respect to failure. A parked id leaves its queue
+only after `pancake_host_ref_release` commits. A refusal retains that id and its
+tail for retry, and an unowned scheduled-drain failure reaches the binding's
+existing Host failure recipient rather than escaping a finalizer or changing a
+protocol outcome. Explicit `release` uses the same C verb, disarms the
+finalizer only after success, and preserves the handle on refusal.
+
+The wire-delta session machinery stays runtime-neutral: this is adapter policy
+over the existing `gc_export` message and import-table accounting
 (`session.importRefcount`, `applyGcExportDecrement`). Each binding owns its
 finalizer idiom; the contract above is the same in all four.
 
 ## Scope (what this does not decide)
 
-- GC stays **off by default** in every binding. A connection opts in; nothing
+- GC stays **off by default** in every binding. A session opts in; nothing
   changes for an application that does not.
 - This does not add a `gc-answers`-from-finalizer path for dropped reply
   promises. Answer positions are single-reference and already released by the
@@ -86,15 +104,15 @@ finalizer idiom; the contract above is the same in all four.
   Zig consumer calls `sendGcExport` explicitly).
 - It does not promise prompt collection. A binding inherits its language's
   finalization timing; only Rust's `Drop` is deterministic.
-- Only a `fetch` result is tracked. A capability lifted from a `send` reply, an
-  inbound deliver argument (e.g. Rust's context-free `Ref::try_from`), or any
-  other path is outside this seam: released when the session tears down, as
-  before. Tracking those uniformly across the four bindings is a later lift; the
-  asymmetry of doing it in some but not others is the worse outcome.
 - An `enliven` result is not tracked. The ADR-0012 dedup cache deliberately
   retains the import so a repeat enliven of the same swiss-number short-circuits;
   a finalizer that released it on handle drop would invalidate the very cache
   entry the next enliven expects to hit. The cache owns that import's lifetime.
+- Locally created handles (`spawn`, `publish`, and `published_ref`) are not
+  enrolled merely because a session has opted in. Their explicit actor and
+  publication roots own them. A local capability returned through a tracked far
+  outcome is enrolled because that occurrence crossed the application
+  projection seam and owns its own Host retain.
 
 ## Alternatives Considered
 
@@ -113,16 +131,17 @@ finalizer idiom; the contract above is the same in all four.
 
 ## Consequences
 
-- Each binding gains a `gc` connection option, a finalizer registration on
-  lifted far references, and a drop queue the serve loop drains. The lift path
-  centralizes through one helper so every wire-sourced import is registered
-  once.
+- Each binding has one recursive application-value tracker and one Host-owned
+  drop queue. The tracker is binding plumbing over the common Host release
+  authority; no language binding decides wire identity or GC accounting.
 - `test/engine/gc_churn_test.zig` gates the session invariant the finalizers
   drive: a session that imports and releases the same position many times holds
   flat heap and returns `importRefcount` to zero: the proof the dropped-handle
   path reclaims rows.
-- The binding dogfoods each prove a lifted import, once dropped, emits the
-  `op:gc-exports` the partner needs to release its export.
+- Rust, TypeScript, Python, and Racket dogfoods prove nested fetch results,
+  fulfilled send results, and delivered arguments in both wire directions. The
+  release is observed before close, so teardown cannot satisfy the proof by
+  accident.
 
 ## Notes
 

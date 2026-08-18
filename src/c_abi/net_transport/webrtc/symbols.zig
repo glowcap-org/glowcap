@@ -17,6 +17,7 @@ pub const omitted_families = [_]OmittedFamily{};
 const ts_omit = "browser-native TypeScript uses RTCPeerConnection and does not dlopen the native WebRTC companion";
 
 pub const symbols = [_]Symbol{
+    .{ .name = "pancake_webrtc_archive_fingerprint", .ts_omit = ts_omit },
     .{ .name = "pancake_webrtc_last_error", .out_params = &.{0}, .ts_omit = ts_omit },
     .{ .name = "pancake_webrtc_netlayer_new", .out_params = &.{1}, .ts_omit = ts_omit },
     .{

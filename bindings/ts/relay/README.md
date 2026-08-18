@@ -1,8 +1,8 @@
 # @pancake/relay
 
-The byte-transparent relay a pancake embedder runs so a peer that cannot open a socket itself — a
-browser — can hold a keyed CapTP session with a native server. The relay forwards the raw session
-bytes without parsing them, so the keyed handshake and session authority run end to end and the
+The byte-transparent relay a pancake embedder runs so a peer that cannot open a socket itself, such
+as a browser, can hold a CapTP session with another peer. The relay forwards the raw session bytes
+without parsing them, so the keyed or Noise handshake and session authority run end to end and the
 relay holds no capability. The contract every runtime's relay obeys is
 [ADR-0086](../../../docs/decisions/adr/ADR-0086-byte-transparent-relay.md); this package is its
 TypeScript reference implementation.
@@ -14,11 +14,12 @@ across JavaScript runtimes (the pump and the WebSocket wiring); the other three 
 and the same five shapes appear in every language's relay.
 
 1. **A raw byte channel** to the target — `read() → Uint8Array | null`,
-   `write(bytes) → Promise<void>`, `close()` (idempotent): the `RelayChannel` type. For an iroh
+   `write(bytes) → Promise<void>`, `close() → Promise<void>` (one idempotent release barrier): the `RelayChannel` type. For an iroh
    target it comes from `@pancake/iroh`'s `dialLocatorForRelay`; for a TCP target it is the
    runtime's own socket.
 2. **The pump**, `relayBytes(source, sink, channel, config, closeSource)`: moves bytes between the
    two legs with pair-atomic teardown, an idle timeout, a byte cap, and awaited-write backpressure.
+   It joins both close barriers before returning and preserves close refusals after the first I/O failure.
 3. **A WebSocket adapter**, `webSocketRelay(socket, getChannel, dialFailReason,
    config, options?)`: wires
    an accepted WebSocket to the pump, buffering the browser's first handshake bytes across the async
@@ -50,6 +51,17 @@ webSocketRelay(
 	{ idleTimeoutMs: 60_000, maxBytesPerSession: 1 << 30 },
 );
 ```
+
+Browser and other managed-WebSocket runtimes compose `connector()`. It accepts
+both `keyed-relay` and `noise-relay`; the connector moves bytes, while the
+byte-fed Host applies Noise sealing from the locator's transport profile. Relay
+routes are validated before WebSocket I/O and may use `ws://` or `wss://` with
+DNS names, on the managed and native sides alike. Native runtimes instead
+compose `provider()` for dialing, and `keyed.listen` / `noise.listen` (or the
+underlying `listenKeyed` / `listenNoise`) for the accepting half: the listener
+registers held inbound sockets at the relay's `/register` endpoint and
+announces a locator carrying the dial route, one registration route per
+driver loop.
 
 ## Backpressure
 

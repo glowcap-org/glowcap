@@ -57,6 +57,13 @@ Cap'n Proto adds `ArgKind.@"struct"` and carries it as a composite list of entry
 structs, each a two-pointer struct holding the key text and the value Argument,
 mirroring how `.tagged` is carried.
 
+The typed C waist carries the same entry sequence without adding a second
+recursive ABI type: `PANCAKE_ARG_STRUCT` uses `PancakeArgument.items` as an
+even-length alternating sequence of `_STRING` keys and values. The shared
+marshaller enforces the even count, String-only keys, and uniqueness once;
+Rust, TypeScript, Python, and Racket expose only idiomatic wrappers over that
+one contract.
+
 Decode is fail-closed on the spec's key rules. A non-String key is refused, and
 a duplicate key is refused, at the codec boundary where bytes are parsed,
 projected as the existing `UnsupportedArgument` / `MalformedFrame` refusals.
@@ -106,6 +113,9 @@ to a round-trip, add a Cap'n Proto round-trip, and add a struct case to the
 cross-codec equivalence corpus. The README drops the "Struct not modeled" claim,
 states that `.void` is Undefined, and records Null as an unmodeled boundary
 (unknown Syrup records project as `Tagged`, not a dedicated Null refuse).
+The C ABI and all four bindings project Struct through their ordinary typed
+value tree, including nested capability leaves; Struct no longer requires a
+raw-frame escape hatch.
 
 ## Notes
 

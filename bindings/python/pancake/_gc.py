@@ -1,8 +1,7 @@
 """Internal: distributed GC (ADR-0063), opt-in and off by default. Owns the
-Host-wide :class:`HostGc` state, fetch ``track_import`` / verb-head
+Host-wide :class:`HostGc` state, recursive application-value tracking / verb-head
 ``drain_gc`` choreography, and ``pancake_host_ref_release``. Session keeps
-``with_gc`` as a thin opt-in; the Host owns the finalizer state. Binding spine
-Pass 3b.
+``with_gc`` as a thin opt-in; the Host owns the finalizer state.
 """
 
 from __future__ import annotations
@@ -12,10 +11,10 @@ import ctypes
 from typing import Callable, Optional, Protocol
 
 from ._errors import _check_host
-from ._codec import _ref_to_c
+from ._abi_value import _ref_to_c
 from ._ffi_host import _host
 
-from ._value import Ref, _ref_from_id
+from ._value import Argument, Ref, Set, Struct, Tagged, _ref_from_id
 
 
 class GcHandle(Protocol):
@@ -69,7 +68,7 @@ def bind_host(gc: "HostGc", host) -> None:
 class HostGc:
     """Host-wide finalizer registry and release queue.
 
-    A fetched reference may be homed on a sibling session and may outlive the
+    A projected reference may be homed on a sibling session and may outlive the
     session through which it arrived, so this state follows Host authority.
     """
 
@@ -82,10 +81,10 @@ class HostGc:
         """Bind the live Host once so track/drain can schedule progress."""
         self._h = h
 
-    def track_import(self, ref: "Ref") -> "Ref":
-        # Register a fetched capability for GC when enabled. The id is an
-        # opaque Host-scoped identity (ADR-0096) — the fetch seam is what
-        # scopes tracking, not any id-range branch here — and the host
+    def track_ref(self, ref: "Ref") -> "Ref":
+        # Register one projected capability occurrence for GC. The id is an
+        # opaque Host-scoped identity (ADR-0096) — the application projection
+        # seam scopes tracking, never an id-range branch — and the host
         # resolves it to its home connection and real wire import when the
         # release fires. The finalizer captures only the bare id integer,
         # never the `Ref`, so it cannot resurrect the handle whose death it
@@ -96,9 +95,34 @@ class HostGc:
         prior = getattr(ref, "_gc_finalizer", None)
         if prior is not None:
             prior.detach()
-        finalizer = weakref.finalize(ref, self._on_import_dropped, ref.id)
+        finalizer = weakref.finalize(ref, self._on_capability_dropped, ref.id)
         object.__setattr__(ref, "_gc_finalizer", finalizer)
         return ref
+
+    def track_argument(self, value: "Argument") -> "Argument":
+        """Track every capability occurrence in a native-projected value.
+
+        Containers stay intact; only ``Ref`` leaves receive finalizers. Native
+        projection minted one Host retain per occurrence, so equal ids in two
+        leaves intentionally receive two independent death rites.
+        """
+        if isinstance(value, Ref):
+            return self.track_ref(value)
+        if isinstance(value, (list, Set)):
+            for item in value:
+                self.track_argument(item)
+        elif isinstance(value, Tagged):
+            for item in value.value:
+                self.track_argument(item)
+        elif isinstance(value, Struct):
+            for _, item in value.entries:
+                self.track_argument(item)
+        return value
+
+    def track_arguments(self, values: "list[Argument]") -> "list[Argument]":
+        for value in values:
+            self.track_argument(value)
+        return values
 
     def disarm(self, ref: "Ref") -> None:
         """Disarm a tracked ref after deterministic release committed."""
@@ -106,7 +130,7 @@ class HostGc:
         if finalizer is not None:
             finalizer.detach()
 
-    def _on_import_dropped(self, token: int) -> None:
+    def _on_capability_dropped(self, token: int) -> None:
         # Runs when the last `Ref` is collected, possibly off the loop thread:
         # park the id and hop to the loop to drain it — ref_release never
         # runs from a finalizer thread.

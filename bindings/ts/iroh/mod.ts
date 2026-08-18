@@ -18,3 +18,14 @@ export {
 	provider,
 	Reachability,
 } from "./impl.ts";
+
+/** This package's one profile, in its own words (`ProfileInfo`). */
+export const profiles = [
+	{
+		transport: "iroh",
+		summary: "Encrypted QUIC; peers dial the node id.",
+		reference: "https://www.iroh.computer/",
+		referenceName: "iroh",
+		takes: [],
+	},
+] as const satisfies readonly import("@pancake/runtime/transport").ProfileInfo[];

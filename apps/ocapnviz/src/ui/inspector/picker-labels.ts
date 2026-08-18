@@ -16,8 +16,8 @@
  * different kind of thing.
  *
  * A leaf, like `../elide.ts` below it: no React, no engine, no document.
- * The panels reach it through `shared.tsx`, which re-exports it so a
- * picker keeps one import.
+ * A picker that needs a label imports it; the panels do not go through
+ * a barrel to reach it.
  */
 
 import { elideIdentifier } from "../elide.ts";

@@ -32,11 +32,22 @@ const std = @import("std");
 
 const webrtc = @import("webrtc");
 const crypto = @import("foundation").crypto;
+const ownership = @import("ownership.zig");
+const provider = @import("provider.zig");
 
 // The shared C-ABI vocabulary leaf (codes, allocation policy, the per-thread
 // last-error slot), not the `c_abi` ocapn root, so this transport ABI pulls
 // none of libpancake_ocapn's exported surface (ADR-0059 companion split).
 const c = @import("c_abi_shared");
+
+pub const PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    @embedFile("mod.zig"),
+    @embedFile("symbols.zig"),
+);
+
+pub export fn pancake_webrtc_archive_fingerprint() u64 {
+    return PANCAKE_WEBRTC_ARCHIVE_FINGERPRINT;
+}
 
 // The opaque context handle whose allocator the `_in` constructor twin uses,
 // so allocation policy is one axis spelled one way across every archive
@@ -77,26 +88,12 @@ const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
 /// FFI-table generators reflect from — see `symbols.zig`.
 pub const symbols = @import("symbols.zig");
 
-/// The heap-pinned peer: the resident `Peer` plus the allocator that frees it.
-const PeerPayload = struct {
-    peer: webrtc.Peer,
-    allocator: std.mem.Allocator,
-    netlayer: *NetlayerPayload,
-    references: usize = 1,
-    provider_claimed: bool = false,
-    failure: c.PancakeProviderFailure = std.mem.zeroes(c.PancakeProviderFailure),
-};
-
-const NetlayerPayload = struct {
-    resident: webrtc.Resident,
-    allocator: std.mem.Allocator,
-    references: usize = 1,
-    peers: std.AutoHashMapUnmanaged(usize, *PeerPayload) = .{},
-    provider_profile: c.PancakeTransportProfile = undefined,
-    multiplexed_transport: c.PancakeMultiplexedTransport = undefined,
-    provider_entry: c.PancakeTransportProviderEntry = undefined,
-    provider_initialized: bool = false,
-};
+const PeerPayload = ownership.PeerPayload;
+const NetlayerPayload = ownership.NetlayerPayload;
+const retainNetlayer = ownership.retainNetlayer;
+const undoNetlayerRetain = ownership.undoNetlayerRetain;
+const releaseNetlayer = ownership.releaseNetlayer;
+const releasePeer = ownership.releasePeer;
 
 fn payloadFromOpaque(p: ?*PancakeWebrtcPeer) ?*PeerPayload {
     return @ptrCast(@alignCast(p orelse return null));
@@ -104,36 +101,6 @@ fn payloadFromOpaque(p: ?*PancakeWebrtcPeer) ?*PeerPayload {
 
 fn netlayerFromOpaque(p: ?*PancakeWebrtcNetlayer) ?*NetlayerPayload {
     return @ptrCast(@alignCast(p orelse return null));
-}
-
-fn retainNetlayer(payload: *NetlayerPayload) void {
-    std.debug.assert(payload.references != 0);
-    payload.references += 1;
-}
-
-fn releaseNetlayer(payload: *NetlayerPayload) ?anyerror {
-    std.debug.assert(payload.references != 0);
-    payload.references -= 1;
-    if (payload.references != 0) return null;
-    std.debug.assert(payload.peers.count() == 0);
-    payload.peers.deinit(payload.allocator);
-    var failure: ?anyerror = null;
-    payload.resident.deinit() catch |err| {
-        failure = err;
-    };
-    payload.allocator.destroy(payload);
-    return failure;
-}
-
-fn releasePeer(payload: *PeerPayload) ?anyerror {
-    std.debug.assert(payload.references != 0);
-    payload.references -= 1;
-    if (payload.references != 0) return null;
-    const allocator = payload.allocator;
-    payload.peer.deinit();
-    const failure = releaseNetlayer(payload.netlayer);
-    allocator.destroy(payload);
-    return failure;
 }
 
 /// Copy the calling thread's last webrtc-transport error into `out_buf`, the
@@ -199,6 +166,7 @@ pub export fn pancake_webrtc_netlayer_new(
     config: ?*const PancakeWebrtcConfig,
     out_netlayer: ?*?*PancakeWebrtcNetlayer,
 ) i32 {
+    c.lastErrorClear();
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
     return netlayerNewIn(c.library_allocator, cfg, slot);
@@ -209,6 +177,7 @@ pub export fn pancake_webrtc_netlayer_new_in(
     config: ?*const PancakeWebrtcConfig,
     out_netlayer: ?*?*PancakeWebrtcNetlayer,
 ) i32 {
+    c.lastErrorClear();
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
@@ -232,10 +201,9 @@ fn netlayerNewIn(
             .ice_servers = ice_servers,
             .include_loopback_candidates = cfg.include_loopback_candidates != 0,
             .worker_threads = cfg.worker_threads,
-        }) catch {
+        }) catch |err| {
             alloc.destroy(payload);
-            setLastError("webrtc netlayer_new: the sidecar could not create an endpoint", .{});
-            return PANCAKE_ERR_IO;
+            return c.failIo("webrtc netlayer_new endpoint", err);
         },
         .allocator = alloc,
     };
@@ -246,6 +214,7 @@ fn netlayerNewIn(
 /// Borrow the netlayer's single read-only readiness fd. Register it once; do
 /// not close it.
 pub export fn pancake_webrtc_netlayer_readiness_fd(netlayer: ?*PancakeWebrtcNetlayer) i32 {
+    c.lastErrorClear();
     const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     return payload.resident.readinessFd();
 }
@@ -258,6 +227,7 @@ pub export fn pancake_webrtc_netlayer_drain_ready(
     out_cap: usize,
     out_count: ?*usize,
 ) i32 {
+    c.lastErrorClear();
     const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = out_events orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_count orelse return PANCAKE_ERR_NULL_POINTER;
@@ -284,22 +254,23 @@ pub export fn pancake_webrtc_netlayer_drain_ready(
 
 /// Release the readiness endpoint after every peer created from it is released.
 pub export fn pancake_webrtc_netlayer_release(netlayer: ?*PancakeWebrtcNetlayer) i32 {
+    c.lastErrorClear();
     const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_OK;
-    if (releaseNetlayer(payload)) |_| {
-        setLastError("webrtc netlayer release: endpoint teardown failed", .{});
-        return PANCAKE_ERR_IO;
-    }
+    if (releaseNetlayer(payload)) |failure|
+        return c.failIo("webrtc netlayer release", failure);
     return PANCAKE_OK;
 }
 
 /// Create a peer in one of the two signaling roles from `netlayer`.
 pub export fn pancake_webrtc_peer_new(netlayer: ?*PancakeWebrtcNetlayer, is_offerer: i32, out_peer: ?*?*PancakeWebrtcPeer) i32 {
+    c.lastErrorClear();
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     return peerNewIn(nl.allocator, nl, is_offerer, out_peer);
 }
 
 /// As `pancake_webrtc_peer_new`, allocating the peer shell through `context`.
 pub export fn pancake_webrtc_peer_new_in(context: ?*PancakeContext, netlayer: ?*PancakeWebrtcNetlayer, is_offerer: i32, out_peer: ?*?*PancakeWebrtcPeer) i32 {
+    c.lastErrorClear();
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const nl = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     return peerNewIn(c_ctx.allocator(), nl, is_offerer, out_peer);
@@ -312,21 +283,19 @@ fn peerNewIn(alloc: std.mem.Allocator, nl: *NetlayerPayload, is_offerer: i32, ou
         return c.failInternal("webrtc peer_new", err);
     retainNetlayer(nl);
     payload.* = .{
-        .peer = nl.resident.newPeer(is_offerer != 0) catch {
-            _ = releaseNetlayer(nl);
+        .peer = nl.resident.newPeer(is_offerer != 0) catch |err| {
+            undoNetlayerRetain(nl);
             alloc.destroy(payload);
-            setLastError("webrtc peer_new: the sidecar could not create a peer connection", .{});
-            return PANCAKE_ERR_IO;
+            return c.failIo("webrtc peer_new sidecar", err);
         },
         .allocator = alloc,
         .netlayer = nl,
     };
-    nl.peers.put(nl.allocator, @intFromEnum(payload.peer.id()), payload) catch {
+    nl.peers.put(nl.allocator, @intFromEnum(payload.peer.id()), payload) catch |err| {
         payload.peer.deinit();
-        _ = releaseNetlayer(nl);
+        undoNetlayerRetain(nl);
         alloc.destroy(payload);
-        setLastError("webrtc peer_new: the peer subject table could not grow", .{});
-        return PANCAKE_ERR_INTERNAL;
+        return c.failInternal("webrtc peer_new subject table", err);
     };
     slot.* = @ptrCast(payload);
     return PANCAKE_OK;
@@ -340,6 +309,7 @@ pub export fn pancake_webrtc_peer_authorize_remote(
     designator: ?[*]const u8,
     designator_len: usize,
 ) i32 {
+    c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const bytes = designator orelse return PANCAKE_ERR_NULL_POINTER;
     if (payload.peer.authorized_remote != null) {
@@ -365,12 +335,14 @@ pub export fn pancake_webrtc_peer_authorize_remote(
 /// `*out_len`. `PANCAKE_ERR_BUFFER_TOO_SMALL` still writes the required length,
 /// so the caller retries with a buffer that size. Offerer only.
 pub export fn pancake_webrtc_peer_create_offer(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
+    c.lastErrorClear();
     return produceSdp(peer, out, cap, out_len, .offer);
 }
 
 /// Produce the answerer's SDP answer into `(out, cap)`, writing its length to
 /// `*out_len`. Answerer only, after `pancake_webrtc_peer_set_remote_offer`.
 pub export fn pancake_webrtc_peer_create_answer(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
+    c.lastErrorClear();
     return produceSdp(peer, out, cap, out_len, .answer);
 }
 
@@ -393,11 +365,13 @@ fn produceSdp(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usi
 
 /// Set the far offerer's SDP offer as the remote description. Answerer side.
 pub export fn pancake_webrtc_peer_set_remote_offer(peer: ?*PancakeWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize) i32 {
+    c.lastErrorClear();
     return setRemote(peer, sdp, sdp_len, true);
 }
 
 /// Set the far answerer's SDP answer as the remote description. Offerer side.
 pub export fn pancake_webrtc_peer_set_remote_answer(peer: ?*PancakeWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize) i32 {
+    c.lastErrorClear();
     return setRemote(peer, sdp, sdp_len, false);
 }
 
@@ -413,6 +387,7 @@ fn setRemote(peer: ?*PancakeWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize, is_of
 /// Add one remote ICE candidate, as the JSON the far peer's
 /// `pancake_webrtc_peer_next_local_candidate` produced.
 pub export fn pancake_webrtc_peer_add_remote_candidate(peer: ?*PancakeWebrtcPeer, cand: ?[*]const u8, cand_len: usize) i32 {
+    c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const src = cand orelse return PANCAKE_ERR_NULL_POINTER;
     payload.peer.addRemoteCandidate(src[0..cand_len]) catch return ioError("add_remote_candidate: the sidecar refused the candidate");
@@ -423,6 +398,7 @@ pub export fn pancake_webrtc_peer_add_remote_candidate(peer: ?*PancakeWebrtcPeer
 /// writing its length to `*out_len`. `PANCAKE_ERR_WOULD_BLOCK` when none is
 /// pending yet; `PANCAKE_ERR_BUFFER_TOO_SMALL` still writes the required length.
 pub export fn pancake_webrtc_peer_next_local_candidate(peer: ?*PancakeWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
+    c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = out orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
@@ -441,6 +417,7 @@ pub export fn pancake_webrtc_peer_id(peer: ?*PancakeWebrtcPeer) usize {
 
 /// Non-blocking channel-open check. Retry after OPEN or CLOSED readiness.
 pub export fn pancake_webrtc_peer_is_open(peer: ?*PancakeWebrtcPeer) i32 {
+    c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     payload.peer.checkOpen() catch |err| return switch (err) {
         error.WouldBlock => PANCAKE_ERR_WOULD_BLOCK,
@@ -451,6 +428,7 @@ pub export fn pancake_webrtc_peer_is_open(peer: ?*PancakeWebrtcPeer) i32 {
 
 /// Non-blocking read of raw inbound bytes. Retry after READABLE readiness.
 pub export fn pancake_webrtc_peer_try_read(peer: ?*PancakeWebrtcPeer, buf: ?[*]u8, len: usize, out_read: ?*usize) i32 {
+    c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = buf orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_read orelse return PANCAKE_ERR_NULL_POINTER;
@@ -467,6 +445,7 @@ pub export fn pancake_webrtc_peer_try_read(peer: ?*PancakeWebrtcPeer, buf: ?[*]u
 /// immediately. Advance by `out_written`; after `PANCAKE_ERR_WOULD_BLOCK`,
 /// retry the remaining slice on WRITABLE readiness.
 pub export fn pancake_webrtc_peer_try_write(peer: ?*PancakeWebrtcPeer, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
+    c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const src = buf orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_written orelse return PANCAKE_ERR_NULL_POINTER;
@@ -490,6 +469,7 @@ pub export fn pancake_webrtc_peer_close(peer: ?*PancakeWebrtcPeer) void {
 /// public netlayer lease, this consumes the endpoint's final lease and returns
 /// that teardown outcome instead of hiding it in thread-local diagnostics.
 pub export fn pancake_webrtc_peer_release(peer: ?*PancakeWebrtcPeer) i32 {
+    c.lastErrorClear();
     const payload = payloadFromOpaque(peer) orelse return PANCAKE_OK;
     if (!payload.provider_claimed) {
         // tolerant: the driver may already have retired its ownership edge;
@@ -501,181 +481,6 @@ pub export fn pancake_webrtc_peer_release(peer: ?*PancakeWebrtcPeer) i32 {
     return PANCAKE_OK;
 }
 
-// ── Generic multiplexed provider ────────────────────────────────────────────
-
-const transport_name = "webrtc";
-
-fn multiplexedReadinessFd(ctx: ?*anyopaque) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    return payload.resident.driverReadinessFd();
-}
-
-fn multiplexedDrainReady(ctx: ?*anyopaque, out: ?[*]c.PancakeMultiplexedReadyEvent, cap: usize, out_count: ?*usize, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const count = out_count orelse return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-    const dest = out orelse if (cap == 0) null else return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-    var total: usize = 0;
-
-    var raw: [1]webrtc.ReadyEvent = undefined;
-    while (total < cap) {
-        const n = payload.resident.drainDriverReady(&raw) catch |err| return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, err);
-        if (n == 0) break;
-        const event = raw[0];
-        const peer = payload.peers.get(event.subject) orelse continue;
-        if (!peer.provider_claimed) continue;
-        var mapped: u32 = 0;
-        if (event.events & webrtc.ev_readable != 0) mapped |= c.multiplexed_transport.PANCAKE_MULTIPLEXED_EV_READABLE;
-        if (event.events & webrtc.ev_writable != 0) mapped |= c.multiplexed_transport.PANCAKE_MULTIPLEXED_EV_WRITABLE;
-        if (event.events & webrtc.ev_closed != 0) mapped |= c.multiplexed_transport.PANCAKE_MULTIPLEXED_EV_CLOSED;
-        if (mapped == 0) continue;
-        dest.?[total] = .{ .subject = @intCast(event.subject), .events = mapped };
-        total += 1;
-    }
-    count.* = total;
-    return PANCAKE_OK;
-}
-
-fn claimExternal(ctx: ?*anyopaque, subject: u64, out_conn: ?*u64, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-    const peer = payload.peers.get(@intCast(subject)) orelse
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidAddress);
-    if (peer.provider_claimed or peer.peer.authorized_remote == null)
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidOptions);
-    peer.peer.checkOpen() catch |err| return switch (err) {
-        error.WouldBlock => c.transport_provider.failProvider(out_failure, PANCAKE_ERR_WOULD_BLOCK, err),
-        error.Closed => c.transport_provider.failProvider(out_failure, PANCAKE_ERR_CLOSED, err),
-    };
-    peer.provider_claimed = true;
-    peer.references += 1;
-    slot.* = subject;
-    return PANCAKE_OK;
-}
-
-fn multiplexedTryRead(ctx: ?*anyopaque, conn: u64, buf: ?[*]u8, cap: usize) callconv(.c) isize {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const dest = buf orelse return -1;
-    const peer = payload.peers.get(@intCast(conn)) orelse return -1;
-    if (!peer.provider_claimed) return -1;
-    const n = peer.peer.tryRead(dest[0..cap]) catch |err| {
-        if (err == error.WouldBlock) return c.multiplexed_transport.PANCAKE_MULTIPLEXED_WOULD_BLOCK;
-        if (c.transport_provider.providerFailureEmpty(peer.failure))
-            c.transport_provider.setProviderFailure(&peer.failure, PANCAKE_ERR_IO, err);
-        return -1;
-    };
-    return @intCast(n);
-}
-
-fn multiplexedTryWrite(ctx: ?*anyopaque, conn: u64, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const src = bytes orelse return -1;
-    const peer = payload.peers.get(@intCast(conn)) orelse return -1;
-    if (!peer.provider_claimed) return -1;
-    const n = peer.peer.tryWrite(src[0..len]) catch |err| {
-        if (err == error.WouldBlock) return c.multiplexed_transport.PANCAKE_MULTIPLEXED_WOULD_BLOCK;
-        if (c.transport_provider.providerFailureEmpty(peer.failure))
-            c.transport_provider.setProviderFailure(&peer.failure, PANCAKE_ERR_IO, err);
-        return -1;
-    };
-    return @intCast(n);
-}
-
-fn multiplexedConnTakeFailure(ctx: ?*anyopaque, conn: u64, out_failure: ?*c.PancakeProviderFailure) callconv(.c) void {
-    const slot = out_failure orelse return;
-    slot.* = std.mem.zeroes(c.PancakeProviderFailure);
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const peer = payload.peers.get(@intCast(conn)) orelse return;
-    if (!peer.provider_claimed) return;
-    slot.* = peer.failure;
-    peer.failure = std.mem.zeroes(c.PancakeProviderFailure);
-}
-
-fn multiplexedConnClose(ctx: ?*anyopaque, conn: u64, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const key: usize = @intCast(conn);
-    const peer = payload.peers.get(key) orelse return PANCAKE_OK;
-    if (!peer.provider_claimed) return PANCAKE_OK;
-    peer.peer.close();
-    peer.provider_claimed = false;
-    std.debug.assert(payload.peers.remove(key));
-    if (releasePeer(peer)) |failure|
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, failure);
-    return PANCAKE_OK;
-}
-
-fn multiplexedConnRemoteKey(ctx: ?*anyopaque, conn: u64, out_key: ?[*]u8) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const dest = out_key orelse return PANCAKE_ERR_NULL_POINTER;
-    const peer = payload.peers.get(@intCast(conn)) orelse return 0;
-    if (!peer.provider_claimed) return 0;
-    peer.peer.checkOpen() catch return 0;
-    const key = peer.peer.authorized_remote orelse return 0;
-    @memcpy(dest[0..crypto.PEER_KEY_BYTES], key.asBytes());
-    return 1;
-}
-
-fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx orelse {
-        c.transport_provider.setProviderFailure(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
-        return PANCAKE_ERR_NULL_POINTER;
-    }));
-    retainNetlayer(payload);
-    return PANCAKE_OK;
-}
-
-fn providerRelease(ctx: ?*anyopaque, out_failure: ?*c.PancakeProviderFailure) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx orelse return PANCAKE_OK));
-    if (releaseNetlayer(payload)) |failure|
-        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_IO, failure);
-    return PANCAKE_OK;
-}
-
-fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(.c) u8 {
-    // Each signaling-owned resident is its own external-channel namespace.
-    return @intFromBool(ctx == other_ctx);
-}
-
-fn ensureProvider(payload: *NetlayerPayload) void {
-    if (payload.provider_initialized) return;
-    payload.provider_profile = .{
-        .abi_version = c.transport_provider.PANCAKE_TRANSPORT_PROFILE_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeTransportProfile),
-        .transport_name = transport_name.ptr,
-        .transport_name_len = transport_name.len,
-        .designator_scheme = c.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY,
-        .sealed_channel = c.transport_provider.PANCAKE_SEALED_CHANNEL_NONE,
-    };
-    payload.multiplexed_transport = .{
-        .abi_version = c.multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeMultiplexedTransport),
-        .ctx = payload,
-        .readiness_fd = multiplexedReadinessFd,
-        .drain_ready = multiplexedDrainReady,
-        .start_connect = null,
-        .finish_connect = null,
-        .claim_external = claimExternal,
-        .cancel_connect = null,
-        .listen = null,
-        .finish_listen = null,
-        .cancel_listen = null,
-        .listener_locator = null,
-        .listener_advertise = null,
-        .finish_accept = null,
-        .stop_listen = null,
-        .try_read = multiplexedTryRead,
-        .try_write = multiplexedTryWrite,
-        .conn_close = multiplexedConnClose,
-        .conn_take_failure = multiplexedConnTakeFailure,
-        .conn_remote_key = multiplexedConnRemoteKey,
-    };
-    payload.provider_entry = .{
-        .profile = &payload.provider_profile,
-        .execution_model = c.transport_provider.PANCAKE_TRANSPORT_EXEC_MULTIPLEXED,
-        .implementation = &payload.multiplexed_transport,
-    };
-    payload.provider_initialized = true;
-}
-
 /// Fill the generic driver provider package for externally established WebRTC
 /// peers. The package has no dial or listener operation: signaling owns those
 /// actions, and the driver claims only an authorized open subject.
@@ -683,19 +488,10 @@ pub export fn pancake_webrtc_transport_provider(
     netlayer: ?*PancakeWebrtcNetlayer,
     out_provider: ?*c.PancakeTransportProvider,
 ) i32 {
+    c.lastErrorClear();
     const payload = netlayerFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_provider orelse return PANCAKE_ERR_NULL_POINTER;
-    ensureProvider(payload);
-    slot.* = .{
-        .abi_version = c.transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION,
-        .struct_size = @sizeOf(c.PancakeTransportProvider),
-        .entries = @ptrCast(&payload.provider_entry),
-        .entry_count = 1,
-        .lease_ctx = payload,
-        .same_configuration = providerSameConfiguration,
-        .retain = providerRetain,
-        .release = providerRelease,
-    };
+    provider.fill(payload, slot);
     return PANCAKE_OK;
 }
 

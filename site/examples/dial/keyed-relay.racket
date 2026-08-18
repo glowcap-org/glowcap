@@ -2,7 +2,7 @@
 
 ;; The key names the peer; the hint names the relay that can reach it.
 (define peer-key "<64 lowercase hex characters from the server>")
-(define relay-url "wss://relay.example/rendezvous")
+(define relay-url "ws://192.0.2.10:8080/relay")
 (define partner (keyed-relay-locator peer-key relay-url))
 (define runtime
   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))

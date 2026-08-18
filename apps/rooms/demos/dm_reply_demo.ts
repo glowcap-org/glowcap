@@ -25,7 +25,7 @@ import process from "node:process";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { DM } from "../lib/protocol.ts";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
-import { waitUntil } from "../lib/dm_handoff.ts";
+import { waitUntil } from "./dm_handoff.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 
 const TEXT = "hi Bob, from Alice";

@@ -73,13 +73,13 @@ const matrix = [_]Cell{
     .{ .binding = .ts, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.ts", .fence = "ts" } } },
 
     // The browser runtime owns WebSocket connectors for tcp/keyed-tcp and an
-    // iroh relay connector. @pancake/relay's explicit keyed-relay connector and
-    // WebRTC connector are browser-safe. noise-tcp and noise-relay remain
-    // absent because their current paths require native provider sealing.
+    // iroh relay connector. @pancake/relay's keyed/noise connector and the
+    // WebRTC connector are browser-safe. noise-tcp still needs a raw socket.
     .{ .binding = .browser, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "browser/tcp.ts", .fence = "ts" } } },
     .{ .binding = .browser, .transport = .keyed_tcp, .dial = .{ .supported = true, .example = .{ .file = "browser/keyed-tcp.ts", .fence = "ts" } } },
     .{ .binding = .browser, .transport = .iroh, .dial = .{ .supported = true, .example = .{ .file = "browser/iroh.ts", .fence = "ts" } } },
     .{ .binding = .browser, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "browser/keyed-relay.ts", .fence = "ts" } } },
+    .{ .binding = .browser, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "browser/noise-relay.ts", .fence = "ts" } } },
     .{ .binding = .browser, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "browser/webrtc.ts", .fence = "ts" } } },
 
     .{ .binding = .python, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/tcp.python", .fence = "python" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/tcp.python", .fence = "python" } } },

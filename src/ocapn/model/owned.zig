@@ -212,7 +212,7 @@ fn measureArgumentSlice(total: *usize, items: []const model.Argument, depth: usi
 
 fn measureReference(total: *usize, reference: model.Reference, depth: usize) model.view.ProjectError!void {
     switch (reference) {
-        .near, .far => {},
+        .near, .far, .routed => {},
         .broken => |broken| try addBytes(total, broken.message.len),
         .sturdy => |sturdy| {
             try addBytes(total, @sizeOf(model.SturdyRef));
@@ -302,6 +302,7 @@ fn freeBreakReason(allocator: std.mem.Allocator, err: model.BreakReason) void {
 }
 
 pub fn cloneReference(allocator: std.mem.Allocator, reference: model.Reference) model.view.Error!model.Reference {
+    if (reference == .routed) return reference;
     return model.view.Reference.fromOwned(&reference).toOwned(allocator);
 }
 
@@ -317,7 +318,7 @@ pub fn freeReference(allocator: std.mem.Allocator, reference: model.Reference) v
         // Position-only arms own no heap storage; a new heap-carrying arm must
         // add its release above, and this explicit list makes the omission a
         // compile error.
-        .near, .far => {},
+        .near, .far, .routed => {},
     }
 }
 

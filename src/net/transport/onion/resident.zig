@@ -27,8 +27,8 @@ const netlayer = @import("../../netlayer.zig");
 const poll = @import("../../poll.zig");
 const wake_channel = @import("../../wake_channel.zig");
 
-const control = @import("control.zig");
 const endpoint_mod = @import("endpoint.zig");
+const resident_config = @import("resident_config.zig");
 const session_mod = @import("session.zig");
 const socks5 = @import("socks5.zig");
 
@@ -104,29 +104,7 @@ pub const RawStream = struct {
 /// the platform maximum, or an `addr:port` well under it.
 const forward_text_max = 108;
 
-/// How this resident reaches Tor, and what it asks for when hosting.
-///
-/// Every field is configured rather than guessed. pancake does not start,
-/// supervise, or configure the daemon, so it cannot assume where the daemon
-/// listens or how it wants to be authenticated. The meaning of each field is
-/// documented once here; the C archive and the bindings mirror this struct and
-/// point back at it.
-pub const Config = struct {
-    /// Tor's SOCKS endpoint, as `/path/to/socket` or `host:port`. Required: a
-    /// resident that cannot dial is not a netlayer.
-    socks: []const u8,
-    /// Tor's control endpoint, in the same two forms. Empty means dial-only, and
-    /// `listen` then refuses.
-    control_endpoint: []const u8 = &.{},
-    /// How the control endpoint expects to be authenticated.
-    auth: control.Auth = .none,
-    /// The service key to restore, exactly as Tor returned it in
-    /// `250-PrivateKey=`. Empty asks for a fresh service.
-    service_key: []const u8 = &.{},
-    /// The local endpoint Tor forwards the service's virtual port to. Empty binds
-    /// a loopback port and reports the one the OS chose.
-    forward: []const u8 = &.{},
-};
+pub const Config = resident_config.Config;
 
 /// The resident's state. The caller owns one at a stable address for as long as
 /// the transport slice holds the netlayer, and owns the `Config` text for at
@@ -145,7 +123,7 @@ const resident_ctx = netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{
     .profile = known_transport.metadata(),
-    .dial = .{ .blocking = residentDial },
+    .dial = .{ .blocking = netlayer.adaptBlockingDial(residentDial) },
     .listen = residentListen,
     .io = resident_ctx.io,
 };
@@ -180,8 +158,6 @@ fn residentDial(
 ) netlayer.DialError!Connection {
     try options.requireInherited();
     const self = resident_ctx.of(ctx);
-    if (loc.hints.entries.len != 0 or loc.hints.wire_form != .boolean_false)
-        return error.InvalidAddress;
     return dial(self.io, peer, self.config.socks, loc.designator, bufs);
 }
 
@@ -189,9 +165,11 @@ fn residentDial(
 ///
 /// Locator hints are ignored rather than refused. The designator already says
 /// where to dial, so a hint carries nothing this transport needs, and refusing a
-/// hinted locator would turn a partner's harmless extra field into a failed dial.
-/// What pancake itself *emits* carries no hints, which is a separate rule and the
-/// one the pinned Goblins actually requires (ADR-0108).
+/// hinted locator would turn a partner's harmless extra field into a failed
+/// dial — including the pancake-hinted form of an onion address, whose profile
+/// hints are read one tier up as partner knowledge (ADR-0118). What pancake
+/// itself *emits on the wire* carries no hints, which is a separate rule and
+/// the one the pinned Goblins actually requires (ADR-0108).
 pub fn dial(
     io: std.Io,
     peer: *engine.Peer,
@@ -608,11 +586,11 @@ const listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .designator_scheme = known_transport.metadata().designator_scheme,
     .sealed_channel = known_transport.metadata().sealed_channel,
-    .accept = listenerAccept,
-    .waitAcceptable = listenerWaitAcceptable,
-    .localLocator = listenerLocalLocator,
-    .canonicalizeLocator = listenerCanonicalizeLocator,
-    .restoration_state = listenerRestorationState,
+    .accept = netlayer.adaptAccept(listenerAccept),
+    .wait_acceptable = netlayer.adaptAcceptReadiness(listenerWaitAcceptable),
+    .local_locator = netlayer.adaptListenerLocator(listenerLocalLocator),
+    .canonicalize_locator = netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
+    .restoration_state = netlayer.adaptRestorationState(listenerRestorationState),
     .close = listenerClose,
 };
 

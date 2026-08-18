@@ -256,14 +256,19 @@ fn drawAnswerPane(win: Window, st: *session_mod.Session, flash: bool, focused: b
         tag: []const u8,
         fn visit(c: *@This(), v: session_mod.AnswerRowView) void {
             if (c.row.* >= c.win.height) return;
+            const position, const local = switch (v.position) {
+                .wire => |wire| .{ wire.int(), false },
+                .virtual => |virtual| .{ virtual.int(), true },
+            };
             const status = switch (v.view.status) {
                 .pending => "pending",
                 .fulfilled => "fulfilled",
                 .broken => "broken",
             };
-            printFmt(c.win, c.row.*, 0, theme.styleMono(), c.frame, "{s}{d} {s}", .{
+            printFmt(c.win, c.row.*, 0, theme.styleMono(), c.frame, "{s}{s}{d} {s}", .{
                 c.tag,
-                v.position.int(),
+                if (local) "v" else "",
+                position,
                 status,
             });
             c.row.* += 1;

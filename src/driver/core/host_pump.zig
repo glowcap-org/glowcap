@@ -12,6 +12,7 @@ const actors = @import("actors");
 const host_mod = @import("host.zig");
 const host_close = @import("host_close.zig");
 const host_action = @import("host_action.zig");
+const capability_promise = @import("capability_promise.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostAction = host_action.HostAction;
@@ -132,6 +133,30 @@ pub fn removeDirtySession(self: *Host, session: *HostSession) void {
         return;
     }
     unreachable;
+}
+
+/// Retract the embedder notifications a session-open transaction published
+/// before its post-enrollment pump failed. No consumer can have observed an
+/// action for this fresh session because the opening verb has not returned.
+/// Other sessions retain their relative order and the reserved backing stays
+/// available for later admitted work.
+pub fn removeFreshSessionActions(self: *Host, session: *HostSession) void {
+    var offset: usize = 0;
+    while (offset < self.actions.unpopped().len) {
+        const action = self.actions.unpopped()[offset];
+        const belongs = switch (action) {
+            .flush => |peer_id| peer_id == session.peer_id,
+            .close => |peer_id| peer_id == session.peer_id,
+            else => false,
+        };
+        if (!belongs) {
+            offset += 1;
+            continue;
+        }
+        _ = self.actions.removeUnpopped(offset);
+    }
+    session.control.flush_action_pending = false;
+    session.control.close_action_pending = false;
 }
 
 /// The tail of every top-level verb: encode and pump until quiescent. A
@@ -263,7 +288,7 @@ fn drainWork(self: *Host) !void {
                     try self.reserveActions(1);
                     const action = self.node.peekAction().?;
                     try execNodeAction(self, action);
-                    self.node.consumePeekedAction();
+                    try self.node.consumePeekedAction();
                     continue :work;
                 },
                 .handoff => if (self.node.nextHandoffChange()) |dependency| {
@@ -293,7 +318,7 @@ fn drainWork(self: *Host) !void {
 /// fails fire the recipient vat's listener directly (`Vat.settleFar`);
 /// dials and gift-id draws are host effects, queued for the embedder;
 /// flushes mark the session dirty so the encode loop drives it.
-fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
+fn execNodeAction(self: *Host, action: engine.Node.Action) anyerror!void {
     switch (action) {
         .dial => |d| {
             // Ticket-only action: pending row owns URI + parsed parts.
@@ -312,18 +337,44 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
         },
         .flush => |peer_id| markDirty(self, peer_id),
         .settle => |s| {
-            const session = self.sessions.get(s.peer_id) orelse return;
-            try session.served.port.settleFar(
-                &self.vat,
-                model.AnswerPosition.from(s.answer),
-                .{ .fulfilled = .{ .reference = .{ .far = model.FarRef.object(s.token) } } },
-            );
-            markDirty(self, s.peer_id);
+            switch (s.dest) {
+                .answer => |answer| {
+                    const session = self.sessions.get(answer.recipient_peer) orelse return;
+                    try session.served.port.settleFar(
+                        &self.vat,
+                        answer.answer,
+                        .{ .fulfilled = .{ .reference = .{ .routed = .{ .id = s.route_id } } } },
+                    );
+                    markDirty(self, answer.recipient_peer);
+                },
+                .deferred => |deferred| try capability_promise.fulfill(
+                    self,
+                    @enumFromInt(deferred.id),
+                    s.route_id,
+                ),
+            }
         },
         .fail => |f| {
-            const session = self.sessions.get(f.peer_id) orelse return;
-            try session.served.port.settleFar(&self.vat, model.AnswerPosition.from(f.answer), .{ .broken = f.reason.bytes() });
-            markDirty(self, f.peer_id);
+            switch (f.dest) {
+                .answer => |answer| {
+                    const session = self.sessions.get(answer.recipient_peer) orelse return;
+                    try session.served.port.settleFar(&self.vat, answer.answer, .{ .broken = f.reason.bytes() });
+                    markDirty(self, answer.recipient_peer);
+                },
+                .served_answer => |answer| {
+                    const session = self.sessions.get(answer.recipient_peer) orelse return;
+                    try session.served.port.peer.sendAnswerResolutionCopying(
+                        answer.answer,
+                        .{ .@"break" = .{ .message = f.reason.bytes() } },
+                    );
+                    markDirty(self, answer.recipient_peer);
+                },
+                .deferred => |deferred| try capability_promise.breakPromise(
+                    self,
+                    @enumFromInt(deferred.id),
+                    f.reason.bytes(),
+                ),
+            }
         },
         .retire_exporter => |peer_id| {
             if (!self.node.claimExporterRetirement(peer_id)) return;
@@ -332,6 +383,14 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
         },
         .need_gift_id => |n| if (self.node.hasPendingGift(n.ticket))
             try queueHostAction(self, .{ .need_gift_id = .{ .ticket = n.ticket } }),
+        .release_capability => |raw| {
+            const ref = self.capabilities.refForRaw(raw) orelse return;
+            self.releaseCapabilityTerminal(ref, null);
+        },
+        .fail_session => |failure| {
+            const session = self.sessions.get(failure.peer_id) orelse return;
+            condemnAndClose(self, session, .other, failure.reason);
+        },
     }
 }
 

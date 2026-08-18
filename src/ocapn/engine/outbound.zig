@@ -29,7 +29,7 @@ const freeMessage = model.freeMessage;
 /// identity stamp because only a store row has one. This is its own type so
 /// the store lookup's parameter admits exactly the targets it can answer.
 pub const StoreTarget = union(enum) {
-    answer: struct { position: model.AnswerPosition, row_id: u64 },
+    answer: struct { position: model.AnswerName, row_id: u64 },
     import: struct { position: model.ImportPosition, row_id: u64 },
 };
 
@@ -89,7 +89,7 @@ pub const Outbound = union(enum) {
     /// position now holding a different answer), so the reused row's payload is
     /// never emitted under this carrier.
     settled_answer: struct {
-        position: model.AnswerPosition,
+        position: model.AnswerName,
         row_id: u64,
     },
     /// One `op:listen` fire. The `target` names which payload `step` borrows at
@@ -134,13 +134,20 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     // This is the single chokepoint every flat outbound message funnels
     // through — the direct send, each decomposed pipeline link, a prepared
     // fetch — so a token cannot leak onto the wire in any position. A
-    // `TokenNotLiftable` aborts the send with the message still owned here.
+    // `RouteNotLowerable` aborts the send with the message still owned here.
     var message = message_in;
     if (self.node_services) |services| {
-        if (services.lowering_active.*) lower.lowerMessage(services, &message) catch |err| {
-            freeMessage(self.allocator, message);
-            return err;
-        };
+        if (services.lowering_active.*) {
+            const staged = services.stageOutbound(&message) catch |err| {
+                freeMessage(self.allocator, message);
+                return err;
+            };
+            if (staged) return;
+            lower.lowerMessage(services, &message) catch |err| {
+                freeMessage(self.allocator, message);
+                return err;
+            };
+        }
     }
 
     self.session_state.rewriteShortenedMessage(&message);
@@ -164,26 +171,11 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     // by an undo — a record that succeeded but failed to enqueue would settle
     // the answer with no frame to carry it to the partner.
     if (message == .resolve) {
-        const answer = message.resolve.answer;
-        // Reserve before `recordSend` consumes the resolution. A failure here
-        // is the one spot on this fast path that leaves `message` unrecorded
-        // and unqueued, so free it — `recordSend` owns it from the next line
-        // on (it frees on refusal), and `pushAssumeCapacity` is infallible.
-        const reservation = self.reservePending(.{ .settled_answer = .{ .position = answer, .row_id = 0 } }) catch |err| {
-            freeMessage(self.allocator, message);
-            return err;
-        };
-        self.session_state.recordSend(message) catch |err| {
-            self.cancelPendingReservation(reservation);
-            return err;
-        };
-        // Stamp the carrier with the answer row's identity: `recordSend`
-        // stored the resolution in this row, so its `row_id` is live now.
-        // If the partner GCs this position and reuses it before `step`
-        // encodes, the stamp mismatch makes the stale carrier moot.
-        const row_id = self.session_state.inboundAnswerRowId(answer) orelse unreachable;
-        self.pushPendingAssume(reservation, .{ .settled_answer = .{ .position = answer, .row_id = row_id } });
-        return;
+        return enqueueAnswerResolutionOwned(
+            self,
+            .fromWire(message.resolve.answer),
+            message.resolve.resolution,
+        );
     }
 
     var owned_needs_free = true;
@@ -197,6 +189,32 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
 
     try self.session_state.recordSend(message);
     appended = false;
+}
+
+/// Record and queue one owned semantic answer settlement. `answer` may be a
+/// partner-selected wire position or a session-local virtual answer; the queue
+/// retains that distinction through publication and consequence drain.
+pub fn enqueueAnswerResolutionOwned(
+    self: *Peer,
+    answer: model.AnswerName,
+    resolution: model.Resolution,
+) !void {
+    const reservation = self.reservePending(.{ .settled_answer = .{
+        .position = answer,
+        .row_id = 0,
+    } }) catch |err| {
+        model.freeResolution(self.allocator, resolution);
+        return err;
+    };
+    self.session_state.recordSentResolutionNamed(answer, resolution) catch |err| {
+        self.cancelPendingReservation(reservation);
+        return err;
+    };
+    const row_id = self.session_state.inboundAnswerRowIdNamed(answer) orelse unreachable;
+    self.pushPendingAssume(reservation, .{ .settled_answer = .{
+        .position = answer,
+        .row_id = row_id,
+    } });
 }
 
 fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
@@ -274,19 +292,20 @@ pub fn stepPending(self: *Peer) !void {
                 consumed.item.deinit(self.allocator);
                 return;
             };
-            const resolve: model.Resolve = .{ .answer = sa.position, .resolution = stored.* };
             // V1.0 sends the settlement through its resolver callback. The
             // next profile has no wire op:resolve: its mandatory op:listen is
             // the notification path, so only the local consequence drain runs.
-            if (self.session_state.captp_version == .v1_0)
-                try emitPendingMessage(self, .{ .resolve = resolve }, pending.charge);
+            if (self.session_state.captp_version == .v1_0) {
+                if (self.session_state.resolverForInboundAnswer(sa.position)) |resolver_import|
+                    try v1_0.encodeResolutionAsCallback(self, stored.*, resolver_import, pending.charge);
+            }
             // Once notification is committed (or, on next, deliberately
             // omitted), a consequence-drain failure must not retain the
             // carrier and repeat the settlement on retry.
             // A sent `op:resolve` also settles one of our inbound answers locally.
             const consumed = self.takePending();
             consumed.item.deinit(self.allocator);
-            try settleSentResolve(self, resolve);
+            try settleSentAnswer(self, sa.position, stored.*);
         },
         .next_answered => |pair| {
             try stepNextAnswered(self, pending.charge, pair);
@@ -387,8 +406,8 @@ fn resolveFireStore(self: *Peer, target: StoreTarget) ?struct {
 } {
     switch (target) {
         .answer => |answer| {
-            const row_id = self.session_state.inboundAnswerRowId(answer.position) orelse return null;
-            const resolution = self.session_state.peekResolution(answer.position) orelse return null;
+            const row_id = self.session_state.inboundAnswerRowIdNamed(answer.position) orelse return null;
+            const resolution = self.session_state.peekResolutionNamed(answer.position) orelse return null;
             return .{ .row_id = row_id, .resolution = resolution };
         },
         .import => |import| {
@@ -446,7 +465,7 @@ fn emitPendingMessage(self: *Peer, message: model.Message, pending_charge: usize
         // that named an answer but advertised no resolver asked for no
         // callback: there is nobody to notify, so the resolve emits nothing —
         // V1.0 has no wire shape to invent for it.
-        if (self.session_state.resolverForInboundAnswer(message.resolve.answer)) |resolver_import| {
+        if (self.session_state.resolverForInboundAnswer(.fromWire(message.resolve.answer))) |resolver_import| {
             try v1_0.encodeResolveAsCallback(self, message.resolve, resolver_import, pending_charge);
         }
         return;
@@ -492,6 +511,7 @@ fn emitV1Projection(
 /// frame is already on `outbound`, so a drain refusal surfaces as a step
 /// error without un-sending it. Borrows `resolve`; the caller owns and frees
 /// it.
-fn settleSentResolve(self: *Peer, resolve: model.Resolve) !void {
-    try pipeline.drainResolveConsequences(self, resolve);
+fn settleSentAnswer(self: *Peer, answer: model.AnswerName, resolution: model.Resolution) !void {
+    try pipeline.drainAnswerConsequences(self, answer, resolution);
+    self.session_state.retireReleasedLocalPromiseAnswer(answer);
 }

@@ -7,12 +7,13 @@
    The layering is deliberate and is the reason this file stays short:
 
      core       this file — the palette, the type, the mark. Brand facts.
-     semantic   each surface — what a colour *means* there: a button's fill, a
-                syntax token, a message bubble. Built from core tokens.
+     product    this file — ink, radii, cover, and frost both surfaces share.
+     semantic   each surface — a bubble, a syntax colour, a site rem type ramp.
      component  each surface — the rules that draw its own widgets.
 
-   A surface may add semantic tokens freely. It may not restate a core value:
-   write `var(--accent)`, never the hex again.
+   A surface may add surface-only tokens freely. It may not restate a core or
+   product value: write `var(--accent)` and `var(--accent-ink)`, never the hex
+   or a second `--accent-ink` declaration.
 
    Both consumers serve their stylesheet at the site root with `fonts/`
    alongside it, so the relative font URLs below resolve for both without a
@@ -82,10 +83,17 @@
 
 	/* ── Palette ──────────────────────────────────────────────────────────
 	   Cream paper, cocoa ink, an amber accent, and a teal that plays against
-	   it, taken from the mascot art. */
+	   it, taken from the mascot art.
+
+	   The ground and the raised tone stand a real step apart in both themes,
+	   and the steps match: dark lifts its raised surfaces about five
+	   lightness points off the ground, so light drops its ground the same
+	   five under near-white. Both themes then say "raised" with the same
+	   strength — a card, a bubble, a composer pops identically — where a
+	   near-white ground had left light's raised surfaces flat. */
 	--ink: light-dark(#3a3027, #f3e6d0);
 	--ink-soft: light-dark(#6b5d4d, #b9a684);
-	--paper: light-dark(#fff3df, #211911);
+	--paper: light-dark(#f8e7c9, #211911);
 	--paper-raised: light-dark(#fff9ee, #2c2217);
 	--accent: light-dark(#c76f18, #e8912d);
 	--accent-deep: light-dark(#a4560c, #c76f18);
@@ -111,16 +119,73 @@
 	   14px, which is the size it is actually used at.
 
 	   The full-colour mascot is a different asset and stays a picture. On the
-	   site it appears on the home hero and again, small, in the footer; the
-	   header chrome uses this quiet mark, matching rooms. The rooms app uses
+	   site it is the home hero; every other chrome — site header, site footer,
+	   rooms rail — uses the stacked pieces from mark.css. The rooms app uses
 	   only the quiet version.
 
-	   There is deliberately no `.pk-mark` class to go with the token. Two of
-	   the three places that draw the mark are pseudo-elements, which a class
-	   cannot reach, so a class would serve one site in three and read as the
-	   intended mechanism everywhere else. Each surface applies the mask
-	   itself. */
+	   Ornaments that cannot host children — a `::after`, a card-lead mark —
+	   still apply `--mark-stack` themselves. The lockup is `.icon-mark` in
+	   mark.css, four pieces whose union is this silhouette. */
 	--mark-stack: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='9.6' y='3.6' width='4.8' height='2.4' rx='.8'/%3E%3Cellipse cx='12' cy='9' rx='8.2' ry='1.95'/%3E%3Cellipse cx='12' cy='13.9' rx='8.8' ry='2'/%3E%3Cellipse cx='12' cy='18.8' rx='8.2' ry='1.95'/%3E%3C/svg%3E");
+	/* The same four shapes one per token, for a surface that animates the
+	   pieces — the rooms boot screen and the shared header lockup drop them
+	   into place. Their union must stay exactly `--mark-stack`, so a change to
+	   the silhouette edits the stack and its pieces together. */
+	--mark-butter: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='9.6' y='3.6' width='4.8' height='2.4' rx='.8'/%3E%3C/svg%3E");
+	--mark-cake-1: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cellipse cx='12' cy='9' rx='8.2' ry='1.95'/%3E%3C/svg%3E");
+	--mark-cake-2: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cellipse cx='12' cy='13.9' rx='8.8' ry='2'/%3E%3C/svg%3E");
+	--mark-cake-3: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cellipse cx='12' cy='18.8' rx='8.2' ry='1.95'/%3E%3C/svg%3E");
+
+	/* ── Product ink and chrome ───────────────────────────────────────────
+	   Meanings both surfaces share, built from the palette above. A heading,
+	   a link, and a rooms label that must read as accent all use --accent-ink,
+	   never a second dark-arm hex. Fill colours (--accent, --teal) stay for
+	   marks and backgrounds.
+
+	   Radii are the control, the card, and the pill. A surface may pick among
+	   these; it may not invent a fourth for the same job.
+
+	   Cover is a layer over the page (dialog backdrop, rooms scrim). It is
+	   darkness, not ink: in the dark theme the ink is cream, and a cream scrim
+	   reads as fog. Frost is chrome reading content that scrolls under it.
+	   They are not one blur. */
+	--accent-ink: light-dark(var(--accent-deep), var(--accent));
+	--teal-ink: light-dark(var(--teal-deep), var(--teal));
+	/* Filled amber and the ink that sits on it. Rooms' own messages and Send,
+	   and the site's primary door, share this pairing so a commitment control
+	   is the same drawing on both surfaces. --accent-fill is the start of the
+	   gradient (the stronger accent for this theme); --accent-fill-deep is the
+	   shade it falls into; --on-accent is cream on paper and roast on syrup,
+	   because bright amber wants dark ink. */
+	--accent-fill: light-dark(var(--accent-deep), var(--accent));
+	--accent-fill-deep: light-dark(#8a4708, var(--accent-deep));
+	--on-accent: light-dark(#fff8ef, #241a10);
+	/* The ground the page stands on: warm paper with a little of the accent
+	   poured in at the top. Rooms' body and boot screen, and the documentation
+	   site, share it, so opening either does not announce a different room. */
+	--page-bg:
+		radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--accent)
+		12%, var(--paper))
+		0%, var(--paper) 55%) no-repeat,
+		var(--paper);
+	/* The brand hairline across sticky chrome. One thickness, so the rooms
+	   topbar and the site header draw the same stripe. */
+	--accent-line: 3px;
+	--radius-chip: 7px;
+	--radius-control: 9px;
+	--radius-card: 14px;
+	--radius-pill: 999px;
+	--cover: color-mix(in srgb, black 28%, transparent);
+	--cover-blur: 6px;
+	--frost: 10px;
+	/* Application chrome. A new size is a claim this ramp is wrong. Site
+	   article type stays in rem on that surface; rooms chrome uses these. */
+	--type-tiny: 10px;
+	--type-caption: 12px;
+	--type-ui: 13px;
+	--type-body: 14px;
+	--type-title: 17px;
+	--type-display: 21px;
 }
 
 /* ── "Syrup": the same warmth taken down to a dark roast ─────────────────────

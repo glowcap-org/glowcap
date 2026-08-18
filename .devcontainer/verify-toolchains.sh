@@ -119,6 +119,19 @@ expect_pin_contains "bun" BUN_VERSION bun --version
 expect_pin_contains "claude" CLAUDE_CODE_VERSION claude --version
 expect_pin_contains "opencode" OPENCODE_VERSION opencode --version
 expect_pin_contains "codex" CODEX_VERSION codex --version
+# Both of the agent CLI's command names are checked, because the image links
+# them separately and a broken link is invisible until someone types the other
+# one. `agent` is upstream's current name; `cursor-agent` is the original.
+# Even `--version` writes a default settings file into the configured state
+# directory, and during the image build that directory is the vscode user's
+# bind-mount target while this runs as root, so both checks are pointed at a
+# scratch directory that goes away with them.
+cursor_state="$(mktemp -d -t pancake-cursor-agent-verify-XXXXXX)"
+expect_pin_equals "cursor-agent" CURSOR_AGENT_VERSION \
+    env "CURSOR_CONFIG_DIR=${cursor_state}" "CURSOR_DATA_DIR=${cursor_state}" cursor-agent --version
+expect_pin_equals "cursor-agent (agent)" CURSOR_AGENT_VERSION \
+    env "CURSOR_CONFIG_DIR=${cursor_state}" "CURSOR_DATA_DIR=${cursor_state}" agent --version
+rm -rf "${cursor_state}"
 
 # The browser proofs launch both Chromium binaries Playwright installs, so both
 # are checked, and running each one proves more than a file test would: it needs

@@ -6,6 +6,7 @@ here.
 
 | Path | Owns |
 |------|------|
+| [`build/`](build/) | Step-registration modules the root `build.zig` composes: shared helpers plus one module per extracted step family |
 | [`check/`](check/) | Build checks and hygiene (`arch_check`, `source_check`) |
 | [`gen/`](gen/) | Header and binding generators, shared verify/emit harness |
 | [`c-abi/`](c-abi/) | Operator scripts and JSON fixtures for C-ABI resolve |

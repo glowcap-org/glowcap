@@ -19,7 +19,7 @@ import {
 } from "./trajectory.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 import { type EngineError, validationError } from "./errors.ts";
-import { endpointStageId, SESSION_SIDES } from "../schema/topology.ts";
+import { endpointStageId, SESSION_SIDES } from "../schema/session-end.ts";
 
 /** Kinds whose application changes the topology graph (peers + sessions). */
 export function isTopologyChange(kind: TimelineEvent["kind"]): boolean {

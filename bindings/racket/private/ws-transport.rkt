@@ -83,7 +83,7 @@
 
   (define (send-bytes! frame)
     (cond
-      [(zero? (bytes-length frame))
+      [(<= (bytes-length frame) WS-MESSAGE-HIGH-WATER)
        (send c frame #:payload-type 'binary)]
       [else
        (for ([start (in-range 0 (bytes-length frame) WS-MESSAGE-HIGH-WATER)])
@@ -137,3 +137,62 @@
      (unless (eq? reader (current-thread)) (thread-wait reader))
      (define error (unbox failure))
      (when error (raise error)))))
+
+(module+ test
+  (require rackunit
+           racket/list)
+
+  ;; Ordinary writes retain the caller's immutable byte string. Oversized
+  ;; writes pay one explicit `subbytes` copy per bounded WebSocket message;
+  ;; net/rfc6455 then owns framing and masking.
+  (define release-reader (make-semaphore 0))
+  (define sent '())
+  (define transport
+    (ws-transport
+     "ws://copy.test/"
+     #:connect (lambda (_url) 'fake-websocket)
+     #:recv (lambda (_connection #:payload-type _payload-type)
+              (sync release-reader)
+              eof)
+     #:send (lambda (_connection bytes #:payload-type _payload-type)
+              (set! sent (cons bytes sent)))
+     #:close (lambda (_connection) (semaphore-post release-reader))))
+  (define ordinary #"ordinary")
+  ((async-transport-write-frame! transport) ordinary)
+  (check-eq? (car sent) ordinary)
+  (define oversized (make-bytes (+ WS-MESSAGE-HIGH-WATER 7)))
+  ((async-transport-write-frame! transport) oversized)
+  (define chunks (reverse (take sent 2)))
+  (check-equal? (map bytes-length chunks) (list WS-MESSAGE-HIGH-WATER 7))
+  (check-false (ormap (lambda (chunk) (eq? chunk oversized)) chunks))
+  ((async-transport-close! transport))
+
+  ;; A read exception is not EOF. Close joins the worker and keeps that first
+  ;; failure ahead of a later close refusal on every observation.
+  (define read-failure
+    (exn:fail "WebSocket receive failed" (current-continuation-marks)))
+  (define close-failure
+    (exn:fail "WebSocket close failed" (current-continuation-marks)))
+  (define failed
+    (ws-transport
+     "ws://failure.invalid/"
+     #:connect (lambda (_url) 'fake-websocket)
+     #:recv (lambda (_connection #:payload-type _payload-type)
+              (raise read-failure))
+     #:send (lambda (_connection _bytes #:payload-type _payload-type) (void))
+     #:close (lambda (_connection) (raise close-failure))))
+  (check-eq?
+   (with-handlers ([exn:fail? values])
+     ((async-transport-read-some! failed) (make-semaphore 0))
+     #f)
+   read-failure)
+  (check-eq?
+   (with-handlers ([exn:fail? values])
+     ((async-transport-close! failed))
+     #f)
+   read-failure)
+  (check-eq?
+   (with-handlers ([exn:fail? values])
+     ((async-transport-close! failed))
+     #f)
+   read-failure))

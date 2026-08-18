@@ -23,6 +23,7 @@ from ._constants_gen import (
     FAILURE_SCOPE_SESSION,
     FAILURE_SCOPE_TRANSPORT,
 )
+from ._errors import PancakeError
 
 
 class FailureLayer(Enum):
@@ -133,6 +134,13 @@ class _RuntimeFailureQueue:
             if secondary_count and isinstance(secondary_values, tuple) and secondary_values
             else None
         )
+        # PancakeError always retains the first consequence when its count is
+        # nonzero. Callerless application exceptions are arbitrary Python
+        # objects, though, and may expose contradictory duck-typed attributes.
+        # Do not publish a count the central schema would reject for lacking a
+        # named first cause.
+        if secondary is None:
+            secondary_count = 0
         secondary_result = getattr(secondary, "code", 0)
         if type(secondary_result) is not int or not ERR_TIMEOUT <= secondary_result <= 0:
             secondary_result = ERR_INTERNAL
@@ -203,8 +211,20 @@ def take_runtime_failures() -> tuple[FailureEvent, ...]:
 
 def _layer(value: int) -> FailureLayer:
     # The C boundary rejects unknown values before a record enters the journal.
-    return _LAYERS[value]
+    try:
+        return _LAYERS[value]
+    except KeyError as error:
+        raise PancakeError(
+            ERR_INTERNAL,
+            f"pancake ABI returned unknown failure layer {value}",
+        ) from error
 
 
 def _scope(value: int) -> FailureScope:
-    return _SCOPES[value]
+    try:
+        return _SCOPES[value]
+    except KeyError as error:
+        raise PancakeError(
+            ERR_INTERNAL,
+            f"pancake ABI returned unknown failure scope {value}",
+        ) from error

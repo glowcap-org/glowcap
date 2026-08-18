@@ -7,7 +7,7 @@
 // under the caret, so `mail@host` and `10:30` stay plain text. `:` waits for one
 // valid shortcode character, so a clause-ending colon or `:)` stays quiet.
 
-import { held, known } from "./commands.ts";
+import { type CommandHere, held } from "./commands.ts";
 import { ROOM_MENTIONS_OFFERED } from "./text.ts";
 import { EMOJI_TABLE } from "./emoji.ts";
 
@@ -47,8 +47,13 @@ export interface Candidate {
 	/** Replaces [trigger.start, caret). Names carry their sigil and a trailing
 	 * space so typing flows on; an emoji is just its glyph. */
 	insert: string;
-	/** The row's text: a name, or an emoji shortcode. */
+	/** The row's own name: the command, the person, the room, the shortcode. What
+	 * a reader is picking, and the half that never gives up room. */
 	label: string;
+	/** What that name is, said after it and quieter. A command's summary, or what
+	 * a room-wide mention reaches. It gives up room first, because the beginning
+	 * of a summary is the part that answers "which one is this". */
+	hint?: string;
 	/** The glyph an emoji row leads with. */
 	glyph?: string;
 	/** Whether Enter still belongs to the list rather than to sending.
@@ -77,22 +82,26 @@ const EMPTY_GRANTS: ReadonlySet<string> = new Set();
 
 export function completeCandidates(
 	trigger: Trigger,
-	sources: { nicks: readonly string[]; rooms: readonly string[]; grants?: ReadonlySet<string> },
+	sources: {
+		nicks: readonly string[];
+		rooms: readonly string[];
+		grants?: ReadonlySet<string>;
+		here: CommandHere;
+		/** What an `@` after the command in the draft completes against. Absent
+		 * is a mention: somebody in this conversation, and in a room the room
+		 * itself. `"reachable"` is a person to bring in, which is not a mention,
+		 * so the room-wide names stay off that list. */
+		targets?: "reachable";
+	},
 	limit: number = LIMIT,
 ): Candidate[] {
 	const query = trigger.query.toLowerCase();
 	const scored: { score: number; candidate: Candidate }[] = [];
+	const here = sources.here;
 	if (trigger.kind === "command") {
-		// What this conversation has actually been handed. Everything known is
-		// still offered, held or not, so a reader can discover a command and be
-		// told what it waits for rather than typing into silence.
-		const mine = new Set(held(sources.grants ?? EMPTY_GRANTS).map((command) => command.name));
-		// The command vocabulary lives in one place and feeds both the list a
-		// reader is offered and the runner that answers it, so a command cannot be
-		// suggested and then not exist. Everything known is offered, including the
-		// ones the room has not granted: being told what a command waits for is
-		// better than typing it into silence.
-		for (const command of known()) {
+		// What this conversation can actually run. The runner still knows every
+		// name so a typed refusal stays precise; the list does not advertise one.
+		for (const command of held(sources.grants ?? EMPTY_GRANTS, here)) {
 			const score = rank(command.name, query);
 			if (score === Infinity) continue;
 			scored.push({
@@ -100,14 +109,8 @@ export function completeCandidates(
 				candidate: {
 					kind: "command",
 					insert: `/${command.name} `,
-					// A command this conversation has not been handed says so where it
-					// is offered, so a reader meets the distinction before they meet the
-					// refusal. One the room did hand over is not marked: holding it is
-					// ordinary, and a mark would read as a warning about a command that
-					// works.
-					label: `/${command.name} — ${command.summary}${
-						mine.has(command.name) ? "" : " (not granted here)"
-					}`,
+					label: `/${command.name}`,
+					hint: command.summary,
 					// Written in full and needing nothing more, this row has nothing to
 					// add, so Enter goes back to sending. Half typed it still completes
 					// the name, and a command that takes an argument still leaves the
@@ -142,19 +145,25 @@ export function completeCandidates(
 		// message does.
 		const named = trigger.kind === "nick"
 			? [
-				...sources.nicks.map((name) => ({ name, says: name, after: false })),
-				...ROOM_MENTIONS_OFFERED.map((name) => ({
-					name,
-					says: `${name} — everyone in this room`,
-					// Ranked behind the people. With nothing typed, `@` is nearly always
-					// reaching for somebody, and a handful of room-wide names at the top
-					// would push the members out of a list this short. Typing toward one
-					// still brings it straight up, because then nobody else matches.
-					after: true,
-				})),
+				...sources.nicks.map((name) => ({ name, says: name, hint: undefined, after: false })),
+				// Room-wide names are mention vocabulary: they address everyone here,
+				// they are not people. A command that declares `targets` is naming a
+				// person to act on — `/invite`, `/msg` — so they stay off that list.
+				...(here === "room" && sources.targets == null
+					? ROOM_MENTIONS_OFFERED.map((name) => ({
+						name,
+						says: name,
+						hint: "everyone in this room",
+						// Ranked behind the people. With nothing typed, `@` is nearly always
+						// reaching for somebody, and a handful of room-wide names at the top
+						// would push the members out of a list this short. Typing toward one
+						// still brings it straight up, because then nobody else matches.
+						after: true,
+					}))
+					: []),
 			]
-			: sources.rooms.map((name) => ({ name, says: name, after: false }));
-		for (const { name, says, after } of named) {
+			: sources.rooms.map((name) => ({ name, says: name, hint: undefined, after: false }));
+		for (const { name, says, hint, after } of named) {
 			const score = rank(name, query);
 			if (score === Infinity) continue;
 			scored.push({
@@ -162,7 +171,7 @@ export function completeCandidates(
 				// A name is a word inside a sentence rather than an instruction, so
 				// its row keeps Enter even when the name is written out: what follows
 				// it is the rest of what the reader was saying.
-				candidate: { kind: trigger.kind, insert: `${sigil}${name} `, label: says, keepsEnter: true },
+				candidate: { kind: trigger.kind, insert: `${sigil}${name} `, label: says, hint, keepsEnter: true },
 			});
 		}
 	}

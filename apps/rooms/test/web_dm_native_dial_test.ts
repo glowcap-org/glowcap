@@ -194,7 +194,10 @@ try {
 	// dials web-bob's identity through the relay rendezvous, off-room. The
 	// keyed-relay session opens native-to-tab; her line lands on the tab's giftable.
 	const replies: string[] = [];
-	const line = await DirectMessage.open(carol, "web-bob", (text) => replies.push(text));
+	const line = await DirectMessage.open(carol, "web-bob", (text) => {
+		replies.push(text);
+		return null;
+	});
 	await line.say(DM_TEXT);
 
 	// The tab renders it — the message reached a browser that never listens,

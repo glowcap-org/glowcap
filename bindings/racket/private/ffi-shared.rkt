@@ -90,6 +90,12 @@
   (lambda args
     (call/out ctype init (lambda (out) (apply raw (append args (list out)))))))
 
+;; Omit the C transport ABI's optional caller-buffer diagnostic. Racket's
+;; synchronous FFI wrappers read the archive-local last-error slot on the same
+;; calling thread; worker-dispatched runtimes supply these three arguments.
+(define (call/without-diagnostic raw . args)
+  (apply raw (append args (list #f 0 #f))))
+
 (define-cstruct _PancakeFrame ([bytes _pointer] [len _size] [shape _uint32]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeManagedFrame
   ([bytes _pointer] [len _size] [shape _uint32] [release _pointer] [private-data _pointer]) #:malloc-mode 'atomic-interior)
@@ -113,8 +119,16 @@
 ;; keyed-relay and noise-relay. The constructor copies both URL views before
 ;; returning, so the pinned buffers are call-local.
 (define-cstruct _PancakeRelayConfig
-  ([relay_url _pointer] [relay_url_len _size]
-   [register_url _pointer] [register_url_len _size])
+  ([abi_version _uint32] [struct_size _size]
+   [relay_url _pointer] [relay_url_len _size]
+   [register_url _pointer] [register_url_len _size]
+   [trust _uint32]
+   [trust_pem _pointer] [trust_pem_len _size])
+  #:malloc-mode 'atomic-interior)
+(define-cstruct _PancakeRelayTrustSummary
+  ([loaded _size]
+   [skipped_by_engine _size]
+   [first_skipped_engine_code _int32])
   #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeArgument
   ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]
@@ -169,6 +183,20 @@
    [secondary-message _pointer] [secondary-message-len _size])
   #:malloc-mode 'atomic-interior)
 
+;; Caller-owned deterministic provider-install and loop-release outcome. The
+;; pointed-to names are process-lifetime stable and copied by the runtime tier
+;; before another native call can retire the record.
+(define-cstruct _PancakeDriverFailure
+  ([abi-version _uint32] [struct-size _size]
+   [primary-result _int32] [secondary-result _int32]
+   [secondary-count _uint32]
+   [carrier-phase _uint32] [carrier-detail-flags _uint32]
+   [carrier-verification-flags _uint32] [carrier-peer-alert _uint32]
+   [carrier-engine-code _int32]
+   [primary-name _pointer] [primary-name-len _size]
+   [secondary-name _pointer] [secondary-name-len _size])
+  #:malloc-mode 'atomic-interior)
+
 ;; The layout gate, the Rust mirror's `const` assert block made Racket
 ;; (bindings/rust/src/sys/driver.rs): every hand-mirrored cstruct above is
 ;; pinned at require time against the size and the kind layout `layouts-gen.rkt`
@@ -210,6 +238,12 @@
              PANCAKE-FAILURE-REPORT-LAYOUT)
 (pin-layout! '_PancakeFailureEvent _PancakeFailureEvent PANCAKE-FAILURE-EVENT-SIZE
              PANCAKE-FAILURE-EVENT-LAYOUT)
+(pin-layout! '_PancakeDriverFailure _PancakeDriverFailure
+             PANCAKE-DRIVER-FAILURE-SIZE PANCAKE-DRIVER-FAILURE-LAYOUT)
+(pin-layout! '_PancakeRelayConfig _PancakeRelayConfig
+             PANCAKE-RELAY-CONFIG-SIZE PANCAKE-RELAY-CONFIG-LAYOUT)
+(pin-layout! '_PancakeRelayTrustSummary _PancakeRelayTrustSummary
+             PANCAKE-RELAY-TRUST-SUMMARY-SIZE PANCAKE-RELAY-TRUST-SUMMARY-LAYOUT)
 
 ;; ── Driver-archive types (pancake_host.h) ──────────────────────────────────
 
@@ -308,6 +342,9 @@
 (define-cstruct _PancakeDriverEvent
   ([kind _uint32] [primary-result _int32]
    [secondary-result _int32] [secondary-count _uint32]
+   [carrier-phase _uint32] [carrier-detail-flags _uint32]
+   [carrier-verification-flags _uint32] [carrier-peer-alert _uint32]
+   [carrier-engine-code _int32]
    [operation-id _uint64] [listener-id _uint64] [session _pointer]
    [action _PancakeHostAction]
    [primary-name _pointer] [primary-name-len _size]

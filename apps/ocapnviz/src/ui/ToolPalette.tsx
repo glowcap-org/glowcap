@@ -4,8 +4,8 @@
  * every mode: which tools appear comes from `toolsForMode` (the
  * same authority the reducer enforces), so the strip can never
  * offer a tool the reducer would refuse. The tool's behavior on
- * actual canvas clicks lives in `Stage` + `App.handleSelect` +
- * `builder/helpers.advanceTwoClick`.
+ * actual canvas clicks lives in `Stage` + `useStageBuildGestures` +
+ * `builder/two-click.advanceTwoClick`.
  */
 
 import { SIZE } from "./tokens.ts";

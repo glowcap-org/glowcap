@@ -26,7 +26,7 @@
          "ffi-host.rkt"
          "errors.rkt"
          "value.rkt"
-         "codec.rkt"
+         "abi-value.rkt"
          "vat.rkt")
 
 ;; Session + pump for the local-send await path (session eagerly requires this
@@ -35,8 +35,9 @@
  ["session.rkt" (session-vat session-host session-ptr)]
  ["host.rkt" (host-record-callerless-failure!)]
  ["pump.rkt" (pump-until current-deliver-session)]
- ["host.rkt" (host-retain! host-retire! call-with-host)]
- ["promise.rkt" (await-vow session-far-send)])
+ ["host.rkt" (host-retain! host-retire! call-with-host host-session-for-ptr)]
+ ["promise.rkt" (await-vow session-far-send)]
+ ["gc.rkt" (track-arguments!)])
 
 (provide (all-defined-out))
 
@@ -140,8 +141,18 @@
   ;; A native callback can only run synchronously inside the pump's feed
   ;; bracket. The arriving Session supplies routing; never retain the Port
   ;; that happened to create this Host-owned actor.
-  (define arriving (current-deliver-session))
-  (unless arriving (error "hosted callback ran outside a session feed"))
+  (define carrier (current-deliver-session))
+  (unless carrier (error "hosted callback ran outside a session feed"))
+  ;; A native loop brackets the step with a synthetic Host carrier because a
+  ;; callback can arrive on an internal redeemed session that has no public
+  ;; wrapper. When a wrapper does exist, the turn itself is the authoritative
+  ;; route to it; per-session policy (GC opt-in, current-session) must never be
+  ;; inferred from the carrier.
+  (define-values (session-rc session-ptr*) (pancake_host_turn_session turn))
+  (check/host session-rc)
+  (define arriving
+    (or (host-session-for-ptr (session-host carrier) session-ptr*) carrier))
+  (track-arguments! arriving args)
   (define outcome
     (with-handlers ([converts-to-broken? (lambda (error) (cons 'broken error))])
       (cons 'ok

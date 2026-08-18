@@ -18,7 +18,12 @@ const crypto = @import("foundation").crypto;
 /// only width the protocol uses; any other length is `MalformedKey`.
 pub fn sideName(key: []const u8) error{MalformedKey}![32]u8 {
     const peer_key = crypto.PeerKey.fromSlice(key) catch return error.MalformedKey;
-    return crypto.derivePublicIdentifier(peer_key).bytes;
+    return sideNameForKey(peer_key);
+}
+
+/// Derive a side name when the caller already holds a validated peer key.
+pub fn sideNameForKey(key: crypto.PeerKey) [32]u8 {
+    return crypto.derivePublicIdentifier(key).bytes;
 }
 
 /// The OCapN Session ID for two side names (Goblins's "session name"),

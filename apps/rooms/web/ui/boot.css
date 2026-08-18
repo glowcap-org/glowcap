@@ -1,0 +1,259 @@
+/* ── The opening screen ──────────────────────────────────────────────────
+   A page that draws itself has nothing to show until its script has run. This
+   is what stands in, and it lives in the document rather than in the bundle,
+   which is the whole point: it paints on the first parse instead of waiting for
+   the very thing it is covering for.
+
+   It carries two faces and shows one, and which one follows from a single fact
+   the document stamps on itself before anything is laid out: is this page
+   opening under a script at all? Unstamped means no, so the explanation is the
+   face a browser with scripting off gets, and a page that is opening asks for
+   the wait instead. The two situations that mean this page will never draw
+   itself therefore share one pair of rules. A browser that runs the page never
+   lays the message out, so there is no frame in which it could appear.
+
+   Handing over is ui/boot.ts's decision, and it waits for the peer's first
+   answer rather than for the bundle to start: a page whose peer has not
+   answered has no rooms to list and no room to enter. The interface is drawn
+   underneath meanwhile, so the screen leaves a finished page behind it. */
+.boot {
+	position: fixed;
+	inset: 0;
+	/* Over everything. The phone's roster sheet asks for the most of anything
+	   else here, at 40. */
+	z-index: 100;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	/* The ground the body already stands on, so the fade takes away the mark and
+	   the words and leaves the colour exactly where it was. */
+	background: var(--page-bg);
+	/* boot.ts rides the end of this fade to take the element out of the
+	   document, so a transition removed from here is a screen left behind. It
+	   would be an invisible, untouchable one, which is why nothing breaks, but
+	   the browser proof asks for the element to be gone and would say so. */
+	transition: opacity .3s ease;
+}
+/* Handed over: transparent, and out of the way of the interface underneath.
+   boot.ts takes the element out of the document once the fade has run. */
+:root[data-boot="done"] .boot {
+	opacity: 0;
+	pointer-events: none;
+}
+.boot-wait {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	text-align: center;
+}
+/* The product's own mark rather than a spinner, and the mark being made
+   rather than sitting there: the pancakes fall in from above and land with a
+   hint of give, bottom first, butter last; the finished stack holds a
+   moment, sighs down out of view, and a fresh one falls in. A loop, because
+   nothing here knows how far along the wait is and a bar that filled would
+   be making that up. The pieces are the shared mark layers from
+   mark.css; only the choreography lives here. The sheet-wide
+   reduced-motion rule collapses the cycle to the finished stack. */
+.boot-mark {
+	/* When one stack has finished landing: the butter's settle, 63.5% of
+	   the 1.6s cycle, plus the .15s start delay. ui/boot.ts reads this to keep the screen up through at
+	   least one full build on a fast network, so the number and the
+	   keyframes it summarizes live side by side. */
+	--boot-stacked: 1.17s;
+	position: relative;
+	width: 44px;
+	height: 44px;
+	color: var(--accent);
+	/* The lift every floating surface here wears, in the one shape a mark can
+	   wear it: a `drop-shadow` filter follows the alpha it is given rather than
+	   a box, so the pieces below — masks over `currentColor` — cast it from
+	   their own silhouettes, and the stack reads as lit rather than as a card
+	   sitting on the page. A `box-shadow` would draw the 44px square instead.
+
+	   Two passes of the shared `--shadow-color`, because one is not enough at
+	   this size: the near pass is the stack's contact with the page, the far
+	   one the soft spread a floating surface carries. The far pass alone
+	   spreads wider than the mark itself and dilutes to nothing — the page's
+	   own `--shadow` geometry belongs to a card, not to a 44px mark. */
+	filter: drop-shadow(0 2px 5px var(--shadow-color)) drop-shadow(0 8px 22px var(--shadow-color));
+	animation: boot-cycle 1.6s ease-in .15s infinite backwards;
+}
+.boot-mark .mark-piece {
+	/* The .15s delay is a still beat before the first cake lets go — the page
+	   paints, a breath, then the drop. `backwards` holds each piece at its
+	   hidden 0% frame through the delay, so the beat is empty air rather than
+	   a flash of the finished stack. */
+	animation: 1.6s cubic-bezier(.3, .7, .4, 1.1) .15s infinite backwards;
+}
+.boot-mark .mark-cake-3 {
+	animation-name: boot-fall-3;
+}
+.boot-mark .mark-cake-2 {
+	animation-name: boot-fall-2;
+}
+.boot-mark .mark-cake-1 {
+	animation-name: boot-fall-1;
+}
+.boot-mark .mark-butter {
+	animation-name: boot-fall-butter;
+}
+/* One fall per piece, staggered wide enough to touch: each cake lets go
+   about a hundred milliseconds behind the one below, so by the
+   time it dips past its seat the piece under it has mostly sprung back —
+   the overshoot lands on something, and the stack reads as compressing
+   rather than four shapes moving in unison. The landing is slow motion
+   played at speed: a quick squish, the squash held for a beat of
+   anticipation, then a recovery slower than the fall itself: from max
+   overshoot the cake eases in and eases out into its seat, no snap at
+   either end. The dip
+   sinks each cake visibly into its neighbor (later siblings paint on top).
+   The butter is butter, not pancake: it lets go a further beat behind the
+   cakes' rhythm — late enough to notice, never enough to wait for — and it
+   does not bounce; it lands, smushes, and relaxes with no overshoot.
+   The percentages are of the 1.6s cycle. */
+@keyframes boot-fall-3 {
+	0% {
+		opacity: 0;
+		transform: translateY(-140%);
+	}
+	10% {
+		opacity: 1;
+		transform: translateY(0);
+		animation-timing-function: ease-out;
+	}
+	14%,
+	17% {
+		transform: translateY(10%) scaleX(1.1) scaleY(.7);
+		animation-timing-function: cubic-bezier(.4, 0, .2, 1);
+	}
+	35%,
+	100% {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+	}
+}
+@keyframes boot-fall-2 {
+	0%,
+	6% {
+		opacity: 0;
+		transform: translateY(-140%);
+	}
+	16% {
+		opacity: 1;
+		transform: translateY(0);
+		animation-timing-function: ease-out;
+	}
+	20%,
+	23% {
+		transform: translateY(10%) scaleX(1.1) scaleY(.7);
+		animation-timing-function: cubic-bezier(.4, 0, .2, 1);
+	}
+	41%,
+	100% {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+	}
+}
+@keyframes boot-fall-1 {
+	0%,
+	12% {
+		opacity: 0;
+		transform: translateY(-140%);
+	}
+	22% {
+		opacity: 1;
+		transform: translateY(0);
+		animation-timing-function: ease-out;
+	}
+	26%,
+	29% {
+		transform: translateY(10%) scaleX(1.1) scaleY(.7);
+		animation-timing-function: cubic-bezier(.4, 0, .2, 1);
+	}
+	47%,
+	100% {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+	}
+}
+@keyframes boot-fall-butter {
+	0%,
+	31.5% {
+		opacity: 0;
+		transform: translateY(-110%);
+	}
+	41.5% {
+		opacity: 1;
+		transform: translateY(0);
+		animation-timing-function: ease-out;
+	}
+	45.5%,
+	48.5% {
+		transform: translateY(1.5%) scaleX(1.12) scaleY(.66);
+		animation-timing-function: cubic-bezier(.25, .7, .35, 1);
+	}
+	63.5%,
+	100% {
+		opacity: 1;
+		transform: translateY(0) scaleY(1);
+	}
+}
+/* The whole stack's exit: hold, then fade and pan down, and a short empty
+   beat before the cycle's next fall. The children are already transparent at
+   their own 0%, so the container coming back is invisible. */
+@keyframes boot-cycle {
+	0%,
+	77% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	88%,
+	100% {
+		opacity: 0;
+		transform: translateY(16%);
+	}
+}
+/* The boot screen's name is the logotype lockup from mark.css; this rule
+   adds only what the boot layout owns. */
+.boot-name {
+	margin: 0;
+	/* The same alpha-following lift as the mark above it, quieter: the
+	   wordmark is type, and type carries a shadow at a fraction of what a
+	   solid shape can wear before it reads as blur. */
+	filter: drop-shadow(0 3px 12px var(--shadow-sm-color));
+}
+.boot-note {
+	margin: 0;
+	font-size: 13.5px;
+	color: var(--ink-soft);
+}
+/* The other face: why there is nothing here to use. A page that is opening
+   hides it. The two ways a page is not opening are named together, once, so
+   neither carries its own copy of what to show: nothing stamped the document,
+   which means scripting is off, or the bundle never arrived and the watcher
+   put the message back. */
+.boot-explain {
+	display: none;
+	max-width: 34rem;
+	color: var(--ink);
+	font-size: 15px;
+	line-height: 1.55;
+}
+:root:not([data-boot]) .boot-wait,
+:root[data-boot="lost"] .boot-wait {
+	display: none;
+}
+:root:not([data-boot]) .boot-explain,
+:root[data-boot="lost"] .boot-explain {
+	display: block;
+}
+.boot-explain h1 {
+	margin: 0 0 10px;
+	font-size: 19px;
+	letter-spacing: -.01em;
+}
+.boot-explain p {
+	margin: 0 0 10px;
+	color: var(--ink-soft);
+}

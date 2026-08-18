@@ -340,8 +340,8 @@ where
 
 #[cfg(feature = "iroh")]
 async fn dial_iroh_and_pump(ws: WebSocketStream<TcpStream>, locator: &str) {
-	use pancake_rust_dogfood::iroh::{Config, Netlayer};
-	use pancake_rust_dogfood::{parse_locator, Reachability};
+	use pancake_rust_dogfood::iroh::{Config, Netlayer, Reachability};
+	use pancake_rust_dogfood::parse_locator;
 
 	let loc = match parse_locator(locator) {
 		Ok(loc) if loc.transport == "iroh" => loc,

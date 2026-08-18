@@ -1,23 +1,16 @@
-//! Lowering node-local foreign-import tokens to their wire reference at the one
-//! outbound chokepoint (`Peer.send`), so a synthetic token never reaches the
-//! wire in any position (ADR-0069).
+//! Lowering explicit Node-local capability routes to their wire references at
+//! the one outbound chokepoint (`Peer.send`), so `Reference.routed` never
+//! reaches a codec (ADR-0069).
 //!
-//! A `Node` hands the application a synthetic far token for a redeemed handoff
-//! capability or a fetched foreign import, drawn from a reserved id range above
-//! any wire import position. That token is a node-local name: it means something
-//! only inside the node's routing tables, and it must be swapped for the real
-//! wire reference before it is encoded onto the connection it is homed on. Rather
-//! than patch every place a reference is emitted — a send target, a forwarded
-//! target, a resolution, an argument — the peer lowers every reference in an
-//! outbound message here, in the one place all outbound messages funnel through.
-//! A token whose home is another connection has no wire name here and fails
-//! closed with `TokenNotLiftable`, so a routing bug becomes a loud error instead
-//! of a synthetic id on the wire.
+//! A routed reference names a Node table row, not a position in any CapTP
+//! session. Before encoding on its home session, the Node replaces it with the
+//! real session-scoped reference. Rather than patch every place a reference is
+//! emitted — a send target, forwarded target, resolution, or nested argument —
+//! the peer walks each outbound message here. A route homed elsewhere has no
+//! wire name on this connection and fails closed with `RouteNotLowerable`.
 //!
-//! Lowering is a plain value substitution. A far reference owns no heap, so a
-//! token becomes its wire far in place with no allocation. The walk runs only
-//! when the node has enrolled at least one foreign token
-//! (`NodeServices.lowering_active`);
+//! Lowering is a plain POD substitution and adds no allocation. The walk runs
+//! only after the node has minted its first route (`NodeServices.lowering_active`);
 //! until then every send skips it for a single bool load, so a two-party peer
 //! that never fetches a foreign capability pays nothing.
 
@@ -25,14 +18,14 @@ const model = @import("model");
 const services_mod = @import("node_services.zig");
 const NodeServices = services_mod.NodeServices;
 
-/// A reference names a node-local token whose home is not the connection it is
+/// A reference names a Node-local route whose home is not the connection it is
 /// being emitted on, so it has no wire name here. Raised by the node's lowering
 /// hook (`Node.lowerForConn`) and propagated out of the failed `Peer.send`.
 /// Lower every reference an outbound `message` carries to its wire form on the
 /// lowering's connection, in place. The message is owned by the caller (the peer
-/// about to enqueue it), so the walk rewrites its far references — plain POD
-/// values — directly; the `@constCast`s reach into that owned argument heap,
-/// never into borrowed wire bytes. A `TokenNotLiftable` from any position aborts
+/// about to enqueue it), so the walk rewrites its references directly; the
+/// `@constCast`s reach into that owned argument heap,
+/// never into borrowed wire bytes. A `RouteNotLowerable` from any position aborts
 /// the whole send and leaves the caller to free the message.
 pub fn lowerMessage(services: NodeServices, message: *model.Message) services_mod.LoweringError!void {
     switch (message.*) {
@@ -77,8 +70,8 @@ fn lowerArgument(services: NodeServices, arg: *model.Argument) services_mod.Lowe
         .set => |items| try lowerArguments(services, items),
         .tagged => |tagged| try lowerArguments(services, tagged.value),
         .@"struct" => |entries| for (@constCast(entries)) |*entry| try lowerArgument(services, &entry.value),
-        // A handoff argument's references were minted by the node's handoff
-        // machinery from wire data, never a token; every other arm is POD or bytes.
+        // Handoff records carry their own typed certificate fields rather than
+        // semantic `Reference` values; every other arm is POD or bytes.
         else => {},
     }
 }

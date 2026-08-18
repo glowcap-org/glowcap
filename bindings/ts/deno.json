@@ -10,6 +10,9 @@
     "./webrtc",
     "./relay"
   ],
+  "imports": {
+    "playwright": "npm:playwright@1.62.1"
+  },
   "tasks": {
     "smoke": "deno run --v8-flags=--expose-gc --allow-ffi --allow-read --allow-net --allow-env dogfood/zig_smoke.ts",
 		"check": "deno check abi/constants.ts runtime/mod.ts runtime/runtime.ts runtime/driver_loop.ts runtime/internal/server.ts runtime/transport.ts runtime/websocket.ts runtime/ffi.ts runtime/test/runtime_test.ts tcp/mod.ts tcp/address.ts tcp/listen.ts tcp/transport.ts inproc/mod.ts onion/mod.ts iroh/mod.ts iroh/internal.ts relay/mod.ts dogfood/zig_smoke.ts dogfood/gifter_handoff.ts web/mod.ts web/adapter.ts web/browser_tcp_stub.ts web/test/web_peer_test.ts web/test/serve_ws_host.ts web/test/wasm_handshake_smoke.ts web/test/relay_goblins_harness.ts webrtc/mod.ts webrtc/channel.ts"

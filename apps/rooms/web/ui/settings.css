@@ -1,0 +1,489 @@
+/* ── Settings ─────────────────────────────────────────────────────────── */
+/* The settings dialog and the modal machinery it stands on. Split from
+   join.css along its own section line; page.css imports this sheet
+   immediately after, so every rule keeps its place in the cascade. */
+/* Settings: the same card the join form uses, inside a native dialog. Saving
+   reloads so the peer opens with the new locator. */
+.modal {
+	position: fixed;
+	inset: 0;
+	width: auto;
+	height: auto;
+	max-width: none;
+	max-height: none;
+	margin: 0;
+	border: 0;
+	color: inherit;
+	background: transparent;
+	overflow: visible;
+	padding: 24px;
+	place-items: center;
+	opacity: 0;
+	transform: scale(.96);
+	transition:
+		opacity .18s ease,
+		transform .18s ease,
+		overlay .18s ease allow-discrete,
+		display .18s ease allow-discrete;
+}
+.modal[open] {
+	display: grid;
+	opacity: 1;
+	transform: none;
+}
+@starting-style {
+	.modal[open] {
+		opacity: 0;
+		transform: scale(.96);
+	}
+}
+/* Blurring what a layer covers is what makes it read as over the page rather
+   than as a card that happened to land on top. The dim is for the blur, so
+   both live in `--cover` / `--cover-blur` and every face of that layer uses
+   them: dialog `::backdrop` here, the phone members sheet's `#cover`, and the
+   `::after` on the sliding conversation when the rooms list is open.
+
+   Coming in they are the whole of the entrance for the ground, and the panel
+   above scales up the last few per cent into place. Small numbers, because
+   the distance is short and a long throw on something you asked for reads as
+   waiting. Display and overlay stay discrete so a closed dialog can reverse
+   that entrance instead of vanishing in the same frame as the press. */
+.modal::backdrop,
+#cover {
+	background: var(--cover);
+	backdrop-filter: blur(var(--cover-blur));
+	-webkit-backdrop-filter: blur(var(--cover-blur));
+}
+.modal::backdrop {
+	opacity: 0;
+	transition: opacity .18s ease, overlay .18s ease allow-discrete, display .18s ease allow-discrete;
+}
+.modal[open]::backdrop {
+	opacity: 1;
+}
+@starting-style {
+	.modal[open]::backdrop {
+		opacity: 0;
+	}
+}
+/* Each of these is written as a `from` alone, so what it ends at is the
+   element's own style and no fill is needed to hold it there. `backwards` and
+   nothing else: `forwards` would leave the last frame applied for as long as
+   the element lives, which on the ones that move means a transform sitting on a
+   box for good, long after the fifth of a second it was for. */
+@keyframes rise-in {
+	from {
+		opacity: 0;
+		transform: scale(.96);
+	}
+}
+/* Sized to the viewport a reader can actually see, and scrolled rather than
+   squeezed when it runs out.
+
+   `dvh` is the unit everything else here measures the viewport in, and this box
+   was the one place still on `vh`. They are the same number on a desktop, so
+   the difference only ever showed on a phone: `vh` is the tall viewport a
+   mobile browser has with its toolbars hidden, so a card sized to `90vh` is
+   taller than the screen while the toolbars are up, and it changes height under
+   the reader as they come and go.
+
+   The children hold their own height for the second half of the same problem. A
+   flex column that can shrink its items will do that before it scrolls, so the
+   scroll never engages and the panel inside is squashed instead, by an amount
+   each engine works out for itself. Held to their content, the box scrolls,
+   which is what `overflow-y` was asked for. */
+.modal-card {
+	/* Native radios and checkboxes take the brand's accent instead of the
+	   browser's blue, which sat untinted in every choice row. */
+	accent-color: var(--accent-ink);
+	width: min(420px, 100%);
+	max-height: min(90dvh, 720px);
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+	border: 1px solid var(--rule);
+	border-radius: 18px;
+	padding: 28px;
+	background: var(--paper-raised);
+	box-shadow: var(--shadow);
+	position: relative;
+}
+/* The card's top stripe. On the join card it is a background layer, but this
+   card scrolls its own content, and a background sits under whatever passes
+   over it. The stripe is the card's cap, so it rides a sticky box glued to
+   the scrollport's top edge and painted above the content instead: rows
+   slide beneath it rather than over it. The box is as tall as the corner
+   radius so its rounding carves the stripe's ends the way the card's own
+   corners carved the background layer; below the 4px stripe it paints
+   nothing. The negative margins seat it across the padding and hand back
+   the height it took from the flex column, so the card's rows sit exactly
+   where they did. */
+.modal-card::before {
+	content: "";
+	flex: none;
+	position: sticky;
+	/* The card's top padding: the sticky inset measures from the scrollport,
+	   and the stripe's seat is a padding-width above it. */
+	top: -28px;
+	z-index: 1;
+	height: 17px;
+	margin: -28px -28px -2px;
+	background: var(--card-stripe);
+	border-radius: 17px 17px 0 0;
+	pointer-events: none;
+}
+.modal-card > * {
+	flex: none;
+}
+/* This card is a handful of answers, not a long form, and it hosts a hanging
+   menu (where you are here). Overflow auto would take that menu into the
+   card's scroll, so opening it grew a scrollbar instead of sitting over the
+   facts. */
+.modal-card.dircard {
+	overflow: visible;
+}
+.settings-head {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.settings-head-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+/* The directory's own mark, worn by the card describing it. The same glyph its
+   rows carry in the rail and in the same colour, so arriving here from a
+   coloured line lands somewhere that agrees; a card that dropped the colour
+   would have a reader checking they opened the one they meant.
+
+   On the heading rather than as a wash over the panel, and at the size of the
+   words beside it. This is an identity, not a status. The card's top stripe is
+   the bar every modal wears; a foreign directory recolors that bar's teal stop
+   so it agrees with this mark. */
+.dircard #dircardTitle {
+	display: flex;
+	align-items: center;
+	gap: var(--mark-gap);
+	min-width: 0;
+}
+/* Why a directory is not connected, under the word that says it is not. Its own
+   line because it is a sentence rather than a state, and quiet because the state
+   above it is what a reader came to check. */
+.dirfact-why {
+	display: block;
+	margin-top: 2px;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+}
+.dircard-mark {
+	display: inline-flex;
+	flex: none;
+	color: var(--dir-mark, var(--ink-soft));
+}
+/* Window-level toggles that apply at once (theme, notifications, Help). They
+   sit on the title so they stay in reach on Locators and Advanced alike, and so
+   a new sibling is one button in the row rather than another fieldset. Help
+   uses the same pressed treatment as the Settings control. */
+.settings-toggles {
+	display: flex;
+	gap: 8px;
+	flex: none;
+	/* A row of its own under the title line, tucked under the corner X: the
+	   title row carries only the name and the one dismiss, the way the
+	   directory card's does, and the quick controls read as a cluster rather
+	   than as chrome a dismiss could be mistaken for. */
+	justify-content: flex-end;
+	margin-top: 4px;
+}
+.modal-card h2 {
+	margin: 0;
+	font-size: var(--type-display);
+	letter-spacing: -.01em;
+}
+/* Opening moves focus here so the keyboard is in the dialog, not still on
+   the gear. A ring around the whole card would shout; Tab lands on a tab
+   and that ring is the one that should show. */
+.modal-card:focus,
+.modal-card:focus-visible {
+	outline: none;
+}
+/* A tab's panel is a name for a group of rows, not a box around them.
+   It used to be a flex column of its own, repeating the card's own rhythm one
+   level down, which meant the card's layout depended on a second container
+   agreeing about its own height. Mobile Safari did not agree: it gave the panel
+   forty-five pixels more than its rows came to, and a flex column packs its rows
+   at the top, so the difference stood at the bottom as a gap above the last
+   button in the card. With `display: contents` the rows are the card's own, laid
+   out on the one rhythm that was always drawing them, and there is no second
+   height for an engine to get wrong. The element and its role stay where they
+   are for anything reading the page rather than laying it out. */
+.modal-card [role="tabpanel"] {
+	display: contents;
+}
+.modal-card p.lead {
+	margin: 0;
+	color: var(--ink-soft);
+	font-size: var(--type-body);
+}
+/* A named group of controls, drawn as an ordinary box.
+   `<fieldset>` and `<legend>` are what this means, and a `role="group"` with an
+   `aria-labelledby` is the same thing to a screen reader, but a fieldset is not
+   an ordinary box: every engine gives it a renderer of its own, older WebKit
+   refuses to make one a flex container at all, and the legend is lifted out of
+   flow into the border. Layout duty belongs to a box that only has to be a box.
+   The semantics stay on the element; only the layout moved. */
+.modal-card .group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+/* The quiet well every modal shares: a hairline and a breath of ink over the
+   card's paper, so a panel reads as a few labeled clusters rather than one
+   undifferentiated column. One class and one authority — Settings groups,
+   the directory card's clusters, the take form, and the Operations panes all
+   opt in with `well` rather than each restating the treatment. Recessed
+   rather than raised in both themes, because a raised surface on the
+   already-raised card has no edge to catch; the ground-versus-raised step in
+   ui/tokens.css is what keeps the recess and the fields inside it readable
+   in light exactly as in dark. */
+.modal-card .well {
+	padding: 12px 14px;
+	border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+/* What a directory says about itself: a question on the left, its answer on the
+   right, in the order the questions occur to a reader. Two columns rather than
+   stacked pairs, because the answers are short and a column of them can be
+   compared down the page — and because the left column is then a list of what
+   can be asked, which is the shape of the surface as much as its content.
+
+   The label column is sized to its own text so a longer question moves both
+   columns together instead of wrapping under itself. */
+.dirfacts {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: baseline;
+	gap: 6px 14px;
+	margin: 2px 0 0;
+	font-size: var(--type-ui);
+}
+.dirfacts dt {
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+	font-weight: 700;
+}
+.dirfacts dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	display: flex;
+	align-items: center;
+	gap: 7px;
+}
+/* The connection dot sits on the text's own line rather than on the row's, so
+   it lines up with the word beside it the way it does in the rail's foot. */
+.dirfacts dd .dot {
+	flex: none;
+}
+.modal-card .group-label {
+	/* No margin of its own: the group's own gap is the spacing, the way it is
+	   between any two rows in the group. A legend used to sit four pixels from
+	   its first control because the engine lifted it out of the flex flow, where
+	   the gap could not reach it. */
+	margin: 0;
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+}
+.modal-card .uri-label {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+	margin: 0;
+}
+.modal-card .uri-label code {
+	font-weight: 600;
+	font-size: 11px;
+}
+/* The way into the parts catalog: the word "secret" in the glossary is the
+   door — tappable and focusable, and only the cursor gives it away. A
+   development surface earns an easter egg's affordance, not a button's. */
+.secret-door {
+	all: unset;
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+}
+.secret-door:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+.glossary {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	margin: 0;
+}
+.glossary > div {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.glossary dt {
+	font-size: var(--type-ui);
+	font-weight: 700;
+}
+.glossary dd {
+	margin: 0;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+	line-height: 1.45;
+}
+/* A locator is a field only in the sense that it is a boxed value the reader
+   wants to take away; nothing in it can be typed into. So the box is the
+   control (see `CopyField` in Copy.tsx), and the mark in the corner says a
+   press does something rather than being the only place a press counts.
+
+   The corner is held open by the field's own trailing padding rather than by a
+   column beside the text, because a locator breaks anywhere: given a floated
+   corner to clear, the text would clear it on the first line and run under it
+   on every line after. Padding holds it open on all of them. */
+.copy-field {
+	all: unset;
+	box-sizing: border-box;
+	position: relative;
+	display: block;
+	width: 100%;
+	padding: 10px 34px 10px 12px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--paper);
+	font-size: 11px;
+	line-height: 1.4;
+	text-align: left;
+	color: var(--ink);
+	cursor: pointer;
+	transition: background .12s ease, border-color .12s ease;
+}
+.copy-field:not(:disabled):hover,
+.copy-field:focus-visible {
+	border-color: color-mix(in srgb, var(--accent) 34%, var(--rule));
+	background: color-mix(in srgb, var(--accent) 6%, var(--paper));
+}
+.copy-field:disabled {
+	cursor: default;
+	color: var(--ink-soft);
+}
+.copy-field-text {
+	display: block;
+	word-break: break-all;
+	user-select: all;
+}
+/* Pinned to the top of the box, so a locator taking three lines leaves the mark
+   where a locator taking one put it. It answers to the field rather than to
+   itself: it is quiet until the field is under a pointer or holds focus, and it
+   takes the tick's colour for as long as the reply stands. */
+.copy-field-mark {
+	position: absolute;
+	top: 9px;
+	right: 10px;
+	display: inline-flex;
+	color: var(--ink-soft);
+	opacity: .55;
+	transition: opacity .12s ease, color .12s ease;
+}
+.copy-field:not(:disabled):hover .copy-field-mark,
+.copy-field:focus-visible .copy-field-mark {
+	opacity: 1;
+}
+.copy-field[data-copied] .copy-field-mark {
+	opacity: 1;
+	color: var(--teal);
+}
+.copy-field .copy-said {
+	left: auto;
+	right: 4px;
+	bottom: calc(100% - 2px);
+	transform: none;
+}
+.modal-card .choice {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 10px 12px;
+	align-items: start;
+	padding: 10px 12px;
+	border: 1px solid var(--rule);
+	border-radius: 11px;
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+	cursor: pointer;
+}
+.modal-card .choice:has(input:checked) {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.modal-card .choice input {
+	margin-top: 3px;
+}
+.modal-card .choice span {
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+	line-height: 1.4;
+}
+.modal-card .choice strong {
+	display: block;
+	font-size: var(--type-body);
+	color: var(--ink);
+	margin-bottom: 2px;
+}
+.modal-card .field {
+	font: inherit;
+	padding: 11px 13px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+	color: var(--ink);
+}
+.modal-card .field:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.modal-card p.hint {
+	margin: 0;
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	line-height: 1.4;
+}
+.modal-card p.hint code {
+	font-size: 11px;
+}
+/* Quiet is the way out of a card, and it sits at the width of its words.
+   Direct children used to be the only ones that did: Close, Leave, Stay. A
+   quiet button inside a group — About this directory, under the locator —
+   stretched with the column instead, which is a different control from the
+   same variant at the foot of the same card. */
+.modal-card .button[data-variant="quiet"] {
+	align-self: center;
+}
+
+/* The join card always keeps a slot for a refusal, so a rejected name does not
+   shove the button down. Colour and weight live on `.said`. */
+.join .said {
+	min-height: 1.2em;
+	margin: -4px 0 0;
+}
+.modal-card .field[aria-invalid="true"] {
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+}
+.modal-card .field[aria-invalid="true"]:focus {
+	outline: none;
+	border-color: var(--danger);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
+}

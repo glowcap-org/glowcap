@@ -1,13 +1,6 @@
 import { z } from "zod";
-import {
-  CaptpVersion,
-  Codec,
-  EndpointAttachment,
-  PeerProfile,
-  SessionEndpoint,
-  SessionState,
-  Transport,
-} from "../schema/topology.ts";
+import { CaptpVersion, Codec, PeerProfile, SessionState, Transport } from "../schema/topology.ts";
+import { EndpointAttachment, SessionEndpoint } from "../schema/session-end.ts";
 import { DescriptiveMetadata, Provenance } from "../schema/provenance.ts";
 import { TimeSpanSchema } from "./temporal/zod.ts";
 import { Observation, Position, Recording } from "./temporal/recording.ts";
@@ -48,7 +41,7 @@ export type TimelineEvent = Observation;
  * In the two force modes an authored `position` pins its peer at
  * exactly that point in every keyframe.
  *
- * Mirrors `LayoutMode` in `keyframe-layout-system.ts`.
+ * Mirrors `LayoutMode` in `layout-eras.ts`.
  */
 export const LayoutMode = z.enum(["per-topology", "static-union", "authored"]);
 export type LayoutMode = z.infer<typeof LayoutMode>;

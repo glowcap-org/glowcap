@@ -11,6 +11,7 @@ import inspect
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 
+from ._errors import _retain_cleanup_failure
 from ._failure import FailureLayer, _record_runtime_failure
 
 if TYPE_CHECKING:
@@ -30,23 +31,25 @@ async def _await_maybe(value):
     return value
 
 
-async def _rollback_failed_transport(host: "Host", transport) -> None:
-    """Join connector rollback without replacing its establishment failure."""
+async def _rollback_failed_transport(primary: BaseException, transport) -> None:
+    """Join connector rollback and attach it to the failed establishment."""
     try:
         transport.close()
         wait_closed = getattr(transport, "wait_closed", None)
         if wait_closed is not None:
             await _await_maybe(wait_closed())
     except BaseException as cleanup_error:
-        host._record_terminal_failure(cleanup_error)
+        _retain_cleanup_failure(primary, cleanup_error)
 
 
-def _rollback_failed_provider(loop: "DriverLoop", cleanup: Callable[[], None]) -> None:
-    """Retire rejected provider state without replacing installation failure."""
+def _rollback_failed_provider(
+    primary: BaseException, cleanup: Callable[[], None]
+) -> None:
+    """Retire rejected provider state and attach any cleanup consequence."""
     try:
         cleanup()
     except BaseException as cleanup_error:
-        loop.wrapper_host()._record_terminal_failure(cleanup_error)
+        _retain_cleanup_failure(primary, cleanup_error)
 
 
 @dataclass(frozen=True, slots=True)

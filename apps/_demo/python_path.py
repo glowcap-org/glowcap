@@ -1,4 +1,4 @@
-"""Shared Python path helpers for cross-language demo clients."""
+"""Locate the repository root and `bindings/python` for demo clients."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 
 
 def repo_root() -> pathlib.Path:
-    """Return the repository root, located from this helper's own path.
+    """Return the repository root, located from this file's own path.
 
     Self-locating on purpose: this file sits at ``apps/_demo/python_path.py``,
     so the root is always two directories up, no matter where the caller

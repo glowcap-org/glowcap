@@ -46,7 +46,7 @@
 import { type Browser, chromium, type Page } from "playwright";
 
 import type { Argument, Behavior } from "@pancake/runtime";
-import { inboxOfferer } from "../../apps/rooms/lib/dm_inbox.ts";
+import { inboxPublisher } from "../../apps/rooms/lib/dm_inbox.ts";
 import { Directory, Room } from "../../apps/rooms/lib/room_client.ts";
 import { enterOrOpen } from "../../apps/rooms/lib/enter_room.ts";
 import { openRoomsRuntime } from "../../apps/rooms/lib/runtime.ts";
@@ -207,7 +207,7 @@ try {
 	// and the room server as its child. The TCP arm names the vat's address as a
 	// cleartext peer the relay may dial; the iroh arm names nothing, because an
 	// iroh destination has to be a peer holding a key.
-	const env: Record<string, string> = { ROOMS_VIZ_PORT: String(vizPort) };
+	const env: Record<string, string> = { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) };
 	if (!IROH) env.PANCAKE_RELAY_TCP_PEERS = loopbackTcpDesignator(vatPort);
 	web = new Deno.Command("deno", {
 		args: [
@@ -264,7 +264,7 @@ try {
 			VAT_NICK,
 		],
 		cwd: RACKET_DIR,
-		env: { ROOMS_VIZ_URL: `ws://127.0.0.1:${vizPort}/` },
+		env: { PANCAKE_ROOMS_VIZ_URL: `ws://127.0.0.1:${vizPort}/` },
 		stdout: "piped",
 		stderr: "piped",
 	}).spawn();
@@ -317,8 +317,7 @@ try {
 		// The inbox the room hands the vat when it asks to be introduced. It is
 		// minted on demand, so the vat's first `introduce` is refused pending and its
 		// second one carries this.
-		const nativeOfferer = inboxOfferer({
-			host: native.host,
+		const nativeOfferer = inboxPublisher(native.host).offerer({
 			dir: () => nativeDir,
 			behaviorFor: () => recordOnlyDm,
 			skip: (peer) => peer.toLowerCase() === NATIVE_NICK,

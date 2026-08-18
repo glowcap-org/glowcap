@@ -171,6 +171,23 @@ export const DRIVER_OPTIONS_HANDSHAKE_MS_OFF = 32;
 export const DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF = 36;
 export const DRIVER_OPTIONS_SETTLE_MS_OFF = 40;
 
+// PancakeDriverFailure (libpancake_driver deterministic barriers)
+export const DRIVER_FAILURE_SIZE = 80;
+export const DRIVER_FAILURE_ABI_VERSION_OFF = 0;
+export const DRIVER_FAILURE_STRUCT_SIZE_OFF = 8;
+export const DRIVER_FAILURE_PRIMARY_RESULT_OFF = 16;
+export const DRIVER_FAILURE_SECONDARY_RESULT_OFF = 20;
+export const DRIVER_FAILURE_SECONDARY_COUNT_OFF = 24;
+export const DRIVER_FAILURE_CARRIER_PHASE_OFF = 28;
+export const DRIVER_FAILURE_CARRIER_DETAIL_FLAGS_OFF = 32;
+export const DRIVER_FAILURE_CARRIER_VERIFICATION_FLAGS_OFF = 36;
+export const DRIVER_FAILURE_CARRIER_PEER_ALERT_OFF = 40;
+export const DRIVER_FAILURE_CARRIER_ENGINE_CODE_OFF = 44;
+export const DRIVER_FAILURE_PRIMARY_NAME_OFF = 48;
+export const DRIVER_FAILURE_PRIMARY_NAME_LEN_OFF = 56;
+export const DRIVER_FAILURE_SECONDARY_NAME_OFF = 64;
+export const DRIVER_FAILURE_SECONDARY_NAME_LEN_OFF = 72;
+
 // PancakeCloseOptions (libpancake_host and libpancake_driver)
 export const CLOSE_OPTIONS_SIZE = 32;
 export const CLOSE_OPTIONS_ABI_VERSION_OFF = 0;
@@ -180,19 +197,24 @@ export const CLOSE_OPTIONS_GRACE_MODE_OFF = 20;
 export const CLOSE_OPTIONS_GRACE_MS_OFF = 24;
 
 // PancakeDriverEvent (libpancake_driver, pancake_driver_next_event)
-export const DRIVER_EVENT_SIZE = 184;
+export const DRIVER_EVENT_SIZE = 208;
 export const DRIVER_EVENT_KIND_OFF = 0;
 export const DRIVER_EVENT_PRIMARY_RESULT_OFF = 4;
 export const DRIVER_EVENT_SECONDARY_RESULT_OFF = 8;
 export const DRIVER_EVENT_SECONDARY_COUNT_OFF = 12;
-export const DRIVER_EVENT_OPERATION_ID_OFF = 16;
-export const DRIVER_EVENT_LISTENER_ID_OFF = 24;
-export const DRIVER_EVENT_SESSION_OFF = 32;
-export const DRIVER_EVENT_ACTION_OFF = 40;
-export const DRIVER_EVENT_PRIMARY_NAME_OFF = 152;
-export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 160;
-export const DRIVER_EVENT_SECONDARY_NAME_OFF = 168;
-export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 176;
+export const DRIVER_EVENT_CARRIER_PHASE_OFF = 16;
+export const DRIVER_EVENT_CARRIER_DETAIL_FLAGS_OFF = 20;
+export const DRIVER_EVENT_CARRIER_VERIFICATION_FLAGS_OFF = 24;
+export const DRIVER_EVENT_CARRIER_PEER_ALERT_OFF = 28;
+export const DRIVER_EVENT_CARRIER_ENGINE_CODE_OFF = 32;
+export const DRIVER_EVENT_OPERATION_ID_OFF = 40;
+export const DRIVER_EVENT_LISTENER_ID_OFF = 48;
+export const DRIVER_EVENT_SESSION_OFF = 56;
+export const DRIVER_EVENT_ACTION_OFF = 64;
+export const DRIVER_EVENT_PRIMARY_NAME_OFF = 176;
+export const DRIVER_EVENT_PRIMARY_NAME_LEN_OFF = 184;
+export const DRIVER_EVENT_SECONDARY_NAME_OFF = 192;
+export const DRIVER_EVENT_SECONDARY_NAME_LEN_OFF = 200;
 
 // PancakeTransportOperationOptions (pancake_driver_dial)
 export const TRANSPORT_OPERATION_OPTIONS_SIZE = 16;
@@ -241,6 +263,24 @@ export const TCP_STREAM_OPTIONS_KEEPALIVE_COUNT_OFF = 8;
 // PancakeTcpConfig (libpancake_net_transport_tcp, pancake_tcp_netlayer_new)
 export const TCP_CONFIG_SIZE = 12;
 export const TCP_CONFIG_STREAM_OFF = 0;
+
+// PancakeRelayConfig (libpancake_net_transport_relay, pancake_relay_runtime_new)
+export const RELAY_CONFIG_SIZE = 72;
+export const RELAY_CONFIG_ABI_VERSION_OFF = 0;
+export const RELAY_CONFIG_STRUCT_SIZE_OFF = 8;
+export const RELAY_CONFIG_RELAY_URL_OFF = 16;
+export const RELAY_CONFIG_RELAY_URL_LEN_OFF = 24;
+export const RELAY_CONFIG_REGISTER_URL_OFF = 32;
+export const RELAY_CONFIG_REGISTER_URL_LEN_OFF = 40;
+export const RELAY_CONFIG_TRUST_OFF = 48;
+export const RELAY_CONFIG_TRUST_PEM_OFF = 56;
+export const RELAY_CONFIG_TRUST_PEM_LEN_OFF = 64;
+
+// PancakeRelayTrustSummary (libpancake_net_transport_relay, pancake_relay_runtime_trust_summary)
+export const RELAY_TRUST_SUMMARY_SIZE = 24;
+export const RELAY_TRUST_SUMMARY_LOADED_OFF = 0;
+export const RELAY_TRUST_SUMMARY_SKIPPED_BY_ENGINE_OFF = 8;
+export const RELAY_TRUST_SUMMARY_FIRST_SKIPPED_ENGINE_CODE_OFF = 16;
 
 // PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)
 export const IROH_READY_EVENT_SIZE = 16;

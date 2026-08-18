@@ -11,20 +11,20 @@
 (require ffi/unsafe
          ffi/unsafe/define
          "ffi-shared.rkt"
+         "constants-gen.rkt"
          "ffi-tcp-types.rkt"
          "lib-resolve.rkt")
 (provide (except-out (all-defined-out)
                      pancake_tcp_netlayer_new*
-                     pancake_tcp_connect*
                      pancake_tcp_listen*
                      pancake_tcp_listener_port*
-                     pancake_tcp_listener_readiness_fd*
-                     pancake_tcp_accept*))
+                     pancake_tcp_listener_readiness_fd*))
 
 (define tcp-lib (open-pancake-archive "pancake_net_transport_tcp"))
 
 (define-ffi-definer define-pancake-tcp tcp-lib)
 
+(define-pancake-tcp pancake_tcp_archive_fingerprint (_fun -> _uint64))
 (define-pancake-tcp pancake_tcp_last_error (_fun _pointer _size -> _size))
 (define-pancake-tcp pancake_tcp_netlayer_new*
   (_fun (_or-null _PancakeTcpConfig-pointer) _pointer -> _int32)
@@ -35,9 +35,8 @@
 (define-pancake-tcp pancake_tcp_netlayer_shutdown (_fun _pointer -> _void))
 (define-pancake-tcp pancake_tcp_netlayer_release (_fun #:blocking? #t _pointer -> _void))
 (define-pancake-tcp pancake_tcp_connect*
-  (_fun #:blocking? #t _pointer _pointer _size _uint16 (_or-null _PancakeTcpStreamOptions-pointer) _uint32 _size _pointer -> _int32)
+  (_fun #:blocking? #t _pointer _pointer _size _uint16 (_or-null _PancakeTcpStreamOptions-pointer) _uint32 _size _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_tcp_connect)
-(define pancake_tcp_connect (wrap-out1 pancake_tcp_connect* _pointer #f))
 (define-pancake-tcp pancake_tcp_listen*
   (_fun _pointer _pointer _size _uint16 _pointer -> _int32)
   #:c-id pancake_tcp_listen)
@@ -51,14 +50,19 @@
   #:c-id pancake_tcp_listener_readiness_fd)
 (define pancake_tcp_listener_readiness_fd (wrap-out1 pancake_tcp_listener_readiness_fd* _int32 0))
 (define-pancake-tcp pancake_tcp_accept*
-  (_fun #:blocking? #t _pointer (_or-null _PancakeTcpStreamOptions-pointer) _uint32 _size _pointer -> _int32)
+  (_fun #:blocking? #t _pointer (_or-null _PancakeTcpStreamOptions-pointer) _uint32 _size _pointer _pointer _size _pointer -> _int32)
   #:c-id pancake_tcp_accept)
-(define pancake_tcp_accept (wrap-out1 pancake_tcp_accept* _pointer #f))
-(define-pancake-tcp pancake_tcp_conn_read_frame
-  (_fun #:blocking? #t _pointer (_or-null _PancakeManagedFrame-pointer) -> _int32))
-(define-pancake-tcp pancake_tcp_conn_write_frame
-  (_fun #:blocking? #t _pointer (_or-null _PancakeFrame-pointer) -> _int32))
+(define-pancake-tcp pancake_tcp_conn_read_frame*
+  (_fun #:blocking? #t _pointer (_or-null _PancakeManagedFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id pancake_tcp_conn_read_frame)
+(define-pancake-tcp pancake_tcp_conn_write_frame*
+  (_fun #:blocking? #t _pointer (_or-null _PancakeFrame-pointer) _pointer _size _pointer -> _int32)
+  #:c-id pancake_tcp_conn_write_frame)
 (define-pancake-tcp pancake_tcp_conn_shutdown (_fun _pointer -> _int32))
-(define-pancake-tcp pancake_tcp_conn_release (_fun #:blocking? #t _pointer -> _int32))
+(define-pancake-tcp pancake_tcp_conn_release*
+  (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32)
+  #:c-id pancake_tcp_conn_release)
 (define-pancake-tcp pancake_tcp_listener_shutdown (_fun _pointer -> _void))
 (define-pancake-tcp pancake_tcp_listener_release (_fun #:blocking? #t _pointer -> _void))
+
+(require-archive-fingerprint! 'tcp pancake_tcp_archive_fingerprint TCP-ARCHIVE-FINGERPRINT)

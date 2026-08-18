@@ -1,0 +1,479 @@
+/* ── Attachments ──────────────────────────────────────────────────────── */
+/* One send owns one attachment stack inside its bubble. Each child still owns
+   its transfer and control state; the stack is only the visual statement that
+   the files travelled together. */
+.attachment-set {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 6px;
+}
+/* Multiple pictures become one compact gallery without becoming one transfer.
+   Six tracks admit complete rows of one, two, or three balanced thumbnails.
+   Every tile remains its own openable attachment; non-image siblings span the
+   gallery so their readable row treatment is not squeezed into a thumbnail. */
+.attachment-set.image-grid {
+	display: grid;
+	grid-template-columns: repeat(6, minmax(0, 1fr));
+	width: 340px;
+	max-width: 100%;
+	gap: 4px;
+}
+.attachment-set.image-grid > .image-tile {
+	width: 100%;
+	min-width: 0;
+	max-width: none;
+	max-height: none;
+}
+.attachment-set.image-grid > .image-tile-full {
+	grid-column: 1 / -1;
+}
+.attachment-set.image-grid > .image-tile-half {
+	grid-column: span 3;
+}
+.attachment-set.image-grid > .image-tile-third {
+	grid-column: span 2;
+}
+.attachment-set.image-grid > :not(.image-tile) {
+	grid-column: 1 / -1;
+}
+/* A picture or a video sits in the bubble as itself, in a box drawn at its own
+   shape before its bytes arrive, so a log of media settles as it loads instead
+   of shoving every line below it down the page. Sound gets a player, and
+   everything else a row naming the file with the one control it needs. */
+.attach {
+	margin-top: 0;
+}
+.attach-media {
+	position: relative;
+	width: 100%;
+	max-width: 340px;
+	max-height: 340px;
+	border-radius: 12px;
+	overflow: hidden;
+	line-height: 0;
+}
+.attach-image {
+	all: unset;
+	box-sizing: border-box;
+	display: block;
+	position: relative;
+	width: 100%;
+	max-width: 340px;
+	max-height: 340px;
+	border-radius: 12px;
+	overflow: hidden;
+	cursor: zoom-in;
+}
+.attach-image:focus-visible,
+.attach-media .expand:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.attach-media img,
+.attach-media video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	background: var(--paper);
+}
+.attachment-set.image-grid > .image-tile img {
+	object-fit: cover;
+}
+/* A video plays where it was posted; this takes it full size. It sits out of
+   the way of the player's own controls, which own the bottom edge. */
+.attach-media .expand {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+}
+/* The box before the media: the same shape and corners, so nothing moves when
+   the two swap. */
+.attach-media.pending {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	padding: 9px;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+}
+/* A tile that failed says why in the space it was already holding: the reader
+   is deciding whether to press again, and the reason is what they decide on. */
+.attach-media.pending .why {
+	font-size: var(--type-caption);
+	line-height: 1.35;
+	text-align: center;
+	color: var(--danger);
+	font-weight: 600;
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+.attach-media.pending .pct {
+	font-size: var(--type-ui);
+	line-height: 1;
+	color: var(--ink-soft);
+	font-variant-numeric: tabular-nums;
+}
+.attach-media.pending .act {
+	all: unset;
+	box-sizing: border-box;
+	padding: 7px 13px;
+	border-radius: 8px;
+	border: 1px solid var(--rule);
+	background: var(--paper-raised);
+	color: var(--ink);
+	font-size: var(--type-ui);
+	line-height: 1.2;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+}
+.attach-media.pending .act:hover {
+	border-color: var(--accent-ink);
+	color: var(--accent-ink);
+}
+/* A rectangle that is going to become a picture says so with the space it is
+   already holding: light travels across it while the bytes are on the way. */
+.shimmer {
+	background-image: linear-gradient(
+		100deg,
+		transparent 20%,
+		color-mix(in srgb, var(--ink) 7%, transparent) 40%,
+		transparent 60%
+	);
+	background-size: 240% 100%;
+	background-repeat: no-repeat;
+	animation: attach-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes attach-shimmer {
+	from {
+		background-position: 160% 0;
+	}
+	to {
+		background-position: -60% 0;
+	}
+}
+/* Motion is decoration here: the percentage in the middle of the box carries
+   the same fact, and the shape is already reserved either way. */
+@media (prefers-reduced-motion: reduce) {
+	.shimmer {
+		animation: none;
+	}
+}
+/* Progress rides the bottom edge of the box it belongs to, so an upload shows
+   its own picture filling in rather than a number somewhere else. */
+.attach-media .upload {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 3px;
+	background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.attach-media .upload .bar {
+	display: block;
+	height: 100%;
+	background: var(--accent);
+	transition: width 120ms linear;
+}
+.attach-audio {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-width: 340px;
+}
+.attach-audio.pending {
+	flex-direction: row;
+	align-items: center;
+}
+.attach-audio audio {
+	width: 100%;
+	height: 34px;
+}
+.attach-audio .sub {
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.row.mine .attach-audio .sub {
+	color: var(--on-accent);
+}
+.attach-file {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 10px;
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	background: var(--paper);
+}
+/* Our own bubble reverses fill and ink between themes. Its attachment chip
+   therefore uses the same context-aware wash as an action on that bubble:
+   darker under cream ink, lighter under cocoa ink. */
+.row.mine .attach-file {
+	background: var(--mine-action-hover);
+	border-color: color-mix(in srgb, var(--on-accent) 28%, transparent);
+	color: var(--on-accent);
+}
+.attach-file .glyph {
+	display: flex;
+	color: var(--ink-soft);
+}
+.row.mine .attach-file .glyph {
+	color: var(--on-accent);
+}
+.attach-file .meta {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	flex: 1;
+}
+.attach-file .name {
+	font-size: var(--type-body);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.attach-file .sub {
+	font-size: var(--type-caption);
+	color: var(--ink-soft);
+}
+.attach-file .sub[role="alert"],
+.attach-audio .sub[role="alert"] {
+	color: var(--danger);
+	font-weight: 600;
+}
+.row.mine .attach-file .sub {
+	color: var(--on-accent);
+}
+.drop-hint {
+	position: absolute;
+	inset: 8px;
+	z-index: 7;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2px dashed var(--accent);
+	border-radius: 16px;
+	background: color-mix(in srgb, var(--paper) 86%, transparent);
+	color: var(--accent-ink);
+	font-size: 15px;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+}
+.stream.dropping .drop-hint {
+	opacity: 1;
+}
+.composer-files {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+	padding: 0 0 2px;
+	width: 100%;
+}
+.composer-file {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	max-width: 18rem;
+	min-width: 0;
+	padding: 4px 5px 4px 8px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-control);
+	/* This remains a compact file object, not a miniature title button. The
+	   title contributes its interaction grammar below; the persistent surface,
+	   type mark, and metadata are what distinguish an attachment. */
+	background: color-mix(in srgb, var(--accent) 6%, var(--paper-raised));
+	transition: background .12s ease, border-color .12s ease;
+}
+.composer-file:hover,
+.composer-file:focus-within {
+	background: color-mix(in srgb, var(--accent) 11%, var(--paper-raised));
+	border-color: color-mix(in srgb, var(--accent) 30%, var(--rule));
+}
+.composer-file-kind {
+	color: var(--accent);
+	flex: none;
+}
+.composer-file-copy {
+	display: grid;
+	min-width: 0;
+	line-height: 1.15;
+}
+.composer-file-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--type-caption);
+	font-weight: 600;
+}
+.composer-file-size {
+	color: var(--ink-soft);
+	font-size: var(--type-tiny);
+}
+.composer-file-remove {
+	flex: none;
+	opacity: 0;
+	transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+.composer-file:hover .composer-file-remove,
+.composer-file:focus-within .composer-file-remove {
+	opacity: 1;
+}
+@media (hover: none) {
+	.composer-file-remove {
+		opacity: 1;
+	}
+	.composer-file-remove:active {
+		color: var(--danger);
+	}
+}
+
+/* ── Where you are ─────────────────────────────────────────────────────────
+   The same control at all three levels — the foot of the rail for the reader,
+   the directory card for one directory, a room's header for one room — so it
+   is drawn once and each site only says where it sits. */
+.standing {
+	position: relative;
+	display: inline-flex;
+	flex: none;
+}
+.standing-said {
+	all: unset;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 15ch;
+	padding: 3px 8px;
+	border-radius: var(--radius-pill);
+	border: 1px solid var(--rule);
+	font-size: var(--type-caption);
+	line-height: 1.3;
+	color: var(--ink-soft);
+	cursor: pointer;
+}
+.standing-said:hover {
+	background: var(--paper-raised);
+	color: var(--ink);
+}
+.standing-said:focus-visible {
+	outline: 2px solid var(--accent-ink);
+	outline-offset: 2px;
+}
+/* The word itself gives up room before the pip does: the pip is the part that
+   reads at a glance, and a long reason is worth truncating to keep it. */
+.standing-word {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.standing-pip {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	border: 1.5px solid var(--teal);
+	background: var(--teal);
+}
+/* Away is hollow rather than another colour: filled and empty is the
+   difference a reader sees without being told which colour means what, and it
+   survives both palettes and a display that carries neither hue well. */
+.standing-said.away {
+	color: var(--ink);
+	border-color: color-mix(in srgb, var(--accent) 45%, var(--rule));
+}
+.standing-said.away .standing-pip {
+	border-color: var(--accent-ink);
+	background: transparent;
+}
+/* The menu is the log's menu, at a width that fits a written reason. */
+.standing-menu {
+	min-width: 210px;
+}
+.standing-why {
+	display: flex;
+	gap: 6px;
+	padding: 5px 4px 2px;
+	border-top: 1px solid var(--rule);
+	margin-top: 3px;
+}
+.standing-why input {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 5px 8px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-chip);
+	background: var(--paper);
+	color: var(--ink);
+	font: inherit;
+	font-size: 12.5px;
+}
+.standing-why input:focus-visible {
+	outline: 2px solid var(--accent-ink);
+	outline-offset: 1px;
+}
+.standing-say {
+	all: unset;
+	flex: none;
+	padding: 5px 9px;
+	border-radius: var(--radius-chip);
+	background: var(--accent);
+	color: var(--on-accent);
+	font-size: 12.5px;
+	cursor: pointer;
+}
+.standing-say:focus-visible {
+	outline: 2px solid var(--accent-ink);
+	outline-offset: 2px;
+}
+/* In the rail's foot the whole identity lockup is the trigger; its shape and
+   seat live with the rail in rails.css. */
+/* In the directory card, a labelled row like the card's other facts. */
+.dircard-standing {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin: 0;
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+}
+
+/* A room somebody handed this tab, waiting to be answered. It sits with the
+   rooms because that is where it will become one, and wears a lock rather than
+   a hash, because it has no name anybody can enter.
+
+   Under `#roomList` so it reaches: the badge slot's own rule is written with
+   the list's id, and a rule of two classes loses to it however specific it
+   reads. Who it is from stands in that slot, so it fades under a pointer and
+   the decline mark takes its place, exactly as a room's count does. */
+#roomList .inviterow .rcount.invited {
+	font-size: 11px;
+	font-style: italic;
+}
+/* The lock on a rail row wears the directory mark exactly as the hash beside
+   it does: the shape already says this room is not like the others, so the
+   colour is free to keep carrying which directory it is on, and a reader
+   scanning the mark column reads one colour code all the way down. With one
+   directory there is no mark, and the lock falls back to amber rather than the
+   hash's quiet grey, because privacy is still worth a glance. */
+#roomList .inviterow .hash,
+#roomList .held .hash {
+	color: var(--dir-mark, var(--accent-ink));
+}
+/* Off the rail the lock has no mark column to agree with, and amber is the one
+   thing saying the room is held. */
+.topbar .held-lock,
+.conv-intro .held-lock {
+	color: var(--accent-ink);
+}

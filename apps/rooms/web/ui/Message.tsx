@@ -5,353 +5,156 @@
 // The row is memoised on the group it was given, so a message arriving in a busy
 // room repaints the newest row and leaves the rest of the log alone.
 
-import { memo, useEffect, useState } from "react";
-import { type AttachmentView, canRetry, type ChatItem, isUnsent } from "./types.ts";
-import { fmtTime, hueOf, initials, mentionsYou } from "./text.ts";
-import { AUTO_IMAGE_BYTES } from "../../lib/limits.ts";
-import { fileSize, kindOf } from "./media.ts";
-import { saveAs } from "./download.ts";
+import { memo, useState } from "react";
+import { canRetry, type ChatItem, isUnsent } from "./types.ts";
+import { type Group } from "./log_blocks.ts";
+import { Avatar } from "./Avatar.tsx";
+import { fmtTime, mentionsYou } from "./text.ts";
+
 import { RichText } from "./RichText.tsx";
-import { usePeer } from "./peer.ts";
-import { Icon } from "./icons.tsx";
+
 import { IconButton } from "./IconButton.tsx";
-import { CopyButton } from "./Copy.tsx";
-
-/** A run of lines from one speaker, as the log groups them. */
-export interface Group {
-	from: string;
-	mine: boolean;
-	items: ChatItem[];
-}
-
-/** The shape a picture or a video will take, from what its sender measured.
- * Reserving it before the bytes arrive is what keeps a log of media from
- * shoving every line below it down the page as each one loads; without a
- * declared shape the box falls back to one landscape block, which costs one
- * reflow rather than one per file. */
-type MediaLayout = "natural" | "tile-full" | "tile-half" | "tile-third";
-
-function tileClass(layout: MediaLayout): string {
-	if (layout === "natural") return "";
-	return ` image-tile image-${layout}`;
-}
-
-function shapeOf(file: AttachmentView, layout: MediaLayout): { aspectRatio: string } {
-	if (layout === "tile-third") return { aspectRatio: "1 / 1" };
-	if (layout === "tile-half") return { aspectRatio: "3 / 2" };
-	if (layout === "tile-full") return { aspectRatio: "3 / 1" };
-	return { aspectRatio: file.width && file.height ? `${file.width} / ${file.height}` : "4 / 3" };
-}
-
-/** Lay image runs into complete gallery rows without changing attachment order.
- * Each run is balanced across rows of at most three images; the six-column
- * grid divides evenly into thirds, halves, or one full-width tile. A non-image
- * attachment ends the run because pairing images across it would make the
- * visual order lie. */
-function mediaLayouts(files: readonly AttachmentView[]): readonly MediaLayout[] | undefined {
-	let imageCount = 0;
-	for (const file of files) {
-		if (kindOf(file.mime) === "image" && ++imageCount === 2) break;
-	}
-	if (imageCount < 2) return undefined;
-
-	const layouts: MediaLayout[] = files.map(() => "natural");
-	for (let start = 0; start < files.length;) {
-		if (kindOf(files[start].mime) !== "image") {
-			start++;
-			continue;
-		}
-		let end = start + 1;
-		while (end < files.length && kindOf(files[end].mime) === "image") end++;
-
-		const imageRun = end - start;
-		const rowCount = Math.ceil(imageRun / 3);
-		const smallerRow = Math.floor(imageRun / rowCount);
-		const largerRows = imageRun % rowCount;
-		let at = start;
-		for (let row = 0; row < rowCount; row++) {
-			const rowSize = smallerRow + (row < largerRows ? 1 : 0);
-			const layout: MediaLayout = rowSize === 3 ? "tile-third" : rowSize === 2 ? "tile-half" : "tile-full";
-			for (let cell = 0; cell < rowSize; cell++) layouts[at++] = layout;
-		}
-		start = end;
-	}
-	return layouts;
-}
-
-/** One accessible transfer state for compact audio/file rows. Progress is a
- * named progressbar, failure announces once as it arrives, and resting metadata
- * is ordinary text rather than a live region that speaks every chunk. */
-function TransferStatus(
-	{ file, mine, idle }: { file: AttachmentView; mine: boolean; idle: string },
-) {
-	if (file.error !== undefined) return <span className="sub" role="alert">{file.error}</span>;
-	if (file.got !== undefined) {
-		const pct = file.size > 0 ? Math.round((file.got / file.size) * 100) : 0;
-		return (
-			<span
-				className="sub"
-				role="progressbar"
-				aria-label={`${mine ? "Uploading" : "Downloading"} ${file.name}`}
-				aria-valuenow={pct}
-				aria-valuemin={0}
-				aria-valuemax={100}
-			>
-				{pct}% of {fileSize(file.size)}
-			</span>
-		);
-	}
-	return <span className="sub">{idle}</span>;
-}
-
-/** The box a picture or a video occupies before its bytes are here.
+import { useCopy } from "./Copy.tsx";
+import { MenuList, MenuRow, useMenu } from "./Menu.tsx";
+import { Attached, mediaLayouts } from "./message/attach.tsx";
+/** Everything else one message can be asked to do.
  *
- * It shimmers while they are on the way, because a rectangle that is going to
- * become a picture should say so with the space it is already holding. When
- * the bytes are waiting to be asked for, the same box carries the ask, with
- * the size on it: that is the fact the reader is deciding about. */
-function MediaPlaceholder(
-	{ file, id, convKey, layout }: {
-		file: AttachmentView;
-		id: number;
-		convKey: string;
-		layout: MediaLayout;
+ * A menu rather than a row of marks, because the list is no longer two things
+ * of one kind: copying is about the words and belongs on anybody's line, while
+ * changing and taking back are about authority and belong only on a line this
+ * tab still holds the reference for. Side by side as icons, those read as one
+ * set of controls that happens to be shorter on somebody else's message, which
+ * is the wrong story about why.
+ *
+ * It closes on Escape, on a press outside it, and on anything it does. Focus
+ * moves into it on open and returns to the mark that opened it, because a menu
+ * a keyboard cannot leave is worse than no menu at all. */
+function LineMenu(
+	{ item, onEdit, onWithdraw, onMention }: {
+		item: ChatItem;
+		onEdit: (item: ChatItem) => void;
+		onWithdraw: (id: number) => void;
+		onMention: (who: string) => void;
 	},
 ) {
-	const peer = usePeer();
-	const kind = kindOf(file.mime);
-	const loading = file.got !== undefined;
-	const pct = loading && file.size > 0 ? Math.round((file.got! / file.size) * 100) : 0;
-	const coming = loading ||
-		(kind === "image" && file.size <= AUTO_IMAGE_BYTES && file.error === undefined);
-	const failed = file.error !== undefined;
-	const verb = failed ? "Retry" : kind === "video" ? "Play" : "Show";
-	return (
-		<div
-			// Light travels across a tile whose bytes are on the way. One that
-			// failed is not waiting on anything, and a tile that goes on shimmering
-			// says the opposite of what its words say.
-			className={`attach attach-media pending${coming ? " shimmer" : ""}${tileClass(layout)}`}
-			style={shapeOf(file, layout)}
-		>
-			{coming
-				? (
-					<span
-						className="pct"
-						role="progressbar"
-						aria-label={`Loading ${file.name}`}
-						aria-valuenow={pct}
-						aria-valuemin={0}
-						aria-valuemax={100}
-					>
-						{loading ? `${pct}%` : ""}
-					</span>
-				)
-				: file.lost === true
-				// Nothing is coming, so the tile keeps the reason and drops the ask.
-				? <span className="why" role="alert">{file.error}</span>
-				: (
-					<>
-						<button
-							type="button"
-							className="act"
-							title={`${verb} ${file.name}`}
-							aria-label={`${verb} ${file.name}, ${fileSize(file.size)}`}
-							onClick={() => peer.openFile(convKey, id)}
-						>
-							<Icon name={failed ? "retry" : kind === "video" ? "play" : "image"} />
-							<span>{failed ? "Retry" : fileSize(file.size)}</span>
-						</button>
-						{failed && <span className="why" role="alert">{file.error}</span>}
-					</>
-				)}
-		</div>
-	);
-}
+	const [above, setAbove] = useState(false);
+	const [inward, setInward] = useState(false);
+	const { open, setOpen, holder, trigger } = useMenu();
+	const { copy } = useCopy(item.text);
+	// Copying is about the words; there are none on a line that was taken back.
+	const words = !item.withdrawn && item.text !== "";
+	// Changing and taking back are the reference this tab holds, not authorship.
+	const held = item.held === true && !item.withdrawn;
 
-/** A picture or a video on a line.
- *
- * Both open full-screen, because that is what a reader taps one for. The
- * difference is what the row itself shows: a picture is its own preview, while
- * a video gets a player, so a short clip can be watched where it was posted
- * without leaving the conversation. */
-function AttachedMedia(
-	{ file, id, convKey, sending, layout }: {
-		file: AttachmentView;
-		id: number;
-		convKey: string;
-		sending: boolean;
-		layout: MediaLayout;
-	},
-) {
-	const peer = usePeer();
-	const loading = file.got !== undefined;
-	const pct = loading && file.size > 0 ? Math.round((file.got! / file.size) * 100) : 0;
-
-	if (file.url === undefined) {
-		return <MediaPlaceholder file={file} id={id} convKey={convKey} layout={layout} />;
-	}
-	if (kindOf(file.mime) === "video") {
-		return (
-			<div className="attach attach-media" style={shapeOf(file, "natural")}>
-				<video src={file.url} controls playsInline preload="metadata" />
-				<IconButton
-					className="expand"
-					icon="expand"
-					label={`View ${file.name}`}
-					size="small"
-					variant="solid"
-					tone="inverse"
-					onClick={() => peer.openViewer(convKey, id)}
-				/>
-			</div>
-		);
-	}
+	if (!words && !held && item.mine) return null;
 	return (
-		<button
-			type="button"
-			className={`attach attach-media attach-image${tileClass(layout)}`}
-			style={shapeOf(file, layout)}
-			title={file.name}
-			aria-label={`View ${file.name}`}
-			onClick={() => peer.openViewer(convKey, id)}
-		>
-			<img src={file.url} alt={file.name} />
-			{sending && loading && (
-				<span
-					className="upload"
-					role="progressbar"
-					aria-label={`Uploading ${file.name}`}
-					aria-valuenow={pct}
-					aria-valuemin={0}
-					aria-valuemax={100}
+		<div className="line-acts" ref={holder}>
+			<IconButton
+				ref={trigger}
+				icon="more"
+				label={item.mine ? "More for this message" : `More for this message from ${item.from}`}
+				size="small"
+				variant="ghost"
+				aria-haspopup="menu"
+				aria-expanded={open}
+				onClick={() => {
+					const at = trigger.current?.getBoundingClientRect();
+					if (at !== undefined) {
+						const place = placeLineMenu(at, item.mine);
+						setAbove(place.above);
+						setInward(place.inward);
+					}
+					setOpen((was) => !was);
+				}}
+			/>
+			{open && (
+				<MenuList
+					className={"line-menu" + (above ? " above" : "") + (inward ? " inward" : "")}
 				>
-					<span className="bar" style={{ width: `${pct}%` }} />
-				</span>
-			)}
-		</button>
-	);
-}
-
-/** Sound on a line. There is nothing to open full-screen — a player is the
- * whole of what a listener wants — so this fetches on the press that starts
- * it and then plays in place. */
-function AttachedAudio(
-	{ file, id, convKey, mine }: { file: AttachmentView; id: number; convKey: string; mine: boolean },
-) {
-	const peer = usePeer();
-	const loading = file.got !== undefined;
-	if (file.url !== undefined) {
-		return (
-			<div className="attach attach-audio">
-				<audio src={file.url} controls preload="metadata" />
-				<span className="sub">{file.name}</span>
-			</div>
-		);
-	}
-	return (
-		<div className="attach attach-audio pending">
-			{file.lost !== true && (
-				<IconButton
-					icon={file.error !== undefined ? "retry" : "play"}
-					label={file.error !== undefined ? `Retry ${file.name}` : `Play ${file.name}`}
-					disabled={loading}
-					onClick={() => peer.openFile(convKey, id)}
-				/>
-			)}
-			<TransferStatus file={file} mine={mine} idle={`${file.name} · ${fileSize(file.size)}`} />
-		</div>
-	);
-}
-
-/** Everything else: a row naming the file, and one control.
- *
- * That control is Download, and it does the whole job in one press — fetch the
- * bytes from the room, then hand them to the browser to save. Two presses, one
- * to fetch and one to save, is a seam from the implementation showing through:
- * the reader asked for the file, not for its transfer. */
-function AttachedFile(
-	{ file, id, convKey, mine }: { file: AttachmentView; id: number; convKey: string; mine: boolean },
-) {
-	const peer = usePeer();
-	const [wanted, setWanted] = useState(false);
-	const loading = file.got !== undefined;
-
-	// The press that asked for it is what saves it, once the bytes land. This
-	// effect is the seam between an answer that arrives later and a control
-	// pressed earlier; it fires once, because it clears the flag it waits on.
-	useEffect(() => {
-		if (!wanted || file.url === undefined) return;
-		setWanted(false);
-		saveAs(file.url, file.name);
-	}, [wanted, file.url, file.name]);
-
-	return (
-		<div className="attach attach-file">
-			<span className="glyph" aria-hidden="true">
-				<Icon name="file" />
-			</span>
-			<span className="meta">
-				<span className="name" title={file.name}>{file.name}</span>
-				<TransferStatus file={file} mine={mine} idle={fileSize(file.size)} />
-			</span>
-			{file.lost !== true && (
-				<IconButton
-					icon={file.error !== undefined ? "retry" : "download"}
-					label={file.error !== undefined ? `Retry ${file.name}` : `Download ${file.name}`}
-					variant="outline"
-					tone={mine ? "on-accent" : "neutral"}
-					disabled={loading}
-					onClick={() => {
-						// Already here: save it. Not here yet: ask for it, and let
-						// the effect above save it when it lands. Doing both would
-						// save a file that was already fetched twice.
-						if (file.url !== undefined) {
-							saveAs(file.url, file.name);
-							return;
-						}
-						setWanted(true);
-						peer.openFile(convKey, id);
-					}}
-				/>
+					{words && (
+						<MenuRow
+							icon="copy"
+							className="line-menu-row"
+							first
+							onPick={() => {
+								setOpen(false);
+								void copy(holder.current);
+							}}
+						>
+							Copy text
+						</MenuRow>
+					)}
+					{!item.mine && (
+						<MenuRow
+							icon="mention"
+							className="line-menu-row"
+							first={!words}
+							onPick={() => {
+								setOpen(false);
+								onMention(item.from);
+							}}
+						>
+							Mention {item.from}
+						</MenuRow>
+					)}
+					{held && (
+						<MenuRow
+							icon="pencil"
+							className="line-menu-row"
+							onPick={() => {
+								setOpen(false);
+								onEdit(item);
+							}}
+						>
+							Edit
+						</MenuRow>
+					)}
+					{held && (
+						<MenuRow
+							icon="close"
+							className="line-menu-row danger"
+							onPick={() => {
+								setOpen(false);
+								onWithdraw(item.id);
+							}}
+						>
+							Delete
+						</MenuRow>
+					)}
+				</MenuList>
 			)}
 		</div>
 	);
 }
 
-/** One file in a message, drawn the way its kind is meant to be met. Its own id
- * keeps fetch progress and controls independent from every sibling in the same
- * bubble. */
-function Attached(
-	{ file, convKey, mine, sending, layout }: {
-		file: AttachmentView;
-		convKey: string;
-		mine: boolean;
-		sending: boolean;
-		layout: MediaLayout;
-	},
-) {
-	switch (kindOf(file.mime)) {
-		case "image":
-		case "video":
-			return (
-				<AttachedMedia
-					file={file}
-					id={file.id}
-					convKey={convKey}
-					sending={sending}
-					layout={layout}
-				/>
-			);
-		case "audio":
-			return <AttachedAudio file={file} id={file.id} convKey={convKey} mine={mine} />;
-		default:
-			return <AttachedFile file={file} id={file.id} convKey={convKey} mine={mine} />;
-	}
+/** How much room a menu needs under the mark that opens it before it would
+ * rather open upward. Three rows and their padding, rounded up. */
+const MENU_ROOM_PX = 130;
+/** How much room it needs beside the mark before it would rather open over the
+ * bubble. A wide picture takes nearly the column, so the default — off the
+ * bubble, away from the words — runs off the screen. */
+const MENU_WIDTH_PX = 168;
+
+function placeLineMenu(at: DOMRect, mine: boolean): { above: boolean; inward: boolean } {
+	// Below the mark, unless it would open over the composer. Measured against
+	// the composer's own top rather than the log's foot: the log runs underneath
+	// the composer to the bottom of the window, so a menu asking the log whether
+	// it had room was told yes every time and opened across the field a reader
+	// types in.
+	const floor = document.querySelector(".composer")?.getBoundingClientRect().top ??
+		globalThis.innerHeight;
+	const view = globalThis.visualViewport;
+	const left = view?.offsetLeft ?? 0;
+	const right = left + (view?.width ?? globalThis.innerWidth);
+	const pad = 8;
+	// Own lines grow left of the mark; everyone else's grow right. Flip toward
+	// the bubble when that growth would leave the viewport.
+	const inward = mine ? at.right - MENU_WIDTH_PX < left + pad : at.left + MENU_WIDTH_PX > right - pad;
+	return { above: at.bottom + MENU_ROOM_PX > floor, inward };
 }
 
 function Bubble(
-	{ item, nick, convKey, onRetry, onStop, onEdit, onWithdraw }: {
+	{ item, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, changing }: {
 		item: ChatItem;
 		nick: string;
 		convKey: string;
@@ -359,6 +162,9 @@ function Bubble(
 		onStop: (id: number) => void;
 		onEdit: (item: ChatItem) => void;
 		onWithdraw: (id: number) => void;
+		onMention: (who: string) => void;
+		/** Whether this is the line the composer is part way through rewriting. */
+		changing: boolean;
 	},
 ) {
 	const highlight = !item.mine && mentionsYou(item.text, nick);
@@ -386,7 +192,8 @@ function Bubble(
 		</>
 	);
 	const className = "bubble" + (highlight ? " hl" : "") +
-		(item.state ? " " + item.state : "") + (item.withdrawn ? " withdrawn" : "");
+		(item.state ? " " + item.state : "") + (item.withdrawn ? " withdrawn" : "") +
+		(changing ? " changing" : "");
 	return (
 		<div className={className} title={item.state === "sending" ? "Sending…" : undefined}>
 			{
@@ -402,33 +209,17 @@ function Bubble(
 			    place stays and says what happened to it. */
 			}
 			{item.withdrawn && <span className="withdrawn-said">Message withdrawn</span>}
+			<LineMenu item={item} onEdit={onEdit} onWithdraw={onWithdraw} onMention={onMention} />
+			{body}
 			{
-				/* Changed since it was said. Small and after the words, because it
-			    qualifies them rather than being one of them — and worth saying at
-			    all because a reader who answered what this used to say should be
-			    able to see that it moved under them. */
+				/* Changed since it was said: after the words, because it qualifies
+			    them rather than being one of them. Worth saying at all because a
+			    reader who answered what this used to say should be able to see that
+			    it moved under them — and worth saying *here* because it was being
+			    drawn before the line it is about, which reads as a label on the
+			    message rather than a note at the end of it. */
 			}
 			{item.edited && !item.withdrawn && <span className="edited-said">edited</span>}
-			{item.held === true && !item.withdrawn && (
-				<div className="line-acts">
-					<IconButton
-						icon="pencil"
-						label="Change this message"
-						size="small"
-						variant="ghost"
-						onClick={() => onEdit(item)}
-					/>
-					<IconButton
-						icon="close"
-						label="Withdraw this message"
-						size="small"
-						variant="ghost"
-						tone="danger"
-						onClick={() => onWithdraw(item.id)}
-					/>
-				</div>
-			)}
-			{body}
 			{
 				/* A send with files in it is the one a reader may need to take back:
 			    the bubble is already posted and cannot be un-said, but a large file
@@ -480,27 +271,6 @@ function Bubble(
 	);
 }
 
-// Copy the message, or drop an @mention of the author into the composer.
-function Acts({ group, onMention }: { group: Group; onMention: (who: string) => void }) {
-	return (
-		<div className="acts">
-			<CopyButton
-				text={group.items.map((item) => item.text).join("\n")}
-				label="Copy message"
-				size="small"
-				variant="ghost"
-			/>
-			<IconButton
-				icon="mention"
-				label={"Mention " + group.from}
-				size="small"
-				variant="ghost"
-				onClick={() => onMention(group.from)}
-			/>
-		</div>
-	);
-}
-
 // A group is rebuilt on every pass over the history, so identity says nothing.
 // What matters is whether it holds the same lines, and a line is only replaced
 // when it actually changes — so comparing the members element by element lets an
@@ -514,7 +284,7 @@ function sameGroup(a: Group, b: Group): boolean {
 }
 
 export const MessageGroup = memo(function MessageGroup(
-	{ group, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention }: {
+	{ group, nick, convKey, onRetry, onStop, onEdit, onWithdraw, onMention, changing }: {
 		group: Group;
 		nick: string;
 		/** Which conversation these lines are in, so a file's fetch names the
@@ -525,6 +295,8 @@ export const MessageGroup = memo(function MessageGroup(
 		onEdit: (item: ChatItem) => void;
 		onWithdraw: (id: number) => void;
 		onMention: (who: string) => void;
+		/** The line being rewritten, so the one on screen can say it is the one. */
+		changing: number | undefined;
 	},
 ) {
 	const last = group.items[group.items.length - 1];
@@ -544,6 +316,8 @@ export const MessageGroup = memo(function MessageGroup(
 					onStop={onStop}
 					onEdit={onEdit}
 					onWithdraw={onWithdraw}
+					onMention={onMention}
+					changing={item.id === changing}
 				/>
 			))}
 			<div className="time" aria-hidden="true">{fmtTime(new Date(last.at))}</div>
@@ -553,20 +327,14 @@ export const MessageGroup = memo(function MessageGroup(
 		<div className={"row " + (group.mine ? "mine" : "them")} data-from={group.from}>
 			{!group.mine && (
 				// Purely a coloured initial; the author is already spoken in the `who` line.
-				<div
-					className="avatar"
-					aria-hidden="true"
-					style={{ background: hueOf(group.from) }}
-				>
-					{initials(group.from)}
-				</div>
+				<Avatar name={group.from} />
 			)}
 			{stack}
-			<Acts group={group} onMention={onMention} />
 		</div>
 	);
 }, (prev, next) =>
 	prev.nick === next.nick &&
+	prev.changing === next.changing &&
 	prev.convKey === next.convKey &&
 	prev.onRetry === next.onRetry &&
 	prev.onStop === next.onStop &&

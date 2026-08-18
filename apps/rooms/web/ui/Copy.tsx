@@ -9,18 +9,19 @@
 // `aria-label` that changes under a pointer press is announced by some screen
 // readers and not others.
 //
-// The refusal is the other reason this is one module. `navigator.clipboard` is
-// absent outside a secure context and a page may be denied the clipboard
-// outright, and both arrive here rather than at each caller, so no site can
-// half-handle them and leave a press unanswered.
+// A write the browser refused has nothing on the control left to say, and that
+// is a toast — above the page, including above a modal, which is where a
+// locator is copied from.
 //
-// Two shapes take that behaviour. `CopyButton` is a control beside the thing it
-// copies, for a row of acts over a message. `CopyField` is the thing itself,
-// where the page is showing text purely so a reader can take it away.
+// The write itself lives in `clipboard.ts`. `navigator.clipboard` is absent
+// outside a secure context, and a page may be denied it outright; both arrive
+// here rather than at each caller, so no site can half-handle them and leave a
+// press unanswered.
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons.tsx";
 import { IconButton, type IconButtonProps } from "./IconButton.tsx";
+import { writeClipboard } from "./clipboard.ts";
 import { usePeer } from "./peer.ts";
 
 /** How long the reply stands. Long enough to read after the eye comes back to
@@ -31,19 +32,28 @@ const replyMs = 1600;
 /** The act itself: write, answer, and go back to offering.
  *
  * The timer can outlive the control that set it, because closing the settings
- * dialog or repainting the log unmounts one mid-reply. */
-function useCopy(text: string | null) {
+ * dialog or repainting the log unmounts one mid-reply. `from` is the control
+ * that was pressed, so the write can take a selection inside a modal rather
+ * than on the inert document underneath it. */
+export function useCopy(text: string | null) {
 	const peer = usePeer();
 	const [copied, setCopied] = useState(false);
 	const back = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	useEffect(() => () => clearTimeout(back.current), []);
 
-	const copy = async () => {
+	// Structural rather than `Event`, because a React handler passes its own
+	// synthetic event, which carries `currentTarget` without being a DOM Event.
+	const copy = async (from?: { currentTarget?: unknown } | Element | null) => {
 		if (text === null) return;
+		const root = from instanceof Element
+			? from
+			: from != null && from.currentTarget instanceof Element
+			? from.currentTarget
+			: document.body;
 		try {
-			await navigator.clipboard.writeText(text);
+			await writeClipboard(text, root);
 		} catch {
-			peer.banner({ kind: "error", text: "Your browser would not let the page copy that." });
+			peer.toast("failure", "Your browser would not let the page copy that.");
 			return;
 		}
 		clearTimeout(back.current);
@@ -123,7 +133,7 @@ export function CopyField({ text, label, id }: CopyFieldProps) {
 			disabled={text === null}
 			onClick={copy}
 		>
-			<span id={id} className="copy-field-text">{text ?? "…"}</span>
+			<span id={id} className="copy-field-text" translate="no">{text ?? "…"}</span>
 			<span className="copy-field-mark" aria-hidden="true">
 				<Icon name={copied ? "check" : "copy"} size={15} />
 			</span>

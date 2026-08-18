@@ -138,8 +138,9 @@ amendment.
   fulfill and break, per-profile arity, refusals),
   `test/engine/resolver_export_test.zig` (the probe on both profiles, the
   ordinary-export negative, resolve-once, and the next-profile settlement
-  negative), `test/driver/core_host_test.zig` (the host vow), and
-  `test/driver/relayed_promise_test.zig` (three hosts end to end).
+  negative), and `test/driver/core_host/` (the host vow plus
+  Host-identity relay across three sessions, with nested object and promise
+  projection under both codecs).
 
 ## Notes
 

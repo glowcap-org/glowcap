@@ -13,7 +13,7 @@
 
 import { Rectangle } from "pixi.js";
 import { bezierAt, type SessionCurve } from "../engine/session-geometry.ts";
-import { CURVE_STROKE_SAMPLES } from "./draw-helpers.ts";
+import { CURVE_STROKE_SAMPLES } from "./edge-stroke.ts";
 
 export type CurveHitArea = {
   contains(x: number, y: number): boolean;

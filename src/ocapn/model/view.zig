@@ -26,6 +26,15 @@
 const std = @import("std");
 const model = @import("mod.zig");
 const records = @import("view_records.zig");
+const body_types = @import("view_body.zig").Types(
+    Reference,
+    Resolution,
+    Args,
+    PositionList,
+    PeerLocator,
+    records.StartSession,
+    Error,
+);
 
 /// What you get when reading a borrowed element out of wire bytes goes wrong:
 /// a codec-backed list met malformed wire bytes, or `at` was asked for an index
@@ -282,6 +291,10 @@ pub const PromiseRef = struct {
 pub const Reference = union(enum) {
     near: model.NearRef,
     far: model.FarRef,
+    /// Borrowed projection of a node-local route. Codecs never decode this arm;
+    /// it exists so copying an application-owned value before Node lowering
+    /// preserves the explicit namespace without inventing a wire position.
+    routed: model.RoutedRef,
     promise: PromiseRef,
     sturdy: SturdyRef,
     broken: BreakReason,
@@ -289,7 +302,7 @@ pub const Reference = union(enum) {
     /// The raw wire position this reference names: a near export's
     /// `export_position` or a far import's `import_position`, collapsed to the
     /// one `u64` integer space they share on the wire. Null for a reference that
-    /// names no position (promise / sturdy / broken). Prefer `exportPosition`
+    /// names no wire position (routed / promise / sturdy / broken). Prefer `exportPosition`
     /// when you mean "the local export this names."
     pub fn position(self: Reference) ?u64 {
         return switch (self) {
@@ -316,6 +329,7 @@ pub const Reference = union(enum) {
         return switch (owned.*) {
             .near => |near| .{ .near = near },
             .far => |far| .{ .far = far },
+            .routed => |routed| .{ .routed = routed },
             .promise => |promise| .{ .promise = .{
                 .answer_position = promise.answer_position,
                 .path = PipelinePath.fromOwnedSlice(promise.path.ops),
@@ -336,6 +350,7 @@ pub const Reference = union(enum) {
         return switch (self) {
             .near => |near| .{ .near = near },
             .far => |far| .{ .far = far },
+            .routed => |routed| .{ .routed = routed },
             .promise => |promise| .{ .promise = .{
                 .answer_position = promise.answer_position,
                 .path = try pipelinePathToOwned(promise.path, allocator, depth),
@@ -492,212 +507,14 @@ pub const Handoff = records.Handoff;
 
 // ── Per-variant message views ────────────────────────────────────────────────
 
-pub const Deliver = struct {
-    target: Reference,
-    args: Args,
-    answer: ?model.AnswerPosition = null,
-    resolve_me_desc: ?Reference = null,
-};
-
-pub const Resolve = struct {
-    answer: model.AnswerPosition,
-    resolution: Resolution,
-};
-
-pub const Listen = struct {
-    target: Reference,
-    listener: Reference,
-    mode: model.ListenMode,
-};
-
-pub const Get = struct {
-    receiver: Reference,
-    field: []const u8,
-    answer: model.AnswerPosition,
-};
-
-pub const Index = struct {
-    receiver: Reference,
-    index: model.Integer,
-    answer: model.AnswerPosition,
-};
-
-pub const Untag = struct {
-    receiver: Reference,
-    tag: []const u8,
-    answer: model.AnswerPosition,
-};
-
-pub const GcExport = struct {
-    positions: PositionList,
-    deltas: PositionList,
-};
-
-pub const GcAnswer = struct {
-    positions: PositionList,
-};
-
-pub const Abort = struct {
-    kind: model.AbortKind,
-    message: []const u8,
-};
-
-pub const StartSession = records.StartSession;
-
-// ── Body sum type ────────────────────────────────────────────────────────────
-
-/// Borrowed codec-neutral body of a CapTP `model.Message`.
-///
-/// Produced by a codec's `decodeBody` (the wire path) or by `fromOwned` (the
-/// owned-fallback path). Materialize with `toOwned`.
-pub const Body = union(enum) {
-    deliver: Deliver,
-    resolve: Resolve,
-    gc_export: GcExport,
-    gc_answer: GcAnswer,
-    start_session: StartSession,
-    abort: Abort,
-    listen: Listen,
-    get: Get,
-    index: Index,
-    untag: Untag,
-
-    /// Project a borrowed body from an owned `model.Message`. Infallible; the
-    /// borrowed fields point into `owned` for its lifetime.
-    pub fn fromOwned(owned: *const model.Message) Body {
-        return switch (owned.*) {
-            .deliver => |*deliver| .{ .deliver = .{
-                .target = Reference.fromOwned(&deliver.target),
-                .args = Args.fromOwnedSlice(deliver.args),
-                .answer = deliver.answer,
-                .resolve_me_desc = if (deliver.resolve_me_desc) |*r| Reference.fromOwned(r) else null,
-            } },
-            .resolve => |*resolve| .{ .resolve = .{
-                .answer = resolve.answer,
-                .resolution = Resolution.fromOwned(&resolve.resolution),
-            } },
-            .gc_export => |*gc| .{ .gc_export = .{
-                .positions = PositionList.fromOwnedSlice(gc.positions),
-                .deltas = PositionList.fromOwnedSlice(gc.deltas),
-            } },
-            .gc_answer => |*gc| .{ .gc_answer = .{
-                .positions = PositionList.fromOwnedSlice(gc.positions),
-            } },
-            .start_session => |*ss| .{ .start_session = .{
-                .captp_version = ss.captp_version,
-                .session_pubkey = ss.session_pubkey.bytes,
-                .acceptable_location = PeerLocator.fromOwned(&ss.acceptable_location),
-                .acceptable_location_sig = .{ .raw = ss.acceptable_location_sig.bytes },
-            } },
-            .abort => |*abort| .{ .abort = .{ .kind = abort.kind, .message = abort.message } },
-            .listen => |*listen| .{ .listen = .{
-                .target = Reference.fromOwned(&listen.target),
-                .listener = Reference.fromOwned(&listen.listener),
-                .mode = listen.mode,
-            } },
-            .get => |*get| .{ .get = .{
-                .receiver = Reference.fromOwned(&get.receiver),
-                .field = get.field,
-                .answer = get.answer,
-            } },
-            .index => |*index| .{ .index = .{
-                .receiver = Reference.fromOwned(&index.receiver),
-                .index = index.index,
-                .answer = index.answer,
-            } },
-            .untag => |*untag| .{ .untag = .{
-                .receiver = Reference.fromOwned(&untag.receiver),
-                .tag = untag.tag,
-                .answer = untag.answer,
-            } },
-        };
-    }
-
-    /// Materialize the owned `model.Message`. The only allocating path;
-    /// builds the full owned tree with fail-loud cleanup on partial failure.
-    pub fn toOwned(self: Body, allocator: std.mem.Allocator) Error!model.Message {
-        return switch (self) {
-            .deliver => |deliver| try deliverToOwned(allocator, deliver),
-            .resolve => |resolve| .{ .resolve = .{
-                .answer = resolve.answer,
-                .resolution = try resolve.resolution.toOwned(allocator),
-            } },
-            .gc_export => |gc| blk: {
-                const positions = try gc.positions.toOwnedSlice(allocator);
-                errdefer allocator.free(positions);
-                const deltas = try gc.deltas.toOwnedSlice(allocator);
-                break :blk .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
-            },
-            .gc_answer => |gc| .{ .gc_answer = .{ .positions = try gc.positions.toOwnedSlice(allocator) } },
-            .start_session => |ss| blk: {
-                const session_pubkey = try allocator.dupe(u8, ss.session_pubkey);
-                errdefer allocator.free(session_pubkey);
-                const acceptable_location = try ss.acceptable_location.toOwned(allocator);
-                errdefer model.freePeerLocator(allocator, acceptable_location);
-                const sig = try ss.acceptable_location_sig.toOwned(allocator);
-                break :blk .{ .start_session = .{
-                    .captp_version = ss.captp_version,
-                    .session_pubkey = .{ .bytes = session_pubkey },
-                    .acceptable_location = acceptable_location,
-                    .acceptable_location_sig = .{ .bytes = sig },
-                } };
-            },
-            .abort => |abort| .{ .abort = .{ .kind = abort.kind, .message = try allocator.dupe(u8, abort.message) } },
-            .listen => |listen| blk: {
-                const target = try listen.target.toOwned(allocator);
-                errdefer model.freeReference(allocator, target);
-                const listener = try listen.listener.toOwned(allocator);
-                break :blk .{ .listen = .{ .target = target, .listener = listener, .mode = listen.mode } };
-            },
-            .get => |get| blk: {
-                const receiver = try get.receiver.toOwned(allocator);
-                errdefer model.freeReference(allocator, receiver);
-                const field = try allocator.dupe(u8, get.field);
-                break :blk .{ .get = .{ .receiver = receiver, .field = field, .answer = get.answer } };
-            },
-            .index => |index| blk: {
-                const receiver = try index.receiver.toOwned(allocator);
-                errdefer model.freeReference(allocator, receiver);
-                const owned_index: model.Integer = switch (index.index) {
-                    .integer => |value| .{ .integer = value },
-                    .big_integer => |big| .{ .big_integer = .{
-                        .negative = big.negative,
-                        .digits = try allocator.dupe(u8, big.digits),
-                    } },
-                };
-                break :blk .{ .index = .{
-                    .receiver = receiver,
-                    .index = owned_index,
-                    .answer = index.answer,
-                } };
-            },
-            .untag => |untag| blk: {
-                const receiver = try untag.receiver.toOwned(allocator);
-                errdefer model.freeReference(allocator, receiver);
-                const tag = try allocator.dupe(u8, untag.tag);
-                break :blk .{ .untag = .{ .receiver = receiver, .tag = tag, .answer = untag.answer } };
-            },
-        };
-    }
-};
-
-comptime {
-    // The borrowed body mirrors `model.Message` arm-for-arm. The codecs' kind
-    // dispatch (`syrup.shared.messageOp`) and `eventKindFromBody` both lean on
-    // that one-to-one shape, so bind it at compile time.
-    model.assertMirrorsMessageKinds(Body);
-}
-
-fn deliverToOwned(allocator: std.mem.Allocator, deliver: Deliver) Error!model.Message {
-    const target = try deliver.target.toOwned(allocator);
-    errdefer model.freeReference(allocator, target);
-    const resolve_me_desc = if (deliver.resolve_me_desc) |r| try r.toOwned(allocator) else null;
-    errdefer if (resolve_me_desc) |r| model.freeReference(allocator, r);
-    const args = try deliver.args.toOwnedSlice(allocator);
-    return .{ .deliver = .{
-        .target = target,
-        .args = args,
-        .answer = deliver.answer,
-        .resolve_me_desc = resolve_me_desc,
-    } };
-}
+pub const Deliver = body_types.Deliver;
+pub const Resolve = body_types.Resolve;
+pub const Listen = body_types.Listen;
+pub const Get = body_types.Get;
+pub const Index = body_types.Index;
+pub const Untag = body_types.Untag;
+pub const GcExport = body_types.GcExport;
+pub const GcAnswer = body_types.GcAnswer;
+pub const Abort = body_types.Abort;
+pub const StartSession = body_types.StartSession;
+pub const Body = body_types.Body;

@@ -72,11 +72,11 @@
     "indentWidth": 2,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["src/", "browser/", "vite.config.ts", "deno.json"],
+    "include": ["src/", "browser/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts", "deno.json"],
     "exclude": ["dist/", "node_modules/", ".pixi/"]
   },
   "lint": {
-    "include": ["src/", "browser/", "vite.config.ts"],
+    "include": ["src/", "browser/", "vite.config.ts", "vite-dev-listen.ts", "vite-dev-listen.test.ts"],
     "exclude": ["dist/", "node_modules/", ".pixi/"],
     "rules": {
       // `react` alongside the baseline, because this is a React app
@@ -89,7 +89,7 @@
     }
   },
   "test": {
-    "include": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+    "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "vite-dev-listen.test.ts"]
   },
   "exclude": ["dist/", "node_modules/", ".pixi/"]
 }

@@ -19,12 +19,12 @@
 import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
-import { inboxOfferer } from "../lib/dm_inbox.ts";
+import { inboxPublisher } from "../lib/dm_inbox.ts";
 import { serveDirectory } from "../server/main.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
-import { waitUntil } from "../lib/dm_handoff.ts";
+import { waitUntil } from "../demos/dm_handoff.ts";
 import { DM } from "../lib/protocol.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
 	const bobDir = await Directory.connect(roomLocator, (locator) => dial(locator, bobRuntime));
 	const bobRoomRef = await enterOrOpen(bobDir, ROOM);
 	await Room.subscribe(bobDir.session, bobRoomRef, "bob");
-	const bobOfferer = inboxOfferer({ host: bobHost, dir: () => bobDir, behaviorFor: dmFor });
+	const bobOfferer = inboxPublisher(bobHost).offerer({ dir: () => bobDir, behaviorFor: dmFor });
 	await bobDir.register("bob", bobLocator, bobOfferer.offer);
 
 	// Carol never listens. She registers to claim a name, then redeems an
@@ -113,8 +113,9 @@ async function main(): Promise<void> {
 	const secondReplies: string[] = [];
 	const secondLine = await DirectMessage.open(carol, "bob", (text) => {
 		secondReplies.push(text);
+		return null;
 	});
-	firstLine.close();
+	await firstLine.close();
 	await secondLine.say("after the sibling closed");
 	await waitUntil(
 		() => bobInbox.includes("after the sibling closed"),
@@ -128,8 +129,8 @@ async function main(): Promise<void> {
 	);
 	// Closing the last line is what hangs up, and closing a spent line again is
 	// not a second decrement against whoever holds the connection next.
-	secondLine.close();
-	secondLine.close();
+	await secondLine.close();
+	await secondLine.close();
 
 	console.log("rooms-dm-reredeem test OK:");
 	console.log("  • sendRedeeming resolves the direct exporter from the reply's route");

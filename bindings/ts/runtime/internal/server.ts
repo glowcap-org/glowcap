@@ -2,9 +2,12 @@
 // modules inherit this lifecycle and add only metadata they alone understand.
 
 import { DriverListener, DriverLoop } from "../driver_loop.ts";
+import { PancakeError } from "../errors.ts";
 import { Host } from "../host.ts";
 import { formatLocatorUri, type Locator } from "../locator.ts";
 import { Session } from "../session.ts";
+import type { Codec } from "../value.ts";
+import { INVALID_ARGUMENT } from "@pancake/abi";
 
 /** Shared lifecycle for a driver-owned CapTP server. */
 export class DriverServer {
@@ -39,6 +42,16 @@ export class DriverServer {
 
 	get host(): Host {
 		return this.driverListener.host;
+	}
+
+	/** Select this listener's locator as the Host's acceptable location.
+	 *
+	 * A Host may retain several live listeners, but exactly one location is
+	 * signed into new sessions. Closing the selected listener deliberately does
+	 * not guess which sibling should replace it; the process owner chooses by
+	 * calling this method on the remaining server. */
+	select(): void {
+		this.driverListener.select();
 	}
 
 	async *[Symbol.asyncIterator](): AsyncGenerator<Session> {
@@ -87,4 +100,45 @@ export class DriverServer {
 	async [Symbol.asyncDispose](): Promise<void> {
 		await this.close();
 	}
+}
+
+/** The refusal every native listener surface shares when this runtime cannot
+ * park the loop between steps. */
+export function listenerLoopUnavailable(): PancakeError {
+	return new PancakeError(
+		INVALID_ARGUMENT,
+		"native driver listeners require a runtime that can park the loop",
+	);
+}
+
+/** Resolve the loop a native listener binds through: the supplied Host's own
+ * loop (adopting the Host on first use, so its identity, publications, and
+ * handoff router carry), or a fresh owned loop minted with `seed`/`codec`.
+ * `ownsLoop` says whether closing the listener's server should close the
+ * loop with it. Shared by every provider package's `listen`, so they cannot
+ * disagree about how a Host meets the driver. */
+export function prepareListenerLoop(
+	host: Host | undefined,
+	seed: Uint8Array | undefined,
+	codec: Codec | undefined,
+): { loop: DriverLoop; ownsLoop: boolean } {
+	if (host != null) {
+		if (codec != null && codec !== host.codec) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				`codec "${codec}" conflicts with the host's "${host.codec}"; mint the host with it instead`,
+			);
+		}
+		if (seed != null) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"seed and host are alternative identity sources",
+			);
+		}
+		return {
+			loop: host.driverLoop != null ? host.driverLoop as DriverLoop : DriverLoop.takeHost(host),
+			ownsLoop: false,
+		};
+	}
+	return { loop: DriverLoop.open({ seed, codec }), ownsLoop: true };
 }

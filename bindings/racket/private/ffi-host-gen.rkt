@@ -36,6 +36,7 @@
                      pancake_host_vow_index*
                      pancake_host_vow_untag*
                      pancake_host_vow_get*
+                     pancake_host_turn_session*
                      pancake_host_turn_defer*
                      pancake_host_turn_spawn*
                      pancake_host_session_published_ref*))
@@ -165,6 +166,10 @@
   (_fun _pointer _uint64 _pointer _size _pointer -> _int32)
   #:c-id pancake_host_vow_get)
 (define pancake_host_vow_get (wrap-out1 pancake_host_vow_get* _uint64 0))
+(define-host pancake_host_turn_session*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id pancake_host_turn_session)
+(define pancake_host_turn_session (wrap-out1 pancake_host_turn_session* _pointer #f))
 (define-host pancake_host_turn_forward
   (_fun _pointer (_or-null _PancakeReference-pointer) _pointer _size _pointer _size (_or-null _PancakeArgument-pointer) -> _int32))
 (define-host pancake_host_turn_defer*

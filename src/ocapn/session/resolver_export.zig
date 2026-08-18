@@ -138,7 +138,7 @@ pub fn answerForResolverExport(self: *const Session, resolver_export: model.Expo
     const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return null;
     return switch (purpose) {
         .application_answer => |answer| answer,
-        .node_settling, .retired, .shortening_pending, .shortening_complete => null,
+        .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => null,
     };
 }
 

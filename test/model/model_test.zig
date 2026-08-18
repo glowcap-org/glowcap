@@ -115,20 +115,22 @@ test "abort kinds round-trip every variant through their wire names" {
     }
 }
 
-test "reserved-band sums classify exactly at their base (ADR-0091)" {
-    // `classify` is the one seam where an integer becomes a name, so the band
-    // boundary lives here and nowhere else. Both spaces share the contract:
-    // strictly below the base is the partner's, at and above is this node's.
-    try std.testing.expect(model.ImportName.classify(model.REDEEMED_TOKEN_BASE - 1) == .wire);
-    try std.testing.expect(model.ImportName.classify(model.REDEEMED_TOKEN_BASE) == .token);
-    try std.testing.expect(model.AnswerName.classify(model.VIRTUAL_INBOUND_ANSWER_BASE - 1) == .wire);
-    try std.testing.expect(model.AnswerName.classify(model.VIRTUAL_INBOUND_ANSWER_BASE) == .virtual);
-    // The named crossings preserve the integer: a token lowered to the wire and
-    // a virtual answer seated in the answer table keep their identity.
-    const token = model.ImportName.classify(model.REDEEMED_TOKEN_BASE).token;
-    try std.testing.expectEqual(model.REDEEMED_TOKEN_BASE, token.wirePosition().int());
-    const virtual = model.AnswerName.classify(model.VIRTUAL_INBOUND_ANSWER_BASE).virtual;
-    try std.testing.expectEqual(model.VIRTUAL_INBOUND_ANSWER_BASE, virtual.answerPosition().int());
+test "capability routes and wire imports are disjoint by type (ADR-0091)" {
+    const wire = model.ImportPosition.from(std.math.maxInt(u64));
+    const route_id = model.CapabilityRouteId.from(std.math.maxInt(u64));
+    try std.testing.expectEqual(wire.int(), route_id.int());
+    const wire_ref: model.Reference = .{ .far = .{ .import_position = wire } };
+    const routed_ref: model.Reference = .{ .routed = .{ .id = route_id } };
+    try std.testing.expect(wire_ref == .far);
+    try std.testing.expect(routed_ref == .routed);
+}
+
+test "virtual and wire answers are disjoint by type" {
+    const wire = model.AnswerName.fromWire(.from(1));
+    const virtual = model.AnswerName.fromVirtual(.from(1));
+    try std.testing.expect(wire == .wire);
+    try std.testing.expect(virtual == .virtual);
+    try std.testing.expectEqual(wire.wire.int(), virtual.virtual.int());
 }
 
 test "near and far ref constructors set the wire-tag kind discriminant" {

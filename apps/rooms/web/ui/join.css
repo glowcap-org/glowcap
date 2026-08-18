@@ -1,0 +1,212 @@
+/* ── Join card ────────────────────────────────────────────────────────── */
+/* A sibling of the message log, not a child of it: the log is repainted by
+   clearing its children, and a join card living inside would be destroyed the
+   first time a conversation rendered — leaving nothing to show a rejected nick.
+   It covers the log while it is up, so it carries the paper background. */
+/* The card sits in the middle of the room it stands in for, and the room is
+   what it is: this screen is the conversation area until there is a
+   conversation, not a sheet laid over one.
+
+   Centred by auto margins rather than by the box's own alignment, because the
+   two behave differently exactly when it matters. Alignment centres a card that
+   is taller than the screen too, which pushes its top edge above the scrollable
+   area, where nothing can reach it; an auto margin resolves to zero the moment
+   there is no free space to share, so a card that outgrows the screen starts at
+   the top and scrolls. Centred when it fits, reachable when it does not, from
+   one rule. */
+.join-wrap {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	overflow-y: auto;
+	background: var(--paper);
+	display: flex;
+	justify-content: center;
+	padding: 24px;
+}
+/* Cards share one top stripe: accent into teal. A foreign directory recolors
+   the teal stop — on the join card and on the card about that directory —
+   and accent stays put, so the orange end does not move. Home and Settings
+   keep teal, so those two agree. */
+.join,
+.modal-card {
+	--card-stripe-to: var(--teal);
+	--card-stripe: linear-gradient(90deg in oklch, var(--accent), var(--card-stripe-to)) 0 0 / 100% 4px no-repeat;
+}
+.join {
+	margin: auto;
+	width: min(390px, 100%);
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+	/* One gap separates everything in this form, which is right between one
+	   question and the next and too much inside a single one. A field's label
+	   pulls itself back by this much, so a reader sees three groups rather than
+	   six evenly spaced lines. */
+	--field-tuck: 7px;
+	border: 1px solid var(--rule);
+	border-radius: 18px;
+	padding: 28px;
+	background: var(--card-stripe), var(--paper-raised);
+	box-shadow: var(--shadow);
+	position: relative;
+	/* Visible so the locator menu can hang off its field. The stripe is a
+	   background layer, so the card's own radius still clips it. */
+	overflow: visible;
+}
+/* The join screen is not a modal — it is the whole of the page until there is a
+   room — but it arrives the way one does, and for the same reason: it is a card
+   over a ground, and coming towards the reader is what says so.
+
+   Keyed to the handover rather than to the card itself, because at first paint
+   the card is already laid out under the opening screen, and an entrance nobody
+   can see is an entrance spent. The opening screen announces the handover on the
+   document, so the card rises through the last of that fade. Coming back to this
+   screen after leaving a room re-runs it on its own, because the card is shown
+   with `display` and an element that becomes rendered starts its animations
+   again. */
+:root[data-boot="done"] .join {
+	animation: rise-in .18s ease backwards;
+}
+.join[data-dir]:not([data-dir="home"]),
+.modal-card[data-dir]:not([data-dir="home"]) {
+	--card-stripe-to: var(--dir-mark);
+}
+.join h2 {
+	margin: 4px 0 0;
+	font-size: var(--type-display);
+	letter-spacing: -.01em;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+.join p.lead {
+	margin: -4px 0 6px;
+	color: var(--ink-soft);
+	font-size: var(--type-body);
+}
+.join label {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+	margin-bottom: calc(var(--field-tuck) * -1);
+}
+.join label .optional {
+	font-weight: 500;
+	color: var(--ink-soft);
+	opacity: .72;
+	margin-left: 4px;
+}
+/* The questions, held together so they can go inert while a join is in flight
+   without the card's own gap having to know they are a group. */
+.join-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 13px;
+}
+/* One box around a prefix and the text, so the three questions share a
+   silhouette: a mark that looks like a preview, then the name it belongs to.
+   The box is the field; the input inside has none of its own chrome. */
+.join-field-wrap {
+	position: relative;
+	width: 100%;
+}
+.join-field {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	width: 100%;
+	padding: 3px 8px 3px 3px;
+	border-radius: 11px;
+	border: 1px solid var(--rule);
+	background: var(--field-fill);
+	box-shadow: var(--field-lift);
+}
+[data-dir] .join-field {
+	border-color: color-mix(in srgb, var(--dir-mark) 32%, var(--rule));
+}
+.join-field:focus-within {
+	border-color: var(--dir-mark, var(--accent));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--dir-mark, var(--accent)) 28%, transparent);
+}
+.join-field[data-invalid="true"] {
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+}
+.join-field[data-invalid="true"]:focus-within {
+	border-color: var(--danger);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 28%, transparent);
+}
+.join-field input {
+	flex: 1;
+	min-width: 0;
+	font: inherit;
+	padding: 8px 5px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--ink);
+}
+.join-field input:focus {
+	outline: none;
+}
+.join-prefix {
+	color: var(--ink-soft);
+}
+.join-prefix-dir {
+	color: var(--dir-mark, var(--ink-soft));
+}
+.join-prefix[aria-expanded="true"] {
+	color: var(--dir-mark, var(--accent-ink));
+	border-color: color-mix(in srgb, var(--dir-mark, var(--accent)) 70%, transparent);
+	background: color-mix(in srgb, var(--dir-mark, var(--accent)) 26%, transparent);
+	box-shadow: inset 0 1px 2px var(--shadow-sm-color);
+}
+.join[data-dir] .join-prefix[aria-pressed="true"] {
+	color: var(--dir-mark);
+	border-color: color-mix(in srgb, var(--dir-mark) 70%, transparent);
+	background: color-mix(in srgb, var(--dir-mark) 22%, transparent);
+}
+.join-hash {
+	font-weight: 700;
+	font-size: 1.15em;
+	line-height: 1;
+	letter-spacing: -.04em;
+}
+.join[data-dir] .join-hash {
+	color: var(--dir-mark);
+}
+.join-prefix .avatar-chip {
+	width: 28px;
+	height: 28px;
+	font-size: 11px;
+	border-radius: 9px;
+}
+/* Held locators, hanging off the directory mark. The same rows a message menu
+   uses; the box is this field's, stretched to its width so a long name still
+   belongs to the question it fills. */
+.locator-picks {
+	animation: rise-in .12s ease-out;
+	position: absolute;
+	top: calc(100% + 6px);
+	left: 0;
+	right: 0;
+	z-index: 7;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	padding: 4px;
+	box-shadow: var(--shadow);
+}
+/* The join card's shortcut into the rooms list. Its whole job is revealing a
+   list that is off screen, and on desktop the list is already beside the card,
+   so the button had nothing to do and did nothing when pressed. It belongs to
+   the phone layout, where the list is a separate screen and this is the way to
+   it before you have joined anything. Visibility is all this card says about
+   it; how it draws is the button family's business. */
+.join #browseRoomsBtn {
+	display: none;
+	align-self: center;
+}

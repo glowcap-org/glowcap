@@ -14,7 +14,8 @@ import { Session, SignalingSendOwner, TRANSPORT_WEBRTC } from "@pancake/runtime"
 import { RtcPeer, type SignalingAuthority } from "@pancake/webrtc";
 import { DESIGNATOR_SCHEME_KEY } from "@pancake/abi";
 import { SIG_CANDIDATE, SIG_OFFER } from "./protocol.ts";
-import type { Directory } from "./room_client.ts";
+import { relayedSignalFits } from "./limits.ts";
+import { type Directory, signalingRoute } from "./room_client.ts";
 
 const MAX_PENDING_OFFERS = 32;
 const SIGNALING_OPEN_TIMEOUT_MS = 30_000;
@@ -26,19 +27,56 @@ export interface WebrtcSignalingServer {
 /** The dialing host's signaling authority, over the room directory: offers and
  * candidates ride directory verbs, and the answer and far candidates ride the
  * reply capability `Directory.signalOffer` spawns. Give it to
- * `webrtc.connector`; the `dir` thunk keeps it valid across reconnects. */
+ * `webrtc.connector`.
+ *
+ * Each exchange goes to the directory whose redeem raised the dial
+ * (`signalingRoute`), because a `webrtc` locator names a designator and nothing
+ * else: the connector cannot say which room vouched for the peer, and a tab
+ * that joined somebody else's directory has more than one to choose from. The
+ * three verbs of one exchange must reach the *same* directory — the row
+ * carrying the answer and the far candidates lives on it — so the choice is
+ * made when the connector first names a designator and held until it lets go.
+ *
+ * `alone` is the fallback for a dial raised outside any redeem: the one live
+ * directory, or null where there are several and picking one would be a guess.
+ * The thunk is read each time, so it survives a reconnect. */
 export function directorySignalingAuthority(
-	dir: () => Directory | null,
+	alone: () => Directory | null,
 ): SignalingAuthority {
-	const need = (): Directory => {
-		const d = dir();
-		if (d === null) throw new Error("rooms: no directory session to signal through");
-		return d;
+	const routes = new Map<string, Directory>();
+	const route = (designator: string): Directory => {
+		const held = routes.get(designator);
+		if (held !== undefined) return held;
+		const chosen = signalingRoute() ?? alone();
+		if (chosen === null) throw new Error("rooms: no directory session to signal through");
+		routes.set(designator, chosen);
+		return chosen;
 	};
 	return {
-		offer: (designator, sdp) => need().signalOffer(designator, sdp),
-		candidate: (designator, ice) => need().signalCandidate(designator, ice),
-		onCandidate: (designator, sink) => need().onSignalCandidate(designator, sink),
+		offer: (designator, sdp) => route(designator).signalOffer(designator, sdp),
+		candidate: (designator, ice) => route(designator).signalCandidate(designator, ice),
+		onCandidate: (designator, sink) => {
+			const dir = route(designator);
+			let stop: () => void;
+			try {
+				stop = dir.onSignalCandidate(designator, sink);
+			} catch (error) {
+				// The exchange never started, so this choice must not outlive it: a
+				// route left behind would send the next dial to this peer through a
+				// directory the reader may have left in the meantime.
+				if (routes.get(designator) === dir) routes.delete(designator);
+				throw error;
+			}
+			return () => {
+				try {
+					stop();
+				} finally {
+					// The exchange is over, so the next dial to this peer chooses
+					// again — they may be reachable through another room by then.
+					if (routes.get(designator) === dir) routes.delete(designator);
+				}
+			};
+		},
 	};
 }
 
@@ -130,6 +168,11 @@ export async function serveWebrtcSignaling(opts: {
 	const inbox = d.session.spawn((verb, args) => {
 		const id = typeof args[0] === "string" ? args[0] : "";
 		const payload = typeof args[1] === "string" ? args[1] : "";
+		// A directory holds what it relays to a size, and a directory is whatever
+		// answered the address somebody typed — so what arrives is held to the same
+		// size here, before an exchange id becomes a key or a candidate is parsed.
+		// Dropped rather than answered: a bring-up nobody can act on is not one.
+		if (!relayedSignalFits(verb === SIG_OFFER ? "description" : "candidate", id, payload)) return null;
 		if (verb === SIG_OFFER) {
 			startOffer(id, payload);
 			return null;

@@ -17,13 +17,14 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-/// A finite handshake budget. The library default is unbounded, so a partner
-/// that opens a socket and then says nothing would park this example forever.
-/// A reader copies this line, which is why it names a real number.
+/// A finite handshake budget. Omitting one is a compile error, and writing
+/// `.unbounded` would park this example forever against a partner that opens
+/// a socket and then says nothing. A reader copies this line, which is why
+/// it names a real number.
 const handshake_budget: driver.Budget = .{ .ms = 10_000 };
 
-/// A finite budget for every wait after the session opens. Same reason: the
-/// library default waits forever, and a reader copies this line.
+/// A finite budget for every wait after the session opens. Same reason:
+/// omitting it does not compile, and `.unbounded` parks a copied example.
 const settle_budget: driver.Budget = .{ .ms = 10_000 };
 
 const model = pancake.ocapn.model;
@@ -65,6 +66,8 @@ fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
     });
     defer session.deinit();
 
+    // This layer has no Server, so the greeter cannot be published before
+    // accept the way chapter 01 does. The name is on this session, then serve.
     _ = try session.publish("greeter", Greeter, .{});
     try session.serve();
 }

@@ -63,12 +63,17 @@ _SPOKEN = {
 
 
 def _provenance_from_abi(raw: int) -> DurableProvenance:
-    """The enum a C ``provenance`` word names, or ``UNAUTHENTICATED`` for a
-    value this binding does not know -- the safe reading of an unknown claim."""
+    """The enum named by a C ``provenance`` word.
+
+    Unknown values are ABI failures; they must not be weakened into an
+    unauthenticated claim, which is a real and distinct native fact.
+    """
     try:
         return DurableProvenance(raw)
-    except ValueError:
-        return DurableProvenance.UNAUTHENTICATED
+    except ValueError as error:
+        raise ValueError(
+            f"pancake ABI returned unknown durable provenance {raw}"
+        ) from error
 
 
 # Cycle break message when a local Forward chain exceeds the hop cap.

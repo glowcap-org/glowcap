@@ -13,7 +13,6 @@
 ;; verbs / dogfood plumbing.
 
 (require ffi/unsafe
-         racket/async-channel
          racket/lazy-require
          racket/string
          "constants.rkt"
@@ -23,6 +22,7 @@
          "errors.rkt"
          "value.rkt"
          "async.rkt"
+         "pending-writes.rkt"
          "host.rkt"
          "vat.rkt")
 
@@ -36,10 +36,6 @@
    session-async
    session-host
    session-pending-writes
-   pending-writes-channel
-   pending-writes-bytes
-   pending-writes-lock
-   pending-writes-high-water
    session-write-gate
    session-transport-lost?
    session-released?
@@ -181,38 +177,6 @@
 (define (transport-closed-bytes! c bs)
   (check/host (pancake_host_session_transport_closed
                (session-ptr c) (pin-immobile bs) (bytes-length bs))))
-
-(define (pending-writes-has-room? q)
-  (call-with-semaphore
-   (pending-writes-lock q)
-   (lambda () (< (unbox (pending-writes-bytes q)) (pending-writes-high-water q)))))
-
-(define (pending-writes-put-pair! q a b)
-  (call-with-semaphore
-   (pending-writes-lock q)
-   (lambda ()
-     (define next (+ (unbox (pending-writes-bytes q)) (bytes-length a) (bytes-length b)))
-     (set-box! (pending-writes-bytes q) next)
-     (async-channel-put (pending-writes-channel q) a)
-     (async-channel-put (pending-writes-channel q) b)
-     (< next (pending-writes-high-water q)))))
-
-(define (pending-writes-try-get! q)
-  (define out (async-channel-try-get (pending-writes-channel q)))
-  (when out
-    (call-with-semaphore
-     (pending-writes-lock q)
-     (lambda ()
-       (set-box! (pending-writes-bytes q)
-                 (max 0 (- (unbox (pending-writes-bytes q)) (bytes-length out)))))))
-  out)
-
-(define (pending-writes-clear! q)
-  ;; Teardown owns every staged byte the writer did not already take. Drain the
-  ;; channel as well as the accounting so a closed but application-retained
-  ;; session cannot pin a whole high-water batch.
-  (let loop ()
-    (when (pending-writes-try-get! q) (loop))))
 
 ;; Pop transport-ready prefix/payload vectors on `c` into its pending-writes
 ;; FIFO. The host returns canonical outer framing for clear sessions and an
@@ -376,7 +340,7 @@
                  (if (abort-info-kind abort) (format " ~a" (abort-info-kind abort)) "")
                  (abort-info-message abort))
          detail)
-     (current-continuation-marks) rc abort #f #f 0))
+     (current-continuation-marks) rc abort #f #f #f 0))
   (record-session-wire-failure! c failure)
   failure)
 

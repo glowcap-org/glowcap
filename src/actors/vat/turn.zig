@@ -65,7 +65,7 @@ pub const Turn = struct {
         /// An inbound wire deliver, carrying the answer this turn must settle,
         /// or null for a no-answer deliver (a wire `tell`). `forward` defers
         /// the answer onto the forwarded send's vow.
-        served: ?model.AnswerPosition,
+        served: ?model.AnswerName,
     },
     /// Set by `forward`: this turn handed its answer off to a forwarded send's
     /// vow, so `serve` must not resolve it from the handler's return value.

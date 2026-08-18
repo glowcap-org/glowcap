@@ -49,343 +49,9 @@ pub const outputs = [_]Output{
 /// `module.PancakeManagedFrame` → `PancakeManagedFrame`.
 const baseName = @import("reflect").baseName;
 
-/// A named function-pointer alias the base spelling has no case for.
-const Special = struct {
-    T: type,
-    spelling: []const u8,
-};
-
-/// The raw `_fun` spelling of one parameter type. Out cells and every
-/// non-struct pointer spell `_pointer`; a single struct pointer spells its
-/// `_PancakeX-pointer` cstruct type, while a borrowed struct *array* stays
-/// `_pointer` (the caller hands a raw block, which a tagged cstruct pointer
-/// type would refuse); scalars spell `_size` / `_uintN`.
-fn rktParamType(comptime T: type, comptime specials: []const Special) []const u8 {
-    inline for (specials) |s| {
-        if (T == s.T) return s.spelling;
-    }
-    return switch (@typeInfo(T)) {
-        .optional => |o| switch (@typeInfo(o.child)) {
-            .pointer => |p| if (p.size == .one and @typeInfo(p.child) == .@"struct")
-                "(_or-null _" ++ baseName(p.child) ++ "-pointer)"
-            else
-                rktParamType(o.child, specials),
-            else => rktParamType(o.child, specials),
-        },
-        .pointer => |p| blk: {
-            if (p.child == u8 or p.child == anyopaque) break :blk "_pointer";
-            switch (@typeInfo(p.child)) {
-                .optional, .int, .@"opaque" => break :blk "_pointer",
-                .@"struct" => break :blk if (p.size == .one)
-                    "_" ++ baseName(p.child) ++ "-pointer"
-                else
-                    "_pointer",
-                else => @compileError("unmapped pointer child type"),
-            }
-        },
-        .int => switch (T) {
-            i32 => "_int32",
-            i64 => "_int64",
-            u8 => "_uint8",
-            u16 => "_uint16",
-            u32 => "_uint32",
-            u64 => "_uint64",
-            usize => "_size",
-            else => @compileError("unmapped integer parameter width"),
-        },
-        else => @compileError("unmapped parameter type"),
-    };
-}
-
-/// The `_fun` result spelling.
-fn rktReturnType(comptime T: type) []const u8 {
-    return switch (T) {
-        i32 => "_int32",
-        usize => "_size",
-        void => "_void",
-        else => @compileError("unmapped result type"),
-    };
-}
-
-/// The wrapper out-cell (ctype, init) of a slot parameter — a one-pointer to
-/// a scalar, pointer, or opaque Host reference — or null when the parameter is
-/// a caller-provided buffer, handle, or struct view rather than a cell the
-/// wrapper allocates.
-const Cell = struct {
-    ctype: []const u8,
-    init: []const u8,
-};
-
-fn slotCell(comptime T: type) ?Cell {
-    return switch (@typeInfo(T)) {
-        .optional => |o| slotCell(o.child),
-        .pointer => |p| blk: {
-            if (p.size != .one) break :blk null;
-            if (p.child == u8 or p.child == anyopaque) break :blk null;
-            switch (@typeInfo(p.child)) {
-                .optional => |optional| break :blk switch (@typeInfo(optional.child)) {
-                    .pointer => |borrowed| if (borrowed.size == .one and
-                        @typeInfo(borrowed.child) == .@"struct")
-                        .{
-                            .ctype = "_" ++ baseName(borrowed.child) ++ "-pointer/null",
-                            .init = "#f",
-                        }
-                    else
-                        .{ .ctype = "_pointer", .init = "#f" },
-                    else => .{ .ctype = "_pointer", .init = "#f" },
-                },
-                .int => break :blk .{
-                    .ctype = switch (p.child) {
-                        u16 => "_uint16",
-                        u32 => "_uint32",
-                        u64 => "_uint64",
-                        usize => "_size",
-                        // Signed out-slots: the readiness descriptor the onion
-                        // archive hands back, and the close-wait budget.
-                        i32 => "_int32",
-                        i64 => "_int64",
-                        else => @compileError("unmapped scalar slot width"),
-                    },
-                    .init = "0",
-                },
-                .@"struct" => break :blk if (p.child == c.PancakeReference)
-                    .{ .ctype = "_PancakeReference", .init = "(make-PancakeReference 0)" }
-                else
-                    null,
-                else => break :blk null,
-            }
-        },
-        else => null,
-    };
-}
-
-fn inOut(comptime row: anytype, comptime i: usize) bool {
-    for (row.out_params) |o| {
-        if (o == i) return true;
-    }
-    return false;
-}
-
-/// The synthesized-cell parameter indexes of one row: slots the inventory
-/// marks as outputs.
-fn slotIndexes(comptime M: type, comptime row: anytype) []const usize {
-    const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
-    comptime var idx: []const usize = &.{};
-    inline for (info.params, 0..) |p, i| {
-        if (slotCell(p.type.?) != null and inOut(row, i)) idx = idx ++ &[_]usize{i};
-    }
-    return idx;
-}
-
-const RowClass = enum { plain, wrap1, multi, hand_wrapped };
-
-fn rowClass(comptime M: type, comptime row: anytype, comptime hand_wrapped: []const []const u8) RowClass {
-    inline for (hand_wrapped) |name| {
-        if (comptime std.mem.eql(u8, row.name, name)) return .hand_wrapped;
-    }
-    const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
-    const slots = comptime slotIndexes(M, row);
-    if (slots.len == 0) return .plain;
-    if (slots.len == 1 and slots[0] == info.params.len - 1) return .wrap1;
-    return .multi;
-}
-
-/// The comptime `(_fun …)` spelling of one row's raw signature. Every
-/// blocking row keeps its `#:blocking?` mark: the annotation deactivates the
-/// calling thread for the duration of the callout, so the collector never
-/// stops the world waiting on a parked call — which matters even (especially)
-/// when the caller is a plain OS thread holding a thirty-second dial.
-fn funSig(comptime M: type, comptime row: anytype, comptime specials: []const Special) []const u8 {
-    @setEvalBranchQuota(1_000_000);
-    const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
-    comptime var s: []const u8 = "(_fun ";
-    if (row.blocking) s = s ++ "#:blocking? #t ";
-    inline for (info.params) |p| {
-        s = s ++ comptime rktParamType(p.type.?, specials) ++ " ";
-    }
-    return s ++ "-> " ++ comptime rktReturnType(info.return_type.?) ++ ")";
-}
-
-fn writeRacketized(gpa: std.mem.Allocator, out: *std.ArrayList(u8), name: []const u8) !void {
-    for (name) |ch| try out.append(gpa, if (ch == '_') '-' else ch);
-}
-
-const EagerConfig = struct {
-    M: type,
-    archive: []const u8,
-    lib_var: []const u8,
-    definer: []const u8,
-    note: []const u8,
-    /// Rows whose ergonomic wrapper stays hand-written: the starred raw is
-    /// emitted and provided; no mechanical wrapper joins it.
-    hand_wrapped: []const []const u8 = &.{},
-    /// The generated header the `call/outs` wrappers' argument names come
-    /// from; only needed when the archive has multi-out rows.
-    header_path: ?[]const u8 = null,
-    specials: []const Special = &.{},
-    extra_require: ?[]const u8 = null,
-};
-
-fn renderEager(gpa: std.mem.Allocator, comptime cfg: EagerConfig) ![]u8 {
-    var header: ?[]const u8 = null;
-    defer if (header) |h| gpa.free(h);
-    if (cfg.header_path) |path| {
-        var threaded = std.Io.Threaded.init(gpa, .{});
-        defer threaded.deinit();
-        const io = threaded.io();
-        header = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20));
-    }
-
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    try out.appendSlice(gpa,
-        \\#lang racket/base
-        \\;; GENERATED by `zig build gen-binding-racket-ffi` (the annotated symbol
-        \\;; inventory in the archive's symbols.zig and each export's reflected
-        \\;; signature) -- do not edit. `zig build gen-binding-racket-ffi-check`
-        \\;; (part of `check`) fails when this is stale.
-        \\;;
-        \\
-    );
-    try out.appendSlice(gpa, cfg.note);
-    try out.appendSlice(gpa,
-        \\(require ffi/unsafe
-        \\         ffi/unsafe/define
-        \\         "ffi-shared.rkt"
-    );
-    if (cfg.extra_require) |path| try out.print(gpa, "\n         \"{s}\"\n", .{path});
-    try out.appendSlice(gpa,
-        \\         "lib-resolve.rkt")
-        \\
-    );
-
-    // Provide everything except the mechanically wrapped starred raws; a
-    // hand-wrapped row's starred raw stays provided so the hand module can
-    // wrap it.
-    try out.appendSlice(gpa, "(provide (except-out (all-defined-out)");
-    inline for (cfg.M.symbols.symbols) |row| {
-        if (row.racket_omit == null) {
-            switch (comptime rowClass(cfg.M, row, cfg.hand_wrapped)) {
-                .wrap1, .multi => try out.print(gpa, "\n                     {s}*", .{row.name}),
-                else => {},
-            }
-        }
-    }
-    try out.appendSlice(gpa, "))\n\n");
-    try out.print(gpa, "(define {s} (open-pancake-archive \"{s}\"))\n\n", .{ cfg.lib_var, cfg.archive });
-    try out.print(gpa, "(define-ffi-definer {s} {s})\n\n", .{ cfg.definer, cfg.lib_var });
-
-    inline for (cfg.M.symbols.symbols) |row| {
-        if (row.racket_omit == null) {
-            const sig = comptime funSig(cfg.M, row, cfg.specials);
-            switch (comptime rowClass(cfg.M, row, cfg.hand_wrapped)) {
-                .plain => {
-                    if (cfg.definer.len + row.name.len + sig.len + 10 <= 120) {
-                        try out.print(gpa, "({s} {s} {s})\n", .{ cfg.definer, row.name, sig });
-                    } else {
-                        try out.print(gpa, "({s} {s}\n  {s})\n", .{ cfg.definer, row.name, sig });
-                    }
-                },
-                .hand_wrapped => {
-                    try out.print(gpa, "({s} {s}*\n  {s}\n  #:c-id {s})\n", .{ cfg.definer, row.name, sig, row.name });
-                },
-                .wrap1 => {
-                    const info = @typeInfo(@TypeOf(@field(cfg.M, row.name))).@"fn";
-                    const cell = comptime slotCell(info.params[info.params.len - 1].type.?).?;
-                    try out.print(gpa, "({s} {s}*\n  {s}\n  #:c-id {s})\n", .{ cfg.definer, row.name, sig, row.name });
-                    const wrap_width = 10 + row.name.len + 12 + row.name.len + 1 + cell.ctype.len + cell.init.len + 4;
-                    if (wrap_width <= 120) {
-                        try out.print(gpa, "(define {s} (wrap-out1 {s}* {s} {s}))\n", .{ row.name, row.name, cell.ctype, cell.init });
-                    } else {
-                        try out.print(gpa, "(define {s}\n  (wrap-out1 {s}* {s} {s}))\n", .{ row.name, row.name, cell.ctype, cell.init });
-                    }
-                },
-                .multi => {
-                    try out.print(gpa, "({s} {s}*\n  {s}\n  #:c-id {s})\n", .{ cfg.definer, row.name, sig, row.name });
-                    try renderMultiWrapper(gpa, &out, cfg.M, row, header orelse return error.MultiOutNeedsHeader);
-                },
-            }
-        }
-    }
-    return out.toOwnedSlice(gpa);
-}
-
-/// One `call/outs` wrapper: the public name takes the non-cell arguments
-/// (named from the header) and returns `(values rc out…)` — or, for a void
-/// raw, just `(values out…)` with a constant 0 status inside.
-fn renderMultiWrapper(
-    gpa: std.mem.Allocator,
-    out: *std.ArrayList(u8),
-    comptime M: type,
-    comptime row: anytype,
-    header: []const u8,
-) !void {
-    const info = @typeInfo(@TypeOf(@field(M, row.name))).@"fn";
-    const slots = comptime slotIndexes(M, row);
-    const is_void = info.return_type.? == void;
-    const names = (try headerParamNames(gpa, header, row.name)) orelse
-        return error.PrototypeMissingFromHeader;
-    defer gpa.free(names);
-    if (names.len != info.params.len) return error.HeaderParamCountMismatch;
-
-    try out.print(gpa, "(define ({s}", .{row.name});
-    inline for (info.params, 0..) |_, i| {
-        if (comptime !inSlots(slots, i)) {
-            try out.appendSlice(gpa, " ");
-            try writeRacketized(gpa, out, names[i]);
-        }
-    }
-    try out.appendSlice(gpa, ")\n");
-    if (is_void) {
-        try out.appendSlice(gpa, "  (define-values (_rc");
-        inline for (slots, 0..) |_, k| try out.print(gpa, " out{d}", .{k});
-        try out.appendSlice(gpa, ")\n  ");
-    }
-    try out.appendSlice(gpa, "  (call/outs (list");
-    inline for (slots) |i| {
-        const cell = comptime slotCell(info.params[i].type.?).?;
-        try out.print(gpa, " (cons {s} {s})", .{ cell.ctype, cell.init });
-    }
-    try out.appendSlice(gpa, ")\n             (lambda (");
-    inline for (slots, 0..) |_, k| {
-        if (k != 0) try out.appendSlice(gpa, " ");
-        try out.print(gpa, "out{d}", .{k});
-    }
-    try out.appendSlice(gpa, ")\n               ");
-    try out.print(gpa, "({s}*", .{row.name});
-    inline for (info.params, 0..) |_, i| {
-        try out.appendSlice(gpa, " ");
-        if (comptime inSlots(slots, i)) {
-            try out.print(gpa, "out{d}", .{comptime slotPos(slots, i)});
-        } else {
-            try writeRacketized(gpa, out, names[i]);
-        }
-    }
-    if (is_void) {
-        try out.appendSlice(gpa, ")\n               0)))\n  (values");
-        inline for (slots, 0..) |_, k| try out.print(gpa, " out{d}", .{k});
-        try out.appendSlice(gpa, "))\n");
-    } else {
-        try out.appendSlice(gpa, "))))\n");
-    }
-}
-
-fn inSlots(comptime slots: []const usize, comptime i: usize) bool {
-    for (slots) |s| {
-        if (s == i) return true;
-    }
-    return false;
-}
-
-fn slotPos(comptime slots: []const usize, comptime i: usize) usize {
-    for (slots, 0..) |s, k| {
-        if (s == i) return k;
-    }
-    unreachable;
-}
-
+const render = @import("racket_ffi_render.zig");
 fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
-    return renderEager(gpa, .{
+    return render.renderEager(gpa, .{
         .M = c,
         .archive = "pancake_ocapn",
         .lib_var = "ocapn-lib",
@@ -401,7 +67,7 @@ fn generateOcapn(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateHost(gpa: std.mem.Allocator) ![]u8 {
-    return renderEager(gpa, .{
+    return render.renderEager(gpa, .{
         .M = cd,
         .archive = "pancake_host",
         .lib_var = "host-lib",
@@ -429,7 +95,7 @@ fn generateHost(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
-    return renderEager(gpa, .{
+    return render.renderEager(gpa, .{
         .M = cdr,
         .archive = "pancake_driver",
         .lib_var = "loop-lib",
@@ -447,12 +113,23 @@ fn generateLoop(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
-    return renderEager(gpa, .{
+    return render.renderEager(gpa, .{
         .M = ct,
         .archive = "pancake_net_transport_tcp",
         .lib_var = "tcp-lib",
         .definer = "define-pancake-tcp",
         .extra_require = "ffi-tcp-types.rkt",
+        .fingerprint_stem = "tcp",
+        .fingerprint_constant = "TCP-ARCHIVE-FINGERPRINT",
+        // Racket reads this synchronous call's thread-local diagnostic. Keep
+        // the optional caller-buffer plumbing below the ergonomic wrappers.
+        .hand_wrapped = &.{
+            "pancake_tcp_connect",
+            "pancake_tcp_accept",
+            "pancake_tcp_conn_read_frame",
+            "pancake_tcp_conn_write_frame",
+            "pancake_tcp_conn_release",
+        },
         .note =
         \\;; The raw `ffi/unsafe` table of libpancake_net_transport_tcp. The
         \\;; hand-written sibling (`ffi-tcp.rkt`) owns the prose and re-provides this
@@ -464,11 +141,22 @@ fn generateTcp(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
-    return renderEager(gpa, .{
+    return render.renderEager(gpa, .{
         .M = cin,
         .archive = "pancake_net_transport_inproc",
         .lib_var = "inproc-lib",
         .definer = "define-pancake-inproc",
+        .fingerprint_stem = "inproc",
+        .fingerprint_constant = "INPROC-ARCHIVE-FINGERPRINT",
+        // Racket consumes the calling-thread last-error slot; the optional
+        // diagnostic outputs are worker-dispatch plumbing in other runtimes.
+        .hand_wrapped = &.{
+            "pancake_inproc_connect",
+            "pancake_inproc_accept",
+            "pancake_inproc_conn_read_frame",
+            "pancake_inproc_conn_write_frame",
+            "pancake_inproc_listener_release",
+        },
         .note =
         \\;; The raw `ffi/unsafe` table of libpancake_net_transport_inproc. The
         \\;; hand-written sibling (`ffi-inproc.rkt`) owns the prose and re-provides
@@ -481,11 +169,24 @@ fn generateInproc(gpa: std.mem.Allocator) ![]u8 {
 }
 
 fn generateOnion(gpa: std.mem.Allocator) ![]u8 {
-    return renderEager(gpa, .{
+    return render.renderEager(gpa, .{
         .M = con,
         .archive = "pancake_net_transport_onion",
         .lib_var = "onion-lib",
         .definer = "define-pancake-onion",
+        .fingerprint_stem = "onion",
+        .fingerprint_constant = "ONION-ARCHIVE-FINGERPRINT",
+        .hand_wrapped = &.{
+            "pancake_onion_netlayer_release",
+            "pancake_onion_connect",
+            "pancake_onion_listen",
+            "pancake_onion_listener_wait",
+            "pancake_onion_accept",
+            "pancake_onion_conn_read_frame",
+            "pancake_onion_conn_write_frame",
+            "pancake_onion_conn_release",
+            "pancake_onion_listener_release",
+        },
         // `pancake_onion_listen` writes five out-parameters, so its wrapper needs
         // the header's argument names to spell them.
         .header_path = "include/pancake_net_transport_onion.h",
@@ -529,16 +230,37 @@ fn generateIroh(gpa: std.mem.Allocator) ![]u8 {
     inline for (ci.symbols.symbols) |row| {
         if (row.racket_omit == null) {
             const key = comptime irohKey(row.name);
-            const sig = comptime funSig(ci, row, &.{});
-            const slots = comptime slotIndexes(ci, row);
-            if (slots.len == 0) {
+            const sig = comptime render.funSig(ci, row, &.{});
+            const slots = comptime render.slotIndexes(ci, row);
+            if (comptime std.mem.eql(u8, row.name, "pancake_iroh_netlayer_new")) {
+                // Racket reads the calling thread's TLS diagnostic. Hide the
+                // optional worker-dispatch outputs while retaining the usual
+                // one-value constructor wrapper.
+                try out.print(gpa,
+                    \\
+                    \\   '{s}
+                    \\   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_new L {s})])
+                    \\     (lambda (seed seed-len config)
+                    \\       (call/out _pointer #f
+                    \\         (lambda (out)
+                    \\           (call/without-diagnostic raw seed seed-len config out)))))
+                , .{ key, sig });
+            } else if (comptime std.mem.eql(u8, row.name, "pancake_iroh_netlayer_release")) {
+                try out.print(gpa,
+                    \\
+                    \\   '{s}
+                    \\   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_release L {s})])
+                    \\     (lambda (netlayer)
+                    \\       (call/without-diagnostic raw netlayer)))
+                , .{ key, sig });
+            } else if (slots.len == 0) {
                 try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key, row.name, sig });
             } else {
                 // Every out-bearing iroh row has exactly one trailing cell.
                 comptime std.debug.assert(slots.len == 1);
                 const info = @typeInfo(@TypeOf(@field(ci, row.name))).@"fn";
                 comptime std.debug.assert(slots[0] == info.params.len - 1);
-                const cell = comptime slotCell(info.params[slots[0]].type.?).?;
+                const cell = comptime render.slotCell(info.params[slots[0]].type.?).?;
                 try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key, row.name, sig, cell.ctype, cell.init });
             }
         }
@@ -583,8 +305,8 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
     inline for (cw.symbols.symbols) |row| {
         if (row.racket_omit == null) {
             const key = comptime webrtcKey(row.name);
-            const sig = comptime funSig(cw, row, &.{});
-            const slots = comptime slotIndexes(cw, row);
+            const sig = comptime render.funSig(cw, row, &.{});
+            const slots = comptime render.slotIndexes(cw, row);
             if (slots.len == 0) {
                 try out.print(gpa, "\n   '{s}\n   (get-ffi-obj '{s} L {s})", .{ key, row.name, sig });
             } else {
@@ -592,7 +314,7 @@ fn generateWebrtc(gpa: std.mem.Allocator) ![]u8 {
                 comptime std.debug.assert(slots.len == 1);
                 const info = @typeInfo(@TypeOf(@field(cw, row.name))).@"fn";
                 comptime std.debug.assert(slots[0] == info.params.len - 1);
-                const cell = comptime slotCell(info.params[slots[0]].type.?).?;
+                const cell = comptime render.slotCell(info.params[slots[0]].type.?).?;
                 try out.print(gpa, "\n   '{s}\n   (wrap-out1 (get-ffi-obj '{s} L {s})\n              {s} {s})", .{ key, row.name, sig, cell.ctype, cell.init });
             }
         }
@@ -611,11 +333,14 @@ fn webrtcKey(comptime name: []const u8) []const u8 {
 }
 
 fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
-    return renderEager(gpa, .{
+    return render.renderEager(gpa, .{
         .M = cr,
         .archive = "pancake_net_transport_relay",
         .lib_var = "relay-lib",
         .definer = "define-pancake-relay",
+        .fingerprint_stem = "relay",
+        .fingerprint_constant = "RELAY-ARCHIVE-FINGERPRINT",
+        .hand_wrapped = &.{"pancake_relay_runtime_release"},
         .note =
         \\;; The raw `ffi/unsafe` table of libpancake_net_transport_relay. The
         \\;; hand-written sibling (`ffi-relay.rkt`) owns the config mirror and

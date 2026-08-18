@@ -7,7 +7,7 @@ decision: "pancake gains the `onion` netlayer, the one transport the OCapN draft
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0118]
 ---
 
 # ADR-0108 The onion netlayer

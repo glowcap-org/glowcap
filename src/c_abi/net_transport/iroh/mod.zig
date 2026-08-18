@@ -66,6 +66,15 @@ const iroh = @import("iroh");
 // a C consumer that includes both `pancake_ocapn.h` and `pancake_net_transport_iroh.h` does.
 const c = @import("c_abi_shared");
 
+pub const PANCAKE_IROH_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
+    @embedFile("mod.zig"),
+    @embedFile("symbols.zig"),
+);
+
+pub export fn pancake_iroh_archive_fingerprint() u64 {
+    return PANCAKE_IROH_ARCHIVE_FINGERPRINT;
+}
+
 /// The netlayer handle owns the one iroh endpoint (and, through it, the
 /// sidecar's runtime) plus the `std.Io.Threaded` the resident captures. Every
 /// connection made from it borrows the endpoint, so the netlayer must outlive
@@ -299,20 +308,19 @@ pub const PancakeIrohConfig = extern struct {
 /// `pancake_iroh_last_error`) if the endpoint cannot bind or the loop cannot arm.
 /// Release with `pancake_iroh_netlayer_release` (prefer releasing every connection
 /// made from it first; leftovers are drained on release).
-pub export fn pancake_iroh_netlayer_new(
+fn irohNetlayerNew(
     secret_seed: ?[*]const u8,
     secret_seed_len: usize,
     config: ?*const PancakeIrohConfig,
     out_netlayer: ?*?*PancakeIrohNetlayer,
 ) i32 {
-    c.lastErrorClear();
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     const args = decodeNewArgs(secret_seed, secret_seed_len, config) catch |err|
         return newArgsError(err);
     return netlayerNewIn(c.library_allocator, args.seed, args.config, slot);
 }
 
-pub export fn pancake_iroh_netlayer_new_with_diagnostic(
+pub export fn pancake_iroh_netlayer_new(
     secret_seed: ?[*]const u8,
     secret_seed_len: usize,
     config: ?*const PancakeIrohConfig,
@@ -321,28 +329,27 @@ pub export fn pancake_iroh_netlayer_new_with_diagnostic(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        c.lastErrorClear();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_iroh_netlayer_new(secret_seed, secret_seed_len, config, out_netlayer),
+        irohNetlayerNew(secret_seed, secret_seed_len, config, out_netlayer),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
 /// As `pancake_iroh_netlayer_new`, allocating the netlayer, endpoint, and every
 /// per-connection buffer through `context`.
-pub export fn pancake_iroh_netlayer_new_in(
+fn irohNetlayerNewIn(
     context: ?*PancakeContext,
     secret_seed: ?[*]const u8,
     secret_seed_len: usize,
     config: ?*const PancakeIrohConfig,
     out_netlayer: ?*?*PancakeIrohNetlayer,
 ) i32 {
-    c.lastErrorClear();
     const cc = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
     const args = decodeNewArgs(secret_seed, secret_seed_len, config) catch |err|
@@ -350,7 +357,7 @@ pub export fn pancake_iroh_netlayer_new_in(
     return netlayerNewIn(cc.allocator(), args.seed, args.config, slot);
 }
 
-pub export fn pancake_iroh_netlayer_new_with_diagnostic_in(
+pub export fn pancake_iroh_netlayer_new_in(
     context: ?*PancakeContext,
     secret_seed: ?[*]const u8,
     secret_seed_len: usize,
@@ -360,15 +367,15 @@ pub export fn pancake_iroh_netlayer_new_with_diagnostic_in(
     error_cap: usize,
     out_error_len: ?*usize,
 ) i32 {
-    const len = out_error_len orelse {
-        c.lastErrorClear();
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
         return PANCAKE_ERR_NULL_POINTER;
-    };
+    }
     return c.captureCallError(
-        pancake_iroh_netlayer_new_in(context, secret_seed, secret_seed_len, config, out_netlayer),
+        irohNetlayerNewIn(context, secret_seed, secret_seed_len, config, out_netlayer),
         out_error,
         error_cap,
-        len,
+        out_error_len,
     );
 }
 
@@ -431,6 +438,7 @@ fn reachabilityFromC(reachability: u32) ?iroh.Reachability {
 }
 
 fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, resident_config: iroh.Resident.Config, slot: *?*PancakeIrohNetlayer) i32 {
+    slot.* = null;
     const payload = alloc.create(NetlayerPayload) catch |err|
         return c.failInternal("iroh netlayer_new", err);
     payload.* = .{
@@ -442,18 +450,19 @@ fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, resident_config
     };
     // `Threaded.io()` borrows `&payload.threaded`, valid because `payload` is
     // heap-pinned; the resident captures it for the connections it mints.
-    payload.resident = iroh.Resident.init(payload.threaded.io(), seed, resident_config) catch {
+    payload.resident = iroh.Resident.init(payload.threaded.io(), seed, resident_config) catch |err| {
         payload.threaded.deinit();
         alloc.destroy(payload);
-        setLastError("iroh netlayer_new: endpoint bind failed", .{});
-        return PANCAKE_ERR_IO;
+        return c.failIo("iroh netlayer_new endpoint bind", err);
     };
     // One I/O model: arm the readiness loop now, so a constructed netlayer is
     // immediately a scale-capable endpoint with a live `readiness_fd`. There is
     // no un-armed mode to toggle into.
     if (!payload.resident.enableLoop()) {
         var cleanup_failure: ?anyerror = null;
-        payload.resident.deinit() catch |err| cleanup_failure = err;
+        payload.resident.deinit() catch |err| {
+            cleanup_failure = err;
+        };
         payload.threaded.deinit();
         alloc.destroy(payload);
         if (cleanup_failure) |err|
@@ -476,13 +485,24 @@ pub export fn pancake_iroh_netlayer_close(netlayer: ?*PancakeIrohNetlayer) void 
 
 /// Release the netlayer, its endpoint, and the runtime. Every connection made
 /// from it must already be released.
-pub export fn pancake_iroh_netlayer_release(netlayer: ?*PancakeIrohNetlayer) i32 {
+fn irohNetlayerRelease(netlayer: ?*PancakeIrohNetlayer) i32 {
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_OK;
-    if (nl.release()) |_| {
-        setLastError("iroh netlayer_release: sidecar teardown failed", .{});
-        return PANCAKE_ERR_IO;
-    }
+    if (nl.release()) |failure|
+        return c.failIo("iroh netlayer release", failure);
     return PANCAKE_OK;
+}
+
+pub export fn pancake_iroh_netlayer_release(
+    netlayer: ?*PancakeIrohNetlayer,
+    out_error: ?[*]u8,
+    error_cap: usize,
+    out_error_len: ?*usize,
+) i32 {
+    c.lastErrorClear();
+    if (!c.optionalCallErrorOutputIsValid(out_error, error_cap, out_error_len)) {
+        return PANCAKE_ERR_NULL_POINTER;
+    }
+    return c.captureCallError(irohNetlayerRelease(netlayer), out_error, error_cap, out_error_len);
 }
 
 // ── Addressing ───────────────────────────────────────────────────────────────
@@ -497,6 +517,7 @@ pub export fn pancake_iroh_netlayer_node_id(
     cap: usize,
     out_len: ?*usize,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = out orelse return PANCAKE_ERR_NULL_POINTER;
     const len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
@@ -524,6 +545,7 @@ pub export fn pancake_iroh_netlayer_direct_addrs(
     cap: usize,
     out_len: ?*usize,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = out orelse return PANCAKE_ERR_NULL_POINTER;
     const len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
@@ -578,6 +600,7 @@ pub export fn pancake_iroh_conn_remote_node_id(
     cap: usize,
     out_len: ?*usize,
 ) i32 {
+    c.lastErrorClear();
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = out orelse return PANCAKE_ERR_NULL_POINTER;
     const len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
@@ -603,6 +626,7 @@ pub export fn pancake_iroh_conn_remote_node_id(
 /// stays valid until `pancake_iroh_netlayer_release` — do not close it; `dup` it
 /// if your runtime needs to own its copy. Negative only for a null handle.
 pub export fn pancake_iroh_netlayer_readiness_fd(netlayer: ?*PancakeIrohNetlayer) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     return nl.resident.readinessFd();
 }
@@ -624,6 +648,7 @@ pub export fn pancake_iroh_netlayer_drain_ready(
     out_cap: usize,
     out_count: ?*usize,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest_ptr = out_events orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_count orelse return PANCAKE_ERR_NULL_POINTER;
@@ -645,6 +670,7 @@ pub export fn pancake_iroh_netlayer_try_accept(
     netlayer: ?*PancakeIrohNetlayer,
     out_conn: ?*?*PancakeIrohConn,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
     slot.* = null;
@@ -669,6 +695,7 @@ pub export fn pancake_iroh_netlayer_start_connect(
     addr_hints: ?[*]const u8,
     addr_hints_len: usize,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const id_ptr = node_id orelse return PANCAKE_ERR_NULL_POINTER;
     const hints: []const u8 = if (addr_hints) |h|
@@ -704,6 +731,7 @@ pub export fn pancake_iroh_netlayer_finish_connect(
     request_id: usize,
     out_conn: ?*?*PancakeIrohConn,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_conn orelse return PANCAKE_ERR_NULL_POINTER;
     slot.* = null;
@@ -722,6 +750,7 @@ pub export fn pancake_iroh_netlayer_cancel_connect(
     netlayer: ?*PancakeIrohNetlayer,
     request_id: usize,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     if (request_id == 0) {
         setLastError("iroh cancel_connect: request_id must not be zero", .{});
@@ -738,6 +767,7 @@ pub export fn pancake_iroh_netlayer_cancel_connect(
 /// The host frames these bytes itself (feed them to its peer's stream-input
 /// path), the same shape `pancake_tcp_conn_read_frame`'s consumer uses for TCP.
 pub export fn pancake_iroh_conn_try_read(conn: ?*PancakeIrohConn, buf: ?[*]u8, len: usize, out_read: ?*usize) i32 {
+    c.lastErrorClear();
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const dest = buf orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_read orelse return PANCAKE_ERR_NULL_POINTER;
@@ -757,6 +787,7 @@ pub export fn pancake_iroh_conn_try_read(conn: ?*PancakeIrohConn, buf: ?[*]u8, l
 /// the outbound buffer has no room (retry after the next writable record), or
 /// `PANCAKE_ERR_IO` on a fault. `out_written` is untouched on any non-OK return.
 pub export fn pancake_iroh_conn_try_write(conn: ?*PancakeIrohConn, buf: ?[*]const u8, len: usize, out_written: ?*usize) i32 {
+    c.lastErrorClear();
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const src = buf orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_written orelse return PANCAKE_ERR_NULL_POINTER;
@@ -813,13 +844,12 @@ pub export fn pancake_iroh_transport_provider(
     netlayer: ?*PancakeIrohNetlayer,
     out_provider: ?*c.PancakeTransportProvider,
 ) i32 {
+    c.lastErrorClear();
     const nl = nlFromOpaque(netlayer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_provider orelse return PANCAKE_ERR_NULL_POINTER;
     if (nl.multiplexed_adapter == null) {
-        const adapter = nl.allocator.create(MultiplexedAdapter) catch {
-            setLastError("transport_provider: adapter allocation failed", .{});
-            return PANCAKE_ERR_INTERNAL;
-        };
+        const adapter = nl.allocator.create(MultiplexedAdapter) catch |err|
+            return c.failInternal("iroh transport_provider adapter", err);
         adapter.* = .{
             .payload = nl,
             .profile = transportProfile(),
@@ -988,7 +1018,6 @@ fn multiplexedFinishConnect(
     const conn_id: u64 = @intCast(adapter.payload.resident.loopConnId(handle));
     adapter.conns.put(adapter.payload.allocator, conn_id, handle) catch |err| {
         adapter.payload.resident.loopConnClose(handle);
-        setLastError("multiplexed_transport finish_connect: id table allocation failed", .{});
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, err);
     };
     slot.* = conn_id;
@@ -1011,32 +1040,35 @@ fn multiplexedListen(
     requested_designator_len: usize,
     options: ?*const c.PancakeTransportOperationOptions,
     out_result: ?*c.PancakeListenResult,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
-    if (!c.transport_provider.operationOptionsAreInherited(options)) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!c.transport_provider.operationOptionsAreInherited(options))
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidOptions);
     const adapter = MultiplexedAdapter.of(ctx);
-    const result = out_result orelse return PANCAKE_ERR_NULL_POINTER;
-    if (adapter.listening) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const selected = (transport orelse return PANCAKE_ERR_NULL_POINTER)[0..transport_len];
-    if (!std.mem.eql(u8, selected, model.transport.iroh)) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const result = out_result orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+    if (adapter.listening)
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.AlreadyListening);
+    const selected = (transport orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer))[0..transport_len];
+    if (!std.mem.eql(u8, selected, model.transport.iroh))
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     const requested: []const u8 = if (requested_designator) |ptr| ptr[0..requested_designator_len] else &.{};
     var designator: [iroh.node_id_len]u8 = undefined;
     const actual = adapter.payload.resident.nodeId(&designator);
     if (actual.len == 0 or (requested.len != 0 and !std.mem.eql(u8, requested, actual))) {
-        setLastError("multiplexed transport listener: requested designator does not name this endpoint", .{});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     }
     var direct_addresses: std.ArrayList(u8) = .empty;
     defer direct_addresses.deinit(adapter.payload.allocator);
     var cap: usize = 256;
     while (true) {
         direct_addresses.resize(adapter.payload.allocator, cap) catch {
-            setLastError("multiplexed transport listener: metadata allocation failed", .{});
-            return PANCAKE_ERR_INTERNAL;
+            return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, error.OutOfMemory);
         };
         const direct = adapter.payload.resident.directAddrs(direct_addresses.items) catch {
             if (cap == max_listener_direct_addresses) {
-                setLastError("multiplexed transport listener: direct-address metadata exceeds the control-plane limit", .{});
-                return PANCAKE_ERR_INVALID_ARGUMENT;
+                return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.MetadataTooLarge);
             }
             cap = @min(cap * 2, max_listener_direct_addresses);
             continue;
@@ -1051,8 +1083,7 @@ fn multiplexedListen(
         .hints = model.Hints.forDirectAddresses(direct_addresses.items, &hint_storage),
     };
     adapter.listener_locator = model.clonePeerLocator(adapter.payload.allocator, locator) catch {
-        setLastError("multiplexed transport listener: locator allocation failed", .{});
-        return PANCAKE_ERR_INTERNAL;
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, error.OutOfMemory);
     };
     adapter.listening = true;
     adapter.listener_route = route_id;
@@ -1069,16 +1100,19 @@ fn multiplexedListenerLocator(
     ctx: ?*anyopaque,
     sink_ctx: ?*anyopaque,
     sink: c.PancakeLocatorSinkFn,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.of(ctx);
-    if (!adapter.listening) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const locator = adapter.listener_locator orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (!adapter.listening)
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.NotListening);
+    const locator = adapter.listener_locator orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.MissingListenerLocator);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]c.PancakeLocatorHintView = undefined;
     var projection = c.locator_adapter.Projection.init(
         adapter.payload.allocator,
         locator,
         &hint_stack,
-    ) catch |err| return c.locatorAdapterErrorCode(err);
+    ) catch |err| return c.transport_provider.failProvider(out_failure, c.locatorAdapterErrorCode(err), err);
     defer projection.deinit(adapter.payload.allocator);
     return sink(sink_ctx, &projection.view);
 }
@@ -1088,22 +1122,24 @@ fn multiplexedListenerAdvertise(
     locator_view: ?*const c.PancakeLocatorView,
     sink_ctx: ?*anyopaque,
     sink: c.PancakeLocatorSinkFn,
+    out_failure: ?*c.PancakeProviderFailure,
 ) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.of(ctx);
-    if (!adapter.listening) return PANCAKE_ERR_INVALID_ARGUMENT;
-    const view = locator_view orelse return PANCAKE_ERR_NULL_POINTER;
+    if (!adapter.listening)
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.NotListening);
+    const view = locator_view orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
     var hint_stack: [c.locator_adapter.inline_hint_capacity]model.HintEntry = undefined;
     var borrowed = c.locator_adapter.BorrowedLocator.init(
         adapter.payload.allocator,
         view,
         &hint_stack,
-    ) catch |err| return c.locatorAdapterErrorCode(err);
+    ) catch |err| return c.transport_provider.failProvider(out_failure, c.locatorAdapterErrorCode(err), err);
     defer borrowed.deinit(adapter.payload.allocator);
-    const active = adapter.listener_locator orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    iroh.validateListenerLocator(active.designator, borrowed.value) catch |err| {
-        setLastError("iroh listener advertise: {s}", .{@errorName(err)});
-        return PANCAKE_ERR_INVALID_ARGUMENT;
-    };
+    const active = adapter.listener_locator orelse
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, error.MissingListenerLocator);
+    iroh.validateListenerLocator(active.designator, borrowed.value) catch |err|
+        return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INVALID_ARGUMENT, err);
     return sink(sink_ctx, view);
 }
 
@@ -1115,7 +1151,6 @@ fn multiplexedFinishAccept(ctx: ?*anyopaque, out_conn: ?*u64, out_failure: ?*c.P
     const conn_id: u64 = @intCast(adapter.payload.resident.loopConnId(handle));
     adapter.conns.put(adapter.payload.allocator, conn_id, handle) catch |err| {
         adapter.payload.resident.loopConnClose(handle);
-        setLastError("multiplexed transport finish_accept: id table allocation failed", .{});
         return c.transport_provider.failProvider(out_failure, PANCAKE_ERR_INTERNAL, err);
     };
     slot.* = conn_id;

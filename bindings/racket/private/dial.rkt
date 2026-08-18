@@ -22,7 +22,7 @@
          "async.rkt"
          "host.rkt"
          "transport.rkt"
-         (only-in "codec.rkt" feature-mask)
+         (only-in "abi-value.rkt" feature-mask)
          "action.rkt"
          ;; The handshake bound lives with the deadline machinery it feeds, so
          ;; the dial and the accept rule spell their default with one constant.

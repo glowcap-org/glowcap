@@ -10,7 +10,7 @@ surface over it. What you hold is a :class:`Session`: compose a :class:`Runtime`
 dial with its ``connect`` method, accept through a transport module's
 ``listen``, and speak native Python values —
 ``int``/``float``/``bool``/``bytes``/``str``/``list``, plus :class:`Symbol`,
-:class:`Keyword`, :class:`Set`, :class:`Tagged`, and the capability
+:class:`Keyword`, :class:`Set`, :class:`Tagged`, :class:`Struct`, and the capability
 :class:`Ref`:
 
     async with Runtime.open(provider=tcp.provider()) as runtime:
@@ -46,7 +46,7 @@ lives in :mod:`pancake.tcp`; the socket-free in-process transport in
 The core never imports one of those modules based on locator shape.
 
 The implementation is split by responsibility across ``_``-private submodules
-(``_errors``, ``_value``, ``_codec``, ``_context``, ``_locator``,
+(``_errors``, ``_value``, ``_abi_value``, ``_context``, ``_locator``,
 ``_trampoline``, ``_host``, ``_action``, ``_promise``, ``_gc``, ``_dial``,
 ``_loop``, ``_pump``, ``_session``) alongside the per-archive ``_ffi_*``
 loaders; this module is the barrel that re-exports the public surface. Import
@@ -66,7 +66,8 @@ from ._errors import (
     abi_version,
     last_error,
 )
-from ._value import Argument, Forward, Keyword, Ref, Set, Symbol, Tagged
+from ._carrier_failure import CarrierFailure, CarrierPhase
+from ._value import Argument, ErrorValue, Forward, Keyword, Ref, Set, Struct, Symbol, Tagged
 from ._constants import (
     HANDSHAKE_TIMEOUT_MS,
     HINT_DIRECT_ADDRESSES,
@@ -112,6 +113,8 @@ __all__ = [
     "last_error",
     "take_runtime_failures",
     "AbortDetail",
+    "CarrierFailure",
+    "CarrierPhase",
     # Exceptions
     "PancakeError",
     "VowBroken",
@@ -120,8 +123,10 @@ __all__ = [
     "Ref",
     "Symbol",
     "Keyword",
+    "ErrorValue",
     "Set",
     "Tagged",
+    "Struct",
     "Forward",
     "Argument",
     # Allocation scope

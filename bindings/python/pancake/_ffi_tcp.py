@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import ctypes
 
+from ._archive_contract import require_archive_fingerprint
+from ._constants import TCP_ARCHIVE_FINGERPRINT
 from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
 from ._lib_resolve import _lib_path
@@ -43,6 +45,7 @@ pin_struct(_TcpConfig, "PANCAKE_TCP_CONFIG")
 
 def _load():
     tcp = ctypes.CDLL(str(_lib_path("pancake_net_transport_tcp")))
+    require_archive_fingerprint(tcp, "tcp", TCP_ARCHIVE_FINGERPRINT)
     facade = _Lib(tcp)
     _bind(
         facade,

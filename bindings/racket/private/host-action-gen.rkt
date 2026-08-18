@@ -5,12 +5,14 @@
 ;; this is stale.
 ;;
 ;; Kind constants + decode for the Racket binding. Executor arms stay
-;; in `action.rkt`. Does not require `codec.rkt` (that would cycle
+;; in `action.rkt`. Does not require `abi-value.rkt` (that would cycle
 ;; through `constants.rkt`); the caller passes `arg<-c`.
 
 (require ffi/unsafe
+         "constants.rkt"
          "ffi-shared.rkt"
-         "ffi-host.rkt")
+         "ffi-host.rkt"
+         "errors.rkt")
 
 (provide         HOST-ACTION-DIAL
          HOST-ACTION-FLUSH
@@ -35,7 +37,7 @@
 
 ;; Decode a filled PancakeHostAction cstruct into the list form the
 ;; drain switch matches: `(list 'dial …)`, `(list 'flush …)`, …
-;; `arg<-c` is passed by the caller (from codec.rkt) so this module
+;; `arg<-c` is passed by the caller (from `abi-value.rkt`) so this module
 ;; stays require-acyclic with constants.rkt.
 (define (host-decode-action! a arg<-c)
   (define kind (PancakeHostAction-kind a))
@@ -60,7 +62,8 @@
      (list 'resume)]
     [(= kind HOST-ACTION-CANCEL-DIAL)
      (list 'cancel-dial (PancakeHostAction-ticket a))]
-    [else (error 'pancake "unknown host action kind: ~a" kind)]))
+    [else (raise-pancake 'pancake ERR-INTERNAL
+                         "ABI returned unknown host action kind: ~a" kind)]))
 
 ;; Exhaustive dispatch over a decoded action list. `handlers` is a
 ;; hash of racket symbols (`'dial`, `'flush`, …) to thunks of

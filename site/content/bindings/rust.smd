@@ -56,7 +56,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 >
 > // Noise_XK seals the CapTP stream end to end through the relay.
 > let peer_key = "<64 lowercase hex characters from the server>";
-> let relay_url = "wss://relay.example/rendezvous";
+> let relay_url = "ws://192.0.2.10:8080/relay";
 > let partner = relay::noise::locator(peer_key, relay_url);
 > let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
 > 	relay::Config::dial_only(relay_url),
@@ -91,7 +91,7 @@ inbound loop itself, so `serve` is only for awaiting shutdown.
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > let peer_key = "<64 lowercase hex characters from the server>";
-> let relay_url = "wss://relay.example/rendezvous";
+> let relay_url = "ws://192.0.2.10:8080/relay";
 > let partner = relay::keyed::locator(peer_key, relay_url);
 > let runtime = Runtime::open(RuntimeConfig::providers([relay::provider(
 > 	relay::Config::dial_only(relay_url),

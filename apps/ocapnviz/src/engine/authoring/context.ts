@@ -6,9 +6,9 @@
  * Why a context rather than `Engine`: authoring operations don't
  * need subscribers, the error channel, transactions, the tick loop,
  * or the validate API. The context exposes only the state container
- * + post-mutation orchestration (`seekTo`) + the id-minter. Future
- * authoring operations (rename / paste / duplicate) land as
- * additions to `authoring/*.ts` without touching Engine.
+ * + post-mutation orchestration (`seekTo`) + the id-minter. Builder
+ * routing lives in `dispatch.ts`; paste still brackets undo on Engine
+ * because it owns the history snapshot.
  */
 
 import type { Clock } from "../clock.ts";

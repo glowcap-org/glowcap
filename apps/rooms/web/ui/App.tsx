@@ -7,7 +7,7 @@
 // breakpoint. Nothing reads a class now, and crossing the breakpoint is just a
 // different answer from `state.mobile`.
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "./hooks.ts";
 import * as store from "./store.ts";
 import { Sidebar } from "./Sidebar.tsx";
@@ -16,9 +16,14 @@ import { Stream } from "./Stream.tsx";
 import { Members, rosterOf } from "./Members.tsx";
 import { ErrorBoundary } from "./ErrorBoundary.tsx";
 import { Settings } from "./Settings.tsx";
+import { Help } from "./Help.tsx";
+import { Operations } from "./ops/Operations.tsx";
+import { OpsTakeModal } from "./ops/Take.tsx";
 import { DirectoryCard } from "./DirectoryCard.tsx";
 import { Viewer } from "./Viewer.tsx";
-import { dirsAreMarked } from "./types.ts";
+import { Toasts } from "./Toast.tsx";
+import { awayByPeer, awayOf, dirMark, dirsAreMarked, opsHeldOf } from "./types.ts";
+import { directoryName, roomCalled } from "./text.ts";
 
 /** How long the "New messages" rule stays up once you have arrived. Long enough
  * to see where you left off, short enough not to become furniture. */
@@ -54,6 +59,8 @@ export function App() {
 		}
 		return total;
 	}, [state.convs]);
+	// The rosters' one word each on who is away, for the direct header's chip.
+	const awayWords = useMemo(() => awayByPeer(state.convs), [state.convs]);
 
 	// The remembered theme, stamped where the stylesheet reads it. page.html
 	// stamps the same value before the first paint, so a cold load does not flash
@@ -62,7 +69,7 @@ export function App() {
 		document.documentElement.dataset.theme = state.theme;
 	}, [state.theme]);
 
-	const where = conv ? (conv.type === "dm" ? "@" + conv.id : "#" + conv.id) : "";
+	const where = conv ? (conv.type === "dm" ? "@" + conv.id : roomCalled(conv.id, conv.held)) : "";
 	useEffect(() => {
 		document.title = (unread > 0 ? "(" + unread + ") " : "") +
 			(where ? where + " · " : "") + "pancake rooms";
@@ -99,13 +106,40 @@ export function App() {
 		return () => removeEventListener("keydown", onKey);
 	}, [state.rosterSheet, state.listScreen]);
 
+	// Opening the list makes the conversation inert. If focus was in it, the
+	// rail's own hide control is the named way back — `#cover` is a tap target,
+	// not a third tab stop.
+	useEffect(() => {
+		if (!mobile || !state.listScreen) return;
+		const active = document.activeElement;
+		if (active instanceof HTMLElement && active.closest(".workarea")) {
+			document.getElementById("railToggle")?.focus();
+		}
+	}, [mobile, state.listScreen]);
+
 	// Read live from the line it names, so bytes arriving while the viewer is
 	// open reach it rather than settling behind a copy taken when it opened.
 	const viewed = store.viewedAttachment(state);
-	// The directory this page came from, which is the one Settings describes and
-	// the only one it ever describes. Not the one being read: a room somewhere
-	// else is described by its own card, and Settings answering about whichever
-	// conversation was on screen is how "this directory" came to mean two things.
+	const [helpLayer, setHelpLayer] = useState(false);
+	const [opsLayer, setOpsLayer] = useState(false);
+	const [opsTakeLayer, setOpsTakeLayer] = useState(false);
+	const [dirLayer, setDirLayer] = useState(false);
+	const onHelpLayer = useCallback((held: boolean) => setHelpLayer(held), []);
+	const onOpsLayer = useCallback((held: boolean) => setOpsLayer(held), []);
+	const onOpsTakeLayer = useCallback((held: boolean) => setOpsTakeLayer(held), []);
+	const onDirLayer = useCallback((held: boolean) => setDirLayer(held), []);
+	// The store state blocks Settings in the same commit that opens the next
+	// layer. The held state keeps it blocked while that layer animates out.
+	// Waiting for a child layout effect alone briefly leaves two modal dialogs
+	// open, which gives the browser two competing focus traps.
+	const settingsBlocked = state.helpOpen || state.opsOpen || state.opsTake !== null ||
+		helpLayer || opsLayer || opsTakeLayer || state.aboutDir !== null || dirLayer;
+	// The toggles and the Operations control mirror possession, whose one
+	// authority is the three row fields the data layer sets and clears.
+	const opsHeld = opsHeldOf(state.listeners, state.diagnostics, state.viz);
+	// The directory this page came from: Settings still names its locator, and
+	// a button there opens the same card a room caption would. Null when this
+	// tab does not hold that session — before it has answered, or after Leave.
 	const onDir = state.homeDir === null ? null : state.dirs.get(state.homeDir) ?? null;
 
 	// Everything a directory says belongs to one directory, so the page reads it
@@ -118,11 +152,30 @@ export function App() {
 	// by the directory the conversation is in and by no other. Two directories
 	// may each have granted an `alice`, and they are two people.
 	const nick = activeDir?.nick ?? "";
+	// What the join card would show, resolved once here from the act the reader
+	// arrived by rather than read as fields. The rail's room panel is a second
+	// view of the same card while the card is up, so both are given the one
+	// answer instead of each reaching for the state behind it.
+	//
+	// Held across renders that cannot have changed it, because resolving builds
+	// a fresh object and the rail is memoised on its props: recomputed every
+	// render, the answers would be a new identity on every composer keystroke
+	// and would redraw the whole rail with them. The three fields it reads are
+	// replaced only by the verbs that own them, so their identity is the exact
+	// test for whether the answers can have moved.
+	const joining = useMemo(
+		() => store.answers(state),
+		[state.reaching, state.edits, state.remembered, state.homeDir],
+	);
 
 	const appClass = ["app"];
 	if (!state.railOpen) appClass.push("rooms-hidden");
 	if (state.listScreen) appClass.push("show-list");
 	if (state.rosterSheet) appClass.push("members-open");
+	// With no conversation open the join card is the workarea, and its own top
+	// stripe stands in for the topbar's; the stylesheet reads this to put the
+	// topbar's away rather than draw the same flourish twice on one screen.
+	if (conv === null) appClass.push("joining");
 
 	// The member column is the wide layout's preference, and a direct line has no
 	// roster to show at all. The phone always leaves the column expanded here and
@@ -137,22 +190,28 @@ export function App() {
 				dirs={state.dirs}
 				homeDir={state.homeDir}
 				activeKey={state.activeKey}
+				join={joining}
 				railShown={railShown}
 				mobile={mobile}
 				session={acting?.session ?? "connecting"}
-				statusText={acting?.statusText ?? "connecting…"}
 				emptyDirs={store.emptyDirs(state)}
+				standing={state.standing}
+				invites={state.invites}
+				settingsOpen={state.settingsOpen}
 			/>
-			<div className="workarea">
+			<div className="workarea" inert={mobile && state.listScreen ? true : undefined}>
 				<Topbar
 					conv={conv}
 					online={conv?.type === "dm" && dmablePeers.has(conv.id.toLowerCase())}
+					away={conv?.type === "dm" ? awayOf(awayWords, conv.dir, conv.id) : null}
 					unread={unread}
 					mobile={mobile}
 					railShown={railShown}
 					rosterShown={rosterShown}
 					memberCount={roster.online}
 					settingsOpen={state.settingsOpen}
+					standing={conv === null ? "" : store.standingFor(conv.key, state)}
+					follows={conv === null ? "" : directoryName(conv.dir, state.homeDir)}
 				/>
 				<div className={noMembers ? "content no-members" : "content"} id="content">
 					<Stream
@@ -161,11 +220,11 @@ export function App() {
 						banner={state.banner}
 						draft={draft.text}
 						draftFiles={draft.files}
-						changing={draft.changing !== undefined}
+						changing={draft.changing}
+						draftKeeping={draft.keeping}
 						liveRooms={acting?.liveRooms ?? EMPTY_ROOMS}
-						draftRoom={state.draftRoom}
-						draftLocator={state.draftLocator}
-						draftNick={state.draftNick}
+						reachable={dmablePeers}
+						join={joining}
 						dirs={state.dirs}
 						homeDir={state.homeDir}
 						composerEnabled={conv !== null && activeDir?.session === "connected"}
@@ -183,23 +242,59 @@ export function App() {
 					</ErrorBoundary>
 				</div>
 			</div>
-			<div id="sheetScrim" aria-hidden="true" onClick={() => store.closeRosterSheet()} />
+			<div
+				id="cover"
+				aria-hidden="true"
+				onClick={() => {
+					if (state.rosterSheet) store.closeRosterSheet();
+					else if (state.listScreen) store.showRail(false);
+				}}
+			/>
 			<Settings
-				open={state.settingsOpen}
+				open={state.settingsOpen && !settingsBlocked}
+				retain={state.settingsOpen}
 				theme={state.theme}
 				notifyOn={state.notifyOn}
 				dir={onDir}
-				rooms={onDir === null ? 0 : store.joinedRooms(onDir.id).length}
+				opsHeld={opsHeld}
+				opsOpen={state.opsOpen}
+				tab={state.settingsTab}
 			/>
+			<Help
+				open={state.helpOpen}
+				theme={state.theme}
+				notifyOn={state.notifyOn}
+				onLayer={onHelpLayer}
+			/>
+			<Operations
+				open={state.opsOpen}
+				held={opsHeld}
+				tab={state.opsTab}
+				diagnostics={state.diagnostics}
+				listeners={state.listeners}
+				viz={state.viz}
+				onLayer={onOpsLayer}
+			/>
+			<OpsTakeModal cap={state.opsTake} onLayer={onOpsTakeLayer} />
 			<DirectoryCard
 				dir={state.aboutDir === null ? null : state.dirs.get(state.aboutDir) ?? null}
 				rooms={state.aboutDir === null ? 0 : store.joinedRooms(state.aboutDir).length}
 				lines={state.aboutDir === null
 					? 0
 					: store.convsOn(state.aboutDir).filter((conv) => conv.type === "dm").length}
-				marked={dirsAreMarked(state.dirs)}
+				mark={state.aboutDir !== null && dirsAreMarked(state.dirs)
+					? dirMark(state.aboutDir, state.homeDir, state.dirs.get(state.aboutDir)?.slot)
+					: undefined}
+				standing={state.standing}
+				homeDir={state.homeDir}
+				onLayer={onDirLayer}
 			/>
-			{viewed !== null && state.viewing !== null && <Viewer file={viewed} convKey={state.viewing.key} />}
+			<Viewer
+				open={viewed !== null && state.viewing !== null}
+				file={viewed}
+				convKey={state.viewing?.key ?? ""}
+			/>
+			<Toasts toasts={state.toasts} />
 		</div>
 	);
 }

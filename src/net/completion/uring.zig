@@ -16,7 +16,7 @@
 //! The shared read-buffer pool (ADR-0054) is a kernel provided-buffer ring: one
 //! buffer group is registered at init, recvs are submitted with buffer select
 //! (no caller buffer), the kernel picks a buffer when data arrives and names it
-//! on the CQE, and `recycleRecv` returns it to the ring. A recv that finds the
+//! on the CQE, and `recycleBorrowed` returns it to the ring. A recv that finds the
 //! ring empty completes with `ENOBUFS`, which surfaces to the loop as
 //! `Completion.recv_no_buffer` — pool contention, never a connection error.
 
@@ -207,8 +207,9 @@ pub const Backend = struct {
         sqe.user_data = user_data;
     }
 
-    /// Return a recv completion's pool buffer to the kernel ring. The loop
-    /// calls this exactly once per completion that carried `recv_bytes`.
+    /// Return a recv completion's pool buffer to the kernel ring. This base
+    /// backend creates only receive borrows; richer wrapper-owned borrows are
+    /// consumed by their wrapper before they can reach this seam.
     /// Sockets carry no lower-layer peer identity: the total Backend
     /// contract's `verifiedChannelKey` member (ADR-0097) always answers null.
     pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[32]u8 {
@@ -221,8 +222,9 @@ pub const Backend = struct {
         return tcp_keepalive.apply(@intCast(fd), keepalive);
     }
 
-    pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
-        const buffer_id: u16 = @intCast(comp.recv_token);
+    pub fn recycleBorrowed(self: *Backend, comp: completion.Completion) void {
+        std.debug.assert(comp.borrowed.kind == .recv);
+        const buffer_id: u16 = @intCast(comp.borrowed.token);
         IoUring.buf_ring_add(
             self.buf_ring,
             self.bufferSlice(buffer_id),
@@ -304,8 +306,7 @@ pub const Backend = struct {
                 // consuming.
                 const buffer_id: u16 = @intCast(cqe.flags >> linux.IORING_CQE_BUFFER_SHIFT);
                 const used: usize = if (cqe.res > 0) @intCast(cqe.res) else 0;
-                comp.recv_bytes = self.bufferSlice(buffer_id)[0..used];
-                comp.recv_token = buffer_id;
+                comp.borrowed = .recv(self.bufferSlice(buffer_id)[0..used], buffer_id);
             } else if (cqe.res == enobufs_res) {
                 // Data arrived while the pool was empty: not a connection
                 // error; the loop parks the read buffer-starved and re-arms it

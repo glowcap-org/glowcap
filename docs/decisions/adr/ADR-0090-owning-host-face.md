@@ -7,7 +7,7 @@ decision: "`driver.connect` and `driver.listen` keep their signatures but return
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0110, ADR-0112, ADR-0113]
+amended_by: [ADR-0110, ADR-0112, ADR-0113, ADR-0116]
 ---
 
 # ADR-0090 The owning host face
@@ -142,8 +142,9 @@ loop does with readiness events.
 The verb-to-core mapping follows where authority lives. Verbs that carry node
 semantics ride the core's vow machinery: `fetch` (a fulfilled capability is
 enrolled under a node-unique token before dispatch, ADR-0069, so re-gifting
-routes), `fetchReference`/`callReference`/`sendReference` (token targets route
-through `core.routeSend`, with `ForeignArgument` refused whole). Session-local
+routes). Raw reference calls still refuse cross-session model arguments because
+they own no retain to delay. Owning `Value` calls use ADR-0116's recursive inline
+handoff transaction. Session-local
 verbs ride the served core the way the borrowing tier does: `spawn`,
 `publish`, `on`, `send`/`tell`/`sendToAnswer` on vat refs. Both kinds observe
 settlement the same way — a stack-bound capture listener plus `pumpUntil` —

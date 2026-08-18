@@ -24,108 +24,32 @@ const model = @import("model");
 const codec_order = @import("codec_order");
 
 const shared = @import("shared.zig");
+const render = @import("render.zig");
+const scalar = @import("scalar.zig");
 
 const Error = shared.Error;
 const WalkError = shared.WalkError;
 const EncodeError = shared.EncodeError;
 
-// ── Sinks ────────────────────────────────────────────────────────────────────
-//
-// The walker below is generic over a byte sink with `append`/`appendSlice`.
-// `CountSink` is the measure pass (never allocates, never fails), `SliceSink`
-// is the fill pass over the one exact allocation, and `ListSink` adapts a
-// caller-owned ArrayList for the growable products (`canonical`'s scratch and
-// the canonical-collection element encodes).
-
-const CountSink = struct {
-    total: usize = 0,
-
-    const counting = true;
-
-    pub fn append(self: *CountSink, byte: u8) error{}!void {
-        _ = byte;
-        self.total += 1;
-    }
-
-    pub fn appendSlice(self: *CountSink, bytes: []const u8) error{}!void {
-        self.total += bytes.len;
-    }
-};
-
-const SliceSink = struct {
-    buf: []u8,
-    cursor: usize = 0,
-
-    const counting = false;
-
-    // The bounds checks ratify measure/emit agreement in every build mode.
-    // A defect remains an operation failure instead of becoming an
-    // out-of-bounds write or a process-fatal assertion.
-    pub fn append(self: *SliceSink, byte: u8) error{EncoderInvariantViolation}!void {
-        if (self.cursor >= self.buf.len) return error.EncoderInvariantViolation;
-        self.buf[self.cursor] = byte;
-        self.cursor += 1;
-    }
-
-    pub fn appendSlice(self: *SliceSink, bytes: []const u8) error{EncoderInvariantViolation}!void {
-        if (self.cursor > self.buf.len or self.buf.len - self.cursor < bytes.len)
-            return error.EncoderInvariantViolation;
-        @memcpy(self.buf[self.cursor..][0..bytes.len], bytes);
-        self.cursor += bytes.len;
-    }
-};
-
-const ListSink = struct {
-    allocator: std.mem.Allocator,
-    list: *std.ArrayList(u8),
-
-    const counting = false;
-
-    fn append(self: *ListSink, byte: u8) std.mem.Allocator.Error!void {
-        try self.list.append(self.allocator, byte);
-    }
-
-    fn appendSlice(self: *ListSink, bytes: []const u8) std.mem.Allocator.Error!void {
-        try self.list.appendSlice(self.allocator, bytes);
-    }
-};
-
-/// True when `SinkPtr` is the measure pass's sink. The canonical-collection
-/// writers branch on this: measuring skips the sort/dedup scratch (a canonical
-/// order is a permutation, so the total length is order-independent), and the
-/// duplicate refusals fire on the emit pass.
-fn sinkCounts(comptime SinkPtr: type) bool {
-    return @typeInfo(SinkPtr).pointer.child.counting;
-}
-
-/// Render one record measure-then-fill: a counting pass, one exact allocation,
-/// then the fill pass over the same walker. `writeFn`'s first parameter must be
-/// the sink; `args` carries the rest. Caller owns the returned slice. This is
-/// the single seam `encodeMessageForProfile` and the `canonical` signed-byte
-/// products share, so every rendered record pays exactly one allocation (plus
-/// any canonical-collection emit scratch) and the two passes cannot drift.
-pub fn renderRecordExact(
-    allocator: std.mem.Allocator,
-    comptime writeFn: anytype,
-    args: anytype,
-) WalkError![]u8 {
-    var count: CountSink = .{};
-    try @call(.auto, writeFn, .{&count} ++ args);
-
-    const storage = try allocator.alloc(u8, count.total);
-    var fill: SliceSink = .{ .buf = storage };
-    @call(.auto, writeFn, .{&fill} ++ args) catch |err| {
-        allocator.free(storage);
-        return err;
-    };
-    // A short fill would hand out uninitialized storage as wire bytes. Refuse
-    // it and release the unpublished allocation just like an overfill.
-    if (fill.cursor != storage.len) {
-        allocator.free(storage);
-        return error.EncoderInvariantViolation;
-    }
-    return storage;
-}
+const ListSink = render.ListSink;
+const sinkCounts = render.sinkCounts;
+pub const renderRecordExact = render.renderRecordExact;
+const beginRecord = scalar.beginRecord;
+const endRecord = scalar.endRecord;
+const beginList = scalar.beginList;
+const endList = scalar.endList;
+const writeSymbol = scalar.writeSymbol;
+const writeString = scalar.writeString;
+const writeAbortWireString = scalar.writeAbortWireString;
+const writeBytes = scalar.writeBytes;
+const writeInteger = scalar.writeInteger;
+const writePositiveInt = scalar.writePositiveInt;
+const writeBool = scalar.writeBool;
+const writeFloat64 = scalar.writeFloat64;
+const writeUnsignedList = scalar.writeUnsignedList;
+const writeIntegerValue = scalar.writeIntegerValue;
+const writeBigInteger = scalar.writeBigInteger;
+const writeError = scalar.writeError;
 
 pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) EncodeError!foundation.Frame {
     const storage = try renderRecordExact(allocator, writeMessage, .{ allocator, null, message });
@@ -272,98 +196,11 @@ fn writeMessage(
     }
 }
 
-fn beginRecord(sink: anytype) !void {
-    try sink.append('<');
-}
-
-fn endRecord(sink: anytype) !void {
-    try sink.append('>');
-}
-
-fn writeSymbol(sink: anytype, symbol: []const u8) !void {
-    if (!std.unicode.utf8ValidateSlice(symbol)) return Error.UnsupportedArgument;
-    try writeUnsigned(sink, symbol.len);
-    try sink.append('\'');
-    try sink.appendSlice(symbol);
-}
-
-fn writeString(sink: anytype, string: []const u8) !void {
-    if (!std.unicode.utf8ValidateSlice(string)) return Error.UnsupportedArgument;
-    try writeUnsigned(sink, string.len);
-    try sink.append('"');
-    try sink.appendSlice(string);
-}
-
-fn writeAbortWireString(sink: anytype, abort: model.AbortReason) !void {
-    if (abort.kind == .other) {
-        try writeString(sink, abort.message);
-        return;
-    }
-
-    if (!std.unicode.utf8ValidateSlice(abort.message)) return Error.UnsupportedArgument;
-    const label = abort.kind.wireName();
-    try writeUnsigned(sink, label.len + ": ".len + abort.message.len);
-    try sink.append('"');
-    try sink.appendSlice(label);
-    try sink.appendSlice(": ");
-    try sink.appendSlice(abort.message);
-}
-
-fn writeBytes(sink: anytype, bytes: []const u8) !void {
-    try writeUnsigned(sink, bytes.len);
-    try sink.append(':');
-    try sink.appendSlice(bytes);
-}
-
-fn writeInteger(sink: anytype, value: i64) !void {
-    if (value < 0) {
-        try writeSignedMagnitude(sink, value);
-        try sink.append('-');
-    } else {
-        try writePositiveInt(sink, @intCast(value));
-    }
-}
-
-fn writePositiveInt(sink: anytype, value: u64) !void {
-    try writeUnsigned(sink, value);
-    try sink.append('+');
-}
-
-fn writeBool(sink: anytype, value: bool) !void {
-    try sink.append(if (value) 't' else 'f');
-}
-
-/// Syrup encodes a `binary64` double as `'D'` followed by 8 bytes IEEE-754
-/// big-endian. The model carries only `float64`; `'F'` (binary32) is not a
-/// pancake passable.
-fn writeFloat64(sink: anytype, value: f64) !void {
-    try sink.append('D');
-    var buf: [8]u8 = undefined;
-    std.mem.writeInt(u64, &buf, @bitCast(value), .big);
-    try sink.appendSlice(buf[0..]);
-}
-
 fn writeArgumentList(allocator: std.mem.Allocator, sink: anytype, args: []const model.Argument) WalkError!void {
     try sink.append('[');
     for (args) |arg| {
         try writeArgument(allocator, sink, arg);
     }
-    try sink.append(']');
-}
-
-fn writeUnsignedList(sink: anytype, values: []const u64) !void {
-    try sink.append('[');
-    for (values) |value| {
-        try writePositiveInt(sink, value);
-    }
-    try sink.append(']');
-}
-
-fn beginList(sink: anytype) !void {
-    try sink.append('[');
-}
-
-fn endList(sink: anytype) !void {
     try sink.append(']');
 }
 
@@ -413,21 +250,6 @@ fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: model.Argumen
         .@"error" => |err| try writeError(sink, err),
         .big_integer => |big| try writeBigInteger(sink, big),
     }
-}
-
-fn writeIntegerValue(sink: anytype, integer: model.Integer) WalkError!void {
-    switch (integer) {
-        .integer => |value| try writeInteger(sink, value),
-        .big_integer => |big| try writeBigInteger(sink, big),
-    }
-}
-
-fn writeBigInteger(sink: anytype, big: model.BigInteger) WalkError!void {
-    // A non-canonical big integer could duplicate the compact arm or assign
-    // multiple byte forms to one value, so it never reaches the wire.
-    if (!big.isCanonical()) return Error.UnsupportedArgument;
-    try sink.appendSlice(big.digits);
-    try sink.append(if (big.negative) '-' else '+');
 }
 
 /// Encode a canonical unordered collection: each element is encoded
@@ -762,45 +584,6 @@ fn writeHintValue(sink: anytype, value: model.HintValue) !void {
         .integer => |integer| try writeInteger(sink, integer),
         .boolean => |boolean| try writeBool(sink, boolean),
     }
-}
-
-fn writeError(sink: anytype, err: model.BreakReason) !void {
-    try beginRecord(sink);
-    try writeSymbol(sink, "error");
-    try writeString(sink, err.message);
-    try endRecord(sink);
-}
-
-fn writeUnsigned(sink: anytype, value: anytype) !void {
-    var buf: [20]u8 = undefined;
-    // Hand-rolled decimal: same canonical digit spelling as `{d}` (no leading
-    // zero except for `0` itself), sized for a u64 / usize magnitude. Avoids
-    // the formatter on every length prefix and positive int.
-    const text = formatDecimal(&buf, value);
-    try sink.appendSlice(text);
-}
-
-fn formatDecimal(buf: *[20]u8, value: anytype) []const u8 {
-    var remaining: u64 = value;
-    if (remaining == 0) {
-        buf[19] = '0';
-        return buf[19..20];
-    }
-    var i: usize = buf.len;
-    while (remaining > 0) {
-        i -= 1;
-        buf[i] = @intCast((remaining % 10) + '0');
-        remaining /= 10;
-    }
-    return buf[i..];
-}
-
-fn writeSignedMagnitude(sink: anytype, value: i64) !void {
-    const magnitude: u64 = if (value == std.math.minInt(i64))
-        @as(u64, 1) << 63
-    else
-        @intCast(-value);
-    try writeUnsigned(sink, magnitude);
 }
 
 fn writeTargetReference(allocator: std.mem.Allocator, sink: anytype, reference: model.Reference) !void {

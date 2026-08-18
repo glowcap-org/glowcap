@@ -15,9 +15,10 @@
 import { useState } from "react";
 import { c, FONT, PANEL } from "./tokens.ts";
 import { stateChipBase } from "./EntityChips.tsx";
-import { Field, kv } from "./inspector/shared.tsx";
+import { Field } from "./inspector/fields.tsx";
+import { kv } from "./inspector/styles.tsx";
 import { DocumentFields } from "./DocumentFields.tsx";
-import type { EditSession } from "./inspector/shared.tsx";
+import type { EditBracket } from "./inspector/edit-bracket.ts";
 import { scenarios } from "../fixtures/index.ts";
 import type { AppMode, BufferSourceInfo } from "../state/app-state.ts";
 import type { Engine } from "../engine/engine.ts";
@@ -78,7 +79,7 @@ export function SourcePicker(
     onLiveSturdyrefChange: (sturdyref: string) => void;
     /** Passed through to the document's own fields: present only where editing is
      *  allowed, which is Build. */
-    editor: EditSession | undefined;
+    editor: EditBracket | undefined;
   },
 ) {
   // What this panel paints is document-shaped: which source is loaded, what its
@@ -162,7 +163,7 @@ export function SourcePicker(
  * already called Document, and in Live, Connection.
  *
  * `PANEL` is the app's one recessed block and `kv` the Inspector's key/value grid
- * (`ui/tokens.ts`, `inspector/shared.tsx`). The grid lives HERE rather than around
+ * (`ui/tokens.ts`, `inspector/styles.tsx`). The grid lives HERE rather than around
  * the document's rows alone, because the source picker is a row of this panel too:
  * one grid is what makes its key measure against the keys under it.
  */

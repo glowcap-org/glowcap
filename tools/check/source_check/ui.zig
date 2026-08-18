@@ -1,12 +1,13 @@
 //! The shared UI core checks.
 //!
-//! `ui/` holds one palette, one type scale, and one set of font files, and two
+//! `ui/` holds one palette, one type ramp, and one set of font files, and two
 //! independently-built surfaces consume them through symlinks: the Zine
 //! documentation site and the Deno rooms app. Nothing about that arrangement
 //! fails a build on its own, so these checks hold it: the links stay links, the
 //! faces the core declares are the files on disk and the ones each consumer
-//! names, the licence travels with them, no surface restates a core colour, and
-//! the dark theme's two arms agree. Wired by the source-check driver
+//! names, the licence travels with them, no surface restates a core colour, the
+//! dark theme's two arms agree, and a stylesheet that never closes a comment or
+//! brace is refused. Wired by the source-check driver
 //! (`tools/check/source_check.zig`).
 
 const std = @import("std");
@@ -14,6 +15,21 @@ const util = @import("util.zig");
 const scaffolding = @import("scaffolding.zig");
 
 const appendViolation = util.appendViolation;
+
+/// Product stylesheets the browser loads. Symlinked copies of `ui/tokens.css`
+/// and `ui/mark.css` are not listed: the canonical file is enough, and a fault
+/// there is one fault, not three.
+pub const css_files = [_][]const u8{
+    "ui/tokens.css",
+    "ui/mark.css",
+    "apps/ocapnviz/src/styles.css",
+    "apps/ocapnviz/src/controls.css",
+};
+
+pub const css_dirs = [_][]const u8{
+    "apps/rooms/web/ui",
+    "site/assets",
+};
 
 /// The shared UI core is one directory that two independently-built surfaces
 /// consume through symlinks. Four things can silently break that, and none of
@@ -53,7 +69,7 @@ const ui_consumers = [_]UiConsumer{
     .{
         .fonts_dir = "apps/rooms/web/ui/fonts",
         .fonts_target = "../../../../../ui/fonts/",
-        .names_faces_in = "apps/rooms/web/serve.ts",
+        .names_faces_in = "apps/rooms/web/serve_http.ts",
         .miss_costs = "rooms would serve it as 404",
     },
 };
@@ -433,6 +449,109 @@ pub fn checkUiThemeParity(
                 try appendViolation(gpa, violations, "{s}: `{s}` is set by the theme toggle but not for a dark system preference, so a reader who never toggles never gets it", .{ path, entry.key_ptr.* });
             }
         }
+    }
+}
+
+/// Product tokens (text-safe accent, filled amber, page ground, shared radii,
+/// overlay cover) live in `ui/tokens.css` with the palette. A surface that
+/// restates `--accent-ink`, `--on-accent`, or `--page-bg` is the same defect
+/// as restating `--accent`: two dark arms that drift. A surface that never
+/// uses the ink token is not on the product vocabulary.
+pub fn checkUiProductTokens(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const tokens = root.readFileAlloc(io, "ui/tokens.css", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "ui/tokens.css: failed to read with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(tokens);
+    const live = try cssWithoutComments(gpa, tokens);
+    defer gpa.free(live);
+    const required = [_][]const u8{ "--accent-ink:", "--teal-ink:", "--accent-fill:", "--on-accent:", "--page-bg:", "--accent-line:", "--radius-control:", "--cover:", "--frost:", "--type-ui:" };
+    for (required) |needle| {
+        if (std.mem.indexOf(u8, live, needle) == null) {
+            try appendViolation(gpa, violations, "ui/tokens.css: missing product token `{s}` (absent, or inside a comment so the browser never sees it)", .{needle[0 .. needle.len - 1]});
+        }
+    }
+
+    const site = util.concatDirFiles(io, gpa, root, "site/assets", struct {
+        fn keep(name: []const u8) bool {
+            return std.mem.endsWith(u8, name, ".css") and !std.mem.eql(u8, name, "tokens.css") and !std.mem.eql(u8, name, "mark.css");
+        }
+    }.keep) catch null;
+    if (site) |css| {
+        defer gpa.free(css);
+        try checkSurfaceInk(gpa, violations, "site/assets", css);
+    } else {
+        try appendViolation(gpa, violations, "site/assets: could not read the site stylesheets", .{});
+    }
+
+    const rooms = util.concatDirFiles(io, gpa, root, "apps/rooms/web/ui", struct {
+        fn keep(name: []const u8) bool {
+            return std.mem.endsWith(u8, name, ".css") and !std.mem.eql(u8, name, "tokens.css") and !std.mem.eql(u8, name, "mark.css");
+        }
+    }.keep) catch null;
+    if (rooms) |css| {
+        defer gpa.free(css);
+        try checkSurfaceInk(gpa, violations, "apps/rooms/web/ui", css);
+        if (std.mem.indexOf(u8, css, "var(--type-ui)") == null) {
+            try appendViolation(gpa, violations, "apps/rooms/web/ui: never uses var(--type-ui); the product type ramp lives in ui/tokens.css", .{});
+        }
+    } else {
+        try appendViolation(gpa, violations, "apps/rooms/web/ui: could not read the rooms stylesheets", .{});
+    }
+}
+
+fn cssWithoutComments(gpa: std.mem.Allocator, src: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    var i: usize = 0;
+    while (i < src.len) {
+        if (i + 1 < src.len and src[i] == '/' and src[i + 1] == '*') {
+            const end = std.mem.indexOfPos(u8, src, i + 2, "*/") orelse src.len;
+            const stop = if (end == src.len) src.len else end + 2;
+            try out.appendNTimes(gpa, ' ', stop - i);
+            i = stop;
+            continue;
+        }
+        try out.append(gpa, src[i]);
+        i += 1;
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+fn checkSurfaceInk(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    css: []const u8,
+) !void {
+    if (std.mem.indexOf(u8, css, "var(--accent-ink)") == null) {
+        try appendViolation(gpa, violations, "{s}: never uses var(--accent-ink); product text-safe accent lives in ui/tokens.css", .{path});
+    }
+    if (std.mem.indexOf(u8, css, "--accent-ink:") != null) {
+        try appendViolation(gpa, violations, "{s}: restates --accent-ink; ui/tokens.css owns it", .{path});
+    }
+    if (std.mem.indexOf(u8, css, "var(--on-accent)") == null) {
+        try appendViolation(gpa, violations, "{s}: never uses var(--on-accent); product ink on filled amber lives in ui/tokens.css", .{path});
+    }
+    if (std.mem.indexOf(u8, css, "--on-accent:") != null) {
+        try appendViolation(gpa, violations, "{s}: restates --on-accent; ui/tokens.css owns it", .{path});
+    }
+    if (std.mem.indexOf(u8, css, "var(--page-bg)") == null) {
+        try appendViolation(gpa, violations, "{s}: never uses var(--page-bg); product page ground lives in ui/tokens.css", .{path});
+    }
+    if (std.mem.indexOf(u8, css, "--page-bg:") != null) {
+        try appendViolation(gpa, violations, "{s}: restates --page-bg; ui/tokens.css owns it", .{path});
+    }
+    if (std.mem.indexOf(u8, css, "var(--frost)") == null) {
+        try appendViolation(gpa, violations, "{s}: never uses var(--frost); product chrome frost lives in ui/tokens.css", .{path});
+    }
+    if (std.mem.indexOf(u8, css, "var(--radius-card)") == null) {
+        try appendViolation(gpa, violations, "{s}: never uses var(--radius-card); product card radius lives in ui/tokens.css", .{path});
     }
 }
 

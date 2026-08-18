@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # Shared helpers for devcontainer install, verify, and config checks. Sourced
 # by scripts on both sides of the container boundary, so everything here stays
-# portable to the host's bash (macOS ships 3.2).
+# portable to the host's bash (macOS ships 3.2). The host tmux launchers'
+# helpers build on these from launcher-lib.sh.
 
 # Execution-context guards. The devcontainer image exports
 # PANCAKE_DEVCONTAINER_DIR (present during its build and in the running
@@ -139,10 +140,28 @@ pancake_devcontainer_default_egress_network() {
 
 pancake_devcontainer_port_rows() {
     printf '%s\n' \
-        PANCAKE_WEB_HOST_PORT:8000 \
-        PANCAKE_CAPTP_HOST_PORT:9099 \
-        PANCAKE_RELAY_HOST_PORT:9200 \
-        PANCAKE_TRACE_HOST_PORT:9300
+        PANCAKE_ROOMS_WEB_HOST_PORT:8000 \
+        PANCAKE_ROOMS_CAPTP_HOST_PORT:9099 \
+        PANCAKE_ROOMS_RELAY_HOST_PORT:9200 \
+        PANCAKE_ROOMS_TRACE_HOST_PORT:9300 \
+        PANCAKE_OCAPNVIZ_HOST_PORT:5173 \
+        PANCAKE_DOCS_HOST_PORT:1990
+}
+
+# User identity and agent-harness state shared by every pancake worktree. The
+# host-relative source and absolute container target stay paired here so host
+# initialization, container checks, and the committed mounts cannot drift.
+pancake_devcontainer_host_state_rows() {
+    printf '%s\n' \
+        .claude:/home/vscode/.claude \
+        .codex:/home/vscode/.codex \
+        .cursor:/home/vscode/.cursor \
+        .config/cursor:/home/vscode/.config/cursor \
+        .config/gh:/home/vscode/.config/gh \
+        .config/opencode:/home/vscode/.config/opencode \
+        .local/share/opencode:/home/vscode/.local/share/opencode \
+        .config/agents:/home/vscode/.config/agents \
+        .serena:/home/vscode/.serena
 }
 
 # Read one plain KEY=value assignment from the checkout-local Compose env file.
@@ -173,10 +192,12 @@ pancake_devcontainer_compose_variables() {
     cat <<'EOF'
 PANCAKE_WORKTREE
 PANCAKE_GIT_COMMON_DIR
-PANCAKE_WEB_HOST_PORT
-PANCAKE_CAPTP_HOST_PORT
-PANCAKE_RELAY_HOST_PORT
-PANCAKE_TRACE_HOST_PORT
+PANCAKE_ROOMS_WEB_HOST_PORT
+PANCAKE_ROOMS_CAPTP_HOST_PORT
+PANCAKE_ROOMS_RELAY_HOST_PORT
+PANCAKE_ROOMS_TRACE_HOST_PORT
+PANCAKE_OCAPNVIZ_HOST_PORT
+PANCAKE_DOCS_HOST_PORT
 EGRESS_NET
 EOF
 }

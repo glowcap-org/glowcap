@@ -22,12 +22,12 @@
 import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@pancake/runtime";
 import { recordingReplyDm } from "../lib/dm_reply.ts";
-import { inboxOfferer } from "../lib/dm_inbox.ts";
+import { inboxPublisher } from "../lib/dm_inbox.ts";
 import { serveDirectory } from "../server/main.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../lib/locator.ts";
 import { enterOrOpen } from "../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../lib/room_client.ts";
-import { waitUntil } from "../lib/dm_handoff.ts";
+import { waitUntil } from "./dm_handoff.ts";
 import { openRoomsRuntime } from "../lib/runtime.ts";
 
 const ROOM = "lobby";
@@ -70,8 +70,7 @@ async function main(): Promise<void> {
 	await Room.subscribe(bobDir.session, bobRoomRef, "bob");
 	// Bob mints an inbox for each peer the directory asks him for; that inbox is
 	// what `introduce` hands on.
-	const bobOfferer = inboxOfferer({
-		host: bobHost,
+	const bobOfferer = inboxPublisher(bobHost).offerer({
 		dir: () => bobDir,
 		behaviorFor: dmFor,
 	});
@@ -87,6 +86,7 @@ async function main(): Promise<void> {
 	await carol.register("carol", formatPeerUri(TRANSPORT_KEYED_RELAY, carolHost.designator()));
 	const line = await DirectMessage.open(carol, "bob", (text) => {
 		carolReplies.push(`bob: ${text}`);
+		return null;
 	});
 	await line.say(DM_TEXT);
 

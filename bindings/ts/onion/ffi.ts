@@ -13,37 +13,35 @@
 // `pancake_onion_last_error`.
 
 import { lazySymbols, libPath } from "@pancake/runtime/ffi";
+import { ONION_ARCHIVE_FINGERPRINT } from "@pancake/abi";
 
 const P = "pointer",
 	B = "buffer",
 	U = "usize",
 	I = "i32",
-	V = "void";
+	V = "void",
+	U64 = "u64";
 
 export const onionS = lazySymbols(() => libPath("pancake_net_transport_onion"), {
+	pancake_onion_archive_fingerprint: { parameters: [], result: U64 },
 	pancake_onion_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
 	pancake_onion_transport_provider: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_onion_netlayer_new: { parameters: [B, B], result: I, outBuffers: [1] },
 	pancake_onion_netlayer_shutdown: { parameters: [P], result: V },
-	pancake_onion_netlayer_release_with_diagnostic: {
-		parameters: [P, B, U, B],
-		result: I,
-		outBuffers: [1, 3],
-		nonblocking: true,
-	},
-	pancake_onion_connect_with_diagnostic: {
+	pancake_onion_netlayer_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+	pancake_onion_connect: {
 		parameters: [P, B, U, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [5, 6, 8],
 		nonblocking: true,
 	},
-	pancake_onion_listen_with_diagnostic: {
+	pancake_onion_listen: {
 		parameters: [P, B, U, B, B, U, B, B, B, U, B],
 		result: I,
 		outBuffers: [1, 3, 4, 6, 7, 8, 10],
 		nonblocking: true,
 	},
-	pancake_onion_listener_wait_with_diagnostic: {
+	pancake_onion_listener_wait: {
 		parameters: [P, I, B, B, U, B],
 		result: I,
 		outBuffers: [2, 3, 5],
@@ -51,31 +49,20 @@ export const onionS = lazySymbols(() => libPath("pancake_net_transport_onion"), 
 	},
 	pancake_onion_listener_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_onion_conn_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_onion_accept_with_diagnostic: {
+	pancake_onion_accept: {
 		parameters: [P, "u32", U, B, B, U, B],
 		result: I,
 		outBuffers: [3, 4, 6],
 		nonblocking: true,
 	},
-	pancake_onion_conn_read_frame_with_diagnostic: {
-		parameters: [P, B, B, U, B],
-		result: I,
-		outBuffers: [1, 2, 4],
-		nonblocking: true,
-	},
-	pancake_onion_conn_write_frame_with_diagnostic: {
-		parameters: [P, B, B, U, B],
-		result: I,
-		outBuffers: [2, 4],
-		nonblocking: true,
-	},
+	pancake_onion_conn_read_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [1, 2, 4], nonblocking: true },
+	pancake_onion_conn_write_frame: { parameters: [P, B, B, U, B], result: I, outBuffers: [2, 4], nonblocking: true },
 	pancake_onion_conn_shutdown: { parameters: [P], result: I },
-	pancake_onion_conn_release: { parameters: [P], result: I, nonblocking: true },
+	pancake_onion_conn_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
 	pancake_onion_listener_shutdown: { parameters: [P], result: V },
-	pancake_onion_listener_release_with_diagnostic: {
-		parameters: [P, B, U, B],
-		result: I,
-		outBuffers: [1, 3],
-		nonblocking: true,
-	},
+	pancake_onion_listener_release: { parameters: [P, B, U, B], result: I, outBuffers: [1, 3], nonblocking: true },
+}, {
+	symbol: "pancake_onion_archive_fingerprint",
+	expected: ONION_ARCHIVE_FINGERPRINT,
+	archive: "pancake_net_transport_onion",
 });

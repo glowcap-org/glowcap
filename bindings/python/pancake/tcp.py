@@ -33,7 +33,7 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._host import Host
 
-from ._codec import _codec_id
+from ._abi_value import _codec_id
 from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK
 from ._constants import (
     HINT_DIRECT_ADDRESSES,
@@ -224,7 +224,7 @@ def _check_tcp(code: int) -> None:
 
 
 def _release_connection(raw) -> None:
-    _tcp_lib.pancake_tcp_conn_release(raw)
+    _check_tcp(_tcp_lib.pancake_tcp_conn_release(raw, None, 0, None))
 
 
 def _shutdown_connection(raw) -> None:
@@ -272,14 +272,22 @@ class TcpConnection(_NativeHandleOwner):
         """Block for one whole frame. Raises PancakeError(ERR_CLOSED) on clean EOF."""
         with self._reads, self._native.lease() as raw:
             frame = _ManagedFrame()
-            _check_tcp(_tcp_lib.pancake_tcp_conn_read_frame(raw, ctypes.byref(frame)))
+            _check_tcp(
+                _tcp_lib.pancake_tcp_conn_read_frame(
+                    raw, ctypes.byref(frame), None, 0, None
+                )
+            )
             return _copy_managed_frame(frame)
 
     def write_frame(self, frame: bytes) -> None:
         buf = ctypes.create_string_buffer(frame, len(frame))
         f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
         with self._writes, self._native.lease() as raw:
-            _check_tcp(_tcp_lib.pancake_tcp_conn_write_frame(raw, ctypes.byref(f)))
+            _check_tcp(
+                _tcp_lib.pancake_tcp_conn_write_frame(
+                    raw, ctypes.byref(f), None, 0, None
+                )
+            )
 
 
 class TcpListener(_NativeHandleOwner):
@@ -345,6 +353,9 @@ class TcpListener(_NativeHandleOwner):
                     _codec_id(codec),
                     max_frame_bytes,
                     ctypes.byref(out),
+                    None,
+                    0,
+                    None,
                 )
             )
             _ = raw_options
@@ -462,6 +473,9 @@ class TcpNetlayer(_NativeHandleOwner):
                     _codec_id(codec),
                     max_frame_bytes,
                     ctypes.byref(out),
+                    None,
+                    0,
+                    None,
                 )
             )
             _ = raw_options
@@ -478,8 +492,8 @@ def provider(config: "Optional[Config]" = None) -> Provider:
             loop._install_provider(
                 lambda register: register(netlayer._transport_provider())
             )
-        except BaseException:
-            _rollback_failed_provider(loop, netlayer.release)
+        except BaseException as primary:
+            _rollback_failed_provider(primary, netlayer.release)
             raise
         netlayer._relinquish_provider_reference()
 
@@ -501,8 +515,8 @@ def connector() -> Connector:
                 channel,
                 handshake_timeout_ms,
             )
-        except BaseException:
-            await _rollback_failed_transport(host, channel)
+        except BaseException as primary:
+            await _rollback_failed_transport(primary, channel)
             raise
 
     return Connector((TRANSPORT_TCP,), realize)

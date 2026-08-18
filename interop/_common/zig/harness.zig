@@ -181,7 +181,17 @@ pub const PeerScaffold = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, frame_cap: usize) !PeerScaffold {
-        var peer = engine.Peer.initNegotiating(allocator);
+        return initWith(allocator, frame_cap, .{});
+    }
+
+    /// `init` with the peer's negotiating options stated, for a driver whose
+    /// scenario needs a non-baseline preference on a caller-owned peer.
+    pub fn initWith(
+        allocator: std.mem.Allocator,
+        frame_cap: usize,
+        options: engine.Peer.NegotiatingOptions,
+    ) !PeerScaffold {
+        var peer = engine.Peer.initNegotiatingWith(allocator, options);
         errdefer peer.deinit();
         peer.session_state.limits.max_frame_bytes = frame_cap;
         const read_buf = try allocator.alloc(u8, frame_cap);

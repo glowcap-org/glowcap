@@ -416,3 +416,51 @@ test "a connection-owned transport failure is claimed exactly once" {
     try std.testing.expectEqual(error.ReadFailed, failure.cause);
     try std.testing.expect(conn.takeFailure() == null);
 }
+
+test "a connection close barrier retains its exact transport chain" {
+    const Fixture = struct {
+        advances: usize = 0,
+        failure: ?pancake.foundation.FailureChain,
+
+        fn close(_: *anyopaque) void {}
+        fn tryClose(ctx: *anyopaque) net.ConnectionCloseProgress {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.advances += 1;
+            return if (self.advances == 1) .wait_read else .failed;
+        }
+        fn socket(_: *anyopaque) ?std.Io.net.Socket.Handle {
+            return null;
+        }
+        fn take(ctx: *anyopaque) ?pancake.foundation.FailureChain {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            const failure = self.failure;
+            self.failure = null;
+            return failure;
+        }
+    };
+
+    var failure = pancake.foundation.FailureChain.init(error.TlsCloseFailed);
+    failure.note(error.SocketCloseFailed);
+    var fixture = Fixture{ .failure = failure };
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var peer = stubNegotiatingPeer(std.testing.allocator);
+    defer peer.deinit();
+    var reader = std.Io.Reader.fixed("");
+    var storage: [1]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&storage);
+    var conn = net.Connection.init(threaded.io(), &peer, &reader, &writer, .{
+        .ctx = &fixture,
+        .close_fn = Fixture.close,
+        .try_close_fn = Fixture.tryClose,
+        .socket_handle_fn = Fixture.socket,
+        .take_failure_fn = Fixture.take,
+    });
+
+    const reported = conn.closeGracefully(100).?;
+    try std.testing.expectEqual(error.TlsCloseFailed, reported.cause);
+    try std.testing.expectEqual(error.SocketCloseFailed, reported.secondary_cause.?);
+    try std.testing.expectEqual(@as(u16, 1), reported.secondary_count);
+    try std.testing.expectEqual(@as(usize, 2), fixture.advances);
+    try std.testing.expect(conn.takeFailure() == null);
+}

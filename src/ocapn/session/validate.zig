@@ -46,10 +46,10 @@ pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *Intr
         .listen => |listen| try validateInboundListen(self, listen),
         .get => |get| try validateProjectionOp(self, get.receiver, get.answer),
         .index => |index| try validateProjectionOp(self, index.receiver, index.answer),
-        .untag => |untag| {
-            if (self.captp_version == .v1_0) return Error.UnexpectedMessage;
-            try validateProjectionOp(self, untag.receiver, untag.answer);
-        },
+        // `op:untag` is in the pinned 1.0 draft. The negotiated feature only
+        // gates what we send to a partner; a conforming inbound operation is
+        // always admitted and answered.
+        .untag => |untag| try validateProjectionOp(self, untag.receiver, untag.answer),
         else => {},
     }
 }
@@ -188,35 +188,11 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
     switch (message) {
         .start_session => |ss| try validateStartSession(self, ss, .local_sent),
         .deliver => |deliver| try validateOutboundDeliver(self, deliver),
-        .resolve => |resolve| {
-            // An answer resolves exactly once on the send side too, symmetric
-            // with `validateInboundResolve`: a second resolve for a settled
-            // inbound answer would put our own protocol violation on the wire.
-            const entry = self.inbound_answers.getPtr(resolve.answer) orelse
-                return Error.InvalidReference;
-            if (entry.status() != .pending) return Error.UnexpectedMessage;
-            // The fulfill payload's `near` references are deliberately *not*
-            // validated as held here, and only its `near` references: resolving
-            // an answer with a `.near` is how the application exports that
-            // object for the first time, so `retainSentExports` mints the
-            // export row `registerExport`-shaped (local baseline plus the wire
-            // mention) and advances the export allocator past it. Every other
-            // arm keeps the deliver path's rule; see `SendRefCheck` for why the
-            // `far` arm in particular cannot join the exemption. This is the
-            // send-side asymmetry with
-            // `validateInboundResolve`, where a partner-named `near` must
-            // carry a wire-count grant. The depth is still bounded here, before
-            // `retainSentExports` walks the same payload and enforces the cap
-            // mid-mutation: without this a too-deep fulfill would mint the
-            // shallow export at count 1 and then trip `NestingTooDeep`, leaving
-            // a refcount inflated that never went on the wire and no partner
-            // `op:gc-exports` will ever release — the all-or-nothing breach the
-            // deliver path already closes.
-            switch (resolve.resolution) {
-                .fulfill => |arg| try validateArgument(self, arg, 0, .near_may_be_first_export),
-                .@"break" => {},
-            }
-        },
+        .resolve => |resolve| try validateSentResolutionNamed(
+            self,
+            .fromWire(resolve.answer),
+            resolve.resolution,
+        ),
         .gc_export => |gc_export| {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
             try session.validateGcExport(gc_export);
@@ -258,7 +234,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
             try validateReference(self, index.receiver, .sent, .held_import);
         },
         .untag => |untag| {
-            if (self.captp_version == .v1_0) return Error.UnexpectedMessage;
+            if (!self.features.untag) return Error.FeatureNotNegotiated;
             try checkOutboundAnswerPosition(self, untag.answer);
             try validateReference(self, untag.receiver, .sent, .held_import);
         },
@@ -268,6 +244,24 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
         // is classified here — the silent-drop that produced the wire-delta
         // bug cannot recur.
         .abort => {},
+    }
+}
+
+pub fn validateSentResolutionNamed(
+    self: *Session,
+    answer: model.AnswerName,
+    resolution: model.Resolution,
+) !void {
+    // An answer resolves exactly once on the send side too, symmetric with
+    // `validateInboundResolve`: a second settlement must not publish.
+    const entry = self.inbound_answers.getPtr(answer) orelse
+        return Error.InvalidReference;
+    if (entry.status() != .pending) return Error.UnexpectedMessage;
+    // A fulfilled `.near` may be the object's first export. Validate the whole
+    // tree before apply establishes any authority, preserving failure atomicity.
+    switch (resolution) {
+        .fulfill => |arg| try validateArgument(self, arg, 0, .near_may_be_first_export),
+        .@"break" => {},
     }
 }
 
@@ -302,10 +296,7 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
         .listen => |listen| try validateInboundListen(self, listen),
         .get => |get| try validateProjectionOp(self, get.receiver, get.answer),
         .index => |index| try validateProjectionOp(self, index.receiver, index.answer),
-        .untag => |untag| {
-            if (self.captp_version == .v1_0) return Error.UnexpectedMessage;
-            try validateProjectionOp(self, untag.receiver, untag.answer);
-        },
+        .untag => |untag| try validateProjectionOp(self, untag.receiver, untag.answer),
         // `op:abort` is always admitted and carries no kind-specific rule.
         else => {},
     }
@@ -405,13 +396,8 @@ pub const IntroducedImports = struct {
     }
 };
 
-/// The two rules every partner-named inbound answer position answers to.
-///
-/// The position is attacker-controlled, so both are refusals rather than
-/// assumptions. The range at and above `VIRTUAL_INBOUND_ANSWER_BASE` belongs to
-/// session-allocated virtual answers, and a partner claim inside it could fuse
-/// its question with one the engine allocated for itself. And an answer names
-/// one outstanding question, so reusing a row that is still live — pending, or
+/// A partner-named answer names one outstanding question, so reusing a row
+/// that is still live — pending, or
 /// settled and awaiting `op:gc-answers` — is a protocol violation; refusing it
 /// here projects a typed abort, where letting it through left `installAnswer` a
 /// no-op and failed later on our own outbound resolve with no abort recorded.
@@ -420,11 +406,7 @@ pub const IntroducedImports = struct {
 /// carries one, and the three projection ops (ADR-0050), which name an answer
 /// of their own and install a row exactly as a deliver does.
 fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Error!void {
-    switch (model.AnswerName.classify(answer.int())) {
-        .virtual => return Error.InvalidReference,
-        .wire => {},
-    }
-    if (self.inbound_answers.contains(answer)) return Error.UnexpectedMessage;
+    if (self.inbound_answers.contains(.fromWire(answer))) return Error.UnexpectedMessage;
 }
 
 fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *IntroducedImports) RecvViewError!void {
@@ -477,9 +459,8 @@ const FarPolicy = enum {
     held_import,
     /// The `far` is a fresh introduction — the partner handing us a new
     /// `<desc:import-object>` in argument or fulfill-payload position — accepted
-    /// here and installed in apply, except in the reserved redeemed-token range
-    /// (see `REDEEMED_TOKEN_BASE`), which is refused so a partner cannot alias a
-    /// node-minted handoff token.
+    /// here and installed in apply. Every `u64` is valid; node-local routes use
+    /// the distinct `Reference.routed` arm.
     introduction,
 };
 
@@ -505,16 +486,16 @@ fn validateDeliverOrListenTarget(
                     return Error.InvalidReference;
                 }
             },
-            .near, .sturdy, .broken => return Error.InvalidReference,
+            else => return Error.InvalidReference,
         },
         .received => switch (reference) {
             .near => try validateReference(self, reference, .received, .held_import),
             .promise => |promise| {
-                if (!self.inbound_answers.contains(promise.answer_position)) {
+                if (!self.inbound_answers.contains(.fromWire(promise.answer_position))) {
                     return Error.InvalidReference;
                 }
             },
-            .far, .sturdy, .broken => return Error.InvalidReference,
+            else => return Error.InvalidReference,
         },
     }
 }
@@ -532,11 +513,11 @@ fn validateListenListener(
     switch (perspective) {
         .sent => switch (reference) {
             .near => try validateReference(self, reference, .sent, .held_import),
-            .far, .promise, .sturdy, .broken => return Error.InvalidReference,
+            else => return Error.InvalidReference,
         },
         .received => switch (reference) {
             .far => try validateReference(self, reference, .received, .introduction),
-            .near, .promise, .sturdy, .broken => return Error.InvalidReference,
+            else => return Error.InvalidReference,
         },
     }
 }
@@ -552,27 +533,33 @@ fn validateReference(
     comptime perspective: Perspective,
     comptime far_policy: FarPolicy,
 ) Error!void {
-    switch (reference) {
-        .near => |near| switch (perspective) {
-            .sent => if (!self.exports.contains(near.export_position)) return Error.InvalidReference,
-            // The pinned bootstrap export is always addressable (ADR-0006);
-            // any other export the partner names must carry a wire-count
-            // grant — a reference that crossed the wire, or an explicit
-            // `registerExport` grant.
-            .received => if (near.export_position.int() != BOOTSTRAP_POSITION and
-                self.exports.wireHeld(near.export_position) == 0)
-                return Error.InvalidReference,
-        },
-        .far => |far| switch (far_policy) {
-            .held_import => if (!self.holdsImport(far.import_position)) return Error.InvalidReference,
-            .introduction => switch (model.ImportName.classify(far.import_position.int())) {
-                .token => return Error.InvalidReference,
-                .wire => {},
-            },
-        },
+    return switch (reference) {
+        .routed => Error.InvalidReference,
+        .near => |near| validateNearReference(self, near, perspective),
+        .far => |far| validateFarReference(self, far, far_policy),
         .promise, .broken => {},
-        .sturdy => if (!self.features.sturdyref) return Error.FeatureNotNegotiated,
+        .sturdy => validateSturdyReference(self),
+    };
+}
+
+fn validateNearReference(self: *Session, near: model.NearRef, comptime perspective: Perspective) Error!void {
+    switch (perspective) {
+        .sent => if (!self.exports.contains(near.export_position)) return Error.InvalidReference,
+        .received => if (near.export_position.int() != BOOTSTRAP_POSITION and
+            self.exports.wireHeld(near.export_position) == 0)
+            return Error.InvalidReference,
     }
+}
+
+fn validateFarReference(self: *Session, far: model.FarRef, comptime far_policy: FarPolicy) Error!void {
+    switch (far_policy) {
+        .held_import => if (!self.holdsImport(far.import_position)) return Error.InvalidReference,
+        .introduction => {},
+    }
+}
+
+fn validateSturdyReference(self: *Session) Error!void {
+    if (!self.features.sturdyref) return Error.FeatureNotNegotiated;
 }
 
 fn validateInboundArguments(
@@ -820,9 +807,22 @@ fn validateHandoffArgument(self: *const Session, handoff: anytype) Error!void {
     try validateHandoffGiftId(self, give.gift_id);
 }
 
-/// Enforce the current profile's fixed gift-id domain without narrowing the
-/// Goblins-compatible V1.0 profile. Public for bootstrap admission, which must
-/// reject before it copies a deposit id or parks an early withdrawal.
+/// Enforce the fixed gift-id domain on the profile that mints under it, without
+/// narrowing the V1.0 profile that has to interoperate. Public for bootstrap
+/// admission, which must reject before it copies a deposit id or parks an early
+/// withdrawal.
+///
+/// The draft specifies 32 random bytes and pancake mints that everywhere, so the
+/// rule is right for `next`, where both ends are pancake's own. It is wrong as
+/// an inbound rule for `1.0`: the pinned OCapN suite gives with a seven-byte
+/// `my-gift`, and refusing it retires the session before the handoff is read, so
+/// `tests.third_party_handoffs` loses its Exporter and Receiver cases to a
+/// closed socket. Length is not what makes a gift id safe here either — the
+/// signed envelope is the authority, and a short id costs one bounded retry
+/// against the fixed-width tag that keeps an attacker-chosen length out of
+/// coordination state. This follows the same posture as `op:listen`'s operand
+/// count, recorded in `conformance/ocapn-findings`: interoperate with what runs
+/// today, and record the disagreement rather than settle it here.
 pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!void {
     if (self.captp_version == .next and gift_id.len != model.HANDOFF_GIFT_ID_BYTES) {
         return Error.MalformedMessage;
@@ -835,7 +835,6 @@ pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!vo
 /// deliberately does not take this Receiver-side check.
 fn validateInboundHandoffArgument(self: *const Session, handoff: anytype) Error!void {
     try validateHandoffArgument(self, handoff);
-    if (self.captp_version != .next) return;
     const value = if (comptime @typeInfo(@TypeOf(handoff)) == .pointer)
         handoff.*
     else
@@ -844,6 +843,20 @@ fn validateInboundHandoffArgument(self: *const Session, handoff: anytype) Error!
         .give => |give| {
             const local_key = self.localSessionKey() orelse return Error.InvalidHandoffSession;
             if (!std.mem.eql(u8, give.recipient_key, local_key)) return Error.InvalidGift;
+        },
+        .receive => {},
+    }
+}
+
+/// A give leaves on the session whose partner is its recipient. Validate that
+/// address before retaining any arguments or answer state. A receive embeds a
+/// give minted on another session, so its recipient key is not this partner's.
+fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff) Error!void {
+    try validateHandoffArgument(self, handoff);
+    switch (handoff) {
+        .give => |give| {
+            const partner_key = self.partnerSessionKey() orelse return Error.InvalidHandoffSession;
+            if (!std.mem.eql(u8, give.recipient_key, partner_key)) return Error.InvalidGift;
         },
         .receive => {},
     }
@@ -896,12 +909,10 @@ const SendArgError = Error || std.mem.Allocator.Error;
 /// store holds is a position this session must hold, exactly as if the
 /// application had sent the resolve itself.
 ///
-/// The node's relay already keeps to that rule by construction — a relayed
-/// fulfillment naming a bare far object takes the handoff arm
-/// (`Node.giftRelayedCapability`) rather than the store, and every other
-/// session-scoped shape settles broken (ADR-0009) — so this makes an existing
-/// convention a checked one, and catches an embedder that stores through the
-/// seam directly.
+/// The Host/Node relay keeps to that rule by construction: home-session
+/// references lift to Host identity, lower for the recipient, and cross
+/// `Node.stageInlinePassable` before this store sees them. This makes the same
+/// convention explicit for a lower-level embedder that stores directly.
 pub fn validateStoredResolution(self: *Session, resolution: model.Resolution) SendArgError!void {
     switch (resolution) {
         .fulfill => |arg| try validateArgument(self, arg, 0, .near_may_be_first_export),
@@ -962,7 +973,7 @@ fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime 
             try checkSentStructKeyUniqueness(self.allocator, entries);
         },
         // Exhaustive on purpose, see `validateInboundArgument`.
-        .handoff => |handoff| try validateHandoffArgument(self, handoff),
+        .handoff => |handoff| try validateOutboundHandoffArgument(self, handoff.*),
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error" => {},
     }
 }

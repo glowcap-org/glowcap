@@ -15,10 +15,10 @@
 //! synthesized completion with the syscall's result. `close` needs no readiness,
 //! so it runs immediately and its completion is queued for the next `poll`.
 //!
-//! The shared read-buffer pool (ADR-0054) is a `ScratchPool` owned here: a
+//! The shared read-buffer pool (ADR-0054) is a `BufferPool` owned here: a
 //! readiness backend reads at poll time, so `poll` acquires a scratch buffer,
 //! performs the `recv` into it, and lends it to the loop on the completion;
-//! `recycleRecv` reclaims it. Buffers are allocated lazily up to the pool size,
+//! `recycleBorrowed` reclaims it. Buffers are allocated lazily up to the pool size,
 //! and a read-ready fd that finds the pool empty completes with
 //! `Completion.recv_no_buffer` — pool contention, never a connection error.
 //!
@@ -34,7 +34,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const completion = @import("loop.zig");
-const ScratchPool = @import("scratch_pool.zig").ScratchPool;
+const BufferPool = @import("buffer_pool.zig").BufferPool;
 const socket_tcp = @import("socket_tcp.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
 
@@ -84,7 +84,7 @@ pub const Backend = struct {
     /// Completions that need no readiness (closes), drained before blocking.
     ready: completion.ReadyQueue,
     /// The shared recv scratch pool (ADR-0054).
-    scratch_pool: ScratchPool,
+    buffer_pool: BufferPool,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -100,27 +100,27 @@ pub const Backend = struct {
         if (kq < 0) return error.KqueueFailed;
         errdefer _ = close(kq);
 
-        var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
-        errdefer scratch_pool.deinit();
+        var buffer_pool = try BufferPool.init(allocator, read_buffers, read_buffer_bytes);
+        errdefer buffer_pool.deinit();
 
         return .{
             .allocator = allocator,
             .kq = kq,
             .pending = std.AutoHashMap(c.fd_t, Pending).init(allocator),
             .ready = .{},
-            .scratch_pool = scratch_pool,
+            .buffer_pool = buffer_pool,
         };
     }
 
     pub fn deinit(self: *Backend) void {
-        self.scratch_pool.deinit();
+        self.buffer_pool.deinit();
         self.pending.deinit();
         self.ready.deinit(self.allocator);
         _ = close(self.kq);
     }
 
-    /// Reclaim a recv completion's scratch buffer. The loop calls this exactly
-    /// once per completion that carried `recv_bytes`.
+    /// Reclaim a recv completion's scratch buffer. This base backend creates
+    /// only receive borrows; wrappers consume their own richer borrows.
     /// Sockets carry no lower-layer peer identity: the total Backend
     /// contract's `verifiedChannelKey` member (ADR-0097) always answers null.
     pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[32]u8 {
@@ -133,8 +133,9 @@ pub const Backend = struct {
         return tcp_keepalive.apply(@intCast(fd), keepalive);
     }
 
-    pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
-        self.scratch_pool.release(@intCast(comp.recv_token));
+    pub fn recycleBorrowed(self: *Backend, comp: completion.Completion) void {
+        std.debug.assert(comp.borrowed.kind == .recv);
+        self.buffer_pool.release(@intCast(comp.borrowed.token));
     }
 
     const ReservedSlot = struct {
@@ -336,8 +337,8 @@ pub const Backend = struct {
                         var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
                         if (ev.flags & EV_ERROR != 0) {
                             comp.failure = completion.failureFromErrno(@enumFromInt(@as(c_int, @intCast(ev.data))));
-                        } else if (self.scratch_pool.acquire()) |idx| {
-                            const buf = self.scratch_pool.buffer(idx);
+                        } else if (self.buffer_pool.acquire()) |idx| {
+                            const buf = self.buffer_pool.buffer(idx);
                             const r = c.recv(fd, buf.ptr, buf.len, 0);
                             if (r < 0) switch (std.posix.errno(r)) {
                                 // Readiness is a hint, not a promise, and a
@@ -349,7 +350,7 @@ pub const Backend = struct {
                                 // contract that every submitted op eventually
                                 // yields a completion still holds.
                                 .AGAIN, .INTR => {
-                                    self.scratch_pool.release(idx);
+                                    self.buffer_pool.release(idx);
                                     self.register(fd, c.EVFILT.READ) catch {
                                         // The re-arm is the only way this op
                                         // can ever complete, so a failure here
@@ -365,12 +366,11 @@ pub const Backend = struct {
                             };
                             comp.result = @intCast(r);
                             if (r > 0) {
-                                comp.recv_bytes = buf[0..@intCast(r)];
-                                comp.recv_token = idx;
+                                comp.borrowed = .recv(buf[0..@intCast(r)], idx);
                             } else {
                                 // EOF or error: nothing for the loop to consume,
                                 // so the buffer goes straight back to the pool.
-                                self.scratch_pool.release(idx);
+                                self.buffer_pool.release(idx);
                             }
                         } else {
                             // Pool exhausted: surface starvation. The one-shot

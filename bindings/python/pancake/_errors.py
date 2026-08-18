@@ -9,13 +9,16 @@ every wrapper routes a return code through. Re-exported from the
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import ctypes
 
 from . import _constants as _abi
 from ._ffi_host import _host
 from ._ffi_ocapn import _lib, _read_last_error
+
+if TYPE_CHECKING:
+    from ._carrier_failure import CarrierFailure
 
 _OK = _abi.OK
 
@@ -42,7 +45,12 @@ def _abort_domain_label(domain: int) -> str:
         return "codec"
     if domain == _abi.ABORT_DOMAIN_SESSION:
         return "session"
-    return "foreign"
+    if domain == _abi.ABORT_DOMAIN_FOREIGN:
+        return "foreign"
+    raise PancakeError(
+        _abi.ERR_INTERNAL,
+        f"pancake ABI returned unknown abort domain {domain}",
+    )
 
 
 @dataclass(frozen=True)
@@ -89,24 +97,39 @@ class PancakeError(Exception):
         self.code = code
         self.message = message
         self.abort = abort
+        self.carrier_failure: Optional[CarrierFailure] = None
         self.secondary: tuple[BaseException, ...] = ()
         self.secondary_count = 0
+
+
+_FAILURE_CHAIN_CAP = 64
 
 
 def _retain_cleanup_failure(
     primary: BaseException, cleanup: BaseException
 ) -> BaseException:
     """Retain a later native cleanup failure without replacing its cause."""
-    if isinstance(primary, PancakeError):
-        primary.secondary_count = min((1 << 32) - 1, primary.secondary_count + 1)
-        if len(primary.secondary) < 64:
-            primary.secondary += (cleanup,)
-    else:
-        primary.add_note(f"additional pancake cleanup failure: {cleanup}")
+    try:
+        total = getattr(primary, "secondary_count", 0)
+        retained = getattr(primary, "secondary", ())
+        if type(total) is not int or total < 0:
+            total = 0
+        if not isinstance(retained, tuple):
+            retained = ()
+        setattr(primary, "secondary_count", min((1 << 32) - 1, total + 1))
+        if len(retained) < _FAILURE_CHAIN_CAP:
+            setattr(primary, "secondary", retained + (cleanup,))
+    except BaseException:
+        # Slot-only application exceptions may refuse package metadata. Python's
+        # standard exception note remains a truthful, if less structured,
+        # fallback while the original object stays authoritative.
+        try:
+            BaseException.add_note(
+                primary, f"additional pancake cleanup failure: {cleanup}"
+            )
+        except BaseException:
+            pass  # attachment cannot replace the authoritative primary
     return primary
-
-
-_FAILURE_CHAIN_CAP = 64
 
 
 def _retain_terminal_failure(

@@ -26,24 +26,15 @@
 import { nodeActivityIn, type StageSelection } from "../../render/types.ts";
 import type { Engine } from "../../engine/engine.ts";
 import { findEndpoint, findSession } from "../../engine/world.ts";
-import { captpVersionLabel, parseEndpointStageId, SESSION_SIDES, UNNAMED_END_LABEL } from "../../schema/topology.ts";
+import { captpVersionLabel } from "../../schema/topology.ts";
+import { parseEndpointStageId, SESSION_SIDES, UNNAMED_END_LABEL } from "../../schema/session-end.ts";
 import { sessionEndpointPlaceAt } from "../../engine/temporal/doc-resolver.ts";
 import { ActivityChip, AttributionChip, EndpointKindLabel, LifecycleChip } from "../EntityChips.tsx";
-import {
-  type EditorBindings,
-  Field,
-  FieldGroup,
-  inlineHeadingInput,
-  InlineTextField,
-  kv,
-  linkRowList,
-  PanelHeading,
-  placeholder,
-  PositionRow,
-  SessionLinkRow,
-  valueMono,
-  valueText,
-} from "./shared.tsx";
+import { Field, FieldGroup, InlineTextField } from "./fields.tsx";
+import type { EditorBindings } from "./bindings.ts";
+import { PositionRow } from "./position-row.tsx";
+import { SessionLinkRow } from "./links.tsx";
+import { inlineHeadingInput, kv, linkRowList, PanelHeading, placeholder, valueMono, valueText } from "./styles.tsx";
 import { SessionMoments } from "./SessionTrajectory.tsx";
 import { Identifier } from "../identifier.tsx";
 import { useEngineVersion } from "../useEngineVersion.ts";

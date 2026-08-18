@@ -43,16 +43,11 @@ const noise = @import("noise.zig");
 const crypto = @import("crypto.zig");
 const spill = @import("spill.zig");
 const frame = @import("frame.zig");
+const identity_binding = @import("sealed_identity.zig");
 const stream_framing = @import("stream_framing.zig");
 
-/// The byte that joins transport symbol and responder designator in the Noise
-/// prologue. A zero byte can occur in neither half — transport symbols are
-/// printable ASCII and a designator is lowercase hex — so the two halves
-/// cannot be re-split into a different pair.
-const prologue_separator: u8 = 0;
-
 /// Fixed wire sizes of the three handshake messages; see the module header.
-const identity_proof_bytes: usize = crypto.PEER_KEY_BYTES + crypto.SIGNATURE_BYTES;
+const identity_proof_bytes: usize = identity_binding.proof_bytes;
 pub const msg1_wire_bytes: usize = noise.HandshakeState.MSG1_OVERHEAD;
 pub const msg2_wire_bytes: usize = noise.HandshakeState.MSG2_OVERHEAD + identity_proof_bytes;
 pub const msg3_wire_bytes: usize = noise.HandshakeState.MSG3_OVERHEAD + identity_proof_bytes;
@@ -183,8 +178,8 @@ pub const SealedChannel = struct {
         const remote_x = crypto.x25519FromPeerKey(remote) orelse return error.InvalidRemoteKey;
         var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed) orelse return error.InvalidEphemeral;
         defer std.crypto.secureZero(u8, &ephemeral.secret);
-        var prologue_buf: [prologue_max_bytes]u8 = undefined;
-        const prologue = buildPrologue(&prologue_buf, transport, &remote.toDesignator());
+        var prologue_buf: [identity_binding.prologue_max_bytes]u8 = undefined;
+        const prologue = identity_binding.buildPrologue(&prologue_buf, transport, &remote.toDesignator());
         var handshake = noise.HandshakeState.initInitiator(&local, remote_x, &ephemeral, prologue);
         defer handshake.deinit();
         const identity_context = handshake.initialHandshakeHash();
@@ -192,7 +187,7 @@ pub const SealedChannel = struct {
             .phase = .{ .handshake = handshake },
             .role = .initiator,
             .remote_identity = remote,
-            .local_proof = makeIdentityProof(identity, .initiator, local.public, identity_context),
+            .local_proof = identity_binding.makeProof(identity, .initiator, local.public, identity_context),
             .identity_context = identity_context,
             .pending = undefined,
             .pending_len = 0,
@@ -218,9 +213,9 @@ pub const SealedChannel = struct {
         defer std.crypto.secureZero(u8, &local.secret);
         var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed) orelse return error.InvalidEphemeral;
         defer std.crypto.secureZero(u8, &ephemeral.secret);
-        var prologue_buf: [prologue_max_bytes]u8 = undefined;
+        var prologue_buf: [identity_binding.prologue_max_bytes]u8 = undefined;
         const local_identity = identity.publicKey();
-        const prologue = buildPrologue(&prologue_buf, transport, &local_identity.toDesignator());
+        const prologue = identity_binding.buildPrologue(&prologue_buf, transport, &local_identity.toDesignator());
         var handshake = noise.HandshakeState.initResponder(&local, &ephemeral, prologue);
         defer handshake.deinit();
         const identity_context = handshake.initialHandshakeHash();
@@ -228,7 +223,7 @@ pub const SealedChannel = struct {
             .phase = .{ .handshake = handshake },
             .role = .responder,
             .remote_identity = null,
-            .local_proof = makeIdentityProof(identity, .responder, local.public, identity_context),
+            .local_proof = identity_binding.makeProof(identity, .responder, local.public, identity_context),
             .identity_context = identity_context,
             .pending = undefined,
             .pending_len = 0,
@@ -389,7 +384,7 @@ pub const SealedChannel = struct {
                             return .handshake;
                         },
                         3 => {
-                            const claimed = try verifyIdentityProof(
+                            const claimed = try identity_binding.verifyProof(
                                 got,
                                 .initiator,
                                 self.identity_context,
@@ -406,7 +401,7 @@ pub const SealedChannel = struct {
                         // dial named. Only then answer with our own proof.
                         std.debug.assert(hs.stage == 2);
                         if (self.pending_len != 0) return SealedError.HandshakeOutOfOrder;
-                        _ = try verifyIdentityProof(
+                        _ = try identity_binding.verifyProof(
                             got,
                             .responder,
                             self.identity_context,
@@ -578,78 +573,5 @@ pub const SealedChannel = struct {
         std.crypto.secureZero(u8, self.plain);
         gpa.free(self.plain);
         self.plain = &.{};
-    }
-
-    /// Room for the longest transport symbol beside a 64-hex-digit
-    /// designator; asserted, because both inputs are this library's own.
-    const prologue_max_bytes: usize = 96;
-
-    const identity_proof_domain = "pancake sealed identity proof v1";
-    const identity_statement_bytes = identity_proof_domain.len + 1 + noise.KEY_BYTES +
-        crypto.PEER_KEY_BYTES + noise.KEY_BYTES;
-
-    fn identityStatement(
-        role: noise.Role,
-        context: [noise.KEY_BYTES]u8,
-        identity: crypto.PeerKey,
-        static: [noise.KEY_BYTES]u8,
-    ) [identity_statement_bytes]u8 {
-        var out: [identity_statement_bytes]u8 = undefined;
-        var at: usize = 0;
-        @memcpy(out[at..][0..identity_proof_domain.len], identity_proof_domain);
-        at += identity_proof_domain.len;
-        out[at] = @intFromEnum(role);
-        at += 1;
-        @memcpy(out[at..][0..context.len], &context);
-        at += context.len;
-        @memcpy(out[at..][0..identity.bytes.len], &identity.bytes);
-        at += identity.bytes.len;
-        @memcpy(out[at..][0..static.len], &static);
-        return out;
-    }
-
-    fn makeIdentityProof(
-        identity: *const crypto.SecretKey,
-        role: noise.Role,
-        static: [noise.KEY_BYTES]u8,
-        context: [noise.KEY_BYTES]u8,
-    ) [identity_proof_bytes]u8 {
-        const public = identity.publicKey();
-        const statement = identityStatement(role, context, public, static);
-        const signature = crypto.sign(identity, &statement);
-        var out: [identity_proof_bytes]u8 = undefined;
-        out[0..crypto.PEER_KEY_BYTES].* = public.bytes;
-        out[crypto.PEER_KEY_BYTES..].* = signature.bytes;
-        return out;
-    }
-
-    fn verifyIdentityProof(
-        proof: []const u8,
-        role: noise.Role,
-        context: [noise.KEY_BYTES]u8,
-        static: [noise.KEY_BYTES]u8,
-        expected: ?crypto.PeerKey,
-    ) SealedError!crypto.PeerKey {
-        if (proof.len != identity_proof_bytes) return SealedError.IdentityMismatch;
-        const identity = crypto.PeerKey.fromBytes(proof[0..crypto.PEER_KEY_BYTES].*);
-        if (expected) |key| {
-            if (!identity.eql(key)) return SealedError.IdentityMismatch;
-        }
-        const mapped = crypto.x25519FromPeerKey(identity) orelse return SealedError.IdentityMismatch;
-        if (!std.mem.eql(u8, &mapped, &static)) return SealedError.IdentityMismatch;
-        const signature = crypto.Signature.fromBytes(
-            proof[crypto.PEER_KEY_BYTES..][0..crypto.SIGNATURE_BYTES].*,
-        );
-        const statement = identityStatement(role, context, identity, static);
-        crypto.verify(identity, &statement, signature) catch return SealedError.IdentityMismatch;
-        return identity;
-    }
-
-    fn buildPrologue(buf: *[prologue_max_bytes]u8, transport: []const u8, designator: []const u8) []const u8 {
-        std.debug.assert(transport.len + 1 + designator.len <= buf.len);
-        @memcpy(buf[0..transport.len], transport);
-        buf[transport.len] = prologue_separator;
-        @memcpy(buf[transport.len + 1 ..][0..designator.len], designator);
-        return buf[0 .. transport.len + 1 + designator.len];
     }
 };

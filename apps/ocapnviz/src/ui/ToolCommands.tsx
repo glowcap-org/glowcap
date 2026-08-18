@@ -43,7 +43,7 @@ import { useMemo } from "react";
 import type React from "react";
 import type { Engine } from "../engine/engine.ts";
 import { authoredPins } from "../engine/event-helpers.ts";
-import { clearAllPins, discardAllEdits, undoAllWithSelection } from "../builder/helpers.ts";
+import { clearAllPins, discardAllEdits, undoAllWithSelection } from "../builder/selection-history.ts";
 import type { AppMode } from "../state/app-state.ts";
 import type { SelectionAction } from "../interactions/types.ts";
 import { useDocVersion } from "./useDocVersion.ts";
@@ -118,7 +118,7 @@ const buttonStyle = {
  * The Inspector position row's ✕ swept across the composition: same
  * verb, same two kinds of pin (a peer's authored position and a
  * session end's), one undo step. The sweep is `clearAllPins` in
- * `builder/helpers.ts`; this is the affordance.
+ * `builder/selection-history.ts`; this is the affordance.
  */
 export function UnpinAllButton(
   { engine, mode }: { engine: Engine; mode: AppMode },

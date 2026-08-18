@@ -16,6 +16,7 @@ use super::inproc::{PancakeInprocConn, PancakeInprocListener, PancakeInprocNetla
 use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
 
 extern "C" {
+	pub fn pancake_inproc_archive_fingerprint() -> u64;
 	pub fn pancake_inproc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_inproc_netlayer_new(out_netlayer: *mut *mut PancakeInprocNetlayer) -> c_int;
 	pub fn pancake_inproc_netlayer_release(netlayer: *mut PancakeInprocNetlayer);
@@ -26,6 +27,9 @@ extern "C" {
 		codec: c_uint,
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeInprocConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_inproc_listen(
 		netlayer: *mut PancakeInprocNetlayer,
@@ -39,13 +43,33 @@ extern "C" {
 		codec: c_uint,
 		max_frame_bytes: usize,
 		out_conn: *mut *mut PancakeInprocConn,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_inproc_conn_read_frame(conn: *mut PancakeInprocConn, out_frame: *mut PancakeManagedFrame) -> c_int;
-	pub fn pancake_inproc_conn_write_frame(conn: *mut PancakeInprocConn, frame: *const PancakeFrame) -> c_int;
+	pub fn pancake_inproc_conn_read_frame(
+		conn: *mut PancakeInprocConn,
+		out_frame: *mut PancakeManagedFrame,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
+	pub fn pancake_inproc_conn_write_frame(
+		conn: *mut PancakeInprocConn,
+		frame: *const PancakeFrame,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_inproc_conn_shutdown(conn: *mut PancakeInprocConn);
 	pub fn pancake_inproc_conn_release(conn: *mut PancakeInprocConn);
 	pub fn pancake_inproc_listener_shutdown(listener: *mut PancakeInprocListener);
-	pub fn pancake_inproc_listener_release(listener: *mut PancakeInprocListener) -> c_int;
+	pub fn pancake_inproc_listener_release(
+		listener: *mut PancakeInprocListener,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_inproc_clear_last_error();
 	pub fn pancake_inproc_netlayer_new_in(
 		context: *mut PancakeContext,

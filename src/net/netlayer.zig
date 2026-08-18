@@ -34,142 +34,25 @@
 const std = @import("std");
 
 const foundation = @import("foundation");
-const crypto = foundation.crypto;
 const model = @import("model");
 const engine = @import("engine");
 const connection = @import("connection.zig");
-const stream_shim = @import("stream_shim.zig");
-
-const Io = std.Io;
+const failure_contract = @import("netlayer/failure.zig");
+const support = @import("netlayer_support.zig");
 
 pub const Connection = connection.Connection;
 
-/// Caller-owned read/write buffers handed to a dial/accept. `read` sizes the
-/// steady per-connection memory, not the largest admissible frame (a larger
-/// frame assembles across multiple reads in the connection's bounded overflow
-/// buffer, its `foundation.Spill`, bounded by the session's
-/// `max_frame_bytes`).
-pub const Buffers = struct {
-    read: []u8,
-    write: []u8,
-};
+/// Caller-owned read/write buffers handed to a dial/accept.
+pub const Buffers = support.Buffers;
 
-/// Borrowed provider-owned configuration for one dial or listener operation.
-/// The generic runtime forwards this view without interpreting it. The selected
-/// provider validates the exact payload type and must copy any values retained
-/// after the starting call returns. `.inherit` asks the provider to use its
-/// configured defaults; an explicit payload may still encode "disabled".
-pub const OperationOptions = struct {
-    data: ?*const anyopaque = null,
-    size: usize = 0,
+/// Borrowed provider configuration; the selected provider owns validation.
+pub const OperationOptions = support.OperationOptions;
 
-    pub const inherit: OperationOptions = .{};
+/// Pinned shim reader/writer storage for userspace byte transports.
+pub const PinnedStream = support.PinnedStream;
 
-    pub fn borrow(comptime T: type, value: *const T) OperationOptions {
-        return .{ .data = value, .size = @sizeOf(T) };
-    }
-
-    /// Decode the provider's exact payload type. Absence means inherit; a
-    /// non-null payload with the wrong size or alignment is rejected before a
-    /// provider reads it.
-    pub fn decode(self: OperationOptions, comptime T: type) error{InvalidOptions}!?*const T {
-        const data = self.data orelse {
-            if (self.size != 0) return error.InvalidOptions;
-            return null;
-        };
-        if (self.size != @sizeOf(T) or @intFromPtr(data) % @alignOf(T) != 0)
-            return error.InvalidOptions;
-        return @ptrCast(@alignCast(data));
-    }
-
-    pub fn requireInherited(self: OperationOptions) error{InvalidOptions}!void {
-        if (self.data != null or self.size != 0) return error.InvalidOptions;
-    }
-};
-
-/// One pinned byte-source stream: a `stream_shim.Shim(Source)` reader/writer pair
-/// plus the one per-connection allocation the userspace transports need, so the
-/// vtable can recover the concrete reader and writer from `&interface` by field
-/// offset (the same pin tcp's `TcpStream` holds, ADR-0043). A transport supplies
-/// its `Source` (the Shim byte source) and a `Context` that owns the transport
-/// handle and declares `fn closeStream(Context) void`, run once inside `close`
-/// before the allocation is freed. Allocated at connect/accept, freed by the
-/// connection's transport handle on `close`. tcp does not ride this: its stream
-/// is `std.Io.net.Stream`, which carries its own reader/writer and a real fd.
-pub fn PinnedStream(comptime Source: type, comptime Context: type) type {
-    return struct {
-        const Self = @This();
-        const ShimT = stream_shim.Shim(Source);
-
-        reader: ShimT.Reader,
-        writer: ShimT.Writer,
-        allocator: std.mem.Allocator,
-        context: Context,
-
-        /// Pin a stream on `allocator`. `read_source` and `write_source` are the
-        /// Shim byte sources for each direction — the same value both ways when a
-        /// transport reads and writes one handle, distinct channels when it does
-        /// not. `context` owns the transport handle `close` releases.
-        pub fn create(
-            allocator: std.mem.Allocator,
-            read_source: Source,
-            write_source: Source,
-            bufs: Buffers,
-            context: Context,
-        ) std.mem.Allocator.Error!*Self {
-            const self = try allocator.create(Self);
-            self.* = .{
-                .reader = ShimT.Reader.init(read_source, bufs.read),
-                .writer = ShimT.Writer.init(write_source, bufs.write),
-                .allocator = allocator,
-                .context = context,
-            };
-            return self;
-        }
-
-        pub fn intoConnection(self: *Self, io: Io, peer: *engine.Peer) Connection {
-            return Connection.init(io, peer, &self.reader.interface, &self.writer.interface, .{
-                .ctx = self,
-                .close_fn = close,
-                .socket_handle_fn = socketHandle,
-                .take_failure_fn = takeFailure,
-            });
-        }
-
-        /// Release the transport handle through the context hook, then free the
-        /// pinned allocation. The hook runs before the free, so a source whose
-        /// bytes live in the handle (an in-process pipe) is closed while it is
-        /// still valid.
-        pub fn close(ctx: *anyopaque) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            self.context.closeStream();
-            self.allocator.destroy(self);
-        }
-
-        fn socketHandle(ctx: *anyopaque) ?Io.net.Socket.Handle {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            if (comptime @hasDecl(Context, "socketHandle")) return self.context.socketHandle();
-            return null;
-        }
-
-        fn takeFailure(ctx: *anyopaque) ?foundation.FailureChain {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            if (comptime @hasDecl(Context, "takeFailure")) return self.context.takeFailure();
-            return null;
-        }
-    };
-}
-
-/// What to bind a `Listener` to. `designator` is the transport's address form
-/// (a `host:port` for tcp; a node default for a userspace transport).
-/// `identity` is the Host's durable public key. A key-designator transport
-/// either uses it as the listener designator (TCP) or verifies its own
-/// endpoint identity agrees (the driver enforces the latter generically).
-pub const ListenConfig = struct {
-    designator: []const u8,
-    identity: ?crypto.PeerKey = null,
-    options: OperationOptions = .inherit,
-};
+/// Borrowed listener bind configuration.
+pub const ListenConfig = support.ListenConfig;
 
 /// What a transport's locator designator *is*, declared on the vtable so the
 /// driver dispatches identity behavior without naming transports. `address`
@@ -183,113 +66,46 @@ pub const ListenConfig = struct {
 /// claim the same key. An address route is independent of the current channel
 /// (ADR-0109). This is target matching, not authentication; each connection's
 /// `session_pubkey` is a separate identity.
-pub const DesignatorScheme = model.transport.DesignatorScheme;
+pub const DesignatorScheme = support.DesignatorScheme;
 
 /// The locator hint carrying a partner's comma-separated direct socket
 /// addresses — the transport-neutral dial-address channel a `key`-scheme
 /// designator needs, since the designator itself no longer says where to dial.
 /// The iroh resident re-exports this name; keyed TCP requires the hint on every
 /// dial (TCP has no discovery).
-pub const hint_direct_addresses = model.transport.hint_direct_addresses;
+pub const hint_direct_addresses = support.hint_direct_addresses;
 
 /// The locator's `hint_direct_addresses` string hint, or null when the hint is
 /// missing or carries a non-string value.
-pub fn directAddrHint(hints: model.Hints) ?[]const u8 {
-    for (hints.entries) |entry| {
-        if (!std.mem.eql(u8, entry.name, hint_direct_addresses)) continue;
-        switch (entry.value) {
-            .string => |s| return s,
-            else => return null,
-        }
-    }
-    return null;
-}
+pub const directAddrHint = support.directAddrHint;
 
 /// Size-query/copy contract shared by listener restoration-state callbacks. The return
 /// value is always the complete byte count; `out` is written only when it can
 /// hold the whole value. An empty buffer therefore asks for the exact size
 /// without allocating or accepting a truncated locator component.
-pub fn writeListenerRestorationState(out: []u8, value: []const u8) usize {
-    if (out.len >= value.len) @memcpy(out[0..value.len], value);
-    return value.len;
-}
+pub const writeListenerRestorationState = support.writeListenerRestorationState;
 
-/// A provider that advertises restoration state failed to query or copy it.
-/// Absence is represented by the optional callback, not by this error set.
-pub const RestorationStateError = error{ProviderFailure};
-
-/// A dial could not produce a connection. The transport's private errors are
-/// projected onto this shared set so the driver dispatches without knowing them.
-/// The arms form a retry axis (ADR-0081 / ADR-0082): `InvalidAddress` and
-/// `ConnectionRefused` are permanent (bad designator/hint, or an active peer
-/// refusal — never retry); `NetworkUnreachable` / `TimedOut` / `ConnectionLost`
-/// are transient (retry with backoff under `driver.DialRetry`);
-/// `OutOfMemory` is permanent local pressure (not a network transient).
-pub const DialError = error{
-    InvalidAddress,
-    InvalidOptions,
-    ConnectionRefused,
-    NetworkUnreachable,
-    TimedOut,
-    ConnectionLost,
-    SocketConfigurationFailed,
-    WakeNudgeFailed,
-} || std.mem.Allocator.Error;
-pub const DialFailure = struct {
-    classification: DialError,
-    chain: foundation.FailureChain,
-
-    pub fn init(cause: DialError) DialFailure {
-        return .{ .classification = cause, .chain = .init(cause) };
-    }
-
-    pub fn fromChain(classification: DialError, chain: foundation.FailureChain) DialFailure {
-        return .{ .classification = classification, .chain = chain };
-    }
-};
-/// Binding a listener failed: the designator did not parse (`InvalidAddress`),
-/// or the bind/listen syscall failed, e.g. the port is in use (`BindFailed`).
-pub const ListenError = error{ InvalidAddress, InvalidOptions, BindFailed } || std.mem.Allocator.Error;
-/// Accepting a partner failed.
-pub const AcceptError = error{
-    ConnectionLost,
-    SocketConfigurationFailed,
-    WakeNudgeFailed,
-    WakeDrainFailed,
-} || std.mem.Allocator.Error;
-
-/// A rejected accept keeps its control-flow classification and its exact,
-/// bounded provider-owned cause chain together.  The classification decides
-/// runtime policy; the chain is the fact projected to the listener owner.
-pub const AcceptFailure = struct {
-    classification: AcceptError,
-    chain: foundation.FailureChain,
-
-    pub fn init(classification: AcceptError) AcceptFailure {
-        return .{ .classification = classification, .chain = .init(classification) };
-    }
-
-    pub fn fromChain(classification: AcceptError, chain: foundation.FailureChain) AcceptFailure {
-        return .{ .classification = classification, .chain = chain };
-    }
-};
-
-pub const AcceptOutcome = union(enum) {
-    accepted: Connection,
-    failed: AcceptFailure,
-};
-
-pub const AcceptReadinessOutcome = union(enum) {
-    ready: bool,
-    failed: AcceptFailure,
-};
-
-/// A listener is always retired before close returns. Null means every cleanup
-/// effect succeeded; a value retains the first cleanup failure and bounded
-/// later consequences without making logging or runtime terminality netlayer
-/// policy.
-pub const ListenerCloseFailure = foundation.FailureChain;
-pub const ListenFailure = foundation.FailureChain;
+pub const RestorationStateError = failure_contract.RestorationStateError;
+pub const DialError = failure_contract.DialError;
+pub const DialFailure = failure_contract.DialFailure;
+pub const RawConnectionDialOutcome = failure_contract.RawConnectionDialOutcome;
+pub const ListenError = failure_contract.ListenError;
+pub const AcceptError = failure_contract.AcceptError;
+pub const AcceptFailure = failure_contract.AcceptFailure;
+pub const AcceptOutcome = failure_contract.AcceptOutcome;
+pub const AcceptReadinessOutcome = failure_contract.AcceptReadinessOutcome;
+pub const ListenerCloseFailure = failure_contract.ListenerCloseFailure;
+pub const ListenFailure = failure_contract.ListenFailure;
+pub const ListenerLocatorOutcome = failure_contract.ListenerLocatorOutcome;
+pub const ListenerRestorationOutcome = failure_contract.ListenerRestorationOutcome;
+pub const DialOutcome = failure_contract.DialOutcome;
+pub const projectListenError = failure_contract.projectListenError;
+pub const adaptBlockingDial = failure_contract.adaptBlockingDial;
+pub const adaptAccept = failure_contract.adaptAccept;
+pub const adaptAcceptReadiness = failure_contract.adaptAcceptReadiness;
+pub const adaptListenerLocator = failure_contract.adaptListenerLocator;
+pub const adaptListenerCanonicalize = failure_contract.adaptListenerCanonicalize;
+pub const adaptRestorationState = failure_contract.adaptRestorationState;
 
 /// A stream-provider dial between admission and connection claim. Unlike an
 /// multiplexed resident, each attempt has its own pollable descriptor and yields
@@ -328,7 +144,8 @@ pub const DialAttempt = struct {
     }
 
     pub fn finish(self: *DialAttempt, peer: *engine.Peer, bufs: Buffers) DialFinishOutcome {
-        const attempt = self.attempt orelse unreachable;
+        const attempt = self.attempt orelse
+            return .{ .failed = .init(error.InvalidOptions) };
         self.attempt = null;
         return self.vtable.finish(self.owner, attempt, peer, bufs);
     }
@@ -356,7 +173,7 @@ pub const DialOperation = union(enum) {
         locator: model.PeerLocator,
         bufs: Buffers,
         options: OperationOptions,
-    ) DialError!Connection,
+    ) DialOutcome,
     staged: *const fn (
         ctx: *anyopaque,
         locator: model.PeerLocator,
@@ -396,7 +213,8 @@ pub const ListenAttempt = struct {
     }
 
     pub fn finish(self: *ListenAttempt, allocator: std.mem.Allocator) ListenFinishOutcome {
-        const attempt = self.attempt orelse unreachable;
+        const attempt = self.attempt orelse
+            return .{ .failed = .init(error.ProviderContract) };
         self.attempt = null;
         return self.finish_fn(self.owner, attempt, allocator);
     }
@@ -472,29 +290,27 @@ pub const Listener = struct {
         /// extension transports receive the same fail-closed admission as
         /// first-party symbols.
         sealed_channel: bool = false,
-        accept: *const fn (ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection,
-        accept_detailed: ?*const fn (ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) AcceptOutcome = null,
+        accept: *const fn (ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) AcceptOutcome,
         /// Wait until `accept` would make progress, up to `timeout_ms`.
         /// Returns false on timeout (caller may re-check a stop latch), true
         /// when the next `accept` should proceed. The one poll-guard that lets
         /// a blocking host exit without closing the listen FD from another
         /// thread (Zig Threaded Io panics on that BADF).
-        waitAcceptable: *const fn (ctx: *anyopaque, timeout_ms: i32) AcceptError!bool,
-        wait_acceptable_detailed: ?*const fn (ctx: *anyopaque, timeout_ms: i32) AcceptReadinessOutcome = null,
+        wait_acceptable: *const fn (ctx: *anyopaque, timeout_ms: i32) AcceptReadinessOutcome,
         /// Materialize this listener's complete locator. The caller owns the
         /// returned value and frees it with `model.freePeerLocator`.
-        localLocator: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator) ListenError!model.PeerLocator,
+        local_locator: *const fn (ctx: *anyopaque, allocator: std.mem.Allocator) ListenerLocatorOutcome,
         /// Validate and canonicalize a caller-proposed replacement through
         /// the transport implementation that owns this listener's grammar.
-        canonicalizeLocator: *const fn (
+        canonicalize_locator: *const fn (
             ctx: *anyopaque,
             allocator: std.mem.Allocator,
             locator: model.PeerLocator,
-        ) ListenError!model.PeerLocator,
+        ) ListenerLocatorOutcome,
         /// Write opaque transport-owned bytes sufficient to restore this
         /// listener's local address, when the transport has such state. The
         /// return value is the complete size; a short `out` is not modified.
-        restoration_state: ?*const fn (ctx: *anyopaque, out: []u8) RestorationStateError!usize = null,
+        restoration_state: ?*const fn (ctx: *anyopaque, out: []u8) ListenerRestorationOutcome = null,
         /// The listener's OS-pollable accept descriptor, borrowed, for a
         /// host face that mirrors accept readiness into an aggregate set
         /// (ADR-0112). Left null by a transport whose accept has no single
@@ -513,18 +329,22 @@ pub const Listener = struct {
         return self.vtable.sealed_channel;
     }
     pub fn accept(self: Listener, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection {
+        return switch (self.acceptOutcome(peer, bufs)) {
+            .accepted => |conn| conn,
+            .failed => |failure| failure.classification,
+        };
+    }
+    pub fn acceptOutcome(self: Listener, peer: *engine.Peer, bufs: Buffers) AcceptOutcome {
         return self.vtable.accept(self.ctx, peer, bufs);
     }
-    pub fn acceptDetailed(self: Listener, peer: *engine.Peer, bufs: Buffers) AcceptOutcome {
-        if (self.vtable.accept_detailed) |accept_detailed| return accept_detailed(self.ctx, peer, bufs);
-        return .{ .accepted = self.accept(peer, bufs) catch |err| return .{ .failed = .init(err) } };
-    }
     pub fn waitAcceptable(self: Listener, timeout_ms: i32) AcceptError!bool {
-        return self.vtable.waitAcceptable(self.ctx, timeout_ms);
+        return switch (self.waitAcceptableOutcome(timeout_ms)) {
+            .ready => |ready| ready,
+            .failed => |failure| failure.classification,
+        };
     }
-    pub fn waitAcceptableDetailed(self: Listener, timeout_ms: i32) AcceptReadinessOutcome {
-        if (self.vtable.wait_acceptable_detailed) |wait_detailed| return wait_detailed(self.ctx, timeout_ms);
-        return .{ .ready = self.waitAcceptable(timeout_ms) catch |err| return .{ .failed = .init(err) } };
+    pub fn waitAcceptableOutcome(self: Listener, timeout_ms: i32) AcceptReadinessOutcome {
+        return self.vtable.wait_acceptable(self.ctx, timeout_ms);
     }
     /// The pollable accept descriptor, or null when the transport reports
     /// accept readiness only through `waitAcceptable`.
@@ -533,38 +353,55 @@ pub const Listener = struct {
         return f(self.ctx);
     }
     pub fn localLocator(self: Listener, allocator: std.mem.Allocator) ListenError!model.PeerLocator {
-        return self.vtable.localLocator(self.ctx, allocator);
+        return switch (self.localLocatorOutcome(allocator)) {
+            .locator => |locator| locator,
+            .failed => |failure| projectListenError(failure),
+        };
+    }
+    pub fn localLocatorOutcome(self: Listener, allocator: std.mem.Allocator) ListenerLocatorOutcome {
+        return self.vtable.local_locator(self.ctx, allocator);
     }
     pub fn canonicalizeLocator(
         self: Listener,
         allocator: std.mem.Allocator,
         locator: model.PeerLocator,
     ) ListenError!model.PeerLocator {
-        return self.vtable.canonicalizeLocator(self.ctx, allocator, locator);
+        return switch (self.canonicalizeLocatorOutcome(allocator, locator)) {
+            .locator => |canonical| canonical,
+            .failed => |failure| projectListenError(failure),
+        };
+    }
+    pub fn canonicalizeLocatorOutcome(
+        self: Listener,
+        allocator: std.mem.Allocator,
+        locator: model.PeerLocator,
+    ) ListenerLocatorOutcome {
+        return self.vtable.canonicalize_locator(self.ctx, allocator, locator);
     }
     pub fn restorationState(self: Listener, out: []u8) RestorationStateError!?usize {
-        const f = self.vtable.restoration_state orelse return null;
-        return try f(self.ctx, out);
+        return switch (self.restorationStateOutcome(out)) {
+            .unsupported => null,
+            .size => |needed| needed,
+            .failed => error.ProviderFailure,
+        };
+    }
+    pub fn restorationStateOutcome(self: Listener, out: []u8) ListenerRestorationOutcome {
+        const f = self.vtable.restoration_state orelse return .unsupported;
+        return f(self.ctx, out);
     }
     pub fn close(self: Listener) ?ListenerCloseFailure {
         return self.vtable.close(self.ctx);
     }
 };
 
-/// Canonicalization for a listener whose dialable transport and designator are
-/// immutable after bind. Transport implementations opt into this explicitly;
-/// address-rewriting transports must provide their own policy.
+/// Canonicalize a locator for a listener with immutable transport identity.
 pub fn canonicalizeFixedLocator(
     allocator: std.mem.Allocator,
     locator: model.PeerLocator,
     expected_transport: []const u8,
     expected_designator: []const u8,
 ) ListenError!model.PeerLocator {
-    model.validatePeerLocator(locator) catch return error.InvalidAddress;
-    if (!std.mem.eql(u8, locator.transport, expected_transport) or
-        !std.mem.eql(u8, locator.designator, expected_designator))
-        return error.InvalidAddress;
-    return model.clonePeerLocator(allocator, locator);
+    return support.canonicalizeFixedLocator(allocator, locator, expected_transport, expected_designator);
 }
 
 /// One transport, behind a runtime vtable — a netlayer, reached as
@@ -641,15 +478,36 @@ pub const Netlayer = struct {
         bufs: Buffers,
         options: OperationOptions,
     ) DialError!Connection {
-        const dial_fn = (self.vtable.dial orelse unreachable).blocking;
-        return dial_fn(self.ctx, peer, locator, bufs, options);
+        return switch (self.dialOutcome(peer, locator, bufs, options)) {
+            .connected => |conn| conn,
+            .failed => |value| value.classification,
+        };
+    }
+    pub fn dialOutcome(
+        self: Netlayer,
+        peer: *engine.Peer,
+        locator: model.PeerLocator,
+        bufs: Buffers,
+        options: OperationOptions,
+    ) DialOutcome {
+        const operation = self.vtable.dial orelse
+            return .{ .failed = .init(error.InvalidOptions) };
+        return switch (operation) {
+            .blocking => |dial_fn| dial_fn(self.ctx, peer, locator, bufs, options),
+            .staged => .{ .failed = .init(error.InvalidOptions) },
+        };
     }
     pub fn startDial(self: Netlayer, locator: model.PeerLocator, options: OperationOptions) DialStartOutcome {
-        const start = (self.vtable.dial orelse unreachable).staged;
-        return start(self.ctx, locator, options);
+        const operation = self.vtable.dial orelse
+            return .{ .failed = .init(error.InvalidOptions) };
+        return switch (operation) {
+            .blocking => .{ .failed = .init(error.InvalidOptions) },
+            .staged => |start| start(self.ctx, locator, options),
+        };
     }
     pub fn listen(self: Netlayer, allocator: std.mem.Allocator, config: ListenConfig) ListenStartOutcome {
-        const listen_fn = self.vtable.listen orelse unreachable;
+        const listen_fn = self.vtable.listen orelse
+            return .{ .failed = .init(error.InvalidOptions) };
         return listen_fn(self.ctx, allocator, config);
     }
 
@@ -659,43 +517,10 @@ pub const Netlayer = struct {
     }
 };
 
-/// The part of a resident that every transport writes the same way.
-///
-/// A `VTable` hands each entry point the resident as `*anyopaque`, so every
-/// transport recovers its own type the same way and answers `io` from the same
-/// field. Those spellings carry no transport-specific decision, and four
-/// residents held four identical copies of them. A transport keeps what differs
-/// -- its name, its designator scheme, and the bodies of `dial` and `listen` --
-/// and takes the rest from here, so a new transport starts with the glue
-/// already correct.
-///
-/// Available to a resident that keeps its host `std.Io` in a field named `io`.
-/// A resident with no `std.Io` at all leaves `VTable.io` at its default instead
-/// of using this.
-pub fn ResidentContext(comptime R: type) type {
-    return struct {
-        /// Recover the resident from the context a `VTable` entry point is given.
-        pub inline fn of(ctx: *anyopaque) *R {
-            return @ptrCast(@alignCast(ctx));
-        }
+/// Shared context recovery for a resident with an `io` field.
+pub const ResidentContext = support.ResidentContext;
 
-        /// `VTable.io` for a resident that holds its `std.Io` in `io`.
-        pub fn io(ctx: *anyopaque) ?std.Io {
-            return of(ctx).io;
-        }
-    };
-}
-
-/// Find the netlayer in `netlayers` that hosts `transport`, or null when none
-/// does. The transport set is a bare `[]const Netlayer` the host owns and keeps
-/// alive for every `Connection` minted from it (the residents behind it own the
-/// live streams). A handful of netlayers, so a linear scan is the right
-/// structure, no hash map for N≈2. The driver dials and hosts by resolving the
-/// locator's transport symbol against this slice, failing closed when it finds
-/// nothing rather than defaulting to any transport.
+/// Find the resident for `transport`, failing closed with null when absent.
 pub fn resolve(netlayers: []const Netlayer, transport: []const u8) ?Netlayer {
-    for (netlayers) |nl| {
-        if (std.mem.eql(u8, nl.transportName(), transport)) return nl;
-    }
-    return null;
+    return support.resolve(Netlayer, netlayers, transport);
 }

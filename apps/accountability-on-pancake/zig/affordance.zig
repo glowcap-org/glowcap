@@ -15,7 +15,8 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const identity = @import("identity.zig");
+const kel_mod = @import("kel.zig");
+const said = @import("said.zig");
 const accountable = @import("accountable.zig");
 
 const model = pancake.ocapn.model;
@@ -62,7 +63,7 @@ pub const invoke_verb = "invoke";
 /// and it belongs here rather than in whichever caller happens to check it.
 pub fn attestation(
     allocator: std.mem.Allocator,
-    subject: *const [identity.SAID_LEN]u8,
+    subject: *const [said.SAID_LEN]u8,
     request: []const u8,
 ) std.mem.Allocator.Error![]u8 {
     return std.fmt.allocPrint(allocator, "invoke|{s}|{s}", .{ subject, request });
@@ -87,8 +88,8 @@ pub const Attestation = struct {
 
     pub fn sign(
         allocator: std.mem.Allocator,
-        key: identity.Key,
-        subject: *const [identity.SAID_LEN]u8,
+        key: said.Key,
+        subject: *const [said.SAID_LEN]u8,
         request: []const u8,
         tamper: bool,
     ) std.mem.Allocator.Error!Attestation {
@@ -112,7 +113,7 @@ pub const Affordance = struct {
     store: *accountable.Store,
     served: *usize,
     /// Optional attribution capture: the standalone host leaves it null.
-    last_subject: ?*[identity.SAID_LEN]u8 = null,
+    last_subject: ?*[said.SAID_LEN]u8 = null,
 
     pub fn handle(self: *Affordance, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, invoke_verb)) return error.NoSuchMethod;
@@ -125,15 +126,15 @@ pub const Affordance = struct {
 
         // The subject is a fixed-width AID; a peer that sends a short one is
         // malformed, not attributable. Validate before the fixed-size copy below.
-        if (subject.len != identity.SAID_LEN) return error.BadInvocation;
+        if (subject.len != said.SAID_LEN) return error.BadInvocation;
 
         // First: whoever holds the presented key signed this exact subject and
         // request. Because the subject is in the signed bytes, a captured
         // signature cannot be re-presented under a different AID.
-        const verkey = identity.decodeVerkey(verkey_b64) catch return error.UnattestedCaller;
-        const sig = identity.decodeSig(sig_b64) catch return error.UnattestedCaller;
-        const att = try attestation(turn.arena, subject[0..identity.SAID_LEN], request);
-        identity.verify(verkey, att, sig) catch return error.UnattestedCaller;
+        const verkey = said.decodeVerkey(verkey_b64) catch return error.UnattestedCaller;
+        const sig = said.decodeSig(sig_b64) catch return error.UnattestedCaller;
+        const att = try attestation(turn.arena, subject[0..said.SAID_LEN], request);
+        said.verify(verkey, att, sig) catch return error.UnattestedCaller;
 
         // Second: that key really speaks for the AID being claimed. The caller
         // presents its key event log; the host derives the AID from the log's
@@ -141,13 +142,13 @@ pub const Affordance = struct {
         // be the one the log ends on. A caller signing under its own key while
         // naming somebody else's AID is refused here, and so is a caller
         // presenting a key its own log has already rotated away from.
-        identity.verifyBinding(turn.arena, kel, subject, verkey) catch return error.UnboundCaller;
+        kel_mod.verifyBinding(turn.arena, kel, subject, verkey) catch return error.UnboundCaller;
 
         // The capability invocation succeeds; account for it.
         const result = try std.fmt.allocPrint(turn.arena, "ack:{s}", .{request});
         _ = try self.store.record(.outcome, subject, "demo", result);
         self.served.* += 1;
-        if (self.last_subject) |dst| @memcpy(dst, subject[0..identity.SAID_LEN]);
+        if (self.last_subject) |dst| @memcpy(dst, subject[0..said.SAID_LEN]);
         return .{ .string = result };
     }
 };

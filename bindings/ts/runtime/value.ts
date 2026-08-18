@@ -12,11 +12,13 @@ import {
 	CAPTP_V1_0,
 	CODEC_CAPNP,
 	CODEC_SYRUP,
+	FEATURE_BASELINE,
 	FEATURE_FULL,
 	FEATURE_HANDOFF,
 	FEATURE_MINIMUM,
 	FEATURE_PIPELINING,
 	FEATURE_STURDYREF,
+	FEATURE_UNTAG,
 	FEATURE_WIRE_DELTA,
 	IROH_REACH_DIRECT,
 	IROH_REACH_DISCOVERY,
@@ -45,10 +47,15 @@ export class Tagged<T = Argument> {
 }
 export const tagged = <T = Argument>(tag: string, value: T[]): Tagged<T> => new Tagged(tag, value);
 
+/** An OCapN Struct: unordered, uniquely named String fields. */
+export class PStruct<T = Argument> {
+	constructor(public readonly entries: Array<readonly [string, T]>) {}
+}
+
 // An argument is a native value or a wrapper:
 //   bigint (integer), number (float64), boolean, Uint8Array (bytes), string,
-//   Sym (symbol), Kw (keyword), null (void), Ref, Argument[] (list),
-//   PSet (set), or Tagged.
+//   Sym (symbol), Kw (keyword), Error (OCapN Error value), null (void), Ref, Argument[] (list),
+//   PSet (set), Tagged, or PStruct.
 export type Argument =
 	| bigint
 	| number
@@ -57,11 +64,13 @@ export type Argument =
 	| string
 	| Sym
 	| Kw
+	| Error
 	| null
 	| Ref
 	| Argument[]
 	| PSet
-	| Tagged;
+	| Tagged
+	| PStruct;
 
 /** The wire grammar a CapTP session speaks: OCapN Syrup (the default) or
  * Cap'n Proto. A `Host` advertises its preference in signed locator hints and
@@ -75,8 +84,8 @@ export type Codec = "syrup" | "capnp";
  * the pair with its partner. */
 export type CaptpVersion = "v1_0" | "next";
 
-export type FeatureName = "pipelining" | "handoff" | "wire_delta" | "sturdyref";
-export type FeatureSet = "full" | "minimum" | number | readonly FeatureName[];
+export type FeatureName = "pipelining" | "handoff" | "wire_delta" | "sturdyref" | "untag";
+export type FeatureSet = "full" | "baseline" | "minimum" | number | readonly FeatureName[];
 
 const MAX_U32 = 0xffff_ffff;
 
@@ -104,6 +113,7 @@ export function captpVersionId(version: CaptpVersion): number {
 
 export function featureMask(features: FeatureSet): number {
 	if (features === "full") return FEATURE_FULL;
+	if (features === "baseline") return FEATURE_BASELINE;
 	if (features === "minimum") return FEATURE_MINIMUM;
 	if (typeof features === "number") {
 		const mask = features >>> 0;
@@ -131,6 +141,9 @@ export function featureMask(features: FeatureSet): number {
 				break;
 			case "sturdyref":
 				mask |= FEATURE_STURDYREF;
+				break;
+			case "untag":
+				mask |= FEATURE_UNTAG;
 				break;
 			default:
 				throw new TypeError(`unknown OCapN feature ${String(feature)}`);
@@ -198,6 +211,14 @@ export class Ref {
 	/** True once {@link Session.release} has given this capability back. */
 	get released(): boolean {
 		return this.#released;
+	}
+
+	/** Whether `other` names the same Host capability. Each projected occurrence
+	 * remains a distinct wrapper because it owns a distinct native retain; use
+	 * this operation, not JavaScript wrapper identity (`===`), for OCapN Target
+	 * equality. The opaque ids are process-unique across Hosts. */
+	equals(other: Ref): boolean {
+		return this.id === other.id;
 	}
 
 	/** Mark this handle spent. Called by {@link Session.release}; every use

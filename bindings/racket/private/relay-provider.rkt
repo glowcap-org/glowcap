@@ -1,8 +1,10 @@
 #lang racket/base
 ;; Native relay-provider composition for the generic driver loop.
 
-(require net/url
+(require (only-in ffi/unsafe ctype-sizeof)
+         net/url
          racket/lazy-require
+         racket/string
          "constants.rkt"
          "ffi-driver.rkt"
          "ffi-relay.rkt"
@@ -18,6 +20,7 @@
 
 (provide driver-loop-add-relay!
          relay-provider
+         (struct-out relay-trust-summary)
          relay-connector
          keyed-relay-locator
          noise-relay-locator
@@ -25,10 +28,78 @@
          relay-dial-url)
 
 (define RENDEZVOUS-RELAY-HINT "rendezvous-relay")
+(define RENDEZVOUS-QUERY "rendezvous")
+(define REGISTER-QUERY "id")
+(define MAX-RENDEZVOUS-RELAY-HINT-BYTES (* 4 1024))
+
+(define (raise-invalid message)
+  (raise-pancake 'relay-route ERR-INVALID-ARGUMENT message))
+
+(define (validate-designator designator)
+  (unless (regexp-match? #px"^[0-9a-f]{64}$" designator)
+    (raise-invalid "relay designator must be 64 lowercase hexadecimal characters")))
+
+(define (validate-percent-encoding route)
+  (let loop ([at 0])
+    (when (< at (string-length route))
+      (if (char=? #\% (string-ref route at))
+          (begin
+            (unless (and (< (+ at 2) (string-length route))
+                         (regexp-match? #px"^[0-9a-fA-F]{2}$"
+                                        (substring route (add1 at) (+ at 3))))
+              (raise-invalid "rendezvous-relay carries malformed percent encoding"))
+            (loop (+ at 3)))
+          (loop (add1 at))))))
+
+(define (valid-host? host)
+  (cond
+    [(regexp-match? #px":" host)
+     (regexp-match? #px"^[0-9a-fA-F:.]+$" host)]
+    [else
+     (for/and ([label (in-list (string-split host "."))])
+       (and (<= 1 (string-length label) 63)
+            (regexp-match? #px"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$"
+                           label)))]))
+
+(define (relay-route value)
+  (unless (and (string? value) (positive? (string-length value)))
+    (raise-invalid "rendezvous-relay must be a non-empty string hint"))
+  (define encoded (string->bytes/utf-8 value))
+  (when (> (bytes-length encoded) MAX-RENDEZVOUS-RELAY-HINT-BYTES)
+    (raise-invalid
+     (format "rendezvous-relay exceeds ~a UTF-8 bytes"
+             MAX-RENDEZVOUS-RELAY-HINT-BYTES)))
+  (unless (for/and ([byte (in-bytes encoded)]) (<= #x21 byte #x7e))
+    (raise-invalid "rendezvous-relay must contain visible ASCII URI bytes"))
+  (validate-percent-encoding value)
+  (define parsed
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (_) (raise-invalid
+                                  "rendezvous-relay must be an absolute WebSocket URL"))])
+      (string->url value)))
+  (unless (and (member (url-scheme parsed) '("ws" "wss")) (url-host parsed))
+    (raise-invalid "rendezvous-relay must use ws or wss"))
+  (when (or (url-user parsed) (url-fragment parsed))
+    (raise-invalid "rendezvous-relay cannot carry credentials or a fragment"))
+  (when (equal? (url-port parsed) 0)
+    (raise-invalid "rendezvous-relay carries an invalid port"))
+  (unless (valid-host? (url-host parsed))
+    (raise-invalid "rendezvous-relay carries an invalid host name"))
+  (for ([field (in-list (url-query parsed))])
+    (define name (symbol->string (car field)))
+    (when (or (string=? name RENDEZVOUS-QUERY)
+              (string=? name REGISTER-QUERY))
+      (raise-invalid (format "rendezvous-relay reserves the ~a query parameter"
+                             name))))
+  value)
+(struct relay-trust-summary
+  (loaded skipped-by-engine first-skipped-engine-code)
+  #:transparent)
 
 (define (profile-locator transport designator relay-url)
+  (validate-designator designator)
   (locator transport designator
-           (hash RENDEZVOUS-RELAY-HINT relay-url) 'map))
+           (hash RENDEZVOUS-RELAY-HINT (relay-route relay-url)) 'map))
 
 (define (keyed-relay-locator designator relay-url)
   (profile-locator TRANSPORT-KEYED-RELAY designator relay-url))
@@ -40,60 +111,101 @@
   (define value (hash-ref (locator-hints loc) RENDEZVOUS-RELAY-HINT #f))
   (cond
     [(not value) #f]
-    [(and (string? value) (positive? (string-length value))) value]
-    [else
-     (raise-pancake 'connect ERR-INVALID-ARGUMENT
-                    "rendezvous-relay must be a non-empty string hint")]))
+    [else (relay-route value)]))
 
 (define (relay-dial-url route designator)
-  (define parsed (string->url route))
-  (url->string
-   (struct-copy url parsed
-                [query (append (url-query parsed)
-                               (list (cons 'rendezvous designator)))])))
+  (validate-designator designator)
+  (define admitted (relay-route route))
+  (string-append admitted (if (string-contains? admitted "?") "&" "?")
+                 RENDEZVOUS-QUERY "=" designator))
 
-(define (driver-loop-add-relay! lp relay-url [register-url ""])
+(define (driver-loop-add-relay! lp relay-url [register-url ""]
+                                #:trust-pem [trust-pem #f])
+  (unless (or (not trust-pem) (bytes? trust-pem))
+    (raise-argument-error 'driver-loop-add-relay! "(or/c #f bytes?)" trust-pem))
   (define relay-bs (string->bytes/utf-8 relay-url))
-    (define register-bs (string->bytes/utf-8 register-url))
-    (define relay-ptr (pin-immobile relay-bs))
-    (define register-ptr (and (positive? (bytes-length register-bs))
-                              (pin-immobile register-bs)))
-    (define config
-      (make-PancakeRelayConfig relay-ptr (bytes-length relay-bs)
-                               register-ptr (bytes-length register-bs)))
-    (define-values (rc raw) (pancake_relay_runtime_new config))
-    (check-with rc (lambda () (read-last-error pancake_relay_last_error)))
-    (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
-    (with-handlers ([(lambda (_) #t)
-                     (lambda (e)
-                       (check-with (pancake_relay_runtime_release raw)
-                                   (lambda () (read-last-error pancake_relay_last_error)))
-                       (raise e))])
-      (check-with (pancake_relay_transport_provider raw package)
-                  (lambda () (read-last-error pancake_relay_last_error)))
-      (driver-loop-add-provider! lp package)
-      ;; Registration retained the package; release the constructor lease.
-      (check-with (pancake_relay_runtime_release raw)
-                  (lambda () (read-last-error pancake_relay_last_error)))))
+  (define register-bs (string->bytes/utf-8 register-url))
+  (define relay-ptr (pin-immobile relay-bs))
+  (define register-ptr (and (positive? (bytes-length register-bs))
+                            (pin-immobile register-bs)))
+  (define trust-ptr (and trust-pem
+                         (positive? (bytes-length trust-pem))
+                         (pin-immobile trust-pem)))
+  (define config
+    (make-PancakeRelayConfig
+     RELAY-CONFIG-ABI-VERSION (ctype-sizeof _PancakeRelayConfig)
+     relay-ptr (bytes-length relay-bs)
+     register-ptr (bytes-length register-bs)
+     (if trust-pem RELAY-TRUST-COPIED-PEM RELAY-TRUST-SYSTEM)
+     trust-ptr (if trust-pem (bytes-length trust-pem) 0)))
+  (define-values (rc raw) (pancake_relay_runtime_new config))
+  (check-with rc (lambda () (read-last-error pancake_relay_last_error)))
+  (define summary (make-PancakeRelayTrustSummary 0 0 0))
+  (check-with (pancake_relay_runtime_trust_summary raw summary)
+              (lambda () (read-last-error pancake_relay_last_error)))
+  (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (e)
+                     (define cleanup
+                       (with-handlers ([(lambda (_) #t) values])
+                         (check-with (pancake_relay_runtime_release raw)
+                                     (lambda () (read-last-error pancake_relay_last_error)))
+                         #f))
+                     (raise (if cleanup
+                                (retain-cleanup-failure e cleanup)
+                                e)))])
+    (check-with (pancake_relay_transport_provider raw package)
+                (lambda () (read-last-error pancake_relay_last_error)))
+    (driver-loop-add-provider! lp package)
+    ;; Registration retained the package; release the constructor lease.
+    (check-with (pancake_relay_runtime_release raw)
+                (lambda () (read-last-error pancake_relay_last_error)))
+    (relay-trust-summary
+     (PancakeRelayTrustSummary-loaded summary)
+     (PancakeRelayTrustSummary-skipped_by_engine summary)
+     (let ([code (PancakeRelayTrustSummary-first_skipped_engine_code summary)])
+       (and (not (zero? code)) code)))))
 
 (define (relay-provider #:relay-url relay-url
-                        #:register-url [register-url ""])
+                        #:register-url [register-url ""]
+                        #:trust-pem [trust-pem #f])
   (make-driver-provider
    (lambda (lp _host)
-     (driver-loop-add-relay! lp relay-url register-url))))
+     (driver-loop-add-relay! lp relay-url register-url #:trust-pem trust-pem))))
 
-;; A WebSocket is a byte-transparent pipe and cannot claim noise-relay's
-;; end-to-end sealing. The byte-fed connector therefore exposes keyed-relay
-;; only; noise-relay requires the native provider above.
+;; A WebSocket is only the byte channel. The shared Host applies
+;; noise-relay's end-to-end sealing after the channel is established.
 (define (relay-connector)
   (make-byte-connector
-   (list TRANSPORT-KEYED-RELAY)
+   (list TRANSPORT-KEYED-RELAY TRANSPORT-NOISE-RELAY)
    (lambda (m loc handshake-timeout-ms)
      (define route (locator-relay-route loc))
      (unless route
        (raise-pancake 'relay-connector ERR-INVALID-ARGUMENT
-                      "keyed-relay requires a rendezvous-relay hint"))
+                      "relay connector requires a rendezvous-relay hint"))
      (establish-dialed-locator-session
       m loc
       (ws-transport (relay-dial-url route (locator-designator loc)))
       #:handshake-timeout-ms handshake-timeout-ms))))
+
+(module+ test
+  (require json
+           racket/runtime-path
+           rackunit)
+  (define-runtime-path route-corpus-path "../../../test/net/fixtures/relay_routes.json")
+  (define route-corpus (call-with-input-file route-corpus-path read-json))
+  (define designator (hash-ref route-corpus 'designator))
+  (define route "wss://Relay.Example.test/bridge?second=%2f&first=one")
+  (check-equal? (relay-dial-url route designator)
+                (string-append route "&rendezvous=" designator))
+  (check-exn exn:fail?
+             (lambda ()
+               (relay-dial-url "wss://relay.example.test/" (make-string 64 #\A))))
+  (for ([case (in-list (hash-ref route-corpus 'accepted))])
+    (define route (hash-ref case 'route))
+    (check-equal?
+     (relay-dial-url route designator)
+     (string-append route (if (string-contains? route "?") "&" "?")
+                    RENDEZVOUS-QUERY "=" designator)))
+  (for ([route (in-list (hash-ref route-corpus 'rejected))])
+    (check-exn exn:fail? (lambda () (relay-dial-url route designator)))))

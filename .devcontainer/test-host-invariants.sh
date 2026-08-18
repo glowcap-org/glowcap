@@ -3,8 +3,9 @@
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib.sh
-source "${dir}/lib.sh"
+# launcher-lib.sh sources lib.sh, so this covers both surfaces under test.
+# shellcheck source=launcher-lib.sh
+source "${dir}/launcher-lib.sh"
 
 # These tests build checkouts of their own and configure them. Run inside a
 # devcontainer, the surrounding checkout's identity is exported into this
@@ -22,15 +23,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-expect_enter_error() {
-    local expected="$1" output
-    shift
-    if output="$(bash "${dir}/enter.sh" "$@" 2>&1)"; then
-        echo "test-host-invariants: enter.sh unexpectedly accepted: $*" >&2
+expect_launcher_error() {
+    local launcher="$1" expected="$2" output
+    shift 2
+    if output="$(bash "${dir}/${launcher}" "$@" 2>&1)"; then
+        echo "test-host-invariants: ${launcher} unexpectedly accepted: $*" >&2
         exit 1
     fi
     if [[ "${output}" != *"${expected}"* ]]; then
-        echo "test-host-invariants: enter.sh did not report '${expected}' for: $*" >&2
+        echo "test-host-invariants: ${launcher} did not report '${expected}' for: $*" >&2
         exit 1
     fi
 }
@@ -71,12 +72,74 @@ ln -s "${dir}/../.agents/skills/work/bin/pancake-dev" "${scratch}/host/pancake-d
 dev_exec="$(cd / && PATH="${scratch}/bin:${PATH}" PANCAKE_DEV_CONTAINER=test-container "${scratch}/host/pancake-dev" /bin/true)"
 [[ "${dev_exec}" == *"--workdir /workspaces/pancake abc123 /bin/true"* ]]
 
-expect_enter_error "mutually exclusive" --rebuild --no-cache
-expect_enter_error "--session requires a designator" --session
-expect_enter_error "--session requires a designator" --session=
-expect_enter_error "specify --session at most once" --session review --session other
-expect_enter_error "must start with a lowercase letter" --session Review
-expect_enter_error "must start with a lowercase letter" --session=Review
+expect_launcher_error enter.sh "mutually exclusive" --rebuild --no-cache
+expect_launcher_error enter.sh "--session requires a designator" --session
+expect_launcher_error enter.sh "--session requires a designator" --session=
+expect_launcher_error enter.sh "specify --session at most once" --session review --session other
+expect_launcher_error enter.sh "must start with a lowercase letter" --session Review
+expect_launcher_error enter.sh "must start with a lowercase letter" --session=Review
+expect_launcher_error enter-grid.sh "mutually exclusive" --rebuild --no-cache
+expect_launcher_error enter-grid.sh "--session requires a designator" --session
+expect_launcher_error enter-grid.sh "specify --session at most once" --session review --session other
+expect_launcher_error enter-grid.sh "must start with a lowercase letter" --session Review
+expect_launcher_error enter-grid.sh "listed more than once" main tree1 main
+expect_launcher_error enter-grid.sh "may contain only lowercase letters and digits" "tree_1"
+expect_launcher_error enter.sh "--cc and --no-cc are mutually exclusive" --cc --no-cc
+expect_launcher_error enter-grid.sh "--cc and --no-cc are mutually exclusive" --no-cc --cc
+
+# Control-mode detection recognizes iTerm2 locally and over ssh, and no one
+# else.
+if TERM_PROGRAM= LC_TERMINAL= pancake_devcontainer_client_is_iterm2; then
+    echo "test-host-invariants: a non-iTerm2 client was detected as iTerm2" >&2
+    exit 1
+fi
+TERM_PROGRAM=iTerm.app pancake_devcontainer_client_is_iterm2
+TERM_PROGRAM= LC_TERMINAL=iTerm2 pancake_devcontainer_client_is_iterm2
+grid_help_output="$(bash "${dir}/enter-grid.sh" --help)"
+[[ "${grid_help_output}" == *"columns: every registered worktree"* ]]
+[[ "${grid_help_output}" == *"tmux: pancake-grid-review"* ]]
+
+# pane-rc.sh sources the worktree's panes.sh in an initialized interactive
+# shell: top-level lines run in every pane, and the pane function matching
+# this pane's row runs as its startup command.
+grid="${scratch}/grid"
+mkdir -p "${grid}/.devcontainer"
+cp "${dir}/pane-rc.sh" "${grid}/.devcontainer/pane-rc.sh"
+cat > "${grid}/.devcontainer/panes.sh" <<'EOF'
+echo shared >> shared.count
+pane1() { echo top > pane.out; }
+pane3() { echo bottom > pane.out; }
+EOF
+printf 'pane1() { echo review > pane.out; }\n' \
+    > "${grid}/.devcontainer/panes-review.sh"
+run_grid_pane() {
+    rm -f "${grid}/pane.out"
+    (cd "${grid}" && printf 'exit\n' |
+        HOME="${grid}" PANCAKE_GRID_ROW="$1" PANCAKE_GRID_PANES="$2" \
+            bash --rcfile .devcontainer/pane-rc.sh -i >/dev/null 2>&1)
+    cat "${grid}/pane.out" 2>/dev/null || true
+}
+[[ "$(run_grid_pane 1 panes.sh)" == top ]]
+if [[ -n "$(run_grid_pane 2 panes.sh)" ]]; then
+    echo "test-host-invariants: an undeclared pane function ran a command" >&2
+    exit 1
+fi
+[[ "$(run_grid_pane 3 panes.sh)" == bottom ]]
+[[ "$(run_grid_pane 1 panes-review.sh)" == review ]]
+[[ "$(wc -l < "${grid}/shared.count" | tr -d ' ')" -eq 3 ]]
+
+# The same file also decides its column's row count, by textual scan.
+[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/panes.sh")" == 3 ]]
+[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/panes-review.sh")" == 1 ]]
+[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/absent.sh")" == 0 ]]
+printf 'function pane5() { :; }\n' > "${grid}/.devcontainer/panes-tall.sh"
+[[ "$(pancake_devcontainer_grid_rows "${grid}/.devcontainer/panes-tall.sh")" == 5 ]]
+
+rm "${grid}/.devcontainer/panes.sh"
+if [[ -n "$(run_grid_pane 1 panes.sh)" ]]; then
+    echo "test-host-invariants: a missing panes.sh ran a command" >&2
+    exit 1
+fi
 if bash "${dir}/up.sh" --rebuild unexpected >/dev/null 2>&1; then
     echo "test-host-invariants: up.sh ignored an extra argument" >&2
     exit 1
@@ -119,7 +182,8 @@ if pancake_devcontainer_configure_env "${linked}/.devcontainer" >/dev/null 2>&1;
 fi
 pancake_devcontainer_configure_env "${linked}/.devcontainer" 10000 >/dev/null 2>&1
 [[ "$(pancake_devcontainer_worktree_name "${linked}/.devcontainer")" == tree1 ]]
-[[ "$(pancake_devcontainer_env_value "${linked}/.devcontainer" PANCAKE_WEB_HOST_PORT)" == 18000 ]]
+[[ "$(pancake_devcontainer_env_value "${linked}/.devcontainer" PANCAKE_ROOMS_WEB_HOST_PORT)" == 18000 ]]
+[[ "$(pancake_devcontainer_env_value "${linked}/.devcontainer" PANCAKE_DOCS_HOST_PORT)" == 11990 ]]
 [[ "$(pancake_devcontainer_env_value "${linked}/.devcontainer" EGRESS_NET)" == pancake-tree1-egress ]]
 pancake_devcontainer_validate_worktree "${linked}/.devcontainer" tree1
 [[ "$(pancake_devcontainer_primary_checkout "${linked}")" == "${primary}" ]]
@@ -134,6 +198,7 @@ if pancake_devcontainer_validate_worktree "${primary}/.devcontainer" tree1 >/dev
 fi
 
 [[ "$(pancake_devcontainer_checkout_for_worktree "${primary}" tree1)" == "${linked}" ]]
+[[ "$(pancake_devcontainer_registered_worktrees "${primary}" | tr '\n' ':')" == "main:tree1:" ]]
 if pancake_devcontainer_checkout_for_worktree "${primary}" missing >/dev/null 2>&1; then
     echo "test-host-invariants: lookup invented an unregistered worktree" >&2
     exit 1
@@ -181,8 +246,8 @@ fi
 PANCAKE_WORKTREE=main pancake_devcontainer_validate_effective_env "${primary}/.devcontainer"
 
 cat >> "${primary}/.devcontainer/.env" <<'EOF'
-PANCAKE_WEB_HOST_PORT=08000
-PANCAKE_CAPTP_HOST_PORT=8000
+PANCAKE_ROOMS_WEB_HOST_PORT=08000
+PANCAKE_ROOMS_CAPTP_HOST_PORT=8000
 EOF
 if pancake_devcontainer_validate_host_ports "${primary}/.devcontainer" >/dev/null 2>&1; then
     echo "test-host-invariants: equivalent decimal ports were not treated as duplicates" >&2

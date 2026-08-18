@@ -12,7 +12,7 @@ import type { Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64 } from "./internal/seam.ts";
 import { INVALID_ARGUMENT } from "@pancake/abi";
 import { checkHost, FetchFailed, PancakeError } from "./errors.ts";
-import { encodeArgs, refStruct } from "./codec.ts";
+import { encodeArgs, refStruct } from "./abi_value.ts";
 import { type Argument, isReference, Ref } from "./value.ts";
 
 /** The Session callbacks every vow wait needs, named here so this module stays
@@ -22,7 +22,7 @@ import { type Argument, isReference, Ref } from "./value.ts";
  * outcome. */
 export interface VowWaitHandle {
 	readonly ptr: Ptr;
-	vowMinted(vow: bigint): void;
+	vowMinted(vow: bigint, trackGc?: boolean): void;
 	attend(): void;
 	awaitVow(vow: bigint): Promise<Argument>;
 	kickActions(): Promise<void>;
@@ -77,8 +77,9 @@ function projectVow(
 export async function awaitMinted(
 	h: VowWaitHandle,
 	vow: bigint,
+	trackGc: boolean,
 ): Promise<Argument> {
-	h.vowMinted(vow);
+	h.vowMinted(vow, trackGc);
 	h.attend();
 	const settled = h.awaitVow(vow);
 	await h.kickActions();
@@ -107,13 +108,14 @@ export async function fetchLike(
 		len: bigint,
 		out: BufferSource,
 	) => number,
+	trackGc: boolean,
 ): Promise<Ref> {
 	h.guardOpen();
 	h.drainGc();
 	const out = new Uint8Array(8);
 	checkHost(mint(h.ptr, ab(swiss), BigInt(swiss.length), ab(out)));
 	const vow = outU64(out);
-	const result = await awaitMinted(h, vow);
+	const result = await awaitMinted(h, vow, trackGc);
 	return asLiveRef(result, label);
 }
 
@@ -135,7 +137,7 @@ export function promiseFor(
 		key: string | bigint,
 	): RemotePromise => {
 		const projected = projectVow(h.hostRaw, vow, op, key);
-		h.vowMinted(projected);
+		h.vowMinted(projected, true);
 		return promiseFor(h, projected);
 	};
 	return RemotePromise.far(vow, begin, project);
@@ -153,7 +155,7 @@ export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
 	const out = new Uint8Array(8);
 	checkHost(hostS.pancake_host_session_listen(h.ptr, ab(refStruct(target)), ab(out)));
 	const vow = outU64(out);
-	h.vowMinted(vow);
+	h.vowMinted(vow, true);
 	return promiseFor(h, vow);
 }
 
@@ -193,7 +195,7 @@ export function sendFar(
 		));
 	}
 	const vow = outU64(out);
-	h.vowMinted(vow);
+	h.vowMinted(vow, true);
 	return promiseFor(h, vow);
 }
 

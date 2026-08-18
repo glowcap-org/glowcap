@@ -38,27 +38,11 @@ const model = @import("model");
 const engine = @import("engine");
 const driver_core = @import("driver_core");
 const settle_mailbox = @import("settle_mailbox.zig");
+const bridge_connect = @import("bridge_connect.zig");
 const foundation = @import("foundation");
 const net = @import("net");
 
-/// In-flight outbound connect: correlates a loop slot to its adoption
-/// payload until `makeConnCtx` adopts the peer or `onClose` reports refusal.
-/// App dials own transport/designator (no Node pending row). Redeem dials
-/// store only the ticket — parts stay on the Node row until `exporterDialed`.
-const OutboundConnect = union(enum) {
-    app_dial: struct { transport: []u8, designator: []u8 },
-    redeem: engine.Node.PendingId,
-
-    fn deinit(self: OutboundConnect, allocator: std.mem.Allocator) void {
-        switch (self) {
-            .app_dial => |a| {
-                allocator.free(a.transport);
-                allocator.free(a.designator);
-            },
-            .redeem => {},
-        }
-    }
-};
+const OutboundConnect = bridge_connect.OutboundConnect;
 
 /// The completion-loop to `driver_core.Host` bridge, generic over the loop
 /// type so TCP (`net.TcpLoop`) and iroh (`completion.Loop(iroh.Backend, iroh.DialResolver)`) share
@@ -246,6 +230,10 @@ pub fn Bridge(comptime LoopT: type) type {
             self.resume_pending = true;
         }
 
+        fn releaseSessionOrRecord(self: *Self, session: *driver_core.HostSession) void {
+            self.host.releaseSession(session) catch |err| self.recordTerminalFailure(err);
+        }
+
         pub fn terminalFailure(self: *const Self) ?anyerror {
             return self.terminal_failure;
         }
@@ -306,20 +294,11 @@ pub fn Bridge(comptime LoopT: type) type {
             admission: net.completion.DialAdmission,
             locator: model.PeerLocator,
         ) !void {
-            // Pack owned strings first so errdefers stop at the block boundary;
-            // connectOutbound owns the OutboundConnect on every exit path.
-            const connect: OutboundConnect = blk: {
-                const transport_owned = try self.allocator.dupe(u8, locator.transport);
-                errdefer self.allocator.free(transport_owned);
-                const designator_owned = try self.allocator.dupe(u8, locator.designator);
-                errdefer self.allocator.free(designator_owned);
-                break :blk .{
-                    .app_dial = .{
-                        .transport = transport_owned,
-                        .designator = designator_owned,
-                    },
-                };
-            };
+            // Host adoption happens after the asynchronous connect, so retain
+            // the complete locator rather than only its routing pieces. Onion
+            // profile hints are out-of-band partner knowledge (ADR-0118), and
+            // dropping them here silently downgraded only this runtime shape.
+            const connect = try OutboundConnect.initApplication(self.allocator, locator);
             try self.connectOutbound(
                 self.loop,
                 connect,
@@ -425,16 +404,16 @@ pub fn Bridge(comptime LoopT: type) type {
                 break :blk switch (pending) {
                     .app_dial => |a| open: {
                         leg = .app_dial;
-                        break :open try self.host.openDialedOver(peer, a.transport, a.designator);
+                        break :open try self.host.openDialedOver(peer, a);
                     },
                     .redeem => |t| open: {
                         leg = .{ .redeem = t };
                         const view = self.host.pendingDial(t) orelse return error.MissingPendingDial;
-                        break :open try self.host.openDialedOver(peer, view.transport, view.designator);
+                        break :open try self.host.openDialedOver(peer, view);
                     },
                 };
             } else try self.host.openAcceptedAdvertisedOver(peer, self.transportName());
-            errdefer self.host.releaseSession(session) catch unreachable;
+            errdefer self.releaseSessionOrRecord(session);
             // The transport proof (ADR-0105): when the loop's backend verified
             // the remote's durable key (iroh's QUIC handshake), this is the
             // code that realized the connection and so the one that may say
@@ -506,10 +485,9 @@ pub fn Bridge(comptime LoopT: type) type {
             // Loop teardown calls this exactly once for a published context.
             std.debug.assert(self.slots.remove(shell.session.peer_id));
             // The loop calls this after the serve hook has returned, on the
-            // owning thread. A refusal would leave Host authority borrowing a
-            // peer the loop is about to free, so it is an invariant violation,
-            // never optional cleanup.
-            self.host.releaseSession(shell.session) catch unreachable;
+            // owning thread. A violated Host ownership precondition is retained
+            // for the next driver turn rather than promoted to process policy.
+            self.releaseSessionOrRecord(shell.session);
             // During Loop.closeAndDrain, draining would re-enter dial/arm and
             // prevent the in-flight ops from retiring.
             if (!(self.loop.shutting_down or self.loop.tearing_down)) self.drainOrRecord();

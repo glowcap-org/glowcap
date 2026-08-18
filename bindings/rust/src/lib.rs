@@ -80,12 +80,11 @@ mod pump;
 #[cfg(feature = "async")]
 mod action;
 #[cfg(feature = "async")]
-// RemotePromise + send-target plumbing (Pass 3a).
-#[cfg(feature = "async")]
+// RemotePromise + send-target plumbing.
 mod promise;
 #[cfg(feature = "async")]
 pub use promise::{AsSendTarget, RemotePromise};
-// Distributed GC (ADR-0063) ImportGuard + drain (Pass 3b).
+// Distributed GC (ADR-0063) CapabilityGuard + drain.
 #[cfg(feature = "async")]
 mod gc;
 // Transport-neutral dial composition over explicit providers/connectors.
@@ -132,9 +131,11 @@ pub mod tcp;
 
 // The iroh transport (its own optional companion library, ADR-0055): the
 // encrypted-QUIC byte-stream bridge the `Session` pump carries a session over.
-/// The native loop tier (ADR-0112): `DriverLoop` over `libpancake_driver`'s
-/// `pancake_driver_*` family, and the loop route the public
-/// [`Runtime::connect`] and transport-module listeners ride for the shapes the loop carries.
+#[cfg(feature = "async")]
+mod driver_event;
+#[cfg(feature = "async")]
+mod driver_failure;
+/// Native `DriverLoop` tier and the route used by `Runtime` transports.
 #[cfg(feature = "async")]
 pub mod driver_loop;
 #[cfg(feature = "async")]
@@ -158,7 +159,14 @@ pub use abi_constants::{
 	TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP, TRANSPORT_TCP, TRANSPORT_WEBRTC,
 };
 
+mod carrier_failure;
 mod sys;
+pub use carrier_failure::{CarrierFailure, CarrierPhase};
+mod runtime_failure;
+#[cfg(all(test, feature = "async"))]
+pub(crate) use runtime_failure::RUNTIME_FAILURE_TEST_LOCK;
+#[cfg(test)]
+pub(crate) use runtime_failure::{RuntimeFailureJournal, FAILURE_PAYLOAD_CAP, RUNTIME_FAILURE_CAP};
 
 /// An actor behavior: handle a `(verb, args)` call, returning a reply or an
 /// error message (which becomes a broken answer carrying those words). This is
@@ -180,11 +188,15 @@ impl AbortDomain {
 	/// Map `PancakeLastAbort.domain` to the host label the waist defines.
 	/// Read by the async connection's feed-refusal path alone.
 	#[cfg(feature = "async")]
-	pub(crate) fn from_abi(domain: u32) -> Self {
+	pub(crate) fn from_abi(domain: u32) -> Result<Self> {
 		match domain {
-			abi_constants::ABORT_DOMAIN_CODEC => AbortDomain::Codec,
-			abi_constants::ABORT_DOMAIN_SESSION => AbortDomain::Session,
-			_ => AbortDomain::Foreign,
+			abi_constants::ABORT_DOMAIN_CODEC => Ok(AbortDomain::Codec),
+			abi_constants::ABORT_DOMAIN_SESSION => Ok(AbortDomain::Session),
+			abi_constants::ABORT_DOMAIN_FOREIGN => Ok(AbortDomain::Foreign),
+			other => Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				format!("pancake ABI returned unknown abort domain {other}"),
+			)),
 		}
 	}
 }
@@ -280,121 +292,16 @@ pub struct Error {
 	abort: Option<AbortInfo>,
 	secondary: Vec<Error>,
 	secondary_count: u32,
-}
-
-struct RuntimeFailureJournal {
-	failures: std::collections::VecDeque<FailureEvent>,
-	next_sequence: u64,
-}
-
-const RUNTIME_FAILURE_CAP: usize = 64;
-const FAILURE_PAYLOAD_CAP: usize = 512;
-static RUNTIME_FAILURES: std::sync::OnceLock<std::sync::Mutex<RuntimeFailureJournal>> = std::sync::OnceLock::new();
-#[cfg(all(test, feature = "async"))]
-pub(crate) static RUNTIME_FAILURE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn stable_failure_result(value: i32) -> i32 {
-	if value == sys::OK || (value <= sys::ERR_NULL_POINTER && value >= sys::ERR_TIMEOUT) {
-		value
-	} else {
-		sys::ERR_INTERNAL
-	}
-}
-
-fn bounded_failure_text(fields: [&str; 5]) -> ([String; 5], u32) {
-	let mut remaining = FAILURE_PAYLOAD_CAP;
-	let mut flags = 0;
-	let retained = std::array::from_fn(|index| {
-		let field = fields[index];
-		let mut copied = field.len().min(remaining);
-		while !field.is_char_boundary(copied) {
-			copied -= 1;
-		}
-		remaining -= copied;
-		if copied != field.len() {
-			// PANCAKE_FAILURE_TRUNCATED_* assigns one bit in field order.
-			flags |= 1 << index;
-		}
-		field[..copied].to_owned()
-	});
-	(retained, flags)
+	carrier: Option<CarrierFailure>,
 }
 
 pub(crate) fn record_runtime_failure(layer: FailureLayer, operation: &str, error: Error) {
-	let journal = RUNTIME_FAILURES.get_or_init(|| {
-		std::sync::Mutex::new(RuntimeFailureJournal {
-			failures: std::collections::VecDeque::with_capacity(RUNTIME_FAILURE_CAP),
-			next_sequence: 1,
-		})
-	});
-	let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-	let mut dropped_before = 0;
-	if journal.failures.len() == RUNTIME_FAILURE_CAP {
-		let dropped = journal
-			.failures
-			.pop_front()
-			.map_or(1, |event| event.dropped_before.saturating_add(1));
-		if let Some(first) = journal.failures.front_mut() {
-			first.dropped_before = first.dropped_before.saturating_add(dropped);
-		} else {
-			dropped_before = dropped;
-		}
-	}
-	let sequence = journal.next_sequence;
-	journal.next_sequence = journal.next_sequence.saturating_add(1);
-	let primary_result = stable_failure_result(error.code);
-	let primary_name = error.diagnostic_name();
-	let primary_message = error.detail.as_deref().unwrap_or_default();
-	let secondary_result = error
-		.secondary
-		.first()
-		.map_or(0, |failure| stable_failure_result(failure.code));
-	let secondary_count = error.secondary_count;
-	let secondary_name = error.secondary.first().map_or("", Error::diagnostic_name);
-	let secondary_message = error
-		.secondary
-		.first()
-		.and_then(|failure| failure.detail.as_deref())
-		.unwrap_or_default();
-	let ([operation, primary_name, primary_message, secondary_name, secondary_message], truncated_fields) =
-		bounded_failure_text([
-			operation,
-			primary_name,
-			primary_message,
-			secondary_name,
-			secondary_message,
-		]);
-	journal.failures.push_back(FailureEvent {
-		sequence,
-		dropped_before,
-		layer,
-		scope: FailureScope::Process,
-		scope_id: 0,
-		operation_id: 0,
-		primary_result,
-		secondary_result,
-		secondary_count,
-		truncated_fields,
-		operation,
-		primary_name,
-		primary_message,
-		secondary_name,
-		secondary_message,
-	});
-	// `error` has been normalized into the cross-language diagnostic fact.
-	// Foreign exception identity remains adapter-local and is not an authority.
-	if sequence == u64::MAX {
-		journal.next_sequence = u64::MAX;
-	}
+	runtime_failure::record(layer, operation, error);
 }
 
 /// Atomically claim failures that outlived any Context or Host owner.
 pub fn take_runtime_failures() -> Vec<FailureEvent> {
-	let Some(journal) = RUNTIME_FAILURES.get() else {
-		return Vec::new();
-	};
-	let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-	journal.failures.drain(..).collect()
+	runtime_failure::claim()
 }
 
 /// Render a caught panic payload without assuming that foreign or application
@@ -493,12 +400,24 @@ impl Error {
 		self.secondary_count
 	}
 
+	/// Carrier phase and neutral secure-transport detail, when the selected
+	/// transport could identify the failure below relay semantics.
+	pub fn carrier_failure(&self) -> Option<CarrierFailure> {
+		self.carrier
+	}
+
 	#[cfg(any(feature = "async", feature = "onion"))]
 	pub(crate) fn with_secondary(mut self, error: Error) -> Self {
 		self.secondary_count = self.secondary_count.saturating_add(1);
 		if self.secondary.len() < 64 {
 			self.secondary.push(error);
 		}
+		self
+	}
+
+	#[cfg(feature = "async")]
+	pub(crate) fn with_carrier_failure(mut self, carrier: Option<CarrierFailure>) -> Self {
+		self.carrier = carrier;
 		self
 	}
 
@@ -511,6 +430,7 @@ impl Error {
 			abort: None,
 			secondary: Vec::new(),
 			secondary_count: 0,
+			carrier: None,
 		}
 	}
 
@@ -523,6 +443,7 @@ impl Error {
 			abort: None,
 			secondary: Vec::new(),
 			secondary_count: 0,
+			carrier: None,
 		}
 	}
 
@@ -537,6 +458,7 @@ impl Error {
 			abort: None,
 			secondary: Vec::new(),
 			secondary_count: 0,
+			carrier: None,
 		}
 	}
 
@@ -553,6 +475,7 @@ impl Error {
 			abort: None,
 			secondary: Vec::new(),
 			secondary_count: 0,
+			carrier: None,
 		}
 	}
 
@@ -576,6 +499,40 @@ impl std::error::Error for Error {}
 /// The crate's result type: every fallible call fails with a typed [`Error`].
 pub type Result<T> = core::result::Result<T, Error>;
 
+#[cfg(any(
+	test,
+	feature = "tcp",
+	feature = "inproc",
+	feature = "onion",
+	feature = "iroh",
+	feature = "relay"
+))]
+pub(crate) fn require_archive_fingerprint(archive: &str, actual: u64, expected: u64) -> Result<()> {
+	if actual == expected {
+		return Ok(());
+	}
+	Err(Error::with_detail(
+		sys::ERR_INTERNAL,
+		format!(
+			"{archive}: callable surface does not match this binding (expected {expected:016x}, got {actual:016x}); rebuild the native libraries"
+		),
+	))
+}
+
+/// Decode the shared close lifecycle without allowing an unknown native value
+/// to masquerade as a still-running owner and park a binding task forever.
+#[cfg(feature = "async")]
+pub(crate) fn lifecycle_is_closed(raw: u32) -> Result<bool> {
+	match raw {
+		sys::LIFECYCLE_ACTIVE | sys::LIFECYCLE_FINISHING | sys::LIFECYCLE_TERMINATING => Ok(false),
+		sys::LIFECYCLE_CLOSED => Ok(true),
+		other => Err(Error::with_detail(
+			sys::ERR_INTERNAL,
+			format!("pancake ABI returned unknown lifecycle state {other}"),
+		)),
+	}
+}
+
 /// The layer that observed an unreturnable failure.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -585,18 +542,20 @@ pub enum FailureLayer {
 	Transport,
 	Binding,
 	ApplicationObserver,
-	Other(u32),
 }
 
 impl FailureLayer {
-	fn from_abi(value: u32) -> Self {
+	fn from_abi(value: u32) -> Result<Self> {
 		match value {
-			abi_constants_gen::FAILURE_LAYER_CORE => Self::Core,
-			abi_constants_gen::FAILURE_LAYER_DRIVER => Self::Driver,
-			abi_constants_gen::FAILURE_LAYER_TRANSPORT => Self::Transport,
-			abi_constants_gen::FAILURE_LAYER_BINDING => Self::Binding,
-			abi_constants_gen::FAILURE_LAYER_APPLICATION_OBSERVER => Self::ApplicationObserver,
-			other => Self::Other(other),
+			abi_constants_gen::FAILURE_LAYER_CORE => Ok(Self::Core),
+			abi_constants_gen::FAILURE_LAYER_DRIVER => Ok(Self::Driver),
+			abi_constants_gen::FAILURE_LAYER_TRANSPORT => Ok(Self::Transport),
+			abi_constants_gen::FAILURE_LAYER_BINDING => Ok(Self::Binding),
+			abi_constants_gen::FAILURE_LAYER_APPLICATION_OBSERVER => Ok(Self::ApplicationObserver),
+			other => Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				format!("pancake ABI returned unknown failure layer {other}"),
+			)),
 		}
 	}
 }
@@ -612,20 +571,22 @@ pub enum FailureScope {
 	Listener,
 	Transport,
 	Operation,
-	Other(u32),
 }
 
 impl FailureScope {
-	fn from_abi(value: u32) -> Self {
+	fn from_abi(value: u32) -> Result<Self> {
 		match value {
-			abi_constants_gen::FAILURE_SCOPE_PROCESS => Self::Process,
-			abi_constants_gen::FAILURE_SCOPE_CONTEXT => Self::Context,
-			abi_constants_gen::FAILURE_SCOPE_HOST => Self::Host,
-			abi_constants_gen::FAILURE_SCOPE_SESSION => Self::Session,
-			abi_constants_gen::FAILURE_SCOPE_LISTENER => Self::Listener,
-			abi_constants_gen::FAILURE_SCOPE_TRANSPORT => Self::Transport,
-			abi_constants_gen::FAILURE_SCOPE_OPERATION => Self::Operation,
-			other => Self::Other(other),
+			abi_constants_gen::FAILURE_SCOPE_PROCESS => Ok(Self::Process),
+			abi_constants_gen::FAILURE_SCOPE_CONTEXT => Ok(Self::Context),
+			abi_constants_gen::FAILURE_SCOPE_HOST => Ok(Self::Host),
+			abi_constants_gen::FAILURE_SCOPE_SESSION => Ok(Self::Session),
+			abi_constants_gen::FAILURE_SCOPE_LISTENER => Ok(Self::Listener),
+			abi_constants_gen::FAILURE_SCOPE_TRANSPORT => Ok(Self::Transport),
+			abi_constants_gen::FAILURE_SCOPE_OPERATION => Ok(Self::Operation),
+			other => Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				format!("pancake ABI returned unknown failure scope {other}"),
+			)),
 		}
 	}
 }
@@ -836,7 +797,6 @@ impl ContextInner {
 			FailureLayer::Transport => abi_constants_gen::FAILURE_LAYER_TRANSPORT,
 			FailureLayer::Binding => abi_constants_gen::FAILURE_LAYER_BINDING,
 			FailureLayer::ApplicationObserver => abi_constants_gen::FAILURE_LAYER_APPLICATION_OBSERVER,
-			FailureLayer::Other(_) => return,
 		};
 		let scope = match scope {
 			FailureScope::Process => abi_constants_gen::FAILURE_SCOPE_PROCESS,
@@ -846,7 +806,6 @@ impl ContextInner {
 			FailureScope::Listener => abi_constants_gen::FAILURE_SCOPE_LISTENER,
 			FailureScope::Transport => abi_constants_gen::FAILURE_SCOPE_TRANSPORT,
 			FailureScope::Operation => abi_constants_gen::FAILURE_SCOPE_OPERATION,
-			FailureScope::Other(_) => return,
 		};
 		let secondary = error.secondary.first();
 		let report = sys::PancakeFailureReport {
@@ -909,30 +868,54 @@ impl ContextInner {
 			check(rc)?;
 		}
 
-		unsafe fn text(ptr: *const u8, len: usize) -> String {
+		unsafe fn text(ptr: *const u8, len: usize, field: &str) -> Result<String> {
 			if len == 0 {
-				String::new()
-			} else {
-				String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
+				return Ok(String::new());
 			}
+			if ptr.is_null() {
+				return Err(Error::with_detail(
+					sys::ERR_INTERNAL,
+					format!("pancake ABI returned a null {field} with nonzero length"),
+				));
+			}
+			let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+			let value = core::str::from_utf8(bytes).map_err(|_| {
+				Error::with_detail(
+					sys::ERR_INTERNAL,
+					format!("pancake ABI returned invalid UTF-8 in {field}"),
+				)
+			})?;
+			Ok(value.to_owned())
 		}
 
 		Ok(Some(FailureEvent {
 			sequence: event.sequence,
 			dropped_before: event.dropped_before,
-			layer: FailureLayer::from_abi(event.layer),
-			scope: FailureScope::from_abi(event.scope_kind),
+			layer: FailureLayer::from_abi(event.layer)?,
+			scope: FailureScope::from_abi(event.scope_kind)?,
 			scope_id: event.scope_id,
 			operation_id: event.operation_id,
 			primary_result: event.primary_result,
 			secondary_result: event.secondary_result,
 			secondary_count: event.secondary_count,
 			truncated_fields: event.flags,
-			operation: unsafe { text(event.operation, event.operation_len) },
-			primary_name: unsafe { text(event.primary_name, event.primary_name_len) },
-			primary_message: unsafe { text(event.primary_message, event.primary_message_len) },
-			secondary_name: unsafe { text(event.secondary_name, event.secondary_name_len) },
-			secondary_message: unsafe { text(event.secondary_message, event.secondary_message_len) },
+			operation: unsafe { text(event.operation, event.operation_len, "failure operation")? },
+			primary_name: unsafe { text(event.primary_name, event.primary_name_len, "primary failure name")? },
+			primary_message: unsafe {
+				text(
+					event.primary_message,
+					event.primary_message_len,
+					"primary failure message",
+				)?
+			},
+			secondary_name: unsafe { text(event.secondary_name, event.secondary_name_len, "secondary failure name")? },
+			secondary_message: unsafe {
+				text(
+					event.secondary_message,
+					event.secondary_message_len,
+					"secondary failure message",
+				)?
+			},
 		}))
 	}
 }
@@ -950,13 +933,15 @@ impl Drop for ContextInner {
 
 /// An opaque capability identity in one Host. It is never a wire position and
 /// its shape does not reveal whether the target is local, remote, or routed
-/// through a handoff. The raw id and C layout stay private to the binding.
+/// through a handoff. `PartialEq` compares that immutable identity only;
+/// occurrence-local release state does not change Target equality. The raw id
+/// and C layout stay private to the binding.
 #[derive(Debug, Clone)]
 pub struct Ref {
 	id: u64,
 	#[cfg(feature = "async")]
 	#[allow(dead_code)]
-	guard: Option<std::rc::Rc<crate::gc::ImportGuard>>,
+	guard: Option<std::rc::Rc<crate::gc::CapabilityGuard>>,
 	released: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
@@ -984,8 +969,14 @@ impl Ref {
 	}
 
 	#[cfg(feature = "async")]
-	pub(crate) fn guard(&self) -> Option<&crate::gc::ImportGuard> {
+	pub(crate) fn guard(&self) -> Option<&crate::gc::CapabilityGuard> {
 		self.guard.as_deref()
+	}
+
+	#[cfg(feature = "async")]
+	pub(crate) fn attach_guard(&mut self, guard: std::rc::Rc<crate::gc::CapabilityGuard>) {
+		debug_assert!(self.guard.is_none());
+		self.guard = Some(guard);
 	}
 
 	#[cfg(feature = "async")]
@@ -1010,14 +1001,6 @@ impl Ref {
 	pub(crate) fn from_sys(r: &sys::PancakeReference) -> Ref {
 		Ref::bare_id(r.id)
 	}
-
-	pub(crate) fn tracked_id(id: u64, guard: std::rc::Rc<crate::gc::ImportGuard>) -> Ref {
-		Ref {
-			id,
-			guard: Some(guard),
-			released: std::rc::Rc::new(std::cell::Cell::new(false)),
-		}
-	}
 }
 
 /// A passable argument value.
@@ -1029,6 +1012,9 @@ pub enum Argument {
 	Bytes(Vec<u8>),
 	String(String),
 	Symbol(String),
+	/// A fulfilled OCapN Error value. This is data, not a Rust `Err`; a broken
+	/// remote reply is reported separately by the promise/session API.
+	Error(String),
 	Void,
 	Reference(Ref),
 	List(Vec<Argument>),
@@ -1046,6 +1032,9 @@ pub enum Argument {
 		negative: bool,
 		digits: String,
 	},
+	/// An OCapN Struct: unordered, uniquely named String fields. The vector
+	/// preserves received order for inspection; OCapN equality ignores it.
+	Struct(Vec<(String, Argument)>),
 }
 
 impl Argument {
@@ -1211,6 +1200,7 @@ impl SendArena {
 			Argument::Bytes(b) => set_bytes(&mut c, sys::ARG_BYTES, b),
 			Argument::String(s) => set_bytes(&mut c, sys::ARG_STRING, s.as_bytes()),
 			Argument::Symbol(s) => set_bytes(&mut c, sys::ARG_SYMBOL, s.as_bytes()),
+			Argument::Error(message) => set_bytes(&mut c, sys::ARG_ERROR, message.as_bytes()),
 			Argument::Void => c.kind = sys::ARG_VOID,
 			Argument::Reference(r) => {
 				c.kind = sys::ARG_REFERENCE;
@@ -1241,6 +1231,20 @@ impl SendArena {
 				set_bytes(&mut c, sys::ARG_BIG_INTEGER, digits.as_bytes());
 				c.boolean = u32::from(*negative);
 			}
+			Argument::Struct(entries) => {
+				c.kind = sys::ARG_STRUCT;
+				let mut flat = Vec::with_capacity(entries.len() * 2);
+				for (key, value) in entries {
+					let mut key_arg: sys::PancakeArgument = unsafe { core::mem::zeroed() };
+					set_bytes(&mut key_arg, sys::ARG_STRING, key.as_bytes());
+					flat.push(key_arg);
+					flat.push(self.one(value)?);
+				}
+				let boxed = flat.into_boxed_slice();
+				c.items = boxed.as_ptr();
+				c.items_len = boxed.len();
+				self.boxes.push(boxed);
+			}
 		}
 		Ok(c)
 	}
@@ -1263,20 +1267,21 @@ fn set_bytes(c: &mut sys::PancakeArgument, kind: u32, b: &[u8]) {
 /// `c` must point to a valid `PancakeArgument` whose borrowed views are live
 /// for the duration of the call.
 #[cfg(feature = "async")]
-pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
-	match c.kind {
+pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Result<Argument> {
+	Ok(match c.kind {
 		sys::ARG_INTEGER => Argument::Integer(c.integer),
 		sys::ARG_FLOAT64 => Argument::Float(c.float64),
 		sys::ARG_BOOLEAN => Argument::Boolean(c.boolean != 0),
 		sys::ARG_BYTES => Argument::Bytes(bytes_from_sys(c)),
 		sys::ARG_STRING => Argument::String(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
 		sys::ARG_SYMBOL => Argument::Symbol(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
+		sys::ARG_ERROR => Argument::Error(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
 		sys::ARG_REFERENCE => Argument::Reference(Ref::from_sys(&c.reference)),
-		sys::ARG_LIST => Argument::List(args_from_sys(c.items, c.items_len)),
-		sys::ARG_SET => Argument::Set(args_from_sys(c.items, c.items_len)),
+		sys::ARG_LIST => Argument::List(args_from_sys(c.items, c.items_len)?),
+		sys::ARG_SET => Argument::Set(args_from_sys(c.items, c.items_len)?),
 		sys::ARG_TAGGED => Argument::Tagged {
 			tag: String::from_utf8_lossy(&bytes_from_sys(c)).into_owned(),
-			value: args_from_sys(c.items, c.items_len),
+			value: args_from_sys(c.items, c.items_len)?,
 		},
 		sys::ARG_KEYWORD => Argument::Keyword(String::from_utf8_lossy(&bytes_from_sys(c)).into_owned()),
 		sys::ARG_VOID => Argument::Void,
@@ -1284,14 +1289,35 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
 			negative: c.boolean != 0,
 			digits: String::from_utf8_lossy(&bytes_from_sys(c)).into_owned(),
 		},
-		// The C ABI kind set is closed (0..=12); any other value is the C ABI and
-		// this binding drifting out of sync. Fail loud where a test would catch
-		// it rather than silently decoding a future kind as Void.
-		other => {
-			debug_assert!(false, "unknown PancakeArgument kind {other} from the C ABI");
-			Argument::Void
+		sys::ARG_STRUCT => {
+			let flat = args_from_sys(c.items, c.items_len)?;
+			if flat.len() % 2 != 0 {
+				return Err(Error::with_detail(
+					sys::ERR_INTERNAL,
+					"pancake ABI returned an odd Struct item count".into(),
+				));
+			}
+			let mut entries = Vec::with_capacity(flat.len() / 2);
+			let mut it = flat.into_iter();
+			while let Some(key) = it.next() {
+				let Argument::String(key) = key else {
+					return Err(Error::with_detail(
+						sys::ERR_INTERNAL,
+						"pancake ABI returned a non-String Struct key".into(),
+					));
+				};
+				let value = it.next().expect("even Struct item count");
+				entries.push((key, value));
+			}
+			Argument::Struct(entries)
 		}
-	}
+		other => {
+			return Err(Error::with_detail(
+				sys::ERR_INTERNAL,
+				format!("pancake ABI returned unknown argument kind {other}"),
+			))
+		}
+	})
 }
 
 #[cfg(feature = "async")]
@@ -1322,9 +1348,9 @@ pub(crate) unsafe fn owned_from_view(ptr: *const u8, len: usize) -> Vec<u8> {
 /// `ptr` must point to `len` valid `PancakeArgument`s (or be null) whose
 /// borrowed views are live for the duration of the call.
 #[cfg(feature = "async")]
-pub(crate) unsafe fn args_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Vec<Argument> {
+pub(crate) unsafe fn args_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Result<Vec<Argument>> {
 	if ptr.is_null() {
-		return Vec::new();
+		return Ok(Vec::new());
 	}
 	(0..len).map(|i| arg_from_sys(&*ptr.add(i))).collect()
 }
@@ -1374,10 +1400,12 @@ pub struct FeatureSet(u32);
 
 impl FeatureSet {
 	pub const MINIMUM: FeatureSet = FeatureSet(sys::FEATURE_MINIMUM);
+	pub const BASELINE: FeatureSet = FeatureSet(sys::FEATURE_BASELINE);
 	pub const PIPELINING: FeatureSet = FeatureSet(sys::FEATURE_PIPELINING);
 	pub const HANDOFF: FeatureSet = FeatureSet(sys::FEATURE_HANDOFF);
 	pub const WIRE_DELTA: FeatureSet = FeatureSet(sys::FEATURE_WIRE_DELTA);
 	pub const STURDYREF: FeatureSet = FeatureSet(sys::FEATURE_STURDYREF);
+	pub const UNTAG: FeatureSet = FeatureSet(sys::FEATURE_UNTAG);
 	pub const FULL: FeatureSet = FeatureSet(sys::FEATURE_FULL);
 
 	pub const fn from_bits(bits: u32) -> Option<FeatureSet> {
@@ -1425,6 +1453,32 @@ impl Default for FeatureSet {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn archive_fingerprint_refuses_a_stale_callable_surface() {
+		require_archive_fingerprint("test", 0x1234, 0x1234).unwrap();
+		let error = require_archive_fingerprint("test", 0x5678, 0x1234).unwrap_err();
+		assert_eq!(error.kind(), ErrorKind::Internal);
+		assert!(error.message().unwrap().contains("callable surface does not match"));
+		assert!(error.message().unwrap().contains("rebuild the native libraries"));
+	}
+
+	#[cfg(feature = "async")]
+	#[test]
+	fn unknown_native_classifications_are_returned_failures() {
+		assert_eq!(lifecycle_is_closed(sys::LIFECYCLE_ACTIVE).unwrap(), false);
+		assert_eq!(lifecycle_is_closed(sys::LIFECYCLE_CLOSED).unwrap(), true);
+		assert_eq!(lifecycle_is_closed(u32::MAX).unwrap_err().kind(), ErrorKind::Internal);
+		assert_eq!(AbortDomain::from_abi(u32::MAX).unwrap_err().kind(), ErrorKind::Internal);
+		assert_eq!(
+			FailureLayer::from_abi(u32::MAX).unwrap_err().kind(),
+			ErrorKind::Internal
+		);
+		assert_eq!(
+			FailureScope::from_abi(u32::MAX).unwrap_err().kind(),
+			ErrorKind::Internal
+		);
+	}
 
 	// The public `ErrorKind` maps each known `PANCAKE_ERR_*` family, and an
 	// unknown or retired code falls through to `Other` with the raw value, so the
@@ -1478,7 +1532,7 @@ mod tests {
 	}
 
 	#[test]
-	fn context_claims_structured_failures_once() {
+	fn context_claims_the_cross_language_failure_vector_once() {
 		let context = Context::new().unwrap();
 		let operation = b"listener.close";
 		let primary_name = b"CloseFailed";
@@ -1531,29 +1585,29 @@ mod tests {
 	#[cfg(feature = "async")]
 	#[test]
 	fn runtime_failure_journal_is_typed_bounded_and_saturation_aware() {
-		let _serial = RUNTIME_FAILURE_TEST_LOCK
-			.lock()
-			.unwrap_or_else(std::sync::PoisonError::into_inner);
-		take_runtime_failures();
+		// Saturation is a property of one journal. Exercise a private instance so
+		// parallel tests may legitimately report to the process journal without
+		// changing this proof's loss count or consuming its records.
+		let mut journal = RuntimeFailureJournal::new();
 		for index in 0..=RUNTIME_FAILURE_CAP {
-			record_runtime_failure(
+			journal.record(
 				FailureLayer::Binding,
 				"test-drop",
 				Error::with_detail(sys::ERR_INTERNAL, format!("failure {index}")),
 			);
 		}
-		let diagnostics = take_runtime_failures();
+		let diagnostics = journal.claim();
 		assert_eq!(diagnostics.len(), RUNTIME_FAILURE_CAP);
 		assert_eq!(diagnostics[0].dropped_before, 1);
 		assert!(diagnostics.iter().all(|failure| failure.operation == "test-drop"));
 		assert_eq!(diagnostics[0].primary_message, "failure 1");
 
-		record_runtime_failure(
+		journal.record(
 			FailureLayer::Binding,
 			"test-payload-bound",
 			Error::with_detail(sys::ERR_INTERNAL, "x".repeat(FAILURE_PAYLOAD_CAP * 2)),
 		);
-		let bounded = take_runtime_failures().pop().unwrap();
+		let bounded = journal.claim().pop().unwrap();
 		assert_ne!(bounded.truncated_fields & (1 << 2), 0);
 		assert!(
 			bounded.operation.len()
@@ -1564,6 +1618,10 @@ mod tests {
 				<= FAILURE_PAYLOAD_CAP
 		);
 
+		let _serial = RUNTIME_FAILURE_TEST_LOCK
+			.lock()
+			.unwrap_or_else(std::sync::PoisonError::into_inner);
+		take_runtime_failures();
 		let context = Context::new().unwrap();
 		let original = Error::with_detail(-99, "observer failed".to_owned());
 		context.inner.report_failure(
@@ -1575,13 +1633,18 @@ mod tests {
 			&original,
 		);
 		let fallback = take_runtime_failures();
-		assert_eq!(fallback.len(), 2);
-		assert_eq!(fallback[0].layer, FailureLayer::ApplicationObserver);
-		assert_eq!(fallback[0].operation, "trace.sink");
-		assert_eq!(fallback[0].primary_message, "observer failed");
-		assert_eq!(fallback[1].layer, FailureLayer::Binding);
-		assert_eq!(fallback[1].operation, "diagnostic.record");
-		assert_eq!(fallback[1].primary_result, sys::ERR_INVALID_ARGUMENT);
+		let original = fallback
+			.iter()
+			.find(|failure| failure.operation == "trace.sink")
+			.expect("original recorder refusal reaches the process seam");
+		assert_eq!(original.layer, FailureLayer::ApplicationObserver);
+		assert_eq!(original.primary_message, "observer failed");
+		let recorder = fallback
+			.iter()
+			.find(|failure| failure.operation == "diagnostic.record")
+			.expect("recorder failure reaches the process seam");
+		assert_eq!(recorder.layer, FailureLayer::Binding);
+		assert_eq!(recorder.primary_result, sys::ERR_INVALID_ARGUMENT);
 	}
 
 	#[cfg(feature = "async")]
@@ -1624,6 +1687,8 @@ mod tests {
 		assert!(features.contains(FeatureSet::PIPELINING));
 		assert!(features.contains(FeatureSet::HANDOFF));
 		assert!(!features.contains(FeatureSet::STURDYREF));
+		assert!(!FeatureSet::BASELINE.contains(FeatureSet::UNTAG));
+		assert!(FeatureSet::FULL.contains(FeatureSet::UNTAG));
 
 		features |= FeatureSet::WIRE_DELTA;
 		assert_eq!(
@@ -1645,6 +1710,7 @@ mod tests {
 	fn arguments_round_trip_through_the_c_layout() {
 		let original = Argument::List(vec![
 			Argument::Integer(7),
+			Argument::Error("failure is a value".into()),
 			Argument::String("hi".into()),
 			Argument::Bytes(vec![1, 2, 3]),
 			Argument::Tagged {
@@ -1656,12 +1722,26 @@ mod tests {
 				negative: false,
 				digits: "1208925819614629174706176".into(),
 			},
+			Argument::Struct(vec![
+				("name".into(), Argument::String("widget".into())),
+				("count".into(), Argument::Integer(3)),
+			]),
 			Argument::Reference(Ref::bare_id(5)),
 			Argument::Void,
 		]);
 		let mut arena = SendArena::default();
 		let c = arena.one(&original).unwrap();
-		let lifted = unsafe { arg_from_sys(&c) };
+		let lifted = unsafe { arg_from_sys(&c) }.unwrap();
 		assert_eq!(lifted, original);
+	}
+
+	#[cfg(feature = "async")]
+	#[test]
+	fn unknown_native_argument_kind_is_a_returned_failure() {
+		let mut c = unsafe { core::mem::zeroed::<sys::PancakeArgument>() };
+		c.kind = u32::MAX;
+		let error = unsafe { arg_from_sys(&c) }.expect_err("unknown argument kind must be rejected");
+		assert_eq!(error.code(), sys::ERR_INTERNAL);
+		assert!(error.message().unwrap_or_default().contains("unknown argument kind"));
 	}
 }

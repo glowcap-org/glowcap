@@ -55,10 +55,12 @@ to trigger:
   exhaust memory or CPU, or to overflow the stack, instead of failing loud with
   a typed abort.
 
-pancake does not prove that the same target compares equal when it returns
-through an arbitrary network path or a three-party handoff;
-[docs/boundaries.md](docs/boundaries.md) records that edge. The project has not
-accepted that gap, so if you can show it defeats a revocation, report it.
+pancake proves that a target reached directly and through three-party handoff
+compares Equal when both paths converge on the same live exporter session. It
+does not infer target equality across independently established sessions that
+the protocol supplied no authenticated common identity for;
+[docs/boundaries.md](docs/boundaries.md) records that edge. If you can show the
+remaining edge defeats a revocation, report it.
 
 ## Out of scope
 
@@ -75,6 +77,35 @@ The engine router verifies three-party handoff certificates with
 only. That stub is never a production default on an untrusted network. A
 deployment that swaps it in for live traffic accepts unverified handoff
 certificates, so a report about that belongs to the deployment.
+
+## Native relay TLS maintenance
+
+The optional native `wss` carrier compiles a private, minimal Mbed TLS release.
+[`tools/deps/fetch-mbedtls.sh`](tools/deps/fetch-mbedtls.sh) is the single
+version, release URL, archive-size ceiling, and SHA-256 authority. Updating it
+is a security-sensitive dependency change:
+
+1. select an upstream-supported official release and read its security and
+   migration notes, including the bundled TF-PSA-Crypto version;
+2. update the version and archive digest together, then review the extracted
+   directory allowlist, the compiled source inventory in
+   `tools/build/mbedtls.zig`, and both minimal configuration headers under
+   `src/net/tls/` for newly required or newly reachable code;
+3. run `zig build native-tls-build` and `zig build check`, then run the static
+   and shared packaging checks on every supported native platform. The native
+   TLS gate must retain exact success, hostname, CA, expiry, alert, malformed
+   record, truncation, close-notify, and symbol-isolation evidence;
+4. update `LICENSE-THIRD-PARTY`, build-step documentation, and the public pin
+   description in the same change. Never silently float the release or accept
+   an unverified archive.
+
+The committed localhost certificate chain is test-only. The native TLS gate
+verifies its authority and fails when the leaf has fewer than 180 days left.
+Renew the entire root and leaf together into a new directory with
+`tools/check/generate-native-tls-fixture.sh`, inspect the subjects, SAN,
+validity, and private-key diff, then replace the three files under
+`test/net/fixtures/` in one reviewed commit. Do not preserve the old root key,
+reuse these keys outside tests, or weaken the expiry gate to buy time.
 
 ## Acknowledgements
 

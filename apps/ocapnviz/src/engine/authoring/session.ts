@@ -3,16 +3,13 @@
  * `AuthoringContext` as its first argument.
  */
 
+import type { CaptpVersion, Codec, SessionState, Transport } from "../../schema/topology.ts";
 import {
-  type CaptpVersion,
-  type Codec,
   type EndpointAttribution,
   type SessionEndpoint,
   sessionEndpoint,
   type SessionSide,
-  type SessionState,
-  type Transport,
-} from "../../schema/topology.ts";
+} from "../../schema/session-end.ts";
 import { patchSessionDefinition } from "../entities.ts";
 import { cascadeDelete } from "../schema/cascade.ts";
 import { restoreSnapshotInto, takeSnapshot } from "../snapshot.ts";

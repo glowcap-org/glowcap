@@ -117,12 +117,14 @@ pub const PancakeMultiplexedListenFn = *const fn (
     requested_designator_len: usize,
     options: ?*const transport_provider.PancakeTransportOperationOptions,
     out_result: ?*transport_provider.PancakeListenResult,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
 ) callconv(.c) i32;
 
 pub const PancakeMultiplexedFinishListenFn = *const fn (
     ctx: ?*anyopaque,
     route_id: u64,
     out_listener: ?*?*anyopaque,
+    out_failure: ?*transport_provider.PancakeProviderFailure,
 ) callconv(.c) i32;
 
 /// Claim one accepted connection from `listener_ctx` into `out_conn`.
@@ -135,7 +137,10 @@ pub const PancakeMultiplexedFinishAcceptFn = *const fn (
     out_failure: ?*transport_provider.PancakeProviderFailure,
 ) callconv(.c) i32;
 
-/// Stop accepting. Idempotent; the runtime and dial side stay alive.
+/// Stop accepting. Idempotent; the runtime and dial side stay alive. An
+/// asynchronously retiring provider returns success with an empty failure,
+/// emits EV_LISTEN for the route after joining, then exposes the claim-once
+/// cleanup result through cancel_listen.
 pub const PancakeMultiplexedStopListenFn = *const fn (
     listener_ctx: ?*anyopaque,
     out_failure: ?*transport_provider.PancakeProviderFailure,
@@ -204,14 +209,18 @@ pub const PancakeMultiplexedTransport = extern struct {
     claim_external: ?PancakeMultiplexedClaimExternalFn = null,
     /// Abandon a dial by request id. Idempotent, and valid after its connect
     /// record was announced but before `finish_connect` claimed it: the
-    /// resident releases the unclaimed connection.
+    /// resident releases the unclaimed connection. Asynchronous retirement
+    /// returns success first, emits CONNECT when joined, and makes the exact
+    /// cleanup chain claimable by a repeated call for the same request id.
     cancel_connect: ?PancakeMultiplexedSubjectFn,
     listen: ?PancakeMultiplexedListenFn,
     /// Consume one PENDING route on every return. Present exactly with
     /// `cancel_listen`; absent for an immediate-only listener.
     finish_listen: ?PancakeMultiplexedFinishListenFn,
     /// Abandon one PENDING route before finish. Present exactly with
-    /// `finish_listen` and idempotent after the route has already failed.
+    /// `finish_listen` and idempotent after the route has already failed. It
+    /// also claims an active listener's asynchronous stop outcome after the
+    /// provider emits LISTEN for that route.
     cancel_listen: ?PancakeMultiplexedSubjectFn,
     listener_locator: ?transport_provider.PancakeTransportListenerLocatorFn,
     listener_advertise: ?transport_provider.PancakeTransportListenerAdvertiseFn,
@@ -220,8 +229,9 @@ pub const PancakeMultiplexedTransport = extern struct {
     stop_listen: ?PancakeMultiplexedStopListenFn,
     try_read: ?PancakeMultiplexedTryReadFn,
     try_write: ?PancakeMultiplexedTryWriteFn,
-    /// Close and release one connection. Later records naming the id drain
-    /// to nothing.
+    /// Close and release one connection. Asynchronous retirement returns
+    /// success first, emits CLOSED after joining, and makes the exact cleanup
+    /// chain claimable by a repeated call. Later records then drain to nothing.
     conn_close: ?PancakeMultiplexedSubjectFn,
     conn_take_failure: ?PancakeMultiplexedConnTakeFailureFn,
     conn_remote_key: ?PancakeMultiplexedConnRemoteKeyFn,

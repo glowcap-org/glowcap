@@ -5,8 +5,14 @@
 // members, formed by three-party introduction and held on the members' own
 // hosts; the room server never carries a byte of it and must not start. What
 // converges is telemetry, on a socket that goes only one way — a producer
-// sends records and receives nothing, so nothing here is a channel between
-// peers and nothing here can carry application traffic.
+// sends records and hears nothing back but the endpoint's own admission mark,
+// so nothing here is a channel between peers and nothing here can carry
+// application traffic.
+//
+// The socket is not open to whoever can reach it: the endpoint mints one
+// capability swiss when it is enabled, and a producer presents it on the
+// connect URL (`VIZ_CAP_PARAM`) or is closed with a typed refusal. Holding
+// the swiss is the authority to write into the timeline.
 //
 // The endpoint scopes a producer's session ids by the CONNECTION they arrived
 // on, which is what keeps two producers' identical ids apart. A reconnect is
@@ -29,6 +35,26 @@ import type { TraceEvent } from "@pancake/runtime";
  * other half of that split, named once so the endpoint and its producers
  * cannot drift apart. */
 export const VIZ_PUBLISH_PATH = "/publish";
+
+/** The query parameter a connecting socket presents the endpoint's capability
+ * in — producers and viewers alike. Reachability alone reads and writes
+ * nothing: the endpoint refuses a socket that does not present its swiss.
+ * (ocapnviz presents the same parameter from the sturdyref it already holds;
+ * its viewer names the parameter itself because it shares no module with this
+ * app.) */
+export const VIZ_CAP_PARAM = "cap";
+
+/** The close code a refused socket receives, with the reason in the close
+ * frame, so a WebSocket client can read why it was turned away. In the
+ * application range because the WebSocket protocol reserves the low codes. */
+export const VIZ_REFUSED_CLOSE_CODE = 4403;
+
+/** Put the capability on an endpoint URL, viewer or producer alike. */
+export function vizCapUrl(url: string, swiss: string): string {
+	const parsed = new URL(url);
+	parsed.searchParams.set(VIZ_CAP_PARAM, swiss);
+	return parsed.toString();
+}
 
 /** Records held while the socket is connecting. One session's opening burst is
  * a handful; this is far above that and still a fixed ceiling. */
@@ -68,13 +94,26 @@ export function announceLines(
 	return lines;
 }
 
-/** Publish this peer's trace records to the endpoint at `url`. Returns the
- * sink to install with `enableTrace`, and the stop that ends publishing. */
+/** Publish this peer's trace records to the endpoint at `url`, presenting
+ * `cap` — the endpoint's capability swiss — on the socket. Returns the sink to
+ * install with `enableTrace`, and the stop that ends publishing.
+ *
+ * The endpoint answers an admitted producer with one `trace.publish-ready`
+ * mark (surfaced through `onStatus`) and refuses a socket presenting the
+ * wrong swiss by closing it with `VIZ_REFUSED_CLOSE_CODE`. A refusal is
+ * final — the swiss is wrong, and redialing it forever would be a busy wait
+ * against a fact — so it stops this publisher and reports through
+ * `onRefused`; every other close keeps the ordinary retry. */
 export function publishViz(
 	url: string,
-	opts: { onError?: (err: unknown) => void } = {},
+	opts: {
+		cap: string;
+		onError?: (err: unknown) => void;
+		onRefused?: (reason: string) => void;
+		onStatus?: (connected: boolean) => void;
+	},
 ): VizPublisher {
-	const target = publishUrl(url);
+	const target = vizCapUrl(publishUrl(url), opts.cap);
 	const onError = opts.onError ?? (() => {});
 	const opens = new Map<string, TraceEvent>();
 	const metas = new Map<string, TraceEvent>();
@@ -117,9 +156,28 @@ export function publishViz(
 			flush();
 		};
 		ws.onerror = () => {};
-		ws.onclose = () => {
+		// The endpoint's admission mark is the only thing a producer ever
+		// hears; nothing forwarded reaches this socket.
+		ws.onmessage = (msg) => {
+			if (typeof msg.data !== "string") return;
+			try {
+				const mark = JSON.parse(msg.data) as { kind?: unknown };
+				if (mark.kind === "trace.publish-ready") opts.onStatus?.(true);
+			} catch {
+				// Not a mark; a producer ignores what it cannot read.
+			}
+		};
+		ws.onclose = (event) => {
 			if (socket === ws) socket = null;
-			if (!stopped) retry = setTimeout(connect, RETRY_MS);
+			opts.onStatus?.(false);
+			if (stopped) return;
+			if (event.code === VIZ_REFUSED_CLOSE_CODE) {
+				stopped = true;
+				pending.length = 0;
+				opts.onRefused?.(event.reason || "the endpoint refused this capability");
+				return;
+			}
+			retry = setTimeout(connect, RETRY_MS);
 		};
 	};
 

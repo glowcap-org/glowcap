@@ -10,11 +10,13 @@
 //! participating session; the compiler's exclusive mutable borrows already
 //! guarantee no two of them alias, so there is no shared state to guard.
 
+const std = @import("std");
 const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
 const codec = pancake.ocapn.codec;
 const engine = pancake.ocapn.engine;
+const session = pancake.ocapn.session;
 
 const Peer = engine.Peer;
 
@@ -24,8 +26,63 @@ pub const SignatureVerifier = engine.cross_peer.SignatureVerifier;
 
 pub const Error = error{
     SignatureRejected,
+    GiftAddressMismatch,
+    MissingRecipientSessionKey,
     NoOutboundFrame,
     StrandedOutboundFrame,
+};
+
+fn startSessionWithKey(key: []const u8) model.Message {
+    return .{ .start_session = .{
+        .captp_version = .v1_0,
+        .session_pubkey = .{ .bytes = key },
+        .acceptable_location = .{
+            .transport = "memory",
+            .designator = "peer",
+            .hints = model.Hints.emptyMap(),
+        },
+        .acceptable_location_sig = .{ .bytes = "test-signature" },
+    } };
+}
+
+/// Build an open test Peer whose session owns both endpoint keys. Handoff
+/// admission needs the local key to decide whether a give is addressed to this
+/// recipient; an open production session always learned both keys during its
+/// handshake, so a keyless Peer is not a valid handoff recipient fixture.
+pub fn openPeerWithSessionKeys(
+    allocator: std.mem.Allocator,
+    local_key: []const u8,
+    partner_key: []const u8,
+) !Peer {
+    var state = session.Session.initWith(allocator, .{ .negotiating = true });
+    errdefer state.deinit();
+    try state.recordSend(startSessionWithKey(local_key));
+    try state.recordRecv(startSessionWithKey(partner_key));
+    return Peer.initWithSession(allocator, state);
+}
+
+/// The two test Peers for the Gifter-Recipient session. Each side records the
+/// other's session key, so outbound and inbound give admission exercise the
+/// same addressing rule as a production handshake.
+pub const GivePair = struct {
+    sender: Peer,
+    recipient: Peer,
+
+    pub fn init(allocator: std.mem.Allocator, recipient_key: []const u8) !GivePair {
+        if (recipient_key.len != 32) return Error.GiftAddressMismatch;
+        var sender_key: [32]u8 = undefined;
+        for (&sender_key, recipient_key) |*out, byte| out.* = byte ^ 0xff;
+
+        var sender = try openPeerWithSessionKeys(allocator, &sender_key, recipient_key);
+        errdefer sender.deinit();
+        const recipient = try openPeerWithSessionKeys(allocator, recipient_key, &sender_key);
+        return .{ .sender = sender, .recipient = recipient };
+    }
+
+    pub fn deinit(self: *GivePair) void {
+        self.recipient.deinit();
+        self.sender.deinit();
+    }
 };
 
 fn alwaysAccept(_: ?*anyopaque, _: []const u8, _: []const u8) bool {
@@ -47,17 +104,25 @@ pub fn testOnlyAcceptingVerifier() SignatureVerifier {
 /// from the gift row.
 ///
 /// Sibling copy: `apps/accountability-on-pancake/zig/three_party_test.zig`.
-/// That fork uses a real Ed25519 RoutingVerifier and threads an explicit gifter
-/// key at deposit; here `deliverGive` accepts a null key (learn from handshake)
-/// and tests use `testOnlyAcceptingVerifier()` for a key-agnostic seam.
+/// That fork uses a real Ed25519 RoutingVerifier. Tests here use
+/// `testOnlyAcceptingVerifier()` when the certificate signature is not the
+/// behavior under test.
 pub fn deliverGive(
     gifter: *Peer,
     recipient: *Peer,
     exporter: *Peer,
     give: model.HandoffGive,
-    gifter_key: ?[]const u8,
 ) !void {
-    _ = gifter_key;
+    const partner_key = gifter.session_state.partnerSessionKey() orelse
+        return Error.MissingRecipientSessionKey;
+    if (!std.mem.eql(u8, partner_key, give.recipient_key)) {
+        return Error.GiftAddressMismatch;
+    }
+    const recipient_key = recipient.session_state.localSessionKey() orelse
+        return Error.MissingRecipientSessionKey;
+    if (!std.mem.eql(u8, recipient_key, give.recipient_key)) {
+        return Error.GiftAddressMismatch;
+    }
     // The harness stands in for a deposit that arrived on the gifter's own
     // session, so it files the row where that gifter's give will look for it.
     try exporter.giftRegistry().deposit(

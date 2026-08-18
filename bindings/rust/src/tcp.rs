@@ -243,6 +243,14 @@ error_slot!(
 	ffi::pancake_tcp_last_error
 );
 
+fn require_archive() -> Result<()> {
+	crate::require_archive_fingerprint(
+		"tcp",
+		unsafe { ffi::pancake_tcp_archive_fingerprint() },
+		crate::abi_constants::TCP_ARCHIVE_FINGERPRINT,
+	)
+}
+
 /// Owns the blocking-TCP I/O backend. Connections and listeners borrow it (via
 /// `&self`), so the borrow checker rejects a [`Connection`] or [`Listener`] that
 /// outlives the netlayer that produced it. The `'ctx` lifetime additionally ties
@@ -265,6 +273,7 @@ pub struct Netlayer<'ctx> {
 
 impl<'ctx> Netlayer<'ctx> {
 	pub fn new(config: Config) -> Result<Netlayer<'ctx>> {
+		require_archive()?;
 		let mut raw: *mut ffi::PancakeTcpNetlayer = core::ptr::null_mut();
 		let config = config.to_c();
 		check_tcp(unsafe { ffi::pancake_tcp_netlayer_new(&config, &mut raw) })?;
@@ -274,6 +283,7 @@ impl<'ctx> Netlayer<'ctx> {
 	/// Create a netlayer whose backend and per-connection buffers allocate through
 	/// `context`. The context must outlive the netlayer, which `'ctx` enforces.
 	pub fn new_in(context: &'ctx Context, config: Config) -> Result<Netlayer<'ctx>> {
+		require_archive()?;
 		let mut raw: *mut ffi::PancakeTcpNetlayer = core::ptr::null_mut();
 		let config = config.to_c();
 		check_tcp(unsafe { ffi::pancake_tcp_netlayer_new_in(context.raw(), &config, &mut raw) })?;
@@ -322,6 +332,9 @@ impl<'ctx> Netlayer<'ctx> {
 				codec.to_c(),
 				max_frame_bytes,
 				&mut raw,
+				core::ptr::null_mut(),
+				0,
+				core::ptr::null_mut(),
 			)
 		})?;
 		Ok(Connection { raw, _nl: PhantomData })
@@ -374,6 +387,9 @@ impl Listener<'_> {
 				codec.to_c(),
 				max_frame_bytes,
 				&mut raw,
+				core::ptr::null_mut(),
+				0,
+				core::ptr::null_mut(),
 			)
 		})?;
 		Ok(Connection { raw, _nl: PhantomData })
@@ -425,7 +441,9 @@ impl Connection<'_> {
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
 		let mut frame: crate::sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
-		check_tcp(unsafe { ffi::pancake_tcp_conn_read_frame(self.raw, &mut frame) })?;
+		check_tcp(unsafe {
+			ffi::pancake_tcp_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
+		})?;
 		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
 		unsafe { crate::sys::pancake_managed_frame_release(&mut frame) };
 		Ok(out)
@@ -438,7 +456,9 @@ impl Connection<'_> {
 			len: bytes.len(),
 			shape: crate::sys::FRAME_SHAPE_BYTE,
 		};
-		check_tcp(unsafe { ffi::pancake_tcp_conn_write_frame(self.raw, &f) })
+		check_tcp(unsafe {
+			ffi::pancake_tcp_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
+		})
 	}
 }
 
@@ -452,7 +472,9 @@ unsafe impl Send for Connection<'_> {}
 
 impl Drop for Connection<'_> {
 	fn drop(&mut self) {
-		if let Err(error) = check_tcp(unsafe { ffi::pancake_tcp_conn_release(self.raw) }) {
+		if let Err(error) = check_tcp(unsafe {
+			ffi::pancake_tcp_conn_release(self.raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+		}) {
 			crate::record_runtime_failure(crate::FailureLayer::Transport, "tcp-connection-drop-release", error);
 		}
 	}

@@ -26,6 +26,7 @@ const driver = @import("driver");
 const driver_core = @import("driver_core");
 const provider_registry = @import("provider_registry.zig");
 const driver_error = @import("error.zig");
+const failure_output = @import("failure_output.zig");
 
 const shared = @import("c_abi_shared");
 const ch = @import("c_abi_host");
@@ -93,6 +94,29 @@ const ListenerState = union(enum) {
     pending,
     active: BoundListener,
 };
+
+const ActiveListenerLookupError = error{ UnknownListener, ListenerPending };
+
+fn activeListener(inst: *Instance, listener: u64) ActiveListenerLookupError!*BoundListener {
+    const state = inst.listeners.getPtr(@enumFromInt(listener)) orelse {
+        shared.setLastError("driver: unknown listener id", .{});
+        return error.UnknownListener;
+    };
+    return switch (state.*) {
+        .pending => {
+            shared.setLastError("driver: listener setup is pending", .{});
+            return error.ListenerPending;
+        },
+        .active => |*active| active,
+    };
+}
+
+fn activeListenerErrorCode(err: ActiveListenerLookupError) i32 {
+    return switch (err) {
+        error.UnknownListener => shared.PANCAKE_ERR_NOT_FOUND,
+        error.ListenerPending => shared.PANCAKE_ERR_WOULD_BLOCK,
+    };
+}
 
 /// One queued loop event, in owned form; projection to C happens at pop.
 const OwnedEvent = union(enum) {
@@ -246,23 +270,7 @@ fn reentrancyCode(inst: *Instance, operation: []const u8) ?i32 {
 }
 
 fn operationErrorCode(inst: *const Instance, err: anyerror) i32 {
-    const failure = inst.runtime.operationFailure(err);
-    if (failure.cause != error.InvalidArgument or failure.secondary_cause != null)
-        setOperationFailure("driver", failure);
-    return driver_error.code(failure.kind);
-}
-
-fn setOperationFailure(prefix: []const u8, failure: driver.OperationFailure) void {
-    if (failure.secondary_cause) |_| {
-        shared.setLastError("{s}: {s}; cleanup: {s} ({d} secondary failures)", .{
-            prefix,
-            failure.primaryName(),
-            failure.secondaryName().?,
-            failure.secondary_count,
-        });
-    } else {
-        shared.setLastError("{s}: {s}", .{ prefix, failure.primaryName() });
-    }
+    return failure_output.operationCode(&inst.runtime, err);
 }
 
 fn freeEventPayload(inst: *Instance, event: OwnedEvent) void {
@@ -396,6 +404,7 @@ pub export fn pancake_driver_take_host(
     options: ?*const c.PancakeDriverOptions,
     out_loop: ?*?*c.PancakeDriverLoop,
 ) i32 {
+    shared.lastErrorClear();
     const host_handle = host orelse return PANCAKE_ERR_NULL_POINTER;
     const options_ptr = options orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_loop orelse return PANCAKE_ERR_NULL_POINTER;
@@ -476,13 +485,19 @@ fn closeListenerById(inst: *Instance, id: ListenerId) ?driver.OperationFailure {
     return outcome.failure;
 }
 
-fn releaseRetiredListenerMetadata(inst: *Instance) void {
+fn releaseRetiredListenerMetadata(inst: *Instance) bool {
+    var complete = true;
     var it = inst.listeners.iterator();
     while (it.next()) |entry| switch (entry.value_ptr.*) {
-        .pending => unreachable,
+        // Runtime retirement removes pending listeners through their observer.
+        // Keep release total if that internal contract is ever violated: the
+        // pending row owns no projection, and the returned release failure is
+        // a safer postmortem than terminating the embedding process.
+        .pending => complete = false,
         .active => |*active| active.deinit(inst),
     };
     inst.listeners.clearRetainingCapacity();
+    return complete;
 }
 
 /// Project the native runtime phase through the C delivery barrier. Core and
@@ -507,6 +522,7 @@ pub export fn pancake_driver_close(
     raw: ?*c.PancakeDriverLoop,
     options: ?*const ch.PancakeCloseOptions,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const callback_close = inst.stepping and inst.runtime.withinCallback();
     if (!callback_close) {
@@ -515,7 +531,9 @@ pub export fn pancake_driver_close(
     const pending = ch.parseCloseOptions(options) catch |err| return ch.closeOptionsErrorCode("driver", err);
 
     inst.runtime.beginClose(pending);
-    if (!callback_close and inst.runtime.listenerOwnershipRetired()) releaseRetiredListenerMetadata(inst);
+    if (!callback_close and inst.runtime.listenerOwnershipRetired() and
+        !releaseRetiredListenerMetadata(inst))
+        inst.runtime.noteTerminalFailure(error.ProviderContract);
     return PANCAKE_OK;
 }
 
@@ -523,19 +541,23 @@ pub export fn pancake_driver_close(
 /// session handle releases. Existing sessions remain active; the final
 /// release begins the ordinary cancel close barrier.
 pub export fn pancake_driver_retire(raw: ?*c.PancakeDriverLoop) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const callback_retire = inst.stepping and inst.runtime.withinCallback();
     if (!callback_retire) {
         if (reentrancyCode(inst, "retire")) |code| return code;
     }
     inst.runtime.beginRetirement();
-    if (!callback_retire and inst.runtime.listenerOwnershipRetired()) releaseRetiredListenerMetadata(inst);
+    if (!callback_retire and inst.runtime.listenerOwnershipRetired() and
+        !releaseRetiredListenerMetadata(inst))
+        inst.runtime.noteTerminalFailure(error.ProviderContract);
     return PANCAKE_OK;
 }
 
 /// Observe the close barrier. A timed-out FINISH returns PANCAKE_ERR_TIMEOUT
 /// only after teardown and queued event delivery have reached CLOSED.
 pub export fn pancake_driver_lifecycle_state(raw: ?*c.PancakeDriverLoop, out_state: ?*u32) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "lifecycle_state")) |code| return code;
     const slot = out_state orelse return PANCAKE_ERR_NULL_POINTER;
@@ -553,6 +575,7 @@ pub export fn pancake_driver_lifecycle_state(raw: ?*c.PancakeDriverLoop, out_sta
 /// loop. Poll-shaped on purpose: the value drops straight into a wait
 /// primitive's timeout argument.
 pub export fn pancake_driver_step_wait_ms(raw: ?*c.PancakeDriverLoop, out_wait_ms: ?*i32) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "step_wait_ms")) |code| return code;
     const slot = out_wait_ms orelse return PANCAKE_ERR_NULL_POINTER;
@@ -564,9 +587,18 @@ pub export fn pancake_driver_step_wait_ms(raw: ?*c.PancakeDriverLoop, out_wait_m
 /// queued events, every live wire, and then the wrapped host itself (with
 /// `pancake_host_release`'s exact semantics). Do not release the host handle
 /// separately. Null is a no-op; refused from inside a callback.
-pub export fn pancake_driver_release(raw: ?*c.PancakeDriverLoop) i32 {
+pub export fn pancake_driver_release(
+    raw: ?*c.PancakeDriverLoop,
+    out_failure: ?*failure_output.PancakeDriverFailure,
+) i32 {
+    shared.lastErrorClear();
+    const failure_slot = switch (failure_output.claim(out_failure, "driver release")) {
+        .slot => |slot| slot,
+        .refused => |code| return code,
+    };
     const inst = instanceFrom(raw) orelse return PANCAKE_OK;
-    if (reentrancyCode(inst, "release")) |code| return code;
+    if (reentrancyCode(inst, "release")) |code|
+        return failure_output.refuse(failure_slot, code, error.ReenteredHost);
     // No projection survives release. Retire core-owned completion payloads
     // while the core is still live, then detach the two optional event sinks;
     // operation observers still run during Runtime teardown to release their
@@ -583,33 +615,40 @@ pub export fn pancake_driver_release(raw: ?*c.PancakeDriverLoop) i32 {
     // this adapter. Keep C-owned metadata and queues alive until it returns,
     // then discard projections no caller can observe after release.
     var teardown_failure = inst.runtime.deinitOutcome();
-    releaseRetiredListenerMetadata(inst);
+    if (!releaseRetiredListenerMetadata(inst))
+        failure_output.noteError(&teardown_failure, error.ProviderContract);
     inst.listeners.deinit(inst.allocator);
     while (popEvent(inst)) |event| switch (event) {
-        .completion => unreachable, // completion sink was detached before teardown
+        // Detaching the completion sink makes this impossible through the
+        // public state machine. If that invariant regresses, preserve the
+        // consumed-handle release outcome instead of aborting the process.
+        // The core is already gone, so the unexpected payload cannot safely
+        // be traversed and is deliberately leaked on this contract-failure
+        // path rather than freed through dead ownership.
+        .completion => failure_output.noteError(&teardown_failure, error.ProviderContract),
         else => {},
     };
     inst.events.deinit(inst.allocator);
-    std.debug.assert(inst.event_reservations == 0);
+    if (inst.event_reservations != 0)
+        failure_output.noteError(&teardown_failure, error.ProviderContract);
     inst.providers.deinit();
     if (ch.embedding.releaseFromDriver(inst.host_handle)) |host_failure| {
-        if (teardown_failure) |*failure|
-            failure.note(host_failure)
-        else
-            teardown_failure = driver.OperationFailure.fromError(host_failure);
+        failure_output.noteError(&teardown_failure, host_failure);
     }
     inst.threaded.deinit();
     const alloc = inst.allocator;
     alloc.destroy(inst);
     if (teardown_failure) |failure| {
-        setOperationFailure("driver release", failure);
+        failure_output.setLastError("driver release", failure);
         // INVALID_ARGUMENT is reserved for an admission refusal above and
         // therefore means the handle remains live. Teardown has already
         // consumed the loop; classify a provider's invalid-argument cleanup
         // report as internal at this boundary while preserving its exact cause
         // in last_error, so consumers can distinguish retry from consumption.
         const code = driver_error.code(failure.kind);
-        return if (code == PANCAKE_ERR_INVALID_ARGUMENT) shared.PANCAKE_ERR_INTERNAL else code;
+        const consumed_code = if (code == PANCAKE_ERR_INVALID_ARGUMENT) shared.PANCAKE_ERR_INTERNAL else code;
+        failure_output.project(failure_slot, consumed_code, failure);
+        return consumed_code;
     }
     return PANCAKE_OK;
 }
@@ -620,10 +659,20 @@ pub export fn pancake_driver_release(raw: ?*c.PancakeDriverLoop) i32 {
 pub export fn pancake_driver_add_provider(
     raw: ?*c.PancakeDriverLoop,
     provider: ?*const shared.PancakeTransportProvider,
+    out_failure: ?*failure_output.PancakeDriverFailure,
 ) i32 {
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    if (reentrancyCode(inst, "add_provider")) |code| return code;
-    return inst.providers.addProvider(provider);
+    shared.lastErrorClear();
+    const failure_slot = switch (failure_output.claim(out_failure, "driver add_provider")) {
+        .slot => |slot| slot,
+        .refused => |code| return code,
+    };
+    const inst = instanceFrom(raw) orelse
+        return failure_output.refuse(failure_slot, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+    if (reentrancyCode(inst, "add_provider")) |code|
+        return failure_output.refuse(failure_slot, code, error.ReenteredHost);
+    const outcome = inst.providers.addProvider(provider);
+    if (outcome.failure) |failure| failure_output.project(failure_slot, outcome.result, failure);
+    return outcome.result;
 }
 
 /// Report whether the loop's provider registry owns `transport`.
@@ -633,6 +682,7 @@ pub export fn pancake_driver_has_transport(
     transport_len: usize,
     out_present: ?*u8,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_present orelse return PANCAKE_ERR_NULL_POINTER;
     const name = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
@@ -656,6 +706,7 @@ pub export fn pancake_driver_dial(
     options: ?*const shared.PancakeTransportOperationOptions,
     out_operation_id: ?*u64,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "dial")) |code| return code;
     const slot = out_operation_id orelse return PANCAKE_ERR_NULL_POINTER;
@@ -676,6 +727,7 @@ pub export fn pancake_driver_adopt_external(
     role: u32,
     out_operation_id: ?*u64,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "adopt_external")) |code| return code;
     const slot = out_operation_id orelse return PANCAKE_ERR_NULL_POINTER;
@@ -757,6 +809,7 @@ pub export fn pancake_driver_listen(
     options: ?*const shared.PancakeTransportOperationOptions,
     out_listener: ?*u64,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listen")) |code| return code;
     const slot = out_listener orelse return PANCAKE_ERR_NULL_POINTER;
@@ -787,8 +840,8 @@ pub export fn pancake_driver_listen(
 fn listenerReady(ctx: *anyopaque, tag: u64, ready_listener: driver.HostRuntime.TransportListener) void {
     const inst: *Instance = @ptrCast(@alignCast(ctx));
     var listener = ready_listener;
-    finishListener(inst, tag, &listener) catch |err| {
-        var failure = inst.runtime.operationFailure(err);
+    if (finishListener(inst, tag, &listener)) |activation_failure| {
+        var failure = activation_failure;
         if (inst.runtime.closeListener(&listener)) |close_failure|
             failure.noteFailure(close_failure);
         if (!inst.listeners.remove(@enumFromInt(tag)))
@@ -800,7 +853,7 @@ fn listenerReady(ctx: *anyopaque, tag: u64, ready_listener: driver.HostRuntime.T
             },
         });
         return;
-    };
+    }
     enqueueReservedEvent(inst, .{ .listener_ready = tag });
 }
 
@@ -820,29 +873,35 @@ fn finishListener(
     inst: *Instance,
     id: u64,
     listener: *driver.HostRuntime.TransportListener,
-) !void {
-    const state = inst.listeners.getPtr(@enumFromInt(id)) orelse return error.InvalidArgument;
+) ?driver.OperationFailure {
+    const state = inst.listeners.getPtr(@enumFromInt(id)) orelse
+        return driver.OperationFailure.fromError(error.InvalidArgument);
     switch (state.*) {
         .pending => {},
-        .active => return error.InvalidArgument,
+        .active => return driver.OperationFailure.fromError(error.InvalidArgument),
     }
-    var prepared = inst.runtime.prepareListenerLocator(listener) catch |err| {
-        if (err == error.InvalidArgument)
-            shared.setLastError("driver: listener did not provide a valid locator", .{});
-        return err;
+    var prepared = switch (inst.runtime.prepareListenerLocatorOutcome(listener)) {
+        .ready => |prepared| prepared,
+        .failed => |failure| return driver.OperationFailure.fromChain(failure),
     };
-    errdefer prepared.deinit(inst.allocator);
-    var projection = try LocatorProjection.init(inst.allocator, prepared.value, &.{});
-    errdefer projection.deinit(inst.allocator);
-    try inst.runtime.activateOwnedListener(listener, &prepared, id, .{
+    var projection = LocatorProjection.init(inst.allocator, prepared.value, &.{}) catch |err| {
+        prepared.deinit(inst.allocator);
+        return inst.runtime.operationFailure(err);
+    };
+    inst.runtime.activateOwnedListener(listener, &prepared, id, .{
         .ctx = inst,
         .reserve = reserveOpenEventForObserver,
         .release = releaseOpenEventForObserver,
         .abandoned = releaseOpenEventForObserver,
         .opened = acceptOpened,
         .failed = acceptFailed,
-    });
+    }) catch |err| {
+        projection.deinit(inst.allocator);
+        prepared.deinit(inst.allocator);
+        return inst.runtime.operationFailure(err);
+    };
     state.* = .{ .active = .{ .projection = projection } };
+    return null;
 }
 
 /// Borrow one active listener's complete locator view. It remains valid until
@@ -852,19 +911,10 @@ pub export fn pancake_driver_listener_locator(
     listener: u64,
     out_locator: ?*shared.PancakeLocatorView,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_locator orelse return PANCAKE_ERR_NULL_POINTER;
-    const state = inst.listeners.getPtr(@enumFromInt(listener)) orelse {
-        shared.setLastError("driver: unknown listener id", .{});
-        return shared.PANCAKE_ERR_NOT_FOUND;
-    };
-    const bound_listener = switch (state.*) {
-        .pending => {
-            shared.setLastError("driver: listener setup is pending", .{});
-            return shared.PANCAKE_ERR_WOULD_BLOCK;
-        },
-        .active => |*active| active,
-    };
+    const bound_listener = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
     // Return the POD view by value. Its nested slices still borrow the
     // listener's owned locator/projection, but no pointer into the hash map's
     // movable value storage escapes this call.
@@ -882,29 +932,25 @@ pub export fn pancake_driver_listener_restoration_state(
     cap: usize,
     out_len: ?*usize,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listener_restoration_state")) |code| return code;
     const len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
     len_slot.* = 0;
-    const state = inst.listeners.getPtr(@enumFromInt(listener)) orelse {
-        shared.setLastError("driver: unknown listener id", .{});
-        return shared.PANCAKE_ERR_NOT_FOUND;
-    };
-    const bound = switch (state.*) {
-        .pending => {
-            shared.setLastError("driver: listener setup is pending", .{});
-            return shared.PANCAKE_ERR_WOULD_BLOCK;
-        },
-        .active => |*active| active,
-    };
+    const bound = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
     const dest: []u8 = if (cap == 0) &.{} else (out orelse return PANCAKE_ERR_NULL_POINTER)[0..cap];
     _ = bound;
-    const needed = inst.runtime.ownedListenerRestorationState(listener, dest) catch |err| {
-        shared.setLastError("driver: listener restoration-state provider failed", .{});
-        return operationErrorCode(inst, err);
-    } orelse {
-        shared.setLastError("driver: listener has no restoration state", .{});
-        return shared.PANCAKE_ERR_NOT_FOUND;
+    const needed = switch (inst.runtime.ownedListenerRestorationStateOutcome(listener, dest)) {
+        .unsupported => {
+            shared.setLastError("driver: listener has no restoration state", .{});
+            return shared.PANCAKE_ERR_NOT_FOUND;
+        },
+        .size => |needed| needed,
+        .failed => |failure| {
+            const operation_failure = driver.OperationFailure.fromChain(failure);
+            failure_output.setLastError("driver: listener restoration-state provider failed", operation_failure);
+            return driver_error.code(operation_failure.kind);
+        },
     };
     len_slot.* = needed;
     if (cap < needed) return PANCAKE_ERR_BUFFER_TOO_SMALL;
@@ -920,26 +966,23 @@ pub export fn pancake_driver_listener_advertise(
     listener: u64,
     locator_view: ?*const shared.PancakeLocatorView,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listener_advertise")) |code| return code;
     inst.runtime.enterDriver();
     defer inst.runtime.leaveDriver();
-    const state = inst.listeners.getPtr(@enumFromInt(listener)) orelse {
-        shared.setLastError("driver: unknown listener id", .{});
-        return shared.PANCAKE_ERR_NOT_FOUND;
-    };
-    const bound = switch (state.*) {
-        .pending => {
-            shared.setLastError("driver: listener setup is pending", .{});
-            return shared.PANCAKE_ERR_WOULD_BLOCK;
-        },
-        .active => |*active| active,
-    };
+    const bound = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
     const view = locator_view orelse return PANCAKE_ERR_NULL_POINTER;
     const proposed = shared.locator_adapter.cloneView(inst.allocator, view) catch |err| return errToCode(err);
     defer model.freePeerLocator(inst.allocator, proposed);
-    var prepared = inst.runtime.prepareOwnedListenerAdvertisement(listener, proposed) catch |err|
-        return operationErrorCode(inst, err);
+    var prepared = switch (inst.runtime.prepareOwnedListenerAdvertisementOutcome(listener, proposed)) {
+        .ready => |prepared| prepared,
+        .failed => |failure| {
+            const operation_failure = driver.OperationFailure.fromChain(failure);
+            failure_output.setLastError("driver: listener advertisement failed", operation_failure);
+            return driver_error.code(operation_failure.kind);
+        },
+    };
     var prepared_live = true;
     defer if (prepared_live) prepared.deinit(inst.allocator);
     var projection = LocatorProjection.init(inst.allocator, prepared.value, &.{}) catch |err|
@@ -959,21 +1002,12 @@ pub export fn pancake_driver_listener_advertise(
 /// `acceptable-location`. This changes policy without reallocating or
 /// rebuilding locator metadata.
 pub export fn pancake_driver_listener_select(raw: ?*c.PancakeDriverLoop, listener: u64) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "listener_select")) |code| return code;
     inst.runtime.enterDriver();
     defer inst.runtime.leaveDriver();
-    const state = inst.listeners.getPtr(@enumFromInt(listener)) orelse {
-        shared.setLastError("driver: unknown listener id", .{});
-        return shared.PANCAKE_ERR_NOT_FOUND;
-    };
-    const bound_listener = switch (state.*) {
-        .pending => {
-            shared.setLastError("driver: listener setup is pending", .{});
-            return shared.PANCAKE_ERR_WOULD_BLOCK;
-        },
-        .active => |*active| active,
-    };
+    const bound_listener = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
     _ = bound_listener;
     const selected = inst.runtime.selectOwnedListener(listener) catch |err|
         return operationErrorCode(inst, err);
@@ -988,22 +1022,35 @@ pub export fn pancake_driver_listener_select(raw: ?*c.PancakeDriverLoop, listene
 /// already queued ACCEPTED events remain valid. If this listener supplied the
 /// selected acceptable location, the Host intentionally has no selection
 /// until the caller selects another active listener.
-pub export fn pancake_driver_listener_close(raw: ?*c.PancakeDriverLoop, listener: u64) i32 {
-    const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
+pub export fn pancake_driver_listener_close(
+    raw: ?*c.PancakeDriverLoop,
+    listener: u64,
+    out_failure: ?*failure_output.PancakeDriverFailure,
+) i32 {
+    shared.lastErrorClear();
+    const failure_slot = switch (failure_output.claim(out_failure, "driver listener_close")) {
+        .slot => |slot| slot,
+        .refused => |code| return code,
+    };
+    const inst = instanceFrom(raw) orelse
+        return failure_output.refuse(failure_slot, PANCAKE_ERR_NULL_POINTER, error.NullPointer);
     // Terminal failure forbids new work, but never teardown. The provider
     // package remains leased until loop release, so closing a listener is both
     // valid and necessary after an unrelated provider violates its contract.
-    if (reentrancyCode(inst, "listener_close")) |code| return code;
+    if (reentrancyCode(inst, "listener_close")) |code|
+        return failure_output.refuse(failure_slot, code, error.ReenteredHost);
     inst.runtime.enterDriver();
     defer inst.runtime.leaveDriver();
     const id: ListenerId = @enumFromInt(listener);
     if (!inst.listeners.contains(id)) {
         shared.setLastError("driver: unknown listener id", .{});
-        return shared.PANCAKE_ERR_NOT_FOUND;
+        return failure_output.refuse(failure_slot, shared.PANCAKE_ERR_NOT_FOUND, error.UnknownListener);
     }
     if (closeListenerById(inst, id)) |failure| {
-        setOperationFailure("driver: listener close failed", failure);
-        return driver_error.code(failure.kind);
+        failure_output.setLastError("driver: listener close failed", failure);
+        const code = driver_error.code(failure.kind);
+        failure_output.project(failure_slot, code, failure);
+        return code;
     }
     return PANCAKE_OK;
 }
@@ -1013,6 +1060,7 @@ pub export fn pancake_driver_listener_close(raw: ?*c.PancakeDriverLoop, listener
 /// the loop pointer with any waking thread, and call `pancake_driver_step`
 /// whenever it reads ready. Owned by the loop; never close it.
 pub export fn pancake_driver_readiness_fd(raw: ?*c.PancakeDriverLoop, out_fd: ?*i32) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "readiness_fd")) |code| return code;
     const slot = out_fd orelse return PANCAKE_ERR_NULL_POINTER;
@@ -1034,6 +1082,7 @@ pub export fn pancake_driver_readiness_fd(raw: ?*c.PancakeDriverLoop, out_fd: ?*
 /// until WOULD_BLOCK before clearing readiness. Drain
 /// `pancake_driver_next_event` after every call that returns OK.
 pub export fn pancake_driver_step(raw: ?*c.PancakeDriverLoop, timeout_ms: i32) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "step")) |code| return code;
     // Events are the consumer's backpressure signal. Do not commit more
@@ -1045,7 +1094,9 @@ pub export fn pancake_driver_step(raw: ?*c.PancakeDriverLoop, timeout_ms: i32) i
     const progress = inst.runtime.stepAny(timeout_ms) catch |err| {
         return operationErrorCode(inst, err);
     };
-    if (inst.runtime.listenerOwnershipRetired()) releaseRetiredListenerMetadata(inst);
+    if (inst.runtime.listenerOwnershipRetired() and
+        !releaseRetiredListenerMetadata(inst))
+        inst.runtime.noteTerminalFailure(error.ProviderContract);
     if (progress == null and inst.events_head >= inst.events.items.len)
         return PANCAKE_ERR_WOULD_BLOCK;
     return PANCAKE_OK;
@@ -1058,9 +1109,10 @@ pub export fn pancake_driver_step(raw: ?*c.PancakeDriverLoop, timeout_ms: i32) i
 /// sequential handover, never permission for concurrent access. In an
 /// unsafe build the claim tracking compiles out and this is a no-op.
 pub export fn pancake_driver_detach_thread(raw: ?*c.PancakeDriverLoop) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "detach_thread")) |code| return code;
-    inst.runtime.detachThread();
+    inst.runtime.detachThread() catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 
@@ -1068,6 +1120,7 @@ pub export fn pancake_driver_detach_thread(raw: ?*c.PancakeDriverLoop) i32 {
 /// cross-thread verb on this family. Arm the readiness descriptor before
 /// sharing the loop pointer with a waking thread.
 pub export fn pancake_driver_wake(raw: ?*c.PancakeDriverLoop) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     inst.runtime.wakeReadiness() catch |err| return errToCode(err);
     return PANCAKE_OK;
@@ -1079,6 +1132,7 @@ pub export fn pancake_driver_wake(raw: ?*c.PancakeDriverLoop) i32 {
 /// children — stay valid until the next call. Completion payloads are freed
 /// then; error names are static.
 pub export fn pancake_driver_next_event(raw: ?*c.PancakeDriverLoop, out: ?*c.PancakeDriverEvent) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "next_event")) |code| return code;
     const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
@@ -1142,6 +1196,7 @@ pub export fn pancake_driver_claim_reference_exporter(
     reference: ?*const shared.PancakeReference,
     out_session: ?*?*ch.PancakeHostSession,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "claim_reference_exporter")) |code| return code;
     const ref = reference orelse return PANCAKE_ERR_NULL_POINTER;
@@ -1158,6 +1213,7 @@ pub export fn pancake_driver_session_close(
     session: ?*ch.PancakeHostSession,
     options: ?*const ch.PancakeCloseOptions,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (!(inst.stepping and inst.runtime.withinCallback())) {
         if (reentrancyCode(inst, "session_close")) |code| return code;
@@ -1175,6 +1231,7 @@ pub export fn pancake_driver_session_lifecycle_state(
     session: ?*ch.PancakeHostSession,
     out_state: ?*u32,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "session_lifecycle_state")) |code| return code;
     const hs = ch.embedding.sessionFrom(session) orelse return PANCAKE_ERR_NULL_POINTER;
@@ -1201,6 +1258,7 @@ pub export fn pancake_driver_session_release(
     raw: ?*c.PancakeDriverLoop,
     session: ?*ch.PancakeHostSession,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     // As with listener close, terminal failure must not disable teardown. A
     // callback or active step must refuse before releaseWire drops the wire.
@@ -1222,6 +1280,7 @@ pub export fn pancake_driver_session_serve(
     raw: ?*c.PancakeDriverLoop,
     session: ?*ch.PancakeHostSession,
 ) i32 {
+    shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "session_serve")) |code| return code;
     const hs = ch.embedding.sessionFrom(session) orelse return PANCAKE_ERR_NULL_POINTER;

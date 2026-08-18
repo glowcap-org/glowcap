@@ -78,12 +78,10 @@ const EnlivenListener = struct {
             const peer = session.served.port.peer;
             if (peer.session_state.pendingEnlivenSwissnum(bridge.answer)) |swissnum| {
                 if (if (resolution == .fulfilled) asFarRef(resolution.fulfilled) else null) |far| {
-                    // The far is POD; `recordEnlivenment` caches it and clears
-                    // the in-flight marker. It only errors on a non-far/broken
-                    // outcome, which a `.far` fulfillment never is.
-                    _ = engine.sturdyref.recordEnlivenment(peer.allocator, &peer.session_state, swissnum, .{
-                        .fulfilled = .{ .far = far },
-                    }) catch unreachable;
+                    // The listener has already proved the fulfilled-far arm;
+                    // keep that typed fact instead of round-tripping through
+                    // the generic, fallible fetch-outcome decoder.
+                    peer.session_state.settlePendingEnlivenIntoCache(swissnum, far);
                 } else {
                     peer.finishPendingEnliven(swissnum);
                 }

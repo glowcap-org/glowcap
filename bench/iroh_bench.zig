@@ -186,9 +186,9 @@ fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: [
     const server_seed: [32]u8 = @splat(0x61);
     const server_secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed);
     var server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
-    defer server.deinit();
+    defer server.deinit() catch |err| std.log.err("iroh server teardown failed: {s}", .{@errorName(err)});
     var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
-    defer client.deinit();
+    defer client.deinit() catch |err| std.log.err("iroh client teardown failed: {s}", .{@errorName(err)});
 
     const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
     const client_entries = [_]net.netlayer.Netlayer{client.netlayer()};
@@ -261,7 +261,7 @@ fn loopClient(
     sync: *LoopSync,
 ) anyerror!void {
     var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
-    defer client.deinit();
+    defer client.deinit() catch |err| std.log.err("iroh loop client teardown failed: {s}", .{@errorName(err)});
     const entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
     var peer = engine.Peer.initNegotiating(allocator);
@@ -309,7 +309,7 @@ fn loopClient(
 fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls: usize) !void {
     const server_seed: [32]u8 = @splat(0x62);
     var server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
-    defer server.deinit();
+    defer server.deinit() catch |err| std.log.err("iroh loop server teardown failed: {s}", .{@errorName(err)});
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);

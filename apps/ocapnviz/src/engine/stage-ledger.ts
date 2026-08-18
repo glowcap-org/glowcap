@@ -70,168 +70,29 @@
  * - what a peer RUNS is stated, never deduced from the fact that it
  *   reported: every peer starts unknown, and a producer that says what
  *   it runs names its own end at the moment it says so rather than at
- *   its join. `#learnProfile` holds the one thing the viewer reads
+ *   its join. `LedgerNames.learnProfile` holds the one thing the viewer reads
  *   without being told, and says why there is only one.
  */
 
 import type { TimelineEvent } from "./timeline.ts";
+import { PANCAKE_PROFILE, type PeerProfile, UNNAMED_PROFILE } from "../schema/topology.ts";
+import { endpointStageId, parseEndpointStageId } from "../schema/session-end.ts";
+import { LedgerLifetime } from "./stage-ledger/lifetime.ts";
+import { LedgerNames } from "./stage-ledger/names.ts";
 import {
-  endpointStageId,
-  PANCAKE_PROFILE,
-  parseEndpointStageId,
-  type PeerProfile,
-  type SessionSide,
-  UNNAMED_PROFILE,
-} from "../schema/topology.ts";
+  anonKey,
+  type EndingReason,
+  type FarEndBacking,
+  type LivePeer,
+  type LiveWire,
+  MAX_SEEN_DIGESTS,
+  selfProfileOf,
+  sideOf,
+  wireKeyFor,
+} from "./stage-ledger/types.ts";
 
-/** A live incarnation of a peer. `stageId` is the timeline entity id
- * this incarnation renders as, and `liveWires` counts the open wires
- * touching it — a peer leaves when the last one closes, unless it is
- * `eternal` (a producer's own reporting host, whose lifetime is its
- * producer's rather than any one session's).
- *
- * What the peer is CALLED is three facts, most specific first: a
- * partner's application annotation (`claimLabel`, a chat nick), the
- * producer's own display name for itself (`selfLabel`), and the name
- * it joined under. Held apart so withdrawing a claim reveals the name
- * underneath instead of freezing the last thing anyone said. */
-type LivePeer = {
-  stageId: string;
-  liveWires: number;
-  eternal: boolean;
-  joinName: string;
-  selfLabel: string | undefined;
-  claimLabel: string | undefined;
-  /** What is currently on screen, so a restatement is not a rename. */
-  shown: string;
-  /** The implementation this peer is currently known by, so a
-   * restatement is not a change. Starts unknown and only ever moves to a
-   * named implementation — see `#learnProfile`. */
-  profile: PeerProfile;
-};
-
-/** One producer's view of a wire: which side it occupies, so a
- * message's `outbound` flag reads against the right end. */
-type Observer = {
-  selfStage: string;
-  /** The node the far end sits at, or undefined while it is loose. */
-  otherStage: string | undefined;
-  /** Ledger keys of the same two sides, for the close refcount. */
-  selfKey: string;
-  otherKey: string;
-};
-
-/** A live incarnation of one wire — one stage session, however many
- * producers report it. */
-type LiveWire = {
-  stageId: string;
-  /** The two ends. Which POSITION a side holds is fixed when the wire
-   * opens — `a` is the end the first observer reported as its own —
-   * and only the key AT a position ever moves (`#retargetSide`). Every
-   * `session-endpoint-attributed` the timeline holds names a position,
-   * so swapping these would silently retarget keyframes already
-   * recorded. */
-  aKey: string;
-  bKey: string;
-  /** Every producer session watching this wire, by scoped session id. */
-  observers: Map<string, Observer>;
-  /** Message tags already drawn on this wire. A tag is entered by the
-   * first end to report the message and CONSUMED by the second, so a
-   * peer that genuinely sends the same bytes twice draws two
-   * messages. Bounded, oldest out first. */
-  seen: Set<string>;
-  /** Names an application claimed for an end nobody could name yet,
-   * by side, held until the end attaches to a peer that can wear
-   * them.
-   *
-   * It lives on the wire because that is what it is about: a claim
-   * names one end of one conversation, and when the conversation goes
-   * the claim has nothing left to be about. Kept in a ledger-wide map
-   * instead it outlived every wire it described and grew for the
-   * feed's life. At most two entries, and they die with the row. */
-  looseClaims: Map<SessionSide, string>;
-};
-
-/** How many names claimed for sessions that have not opened the
- * ledger holds at once. A producer states a session's partner name
- * around the time the session opens, so a handful are ever in
- * flight; the bound is what keeps a producer that names sessions it
- * never opens from growing this map for the feed's life. Oldest
- * claim out first. */
-const MAX_PENDING_NAMES = 64;
-
-/** Message tags held per wire for the fold. One conversation's
- * in-flight window is a handful; this is far past it and still a
- * fixed ceiling per wire. */
-const MAX_SEEN_DIGESTS = 512;
-
-/** Why a row on stage ended.
- *
- * `closed` is a protocol fact somebody observed: CapTP tore the
- * session down, or the peer departed. `unobserved` is a fact about
- * this viewer and nothing else: the telemetry that was showing it
- * went away, and what the conversation did next is unknown here.
- *
- * They are different claims and the timeline says which, because a
- * viewer that reported the second as the first would be inventing a
- * teardown out of a dropped socket. */
-type EndingReason = "closed" | "unobserved";
-
-/** How a wire's far end came to be attached to a peer.
- *
- * The ledger attaches an end for one of exactly two reasons, and they are
- * different claims, so a caller that has to say what backed the end is told
- * which one it got rather than inferring one from what it passed in.
- *
- * `partner-named` means the reporting producer named that end and the caller
- * passed the name as an identity (`openSession`'s `verified`). What backed the
- * name is the caller's own fact — this ledger never sees the evidence.
- * `correlated` means a second producer's own report of this same wire supplied
- * the name: a correlation across two self-reports, which is the viewer's
- * inference and nobody's measurement. */
-export type FarEndBacking = "partner-named" | "correlated";
-
-/** The ledger key for a wire side no producer has spoken for. Wire
- * names are 64 hex digits and designators are hex too, so the prefix
- * is what keeps an unattributed side from ever colliding with a real
- * name. */
-function anonKey(wireKey: string): string {
-  return `claim@${wireKey}`;
-}
-
-/** What one observation says about its own reporting end: the producer's
- * own statement, and failing that pancake when the session negotiated the
- * profile only pancake speaks.
- *
- * The two arms are the two things `#learnProfile` reads, applied to the end
- * the reporting producer occupies. A statement wins over the inference
- * because it is the stronger claim: a producer naming itself something that
- * cannot speak `pancake-next` is a producer contradicting itself, and the
- * viewer repeats what it was told rather than correcting it. */
-function selfProfileOf(opts?: {
-  selfProfile?: PeerProfile;
-  pancakePrivateProfile?: boolean;
-}): PeerProfile | undefined {
-  if (opts?.selfProfile !== undefined) return opts.selfProfile;
-  return opts?.pancakePrivateProfile === true ? PANCAKE_PROFILE : undefined;
-}
-
-/** The name an observation's edge is keyed on: the wire, which both
- * ends of a session derive and neither had to be told, falling back
- * to the reporting producer's own scoped session id when the partner
- * sent no session key.
- *
- * Exported because the ledger is not the only caller that has to
- * group observations by edge — resolving a replayed batch groups by
- * the same thing before handing anything to `openSession`, and two
- * implementations of "which edge is this" would be two answers the moment
- * one of them changed. */
-export function wireKeyFor(
-  sessionId: string,
-  wire: string | undefined,
-): string {
-  return wire !== undefined && wire.length > 0 ? wire : sessionId;
-}
+export type { FarEndBacking } from "./stage-ledger/types.ts";
+export { wireKeyFor } from "./stage-ledger/types.ts";
 
 export class StageLedger {
   #counter = 0;
@@ -247,12 +108,19 @@ export class StageLedger {
   #wireOfSession = new Map<string, string>();
   #peerIncarnations = new Map<string, number>();
   #wireIncarnations = new Map<string, number>();
-  /** Names claimed for sessions the ledger has not seen open yet,
-   * by scoped session id. A producer that replays its state to a
-   * connecting viewer can state the name before the open, and the
-   * peer that name belongs to does not exist until the open — so
-   * the claim waits here and lands as the peer joins. */
-  #pendingNames = new Map<string, string | null>();
+  #names = new LedgerNames(
+    this.peers,
+    this.wires,
+    this.#wireOfSession,
+    () => this.nextId(),
+  );
+  #lifetime = new LedgerLifetime(
+    this.peers,
+    this.wires,
+    this.#wireOfSession,
+    this.#names,
+    () => this.nextId(),
+  );
 
   nextId(): string {
     return `live-${++this.#counter}`;
@@ -303,13 +171,13 @@ export class StageLedger {
     if (live !== undefined) {
       if (opts?.eternal) live.eternal = true;
       if (opts?.label !== undefined) {
-        this.#setSelfLabel(live, opts.label, t, out);
+        this.#names.setSelfLabel(live, opts.label, t, out);
       }
       // A peer already on stage that this observation can speak for is the
       // whole reason an implementation is temporal: it was drawn before
       // anyone could say what it runs, and now somebody can.
       if (opts?.profile !== undefined) {
-        this.#learnProfile(live, opts.profile, t, out);
+        this.#names.learnProfile(live, opts.profile, t, out);
       }
       return live;
     }
@@ -332,7 +200,7 @@ export class StageLedger {
       // What this peer runs, when the observation that drew it could say.
       // An implementation is something a caller measured, never something
       // the stage supplies: the two ways a live feed reaches a verdict are
-      // named on `#learnProfile`, and a peer neither of them reaches joins
+      // named on `LedgerNames.learnProfile`, and a peer neither of them reaches joins
       // unknown and waits. Unknown is not a final answer — the property is
       // a keyframe track, so a peer nobody could speak for at the join
       // changes at the moment somebody can.
@@ -399,7 +267,7 @@ export class StageLedger {
        * is pancake-private (ADR-0003) and so names BOTH ends as pancake
        * hosts. The caller passes the fact rather than the version string
        * because the version is wire vocabulary and the conclusion is what
-       * the ledger acts on; `#learnProfile` is where it lands and why.
+       * the ledger acts on; `LedgerNames.learnProfile` is where it lands and why.
        *
        * False, or absent, says nothing at all about the far end — a `v1_0`
        * session is the OCapN interop floor, which two pancake peers speak
@@ -411,7 +279,7 @@ export class StageLedger {
        * asserts about itself.
        *
        * Absent means unknown, for a pancake producer exactly as for any
-       * other: `#learnProfile` says why a record's own existence proves
+       * other: `LedgerNames.learnProfile` says why a record's own existence proves
        * nothing about the host that sent it. */
       selfProfile?: PeerProfile;
     },
@@ -448,7 +316,7 @@ export class StageLedger {
     const otherKey = verified ? bName : farOwnName ?? anonKey(wireKey);
     // The producer's own end runs what the producer SAID it runs, and
     // nothing when it said nothing. That a record arrived is not evidence
-    // about the host that sent it; `#learnProfile` carries the reasoning.
+    // about the host that sent it; `LedgerNames.learnProfile` carries the reasoning.
     const selfProfile = selfProfileOf(opts);
     const a = this.ensurePeer(selfKey, t, out, {
       eternal: true,
@@ -500,7 +368,7 @@ export class StageLedger {
     };
     this.wires.set(wireKey, row);
     this.#wireOfSession.set(sessionId, wireKey);
-    this.#applyPendingName(sessionId, t, out);
+    this.#names.applyPendingName(sessionId, t, out);
     return {
       stageId: row.stageId,
       aStage: a.stageId,
@@ -571,16 +439,16 @@ export class StageLedger {
       // learning this property exists for. A producer that states nothing
       // leaves the end where it was.
       if (selfProfile !== undefined) {
-        this.#learnProfile(mineRow, selfProfile, t, out);
+        this.#names.learnProfile(mineRow, selfProfile, t, out);
       }
       if (opts?.aLabel !== undefined) {
-        this.#setSelfLabel(mineRow, opts.aLabel, t, out);
+        this.#names.setSelfLabel(mineRow, opts.aLabel, t, out);
       }
     }
     // A `next` session names both its ends, so this observation can speak
     // for the peer at the other end too, whichever producer drew it.
     if (opts?.pancakePrivateProfile === true && theirsRow !== undefined) {
-      this.#learnProfile(theirsRow, PANCAKE_PROFILE, t, out);
+      this.#names.learnProfile(theirsRow, PANCAKE_PROFILE, t, out);
     }
     row.observers.set(sessionId, {
       selfStage: mineRow?.stageId ?? side,
@@ -589,7 +457,7 @@ export class StageLedger {
       otherKey: theirsAfter,
     });
     this.#wireOfSession.set(sessionId, wireKey);
-    this.#applyPendingName(sessionId, t, out);
+    this.#names.applyPendingName(sessionId, t, out);
   }
 
   /** Point every reference to one side of a wire at a different ledger key.
@@ -617,11 +485,6 @@ export class StageLedger {
     }
   }
 
-  /** Which end of a wire a ledger key sits on. */
-  #sideOf(row: LiveWire, key: string): SessionSide {
-    return row.aKey === key ? "a" : "b";
-  }
-
   /** Attribute a loose end: a producer has spoken for the side nobody could
    * name, so the end attaches to that producer's peer.
    *
@@ -639,7 +502,7 @@ export class StageLedger {
     out: TimelineEvent[],
     profile: PeerProfile | undefined,
   ): void {
-    const side = this.#sideOf(row, from);
+    const side = sideOf(row, from);
     // The speaker reports itself, so it is drawn under its own designator and
     // outlives this session the way every reporting host does. What it RUNS
     // rides along only because the speaker stated it: speaking for an end
@@ -667,7 +530,7 @@ export class StageLedger {
     // about this peer all along.
     const claimed = row.looseClaims.get(side);
     if (claimed !== undefined && arrived.claimLabel === undefined) {
-      this.#setClaimLabel(to, claimed, t, out);
+      this.#names.setClaimLabel(to, claimed, t, out);
       row.looseClaims.delete(side);
     }
     this.#retargetSide(row, from, to);
@@ -704,7 +567,7 @@ export class StageLedger {
     // end itself, which is drawn and holds a position exactly so that it
     // can be the other end of a line.
     const other = obs.otherStage ??
-      endpointStageId(row.stageId, this.#sideOf(row, obs.otherKey));
+      endpointStageId(row.stageId, sideOf(row, obs.otherKey));
     return {
       sessionId: row.stageId,
       from: outbound ? obs.selfStage : other,
@@ -712,307 +575,35 @@ export class StageLedger {
     };
   }
 
-  /** Apply a name an application claims for a session's partner, or
-   * withdraw the claim with `null`.
-   *
-   * Emits a rename only when the shown name actually changes. A
-   * producer states the name at every moment it knows it — the rooms
-   * server annotates a session when a member subscribes to a room AND
-   * again when it registers for direct messages, both with the same
-   * nick — and restating a name is not a rename. Withdrawing reveals
-   * the name underneath rather than freezing the last claim, which is
-   * how a member leaving a room stops being called by the nick that
-   * membership gave it.
-   *
-   * A claim for a session the ledger has not seen open waits (a
-   * producer replaying its state can send them in either order) and
-   * lands as that session opens. */
+  /** Apply a name an application claims for a session's partner.
+   *  {@link LedgerNames.nameSessionPartner} owns when that is a rename. */
   nameSessionPartner(
     sessionId: string,
     label: string | null,
     t: number,
     out: TimelineEvent[],
   ): void {
-    const wireKey = this.#wireOfSession.get(sessionId);
-    const row = wireKey === undefined ? undefined : this.wires.get(wireKey);
-    const obs = row?.observers.get(sessionId);
-    if (row === undefined || obs === undefined) {
-      this.#holdName(sessionId, label);
-      return;
-    }
-    // An end nobody can name yet has no peer to wear the nick, and the claim
-    // is about whoever turns out to be there rather than about nobody. It
-    // waits on the end itself and transfers when the end attaches; a
-    // withdrawal while it is still waiting simply takes it back.
-    if (obs.otherStage === undefined) {
-      const side = this.#sideOf(row, obs.otherKey);
-      if (label === null) row.looseClaims.delete(side);
-      else row.looseClaims.set(side, label);
-      return;
-    }
-    this.#setClaimLabel(obs.otherKey, label, t, out);
+    this.#names.nameSessionPartner(sessionId, label, t, out);
   }
 
-  /** Land a name claimed before its session opened, at the open's `t`:
-   * the peer arrives already answering to it, which is what an early
-   * claim means. */
-  #applyPendingName(sessionId: string, t: number, out: TimelineEvent[]): void {
-    if (!this.#pendingNames.has(sessionId)) return;
-    const pending = this.#pendingNames.get(sessionId) ?? null;
-    this.#pendingNames.delete(sessionId);
-    this.nameSessionPartner(sessionId, pending, t, out);
-  }
-
-  /** A partner's application claim about this peer. */
-  #setClaimLabel(
-    key: string,
-    label: string | null,
-    t: number,
-    out: TimelineEvent[],
-  ): void {
-    const live = this.peers.get(key);
-    if (live === undefined) return;
-    live.claimLabel = label ?? undefined;
-    this.#showLabel(live, t, out);
-  }
-
-  /** What a producer would like its own endpoint called. */
-  #setSelfLabel(
-    live: LivePeer,
-    label: string,
-    t: number,
-    out: TimelineEvent[],
-  ): void {
-    live.selfLabel = label;
-    this.#showLabel(live, t, out);
-  }
-
-  /** State the implementation a peer turns out to run, from this moment on.
-   *
-   * Two things reach this verdict, both read at a session's hello, and only
-   * the second is something the viewer works out for itself:
-   *
-   * - **What the producer states.** A producer says what it runs beside the
-   *   designator it calls itself by (`a_profile` on the record), and that
-   *   statement is the whole of what names its own end. The `ocapn.*` kinds
-   *   are a schema, not a pancake credential: the Goblins conformance peer
-   *   publishes the very same records, so a record ARRIVING says that
-   *   something is reporting and nothing whatever about what that something
-   *   is. A producer that states nothing leaves its own end unknown, and
-   *   that holds for pancake's own producers too — to be named here, you
-   *   have to speak.
-   * - **The far end of a `next` session.** `pancake-next` is a
-   *   pancake-private CapTP profile (ADR-0003), so a session that
-   *   negotiated it has a pancake host at each end. This is the one fact
-   *   the viewer reads without being told it. The converse proves nothing
-   *   and is deliberately not read: two pancake peers meeting on the OCapN
-   *   v1.0 interop floor speak `v1_0`, exactly as a Goblins vat does, so a
-   *   `v1_0` session leaves its far end where it was.
-   *
-   * Nothing else is inferred, from a record's existence or from anything
-   * else. `goblins` in particular is only ever STATED: no observation here
-   * concludes it, and concluding it from the ABSENCE of a pancake marker is
-   * the overreach this whole property exists to refuse.
-   *
-   * The move is one-way, from unknown to named, and the guard below holds
-   * it rather than the callers: a second observation restating what is
-   * already shown is not a change, and a peer nobody could speak for stays
-   * unknown rather than being told so. Learning that a peer runs something
-   * ELSE is not a case this can reach, because what a peer runs does not
-   * change while it lives — a different implementation is a different
-   * peer — so a caller offering one is a caller with a bug, and taking it
-   * would report a wire fact nothing observed. */
-  #learnProfile(
-    live: LivePeer,
-    profile: PeerProfile,
-    t: number,
-    out: TimelineEvent[],
-  ): void {
-    if (profile === UNNAMED_PROFILE || live.profile !== UNNAMED_PROFILE) return;
-    live.profile = profile;
-    out.push({
-      id: this.nextId(),
-      t,
-      kind: "peer-updated",
-      peerId: live.stageId,
-      profile,
-    });
-  }
-
-  /** Put the most specific name this peer has on screen, emitting a
-   * rename only when it differs from what is already there. Display
-   * only, in both directions: it reads a ledger key and writes none,
-   * so a label can neither merge two peers nor split one. Every naming
-   * path lands here, so there is one rule for when a name change is an
-   * event. */
-  #showLabel(live: LivePeer, t: number, out: TimelineEvent[]): void {
-    const next = live.claimLabel ?? live.selfLabel ?? live.joinName;
-    if (next === live.shown) return;
-    live.shown = next;
-    out.push({
-      id: this.nextId(),
-      t,
-      kind: "peer-updated",
-      peerId: live.stageId,
-      label: next,
-    });
-  }
-
-  /** Hold a name claimed for a session that has not opened. Only the
-   * newest claim per session survives, and the oldest claim overall
-   * is dropped once the map is full. */
-  #holdName(sessionId: string, label: string | null): void {
-    this.#pendingNames.delete(sessionId);
-    this.#pendingNames.set(sessionId, label);
-    while (this.#pendingNames.size > MAX_PENDING_NAMES) {
-      const oldest = this.#pendingNames.keys().next();
-      if (oldest.done === true) break;
-      this.#pendingNames.delete(oldest.value);
-    }
-  }
-
-  /** Drop one wire reference; the peer's row ends when its last one
-   * goes (unless it is a live producer's own reporting host). `why`
-   * carries the reason the wire went, because it is the peer's reason
-   * too: a peer whose last conversation the viewer merely stopped
-   * WATCHING did not depart. */
-  #releasePeer(
-    key: string,
-    t: number,
-    out: TimelineEvent[],
-    why: EndingReason,
-  ): void {
-    const live = this.peers.get(key);
-    if (live === undefined) return;
-    live.liveWires = Math.max(0, live.liveWires - 1);
-    this.#retireIfIdle(key, live, t, out, why);
-  }
-
-  #retireIfIdle(
-    key: string,
-    live: LivePeer,
-    t: number,
-    out: TimelineEvent[],
-    why: EndingReason,
-  ): void {
-    if (live.liveWires > 0 || live.eternal) return;
-    this.peers.delete(key);
-    out.push({
-      id: this.nextId(),
-      t,
-      kind: why === "closed" ? "peer-left" : "peer-unobserved",
-      peerId: live.stageId,
-    });
-  }
-
-  /** One producer's observation of a session ended. An explicit CapTP
-   * close is a fact about the shared wire, so either endpoint retires
-   * the whole row. Losing telemetry is only a fact about that observer;
-   * the row then ends when its last observer disappears.
-   *
-   * `why` says which of those the caller is reporting, and it is the
-   * difference between a claim about the network and a claim about
-   * this viewer. `closed` means a producer observed CapTP tear the
-   * session down. `unobserved` means the viewer lost sight of it and
-   * knows nothing about the conversation itself. */
   closeSession(
     sessionId: string,
     t: number,
     out: TimelineEvent[],
     why: EndingReason = "closed",
   ): string[] {
-    // An ending ends this session's current life, so a name claimed for it
-    // and never applied is moot. Dropping it here is what stops it from
-    // naming the NEXT session to take the same id.
-    this.#pendingNames.delete(sessionId);
-    const wireKey = this.#wireOfSession.get(sessionId);
-    if (wireKey === undefined) return [];
-    this.#wireOfSession.delete(sessionId);
-    const row = this.wires.get(wireKey);
-    if (row === undefined) return [];
-    row.observers.delete(sessionId);
-    if (why === "unobserved" && row.observers.size > 0) return [];
-    const retiredObservers = [...row.observers.keys()];
-    for (const observerSessionId of row.observers.keys()) {
-      this.#wireOfSession.delete(observerSessionId);
-      this.#pendingNames.delete(observerSessionId);
-    }
-    row.observers.clear();
-    this.wires.delete(wireKey);
-    out.push({
-      id: this.nextId(),
-      t,
-      kind: why === "closed" ? "session-closed" : "session-unobserved",
-      sessionId: row.stageId,
-    });
-    this.#releasePeer(row.aKey, t, out, why);
-    this.#releasePeer(row.bKey, t, out, why);
-    return retiredObservers;
+    return this.#lifetime.closeSession(sessionId, t, out, why);
   }
 
-  /** A producer left the feed, so the node it reported as its own
-   * stops being a reporting host. It does not vanish while another
-   * producer still shows a session to it — that peer is on stage
-   * because someone is talking to it, and only the last of those
-   * conversations ending takes it off.
-   *
-   * Its row ends as a loss of sight, not a departure. What actually
-   * happened is that a PUBLISHING SOCKET closed; a peer that turned
-   * tracing off looks exactly like one that went away, and picking
-   * the second is the inference this vocabulary exists to refuse. */
   producerLeft(key: string, t: number, out: TimelineEvent[]): void {
-    const live = this.peers.get(key);
-    if (live === undefined) return;
-    live.eternal = false;
-    this.#retireIfIdle(key, live, t, out, "unobserved");
+    this.#lifetime.producerLeft(key, t, out);
   }
 
-  /** An explicitly lifecycle-managed leave (generic sims own their
-   * hosts' lifetimes; refcounting does not apply). */
   forceLeavePeer(key: string, t: number, out: TimelineEvent[]): void {
-    const live = this.peers.get(key);
-    if (live === undefined) return;
-    this.peers.delete(key);
-    out.push({
-      id: this.nextId(),
-      t,
-      kind: "peer-left",
-      peerId: live.stageId,
-    });
+    this.#lifetime.forceLeavePeer(key, t, out);
   }
 
-  /** The telemetry endpoint restarted, so everything it was showing
-   * goes out of view at once. Incarnation counters survive, so stage
-   * ids stay unique across epochs.
-   *
-   * Every row ends `unobserved`, and none ends closed. Some of these
-   * conversations really did die with the process — its own sessions
-   * did — but a conversation it was merely REPORTING, two browser
-   * tabs talking directly, did not, and the reconnecting producers
-   * will draw it again. From here the two are indistinguishable, so
-   * the timeline says the one thing that is true of both: the viewer
-   * stopped being able to see them. */
   closeEpoch(t: number, out: TimelineEvent[]): void {
-    for (const row of this.wires.values()) {
-      out.push({
-        id: this.nextId(),
-        t,
-        kind: "session-unobserved",
-        sessionId: row.stageId,
-      });
-    }
-    this.wires.clear();
-    this.#wireOfSession.clear();
-    // A dead process's claims name sessions that will never open.
-    this.#pendingNames.clear();
-    for (const live of this.peers.values()) {
-      out.push({
-        id: this.nextId(),
-        t,
-        kind: "peer-unobserved",
-        peerId: live.stageId,
-      });
-    }
-    this.peers.clear();
+    this.#lifetime.closeEpoch(t, out);
   }
 }

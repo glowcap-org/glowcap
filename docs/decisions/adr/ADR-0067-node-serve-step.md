@@ -3,7 +3,7 @@ id: ADR-0067
 status: accepted
 date: 2026-07-05
 tags: [engine, handoff, three-party, node, c-abi, bindings, sans-io]
-decision: "The three-party redeem and origination sequencing sinks into a sans-io serve step on `engine.Node`: the node owns the exporter cache, the pending dial/withdraw/gift tables, the per-exporter give-location override, and every decision, consuming feeds (`acceptGive`, `exporterDialed`/`dialFailed`, `claimResolve`, `interceptFulfilledRef`, `provideGiftId`) and emitting data actions (`dial`, `flush`, `settle`, `fail`, `need_gift_id`) the embedder executes. I/O, scheduling, and entropy stay host-side, with entropy an explicit requested effect. At acceptance this was projected as pancake_node_* serve verbs over PancakeNodeAction in `libpancake_ocapn` (since deleted; CapTP product work drains the same decisions through `pancake_host_*` / `PancakeHostAction`); all four bindings and the native interop driver collapsed onto the serve step as dumb action executors, deleting their hand-rolled redeem/origination orchestration; proven hermetically by `test/engine/node_test.zig` and live by the goblins handoff/gift and iroh handoff matrices."
+decision: "The three-party redeem and origination sequencing sinks into a sans-io serve step on `engine.Node`: the node owns the exporter cache, the pending dial/withdraw/gift tables, the per-exporter give-location override, and every decision, consuming feeds (`acceptGive`, `exporterDialed`/`dialFailed`, `claimResolve`, `interceptFulfilledRoute`, `provideGiftId`) and emitting data actions (`dial`, `flush`, `settle`, `fail`, `need_gift_id`) the embedder executes. I/O, scheduling, and entropy stay host-side, with entropy an explicit requested effect. At acceptance this was projected as pancake_node_* serve verbs over PancakeNodeAction in `libpancake_ocapn` (since deleted; CapTP product work drains the same decisions through `pancake_host_*` / `PancakeHostAction`); all four bindings and the native interop driver collapsed onto the serve step as dumb action executors, deleting their hand-rolled redeem/origination orchestration; proven hermetically by `test/engine/node_test.zig` and live by the goblins handoff/gift and iroh handoff matrices."
 supersedes: []
 superseded_by: []
 amends: []
@@ -70,7 +70,7 @@ action queue. Feeds in, actions out:
 - `claimResolve(conn_id, answer, outcome)`: the host offers every polled
   resolve; a pending withdraw's is consumed (enroll + `settle`, or `fail`),
   anything else is the application's, untouched.
-- `interceptFulfilledRef(conn_id, answer, far_id)`: the gifter mirror: a
+- `interceptFulfilledRoute(conn_id, answer, far_id)`: the gifter mirror: a
   foreign-home reply is claimed and a `need_gift_id` action asks the host for
   32 bytes of entropy (an effect like dialing, requested only when a reply
   actually becomes a gift, so the ordinary reply path draws nothing);

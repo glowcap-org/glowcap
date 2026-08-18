@@ -1,0 +1,137 @@
+// The inbox Host's publication ledger, held across the directories and
+// connections that come and go beneath it.
+//
+// A publisher counts giftables on a host that survives directory reconnects,
+// so its ledger must survive them too: the same offerer instance,
+// asked to offer the same peer through a *different* directory connection,
+// re-offers the inbox it already minted rather than publishing a second one.
+// `ui/net.ts` keys offerers by directory but creates all of them from one
+// publisher for exactly this reason. The ceiling and forget cost are pinned
+// beside it, because aliases published by every child spend one Host ledger.
+
+import type { Host, Ref } from "@pancake/runtime";
+import { inboxPublisher } from "../lib/dm_inbox.ts";
+import type { Directory } from "../lib/room_client.ts";
+import { MAX_DM_INBOXES } from "../lib/limits.ts";
+
+function assert(condition: unknown, message: string): asserts condition {
+	if (!condition) throw new Error(message);
+}
+
+/** The offer path defers one microtask; run it. */
+function settle(): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** A host that only records what was published, and a directory that only
+ * records what was offered. The offerer touches nothing else on either. */
+function fakes() {
+	const published: string[] = [];
+	const offered: { peer: string; name: string }[] = [];
+	const host = {
+		publishGiftable(name: string, _behavior: unknown): void {
+			published.push(name);
+		},
+	} as unknown as Host;
+	// Each call mints a distinct "connection": the offerer must not care which
+	// one it is speaking through, only that its own ledger is one.
+	const freshDir = () =>
+		({
+			session: {
+				publishedRef(name: string): Ref {
+					return { name } as unknown as Ref;
+				},
+			},
+			offerInbox(peer: string, ref: unknown): Promise<void> {
+				offered.push({ peer, name: (ref as { name: string }).name });
+				return Promise.resolve();
+			},
+		}) as unknown as Directory;
+	return { published, offered, host, freshDir };
+}
+
+Deno.test("a reconnect re-offers the same inbox instead of minting a second", async () => {
+	const { published, offered, host, freshDir } = fakes();
+	let dir = freshDir();
+	const offerer = inboxPublisher(host).offerer({ dir: () => dir, behaviorFor: () => () => null });
+	offerer.offer("bob");
+	await settle();
+	assert(published.length === 1, `one offer published ${published.length} giftables`);
+	assert(offered.length === 1 && offered[0].peer === "bob", "the inbox was offered to bob");
+
+	// The directory reconnects: a new connection, the same offerer. The inbox
+	// it minted is still published and still answers, so the offer names it
+	// again rather than spending a second permanent slot.
+	dir = freshDir();
+	offerer.offer("bob");
+	await settle();
+	// Counts read into fresh locals so the asserts above do not pin the mutable
+	// lengths to their first literals.
+	const republished: number = published.length;
+	const reoffered: number = offered.length;
+	assert(republished === 1, `a reconnect re-published: ${republished} giftables for one peer`);
+	assert(reoffered === 2, "the reconnect re-offered the held inbox");
+	assert(offered[1].name === offered[0].name, "the re-offer named the same inbox, not a fresh one");
+});
+
+Deno.test("forgetting a peer mints a fresh inbox, and the old name stays spent", async () => {
+	const { published, offered, host, freshDir } = fakes();
+	const dir = freshDir();
+	const offerer = inboxPublisher(host).offerer({ dir: () => dir, behaviorFor: () => () => null });
+	offerer.offer("bob");
+	await settle();
+	// The peer left; the next holder of the name is somebody else and must not
+	// inherit their inbox. The old giftable stays published — nothing withdraws
+	// one — so the ledger keeps its slot spent and the new inbox costs another.
+	offerer.forget("bob");
+	offerer.offer("bob");
+	await settle();
+	assert(published.length === 2, "a forgotten peer gets a fresh inbox");
+	assert(offered[1].name !== offered[0].name, "the fresh inbox has a name of its own");
+});
+
+Deno.test("the inbox ceiling spans every publisher lookup and directory on one Host", async () => {
+	const { published, host, freshDir } = fakes();
+	const firstDir = freshDir();
+	const secondDir = freshDir();
+	const refused: string[] = [];
+	const first = inboxPublisher(host).offerer({
+		dir: () => firstDir,
+		behaviorFor: () => () => null,
+		onError: (peer) => refused.push(peer),
+	});
+	// A second lookup must not mint a second ledger. Factory call count is not
+	// ownership; Host identity is.
+	const second = inboxPublisher(host).offerer({
+		dir: () => secondDir,
+		behaviorFor: () => () => null,
+		onError: (peer) => refused.push(peer),
+	});
+	const split = Math.floor(MAX_DM_INBOXES / 2);
+	for (let i = 0; i < split; i += 1) first.offer(`first-${i}`);
+	for (let i = split; i < MAX_DM_INBOXES; i += 1) second.offer(`second-${i}`);
+	await settle();
+	assert(published.length === MAX_DM_INBOXES, `the ceiling admitted ${published.length}`);
+	second.offer("one-too-many");
+	await settle();
+	assert(refused.includes("one-too-many"), "the peer past the ceiling was refused");
+	assert(published.length === MAX_DM_INBOXES, "nothing was published past the ceiling");
+});
+
+Deno.test("forget returns an unpublished Host slot before its microtask runs", async () => {
+	const { published, host, freshDir } = fakes();
+	const publisher = inboxPublisher(host);
+	const dir = freshDir();
+	const offerer = publisher.offerer({
+		dir: () => dir,
+		behaviorFor: () => () => null,
+	});
+	offerer.offer("gone-before-publish");
+	offerer.forget("gone-before-publish");
+	// Fill the ledger in this same turn. Deferring the return until the queued
+	// publication notices its row is gone would refuse the final live peer.
+	for (let i = 0; i < MAX_DM_INBOXES; i += 1) offerer.offer(`live-${i}`);
+	await settle();
+	const admitted: number = published.length;
+	assert(admitted === MAX_DM_INBOXES, "the forgotten provisional slot was immediately reusable");
+});

@@ -87,10 +87,11 @@ task. Use `serve` when another task needs to wait for session shutdown.
 >
 > // Noise_XK seals the session end to end; the relay forwards ciphertext.
 > const peerKey = "<64 lowercase hex characters from the server>";
-> const partner = noise.locator(peerKey, "wss://relay.example/rendezvous");
+> const relayUrl = "ws://192.0.2.10:8080/relay";
+> const partner = noise.locator(peerKey, relayUrl);
 >
 > await using runtime = await Runtime.open({
-> 	providers: [provider({ relayUrl: "wss://relay.example/rendezvous" })],
+> 	providers: [provider({ relayUrl })],
 > });
 > ```
 > **onion**
@@ -123,10 +124,11 @@ task. Use `serve` when another task needs to wait for session shutdown.
 >
 > // The key names the peer; the hint names the relay that can reach it.
 > const peerKey = "<64 lowercase hex characters from the server>";
-> const partner = keyed.locator(peerKey, "wss://relay.example/rendezvous");
+> const relayUrl = "ws://192.0.2.10:8080/relay";
+> const partner = keyed.locator(peerKey, relayUrl);
 >
 > await using runtime = await Runtime.open({
-> 	providers: [provider({ relayUrl: "wss://relay.example/rendezvous" })],
+> 	providers: [provider({ relayUrl })],
 > });
 > ```
 > **tcp**

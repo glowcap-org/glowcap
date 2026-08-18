@@ -83,3 +83,14 @@ This Font Software is licensed under the SIL Open Font License, Version 1.1.
 The licence travels with the files as `ui/fonts/OFL.txt`, in full: the licence
 requires each copy of the Font Software to carry it, and a summary would not
 satisfy that.
+
+## Optional native secure-relay build
+
+`zig build native-tls-build` downloads the official Mbed TLS 4.2.0 release
+archive from the Mbed TLS project, verifies the SHA-256 digest recorded in
+`tools/deps/fetch-mbedtls.sh`, and compiles only the private TLS/X.509/crypto
+source subset. The downloaded source is not committed to this repository or
+used by the default build. Mbed TLS and its TF-PSA-Crypto subtree are offered
+under Apache-2.0 or GPL-2.0-or-later; Pancake selects the Apache-2.0 option.
+The complete license remains in the verified archive as `LICENSE`; Pancake's
+copy of Apache-2.0 is `LICENSE-APACHE`.

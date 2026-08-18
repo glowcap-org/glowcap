@@ -30,7 +30,7 @@ installed under `zig-out/lib/`.
 | `libpancake_net_transport_onion` | `pancake_net_transport_onion.h` | Tor onion services, through a Tor daemon you already run. The one transport the OCapN draft standardizes. |
 | `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | Optional encrypted QUIC transport. |
 | `libpancake_net_transport_webrtc` | `pancake_net_transport_webrtc.h` | Optional WebRTC DataChannel transport. |
-| `libpancake_net_transport_relay` | `pancake_net_transport_relay.h` | Native `keyed-relay` and end-to-end sealed `noise-relay` provider package. |
+| `libpancake_net_transport_relay` | `pancake_net_transport_relay.h` | Native `keyed-relay` and end-to-end sealed `noise-relay` provider package, with pollable `ws` and `wss` carriers. |
 
 The driver archive starts with zero transports. Install the TCP package by
 creating a `PancakeTcpNetlayer`, calling `pancake_tcp_transport_provider`, and
@@ -42,6 +42,24 @@ publishes one complete locator. Read it with
 `pancake_driver_listener_locator`, parse it through
 `pancake_uri_parse_peer`, and pass those fields to `pancake_driver_dial`
 unchanged.
+
+Provider installation, listener close, and final driver release take a
+caller-owned `PancakeDriverFailure`. Set its `abi_version` to
+`PANCAKE_DRIVER_FAILURE_ABI_VERSION` and its `struct_size` to
+`sizeof(PancakeDriverFailure)` before each call. A refusal or teardown failure
+then returns the stable result, exact primary name, first cleanup consequence,
+and total consequence count without making thread-local diagnostic text part
+of the program's control flow. The names in that record have process lifetime.
+
+The relay archive takes declarative routes and trust policy. System roots are
+the default for WSS. A process owner may instead pass copied PEM bytes; the
+runtime owns one immutable parsed snapshot and never retains a path or rescans
+per connection. Listener close returns the provider's exact stop/cancellation
+primary and first cleanup consequence through that record; thread-local text
+is never the machine contract for a teardown barrier. The same archive selects
+`ws` or `wss` for a locator-carried
+route, and a program that does not link the relay archive does not link Mbed
+TLS.
 
 Link `libpancake_ocapn`, `libpancake_host`, and `libpancake_driver` when linking
 the native loop. Link only `libpancake_ocapn` and `libpancake_host` when the
@@ -125,7 +143,7 @@ Use `pancake_uri_parse_peer`, `pancake_uri_format_peer`, and the sturdyref URI
 helpers instead of parsing `ocapn://` strings yourself. Host verbs take a
 borrowed `PancakeLocatorView`; owned locator handles project the same view with
 `pancake_locator_borrow_view`. Sturdyref parse and format also require the
-CapTP version: swiss-number path spelling belongs to the negotiated profile,
+CapTP version: swiss-number path form belongs to the negotiated profile,
 so the C ABI refuses to infer or default it.
 
 The C transport archives are TCP, relay, in-process, onion, iroh, and WebRTC.
@@ -157,7 +175,9 @@ surface:
 1. Input pointers are borrowed for the duration of the call.
 2. An owned result has a matching release function.
 3. A handle is released by the family that created it.
-4. Out parameters are initialized only when a call returns `PANCAKE_OK`.
+4. Operation-result out parameters are initialized only when a call returns
+   `PANCAKE_OK`; the optional diagnostic length described below is independent
+   of the operation result.
 
 Constructors ending in `_in` allocate through the `PancakeContext` supplied by
 the caller. `PancakeManagedFrame` owns its bytes and must be released exactly
@@ -172,15 +192,20 @@ retain is owned.
 Most functions return `int32_t`. `PANCAKE_OK` is zero; named errors are
 negative. Each archive has a thread-local diagnostic reader matching its
 family: `pancake_last_error`, `pancake_host_last_error`,
-`pancake_tcp_last_error`, and transport equivalents.
+`pancake_tcp_last_error`, and transport equivalents. Every status-returning
+call clears its archive's slot before validation. Read the slot immediately
+after a failing call: zero length means that result has no additional detail.
+A later success or undetailed refusal cannot inherit an older call's cause.
 
-Read that slot on the same thread that made the failing call. A foreign runtime
-that dispatches a blocking call to a worker must use the operation's
-`*_with_diagnostic` companion when one is provided; it copies that worker's
-detail into caller-owned storage before returning. In particular, use
-`pancake_iroh_netlayer_new_with_diagnostic` for off-thread endpoint
-construction, or its allocator-aware `_in` twin, rather than reading
-`pancake_iroh_last_error` later on the event-loop thread.
+Read that slot on the same thread that made the failing call. Blocking transport
+operations also end with the optional `out_error`, `error_cap`, and
+`out_error_len` arguments. A synchronous caller may omit all three with
+`NULL, 0, NULL`. A foreign runtime that dispatches the call to a worker supplies
+`out_error_len` and optional caller-owned storage; the function copies that
+worker's diagnostic before returning. A partial request—buffer or nonzero
+capacity without a length slot—is rejected before the operation begins. This is
+one call contract, including `pancake_iroh_netlayer_new` and its allocator-aware
+`_in` form, rather than a second diagnostic API to select correctly.
 
 Serialize calls on one Host behind one thread or lock. Distinct Hosts are
 independent. A binding that exposes an event-loop owner should reject

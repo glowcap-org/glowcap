@@ -7,7 +7,7 @@ decision: "One driver archive, libpancake_driver, projects driver.HostRuntime to
 supersedes: []
 superseded_by: []
 amends: [ADR-0057, ADR-0059, ADR-0072, ADR-0078, ADR-0090]
-amended_by: [ADR-0113]
+amended_by: [ADR-0113, ADR-0117]
 ---
 
 # ADR-0112 The driver archive and the provider seam

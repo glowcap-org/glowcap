@@ -25,6 +25,37 @@ export interface TransportOperationOptions {
 	readonly data: Uint8Array;
 }
 
+/** One knob a profile's listen accepts, described so an operator surface can
+ * offer a field for it without interpreting it. `hint` is what a blank field
+ * means, in words ("127.0.0.1", "an ephemeral port"); an application serving
+ * the catalog may replace it with its own configured default. */
+export interface ListenOption {
+	/** The knob's name, e.g. `bind`, `port`, `relay`. */
+	readonly name: string;
+	/** What shape a value takes: a host name, a port number, a WebSocket URL. */
+	readonly kind: "host" | "port" | "url";
+	/** What leaving the field blank means, in words. */
+	readonly hint: string;
+}
+
+/** One wire profile a transport package advertises, described in its own
+ * words for an operator surface. The package is the authority on what its
+ * profiles give and cost, so an application lists what its composed packages
+ * say instead of keeping a copy of the set. */
+export interface ProfileInfo {
+	/** The locator transport symbol, e.g. `noise-tcp`. */
+	readonly transport: string;
+	/** What the profile gives and what it costs, one or two sentences. */
+	readonly summary: string;
+	/** A page that explains the technology, or empty. */
+	readonly reference: string;
+	/** What the reference explains, as link text ("Noise", "iroh"); empty
+	 * exactly when `reference` is. */
+	readonly referenceName: string;
+	/** The knobs this profile's listen accepts beside the transport. */
+	readonly takes: readonly ListenOption[];
+}
+
 type Connect = (
 	host: Host,
 	locator: Locator,
@@ -60,12 +91,18 @@ export class Connector {
 // public subpath, and concept agree: companions import
 // `@pancake/runtime/transport`; applications import `@pancake/runtime`.
 export { abortable } from "./internal/cancellation.ts";
+export { recordProcessBindingFailure } from "./context.ts";
 export * from "./internal/constants.ts";
 export { ensureRuntimeReady, ffi, type Ptr } from "./internal/ffi/runtime.ts";
+// Read-only layout authority for companion packages that marshal structs from
+// their own native archive. Selection remains runtime-owned; companions can
+// inspect and use the active target layout but cannot replace it.
+export { L as abiLayout } from "./internal/layout.ts";
 export { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "./internal/seam.ts";
-export { DriverServer } from "./internal/server.ts";
+export { DriverServer, listenerLoopUnavailable, prepareListenerLoop } from "./internal/server.ts";
 export { DriverListener, DriverLoop, loopTierAvailable, type ProviderTarget } from "./driver_loop.ts";
-export { PancakeError, retainCleanupFailures } from "./errors.ts";
+export { PancakeError, retainCleanupFailures, retainSecondaryFailure } from "./errors.ts";
+export type { CarrierFailure, CarrierPhase } from "./carrier_failure.ts";
 export { Host } from "./host.ts";
 export {
 	designatorHostPort,
@@ -80,6 +117,12 @@ export {
 export { Session } from "./session.ts";
 export { type Codec, codecId } from "./value.ts";
 export { openWebSocketChannel } from "./websocket.ts";
-export { NativeHandle, NativeParent, requireOffThreadFfi, SingleFlight } from "./transport/native_handle.ts";
+export {
+	consumedReleaseFailure,
+	NativeHandle,
+	NativeParent,
+	requireOffThreadFfi,
+	SingleFlight,
+} from "./transport/native_handle.ts";
 export { AsyncFfiWriteQueue, checkedMaxFrameBytes } from "./transport/native_frame.ts";
 export { checkDiagnosedCall, NativeDiagnostic } from "./transport/diagnostic.ts";

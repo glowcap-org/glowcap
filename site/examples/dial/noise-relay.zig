@@ -2,7 +2,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
-    const relay_url = "wss://relay.example/rendezvous";
+    const relay_url = "ws://192.0.2.10:8080/relay";
     var relay_resident = try pancake.net.relay.Resident.initProfile(allocator, io, relay_url, .noise);
     defer relay_resident.deinit();
     const netlayers = [_]pancake.net.netlayer.Netlayer{relay_resident.netlayer()};

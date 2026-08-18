@@ -12,7 +12,8 @@ from ._host import Host
 from ._locator import Locator, format_locator_uri
 
 if TYPE_CHECKING:
-    from ._loop import DriverLoop, ListenerOwner
+    from ._listener import ListenerOwner
+    from ._loop import DriverLoop
     from ._session import Session
 
 

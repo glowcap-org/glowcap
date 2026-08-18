@@ -1,4 +1,4 @@
-import { endpointNodeId, endpointStageId, SESSION_SIDES } from "../schema/topology.ts";
+import { endpointNodeId, endpointStageId, SESSION_SIDES } from "../schema/session-end.ts";
 import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
 import { observationsOf } from "./temporal/recording-access.ts";
 
@@ -13,12 +13,12 @@ import { observationsOf } from "./temporal/recording-access.ts";
  * designator string it carries.
  *
  * Whether an end is a claim decides two things that must agree: where the
- * layout puts it (`keyframe-layout-system`, which sits it on its session's
+ * layout puts it (`claim-placement.ts`, which sits it on its session's
  * edge toward the peer it names) and how the renderer draws it
- * (`render-frame`, which paints a claim at half a peer's width and stops its
- * wire short). A stage that sat an end two thirds of the way to Alice and then
- * drew it at a peer's own weight would be worse than either answer alone, so
- * the question is asked here and nowhere else.
+ * (`sprites/endpoint.ts`, which paints a claim at half a peer's width and
+ * stops its wire short). A stage that sat an end two thirds of the way to
+ * Alice and then drew it at a peer's own weight would be worse than either
+ * answer alone, so the question is asked here and nowhere else.
  *
  * This module reads the document and nothing else. It is a leaf: the layout
  * and the geometry both depend on it, and neither depends on the other.

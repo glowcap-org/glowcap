@@ -13,7 +13,7 @@
  * depend on `scrubberHeight` growth post-expand in ways the
  * fixed-pixel probe can't predict reliably across panel sizes.
  * Their behavior is covered by the `hitTestGutter` unit tests
- * (`Scrubber.test.ts`), which exercise the same code path with
+ * (`hit-test-test/gutter.test.ts`), which exercise the same code path with
  * synthetic row descriptors.
  *
  * Setup: dev server running on :5173.

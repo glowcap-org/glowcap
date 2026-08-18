@@ -6,7 +6,7 @@ bot cap**, and posts status on the right surface.
 
 ## Roster capacity (call-in / dismiss)
 
-Default **`ROOMS_TEAM_MAX_BOTS=4`**, **including the lead** → at most 3 member
+Default **`PANCAKE_ROOMS_TEAM_MAX_BOTS=4`**, **including the lead** → at most 3 member
 Tasks+peers concurrent. Override via env or human ask; announce non-default caps
 in the room.
 

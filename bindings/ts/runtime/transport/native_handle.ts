@@ -48,6 +48,17 @@ export type NativeRetirement = {
 const noFailure = Symbol("noFailure");
 type Failure = typeof noFailure | unknown;
 
+class ConsumedReleaseFailure {
+	constructor(readonly cause: unknown) {}
+}
+
+/** Mark a release failure whose native function nevertheless consumed the
+ * handle. The close barrier still rejects with `error`, while borrowing
+ * parents may retire their lease instead of pinning already-freed storage. */
+export function consumedReleaseFailure(error: unknown): never {
+	throw new ConsumedReleaseFailure(error);
+}
+
 /** Keep an opaque native handle alive across off-thread FFI calls. Closing
  * interrupts blocking work first and releases only after every lease returns. */
 export class NativeHandle {
@@ -163,14 +174,16 @@ export class NativeHandle {
 				void pending.then(
 					() => this.#finishRetirement(true),
 					(error) => {
-						this.#rememberFailure(error);
-						this.#finishRetirement(false);
+						const consumed = error instanceof ConsumedReleaseFailure;
+						this.#rememberFailure(consumed ? error.cause : error);
+						this.#finishRetirement(consumed);
 					},
 				);
 			}
 		} catch (error) {
-			this.#rememberFailure(error);
-			this.#finishRetirement(false);
+			const consumed = error instanceof ConsumedReleaseFailure;
+			this.#rememberFailure(consumed ? error.cause : error);
+			this.#finishRetirement(consumed);
 		}
 	}
 

@@ -1,6 +1,13 @@
-import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "../ws_relay.ts";
+import {
+	MAX_RELAY_WEBSOCKET_MESSAGE_BYTES,
+	RelayDialFailed,
+	relayFailureLogger,
+	webSocketChannel,
+	webSocketRelay,
+} from "../ws_relay.ts";
 import { isRendezvousDesignator, Rendezvous } from "../rendezvous.ts";
 import { relayBytes } from "../relay.ts";
+import { secondaryFailures } from "@pancake/runtime";
 
 function assertEquals(actual: unknown, expected: unknown): void {
 	if (actual !== expected) {
@@ -19,7 +26,7 @@ class FakeWebSocket {
 	readyState: number = WebSocket.OPEN;
 	bufferedAmount: number = 0;
 	onmessage: ((event: MessageEvent) => void) | null = null;
-	onclose: (() => void) | null = null;
+	onclose: ((event: CloseEvent) => void) | null = null;
 	onerror: (() => void) | null = null;
 	closeCode: number | undefined;
 	closeReason: string | undefined;
@@ -50,7 +57,7 @@ class FakeWebSocket {
 		this.closeCode = code;
 		this.closeReason = reason;
 		this.readyState = WebSocket.CLOSED;
-		this.onclose?.();
+		this.onclose?.({ wasClean: true, code: code ?? 1000, reason: reason ?? "" } as CloseEvent);
 		this.#emit("close");
 	}
 
@@ -67,6 +74,7 @@ class FakeWebSocket {
 Deno.test("relayBytes rejects with its exact first I/O failure after teardown", async () => {
 	const ioFailure = new Error("far read failed");
 	const closeFailure = new Error("channel close failed");
+	const sourceCloseFailure = new Error("source close failed");
 	let sourceClosed = false;
 	const source = {
 		read: () => Promise.reject(ioFailure),
@@ -80,7 +88,7 @@ Deno.test("relayBytes rejects with its exact first I/O failure after teardown", 
 		write: (_chunk: Uint8Array) => Promise.resolve(),
 		close: () => {
 			finishChannelRead(null);
-			throw closeFailure;
+			return Promise.reject(closeFailure);
 		},
 	};
 	try {
@@ -89,13 +97,97 @@ Deno.test("relayBytes rejects with its exact first I/O failure after teardown", 
 			maxBytesPerSession: 0,
 		}, () => {
 			sourceClosed = true;
+			return Promise.reject(sourceCloseFailure);
 		});
 		throw new Error("relay failure disappeared");
 	} catch (error) {
 		assertEquals(error, ioFailure);
-		assertEquals(ioFailure.cause, closeFailure);
+		const cleanup = secondaryFailures(ioFailure);
+		assertEquals(cleanup.length, 2);
+		assertEquals(cleanup[0], closeFailure);
+		assertEquals(cleanup[1], sourceCloseFailure);
 		assertEquals(sourceClosed, true);
 	}
+});
+
+Deno.test("relayBytes does not publish teardown-induced sibling cancellation", async () => {
+	const cancelled = new Error("read cancelled by relay teardown");
+	let cancelRead!: () => void;
+	const source = {
+		read: () => Promise.resolve(null),
+	};
+	const sink = {
+		write: (_chunk: Uint8Array) => Promise.resolve(),
+	};
+	const channel = {
+		read: () => new Promise<Uint8Array | null>((_resolve, reject) => (cancelRead = () => reject(cancelled))),
+		write: (_chunk: Uint8Array) => Promise.resolve(),
+		close: () => {
+			cancelRead();
+			return Promise.resolve();
+		},
+	};
+	await relayBytes(source, sink, channel, {
+		idleTimeoutMs: 0,
+		maxBytesPerSession: 0,
+	}, async () => {});
+});
+
+Deno.test("relayBytes promotes a clean-path close refusal to the result", async () => {
+	const closeFailure = new Error("channel close failed");
+	let finishChannelRead!: (value: Uint8Array | null) => void;
+	try {
+		await relayBytes(
+			{ read: () => Promise.resolve(null) },
+			{ write: () => Promise.resolve() },
+			{
+				read: () => new Promise((resolve) => finishChannelRead = resolve),
+				write: () => Promise.resolve(),
+				close: () => {
+					finishChannelRead(null);
+					return Promise.reject(closeFailure);
+				},
+			},
+			{ idleTimeoutMs: 0, maxBytesPerSession: 0 },
+			async () => {},
+		);
+	} catch (error) {
+		assertEquals(error, closeFailure);
+		return;
+	}
+	throw new Error("expected close refusal to become the relay result");
+});
+
+Deno.test("relayBytes joins both close barriers before settling", async () => {
+	let finishChannelRead!: (value: Uint8Array | null) => void;
+	let finishChannelClose!: () => void;
+	let finishSourceClose!: () => void;
+	const channelClosed = new Promise<void>((resolve) => finishChannelClose = resolve);
+	const sourceClosed = new Promise<void>((resolve) => finishSourceClose = resolve);
+	const relayed = relayBytes(
+		{ read: () => Promise.resolve(null) },
+		{ write: () => Promise.resolve() },
+		{
+			read: () => new Promise((resolve) => finishChannelRead = resolve),
+			write: () => Promise.resolve(),
+			close: () => {
+				finishChannelRead(null);
+				return channelClosed;
+			},
+		},
+		{ idleTimeoutMs: 0, maxBytesPerSession: 0 },
+		() => sourceClosed,
+	);
+	let settled = false;
+	void relayed.then(() => settled = true);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(settled, false);
+	finishChannelClose();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(settled, false);
+	finishSourceClose();
+	await relayed;
+	assertEquals(settled, true);
 });
 
 Deno.test("relay webSocketChannel bounds early inbound queue", async () => {
@@ -245,4 +337,43 @@ Deno.test("rendezvous accepts only canonical fixed-size key designators", () => 
 		false,
 	);
 	assertEquals(rendezvous.heldCount(), 0);
+});
+
+Deno.test("a failed far-side dial closes the browser socket honestly and rejects typed", async () => {
+	// The browser's socket is the claim: it must hear the dial-fail reason,
+	// while the caller's rejection wears the type that says it was handled.
+	const ws = new FakeWebSocket();
+	const cause = new Error("connect: NetworkUnreachable");
+	const rejection = await webSocketRelay(
+		ws as unknown as WebSocket,
+		() => Promise.reject(cause),
+		"iroh relay dial failed",
+		{ idleTimeoutMs: 0, maxBytesPerSession: 0 },
+	).catch((err) => err);
+	if (!(rejection instanceof RelayDialFailed)) {
+		throw new Error(`dial failure rejected untyped: ${String(rejection)}`);
+	}
+	if (rejection.cause !== cause) throw new Error("the dial's own error was not retained as the cause");
+	assertEquals(ws.closeCode, 1011);
+	assertEquals(ws.closeReason, "iroh relay dial failed");
+});
+
+Deno.test("relayFailureLogger coalesces repeated dial failures and keeps unexpected loud", async () => {
+	const lines: string[] = [];
+	const log = relayFailureLogger((line) => lines.push(line), 20);
+	const dial = new RelayDialFailed("iroh relay dial failed", new Error("connect: NetworkUnreachable"));
+	log(dial);
+	log(dial);
+	log(dial);
+	log(new Error("pump exploded"));
+	assertEquals(lines.length, 2);
+	if (!lines[0].startsWith("relay: dial failed: iroh relay dial failed")) {
+		throw new Error(`dial line reads ${JSON.stringify(lines[0])}`);
+	}
+	if (!lines[1].startsWith("relay: unexpected error: pump exploded")) {
+		throw new Error(`unexpected line reads ${JSON.stringify(lines[1])}`);
+	}
+	await new Promise((r) => setTimeout(r, 40));
+	assertEquals(lines.length, 3);
+	assertIncludes(lines[2], "repeated 2 more times");
 });

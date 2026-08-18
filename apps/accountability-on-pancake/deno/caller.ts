@@ -2,7 +2,7 @@ import * as tcp from "@pancake/tcp";
 // Deno caller for the accountability-on-pancake cross-seam demo.
 //
 // Connects to a running Zig host, builds a KERI-anchored identity with a real
-// key event log (`keri.ts`), rotates it once, then invokes the Affordance
+// key event log (`identity.ts`), rotates it once, then invokes the Affordance
 // capability: it signs the attestation preimage `invoke|<subject>|<request>` and
 // hands over the log that binds its signing key to the AID it claims. Three
 // paths are exercised, because all three are the contract:
@@ -18,7 +18,7 @@ import * as tcp from "@pancake/tcp";
 // Or driven by the demo.ts orchestrator, which starts the Zig host first.
 
 import { type Argument, Runtime } from "@pancake/runtime";
-import { b64url, Identity } from "./keri.ts";
+import { b64url, Identity } from "./identity.ts";
 
 function fail(msg: string): never {
 	console.error(`FAIL: ${msg}`);

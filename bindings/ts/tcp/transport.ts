@@ -24,6 +24,7 @@ import {
 	checkDiagnosedCall,
 	checkedMaxFrameBytes,
 	codecId,
+	consumedReleaseFailure,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
@@ -150,7 +151,17 @@ export class Connection {
 			"tcp connection",
 			raw,
 			(p) => checkTcp(tcpS.pancake_tcp_conn_shutdown(p)),
-			(p) => tcpS.pancake_tcp_conn_release(p),
+			async (p) => {
+				try {
+					await checkDiagnosedCall(
+						"tcp",
+						"connection release",
+						(error, cap, errorLen) => tcpS.pancake_tcp_conn_release(p, error, cap, errorLen),
+					);
+				} catch (error) {
+					consumedReleaseFailure(error);
+				}
+			},
 			(retirement) => this.#parent.retire(this, retirement),
 		);
 		if (!parent.adopt(this)) throw new Error("tcp netlayer is released");
@@ -169,7 +180,7 @@ export class Connection {
 				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
-						tcpS.pancake_tcp_conn_read_frame_with_diagnostic(
+						tcpS.pancake_tcp_conn_read_frame(
 							raw,
 							mf,
 							error,
@@ -192,7 +203,7 @@ export class Connection {
 		return this.#writes.run(frame, (owned) =>
 			this.#native.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
-					tcpS.pancake_tcp_conn_write_frame_with_diagnostic(
+					tcpS.pancake_tcp_conn_write_frame(
 						raw,
 						owned.argument(),
 						error,
@@ -249,7 +260,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
-					tcpS.pancake_tcp_accept_with_diagnostic(
+					tcpS.pancake_tcp_accept(
 						raw,
 						options == null ? null : encodeStreamOptions(options),
 						codecId(codec),
@@ -315,7 +326,7 @@ export class Netlayer {
 				"tcp",
 				"connect",
 				(error, cap, errorLen) =>
-					tcpS.pancake_tcp_connect_with_diagnostic(
+					tcpS.pancake_tcp_connect(
 						raw,
 						h,
 						BigInt(h.length),

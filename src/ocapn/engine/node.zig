@@ -8,11 +8,11 @@
 //! the set of `engine.Peer`s it routes between (keyed by an integer `peer_id`),
 //! a live-session directory that lets a recipient-session withdraw reach the
 //! gifter session's `GiftRegistry` (ADR-0100), and the two routing
-//! tables that make three-party handoff transparent: the
-//! `redeemed` map from a synthetic far token to the exporter session that
-//! hosts the real capability, and the `foreign_imports` map from a node-unique
-//! token to the session a fetched capability lives on and the real wire
-//! reference to address it there (ADR-0069).
+//! tables that make three-party handoff transparent: `redeemed` routes to
+//! exporter sessions that host handed-off capabilities, while
+//! `foreign_imports` routes fetched capabilities to their home sessions and
+//! real wire references (ADR-0069). Both are keyed by the typed, Node-local
+//! identity carried in `Reference.routed`, never a synthetic wire position.
 //!
 //! It is **sans-io**: it owns no sockets and no event loop. The embedder keeps
 //! its own transport and async loop, registers each live session's peer with
@@ -37,6 +37,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("mod.zig");
+const export_ranges = @import("export_ranges.zig");
 const session_mod = @import("session");
 
 const ActionFifo = @import("fifo.zig").ActionFifo;
@@ -45,7 +46,7 @@ const crypto = foundation.crypto;
 pub const PeerId = @import("peer_id.zig").PeerId;
 const HandoffDependency = engine.node_services.HandoffDependency;
 
-/// Where a redeemed token routes: the exporter connection that hosts the real
+/// Where a redeemed route routes: the exporter connection that hosts the real
 /// capability, and the real exporter-side reference to swap in when forwarding.
 /// The node owns `reference`.
 const Route = struct {
@@ -119,9 +120,9 @@ const ProxyListenerKey = struct {
 };
 
 /// Armed introducing-session proxy: **one** home `op:listen`, one or more
-/// recipient third-party import rows. On fire the Node owns the settlement
-/// briefly, then each recipient store materializes via
-/// `materializeResolutionForStore` (N=1 moves). Never N home listens.
+/// recipient third-party import rows. On fire the Host lifts once; each
+/// recipient then materializes its independently lowered tree through Node's
+/// bounded Passable transaction. Never N home listens.
 const PromiseProxy = struct {
     listener_export: u64,
     current_wire_pos: u64,
@@ -178,19 +179,6 @@ pub const TransportDesignatorResolver = struct {
 };
 
 pub const Node = struct {
-    /// The reserved far-id range a redeemed three-party-handoff capability is
-    /// handed to the application under. A redeemed cap lives on a dialed exporter
-    /// connection, not on the connection the give arrived over, so the node hands
-    /// the application an ordinary far reference whose id is drawn from this range
-    /// — above any wire-allocated import position — and records the route under
-    /// that id. A later send to the id is forwarded to the exporter with the real
-    /// exporter-side reference swapped in, so transparency lives entirely in the
-    /// node and the embedder's reference/send surface is untouched. The range is
-    /// disjoint from real session import positions, so a redeemed token can never alias
-    /// a partner's import. This is the cross-binding token model ADR-0066
-    /// standardizes (retiring the per-binding `Ref.home` field).
-    pub const REDEEMED_TOKEN_BASE: u64 = session_mod.REDEEMED_TOKEN_BASE;
-
     /// Max third parties one introducing-session proxy row will introduce to a
     /// single home promise (ADR-0009).
     ///
@@ -255,9 +243,9 @@ pub const Node = struct {
     /// reusing its id.
     ///
     /// Ids are drawn from `next_peer_id` and never reused. That is not
-    /// bookkeeping: a redeemed token's route keeps naming its exporter session
+    /// bookkeeping: a redeemed route keeps naming its exporter session
     /// after that session dies, and `routeReference` reads the missing peer to
-    /// fail the token closed. Hand the same id to a later session and the stale
+    /// fail the route closed. Hand the same id to a later session and the stale
     /// route would forward a redeemed capability onto it instead.
     peers: std.AutoHashMapUnmanaged(PeerId, PeerSlot) = .empty,
     /// The next session id to hand out. Monotonic, so no id is ever reused; at
@@ -276,8 +264,7 @@ pub const Node = struct {
     next_export_base: u64,
     /// One past the last range this node may draw — the top of its own slot.
     /// The counter stops here instead of carrying into the next node's slot,
-    /// which would alias that node's sessions one for one, and at the last slot
-    /// would run export positions into the range kept for redeemed tokens.
+    /// which would alias that node's sessions one for one.
     export_base_end: u64,
     /// Ranges released sessions gave back, reused oldest-first. Reclamation is
     /// what keeps the session field a bound on *concurrent* sessions rather
@@ -296,26 +283,32 @@ pub const Node = struct {
     /// a queue read from this cursor and compacted in `takeExportBase`, so it
     /// stays proportional to the ranges actually outstanding.
     freed_export_head: usize = 0,
-    /// token -> exporter route. A redeemed-handoff capability the application
-    /// holds as a far ref `>= REDEEMED_TOKEN_BASE` resolves here.
-    redeemed: std.AutoHashMapUnmanaged(u64, Route) = .empty,
-    /// A fetched far import enrolled under a node-unique token (ADR-0069), so two
+    /// Capability route id -> exporter route. Applications hold these through
+    /// the explicit
+    /// `Reference.routed` arm, never a synthetic wire import.
+    redeemed: std.AutoHashMapUnmanaged(model.CapabilityRouteId, Route) = .empty,
+    /// A fetched far import enrolled under a node-unique route id (ADR-0069), so two
     /// imports at the same wire position on different CapTP sessions never collide.
     /// The `Route` names the home session and the real `far(position)` to
-    /// address there — the same shape a redeemed token uses. Sends route through
+    /// address there — the same shape a redeemed route uses. Sends route through
     /// it, the gifter-side interceptor re-gifts through it, and it is swept in
-    /// `removePeer`. Tokens are drawn from the shared `next_token` counter, so a
-    /// given token is in `redeemed` or here, never both.
-    foreign_imports: std.AutoHashMapUnmanaged(u64, Route) = .empty,
-    /// Latches true the first time this node enrolls a foreign import (ADR-0069),
+    /// `removePeer`. Ids are drawn from the shared `next_route_id` counter, so a
+    /// given id is in `redeemed` or here, never both.
+    foreign_imports: std.AutoHashMapUnmanaged(model.CapabilityRouteId, Route) = .empty,
+    /// Latches true the first time this node mints a capability route (ADR-0069),
     /// and stays true thereafter. It is the gate each registered peer reads before
-    /// walking an outbound message to lower tokens (`Peer.node_services`): a node that
+    /// walking an outbound message to lower routes (`Peer.node_services`): a node that
     /// never fetches a foreign capability leaves it false, so every send skips the
     /// walk for one bool load. The peer holds a `*const bool` into this field, so
     /// the node must not move once a session is registered.
-    foreign_active: bool = false,
-    /// The next synthetic token a redeemed capability is enrolled under.
-    next_token: u64 = REDEEMED_TOKEN_BASE,
+    route_lowering_active: bool = false,
+    /// One stack-bound Host lowering transaction, present only while the
+    /// caller is synchronously entering `Peer.send`/`tell`. The Node claims
+    /// the exact opaque retains whose routes it moves into a delayed inline
+    /// gift batch; unclaimed retains remain the caller's rollback authority.
+    outbound_staging_leases: ?[]OutboundStagingLease = null,
+    /// The next node-local capability route id.
+    next_route_id: model.CapabilityRouteId = .from(1),
     /// This node's published locator snapshot for each transport. Map keys
     /// alias the corresponding value's owned `transport` bytes.
     advertised_locators: std.StringHashMapUnmanaged(model.PeerLocator) = .empty,
@@ -340,6 +333,16 @@ pub const Node = struct {
     /// Claimed gifter originations awaiting their host-drawn gift id, keyed by
     /// the `need_gift_id` ticket.
     pending_gifts: std.AutoHashMapUnmanaged(u64, PendingGift) = .empty,
+    /// Complete outbound messages parked while every foreign capability in
+    /// their Passable value tree is projected for the recipient. Object
+    /// projections wait for host-drawn gift ids; promise projections prepare
+    /// their proxy escrows in the same transaction. The Node owns the message
+    /// until every consequence can commit together.
+    pending_inline_passables: std.AutoHashMapUnmanaged(InlinePassableBatchId, InlinePassableBatch) = .empty,
+    /// Aggregate staged projection occurrences by recipient. Batches are already
+    /// individually queue-capped; this second bound prevents queue-cap batches
+    /// from retaining queue-cap metadata each.
+    pending_inline_passable_occurrences: std.AutoHashMapUnmanaged(PeerId, usize) = .empty,
     /// Per-connection give-location overrides (`setExporterLocation`),
     /// node-owned canonical Syrup locator-record bytes.
     exporter_locations: std.AutoHashMapUnmanaged(PeerId, []u8) = .empty,
@@ -355,11 +358,18 @@ pub const Node = struct {
     /// seats until success transfers them to pending withdraws or a terminal
     /// path spends them directly.
     pending_dial_waiter_reservations: usize = 0,
+    /// Future terminal seats held by inline-Passable batches. Success spends
+    /// the required exporter/home FLUSH actions, one Host-retain release per
+    /// occurrence, one future promise-settlement action per projected promise,
+    /// and one recipient FLUSH. Failure spends the retain releases plus one
+    /// correlated session failure and releases the surplus.
+    inline_passable_action_reservations: usize = 0,
     /// The most recently popped action; its byte views stay valid until the
     /// next `nextAction`, which frees them.
     last_action: ?Action = null,
     /// The next pending-dial ticket.
     next_pending: PendingId = 0,
+    next_inline_batch: u64 = 1,
     /// Introducing-session foreign-promise proxies keyed by home wire import
     /// (ADR-0009). Rows are only inserted once the home `op:listen` is armed.
     promise_proxies: std.AutoHashMapUnmanaged(ProxyHomeKey, PromiseProxy) = .empty,
@@ -368,134 +378,15 @@ pub const Node = struct {
     /// Current shortening target -> stable root key in `promise_proxies`.
     proxy_by_source: std.AutoHashMapUnmanaged(ProxyHomeKey, ProxyHomeKey) = .empty,
 
-    /// How far apart two sessions' export positions start, and where this
-    /// node's sessions begin.
-    ///
-    /// A near reference is one integer, and it means whatever the session
-    /// reading it says it means, so the same number names a different object on
-    /// every session. An application holds capabilities from several sessions
-    /// at once — `sendRedeeming` hands it two in one call — and offering one to
-    /// the wrong session is a one-word mistake. Disjoint ranges make that
-    /// mistake name a position no session holds, so the held-export check
-    /// refuses it, instead of it landing on whatever that session keeps at the
-    /// same number and resolving silently to the wrong object.
-    ///
-    /// The split is 16 bits of node, 20 of session, 24 of export range: about a
-    /// million sessions per node, each able to export sixteen million objects,
-    /// both past what the connection budget admits. The node bits come from the
-    /// node's own identity rather than a shared counter, because a counter
-    /// would be process-wide mutable state in a layer whose whole point is not
-    /// to have any — and two nodes in one process must still number their
-    /// sessions apart, since an application can hold capabilities from both.
-    const export_range_bits: u6 = 24;
-    const export_node_shift: u6 = 44;
-    /// How many node slots there are. Derived from where the node's own token
-    /// range begins rather than from the width of a `u64`, so the top slot ends
-    /// exactly where the reserved range starts and no export position can be
-    /// read as a redeemed token. Sixteen bits, at the shift below.
-    const export_node_slots: u64 = REDEEMED_TOKEN_BASE >> export_node_shift;
-    const export_range_span: u64 = 1 << export_range_bits;
-    comptime {
-        // The fields must tile without overlapping, and the slots must tile the
-        // reserved space exactly — a partial top slot would let the last node's
-        // counter stop somewhere the arithmetic above does not describe. Held
-        // here rather than in the prose above, because prose does not fail a
-        // build.
-        std.debug.assert(export_node_shift > export_range_bits);
-        std.debug.assert(export_node_slots >= 1);
-        std.debug.assert(REDEEMED_TOKEN_BASE % (@as(u64, 1) << export_node_shift) == 0);
-        // Every range a node draws is one span wide and starts on a span
-        // boundary, so a slot must hold a whole number of them.
-        std.debug.assert((@as(u64, 1) << export_node_shift) % export_range_span == 0);
-    }
-
-    /// This node's first range. The node bits come from its own identity, so
-    /// two nodes in one process usually land in different slots — usually, not
-    /// always: sixteen bits of hash collide by birthday somewhere around three
-    /// hundred nodes in one process, and colliding nodes number their sessions
-    /// alike again. That is the same defence-in-depth the ranges give a session
-    /// pair, not a guarantee, and a process running hundreds of nodes should
-    /// read it that way.
-    ///
-    /// The `| export_range_span` skips slot zero's zeroth range on purpose: a
-    /// base of 0 would have the first session mint export position 0, which is
-    /// `session.BOOTSTRAP_POSITION`, aliasing the bootstrap export the session
-    /// installs at open. Every other slot's first range starts above zero
-    /// already; paying one span in every slot keeps the rule uniform.
-    fn initialExportBase(seed: [crypto.SEED_BYTES]u8) u64 {
-        const node_slot: u64 = std.hash.Wyhash.hash(0, &seed) % export_node_slots;
-        return (node_slot << export_node_shift) | export_range_span;
-    }
-
-    /// Give `peer`'s session the next range, the one door a session's export
-    /// numbers come through.
-    ///
-    /// It runs at registration for both the owned and the adopted path, so
-    /// there is no verb that enrols a session without numbering it. That is the
-    /// whole point of it living here: the node is what holds many sessions, so
-    /// this makes equal numbering across sessions structurally unlikely, and a
-    /// layer above cannot forget to ask.
-    fn applyExportRange(self: *Node, target: *engine.Peer) !void {
-        const promised = std.math.add(
-            usize,
-            self.freed_export_bases.items.len,
-            self.export_base_return_reservations,
-        ) catch return error.OutOfMemory;
-        const required = std.math.add(usize, promised, 1) catch return error.OutOfMemory;
-        try self.freed_export_bases.ensureTotalCapacity(self.allocator, required);
-        self.export_base_return_reservations += 1;
-        errdefer self.export_base_return_reservations -= 1;
-        const base = try self.takeExportBase();
-        target.session_state.setExportBase(base, export_range_span);
-    }
-
-    /// One past this node's last range: the top of the slot `base` sits in.
-    fn exportBaseEndFor(base: u64) u64 {
-        return ((base >> export_node_shift) + 1) << export_node_shift;
-    }
-
-    /// Draw the next session's export range: a range a released session gave
-    /// back if there is one, otherwise a fresh one from the counter. Called
-    /// once per session, at the one place every session passes through: a
-    /// second draw would hand one session a range and throw another away.
-    ///
-    /// Refuses rather than carrying past the node's slot. Reaching that needs
-    /// this node to hold every range in its slot at once, which the connection
-    /// budget stops first; a node that merely churns connections recycles.
-    fn takeExportBase(self: *Node) !u64 {
-        const queued = self.freed_export_bases.items;
-        if (self.freed_export_head < queued.len) {
-            const base = queued[self.freed_export_head];
-            self.freed_export_head += 1;
-            const live = queued.len - self.freed_export_head;
-            if (live == 0) {
-                self.freed_export_bases.clearRetainingCapacity();
-                self.freed_export_head = 0;
-            } else if (self.freed_export_head >= live and self.freed_export_head >= 64) {
-                // Slide the queue down once the dead prefix has grown past what
-                // is still in it, so steady churn holds capacity near the
-                // outstanding count instead of growing a cursor forever.
-                std.mem.copyForwards(u64, queued[0..live], queued[self.freed_export_head..]);
-                self.freed_export_bases.shrinkRetainingCapacity(live);
-                self.freed_export_head = 0;
-            }
-            return base;
-        }
-        if (self.next_export_base >= self.export_base_end) return session_mod.Error.ExportRangeExhausted;
-        const base = self.next_export_base;
-        self.next_export_base += export_range_span;
-        return base;
-    }
-
-    /// Take a released session's range back for reuse. Registration reserved
-    /// this exact return slot before the range became session authority, so
-    /// release is infallible and connection churn cannot spend the node's
-    /// finite range space under allocator pressure.
-    fn recycleExportBase(self: *Node, base: u64) void {
-        std.debug.assert(self.export_base_return_reservations != 0);
-        self.freed_export_bases.appendAssumeCapacity(base);
-        self.export_base_return_reservations -= 1;
-    }
+    // ── Export ranges (`export_ranges.zig`) ─────────────────────────────────
+    // Disjoint per-session export numbering: the slot arithmetic, the range
+    // allocator, and the recycle queue. `export_ranges.zig` owns the bodies
+    // and the width constants.
+    const initialExportBase = export_ranges.initialExportBase;
+    const applyExportRange = export_ranges.applyExportRange;
+    const takeExportBase = export_ranges.takeExportBase;
+    const recycleExportBase = export_ranges.recycleExportBase;
+    const exportBaseEndFor = export_ranges.exportBaseEndFor;
 
     /// A node bound to a caller-supplied durable identity `seed`, with empty
     /// tables. Draw it at the embedder's I/O boundary because the sans-io core
@@ -515,6 +406,17 @@ pub const Node = struct {
     /// redeemed table). Borrowed peers survive with their Node-dependent session
     /// authority already retired and their services pointer severed.
     pub fn deinit(self: *Node) void {
+        // Inline batches charge their recipient Peer's outbound budget, so
+        // cancel them before detaching or freeing any Peer. Host teardown owns
+        // the aggregate capability registry and does not need per-lease release
+        // actions after the Node itself is being destroyed.
+        var inline_gift_it = self.pending_inline_passables.valueIterator();
+        while (inline_gift_it.next()) |batch| batch.deinit(self);
+        self.pending_inline_passables.deinit(self.allocator);
+        std.debug.assert(self.inline_passable_action_reservations == 0);
+        std.debug.assert(self.pending_inline_passable_occurrences.count() == 0);
+        self.pending_inline_passable_occurrences.deinit(self.allocator);
+
         var peer_it = self.peers.valueIterator();
         while (peer_it.next()) |s| {
             // Retire projection-owned gifts and scheduler dependencies before
@@ -705,9 +607,12 @@ pub const Node = struct {
     /// own where a resolver knows it, else the node's durable key. The one
     /// place that fallback is expressed, so ADR-0097's fresh-key switch has a
     /// single seam rather than a search for `secretKey()` call sites.
-    fn sessionSecret(self: *const Node, peer_id: PeerId) crypto.SecretKey {
+    fn sessionSecret(self: *const Node, peer_id: PeerId) ?crypto.SecretKey {
         const resolver = self.session_secret_resolver orelse return self.secretKey();
-        return resolver.resolve(resolver.ctx, peer_id) orelse self.secretKey();
+        // Once a Host installs session-key authority, a missing session is
+        // terminal. Falling back to the Node key would deliberately sign a
+        // receive or give with an identity the named session never held.
+        return resolver.resolve(resolver.ctx, peer_id);
     }
 
     pub fn setGifterSessionResolver(self: *Node, resolver: engine.bootstrap.GifterSessionResolver) void {
@@ -749,7 +654,7 @@ pub const Node = struct {
     /// without the node taking ownership. `removePeer` and `deinit` unregister
     /// the slot but never free `peer`; the embedder frees it. This is how a
     /// peer-owning driver — the completion loop, whose fixed-slot `peers` hold
-    /// each peer inline — puts its connections under one node so a redeemed token
+    /// each peer inline — puts its connections under one node so a redeemed route
     /// routes to them and a served reply can originate a gift. `peer` must
     /// outlive its registration.
     pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerId {
@@ -764,19 +669,21 @@ pub const Node = struct {
     }
 
     /// Remove a registered CapTP session: drop its row and free the peer only
-    /// when the Node owns it. A later route to a redeemed token whose exporter
+    /// when the Node owns it. A later route to a redeemed route whose exporter
     /// was this session fails closed (the peer is gone), rather than forwarding
     /// onto a dead socket. The `peer_id` is never reused.
     ///
-    /// The exporter cache, pending withdraws, and pending gifts naming this
-    /// session are swept below. The `redeemed` routes are deliberately *not*:
-    /// a route's `peer_id` going dead is exactly what `routeReference` reads to
-    /// fail the token closed (its `peerAt` returns null). Removing the row would
-    /// instead make the synthetic token fall through `route`'s "not a token I
-    /// hold" branch and get sent to a partner as an ordinary far — a meaningless
-    /// high id. The dead rows are reclaimed at `deinit`.
+    /// The exporter cache, pending withdraws, pending gifts, and capability
+    /// routes naming this session are swept below. A stale `Reference.routed`
+    /// still fails closed after its row is removed because its explicit union
+    /// arm can never fall through as an ordinary wire import.
     pub fn removePeer(self: *Node, peer_id: PeerId) void {
         const live = self.peers.get(peer_id) orelse return;
+        // A recipient batch carries a reservation charged on this exact Peer.
+        // Retire it while the Peer is still alive; exporter-side failures are
+        // projected only after liveness disappears, so a retry cannot route
+        // back through the closing exporter.
+        self.retireInlinePassableRecipientBatchesForPeer(peer_id);
         // Receiver-side dependencies must leave while the services back-pointer
         // is valid. This also makes an adopted peer safe to deinit later.
         live.peer.detachNodeServices();
@@ -807,6 +714,12 @@ pub const Node = struct {
         // pressure.
         self.failWithdrawsForPeer(peer_id);
 
+        // A staged Passable projection names its recipient and every object or
+        // promise home. Recipient loss makes the whole message moot; home loss
+        // makes the already-admitted recipient operation terminal. Retire those
+        // batches before foreign routes disappear so no effect can park them.
+        self.failInlinePassableBatchesForHome(peer_id);
+
         // A claimed gifter origination whose recipient died settles nowhere;
         // retire its ticket so a late provideGiftId is a clean no-op.
         self.removeRowsForPeer(&self.pending_gifts, peer_id, struct {
@@ -821,22 +734,70 @@ pub const Node = struct {
             }
         }.cleanup);
 
-        // Reclaim the foreign-import enrollments homed on this CapTP session
-        // (ADR-0069): once the home is gone the token can never re-gift, so a
-        // long-running broker does not accumulate stale routing rows.
-        self.removeRowsForPeer(&self.foreign_imports, peer_id, struct {
-            fn match(_: u64, route_row: Route, dying: PeerId) bool {
-                return route_row.peer_id == dying;
-            }
-        }.match, struct {
-            fn cleanup(node: *Node, _: u64, route_row: Route) void {
-                model.freeReference(node.allocator, route_row.reference);
-            }
-        }.cleanup);
+        // Once a home is gone, neither a redeemed nor fetched route can ever
+        // lower or re-gift. Reclaim both maps so connection churn cannot retain
+        // one row per capability ever observed.
+        self.removeCapabilityRoutesForPeer(&self.redeemed, peer_id);
+        self.removeCapabilityRoutesForPeer(&self.foreign_imports, peer_id);
 
         // Drop promise proxies whose home or recipient peer died so a later
         // home fire cannot relay onto a gone session.
         self.sweepPromiseProxiesForPeer(peer_id);
+    }
+
+    fn removeCapabilityRoutesForPeer(
+        self: *Node,
+        routes: *std.AutoHashMapUnmanaged(model.CapabilityRouteId, Route),
+        peer_id: PeerId,
+    ) void {
+        self.removeRowsForPeer(routes, peer_id, struct {
+            fn match(_: model.CapabilityRouteId, route_row: Route, dying: PeerId) bool {
+                return route_row.peer_id == dying;
+            }
+        }.match, struct {
+            fn cleanup(node: *Node, _: model.CapabilityRouteId, route_row: Route) void {
+                model.freeReference(node.allocator, route_row.reference);
+            }
+        }.cleanup);
+    }
+
+    fn retireInlinePassableRecipientBatchesForPeer(self: *Node, peer_id: PeerId) void {
+        while (true) {
+            var found: ?InlinePassableBatchId = null;
+            var it = self.pending_inline_passables.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.recipient_peer == peer_id) {
+                    found = entry.key_ptr.*;
+                    break;
+                }
+            }
+            const batch_id = found orelse break;
+            var batch = (self.pending_inline_passables.fetchRemove(batch_id) orelse unreachable).value;
+            self.cancelInlineGiftTickets(batch_id);
+            self.spendInlinePassableTerminalReservations(&batch);
+            self.queueInlineGiftLeaseReleases(batch.gifts);
+            self.queueInlinePromiseLeaseReleases(batch.promises);
+            batch.deinit(self);
+        }
+    }
+
+    fn failInlinePassableBatchesForHome(self: *Node, peer_id: PeerId) void {
+        while (true) {
+            var found: ?InlinePassableBatchId = null;
+            var it = self.pending_inline_passables.iterator();
+            while (it.next()) |entry| {
+                for (entry.value_ptr.gifts) |gift| if (gift.home == peer_id) {
+                    found = entry.key_ptr.*;
+                    break;
+                };
+                if (found == null) for (entry.value_ptr.promises) |promise| if (promise.home == peer_id) {
+                    found = entry.key_ptr.*;
+                    break;
+                };
+                if (found != null) break;
+            }
+            self.failInlinePassableBatch(found orelse break, error.RouteNotLowerable);
+        }
     }
 
     fn evictExporterCache(self: *Node, peer_id: PeerId) void {
@@ -879,8 +840,7 @@ pub const Node = struct {
             if (entry.key_ptr.peer_id != peer_id) continue;
             const pending = entry.value_ptr.*;
             self.actions.pushReserved(.{ .fail = .{
-                .peer_id = pending.recipient_peer,
-                .answer = pending.answer,
+                .dest = .fromRedeem(pending.dest),
                 .reason = .{ .static = exporter_closed_reason },
             } });
             // Removing the iterator's current row only tombstones its slot; it
@@ -890,29 +850,22 @@ pub const Node = struct {
         }
     }
 
-    /// The reserved token id `reference` names (ADR-0066), or null for any
-    /// reference outside the reserved range: an ordinary far import, a near, a
-    /// promise, a sturdyref. This is the one definition of "this far id is a node
-    /// token" that every routing and lowering entry shares, including the host
-    /// verbs above the node, so the reserved-range boundary is a single fact
-    /// rather than a compare re-typed at each use.
-    pub fn tokenIdOf(reference: model.Reference) ?u64 {
-        const named = model.ImportName.of(reference) orelse return null;
-        return switch (named) {
-            .token => |t| t.int(),
-            .wire => null,
+    /// The node-local route id `reference` names (ADR-0066), or null for every
+    /// wire reference. The union arm, not arithmetic, is the discriminator.
+    pub fn routeIdOf(reference: model.Reference) ?model.CapabilityRouteId {
+        return switch (reference) {
+            .routed => |routed| routed.id,
+            else => null,
         };
     }
 
-    /// The token `reference` names, for a caller that wants the typed value
-    /// rather than its integer. `tokenIdOf` above stays for the table lookups,
-    /// which key on the raw id.
-    pub fn tokenOf(reference: model.Reference) ?model.RedeemedToken {
-        const named = model.ImportName.of(reference) orelse return null;
-        return switch (named) {
-            .token => |t| t,
-            .wire => null,
-        };
+    /// The route `reference` names only when it is a live redeemed
+    /// handoff route. Foreign-import routes share the Node counter but remain
+    /// Node-owned routing identities for their full import lifetime; a Host
+    /// lift may consume only this narrower redeemed family.
+    pub fn redeemedRouteId(self: *const Node, reference: model.Reference) ?model.CapabilityRouteId {
+        const route_id = routeIdOf(reference) orelse return null;
+        return if (self.redeemed.contains(route_id)) route_id else null;
     }
 
     /// The node-owned peer for `peer_id`, or null when the id names no live
@@ -927,55 +880,59 @@ pub const Node = struct {
         return slot.peer;
     }
 
-    // ── Redeemed-token routing (the recipient half) ──────────────────────────
+    // ── Redeemed-route routing (the recipient half) ──────────────────────────
 
-    /// Enroll a redeemed capability under a fresh synthetic token and return the
-    /// far reference the application receives, indistinguishable from any other
-    /// far capability a partner handed back. A later `routeReference` of that
+    /// Enroll a redeemed capability under a fresh Node route and return the
+    /// explicit routed reference the application receives. A later
+    /// `routeReference` of that
     /// reference forwards to `exporter_peer` with `reference` (the real
     /// exporter-side ref) swapped in. The node adopts a clone of `reference`; the
     /// caller keeps its own. The caller reserves one slot in `redeemed` first, so
     /// the only fallible step here is the clone, which commits nothing on
     /// failure. Without that, a plain `put` failing after the clone would leave a
-    /// half-committed row and a bumped token behind a returned error.
+    /// half-committed row and a bumped route behind a returned error.
     fn enrollRedeemed(self: *Node, exporter_peer: PeerId, reference: model.Reference) !model.Reference {
         const owned = try model.cloneReference(self.allocator, reference);
-        const token = self.next_token;
-        self.redeemed.putAssumeCapacity(token, .{ .peer_id = exporter_peer, .reference = owned });
-        self.next_token += 1;
-        return .{ .far = model.FarRef.object(token) };
+        if (self.next_route_id.int() == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
+        const route_id = self.next_route_id;
+        self.redeemed.putAssumeCapacity(route_id, .{ .peer_id = exporter_peer, .reference = owned });
+        self.next_route_id = .from(route_id.int() + 1);
+        // The per-peer outbound walk is also what turns a redeemed route used
+        // as Passable data into an inline give. Once a route has escaped, keep
+        // that single cheap gate enabled for the Node lifetime.
+        self.route_lowering_active = true;
+        return .{ .routed = .{ .id = route_id, .kind = .object } };
     }
 
-    /// The exporter route for `reference`, if it names a redeemed token. Null for
-    /// any reference outside the reserved token range, so an ordinary far import
-    /// routes on its own connection.
+    /// The exporter route for `reference`, if it carries a node-local route.
+    /// Ordinary wire references have no routed arm and return null.
     fn route(self: *Node, reference: model.Reference) ?Route {
-        const id = tokenIdOf(reference) orelse return null;
+        const id = routeIdOf(reference) orelse return null;
         if (self.redeemed.get(id)) |r| return r;
-        // A foreign-import token (ADR-0069) routes to its home connection,
-        // addressed with the real wire import — the same swap a redeemed token
+        // A foreign-import route (ADR-0069) routes to its home connection,
+        // addressed with the real wire import — the same swap a redeemed route
         // gets, so a send to a fetched capability reaches its exporter.
         return self.foreignRoute(id);
     }
 
     /// The still-current foreign-import route for `id`.
     ///
-    /// The import row's token is its generation stamp. A missing or different
-    /// token means the row was released (and perhaps reused) before a stale
+    /// The import row's route id is its generation stamp. A missing or different
+    /// id means the row was released (and perhaps reused) before a stale
     /// node map row was reclaimed, so every router reader goes through this
     /// check instead of addressing the position under its new meaning.
-    fn foreignRoute(self: *Node, id: u64) ?Route {
+    fn foreignRoute(self: *Node, id: model.CapabilityRouteId) ?Route {
         const foreign = self.foreign_imports.get(id) orelse return null;
         const home = self.peerAt(foreign.peer_id) orelse return null;
         const position = switch (foreign.reference) {
             .far => |far| far.import_position,
             else => return null,
         };
-        if (home.session_state.foreignTokenFor(position) != id) return null;
+        if (home.session_state.foreignRouteIdFor(position) != id) return null;
         return foreign;
     }
 
-    /// The exporter peer a redeemed-handoff (or foreign-import) token routes to,
+    /// The exporter peer a redeemed-handoff (or foreign-import) route names,
     /// or null for any reference that names no such route. This is the
     /// deterministic answer to "which connection does this handoff capability
     /// live on," so a redeem's originating send can name that exporter session
@@ -991,7 +948,7 @@ pub const Node = struct {
         activated_lowering: bool,
         home: PeerId,
         position: model.ImportPosition,
-        token: u64,
+        route_id: model.CapabilityRouteId,
     };
 
     pub const ForeignEnrollment = struct {
@@ -999,9 +956,9 @@ pub const Node = struct {
         rollback: ?ForeignEnrollmentRollback,
     };
 
-    /// Prepare a fetched far import under a node-unique token (ADR-0069).
+    /// Prepare a fetched far import under a node-unique route id (ADR-0069).
     /// A fresh route carries rollback authority for a larger operation that
-    /// has not yet made the token observable. Reusing a canonical enrollment
+    /// has not yet made the route observable. Reusing a canonical enrollment
     /// produces none.
     pub fn prepareForeignEnrollment(self: *Node, home: PeerId, wire: model.Reference) !ForeignEnrollment {
         const far = switch (wire) {
@@ -1011,13 +968,13 @@ pub const Node = struct {
         const home_peer = self.peer(home) orelse return error.UnknownPeer;
         const kind = far.kind;
         // Enrolling is idempotent per import: the same capability keeps the
-        // token it was first given. Minting a second one would give one object
+        // route id it was first given. Minting a second one would give one object
         // two identities, which is what a caller comparing two fetches of the
         // same name sees, and would leave a routing row behind on every
         // enrollment, so a loop that re-fetches would grow the table without
-        // bound. The token is kept on the import row, so it is forgotten when
+        // bound. The route id is kept on the import row, so it is forgotten when
         // the import is released.
-        if (home_peer.session_state.foreignTokenFor(far.import_position)) |existing| {
+        if (home_peer.session_state.foreignRouteIdFor(far.import_position)) |existing| {
             // The kind comes off the enrolled row, not off this caller's
             // reference: the row is what routing reads, so a second caller
             // naming the same import with a different kind must not be handed
@@ -1030,79 +987,70 @@ pub const Node = struct {
             else
                 kind;
             return .{
-                .reference = .{ .far = .{ .import_position = .from(existing), .kind = enrolled_kind } },
+                .reference = .{ .routed = .{ .id = existing, .kind = enrolled_kind } },
                 .rollback = null,
             };
         }
         if (!home_peer.session_state.hasImport(far.import_position)) return error.UnknownImport;
         try self.foreign_imports.ensureUnusedCapacity(self.allocator, 1);
-        const token = self.next_token;
+        if (self.next_route_id.int() == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
+        const route_id = self.next_route_id;
         // The session row is the generation check `route` consults. Record it
         // before committing the node route so an allocation failure returns
-        // no unusable token and leaves no half-installed map row.
-        try home_peer.session_state.noteForeignToken(far.import_position, token);
-        self.foreign_imports.putAssumeCapacity(token, .{ .peer_id = home, .reference = wire });
-        self.next_token += 1;
-        const activated_lowering = !self.foreign_active;
-        self.foreign_active = true;
+        // no unusable route and leaves no half-installed map row.
+        try home_peer.session_state.noteForeignRouteId(far.import_position, route_id);
+        self.foreign_imports.putAssumeCapacity(route_id, .{ .peer_id = home, .reference = wire });
+        self.next_route_id = .from(route_id.int() + 1);
+        const activated_lowering = !self.route_lowering_active;
+        self.route_lowering_active = true;
         return .{
-            .reference = .{ .far = .{ .import_position = .from(token), .kind = kind } },
+            .reference = .{ .routed = .{ .id = route_id, .kind = kind } },
             .rollback = .{
                 .activated_lowering = activated_lowering,
                 .home = home,
                 .position = far.import_position,
-                .token = token,
+                .route_id = route_id,
             },
         };
     }
 
-    /// Undo one fresh enrollment before its token becomes observable. The
-    /// monotonic token remains burned; only the route and import-row memo move
-    /// back, so stale token values can never acquire a later meaning.
+    /// Undo one fresh enrollment before its route becomes observable. The
+    /// monotonic id remains burned; only the route and import-row memo move
+    /// back, so stale ids can never acquire a later meaning.
     pub fn rollbackForeignEnrollment(self: *Node, rollback: ForeignEnrollmentRollback) void {
         const home = self.peer(rollback.home) orelse unreachable;
-        std.debug.assert(home.session_state.foreignTokenFor(rollback.position) == rollback.token);
-        home.session_state.abandonForeignToken(rollback.position, rollback.token);
-        const removed = self.foreign_imports.fetchRemove(rollback.token) orelse unreachable;
+        std.debug.assert(home.session_state.foreignRouteIdFor(rollback.position) == rollback.route_id);
+        home.session_state.abandonForeignRouteId(rollback.position, rollback.route_id);
+        const removed = self.foreign_imports.fetchRemove(rollback.route_id) orelse unreachable;
         std.debug.assert(removed.value.peer_id == rollback.home);
         model.freeReference(self.allocator, removed.value.reference);
         if (rollback.activated_lowering) {
             std.debug.assert(self.foreign_imports.count() == 0);
-            self.foreign_active = false;
+            self.route_lowering_active = false;
         }
     }
 
-    /// Enroll a fetched far import and publish its canonical token immediately.
+    /// Enroll a fetched far import and publish its canonical route immediately.
     pub fn enrollForeign(self: *Node, home: PeerId, wire: model.Reference) !model.Reference {
         return (try self.prepareForeignEnrollment(home, wire)).reference;
     }
 
-    /// The connection a fetched capability's `far_id` lives on, or null when the
-    /// node holds no enrollment for it (a redeemed token, an ordinary wire import
-    /// the node never fetched, or an id the node never minted). This is the home
-    /// the gifter-side interceptor originates a handoff toward. A fetched
-    /// capability's identity is always a token, so only the token enrollment is
-    /// consulted (ADR-0069).
-    fn homeOf(self: *Node, far_id: u64) ?PeerId {
-        if (self.foreignRoute(far_id)) |r| return r.peer_id;
+    /// The connection a fetched capability route lives on, or null when the
+    /// node holds no enrollment for it. This is the home the gifter-side
+    /// interceptor originates a handoff toward.
+    fn homeOf(self: *Node, route_id: model.CapabilityRouteId) ?PeerId {
+        if (self.foreignRoute(route_id)) |r| return r.peer_id;
         return null;
     }
 
-    /// Whether `reference` names a capability foreign to `default_peer` when used
-    /// as a `send`/`tell` argument: a redeemed-handoff token (always foreign — it
-    /// has no wire home), or a foreign-import token addressed away from the
-    /// connection it was fetched on. On its own home a foreign-import token is
-    /// native, so it still marshals as an ordinary import there. An ordinary wire
-    /// reference (below the reserved token range) is never foreign — it rides its
-    /// own connection. Passing a foreign capability as a send argument is the case
-    /// not yet lifted, so a binding fails closed on a true verdict rather than
-    /// mis-encoding the reference for this partner. This is the one definition of
-    /// that verdict the bindings share, computed from the node's token enrollments
-    /// instead of being hand-rolled per binding (ADR-0066/ADR-0069).
+    /// Whether a raw model reference lacks an argument name on `default_peer`.
+    /// Raw Host verbs carry no capability retain that delayed inline handoff can
+    /// adopt, so they use this verdict to refuse the argument. Owning `Value`
+    /// verbs stage cross-session object routes through ADR-0116 instead.
     pub fn argIsForeign(self: *Node, default_peer: PeerId, reference: model.Reference) bool {
-        const id = tokenIdOf(reference) orelse return false;
-        // A foreign-import token is foreign only away from its home. A redeemed
-        // token has no wire home and is foreign everywhere; an unknown high id
+        const id = routeIdOf(reference) orelse return false;
+        // A foreign-import route is foreign only away from its home. A redeemed
+        // route has no wire home and is foreign everywhere; an unknown route
         // fails closed.
         if (self.foreignRoute(id)) |r| return r.peer_id != default_peer;
         return true;
@@ -1110,48 +1058,485 @@ pub const Node = struct {
 
     /// Lower `reference` to the wire reference it names on `peer_id`, for the one
     /// place every outbound message is emitted (`Peer.send`, ADR-0069). This is
-    /// the single chokepoint that keeps a node-local token off the wire in *every*
+    /// the single chokepoint that keeps a node-local route off the wire in *every*
     /// position — target, argument, forwarded target, resolution — instead of one
     /// path at a time. The peer reaches it through the `engine.NodeServices` link this
     /// node installs at registration; the shared error type is
     /// `engine.LoweringError`.
     ///
-    /// The fast path is a single integer compare: an ordinary import or near
-    /// reference (below the reserved token range) is returned untouched, which is
-    /// every real wire reference. Only a token pays the map lookup. Any token whose
+    /// The fast path is an exhaustive union-tag check: every wire reference is
+    /// returned untouched. Only a routed reference pays the map lookup. Any route whose
     /// home is this CapTP session — a redeemed capability whose exporter is this
     /// session, or a foreign import fetched on it — lowers to its wire
-    /// reference. A token homed on another session has no wire name here and
-    /// fails closed with `TokenNotLiftable`. Cross-session *routing* (a redeemed
-    /// token's redirect to its exporter, a re-gift) is not this function's job —
+    /// reference. A route homed on another session has no wire name here and
+    /// fails closed with `RouteNotLowerable`. Cross-session *routing* (a redeemed
+    /// route's redirect to its exporter, a re-gift) is not this function's job —
     /// the driver and the resolve interceptor own it, because only they choose a
     /// different session. The lowered reference is a far (position-only, POD),
     /// so it is substituted into the message by value with no ownership transfer.
     pub fn lowerForConn(self: *Node, peer_id: PeerId, reference: model.Reference) engine.LoweringError!model.Reference {
-        if (tokenIdOf(reference) == null) return reference;
-        const r = self.route(reference) orelse return error.TokenNotLiftable;
-        if (r.peer_id != peer_id) return error.TokenNotLiftable;
+        if (routeIdOf(reference) == null) return reference;
+        const r = self.route(reference) orelse return error.RouteNotLowerable;
+        if (r.peer_id != peer_id) return error.RouteNotLowerable;
         return r.reference;
     }
 
     /// The lowering hook for the peer registered as `peer_id`, installed on it at
-    /// registration so `Peer.send` swaps tokens to wire references (ADR-0069). It
-    /// carries a `*const bool` into `foreign_active` as its gate, so the peer skips
-    /// the walk entirely until this node fetches its first foreign capability.
+    /// registration so `Peer.send` swaps routes to wire references (ADR-0069). It
+    /// carries a `*const bool` into `route_lowering_active` as its gate, so the
+    /// peer skips the walk entirely until this node mints its first route.
     fn services(self: *Node, peer_id: PeerId) engine.NodeServices {
-        return engine.NodeServices.bind(self, peer_id, &self.foreign_active, .{
+        return engine.NodeServices.bind(self, peer_id, &self.route_lowering_active, .{
             .lower = lowerForConn,
+            .stage_outbound = stageOutbound,
             .local_object_projection = localObjectProjection,
             .gifter_session_resolver = gifterSessionResolver,
             .pending_withdraw_added = addHandoffWaiter,
             .pending_withdraw_removed = removeHandoffWaiter,
             .gift_deposited = markHandoffChanged,
-            .session_closed = markGifterHandoffsChanged,
+            .session_closed = sessionClosed,
             .prepare_v1_emitted_handoff_count = prepareV1HandoffCount,
             .prepare_promise_shortening = prepareProxyPromiseShortening,
             .commit_promise_shortening = commitProxyPromiseShortening,
             .designator_scheme = designatorScheme,
         });
+    }
+
+    const InlineProjectionRoute = struct {
+        route_id: model.CapabilityRouteId,
+        home: PeerId,
+        source: model.Reference,
+        kind: enum { object, promise },
+    };
+
+    const InlineProjectionCounts = struct {
+        objects: usize = 0,
+        promises: usize = 0,
+
+        fn add(self: InlineProjectionCounts, other: InlineProjectionCounts) !InlineProjectionCounts {
+            return .{
+                .objects = std.math.add(usize, self.objects, other.objects) catch
+                    return error.QueueCapExceeded,
+                .promises = std.math.add(usize, self.promises, other.promises) catch
+                    return error.QueueCapExceeded,
+            };
+        }
+
+        fn total(self: InlineProjectionCounts) !usize {
+            return std.math.add(usize, self.objects, self.promises) catch
+                return error.QueueCapExceeded;
+        }
+    };
+
+    pub const OutboundStagingLease = struct {
+        route_id: model.CapabilityRouteId,
+        capability: u64,
+        claimed: bool = false,
+    };
+
+    pub fn beginOutboundStagingLeases(self: *Node, leases: []OutboundStagingLease) void {
+        std.debug.assert(self.outbound_staging_leases == null);
+        self.outbound_staging_leases = leases;
+    }
+
+    pub fn endOutboundStagingLeases(self: *Node) void {
+        std.debug.assert(self.outbound_staging_leases != null);
+        self.outbound_staging_leases = null;
+    }
+
+    fn claimOutboundStagingLease(self: *Node, route_id: model.CapabilityRouteId) ?u64 {
+        const leases = self.outbound_staging_leases orelse return null;
+        for (leases) |*lease| {
+            if (lease.route_id != route_id or lease.claimed) continue;
+            lease.claimed = true;
+            return lease.capability;
+        }
+        return null;
+    }
+
+    fn unclaimOutboundStagingLease(self: *Node, route_id: model.CapabilityRouteId, capability_raw: u64) void {
+        const leases = self.outbound_staging_leases orelse unreachable;
+        for (leases) |*lease| {
+            if (lease.route_id != route_id or lease.capability != capability_raw or !lease.claimed) continue;
+            lease.claimed = false;
+            return;
+        }
+        unreachable;
+    }
+
+    /// Adopt a complete outbound message when a Passable value contains an
+    /// object homed on another live session. Ordinary targets are routing, not
+    /// Passable data, and remain the responsibility of `lowerForConn`.
+    fn stageOutbound(
+        self: *Node,
+        recipient_peer: PeerId,
+        message: *model.Message,
+    ) engine.node_services.OutboundStagingError!bool {
+        var destination: InlinePassableDestination = .outbound;
+        return self.stageInlinePassable(recipient_peer, message, &destination);
+    }
+
+    /// One recursive staging transaction for every Passable tree crossing a
+    /// session boundary. Ordinary outbound messages and relayed promise
+    /// settlements differ only at their terminal owner; capability discovery,
+    /// handoff/proxy preparation, pressure accounting, and rollback must stay
+    /// one mechanism.
+    fn stageInlinePassable(
+        self: *Node,
+        recipient_peer: PeerId,
+        message: *model.Message,
+        destination: *InlinePassableDestination,
+    ) engine.node_services.OutboundStagingError!bool {
+        const recipient = self.peer(recipient_peer) orelse return error.RouteNotLowerable;
+        // This shared model walk both measures the retained message and rejects
+        // trees beyond the hard recursion ceiling before the staging-specific
+        // recursive passes inspect them.
+        const message_charge = try model.measureMessageOwnedBytes(message.*);
+        const counts = try self.countInlineProjections(recipient_peer, message.*);
+        const projection_count = try counts.total();
+        if (projection_count == 0) return false;
+        if (projection_count > recipient.limits().queue_cap or counts.objects > std.math.maxInt(u32))
+            return error.QueueCapExceeded;
+        const current_occurrences = self.pending_inline_passable_occurrences.get(recipient_peer) orelse 0;
+        const next_occurrences = std.math.add(usize, current_occurrences, projection_count) catch
+            return error.QueueCapExceeded;
+        if (next_occurrences > recipient.limits().queue_cap) return error.QueueCapExceeded;
+        if (self.pending_inline_passables.count() >= recipient.limits().queue_cap)
+            return error.QueueCapExceeded;
+        if (self.next_inline_batch == std.math.maxInt(u64))
+            return error.CapabilitySpaceExhausted;
+        if (counts.objects > std.math.maxInt(u64) - self.next_pending)
+            return error.CapabilitySpaceExhausted;
+
+        try self.pending_inline_passables.ensureUnusedCapacity(self.allocator, 1);
+        try self.pending_gifts.ensureUnusedCapacity(self.allocator, @intCast(counts.objects));
+        if (current_occurrences == 0)
+            try self.pending_inline_passable_occurrences.ensureUnusedCapacity(self.allocator, 1);
+        // Completion may need one Host-retain release per projection, one
+        // exporter flush per object, and one home-listener flush plus one
+        // future settlement flush per promise. An ordinary outbound message
+        // also needs its recipient flush; a relayed destination already owns
+        // that exact terminal seat in ProxyRecipient. Failure uses the same
+        // final seat as a correlated session failure or recipient break.
+        const object_completion = std.math.mul(usize, counts.objects, 2) catch
+            return error.OutOfMemory;
+        const promise_completion = std.math.mul(usize, counts.promises, 3) catch
+            return error.OutOfMemory;
+        const completion_without_recipient = std.math.add(
+            usize,
+            object_completion,
+            promise_completion,
+        ) catch return error.OutOfMemory;
+        const recipient_completion: usize = if (destination.* == .outbound) 1 else 0;
+        const terminal_reservations = std.math.add(
+            usize,
+            completion_without_recipient,
+            recipient_completion,
+        ) catch
+            return error.OutOfMemory;
+        const action_reservations = std.math.add(usize, counts.objects, terminal_reservations) catch
+            return error.OutOfMemory;
+        try self.reserveActions(action_reservations);
+
+        const staging_reservation = try recipient.reserveInlinePassableStaging(message_charge);
+        var staging_reservation_owned = true;
+        errdefer if (staging_reservation_owned)
+            recipient.cancelInlinePassableStaging(staging_reservation);
+
+        const gifts = try recipient.allocator.alloc(InlineGift, counts.objects);
+        var gifts_owned = true;
+        errdefer if (gifts_owned) recipient.allocator.free(gifts);
+        const promises = try recipient.allocator.alloc(InlinePromiseProjection, counts.promises);
+        var promises_owned = true;
+        errdefer if (promises_owned) recipient.allocator.free(promises);
+        var gift_index: usize = 0;
+        var promise_index: usize = 0;
+        try self.collectInlineProjections(
+            recipient_peer,
+            message.*,
+            gifts,
+            promises,
+            &gift_index,
+            &promise_index,
+        );
+        std.debug.assert(gift_index == counts.objects);
+        std.debug.assert(promise_index == counts.promises);
+        var claimed_leases: usize = 0;
+        errdefer {
+            var remaining = claimed_leases;
+            for (gifts) |gift| {
+                if (remaining == 0) break;
+                self.unclaimOutboundStagingLease(gift.route_id, gift.capability_lease.?);
+                remaining -= 1;
+            }
+            for (promises) |promise| {
+                if (remaining == 0) break;
+                self.unclaimOutboundStagingLease(promise.route_id, promise.capability_lease.?);
+                remaining -= 1;
+            }
+        }
+        if (self.outbound_staging_leases != null) {
+            for (gifts) |*gift| {
+                gift.capability_lease = self.claimOutboundStagingLease(gift.route_id) orelse
+                    return error.RouteNotLowerable;
+                claimed_leases += 1;
+            }
+            for (promises) |*promise| {
+                promise.capability_lease = self.claimOutboundStagingLease(promise.route_id) orelse
+                    return error.RouteNotLowerable;
+                claimed_leases += 1;
+            }
+        }
+
+        const batch_id: InlinePassableBatchId = @enumFromInt(self.next_inline_batch);
+        self.pending_inline_passables.putAssumeCapacity(batch_id, .{
+            .recipient_peer = recipient_peer,
+            .allocator = recipient.allocator,
+            .message = message.*,
+            .destination = destination.*,
+            .staging_reservation = staging_reservation,
+            .gifts = gifts,
+            .promises = promises,
+            .terminal_action_reservations = terminal_reservations,
+        });
+        if (current_occurrences == 0)
+            self.pending_inline_passable_occurrences.putAssumeCapacity(recipient_peer, next_occurrences)
+        else
+            self.pending_inline_passable_occurrences.getPtr(recipient_peer).?.* = next_occurrences;
+        staging_reservation_owned = false;
+        gifts_owned = false;
+        promises_owned = false;
+        message.* = undefined;
+        destination.* = undefined;
+        self.next_inline_batch += 1;
+        self.inline_passable_action_reservations += terminal_reservations;
+
+        for (gifts, 0..) |gift, index| {
+            const ticket = self.next_pending;
+            self.next_pending += 1;
+            self.pending_gifts.putAssumeCapacity(ticket, .{
+                .recipient_peer = recipient_peer,
+                .route_id = gift.route_id,
+                .dest = .{ .inline_gift = .{
+                    .batch = batch_id,
+                    .gift_index = @intCast(index),
+                } },
+                .failure_reason = null,
+            });
+            self.actions.pushReserved(.{ .need_gift_id = .{ .ticket = ticket } });
+        }
+        if (gifts.len == 0) {
+            self.finishInlinePassableBatch(batch_id) catch |err| {
+                const failed = self.pending_inline_passables.getPtr(batch_id) orelse unreachable;
+                if (!failed.message_owned) {
+                    // The ordinary Peer send consumed the message before its
+                    // final refusal. No caller-owned value remains to retry;
+                    // settle through the correlated session barrier exactly as
+                    // an entropy-delayed transaction would.
+                    self.failInlinePassableBatch(batch_id, err);
+                    return true;
+                }
+                var restored = (self.pending_inline_passables.fetchRemove(batch_id) orelse unreachable).value;
+                self.spendInlinePassableTerminalReservations(&restored);
+                self.unclaimInlineProjectionLeases(&restored);
+                message.* = restored.message;
+                restored.message_owned = false;
+                destination.* = restored.destination;
+                restored.destination = .outbound;
+                restored.deinit(self);
+                return err;
+            };
+        }
+        return true;
+    }
+
+    fn inlineProjectionRoute(
+        self: *Node,
+        recipient_peer: PeerId,
+        reference: model.Reference,
+    ) engine.node_services.OutboundStagingError!?InlineProjectionRoute {
+        const route_id = routeIdOf(reference) orelse return null;
+        const gift_route = self.route(reference) orelse return error.RouteNotLowerable;
+        if (gift_route.peer_id == recipient_peer) return null;
+        const routed = switch (reference) {
+            .routed => |value| value,
+            else => return error.RouteNotLowerable,
+        };
+        return .{
+            .route_id = route_id,
+            .home = gift_route.peer_id,
+            .source = gift_route.reference,
+            .kind = switch (routed.kind) {
+                .object => .object,
+                .promise => .promise,
+            },
+        };
+    }
+
+    fn countInlineProjections(
+        self: *Node,
+        recipient_peer: PeerId,
+        message: model.Message,
+    ) engine.node_services.OutboundStagingError!InlineProjectionCounts {
+        return switch (message) {
+            .deliver => |deliver| self.countInlineProjectionArguments(recipient_peer, deliver.args),
+            .resolve => |resolve| switch (resolve.resolution) {
+                .fulfill => |arg| self.countInlineProjectionArgument(recipient_peer, arg),
+                .@"break" => .{},
+            },
+            else => .{},
+        };
+    }
+
+    fn countInlineProjectionArguments(
+        self: *Node,
+        recipient_peer: PeerId,
+        args: []const model.Argument,
+    ) engine.node_services.OutboundStagingError!InlineProjectionCounts {
+        var count: InlineProjectionCounts = .{};
+        for (args) |arg| count = try count.add(
+            try self.countInlineProjectionArgument(recipient_peer, arg),
+        );
+        return count;
+    }
+
+    fn countInlineProjectionArgument(
+        self: *Node,
+        recipient_peer: PeerId,
+        arg: model.Argument,
+    ) engine.node_services.OutboundStagingError!InlineProjectionCounts {
+        return switch (arg) {
+            .reference => |reference| if (try self.inlineProjectionRoute(recipient_peer, reference)) |projection|
+                switch (projection.kind) {
+                    .object => .{ .objects = 1 },
+                    .promise => .{ .promises = 1 },
+                }
+            else
+                .{},
+            .list, .set => |items| self.countInlineProjectionArguments(recipient_peer, items),
+            .tagged => |tagged| self.countInlineProjectionArguments(recipient_peer, tagged.value),
+            .@"struct" => |entries| blk: {
+                var count: InlineProjectionCounts = .{};
+                for (entries) |entry| count = try count.add(
+                    try self.countInlineProjectionArgument(recipient_peer, entry.value),
+                );
+                break :blk count;
+            },
+            else => .{},
+        };
+    }
+
+    fn collectInlineProjections(
+        self: *Node,
+        recipient_peer: PeerId,
+        message: model.Message,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        gift_index: *usize,
+        promise_index: *usize,
+    ) engine.node_services.OutboundStagingError!void {
+        switch (message) {
+            .deliver => |deliver| try self.collectInlineProjectionArguments(
+                recipient_peer,
+                deliver.args,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            ),
+            .resolve => |resolve| switch (resolve.resolution) {
+                .fulfill => |arg| try self.collectInlineProjectionArgument(
+                    recipient_peer,
+                    arg,
+                    gifts,
+                    promises,
+                    gift_index,
+                    promise_index,
+                ),
+                .@"break" => {},
+            },
+            else => {},
+        }
+    }
+
+    fn collectInlineProjectionArguments(
+        self: *Node,
+        recipient_peer: PeerId,
+        args: []const model.Argument,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        gift_index: *usize,
+        promise_index: *usize,
+    ) engine.node_services.OutboundStagingError!void {
+        for (args) |arg| try self.collectInlineProjectionArgument(
+            recipient_peer,
+            arg,
+            gifts,
+            promises,
+            gift_index,
+            promise_index,
+        );
+    }
+
+    fn collectInlineProjectionArgument(
+        self: *Node,
+        recipient_peer: PeerId,
+        arg: model.Argument,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        gift_index: *usize,
+        promise_index: *usize,
+    ) engine.node_services.OutboundStagingError!void {
+        switch (arg) {
+            .reference => |reference| if (try self.inlineProjectionRoute(recipient_peer, reference)) |projection| {
+                switch (projection.kind) {
+                    .object => {
+                        gifts[gift_index.*] = .{
+                            .route_id = projection.route_id,
+                            .home = projection.home,
+                            .original = reference,
+                            .gifted = projection.source,
+                        };
+                        gift_index.* += 1;
+                    },
+                    .promise => {
+                        promises[promise_index.*] = .{
+                            .route_id = projection.route_id,
+                            .home = projection.home,
+                            .original = reference,
+                            .source = projection.source.far,
+                        };
+                        promise_index.* += 1;
+                    },
+                }
+            },
+            .list, .set => |items| try self.collectInlineProjectionArguments(
+                recipient_peer,
+                items,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            ),
+            .tagged => |tagged| try self.collectInlineProjectionArguments(
+                recipient_peer,
+                tagged.value,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            ),
+            .@"struct" => |entries| for (entries) |entry|
+                try self.collectInlineProjectionArgument(
+                    recipient_peer,
+                    entry.value,
+                    gifts,
+                    promises,
+                    gift_index,
+                    promise_index,
+                ),
+            else => {},
+        }
     }
 
     fn prepareV1HandoffCount(self: *Node) engine.node_services.HandoffCountError!engine.bootstrap.PreparedHandoffCount {
@@ -1173,7 +1558,7 @@ pub const Node = struct {
         target: u64,
         _: u64,
         _: bool,
-    ) !void {
+    ) engine.node_services.PromiseShorteningError!void {
         const source_root = self.proxy_by_source.get(.{ .home = home, .wire_pos = source }) orelse
             return error.UnexpectedMessage;
         const source_proxy = self.promise_proxies.get(source_root) orelse return error.UnexpectedMessage;
@@ -1309,6 +1694,15 @@ pub const Node = struct {
         }
     }
 
+    /// Logical close, not later shell destruction, is the handoff authority
+    /// boundary. Retire recipient batches while their outbound reservations
+    /// still name a live Peer, and fail batches that depended on this home.
+    fn sessionClosed(self: *Node, peer_id: PeerId) void {
+        self.markGifterHandoffsChanged(peer_id);
+        self.retireInlinePassableRecipientBatchesForPeer(peer_id);
+        self.failInlinePassableBatchesForHome(peer_id);
+    }
+
     fn removeHandoffChange(self: *Node, index: usize) void {
         const last = self.handoff_changes.items.len - 1;
         const moved = self.handoff_changes.items[last];
@@ -1355,7 +1749,7 @@ pub const Node = struct {
     // ── Routed send ──────────────────────────────────────────────────────────
 
     /// Where a routed deliver lands: which connection carries it, and the real
-    /// reference to address (a redeemed token is rewritten to its exporter-side
+    /// reference to address (a redeemed route is rewritten to its exporter-side
     /// reference). The embedder turns this into an `op:deliver` on `peer_id`'s
     /// peer.
     pub const Routed = struct {
@@ -1364,47 +1758,47 @@ pub const Node = struct {
     };
 
     /// Resolve `target` to the connection and real reference a deliver to it
-    /// rides. A redeemed token routes to its exporter connection with the real
+    /// rides. A redeemed route routes to its exporter connection with the real
     /// exporter-side reference; any other reference rides `default_peer` (the
     /// connection the application is addressing) unchanged. Returns null when a
-    /// redeemed token names an exporter connection that is gone.
+    /// redeemed route names an exporter connection that is gone.
     pub fn routeReference(self: *Node, default_peer: PeerId, target: model.Reference) ?Routed {
-        if (tokenIdOf(target)) |id| return self.routeToken(id);
+        if (routeIdOf(target)) |id| return self.routeCapability(id);
         return .{ .peer_id = default_peer, .target = target };
     }
 
-    /// Resolve a token — a far id in the reserved range, redeemed or
-    /// foreign-import — to its home connection and the real wire reference to
+    /// Resolve a capability route, redeemed or foreign-import, to its home
+    /// connection and the real wire reference to
     /// address there, with no default connection to fall back to: a caller
-    /// that holds only a token (a `gcRelease` by id) routes here without
-    /// inventing one. Null when the token routes nowhere — never minted, or
+    /// that holds only a route routes here without inventing one. Null when
+    /// the route routes nowhere — never minted, or
     /// its enrollment was reclaimed when its home closed (ADR-0069) — so a
-    /// retired token fails closed rather than pass the synthetic id onto the
+    /// retired route fails closed rather than pass the local id onto the
     /// wire.
-    pub fn routeToken(self: *Node, token: u64) ?Routed {
-        const r = self.route(.{ .far = model.FarRef.object(token) }) orelse return null;
+    pub fn routeCapability(self: *Node, route_id: model.CapabilityRouteId) ?Routed {
+        const r = self.route(.{ .routed = .{ .id = route_id } }) orelse return null;
         if (self.peerAt(r.peer_id) == null) return null;
         return .{ .peer_id = r.peer_id, .target = r.reference };
     }
 
-    /// Retire `token` once its real wire import has reached zero.
+    /// Retire `route_id` once its real wire import has reached zero.
     ///
     /// The session import row is the lifetime authority: while it exists, a
     /// partial release must leave routing intact. Once it is gone, the partner
-    /// may reuse that position, so retaining this route would let the old token
-    /// address the new object. Unknown tokens and routes whose home connection
+    /// may reuse that position, so retaining this route would let the old route
+    /// address the new object. Unknown routes and routes whose home connection
     /// has already gone are no-ops; their existing teardown policy owns those
     /// rows.
-    pub fn retireReleasedToken(self: *Node, token: u64) void {
-        const kind: enum { redeemed, foreign } = if (self.redeemed.contains(token))
+    pub fn retireReleasedRoute(self: *Node, route_id: model.CapabilityRouteId) void {
+        const kind: enum { redeemed, foreign } = if (self.redeemed.contains(route_id))
             .redeemed
-        else if (self.foreign_imports.contains(token))
+        else if (self.foreign_imports.contains(route_id))
             .foreign
         else
             return;
         const route_row = switch (kind) {
-            .redeemed => self.redeemed.get(token).?,
-            .foreign => self.foreign_imports.get(token).?,
+            .redeemed => self.redeemed.get(route_id).?,
+            .foreign => self.foreign_imports.get(route_id).?,
         };
         const home = self.peerAt(route_row.peer_id) orelse return;
         const position = switch (route_row.reference) {
@@ -1414,26 +1808,26 @@ pub const Node = struct {
         switch (kind) {
             .redeemed => {
                 if (home.session_state.hasImport(position)) return;
-                const removed = self.redeemed.fetchRemove(token).?;
+                const removed = self.redeemed.fetchRemove(route_id).?;
                 model.freeReference(self.allocator, removed.value.reference);
             },
             .foreign => {
-                // A reused row may already exist here. Its token, not mere row
+                // A reused row may already exist here. Its route id, not mere row
                 // presence, decides whether this route still belongs to it.
-                if (home.session_state.foreignTokenFor(position) == token) return;
-                const removed = self.foreign_imports.fetchRemove(token).?;
+                if (home.session_state.foreignRouteIdFor(position) == route_id) return;
+                const removed = self.foreign_imports.fetchRemove(route_id).?;
                 model.freeReference(self.allocator, removed.value.reference);
             },
         }
     }
 
-    /// Consume a redeemed-handoff token when the Host lifts it into its own
+    /// Consume a redeemed-handoff route when the Host lifts it into its own
     /// identity space. This is an ownership transfer: the Host retains the real
-    /// import incarnation, and the synthetic Node route must stop being a
-    /// second stale-capable handle. Foreign-import tokens are the Node routing
+    /// import incarnation, and the Node route must stop being a
+    /// second stale-capable handle. Foreign-import routes are the Node routing
     /// identity for ordinary fetched capabilities and remain on their rows.
-    pub fn consumeRedeemedToken(self: *Node, token: u64) bool {
-        const removed = self.redeemed.fetchRemove(token) orelse return false;
+    pub fn consumeRedeemedRoute(self: *Node, route_id: model.CapabilityRouteId) bool {
+        const removed = self.redeemed.fetchRemove(route_id) orelse return false;
         model.freeReference(self.allocator, removed.value.reference);
         return true;
     }
@@ -1461,7 +1855,7 @@ pub const Node = struct {
     // every embedder used to hand-roll: intercept a give, consult the exporter
     // cache, dial on a miss, withdraw once the keyed session is open, enroll
     // the withdrawn capability, and settle the application's original answer
-    // with the routable token. The node holds the state (exporter cache,
+    // with the routable route. The node holds the state (exporter cache,
     // pending dials, pending withdraws) and emits `Action`s; the embedder
     // performs the I/O each action names and feeds the outcome back. No
     // socket, no scheduler, no entropy lives here.
@@ -1470,11 +1864,49 @@ pub const Node = struct {
     /// outcome (`exporterDialed` / `dialFailed`).
     pub const PendingId = u64;
 
-    /// One redeem waiting on an exporter dial: the application answer to
-    /// settle and the verbatim signed give to withdraw. The node owns `give`.
+    /// Where one redeemed give settles. An answer is the traditional returned
+    /// handoff. A deferred id is Host-owned promise authority for a give found
+    /// inline in a Passable value; the sans-I/O node only carries the opaque id
+    /// back in its terminal action.
+    pub const RedeemDestination = union(enum) {
+        answer: struct { recipient_peer: PeerId, answer: model.AnswerPosition },
+        deferred: struct { recipient_peer: PeerId, id: u64 },
+
+        fn recipientPeer(self: RedeemDestination) PeerId {
+            return switch (self) {
+                .answer => |answer| answer.recipient_peer,
+                .deferred => |deferred| deferred.recipient_peer,
+            };
+        }
+    };
+
+    /// A failed effect may also settle an inbound answer this Node claimed
+    /// while originating a give. Success for that path is published directly
+    /// by the two-peer transaction, so it deliberately is not a
+    /// `RedeemDestination` and cannot appear in a `.settle` action.
+    pub const FailureDestination = union(enum) {
+        answer: struct { recipient_peer: PeerId, answer: model.AnswerPosition },
+        served_answer: struct { recipient_peer: PeerId, answer: model.AnswerName },
+        deferred: struct { recipient_peer: PeerId, id: u64 },
+
+        fn fromRedeem(dest: RedeemDestination) FailureDestination {
+            return switch (dest) {
+                .answer => |answer| .{ .answer = .{
+                    .recipient_peer = answer.recipient_peer,
+                    .answer = answer.answer,
+                } },
+                .deferred => |deferred| .{ .deferred = .{
+                    .recipient_peer = deferred.recipient_peer,
+                    .id = deferred.id,
+                } },
+            };
+        }
+    };
+
+    /// One redeem waiting on an exporter dial: its terminal destination and
+    /// the verbatim signed give to withdraw. The node owns `give`.
     const Waiter = struct {
-        recipient_peer: PeerId,
-        answer: u64,
+        dest: RedeemDestination,
         give: []u8,
     };
 
@@ -1557,8 +1989,7 @@ pub const Node = struct {
     /// One withdraw awaiting its resolution on an exporter connection, keyed
     /// by `(exporter conn, withdraw answer)`.
     const PendingWithdraw = struct {
-        recipient_peer: PeerId,
-        answer: u64,
+        dest: RedeemDestination,
     };
 
     /// One claimed gifter origination awaiting its host-drawn gift id, keyed
@@ -1568,9 +1999,85 @@ pub const Node = struct {
     /// the row was not torn down and re-registered underneath (ADR-0069).
     const RelayedSlot = struct { import_pos: u64, row_id: u64 };
 
+    /// Host-local identity of one complete staged outbound message. The Node
+    /// is the owner dimension and monotonic issuance is its epoch.
+    const InlinePassableBatchId = enum(u64) { _ };
+
+    const InlinePassableDestination = union(enum) {
+        outbound,
+        relayed: ProxyRecipient,
+    };
+
+    const InlineGift = struct {
+        route_id: model.CapabilityRouteId,
+        home: PeerId,
+        original: model.Reference,
+        gifted: model.Reference,
+        capability_lease: ?u64 = null,
+        gift_id: [model.HANDOFF_GIFT_ID_BYTES]u8 = undefined,
+        handoff: ?*model.Handoff = null,
+        inserted_handoff: ?*model.Handoff = null,
+    };
+
+    const InlinePromiseProjection = struct {
+        route_id: model.CapabilityRouteId,
+        home: PeerId,
+        original: model.Reference,
+        source: model.FarRef,
+        capability_lease: ?u64 = null,
+        projected: ?model.Reference = null,
+        /// Exact owned-tree leaf rewritten at commit preparation. Pointer
+        /// identity, rather than reference equality, makes rollback immune to
+        /// another argument legitimately carrying the same numeric position.
+        inserted_at: ?*model.Argument = null,
+    };
+
+    const InlinePassableBatch = struct {
+        recipient_peer: PeerId,
+        allocator: std.mem.Allocator,
+        message: model.Message,
+        message_owned: bool = true,
+        destination: InlinePassableDestination,
+        staging_reservation: ?engine.Peer.InlinePassableStagingReservation,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        ready: usize = 0,
+        terminal_action_reservations: usize,
+
+        fn deinit(self: *InlinePassableBatch, node: *Node) void {
+            const projection_count = self.gifts.len + self.promises.len;
+            if (self.staging_reservation) |reservation| {
+                const recipient = node.peer(self.recipient_peer) orelse unreachable;
+                recipient.cancelInlinePassableStaging(reservation);
+            }
+            if (self.message_owned) model.freeMessage(self.allocator, self.message);
+            switch (self.destination) {
+                .outbound => {},
+                .relayed => |*recipient| if (recipient.failure_reason != null) {
+                    recipient.releaseFailure(self.allocator);
+                    node.releaseProxyActionReservation();
+                },
+            }
+            for (self.gifts) |gift| if (gift.handoff) |handoff| {
+                model.freeHandoff(self.allocator, handoff.*);
+                self.allocator.destroy(handoff);
+            };
+            self.allocator.free(self.gifts);
+            self.allocator.free(self.promises);
+            const occurrences = node.pending_inline_passable_occurrences.getPtr(self.recipient_peer) orelse unreachable;
+            std.debug.assert(occurrences.* >= projection_count);
+            occurrences.* -= projection_count;
+            if (occurrences.* == 0)
+                std.debug.assert(node.pending_inline_passable_occurrences.remove(self.recipient_peer));
+            std.debug.assert(node.inline_passable_action_reservations >= self.terminal_action_reservations);
+            node.inline_passable_action_reservations -= self.terminal_action_reservations;
+            self.* = undefined;
+        }
+    };
+
     const PendingGift = struct {
         recipient_peer: PeerId,
-        far_id: u64,
+        route_id: model.CapabilityRouteId,
         /// Where the minted give lands. Both destinations owe the recipient a
         /// handoff for the same reason — a message carrying a reference
         /// imported from another session must become one — and differ only in
@@ -1598,8 +2105,12 @@ pub const Node = struct {
         /// introduced to this recipient settled to a capability, so the give
         /// becomes the resolution stored in that import's slot.
         const Dest = union(enum) {
-            answer: u64,
+            answer: model.AnswerName,
             relayed: RelayedSlot,
+            inline_gift: struct {
+                batch: InlinePassableBatchId,
+                gift_index: u32,
+            },
         };
     };
 
@@ -1638,14 +2149,12 @@ pub const Node = struct {
         dial: struct { pending: PendingId },
         /// Pump this CapTP session's outbound queue to the wire.
         flush: PeerId,
-        /// Settle the application answer `answer` on `peer_id`: the redeemed
-        /// capability is enrolled and `token` is the ordinary far id the
-        /// application receives.
-        settle: struct { peer_id: PeerId, answer: u64, token: u64 },
-        /// Break the application answer `answer` on `peer_id` with `reason`.
+        /// Settle the returned answer or Host-owned deferred promise with the
+        /// redeemed capability's ordinary routable identity.
+        settle: struct { dest: RedeemDestination, route_id: model.CapabilityRouteId },
+        /// Break the returned answer or Host-owned deferred promise.
         fail: struct {
-            peer_id: PeerId,
-            answer: u64,
+            dest: FailureDestination,
             /// Most failures own a copy of a call-scoped reason. Teardown uses
             /// one static diagnostic so its reserved consequence cannot fail
             /// allocation; the union makes those lifetimes non-interchangeable.
@@ -1660,6 +2169,18 @@ pub const Node = struct {
         /// only when a reply actually becomes a gift keeps the ordinary reply
         /// path free of speculative draws.
         need_gift_id: struct { ticket: u64 },
+        /// Release one Host capability retain transferred into a delayed
+        /// inline-Passable transaction. This is terminal cleanup: Host consumes
+        /// the retain even when its home session can no longer carry wire GC.
+        release_capability: u64,
+        /// A delayed inline-Passable transaction can fail after its application
+        /// send already returned. Ask the Host to run the recipient session's
+        /// complete terminal barrier; closing only the Peer would strand vows
+        /// and admitted turns above it.
+        fail_session: struct {
+            peer_id: PeerId,
+            reason: []const u8,
+        },
     };
 
     /// Borrow the in-flight pending dial for `pending`, or null if the ticket
@@ -1736,10 +2257,46 @@ pub const Node = struct {
         return self.pending_gifts.contains(ticket);
     }
 
+    /// Cancel a Host-owned inline-give promise whose introducing session has
+    /// died. A queued, not-yet-delivered dial becomes a stale action; a shared
+    /// or already-running dial remains for its other owner, but this promise
+    /// can no longer reach `beginWithdraw`.
+    pub fn cancelInlineGive(self: *Node, recipient_peer: PeerId, deferred: u64) void {
+        var dials = self.pending_dials.iterator();
+        while (dials.next()) |entry| {
+            var index: usize = 0;
+            while (index < entry.value_ptr.waiters.items.len) {
+                const waiter = entry.value_ptr.waiters.items[index];
+                const matches = switch (waiter.dest) {
+                    .answer => false,
+                    .deferred => |dest| dest.recipient_peer == recipient_peer and dest.id == deferred,
+                };
+                if (!matches) {
+                    index += 1;
+                    continue;
+                }
+                const removed = entry.value_ptr.waiters.orderedRemove(index);
+                self.releasePendingDialWaiterReservations(1);
+                self.allocator.free(removed.give);
+            }
+            if (entry.value_ptr.waiters.items.len != 0 or
+                entry.value_ptr.application_owned or
+                entry.value_ptr.effect_in_flight)
+                continue;
+            const pending = entry.value_ptr.*;
+            std.debug.assert(self.pending_dial_by_identity.remove(pending.identity));
+            self.pending_dials.removeByPtr(entry.key_ptr);
+            self.freeCancelledDial(pending);
+        }
+    }
+
     /// Terminal owner cancellation spends every entropy request before an
     /// embedder can turn it into new handoff work. Queued ticket actions become
     /// stale no-ops; failure storage and scheduler reservations retire here.
     pub fn cancelPendingGifts(self: *Node) void {
+        var batches = self.pending_inline_passables.valueIterator();
+        while (batches.next()) |batch| batch.deinit(self);
+        self.pending_inline_passables.clearRetainingCapacity();
         var gifts = self.pending_gifts.valueIterator();
         while (gifts.next()) |gift| {
             if (gift.failure_reason != null) self.releaseProxyActionReservation();
@@ -1769,8 +2326,7 @@ pub const Node = struct {
         self.releasePendingDialWaiterReservations(pending.waiters.items.len);
         for (pending.waiters.items) |waiter| {
             self.actions.pushReserved(.{ .fail = .{
-                .peer_id = waiter.recipient_peer,
-                .answer = waiter.answer,
+                .dest = .fromRedeem(waiter.dest),
                 .reason = .{ .static = "handoff redeem failed: host closing" },
             } });
             self.allocator.free(waiter.give);
@@ -1869,7 +2425,7 @@ pub const Node = struct {
                 .owned => |reason| self.allocator.free(reason),
                 .static => {},
             },
-            .dial, .flush, .settle, .retire_exporter, .need_gift_id => {},
+            .dial, .flush, .settle, .retire_exporter, .need_gift_id, .release_capability, .fail_session => {},
         }
     }
 
@@ -1887,15 +2443,15 @@ pub const Node = struct {
             self.proxy_action_reservations,
             self.pending_dial_waiter_reservations,
         ) catch return error.OutOfMemory;
-        const promised = std.math.add(usize, self.pending_withdraws.count(), handoff_promised) catch
+        const with_inline = std.math.add(
+            usize,
+            handoff_promised,
+            self.inline_passable_action_reservations,
+        ) catch return error.OutOfMemory;
+        const promised = std.math.add(usize, self.pending_withdraws.count(), with_inline) catch
             return error.OutOfMemory;
         const total = std.math.add(usize, promised, immediate) catch return error.OutOfMemory;
         try self.actions.reserve(self.allocator, total);
-    }
-
-    fn reserveProxyAction(self: *Node) !void {
-        try self.reserveActions(1);
-        self.proxy_action_reservations += 1;
     }
 
     fn releaseProxyActionReservation(self: *Node) void {
@@ -1917,10 +2473,10 @@ pub const Node = struct {
     }
 
     /// Queue a fail action carrying an owned copy of `reason`.
-    fn queueFail(self: *Node, peer_id: PeerId, answer: u64, reason: []const u8) !void {
+    fn queueFail(self: *Node, dest: RedeemDestination, reason: []const u8) !void {
         const owned = try self.allocator.dupe(u8, reason);
         errdefer self.allocator.free(owned);
-        try self.queueAction(.{ .fail = .{ .peer_id = peer_id, .answer = answer, .reason = .{ .owned = owned } } });
+        try self.queueAction(.{ .fail = .{ .dest = .fromRedeem(dest), .reason = .{ .owned = owned } } });
     }
 
     /// Commit one failed withdrawal and, when it was the final use of a
@@ -1930,8 +2486,7 @@ pub const Node = struct {
         errdefer self.allocator.free(owned);
         try self.reserveActions(if (retire != null) 2 else 1);
         self.actions.pushReserved(.{ .fail = .{
-            .peer_id = pending.recipient_peer,
-            .answer = pending.answer,
+            .dest = .fromRedeem(pending.dest),
             .reason = .{ .owned = owned },
         } });
         if (retire) |peer_id| self.actions.pushReserved(.{ .retire_exporter = peer_id });
@@ -1952,8 +2507,11 @@ pub const Node = struct {
     }
 
     /// Commit the action returned by `peekAction`, freeing any owned payload.
-    pub fn consumePeekedAction(self: *Node) void {
-        const action = self.actions.pop(self.allocator) orelse unreachable;
+    /// A direct embedder that did not actually peek receives a typed refusal;
+    /// the Host's two-phase executor treats absence after its successful
+    /// consequence as an internal transaction failure rather than trapping.
+    pub fn consumePeekedAction(self: *Node) error{NoPendingAction}!void {
+        const action = self.actions.pop(self.allocator) orelse return error.NoPendingAction;
         self.freeAction(action);
     }
 
@@ -1983,8 +2541,35 @@ pub const Node = struct {
         give: []const u8,
         exporter_locator: []const u8,
     ) !void {
+        return self.acceptGiveTo(
+            .{ .answer = .{ .recipient_peer = recipient_peer, .answer = .from(answer) } },
+            give,
+            exporter_locator,
+        );
+    }
+
+    /// Recipient intercept for a give found inline in a Passable value. The
+    /// Host owns `deferred` and receives it back in exactly one terminal node
+    /// action; the node shares all dial, retry, withdrawal, and cleanup logic
+    /// with the returned-answer path above.
+    pub fn acceptInlineGive(
+        self: *Node,
+        recipient_peer: PeerId,
+        deferred: u64,
+        give: []const u8,
+        exporter_locator: []const u8,
+    ) !void {
+        return self.acceptGiveTo(.{ .deferred = .{ .recipient_peer = recipient_peer, .id = deferred } }, give, exporter_locator);
+    }
+
+    fn acceptGiveTo(
+        self: *Node,
+        dest: RedeemDestination,
+        give: []const u8,
+        exporter_locator: []const u8,
+    ) !void {
         if (exporter_locator.len == 0) {
-            return self.queueFail(recipient_peer, answer, "handoff give names no dialable exporter locator");
+            return self.queueFail(dest, "handoff give names no dialable exporter locator");
         }
         // One parse yields identity + dial parts (ADR-0012 join on
         // transport+designator, not raw URI representation / hints). No verbatim
@@ -1994,8 +2579,7 @@ pub const Node = struct {
         var staged = self.stagePendingDial(exporter_locator) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.UnparseableExporterLocator => return self.queueFail(
-                recipient_peer,
-                answer,
+                dest,
                 "handoff give names unparseable exporter locator",
             ),
         };
@@ -2008,7 +2592,7 @@ pub const Node = struct {
             else
                 false;
             if (retire_on_failure) try self.reserveActions(3);
-            try self.beginWithdraw(exporter_peer, recipient_peer, answer, give);
+            try self.beginWithdraw(exporter_peer, dest, give);
             if (retire_on_failure and slot.?.pending_withdraw_count == 0)
                 self.actions.pushReserved(.{ .retire_exporter = exporter_peer });
             return;
@@ -2016,7 +2600,7 @@ pub const Node = struct {
 
         const owned_give = try self.allocator.dupe(u8, give);
         errdefer self.allocator.free(owned_give);
-        const waiter: Waiter = .{ .recipient_peer = recipient_peer, .answer = answer, .give = owned_give };
+        const waiter: Waiter = .{ .dest = dest, .give = owned_give };
 
         // A dial already in flight for this exporter adopts the redeem instead
         // of opening a second connection.
@@ -2114,9 +2698,9 @@ pub const Node = struct {
     /// session's signing key. The tracking row and the flush action are reserved before the withdraw is
     /// queued: once the withdraw is on the wire, failing to track it would let
     /// its resolve surface to the application as an answer it never asked.
-    fn beginWithdraw(self: *Node, exporter_peer: PeerId, recipient_peer: PeerId, answer: u64, give: []const u8) !void {
+    fn beginWithdraw(self: *Node, exporter_peer: PeerId, dest: RedeemDestination, give: []const u8) !void {
         const slot = self.peers.getPtr(exporter_peer) orelse
-            return self.queueFail(recipient_peer, answer, "handoff redeem failed: exporter session is gone");
+            return self.queueFail(dest, "handoff redeem failed: exporter session is gone");
         const session = slot.peer;
         try self.pending_withdraws.ensureUnusedCapacity(self.allocator, 1);
         // One immediate flush plus the new pending redeem's eventual close
@@ -2129,8 +2713,10 @@ pub const Node = struct {
         // `recipient_key`, and the exporter verifies this receive against
         // that name (ADR-0097). `sendWithdrawGift` takes its side and session
         // names from the exporter session itself.
+        const recipient_secret = self.sessionSecret(dest.recipientPeer()) orelse
+            return self.queueFail(dest, "handoff redeem failed: introducing session is gone");
         session.sendWithdrawGift(
-            self.sessionSecret(recipient_peer),
+            recipient_secret,
             give,
             model.AnswerPosition.from(withdraw_answer),
         ) catch |err| switch (err) {
@@ -2138,12 +2724,12 @@ pub const Node = struct {
             else => {
                 var buf: [128]u8 = undefined;
                 const reason = std.fmt.bufPrint(&buf, "handoff redeem failed: {s}", .{@errorName(err)}) catch "handoff redeem failed";
-                return self.queueFail(recipient_peer, answer, reason);
+                return self.queueFail(dest, reason);
             },
         };
         self.pending_withdraws.putAssumeCapacity(
             .{ .peer_id = exporter_peer, .answer = withdraw_answer },
-            .{ .recipient_peer = recipient_peer, .answer = answer },
+            .{ .dest = dest },
         );
         std.debug.assert(slot.pending_withdraw_count < std.math.maxInt(u32));
         slot.pending_withdraw_count += 1;
@@ -2177,7 +2763,10 @@ pub const Node = struct {
         if (pending_ptr.cancel_requested) return;
         const pending_view = pending_ptr.*;
         const waiter_count = pending_view.waiters.items.len;
-        const redeem_only = waiter_count != 0 and !pending_view.application_owned and !selected;
+        // A dial that lost its final inline recipient while the external
+        // effect was already running is still provisional: accept the physical
+        // completion, then retire it without caching an ownerless session.
+        const redeem_only = !pending_view.application_owned and !selected;
         // A successful waiter consumes one flush action now and one terminal
         // consequence later; a locally failed waiter consumes one failure now.
         // Reserve the larger bound for the whole batch, plus a possible
@@ -2215,13 +2804,12 @@ pub const Node = struct {
         const slot = self.peers.getPtr(exporter_peer);
         if (slot) |live| live.provisional_exporter = redeem_only;
         for (entry.waiters.items) |waiter| {
-            self.beginWithdraw(exporter_peer, waiter.recipient_peer, waiter.answer, waiter.give) catch |err| switch (err) {
+            self.beginWithdraw(exporter_peer, waiter.dest, waiter.give) catch |err| switch (err) {
                 // Map and action capacity were secured above. The remaining
                 // allocation is the peer's outbound message clone; failure
                 // there belongs to this answer, not to the rest of the batch.
                 error.OutOfMemory => self.actions.pushReserved(.{ .fail = .{
-                    .peer_id = waiter.recipient_peer,
-                    .answer = waiter.answer,
+                    .dest = .fromRedeem(waiter.dest),
                     .reason = .{ .static = "handoff redeem failed: local allocation failure" },
                 } }),
             };
@@ -2296,8 +2884,7 @@ pub const Node = struct {
             else
                 .{ .static = "handoff redeem failed: exporter dial failed" };
             self.actions.pushReserved(.{ .fail = .{
-                .peer_id = waiter.recipient_peer,
-                .answer = waiter.answer,
+                .dest = .fromRedeem(waiter.dest),
                 .reason = failure_reason,
             } });
         }
@@ -2319,7 +2906,7 @@ pub const Node = struct {
 
     /// Offer a resolve the embedder polled on `peer_id` to the node. Returns
     /// true when the resolve settles a pending withdraw — the node consumes it
-    /// (enrolling the capability under a token and queueing the `settle`, or
+    /// (enrolling the capability under a route and queueing the `settle`, or
     /// queueing the `fail`), and the embedder must not surface it to the
     /// application. False means the resolve is the application's, untouched.
     pub fn claimResolve(self: *Node, peer_id: PeerId, answer: u64, outcome: RedeemOutcome) !bool {
@@ -2333,16 +2920,15 @@ pub const Node = struct {
         switch (outcome) {
             .far => |far_id| {
                 // Reserve both tables before the enroll clones, so the enroll
-                // (row install + token bump) and the settle queue are one
+                // (row install + route bump) and the settle queue are one
                 // all-or-nothing step: an OOM can only fire before anything
-                // commits, and the retriable withdraw never strands a token.
+                // commits, and the retriable withdraw never strands a route.
                 try self.redeemed.ensureUnusedCapacity(self.allocator, 1);
                 try self.reserveActions(1);
-                const token = try self.enrollRedeemed(peer_id, .{ .far = model.FarRef.object(far_id) });
+                const redeemed = try self.enrollRedeemed(peer_id, .{ .far = model.FarRef.object(far_id) });
                 self.actions.pushReserved(.{ .settle = .{
-                    .peer_id = pending.recipient_peer,
-                    .answer = pending.answer,
-                    .token = token.far.import_position.int(),
+                    .dest = pending.dest,
+                    .route_id = redeemed.routed.id,
                 } });
                 // The application now owns a capability homed on this session.
                 slot.provisional_exporter = false;
@@ -2389,70 +2975,46 @@ pub const Node = struct {
         return self.exporter_locations.get(peer_id) orelse "";
     }
 
-    /// When `far_id` is a foreign **promise** token whose home is not
+    /// When `far_id` is a foreign **promise** route whose home is not
     /// `recipient_peer`, mint a third-party import-promise on the recipient
     /// session, ensure a home-session `op:listen`, and return the near promise
     /// the vat should resolve with (ADR-0009 introducing-session proxy).
     /// Null means this fulfill is not a promise-proxy case (same-home, object
-    /// foreign → gift path, or unknown token). Fails `error.session_not_open`
+    /// foreign → gift path, or unknown route). Fails `error.session_not_open`
     /// when the home peer exists but cannot yet receive an `op:listen`.
     /// Multi-introduce of the same home wire shares **one** home listen; on
-    /// fire the Node owns the settlement and each recipient store materializes
-    /// from that owner (`materializeResolutionForStore`; N=1 moves).
-    pub fn proxyForeignPromiseFulfill(self: *Node, recipient_peer: PeerId, far_id: u64) !?model.Reference {
-        const home = self.homeOf(far_id) orelse return null;
+    /// fire the Host owns the lifted settlement and each recipient store
+    /// materializes its own lowered tree through the shared Passable staging
+    /// transaction.
+    pub fn proxyForeignPromiseFulfill(self: *Node, recipient_peer: PeerId, route_id: model.CapabilityRouteId) !?model.Reference {
+        const home = self.homeOf(route_id) orelse return null;
         if (home == recipient_peer) return null;
-        const enrolled = self.foreignRoute(far_id) orelse return null;
+        const enrolled = self.foreignRoute(route_id) orelse return null;
         const wire_far = switch (enrolled.reference) {
             .far => |f| f,
             else => return null,
         };
         if (wire_far.kind != .promise) return null;
 
-        const hp = self.peer(home) orelse return error.PeerGone;
-        const current_wire_pos = if (hp.session_state.captp_version == .next)
-            hp.session_state.shortenedPromiseTarget(wire_far.import_position).int()
-        else
-            wire_far.import_position.int();
-        const source_key: ProxyHomeKey = .{ .home = home, .wire_pos = current_wire_pos };
-        const home_key = self.proxy_by_source.get(source_key) orelse source_key;
-        const armed_here = self.promise_proxies.getPtr(home_key) == null;
-        if (armed_here) {
-            try self.armHomeProxy(home_key, model.FarRef.promise(current_wire_pos));
-        }
-        errdefer if (armed_here) self.removePromiseProxy(home_key);
-
-        const rp = self.peer(recipient_peer) orelse return error.PeerGone;
-        const host_bytes = hp.session_state.partnerDesignator() orelse return error.MissingPartnerDesignator;
-        const export_pos = try rp.session_state.allocatePromiseExport();
-        errdefer rp.session_state.releaseUnsharedExport(export_pos);
-        try rp.session_state.installThirdPartyImport(.from(export_pos.int()), host_bytes);
-        errdefer rp.session_state.abandonUnsharedThirdPartyImport(.from(export_pos.int()));
-        const row_id = rp.session_state.importedPromiseRowId(.from(export_pos.int())).?;
-
-        const proxy = self.promise_proxies.getPtr(home_key).?;
-        // Refused at introduce time, where the caller can still see it. At fire
-        // time the only outcome left is a break, and the peer that would pay
-        // for an unbounded list is the home session, which is not the one
-        // driving the count.
-        if (proxy.recipients.items.len >= max_proxy_recipients) {
-            return error.ProxyRecipientCapExceeded;
-        }
-        const failure_reason = try self.allocator.dupe(u8, proxy_failure_reason);
-        errdefer self.allocator.free(failure_reason);
-        try proxy.recipients.ensureUnusedCapacity(self.allocator, 1);
-        // Hold the sibling-session drive before publishing the recipient. The
-        // home fire is one-shot, so settlement may not discover afterward
-        // that its listener carriers have no scheduler seat.
-        try self.reserveProxyAction();
-        proxy.recipients.appendAssumeCapacity(.{
-            .peer = recipient_peer,
-            .import_pos = export_pos.int(),
-            .row_id = row_id,
-            .failure_reason = failure_reason,
-        });
-
-        return .{ .near = model.NearRef.promise(export_pos.int()) };
+        // The same prepare/commit package used for recursive Passable values
+        // keeps the historical top-level fulfillment seam transactional too.
+        // One seat is the future recipient settlement drive; the other is the
+        // possible first home-listener flush. Existing proxies simply leave
+        // the second seat unused.
+        try self.reserveActions(2);
+        var projections = [_]InlinePromiseProjection{.{
+            .route_id = route_id,
+            .home = home,
+            .original = .{ .routed = .{ .id = route_id, .kind = .promise } },
+            .source = wire_far,
+        }};
+        var shell: InlinePassableBatch = undefined;
+        shell.recipient_peer = recipient_peer;
+        shell.promises = &projections;
+        var prepared = try self.prepareInlinePromises(&shell);
+        defer prepared.deinit(self);
+        prepared.commit(self);
+        return projections[0].projected.?;
     }
 
     /// Whether `(home_peer, listener_export)` is an armed proxy home-listener.
@@ -2465,7 +3027,7 @@ pub const Node = struct {
     /// Peek → materialize → consume a proxy home-listener fire. Miss path never
     /// allocates. Hit path takes ownership of the materialized resolution and
     /// never returns false after `toOwned`.
-    pub fn claimProxyListenerFire(
+    pub fn claimProjectedProxyListenerFire(
         self: *Node,
         allocator: std.mem.Allocator,
         home_peer: PeerId,
@@ -2474,60 +3036,12 @@ pub const Node = struct {
     ) !bool {
         if (!self.isProxyHomeListener(home_peer, listener_export)) return false;
         const owned = try view_res.toOwned(allocator);
-        std.debug.assert(try self.consumeProxyListenerFire(home_peer, listener_export, owned));
+        std.debug.assert(self.consumeProjectedProxyListenerFire(
+            home_peer,
+            listener_export,
+            owned,
+        ));
         return true;
-    }
-
-    /// Whether a home session's resolution names something whose meaning is
-    /// local to that session, so it cannot be stored on a recipient as it
-    /// stands. This only detects; the caller decides what to do about it.
-    ///
-    /// The resolution was decoded on the home session, so its references mean
-    /// what that session says they mean. Storing them on a recipient session
-    /// unchanged hands that partner a number belonging to a different
-    /// conversation.
-    ///
-    /// Renaming it is not enough. Handing a capability to a third party is a
-    /// handoff: that party has no session with whoever hosts the object, so it
-    /// needs a signed give naming the exporter. Even enrolling the reference
-    /// under a node token only moves the failure later — a token whose home is
-    /// another connection cannot be lowered onto this one, and the send would
-    /// fail at encode with the promise already settled. So a true verdict here
-    /// sends the value to `giftableCapability`: a bare far object is
-    /// introduced by handoff, and everything else is broken, which is a
-    /// settlement the recipient can observe.
-    ///
-    /// Only the arms whose meaning comes from session state count. A `near` is
-    /// an export position, a `far` an import position, a `promise` an answer
-    /// position: each names a slot in one conversation. A `sturdy` names a peer
-    /// and a swissnum, which mean the same thing everywhere, and is the
-    /// ordinary way to hand a durable capability to a third party without a
-    /// handoff — it relays like any other value, and the payload encoder
-    /// already writes it in fulfill position. A `broken` carries only a reason.
-    fn carriesSessionScopedReference(arg: model.Argument) bool {
-        return switch (arg) {
-            .reference => |reference| switch (reference) {
-                .near, .far, .promise => true,
-                .sturdy, .broken => false,
-            },
-            .list, .set => |items| for (items) |item| {
-                if (carriesSessionScopedReference(item)) break true;
-            } else false,
-            .tagged => |tagged| for (tagged.value) |item| {
-                if (carriesSessionScopedReference(item)) break true;
-            } else false,
-            .@"struct" => |entries| for (entries) |entry| {
-                if (carriesSessionScopedReference(entry.value)) break true;
-            } else false,
-            else => false,
-        };
-    }
-
-    fn resolutionCarriesSessionScopedReference(resolution: model.Resolution) bool {
-        return switch (resolution) {
-            .fulfill => |arg| carriesSessionScopedReference(arg),
-            .@"break" => false,
-        };
     }
 
     /// Settle every live recipient of a consumed proxy fire with the break
@@ -2584,183 +3098,128 @@ pub const Node = struct {
         self.queueProxyFlush(recipient.peer);
     }
 
-    /// The capability a relayed resolution can be introduced by handoff, or
-    /// null when it cannot.
-    ///
-    /// Only a bare far object qualifies, and each rejected shape is rejected
-    /// for its own reason. A promise cannot be gifted because a handoff names
-    /// a capability the exporter deposits and the recipient withdraws once,
-    /// while a promise has a settlement of its own that no gift registry
-    /// models. A near names an object this node itself exports, so handing it
-    /// on is a re-export on the recipient's session rather than a handoff, and
-    /// the node cannot do that: it holds export positions, not the objects
-    /// behind them. A value that merely contains references, such as a list or
-    /// a struct, would need each one introduced separately and reassembled.
-    /// All three still break.
-    fn giftableCapability(resolution: model.Resolution) ?model.Reference {
-        const arg = switch (resolution) {
-            .fulfill => |a| a,
-            .@"break" => return null,
-        };
-        const reference = switch (arg) {
-            .reference => |r| r,
-            else => return null,
-        };
-        if (reference != .far or reference.far.kind != .object) return null;
-        return reference;
-    }
+    /// One recipient of a consumed proxy-listener fire. The handle exposes
+    /// only the recipient session identity and one ownership-taking settlement
+    /// operation; Host identity projection remains above Node, while the Node
+    /// keeps the escrowed terminal break and staging transaction private.
+    pub const RelayRecipient = struct {
+        node: *Node,
+        recipient: *ProxyRecipient,
 
-    /// Introduce a relayed capability to every recipient of `row` by handoff.
-    ///
-    /// The draft CapTP specification requires this: a message carrying a
-    /// reference imported from another session must introduce it with a
-    /// handoff, and a `desc:handoff-give` is legal wherever a Passable value
-    /// is. `wire` is the capability as the *home* session names it, which is
-    /// also how the exporter will see it in the deposit.
-    ///
-    /// Each recipient gets its own ticket, because a give is signed for one
-    /// recipient's session key. A recipient whose ticket cannot be parked is
-    /// broken rather than left pending; the rest still proceed.
-    ///
-    /// Infallible, by the contract `breakRecipients` carries and for a sharper
-    /// reason: the caller has already consumed the home listener's fire, so an
-    /// error returned from here would skip the proxy teardown and leave every
-    /// recipient waiting on a promise nothing can settle a second time.
-    fn giftRelayedCapability(self: *Node, row: *PromiseProxy, home: PeerId, wire: model.Reference) void {
-        const token = self.enrollForeign(home, wire) catch {
-            self.breakRecipients(row);
-            return;
-        };
-        const far_id = token.far.import_position.int();
-        for (row.recipients.items) |*r| {
-            const slot: RelayedSlot = .{ .import_pos = r.import_pos, .row_id = r.row_id };
-            const failure_reason = r.takeFailure();
-            self.requestGiftId(r.peer, far_id, .{ .relayed = slot }, failure_reason) catch |err| switch (err) {
-                error.OutOfMemory => self.breakRelayedOwned(r.peer, slot, failure_reason),
-            };
+        pub fn peerId(self: *const RelayRecipient) PeerId {
+            return self.recipient.peer;
         }
-    }
 
-    /// If `listener_export` on `home_peer` is a proxy home-listener, take
-    /// ownership of `resolution` as the fire owner, settle every recipient,
-    /// tear the proxy down, and return true. False leaves `resolution` with
-    /// the caller.
-    ///
-    /// How a recipient is settled depends on what the home session named. A
-    /// value that means the same everywhere is stored directly (moved for
-    /// N=1, `materializeResolutionForStore` for the rest). A value naming a
-    /// slot in the home conversation cannot be, so it takes the handoff branch
-    /// first: a bare far object is introduced with a signed give, and every
-    /// other such shape is broken.
-    pub fn consumeProxyListenerFire(
+        /// Materialize `resolution` into the recipient's allocator, then
+        /// settle it directly or transfer it into the same bounded inline
+        /// Passable transaction ordinary outbound messages use. Returns true
+        /// only when the lowered capability receipts may commit. On false the
+        /// recipient has already received its reserved terminal break.
+        pub fn adopt(self: *RelayRecipient, resolution: model.Resolution) bool {
+            const recipient_peer = self.node.peer(self.recipient.peer) orelse {
+                self.node.breakRecipient(self.recipient);
+                return false;
+            };
+            const owned = model.materializeResolutionForStore(recipient_peer.allocator, resolution) catch {
+                self.node.breakRecipient(self.recipient);
+                return false;
+            };
+            var message: model.Message = .{
+                .resolve = .{
+                    // This is a staging carrier, never a wire answer. The terminal
+                    // destination below consumes only its resolution.
+                    .answer = .from(0),
+                    .resolution = owned,
+                },
+            };
+            var destination: InlinePassableDestination = .{ .relayed = self.recipient.* };
+            self.recipient.failure_reason = null;
+            const staged = self.node.stageInlinePassable(
+                self.recipient.peer,
+                &message,
+                &destination,
+            ) catch {
+                self.recipient.* = destination.relayed;
+                model.freeMessage(recipient_peer.allocator, message);
+                self.node.breakRecipient(self.recipient);
+                return false;
+            };
+            if (staged) return true;
+
+            self.recipient.* = destination.relayed;
+            self.node.settleRecipient(self.recipient, message.resolve.resolution);
+            return true;
+        }
+    };
+
+    /// Consume one proxy-listener fire after the Host has lifted its value.
+    /// `project` is invoked independently for each live recipient and must
+    /// finish through `RelayRecipient.adopt`; a callback that cannot project
+    /// leaves the escrow intact and is broken here. This is intentionally a
+    /// Host-core callback seam, not a public embedding API.
+    pub fn projectProxyListenerFire(
         self: *Node,
         home_peer: PeerId,
         listener_export: u64,
-        resolution: model.Resolution,
-    ) !bool {
-        const home_key = self.proxy_by_listener.get(.{ .home = home_peer, .listener_export = listener_export }) orelse return false;
+        context: anytype,
+        comptime project: anytype,
+    ) bool {
+        const home_key = self.proxy_by_listener.get(.{
+            .home = home_peer,
+            .listener_export = listener_export,
+        }) orelse return false;
         const row = self.promise_proxies.getPtr(home_key) orelse return false;
-        std.debug.assert(row.recipients.items.len > 0);
-
-        // A resolution naming a slot in the home conversation cannot be stored
-        // on a recipient as it stands: the numbers mean what the home session
-        // says they mean. Where the value is a plain capability, the protocol
-        // says what to do instead of breaking — introduce it by handoff. The
-        // home session is not at fault in either case, so nothing is refused
-        // back at it.
-        const owned_resolution = resolution;
-        if (resolutionCarriesSessionScopedReference(owned_resolution)) {
-            defer model.freeResolution(self.allocator, owned_resolution);
-            if (giftableCapability(owned_resolution)) |wire| {
-                self.giftRelayedCapability(row, home_key.home, wire);
-            } else {
-                self.breakRecipients(row);
-            }
-            self.removePromiseProxy(home_key);
-            return true;
-        }
-
-        if (row.recipients.items.len == 1) {
-            self.settleRecipient(&row.recipients.items[0], owned_resolution);
-            self.removePromiseProxy(home_key);
-            return true;
-        }
-
-        // Fire owner: materialize into each live recipient store, then free.
-        defer model.freeResolution(self.allocator, owned_resolution);
-        var index: usize = 0;
-        while (index < row.recipients.items.len) : (index += 1) {
-            const owned = model.materializeResolutionForStore(self.allocator, owned_resolution) catch {
-                while (index < row.recipients.items.len) : (index += 1)
-                    self.breakRecipient(&row.recipients.items[index]);
-                break;
-            };
-            self.settleRecipient(&row.recipients.items[index], owned);
+        for (row.recipients.items) |*recipient| {
+            var relay: RelayRecipient = .{ .node = self, .recipient = recipient };
+            project(context, &relay);
+            if (recipient.failure_reason != null) self.breakRecipient(recipient);
         }
         self.removePromiseProxy(home_key);
         return true;
     }
 
-    /// Install home `op:listen` and insert an armed `PromiseProxy` row.
-    fn armHomeProxy(self: *Node, home_key: ProxyHomeKey, wire_far: model.FarRef) !void {
-        const hp = self.peer(home_key.home) orelse return error.PeerGone;
-        if (!hp.sessionIsOpen()) return error.session_not_open;
-        // Far listen target must already be a held import (enrollment).
+    /// Consume a proxy fire whose owning Host could not lift/project. Every
+    /// recipient already owns a terminal seat, so failure is correlated and
+    /// allocation-free rather than escaping as a host-wide step error.
+    pub fn breakProxyListenerFire(self: *Node, home_peer: PeerId, listener_export: u64) bool {
+        const home_key = self.proxy_by_listener.get(.{
+            .home = home_peer,
+            .listener_export = listener_export,
+        }) orelse return false;
+        const row = self.promise_proxies.getPtr(home_key) orelse return false;
+        self.breakRecipients(row);
+        self.removePromiseProxy(home_key);
+        return true;
+    }
 
-        // Reserved before anything commits, so the flush push below cannot fail
-        // after the row is armed.
-        try self.reserveActions(1);
-        try self.proxy_by_listener.ensureUnusedCapacity(self.allocator, 1);
-        try self.promise_proxies.ensureUnusedCapacity(self.allocator, 1);
-        try self.proxy_by_source.ensureUnusedCapacity(self.allocator, 1);
-        const next = hp.session_state.captp_version == .next;
-        const settling_target = if (next)
-            hp.session_state.shortenedPromiseTarget(wire_far.import_position)
-        else
-            wire_far.import_position;
-        const listener = try hp.session_state.allocateExport();
-        errdefer hp.session_state.releaseUnsharedExport(listener);
-        if (next) {
-            if (!(try hp.session_state.claimPromiseSettlingListener(settling_target, listener, null))) {
-                return error.UnexpectedMessage;
+    /// Consume a complete resolution that is already expressed in Node
+    /// identity: ordinary data plus enrolled foreign routes, never raw
+    /// positions borrowed from some other session. This is the low-level peer
+    /// face of the Host projection above. Every recipient materializes and
+    /// stages independently; `resolution` remains one owner until all
+    /// projections have adopted or broken, then is freed exactly once.
+    pub fn consumeProjectedProxyListenerFire(
+        self: *Node,
+        home_peer: PeerId,
+        listener_export: u64,
+        resolution: model.Resolution,
+    ) bool {
+        if (!self.isProxyHomeListener(home_peer, listener_export)) return false;
+        defer model.freeResolution(self.allocator, resolution);
+        const Projection = struct {
+            resolution: model.Resolution,
+
+            fn recipient(context: *@This(), relay: *RelayRecipient) void {
+                _ = relay.adopt(context.resolution);
             }
-        } else {
-            try hp.session_state.installNodeSettlingResolver(listener);
-        }
-        errdefer if (next) {
-            hp.session_state.abandonPromiseSettlingListener(settling_target);
-        } else {
-            std.debug.assert(hp.session_state.removeOutboundResolver(listener));
         };
-        hp.send(.{
-            .listen = .{
-                .target = .{ .far = model.FarRef.promise(settling_target.int()) },
-                // Project the mention from the authoritative slot (ADR-0080).
-                .listener = session_mod.slot.toReference(hp.session_state.exportSlot(listener).?).?,
-                .mode = .settling_only,
-            },
-        }) catch |err| {
-            return err;
-        };
-
-        const listener_key: ProxyListenerKey = .{
-            .home = home_key.home,
-            .listener_export = listener.int(),
-        };
-        self.proxy_by_listener.putAssumeCapacity(listener_key, home_key);
-        self.promise_proxies.putAssumeCapacity(home_key, .{
-            .listener_export = listener.int(),
-            .current_wire_pos = settling_target.int(),
-        });
-        self.proxy_by_source.putAssumeCapacity(.{
-            .home = home_key.home,
-            .wire_pos = settling_target.int(),
-        }, home_key);
-
-        // This runs while the *recipient's* session is being fed, so nothing
-        // else will encode the home peer's outbound: without the flush the proxy
-        // is armed and the partner is never asked.
-        self.actions.pushReserved(.{ .flush = home_key.home });
+        var projection: Projection = .{ .resolution = resolution };
+        return self.projectProxyListenerFire(
+            home_peer,
+            listener_export,
+            &projection,
+            Projection.recipient,
+        );
     }
 
     fn removePromiseProxy(self: *Node, key: ProxyHomeKey) void {
@@ -2833,16 +3292,670 @@ pub const Node = struct {
     /// only now that the reply is actually becoming a gift — and returns true
     /// (the embedder must not also send a plain resolve; it draws 32 bytes and
     /// feeds `provideGiftId`). False means the reply is ordinary and the
-    /// embedder resolves it itself. Foreign **promise** tokens are not gifted
+    /// embedder resolves it itself. Foreign **promise** routes are not gifted
     /// here — Host rewrites those through `proxyForeignPromiseFulfill`.
-    pub fn interceptFulfilledRef(self: *Node, peer_id: PeerId, answer: u64, far_id: u64) !bool {
-        const home = self.homeOf(far_id) orelse return false;
+    pub fn interceptFulfilledRoute(self: *Node, peer_id: PeerId, answer: u64, route_id: model.CapabilityRouteId) !bool {
+        return self.interceptFulfilledRouteNamed(peer_id, .fromWire(.from(answer)), route_id);
+    }
+
+    pub fn interceptFulfilledRouteNamed(self: *Node, peer_id: PeerId, answer: model.AnswerName, route_id: model.CapabilityRouteId) !bool {
+        const home = self.homeOf(route_id) orelse return false;
         if (home == peer_id) return false;
-        if (self.foreignRoute(far_id)) |enrolled| {
+        if (self.foreignRoute(route_id)) |enrolled| {
             if (enrolled.reference == .far and enrolled.reference.far.kind == .promise) return false;
         }
-        try self.requestGiftId(peer_id, far_id, .{ .answer = answer }, null);
+        try self.requestGiftId(peer_id, route_id, .{ .answer = answer }, null);
         return true;
+    }
+
+    const PreparedInlineDeposit = struct {
+        peer: *engine.Peer,
+        deposit: engine.handoff_gifter.PreparedDepositGift,
+    };
+
+    const InlineExporterPreparation = struct {
+        peer: *engine.Peer,
+        count: usize = 0,
+        batch: ?engine.Peer.PendingBatch = null,
+    };
+
+    const PreparedPromiseHome = struct {
+        key: ProxyHomeKey,
+        listener_export: model.ExportPosition,
+        current_wire_pos: u64,
+        next: bool,
+        message: model.Message,
+        reservation: engine.Peer.PendingReservation,
+        proxy: PromiseProxy,
+        committed: bool = false,
+
+        fn abandon(self: *PreparedPromiseHome, node: *Node) void {
+            if (self.committed) return;
+            if (node.peer(self.key.home)) |home| {
+                home.cancelPendingReservation(self.reservation);
+                if (self.next) {
+                    home.session_state.abandonPromiseSettlingListener(.from(self.current_wire_pos));
+                } else {
+                    std.debug.assert(home.session_state.removeOutboundResolver(self.listener_export));
+                }
+                home.session_state.releaseUnsharedExport(self.listener_export);
+            }
+            self.proxy.deinit(node.allocator);
+            self.* = undefined;
+        }
+
+        fn commit(self: *PreparedPromiseHome, node: *Node) void {
+            const home = node.peer(self.key.home) orelse unreachable;
+            home.session_state.recordSend(self.message) catch unreachable;
+            home.pushPendingAssume(self.reservation, .{ .message = self.message });
+            const listener_key: ProxyListenerKey = .{
+                .home = self.key.home,
+                .listener_export = self.listener_export.int(),
+            };
+            node.proxy_by_listener.putAssumeCapacity(listener_key, self.key);
+            node.promise_proxies.putAssumeCapacity(self.key, self.proxy);
+            node.proxy_by_source.putAssumeCapacity(.{
+                .home = self.key.home,
+                .wire_pos = self.current_wire_pos,
+            }, self.key);
+            node.actions.pushReserved(.{ .flush = self.key.home });
+            self.committed = true;
+        }
+    };
+
+    const InlinePromiseGroup = struct {
+        count: usize = 0,
+        prepared_home: ?PreparedPromiseHome = null,
+    };
+
+    const PreparedPromiseRecipient = struct {
+        home_key: ProxyHomeKey,
+        peer: PeerId,
+        export_position: model.ExportPosition,
+        import_position: model.ImportPosition,
+        row_id: u64,
+        failure_reason: []u8,
+        committed: bool = false,
+
+        fn abandon(self: *PreparedPromiseRecipient, node: *Node) void {
+            if (self.committed) return;
+            if (node.peer(self.peer)) |recipient| {
+                recipient.session_state.abandonUnsharedThirdPartyImport(self.import_position);
+                recipient.session_state.releaseUnsharedExport(self.export_position);
+            }
+            node.allocator.free(self.failure_reason);
+            self.* = undefined;
+        }
+
+        fn commit(self: *PreparedPromiseRecipient, node: *Node) void {
+            const proxy = node.promise_proxies.getPtr(self.home_key) orelse unreachable;
+            proxy.recipients.appendAssumeCapacity(.{
+                .peer = self.peer,
+                .import_pos = self.import_position.int(),
+                .row_id = self.row_id,
+                .failure_reason = self.failure_reason,
+            });
+            self.committed = true;
+        }
+    };
+
+    const PreparedInlinePromises = struct {
+        groups: std.AutoHashMapUnmanaged(ProxyHomeKey, InlinePromiseGroup) = .empty,
+        recipients: std.ArrayListUnmanaged(PreparedPromiseRecipient) = .empty,
+        committed: bool = false,
+
+        fn deinit(self: *PreparedInlinePromises, node: *Node) void {
+            if (!self.committed) {
+                for (self.recipients.items) |*recipient| recipient.abandon(node);
+                var groups = self.groups.valueIterator();
+                while (groups.next()) |group| if (group.prepared_home) |*home|
+                    home.abandon(node);
+            }
+            self.recipients.deinit(node.allocator);
+            self.groups.deinit(node.allocator);
+            self.* = undefined;
+        }
+
+        fn commit(self: *PreparedInlinePromises, node: *Node) void {
+            var groups = self.groups.valueIterator();
+            while (groups.next()) |group| if (group.prepared_home) |*home|
+                home.commit(node);
+            for (self.recipients.items) |*recipient| recipient.commit(node);
+            node.proxy_action_reservations += self.recipients.items.len;
+            self.committed = true;
+        }
+    };
+
+    fn preparePromiseHome(
+        self: *Node,
+        key: ProxyHomeKey,
+        wire_far: model.FarRef,
+        recipient_count: usize,
+    ) !PreparedPromiseHome {
+        const home = self.peer(key.home) orelse return error.PeerGone;
+        if (!home.sessionIsOpen()) return error.session_not_open;
+        const next = home.session_state.captp_version == .next;
+        const settling_target = if (next)
+            home.session_state.shortenedPromiseTarget(wire_far.import_position)
+        else
+            wire_far.import_position;
+        const listener = try home.session_state.allocateExport();
+        errdefer home.session_state.releaseUnsharedExport(listener);
+        if (next) {
+            if (!(try home.session_state.claimPromiseSettlingListener(settling_target, listener, null)))
+                return error.UnexpectedMessage;
+        } else {
+            try home.session_state.installNodeSettlingResolver(listener);
+        }
+        errdefer if (next) {
+            home.session_state.abandonPromiseSettlingListener(settling_target);
+        } else {
+            std.debug.assert(home.session_state.removeOutboundResolver(listener));
+        };
+        const message: model.Message = .{ .listen = .{
+            .target = .{ .far = model.FarRef.promise(settling_target.int()) },
+            .listener = session_mod.slot.toReference(home.session_state.exportSlot(listener).?).?,
+            .mode = .settling_only,
+        } };
+        try home.session_state.admits(model.view.Body.fromOwned(&message));
+        try session_mod.validate.validateSend(&home.session_state, message);
+        const reservation = try home.reservePending(.{ .message = message });
+        errdefer home.cancelPendingReservation(reservation);
+        var proxy: PromiseProxy = .{
+            .listener_export = listener.int(),
+            .current_wire_pos = settling_target.int(),
+        };
+        errdefer proxy.deinit(self.allocator);
+        try proxy.recipients.ensureUnusedCapacity(self.allocator, recipient_count);
+        return .{
+            .key = key,
+            .listener_export = listener,
+            .current_wire_pos = settling_target.int(),
+            .next = next,
+            .message = message,
+            .reservation = reservation,
+            .proxy = proxy,
+        };
+    }
+
+    fn preparePromiseRecipient(
+        self: *Node,
+        recipient: *engine.Peer,
+        recipient_peer: PeerId,
+        home_key: ProxyHomeKey,
+        host_bytes: []const u8,
+    ) !PreparedPromiseRecipient {
+        const export_position = try recipient.session_state.allocatePromiseExport();
+        errdefer recipient.session_state.releaseUnsharedExport(export_position);
+        const import_position = model.ImportPosition.from(export_position.int());
+        try recipient.session_state.installThirdPartyImport(import_position, host_bytes);
+        errdefer recipient.session_state.abandonUnsharedThirdPartyImport(import_position);
+        const failure_reason = try self.allocator.dupe(u8, proxy_failure_reason);
+        return .{
+            .home_key = home_key,
+            .peer = recipient_peer,
+            .export_position = export_position,
+            .import_position = import_position,
+            .row_id = recipient.session_state.importedPromiseRowId(import_position).?,
+            .failure_reason = failure_reason,
+        };
+    }
+
+    fn prepareInlinePromises(
+        self: *Node,
+        batch: *InlinePassableBatch,
+    ) !PreparedInlinePromises {
+        var prepared: PreparedInlinePromises = .{};
+        errdefer prepared.deinit(self);
+        if (batch.promises.len == 0) return prepared;
+
+        try prepared.groups.ensureUnusedCapacity(self.allocator, @intCast(batch.promises.len));
+        for (batch.promises) |promise| {
+            const foreign = self.foreignRoute(promise.route_id) orelse return error.RouteNotLowerable;
+            if (foreign.peer_id != promise.home or foreign.reference != .far or
+                !std.meta.eql(foreign.reference.far, promise.source))
+                return error.RouteNotLowerable;
+            const home = self.peer(promise.home) orelse return error.PeerGone;
+            const current_wire_pos = if (home.session_state.captp_version == .next)
+                home.session_state.shortenedPromiseTarget(promise.source.import_position).int()
+            else
+                promise.source.import_position.int();
+            const source_key: ProxyHomeKey = .{ .home = promise.home, .wire_pos = current_wire_pos };
+            const home_key = self.proxy_by_source.get(source_key) orelse source_key;
+            const entry = prepared.groups.getOrPutAssumeCapacity(home_key);
+            if (!entry.found_existing) entry.value_ptr.* = .{};
+            entry.value_ptr.count = std.math.add(
+                usize,
+                entry.value_ptr.count,
+                1,
+            ) catch return error.ProxyRecipientCapExceeded;
+        }
+
+        var new_homes: usize = 0;
+        var groups = prepared.groups.iterator();
+        while (groups.next()) |entry| {
+            if (self.promise_proxies.getPtr(entry.key_ptr.*)) |proxy| {
+                const total_recipients = std.math.add(
+                    usize,
+                    proxy.recipients.items.len,
+                    entry.value_ptr.count,
+                ) catch return error.ProxyRecipientCapExceeded;
+                if (total_recipients > max_proxy_recipients)
+                    return error.ProxyRecipientCapExceeded;
+                try proxy.recipients.ensureUnusedCapacity(self.allocator, entry.value_ptr.count);
+            } else {
+                if (entry.value_ptr.count > max_proxy_recipients)
+                    return error.ProxyRecipientCapExceeded;
+                new_homes += 1;
+            }
+        }
+        try self.proxy_by_listener.ensureUnusedCapacity(self.allocator, @intCast(new_homes));
+        try self.promise_proxies.ensureUnusedCapacity(self.allocator, @intCast(new_homes));
+        try self.proxy_by_source.ensureUnusedCapacity(self.allocator, @intCast(new_homes));
+
+        groups = prepared.groups.iterator();
+        while (groups.next()) |entry| {
+            if (self.promise_proxies.contains(entry.key_ptr.*)) continue;
+            entry.value_ptr.prepared_home = try self.preparePromiseHome(
+                entry.key_ptr.*,
+                model.FarRef.promise(entry.key_ptr.*.wire_pos),
+                entry.value_ptr.count,
+            );
+        }
+
+        try prepared.recipients.ensureTotalCapacityPrecise(self.allocator, batch.promises.len);
+        const recipient = self.peer(batch.recipient_peer) orelse return error.PeerGone;
+        for (batch.promises) |*promise| {
+            const home = self.peer(promise.home) orelse return error.PeerGone;
+            const current_wire_pos = if (home.session_state.captp_version == .next)
+                home.session_state.shortenedPromiseTarget(promise.source.import_position).int()
+            else
+                promise.source.import_position.int();
+            const source_key: ProxyHomeKey = .{ .home = promise.home, .wire_pos = current_wire_pos };
+            const home_key = self.proxy_by_source.get(source_key) orelse source_key;
+            const host_bytes = home.session_state.partnerDesignator() orelse
+                return error.MissingPartnerDesignator;
+            const projected = try self.preparePromiseRecipient(
+                recipient,
+                batch.recipient_peer,
+                home_key,
+                host_bytes,
+            );
+            prepared.recipients.appendAssumeCapacity(projected);
+            promise.projected = .{ .near = model.NearRef.promise(projected.export_position.int()) };
+        }
+        return prepared;
+    }
+
+    fn replaceInlineProjectionArguments(
+        self: *Node,
+        recipient_peer: PeerId,
+        args: []const model.Argument,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        gift_index: *usize,
+        promise_index: *usize,
+    ) engine.node_services.OutboundStagingError!void {
+        for (@constCast(args)) |*arg|
+            try self.replaceInlineProjectionArgument(
+                recipient_peer,
+                arg,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            );
+    }
+
+    fn replaceInlineProjectionArgument(
+        self: *Node,
+        recipient_peer: PeerId,
+        arg: *model.Argument,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        gift_index: *usize,
+        promise_index: *usize,
+    ) engine.node_services.OutboundStagingError!void {
+        switch (arg.*) {
+            .reference => |reference| if (try self.inlineProjectionRoute(recipient_peer, reference)) |projection| {
+                switch (projection.kind) {
+                    .object => {
+                        const gift = &gifts[gift_index.*];
+                        if (gift.route_id != projection.route_id or gift.home != projection.home or
+                            !std.meta.eql(gift.original, reference))
+                            return error.RouteNotLowerable;
+                        const handoff = gift.handoff orelse return error.RouteNotLowerable;
+                        arg.* = .{ .handoff = handoff };
+                        gift.handoff = null;
+                        gift.inserted_handoff = handoff;
+                        gift_index.* += 1;
+                    },
+                    .promise => {
+                        const promise = &promises[promise_index.*];
+                        if (promise.route_id != projection.route_id or promise.home != projection.home or
+                            !std.meta.eql(promise.original, reference))
+                            return error.RouteNotLowerable;
+                        arg.* = .{ .reference = promise.projected orelse return error.RouteNotLowerable };
+                        promise.inserted_at = arg;
+                        promise_index.* += 1;
+                    },
+                }
+            },
+            .list, .set => |items| try self.replaceInlineProjectionArguments(
+                recipient_peer,
+                items,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            ),
+            .tagged => |tagged| try self.replaceInlineProjectionArguments(
+                recipient_peer,
+                tagged.value,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            ),
+            .@"struct" => |entries| for (@constCast(entries)) |*entry|
+                try self.replaceInlineProjectionArgument(
+                    recipient_peer,
+                    &entry.value,
+                    gifts,
+                    promises,
+                    gift_index,
+                    promise_index,
+                ),
+            else => {},
+        }
+    }
+
+    fn replaceInlineProjections(self: *Node, batch: *InlinePassableBatch) !void {
+        var gift_index: usize = 0;
+        var promise_index: usize = 0;
+        switch (batch.message) {
+            .deliver => |deliver| try self.replaceInlineProjectionArguments(
+                batch.recipient_peer,
+                deliver.args,
+                batch.gifts,
+                batch.promises,
+                &gift_index,
+                &promise_index,
+            ),
+            .resolve => |*resolve| switch (resolve.resolution) {
+                .fulfill => |*arg| try self.replaceInlineProjectionArgument(
+                    batch.recipient_peer,
+                    arg,
+                    batch.gifts,
+                    batch.promises,
+                    &gift_index,
+                    &promise_index,
+                ),
+                .@"break" => {},
+            },
+            else => unreachable,
+        }
+        if (gift_index != batch.gifts.len or promise_index != batch.promises.len)
+            return error.RouteNotLowerable;
+    }
+
+    fn restoreInlineProjectionArguments(
+        args: []const model.Argument,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        gift_index: *usize,
+        promise_index: *usize,
+    ) void {
+        for (@constCast(args)) |*arg|
+            restoreInlineProjectionArgument(arg, gifts, promises, gift_index, promise_index);
+    }
+
+    fn restoreInlineProjectionArgument(
+        arg: *model.Argument,
+        gifts: []InlineGift,
+        promises: []InlinePromiseProjection,
+        gift_index: *usize,
+        promise_index: *usize,
+    ) void {
+        switch (arg.*) {
+            .handoff => |handoff| if (gift_index.* < gifts.len and
+                gifts[gift_index.*].inserted_handoff == handoff)
+            {
+                const gift = &gifts[gift_index.*];
+                gift.handoff = handoff;
+                gift.inserted_handoff = null;
+                arg.* = .{ .reference = gift.original };
+                gift_index.* += 1;
+            },
+            .reference => if (promise_index.* < promises.len and
+                promises[promise_index.*].inserted_at == arg)
+            {
+                const promise = &promises[promise_index.*];
+                arg.* = .{ .reference = promise.original };
+                promise.inserted_at = null;
+                promise_index.* += 1;
+            },
+            .list, .set => |items| restoreInlineProjectionArguments(
+                items,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            ),
+            .tagged => |tagged| restoreInlineProjectionArguments(
+                tagged.value,
+                gifts,
+                promises,
+                gift_index,
+                promise_index,
+            ),
+            .@"struct" => |entries| for (@constCast(entries)) |*entry|
+                restoreInlineProjectionArgument(
+                    &entry.value,
+                    gifts,
+                    promises,
+                    gift_index,
+                    promise_index,
+                ),
+            else => {},
+        }
+    }
+
+    fn restoreInlineProjections(batch: *InlinePassableBatch) void {
+        var gift_index: usize = 0;
+        var promise_index: usize = 0;
+        switch (batch.message) {
+            .deliver => |deliver| restoreInlineProjectionArguments(
+                deliver.args,
+                batch.gifts,
+                batch.promises,
+                &gift_index,
+                &promise_index,
+            ),
+            .resolve => |*resolve| switch (resolve.resolution) {
+                .fulfill => |*arg| restoreInlineProjectionArgument(
+                    arg,
+                    batch.gifts,
+                    batch.promises,
+                    &gift_index,
+                    &promise_index,
+                ),
+                .@"break" => {},
+            },
+            else => {},
+        }
+    }
+
+    fn cancelInlineGiftTickets(self: *Node, batch_id: InlinePassableBatchId) void {
+        while (true) {
+            var found: ?u64 = null;
+            var it = self.pending_gifts.iterator();
+            while (it.next()) |entry| switch (entry.value_ptr.dest) {
+                .inline_gift => |staged| if (staged.batch == batch_id) {
+                    found = entry.key_ptr.*;
+                    break;
+                },
+                else => {},
+            };
+            const ticket = found orelse break;
+            var pending = (self.pending_gifts.fetchRemove(ticket) orelse unreachable).value;
+            pending.releaseFailure(self.allocator);
+        }
+    }
+
+    fn spendInlinePassableTerminalReservations(self: *Node, batch: *InlinePassableBatch) void {
+        std.debug.assert(self.inline_passable_action_reservations >= batch.terminal_action_reservations);
+        self.inline_passable_action_reservations -= batch.terminal_action_reservations;
+        batch.terminal_action_reservations = 0;
+    }
+
+    fn queueInlineGiftLeaseReleases(self: *Node, gifts: []const InlineGift) void {
+        for (gifts) |gift| if (gift.capability_lease) |capability_raw|
+            self.actions.pushReserved(.{ .release_capability = capability_raw });
+    }
+
+    fn queueInlinePromiseLeaseReleases(
+        self: *Node,
+        promises: []const InlinePromiseProjection,
+    ) void {
+        for (promises) |promise| if (promise.capability_lease) |capability_raw|
+            self.actions.pushReserved(.{ .release_capability = capability_raw });
+    }
+
+    fn unclaimInlineProjectionLeases(self: *Node, batch: *InlinePassableBatch) void {
+        for (batch.gifts) |*gift| if (gift.capability_lease) |capability_raw| {
+            self.unclaimOutboundStagingLease(gift.route_id, capability_raw);
+            gift.capability_lease = null;
+        };
+        for (batch.promises) |*promise| if (promise.capability_lease) |capability_raw| {
+            self.unclaimOutboundStagingLease(promise.route_id, capability_raw);
+            promise.capability_lease = null;
+        };
+    }
+
+    fn failInlinePassableBatch(self: *Node, batch_id: InlinePassableBatchId, err: anyerror) void {
+        var batch = (self.pending_inline_passables.fetchRemove(batch_id) orelse return).value;
+        self.cancelInlineGiftTickets(batch_id);
+        self.spendInlinePassableTerminalReservations(&batch);
+        switch (batch.destination) {
+            .outbound => if (self.peer(batch.recipient_peer) != null) {
+                self.actions.pushReserved(.{ .fail_session = .{
+                    .peer_id = batch.recipient_peer,
+                    .reason = @errorName(err),
+                } });
+            },
+            .relayed => |*recipient| self.breakRecipient(recipient),
+        }
+        self.queueInlineGiftLeaseReleases(batch.gifts);
+        self.queueInlinePromiseLeaseReleases(batch.promises);
+        batch.deinit(self);
+    }
+
+    fn finishInlinePassableBatch(self: *Node, batch_id: InlinePassableBatchId) !void {
+        const batch = self.pending_inline_passables.getPtr(batch_id) orelse return;
+        if (batch.ready != batch.gifts.len) return;
+        const recipient = self.peer(batch.recipient_peer) orelse return error.RouteNotLowerable;
+
+        var deposits: std.ArrayListUnmanaged(PreparedInlineDeposit) = .empty;
+        defer deposits.deinit(self.allocator);
+        errdefer for (deposits.items) |*prepared| prepared.deposit.abandon(prepared.peer);
+        try deposits.ensureTotalCapacityPrecise(self.allocator, batch.gifts.len);
+
+        // One inline message may carry several gifts homed on the same
+        // exporter. Reserve that exporter's complete queue transaction once;
+        // independent one-row reservations would not enforce the cumulative
+        // waterline while none of the prepared deposits is appended yet.
+        var exporters: std.AutoHashMapUnmanaged(PeerId, InlineExporterPreparation) = .empty;
+        defer exporters.deinit(self.allocator);
+        try exporters.ensureUnusedCapacity(self.allocator, @intCast(batch.gifts.len));
+        for (batch.gifts) |gift| {
+            const exporter = self.peer(gift.home) orelse return error.RouteNotLowerable;
+            const entry = exporters.getOrPutAssumeCapacity(gift.home);
+            if (!entry.found_existing) entry.value_ptr.* = .{ .peer = exporter };
+            entry.value_ptr.count += 1;
+        }
+        var exporter_it = exporters.valueIterator();
+        while (exporter_it.next()) |entry|
+            entry.batch = try entry.peer.beginPendingBatch(entry.count);
+
+        for (batch.gifts) |gift| {
+            const exporter = exporters.getPtr(gift.home) orelse unreachable;
+            const pending_batch = if (exporter.batch) |*pending| pending else unreachable;
+            deposits.appendAssumeCapacity(.{
+                .peer = exporter.peer,
+                .deposit = try engine.handoff_gifter.prepareDepositGiftInBatch(
+                    exporter.peer,
+                    pending_batch,
+                    &gift.gift_id,
+                    gift.gifted,
+                ),
+            });
+        }
+
+        var promises = try self.prepareInlinePromises(batch);
+        defer promises.deinit(self);
+
+        var projections_rewritten = true;
+        errdefer if (projections_rewritten) restoreInlineProjections(batch);
+        try self.replaceInlineProjections(batch);
+        switch (batch.destination) {
+            .outbound => {
+                // Validate the rewritten recipient message while the batch
+                // still owns it. Ordinary `Peer.send` consumes on every
+                // outcome, so every deterministic refusal we can know here
+                // must happen before that ownership edge.
+                try recipient.session_state.admits(model.view.Body.fromOwned(&batch.message));
+                try session_mod.validate.validateSend(&recipient.session_state, batch.message);
+                recipient.cancelInlinePassableStaging(batch.staging_reservation.?);
+                batch.staging_reservation = null;
+                const send_result = recipient.send(batch.message);
+                batch.message_owned = false;
+                projections_rewritten = false;
+                try send_result;
+
+                promises.commit(self);
+                for (deposits.items) |*prepared| prepared.deposit.commit(prepared.peer);
+                deposits.clearRetainingCapacity();
+            },
+            .relayed => |*proxy_recipient| {
+                const resolve = switch (batch.message) {
+                    .resolve => |*value| value,
+                    else => unreachable,
+                };
+                try recipient.session_state.validateStoredResolution(resolve.resolution);
+                const imported = recipient.session_state.findImportedPromise(
+                    .from(proxy_recipient.import_pos),
+                ) orelse return error.InvalidReference;
+                if (imported.cell.row_id != proxy_recipient.row_id)
+                    return error.InvalidReference;
+                if (imported.cell.resolution != null)
+                    return error.UnexpectedMessage;
+
+                // The row is live and the complete rewritten value is
+                // admissible. Commit every gift/proxy consequence before the
+                // recipient store can publish the resolution; one recipient
+                // therefore observes all of its projection or only its
+                // reserved terminal break.
+                promises.commit(self);
+                for (deposits.items) |*prepared| prepared.deposit.commit(prepared.peer);
+                deposits.clearRetainingCapacity();
+                recipient.cancelInlinePassableStaging(batch.staging_reservation.?);
+                batch.staging_reservation = null;
+                const resolution = resolve.resolution;
+                batch.message_owned = false;
+                projections_rewritten = false;
+                self.settleRecipient(proxy_recipient, resolution);
+            },
+        }
+
+        var finished = (self.pending_inline_passables.fetchRemove(batch_id) orelse unreachable).value;
+        self.spendInlinePassableTerminalReservations(&finished);
+        for (finished.gifts) |gift| self.actions.pushReserved(.{ .flush = gift.home });
+        if (finished.destination == .outbound)
+            self.actions.pushReserved(.{ .flush = finished.recipient_peer });
+        self.queueInlineGiftLeaseReleases(finished.gifts);
+        self.queueInlinePromiseLeaseReleases(finished.promises);
+        finished.deinit(self);
     }
 
     /// Park a pending gift and ask the embedder for its id. Entropy is a host
@@ -2859,7 +3972,7 @@ pub const Node = struct {
     fn requestGiftId(
         self: *Node,
         recipient_peer: PeerId,
-        far_id: u64,
+        route_id: model.CapabilityRouteId,
         dest: PendingGift.Dest,
         failure_reason: ?[]u8,
     ) !void {
@@ -2868,7 +3981,7 @@ pub const Node = struct {
         const ticket = self.next_pending;
         self.pending_gifts.putAssumeCapacity(ticket, .{
             .recipient_peer = recipient_peer,
-            .far_id = far_id,
+            .route_id = route_id,
             .dest = dest,
             .failure_reason = failure_reason,
         });
@@ -2882,11 +3995,14 @@ pub const Node = struct {
         var pending = pending_in;
         switch (pending.dest) {
             .answer => |answer| self.actions.pushReserved(.{ .fail = .{
-                .peer_id = pending.recipient_peer,
-                .answer = answer,
+                .dest = .{ .served_answer = .{
+                    .recipient_peer = pending.recipient_peer,
+                    .answer = answer,
+                } },
                 .reason = .{ .static = reason },
             } }),
             .relayed => |slot| self.breakRelayedOwned(pending.recipient_peer, slot, pending.takeFailure()),
+            .inline_gift => |staged| self.failInlinePassableBatch(staged.batch, error.GiftIdUnavailable),
         }
     }
 
@@ -2905,11 +4021,73 @@ pub const Node = struct {
         // settles its destination broken without another allocation.
         try self.reserveActions(2);
         var pending = (self.pending_gifts.fetchRemove(ticket) orelse unreachable).value;
+        if (pending.dest == .inline_gift) {
+            const staged = pending.dest.inline_gift;
+            const batch = self.pending_inline_passables.getPtr(staged.batch) orelse return;
+            if (staged.gift_index >= batch.gifts.len or
+                gift_id.len != model.HANDOFF_GIFT_ID_BYTES)
+            {
+                self.failInlinePassableBatch(staged.batch, error.GiftIdUnavailable);
+                return;
+            }
+            const gift = &batch.gifts[staged.gift_index];
+            const gift_route = self.route(.{ .routed = .{ .id = pending.route_id } }) orelse {
+                self.failInlinePassableBatch(staged.batch, error.RouteNotLowerable);
+                return;
+            };
+            if (gift_route.peer_id != gift.home or !std.meta.eql(gift_route.reference, gift.gifted)) {
+                self.failInlinePassableBatch(staged.batch, error.RouteNotLowerable);
+                return;
+            }
+            const recipient = self.peer(pending.recipient_peer) orelse {
+                self.failInlinePassableBatch(staged.batch, error.UnknownConnection);
+                return;
+            };
+            const exporter = self.peer(gift.home) orelse {
+                self.failInlinePassableBatch(staged.batch, error.UnknownConnection);
+                return;
+            };
+            const recipient_key = recipient.session_state.partnerSessionKey() orelse {
+                self.failInlinePassableBatch(staged.batch, error.NoRecipientKey);
+                return;
+            };
+            const exporter_key = exporter.session_state.partnerSessionKey() orelse {
+                self.failInlinePassableBatch(staged.batch, error.NoExporterKey);
+                return;
+            };
+            const claimed = exporter.session_state.partnerLocatorRaw() orelse {
+                self.failInlinePassableBatch(staged.batch, error.NoExporterLocator);
+                return;
+            };
+            const exporter_location = self.exporterLocation(gift.home);
+            const give = self.mintGive(
+                gift.home,
+                gift_id,
+                recipient_key,
+                exporter_key,
+                if (exporter_location.len != 0) exporter_location else claimed,
+                recipient.session_state.partnerKnownPancake(),
+            ) catch |err| {
+                self.failInlinePassableBatch(staged.batch, err);
+                return;
+            };
+            defer self.allocator.free(give);
+            gift.handoff = engine.handoff_gifter.decodeHandoffGive(batch.allocator, give) catch |err| {
+                self.failInlinePassableBatch(staged.batch, err);
+                return;
+            };
+            @memcpy(&gift.gift_id, gift_id);
+            batch.ready += 1;
+            pending.releaseFailure(self.allocator);
+            self.finishInlinePassableBatch(staged.batch) catch |err|
+                self.failInlinePassableBatch(staged.batch, err);
+            return;
+        }
         // Resolve the exporter connection and the real reference to deposit there.
-        // The claimed far is a foreign-import token (ADR-0069) that carries the real
-        // `far(position)` to deposit; depositing the token itself would name an
+        // The claimed far is a foreign-import route (ADR-0069) that carries the real
+        // `far(position)` to deposit; depositing the route itself would name an
         // export the exporter never made.
-        const r = self.foreignRoute(pending.far_id) orelse {
+        const r = self.route(.{ .routed = .{ .id = pending.route_id } }) orelse {
             self.failPendingGiftReserved(pending, "handoff origination failed: home connection is gone");
             return;
         };
@@ -2944,7 +4122,7 @@ pub const Node = struct {
         // Callers normally report failure after popping the request, which
         // leaves its reserved queue slot available. Reserve explicitly so the
         // verb is still correct if a direct Node embedder reports early.
-        if (pending_view.dest == .answer) try self.reserveActions(1);
+        if (pending_view.dest == .answer or pending_view.dest == .inline_gift) try self.reserveActions(1);
         const pending = (self.pending_gifts.fetchRemove(ticket) orelse unreachable).value;
         self.failPendingGiftReserved(pending, "handoff origination failed: gift-id entropy unavailable");
     }
@@ -2988,18 +4166,26 @@ pub const Node = struct {
         else
             claimed;
 
-        const give = try self.mintGive(exporter_peer, gift_id, recipient_key, exporter_key, exporter_loc);
+        const give = try self.mintGive(
+            exporter_peer,
+            gift_id,
+            recipient_key,
+            exporter_key,
+            exporter_loc,
+            rp.session_state.partnerKnownPancake(),
+        );
         defer self.allocator.free(give);
 
         // The transaction owns exporter preparation and both local queue
         // commits. A prepared session mutation never escapes for a caller to
         // stale; the two transports remain free to deliver either queue first.
         const destination: engine.handoff_gifter.GiveDestination = switch (dest) {
-            .answer => |answer| .{ .answer = model.AnswerPosition.from(answer) },
+            .answer => |answer| .{ .answer = answer },
             .relayed => |slot| .{ .relayed = .{
                 .import_position = model.ImportPosition.from(slot.import_pos),
                 .row_id = slot.row_id,
             } },
+            .inline_gift => unreachable,
         };
         try engine.handoff_gifter.queueOriginatedGive(
             ep,
@@ -3025,6 +4211,9 @@ pub const Node = struct {
     /// second caller exist without a second copy of the signing.
     ///
     /// The caller owns the returned bytes.
+    /// Mint one signed give for its recipient. Body lives in
+    /// `handoff_gifter.mintGive`; this resolves the gifter–exporter session
+    /// secret the signature needs (ADR-0097).
     fn mintGive(
         self: *Node,
         exporter_peer: PeerId,
@@ -3032,25 +4221,17 @@ pub const Node = struct {
         recipient_key: []const u8,
         exporter_key: []const u8,
         exporter_loc: []const u8,
+        recipient_known_pancake: bool,
     ) ![]u8 {
-        // Signed by the gifter's key on the gifter–exporter session, whose
-        // names this give carries (ADR-0097): the exporter verifies the
-        // signature against the partner key it already proved on that
-        // session, so any other key — including this node's durable one —
-        // would not verify once sessions stop sharing a key.
-        const secret = self.sessionSecret(exporter_peer);
-        const gifter_side = try engine.handoff_recipient.sideName(secret.publicKey().asBytes());
-        const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
-        const session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
-
-        return engine.handoff_gifter.buildSignedGive(
+        const secret = self.sessionSecret(exporter_peer) orelse return error.RouteNotLowerable;
+        return engine.handoff_gifter.mintGive(
             self.allocator,
             secret,
-            recipient_key,
-            exporter_loc,
-            &session,
-            &gifter_side,
             gift_id,
+            recipient_key,
+            exporter_key,
+            exporter_loc,
+            recipient_known_pancake,
         );
     }
 };

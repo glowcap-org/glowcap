@@ -17,15 +17,22 @@
 
 (define (iroh-ffi-table L _PancakeIrohConfig-pointer)
   (hasheq
+   'archive-fingerprint
+   (get-ffi-obj 'pancake_iroh_archive_fingerprint L (_fun -> _uint64))
    'last-error
    (get-ffi-obj 'pancake_iroh_last_error L (_fun _pointer _size -> _size))
    'netlayer-new
-   (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_new L (_fun #:blocking? #t _pointer _size (_or-null _PancakeIrohConfig-pointer) _pointer -> _int32))
-              _pointer #f)
+   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_new L (_fun #:blocking? #t _pointer _size (_or-null _PancakeIrohConfig-pointer) _pointer _pointer _size _pointer -> _int32))])
+     (lambda (seed seed-len config)
+       (call/out _pointer #f
+         (lambda (out)
+           (call/without-diagnostic raw seed seed-len config out)))))
    'netlayer-close
    (get-ffi-obj 'pancake_iroh_netlayer_close L (_fun #:blocking? #t _pointer -> _void))
    'netlayer-release
-   (get-ffi-obj 'pancake_iroh_netlayer_release L (_fun #:blocking? #t _pointer -> _int32))
+   (let ([raw (get-ffi-obj 'pancake_iroh_netlayer_release L (_fun #:blocking? #t _pointer _pointer _size _pointer -> _int32))])
+     (lambda (netlayer)
+       (call/without-diagnostic raw netlayer)))
    'netlayer-node-id
    (wrap-out1 (get-ffi-obj 'pancake_iroh_netlayer_node_id L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)

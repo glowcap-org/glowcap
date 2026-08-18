@@ -20,12 +20,6 @@ persistent_dirs=(
     "${CACHE_ROOT}/zls"
     "${CARGO_HOME_RUNTIME}"
     "${PLTUSERHOME}"
-    "/home/vscode/.claude"
-    "/home/vscode/.codex"
-    "/home/vscode/.config/agents"
-    "/home/vscode/.config/gh"
-    "/home/vscode/.config/opencode"
-    "/home/vscode/.local/share/opencode"
 )
 
 sudo mkdir -p "${persistent_dirs[@]}"
@@ -36,6 +30,15 @@ for path in "${persistent_dirs[@]}"; do
     touch "${probe}"
     rm -f "${probe}"
 done
+
+# These are host bind mounts, so never recursively chown them from a container.
+# The devcontainer user must still be able to use the host user's stores.
+while IFS=: read -r _ path; do
+    if [[ ! -r "${path}" || ! -w "${path}" ]]; then
+        echo "post-create: host agent-state mount is not readable and writable: ${path}" >&2
+        exit 1
+    fi
+done <<< "$(pancake_devcontainer_host_state_rows)"
 
 bash "${dir}/check-env-sync.sh"
 bash "${dir}/verify-ptrace.sh"

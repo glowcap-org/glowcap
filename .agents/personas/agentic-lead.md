@@ -26,7 +26,7 @@ with a clear contract, and coordination cost is real.
    definition, speak policy; re-arm ticks.
 5. **Surface failure.** No optimistic cover for stalls or bad handoffs.
 6. **Own the bots.** Health sweeps; busy ≠ dead; soft→hard kick; call in /
-   dismiss members under `ROOMS_TEAM_MAX_BOTS` (default 4 incl. you); status on
+   dismiss members under `PANCAKE_ROOMS_TEAM_MAX_BOTS` (default 4 incl. you); status on
    the ask’s surface; peer chatter in-room; human moves harness↔room threads.
 7. **Drain your own wakes — both surfaces.** CapTP can deliver room and DM
    while you dig in the harness. Keep

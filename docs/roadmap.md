@@ -11,13 +11,21 @@ questions are [watched separately](upstream-watch.md).
   Windows support needs the backend behind the existing completion-loop
   contract, which is total (`validateBackend`), then live tests and release
   artifacts.
-- **macOS runtime CI.** The kqueue path is cross-compiled on every push but
-  never executed. A macOS runner closes this gap.
-- **Browser `noise-relay`.** Native peers dial and register `noise-relay`
-  through the generic driver. A real browser still uses WebRTC for an
-  authenticated channel, or explicit cleartext `keyed-relay` rendezvous.
-  Composing the sealed relay provider in wasm, so native peers can find
-  browsers on a sealed relay path, is the remaining work
+- **macOS runtime CI.** The recurring workflow cross-compiles the kqueue path
+  but never executes it. A macOS runner closes this gap.
+- **Production relay URLs.** A real Chromium peer now registers a
+  `noise-relay` locator through the managed WebSocket connector, and the native
+  CLI cold-dials and calls it in `web-peer-test`. The native relay resident
+  resolves validated DNS names and its optional pollable carrier owns WSS,
+  immutable trust, SNI, and hostname verification. A recurring local gate now
+  proves a real certificate chain and exact hostname refusal through that
+  resident. The completion backend drives the shared TLS transform below its
+  existing WebSocket machine. The same recurring real-chain matrix covers its
+  lifecycle and exact TLS refusals. Its asynchronous resolver feeds a bounded
+  eight-seat address race. The URL hostname remains the TLS identity.
+  The recurring Chromium scenario uses local WSS and a copied fixture
+  authority. Public-certificate evidence remains before the same hostname
+  locator is proved across every native execution form at a public secure relay
   ([known limitations](boundaries.md#browser-reachability)).
 
 ## Scale and release
@@ -32,6 +40,12 @@ questions are [watched separately](upstream-watch.md).
 
 ## Beyond the library
 
+- **First-party failure containment.** The CLI, MCP server, rooms peer,
+  relays, examples, and applications still need the same deterministic
+  shutdown discipline as the library. Accepted tasks must be joined or
+  canceled, networking failures must reach their command or close result, and
+  optional presence, telemetry, and interface updates need explicit bounded
+  loss rather than discarded errors.
 - **A2A facade.** Design sketch in [`docs/planning/`](planning/); deferred by
   [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md).
 - **OpenTelemetry export.** Adapter-only OTLP off the Host and session event

@@ -4,189 +4,27 @@
 //! compiler notices. The page draws from one store, so nothing may keep a second
 //! copy of the truth in the DOM. The data layer owns a CapTP session that
 //! outlives every render, so it must not reach into the tree. And the page's ids
-//! and classes are not decoration: six browser proofs select on them, and a
+//! and classes are not decoration: the browser proofs select on them, and a
 //! renamed class turns those proofs into timeouts that name the wrong thing.
 //!
 //! Written down, each is a rule someone has to remember. Here they are the
 //! build's answer instead. Wired by the source-check driver
-//! (`tools/check/source_check.zig`).
+//! (`tools/check/source_check.zig`). Selector proofs live in `rooms_ui/selectors.zig`.
 
 const std = @import("std");
 const util = @import("util.zig");
+const shared = @import("rooms_ui/shared.zig");
 
 const appendViolation = util.appendViolation;
+pub const ui_dir = shared.ui_dir;
+const keepRoomsSheet = shared.keepRoomsSheet;
+pub const loadRoomsCss = shared.loadRoomsCss;
+const codeOnly = shared.codeOnly;
 
-/// A selector the interface promises to emit and a proof depends on.
-///
-/// Both directions matter. A literal no component emits is a proof about to fail
-/// for a reason that has nothing to do with what it tests; a literal no proof
-/// uses is rent, and should be retired rather than carried.
-const Selector = struct {
-    /// The exact text a component writes, as it appears in the JSX.
-    literal: []const u8,
-    /// The proof that would break, and what it would look like when it did.
-    proven_by: []const u8,
-};
-
-const selectors = [_]Selector{
-    .{ .literal = "id=\"log\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"line\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"nick\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"room\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"joinBtn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"status\"", .proven_by = "apps/rooms/test/web_relay_peer_test.ts" },
-    .{ .literal = "id=\"backBtn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"railToggle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"membersToggle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"members\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "listId=\"dmList\"", .proven_by = "apps/rooms/test/web_dm_retarget_test.ts" },
-    .{ .literal = "\"bubble\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    // Posting a file: the picker the proof feeds a file to, and the two shapes
-    // a posted file takes in a bubble. A rename here reads as "the second peer
-    // never drew the posted image", which is a claim about the room relaying a
-    // capability, made by a class that moved.
-    .{ .literal = "id=\"filePick\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "attach-image", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "attach-file", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"viewer\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"dm-open\"", .proven_by = "apps/rooms/test/web_dm_retarget_test.ts" },
-    .{ .literal = "\"dm-btn\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    // The mark in the title ends whatever is on screen: it leaves a room, and it
-    // closes a direct line. The two-tab proof closes a conversation with it and
-    // then checks the member is still reachable, so a rename here would report
-    // as "the members list stopped offering a direct line" — a claim about the
-    // roster, made by a button that moved.
-    .{ .literal = "id=\"leaveBtn\"", .proven_by = "apps/rooms/test/web_dm_tabs_test.ts" },
-    .{ .literal = "show-list", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "members-open", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    // Copying a locator: the field that is itself the control, the reply that
-    // stands over it for a moment, and the name the proof presses. The proof
-    // watches the reply arrive and then go, so a rename here reads as "the copy
-    // control never answered", which is a claim about the clipboard made by a
-    // class that moved.
-    .{ .literal = "\"copy-field\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"copy-said\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"directoryLocator\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    // A room's row says which directory it is on, and that line opens what is
-    // known about it: Settings for the directory this page came from, a card of
-    // its own for any other. The proof presses both and reads the three answers
-    // each gives. A rename here reports as "holding two servers did not say which
-    // server each room is on" or "the caption did not open a card about it" —
-    // claims about holding more than one directory, made by a name that moved.
-    .{ .literal = "\"rwhere\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "id=\"dircardTitle\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "\"dirfacts\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    // The opening screen is written in the document rather than by a component,
-    // which is what lets it paint before the bundle exists. The proof watches
-    // both of its faces from the first frame, so the names are load-bearing in
-    // the same way every name above is.
-    .{ .literal = "id=\"boot\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "class=\"boot-wait\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-    .{ .literal = "class=\"boot-explain\"", .proven_by = "apps/rooms/test/web_page_test.ts" },
-};
+pub const checkRoomsSelectors = @import("rooms_ui/selectors.zig").checkRoomsSelectors;
 
 /// Who writes the opening screen's state, for `checkRoomsBootStates`.
 const boot_writers = [_][]const u8{ ui_dir ++ "/page.html", ui_dir ++ "/boot.ts" };
-
-const ui_dir = "apps/rooms/web/ui";
-
-/// Every load-bearing selector is still emitted, and still proven.
-pub fn checkRoomsSelectors(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const drawn = try readUiSources(io, gpa, root, violations) orelse return;
-    defer gpa.free(drawn);
-
-    for (selectors) |selector| {
-        if (std.mem.indexOf(u8, drawn, selector.literal) == null) {
-            try appendViolation(
-                gpa,
-                violations,
-                "{s}: no component emits `{s}`, but {s} selects on it; that proof would fail as a timeout naming the wrong thing",
-                .{ ui_dir, selector.literal, selector.proven_by },
-            );
-        }
-        const proof = root.readFileAlloc(io, selector.proven_by, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s} is named as the proof for `{s}` but could not be read", .{ selector.proven_by, selector.literal });
-            continue;
-        };
-        defer gpa.free(proof);
-        // The proof spells a selector without the JSX attribute syntax around it,
-        // so compare on the name itself.
-        const bare = bareName(selector.literal);
-        if (std.mem.indexOf(u8, proof, bare) == null) {
-            try appendViolation(
-                gpa,
-                violations,
-                "{s} no longer selects on `{s}`; retire the row in tools/check/source_check/rooms_ui.zig rather than carrying a selector nothing proves",
-                .{ selector.proven_by, bare },
-            );
-        }
-    }
-}
-
-/// `id="log"`, `listId="dmList"`, and `"bubble"` name `log`, `dmList`, and
-/// `bubble`. The literal is matched as the component actually writes it, so a
-/// rename fails here; the proof spells the name alone.
-fn bareName(literal: []const u8) []const u8 {
-    var name = literal;
-    if (std.mem.indexOfScalar(u8, name, '=')) |at| name = name[at + 1 ..];
-    if (std.mem.startsWith(u8, name, "\"")) name = name[1..];
-    if (std.mem.endsWith(u8, name, "\"")) name = name[0 .. name.len - 1];
-    return name;
-}
-
-/// The source with its comments removed.
-///
-/// A ban that fires on prose is a ban people learn to write around, and these
-/// modules explain themselves at length — the store's own header names
-/// `document.hidden` to say which module reads it. Strings are stepped over so a
-/// quoted `//` does not start a comment. It errs toward keeping too little
-/// rather than too much: an over-strip makes a ban miss, which is a check that
-/// under-reports, and a false alarm is the failure that costs a gate its
-/// authority.
-fn codeOnly(gpa: std.mem.Allocator, source: []const u8) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(gpa);
-    var i: usize = 0;
-    var quote: u8 = 0;
-    while (i < source.len) {
-        const c = source[i];
-        if (quote != 0) {
-            try out.append(gpa, c);
-            if (c == '\\' and i + 1 < source.len) {
-                try out.append(gpa, source[i + 1]);
-                i += 2;
-                continue;
-            }
-            if (c == quote) quote = 0;
-            i += 1;
-            continue;
-        }
-        if (c == '"' or c == '\'' or c == '`') {
-            quote = c;
-            try out.append(gpa, c);
-            i += 1;
-            continue;
-        }
-        if (c == '/' and i + 1 < source.len and source[i + 1] == '/') {
-            while (i < source.len and source[i] != '\n') i += 1;
-            continue;
-        }
-        if (c == '/' and i + 1 < source.len and source[i + 1] == '*') {
-            i += 2;
-            while (i + 1 < source.len and !(source[i] == '*' and source[i + 1] == '/')) i += 1;
-            i = @min(i + 2, source.len);
-            continue;
-        }
-        try out.append(gpa, c);
-        i += 1;
-    }
-    return out.toOwnedSlice(gpa);
-}
 
 /// What a module may not mention, and why it may not.
 const Ban = struct {
@@ -244,17 +82,41 @@ const bans = [_]Ban{
         .needles = &dom_needles,
         .because = "whether the tab is being looked at is a store field with one writer",
     },
+};
+
+const tree_bans = [_]Ban{
     .{
-        .file = ui_dir ++ "/page.css",
-        .needles = &raw_palette_text,
-        .because = "raw palette arms are decoration, not theme-safe text; readable amber and teal use --accent-ink and --teal-ink",
+        .file = ui_dir ++ "/net",
+        .needles = &dom_needles,
+        .because = "the data layer owns a CapTP session that outlives every render, and it stays that way by never reaching into the tree",
     },
     .{
-        .file = ui_dir ++ "/page.css",
-        .needles = &retired_icon_button_css,
-        .because = "Button and IconButton own control reset, geometry, and state; retired caller-specific baselines must not return",
+        .file = ui_dir ++ "/store",
+        .needles = &dom_needles,
+        .because = "the store is the one authority for what the page shows, so reading the page back would make it the second",
     },
 };
+
+fn checkBanSource(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    source: []const u8,
+    ban: Ban,
+) !void {
+    const code = try codeOnly(gpa, source);
+    defer gpa.free(code);
+    for (ban.needles) |needle| {
+        if (std.mem.indexOf(u8, code, needle) != null) {
+            try appendViolation(
+                gpa,
+                violations,
+                "{s} mentions `{s}`: {s}",
+                .{ path, needle, ban.because },
+            );
+        }
+    }
+}
 
 /// The layers that must not touch the document, and the one that must not touch
 /// a component.
@@ -270,15 +132,52 @@ pub fn checkRoomsLayerBans(
             continue;
         };
         defer gpa.free(source);
-        const code = try codeOnly(gpa, source);
+        try checkBanSource(gpa, violations, ban.file, source, ban);
+    }
+
+    for (tree_bans) |ban| {
+        var dir = root.openDir(io, ban.file, .{ .iterate = true }) catch {
+            try appendViolation(gpa, violations, "{s}: could not open for the DOM ban", .{ban.file});
+            continue;
+        };
+        defer dir.close(io);
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".ts")) continue;
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ban.file, entry.path });
+            defer gpa.free(path);
+            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
+                try appendViolation(gpa, violations, "{s}: could not read for the DOM ban", .{path});
+                continue;
+            };
+            defer gpa.free(source);
+            try checkBanSource(gpa, violations, path, source, ban);
+        }
+    }
+
+    const sheets = util.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet) catch null;
+    if (sheets) |css| {
+        defer gpa.free(css);
+        const code = try codeOnly(gpa, css);
         defer gpa.free(code);
-        for (ban.needles) |needle| {
+        for (raw_palette_text) |needle| {
             if (std.mem.indexOf(u8, code, needle) != null) {
                 try appendViolation(
                     gpa,
                     violations,
-                    "{s} mentions `{s}`: {s}",
-                    .{ ban.file, needle, ban.because },
+                    "{s} stylesheets mention `{s}`: raw palette arms are decoration, not theme-safe text; readable amber and teal use --accent-ink and --teal-ink",
+                    .{ ui_dir, needle },
+                );
+            }
+        }
+        for (retired_icon_button_css) |needle| {
+            if (std.mem.indexOf(u8, code, needle) != null) {
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s} stylesheets mention `{s}`: Button and IconButton own control reset, geometry, and state; retired caller-specific baselines must not return",
+                    .{ ui_dir, needle },
                 );
             }
         }
@@ -325,10 +224,7 @@ pub fn checkRoomsBootStates(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const sheet = root.readFileAlloc(io, ui_dir ++ "/page.css", gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}/page.css: could not be read", .{ui_dir});
-        return;
-    };
+    const sheet = (try loadRoomsCss(io, gpa, root, violations)) orelse return;
     defer gpa.free(sheet);
 
     var written: std.ArrayList(u8) = .empty;
@@ -351,7 +247,7 @@ pub fn checkRoomsBootStates(
         try appendViolation(
             gpa,
             violations,
-            "{s}/page.css keys the opening screen on `data-boot`, but neither {s} nor {s} stamps `dataset.boot`; the sheet's absence rule would then match every page and tell every reader this one needs JavaScript",
+            "{s} stylesheets key the opening screen on `data-boot`, but neither {s} nor {s} stamps `dataset.boot`; the sheet's absence rule would then match every page and tell every reader this one needs JavaScript",
             .{ ui_dir, boot_writers[0], boot_writers[1] },
         );
     }
@@ -368,7 +264,7 @@ pub fn checkRoomsBootStates(
             try appendViolation(
                 gpa,
                 violations,
-                "{s}/page.css draws the opening screen's {s} state, but neither {s} nor {s} writes it; the rule matches nothing and the screen goes on showing whatever it was showing",
+                "{s} stylesheets draw the opening screen's {s} state, but neither {s} nor {s} writes it; the rule matches nothing and the screen goes on showing whatever it was showing",
                 .{ ui_dir, quoted, boot_writers[0], boot_writers[1] },
             );
         }
@@ -403,10 +299,7 @@ pub fn checkRoomsRailRow(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const sheet = root.readFileAlloc(io, ui_dir ++ "/page.css", gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}/page.css: could not be read for the rail's row rule", .{ui_dir});
-        return;
-    };
+    const sheet = (try loadRoomsCss(io, gpa, root, violations)) orelse return;
     defer gpa.free(sheet);
     // Comments name these classes while explaining them, and a comment is not a
     // rule.
@@ -428,7 +321,7 @@ pub fn checkRoomsRailRow(
             try appendViolation(
                 gpa,
                 violations,
-                "{s}/page.css styles `{s}` alone in `{s}`; the rail draws one row, so both are named in one rule — a second rule's `all: unset` un-places the button the first one placed",
+                "{s} stylesheets style `{s}` alone in `{s}`; the rail draws one row, so both are named in one rule — a second rule's `all: unset` un-places the button the first one placed",
                 .{ ui_dir, if (room) rail_row[0] else rail_row[1], selector },
             );
         },
@@ -438,7 +331,7 @@ pub fn checkRoomsRailRow(
         try appendViolation(
             gpa,
             violations,
-            "{s}/page.css styles neither `{s}` nor `{s}`; whatever the rail's row buttons are called now, this check is watching nothing",
+            "{s} stylesheets style neither `{s}` nor `{s}`; whatever the rail's row buttons are called now, this check is watching nothing",
             .{ ui_dir, rail_row[0], rail_row[1] },
         );
     }
@@ -464,19 +357,71 @@ pub fn checkRoomsConfig(
         );
     }
 
-    // The breakpoint is one number two files have to agree on. A third spelling
-    // is how they stop agreeing.
-    const homes = [_][]const u8{ ui_dir ++ "/page.css", ui_dir ++ "/store.ts" };
-    var found: usize = 0;
-    for (homes) |home| {
-        if (util.fileContains(io, gpa, root, home, "820px") catch false) found += 1;
-    }
-    if (found != homes.len) {
+    // Motion is a preference, and the rooms sheets say so once, globally. The
+    // rule is easy to lose in a stylesheet split, and losing it fails silently:
+    // every slide simply plays again for readers who asked it not to.
+    if (!(util.fileContains(io, gpa, root, ui_dir ++ "/page.css", "prefers-reduced-motion") catch false)) {
         try appendViolation(
             gpa,
             violations,
-            "the layout breakpoint must be spelled in both {s} and {s}; they are two files that have to agree",
-            .{ homes[0], homes[1] },
+            "{s}/page.css: no `prefers-reduced-motion` rule; the rooms sheets animate, so the preference has to be answered somewhere global",
+            .{ui_dir},
+        );
+    }
+
+    // The breakpoint is one number two places have to agree on. A third spelling
+    // is how they stop agreeing.
+    {
+        const page = root.readFileAlloc(io, ui_dir ++ "/page.css", gpa, .limited(1 << 20)) catch {
+            try appendViolation(gpa, violations, "{s}/page.css: could not be read", .{ui_dir});
+            return;
+        };
+        defer gpa.free(page);
+        var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
+            try appendViolation(gpa, violations, "{s}: could not be opened", .{ui_dir});
+            return;
+        };
+        defer dir.close(io);
+        var it = dir.iterate();
+        while (true) {
+            const entry = (it.next(io) catch |err| {
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}: failed while listing stylesheets with {s}",
+                    .{ ui_dir, @errorName(err) },
+                );
+                break;
+            }) orelse break;
+            if (entry.kind == .directory) continue;
+            if (!keepRoomsSheet(entry.name)) continue;
+            if (std.mem.eql(u8, entry.name, "page.css")) continue;
+            const needle = try std.fmt.allocPrint(gpa, "@import url(\"{s}\")", .{entry.name});
+            defer gpa.free(needle);
+            if (std.mem.indexOf(u8, page, needle) == null) {
+                try appendViolation(
+                    gpa,
+                    violations,
+                    "{s}/page.css does not import {s}; the browser would never load that sheet",
+                    .{ ui_dir, entry.name },
+                );
+            }
+        }
+    }
+    const homes = [_][]const u8{ui_dir ++ "/store/core.ts"};
+    var found: usize = 0;
+    if (util.fileContains(io, gpa, root, homes[0], "820px") catch false) found += 1;
+    const sheets = util.concatDirFiles(io, gpa, root, ui_dir, keepRoomsSheet) catch null;
+    const css_has = if (sheets) |css| blk: {
+        defer gpa.free(css);
+        break :blk std.mem.indexOf(u8, css, "820px") != null;
+    } else false;
+    if (found != 1 or !css_has) {
+        try appendViolation(
+            gpa,
+            violations,
+            "the layout breakpoint must be spelled in both {s} and the rooms stylesheets; they are two places that have to agree",
+            .{homes[0]},
         );
     }
     // Comments may cross-reference the number freely; what must not exist is a
@@ -490,42 +435,9 @@ pub fn checkRoomsConfig(
             try appendViolation(
                 gpa,
                 violations,
-                "{s} spells the layout breakpoint; it belongs in store.ts beside the field it decides, and in page.css",
+                "{s} spells the layout breakpoint; it belongs in the store beside the field it decides, and in the rooms stylesheets",
                 .{elsewhere},
             );
         }
     }
-}
-
-/// Every `.tsx` and `.ts` under the interface, and the document they mount into,
-/// concatenated, so a selector can be looked for once rather than per file. The
-/// document is in here because the opening screen is drawn there rather than by
-/// a component, and a proof selects on it just the same.
-fn readUiSources(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !?[]u8 {
-    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not be opened", .{ui_dir});
-        return null;
-    };
-    defer dir.close(io);
-
-    var all: std.ArrayList(u8) = .empty;
-    errdefer all.deinit(gpa);
-    var walker = dir.iterate();
-    while (walker.next(io) catch null) |entry| {
-        if (entry.kind != .file) continue;
-        const tsx = std.mem.endsWith(u8, entry.name, ".tsx");
-        const document = std.mem.eql(u8, entry.name, "page.html");
-        if (!tsx and !document and !std.mem.endsWith(u8, entry.name, ".ts")) continue;
-        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ui_dir, entry.name });
-        defer gpa.free(path);
-        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
-        defer gpa.free(source);
-        try all.appendSlice(gpa, source);
-    }
-    return try all.toOwnedSlice(gpa);
 }

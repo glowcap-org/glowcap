@@ -4,11 +4,13 @@ import { addressDesignator, listen, locator as tcpLocator, type Server } from "@
 // The rooms server, its clients, the web bridge, and the orchestrator all carry
 // the server's address as one string, so a member dials the same way regardless
 // of transport: a `hostname:port` dials over TCP; an `ocapn://<nodeid>.iroh?…`
-// URI dials over iroh's encrypted QUIC — directly from a terminal, or through
-// serve.ts's `/relay` byte pipe from a browser (which has no socket API).
+// URI dials over iroh's encrypted QUIC; an `ocapn://<serviceid>.onion` URI
+// dials through Tor — directly from a terminal, or through serve.ts's `/relay`
+// byte pipe from a browser (which has no socket API).
 
 import { CAPTP_VERSION, CODEC } from "./protocol.ts";
 import { designatorHostPort, Host, type Locator, parseLocator, type Session, TRANSPORT_IROH } from "@pancake/runtime";
+import { TRANSPORT_ONION } from "@pancake/abi";
 
 /** Whether `locator` is an `ocapn://` URI (iroh) rather than a `hostname:port`. */
 export function isUriLocator(locator: string): boolean {
@@ -16,7 +18,7 @@ export function isUriLocator(locator: string): boolean {
 }
 
 /** The token the server prints after `ROOMS-SERVER-LISTENING`. */
-export const ANNOUNCE_RE = /ROOMS-SERVER-LISTENING (\S+)/;
+const ANNOUNCE_RE = /ROOMS-SERVER-LISTENING (\S+)/;
 
 /** A loopback TCP designator for an ephemeral/bound port. */
 export function loopbackTcpDesignator(port: number): string {
@@ -96,16 +98,22 @@ export function roomsHost(seed?: Uint8Array): Host {
  * can hold — and the refusal reads as a malformed frame, which sends the next
  * reader looking at the codec rather than at who minted the host. This is the
  * accepting half of `roomsHost`, and `zig build source-check` keeps the rooms
- * tree calling it rather than the raw `listen`. */
+ * tree calling it rather than the raw `listen`.
+ *
+ * `advertisedHost` is the dialable hostname signed into the listener's
+ * locator, which a wildcard bind requires because it has no address of its
+ * own. */
 export function roomsListen(
 	bindHost: string,
 	port: number,
 	host: Host = roomsHost(),
+	advertisedHost?: string,
 ): Promise<Server> {
-	return listen(bindHost, port, { host });
+	return listen(bindHost, port, { host, advertisedHost });
 }
 
-/** Dial a rooms peer from a locator: an `ocapn://…iroh?…` URI over iroh,
+/** Dial a rooms peer from a locator: an `ocapn://…iroh?…` URI over iroh, an
+ * `ocapn://…onion` URI over Tor (in the browser, both ride the relay),
  * otherwise `hostname:port` over TCP. A `host` keys the dial with the host's
  * retained OCapN identity and live-session handoff directory (a member's listen endpoint
  * and its room dial share one Host, so an inbox it publishes giftably is the one
@@ -121,9 +129,9 @@ export function roomsListen(
 export function dial(locator: string, runtime: RoomsRuntime): Promise<Session> {
 	if (isUriLocator(locator)) {
 		const loc = roomsLocator(locator);
-		if (loc.transport !== TRANSPORT_IROH) {
+		if (loc.transport !== TRANSPORT_IROH && loc.transport !== TRANSPORT_ONION) {
 			throw new Error(
-				`rooms expected an iroh ocapn:// URI, got "${loc.transport}": ${locator}`,
+				`rooms expected an iroh or onion ocapn:// URI, got "${loc.transport}": ${locator}`,
 			);
 		}
 		return runtime.connect(loc);

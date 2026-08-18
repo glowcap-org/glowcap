@@ -27,7 +27,7 @@ import { assert, assertEquals } from "@std/assert";
 import { segmentCellClass } from "./tokens.ts";
 
 const CSS = await Deno.readTextFile(
-  new URL("../styles.css", import.meta.url),
+  new URL("../controls.css", import.meta.url),
 );
 
 /**

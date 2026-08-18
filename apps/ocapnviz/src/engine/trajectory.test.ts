@@ -22,13 +22,8 @@ import {
   type SessionValue,
   type TrajectoryDisplay,
 } from "./trajectory.ts";
-import {
-  attachedEndpoint,
-  EndpointAttribution,
-  SESSION_SIDES,
-  sessionEndpoint,
-  SessionState,
-} from "../schema/topology.ts";
+import { SessionState } from "../schema/topology.ts";
+import { attachedEndpoint, EndpointAttribution, SESSION_SIDES, sessionEndpoint } from "../schema/session-end.ts";
 import type { PeerDefinition, SessionDefinition, TimelineDocument } from "./timeline.ts";
 import { peerPropertyAt } from "./temporal/doc-resolver.ts";
 

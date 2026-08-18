@@ -102,7 +102,7 @@ pub const PeerKey = struct {
     /// check, so callers get to keep passing slices around.
     pub fn fromSlice(bytes: []const u8) CryptoError!PeerKey {
         if (bytes.len != PEER_KEY_BYTES) return CryptoError.MalformedKey;
-        return .{ .bytes = bytes[0..PEER_KEY_BYTES].* };
+        return fromBytes(bytes[0..PEER_KEY_BYTES].*);
     }
 
     pub fn asBytes(self: *const PeerKey) []const u8 {

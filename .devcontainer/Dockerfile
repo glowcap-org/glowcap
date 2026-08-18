@@ -23,6 +23,9 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     ZIG_GLOBAL_CACHE_DIR=/home/vscode/.cache/zig \
     PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright \
     PLTUSERHOME=/opt/pancake-racket-userhome \
+    CLAUDE_CONFIG_DIR=/home/vscode/.claude \
+    CURSOR_CONFIG_DIR=/home/vscode/.cursor \
+    CURSOR_DATA_DIR=/home/vscode/.cursor \
     PATH=/home/vscode/.cargo/bin:/usr/local/cargo/bin:/usr/local/bin:${PATH}
 
 # `tor` is here for the `onion` netlayer (ADR-0108), whose live checks talk to a
@@ -55,8 +58,10 @@ RUN groupadd --gid 1000 vscode \
      /home/vscode/.codex \
      /home/vscode/.config \
      /home/vscode/.config/agents \
+     /home/vscode/.config/cursor \
      /home/vscode/.config/gh \
      /home/vscode/.config/opencode \
+     /home/vscode/.cursor \
      /home/vscode/.local/share \
      /home/vscode/.local/share/opencode \
      /home/vscode/.local/state \
@@ -73,6 +78,7 @@ COPY .devcontainer/pins.sh \
      .devcontainer/install-rust.sh \
      .devcontainer/install-js-toolchains.sh \
      .devcontainer/install-claude-code.sh \
+     .devcontainer/install-cursor-agent.sh \
      .devcontainer/install-opencode.sh \
      .devcontainer/install-codex.sh \
      .devcontainer/install-uv.sh \
@@ -90,6 +96,7 @@ RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-rust.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-js-toolchains.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-claude-code.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/install-cursor-agent.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-opencode.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-codex.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-python.sh" \

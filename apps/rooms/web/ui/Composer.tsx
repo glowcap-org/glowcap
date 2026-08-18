@@ -10,88 +10,50 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCoarsePointer, useDismissOnClickOutside } from "./hooks.ts";
 import { usePeer } from "./peer.ts";
-import type { Conv, SessionPhase } from "./types.ts";
+import type { AttachmentView, Conv, SessionPhase } from "./types.ts";
+import { commandIn, hereOf } from "./commands.ts";
 import { acceptCompletion, type Candidate, completeCandidates, triggerAt } from "./complete.ts";
-import { lineCost, lineRoom, PICKER } from "./text.ts";
-import { PHASE_SAID } from "./DirectoryFacts.tsx";
-import { MAX_LINE, TYPING_IDLE_MS } from "../../lib/limits.ts";
-import { Icon } from "./icons.tsx";
+import { lineRoom, PICKER, roomCalled } from "./text.ts";
+import { lineCost } from "../../lib/limits.ts";
+import { PHASE_SAID } from "./text.ts";
+import { MAX_LINE } from "../../lib/limits.ts";
+
 import { IconButton } from "./IconButton.tsx";
-import { Button } from "./Button.tsx";
-import { fileSize, kindOf } from "./media.ts";
-
-/** Tell the room we are typing while the draft holds text, and stop when we
- * send, go idle, blur, or leave.
- *
- * The flag is level, not edge: `true` goes once and a final `false` always goes,
- * so a stuck indicator cannot linger on the other members' screens. Leaving the
- * conversation runs this effect's cleanup, which is what sends that last
- * `false` — there is no separate "stop typing on switch" call to forget.
- *
- * `draft` is a dependency even though nothing here reads it, and that is the
- * whole of the idle timer working: `typing` stays true across a whole burst of
- * keystrokes, so depending on it alone the effect runs once, the timer fires at
- * four seconds, and nothing ever re-arms it. Typing longer than that would stop
- * telling the room. Depending on the draft re-arms the timer per keystroke,
- * which is what "idle" has to mean. */
-function useTypingSignal(typing: boolean, draft: string, setTyping: (on: boolean) => void) {
-	const on = useRef(false);
-	useEffect(() => {
-		if (!typing) {
-			if (on.current) {
-				on.current = false;
-				setTyping(false);
-			}
-			return;
-		}
-		if (!on.current) {
-			on.current = true;
-			setTyping(true);
-		}
-		const idle = setTimeout(() => {
-			on.current = false;
-			setTyping(false);
-		}, TYPING_IDLE_MS);
-		return () => clearTimeout(idle);
-	}, [typing, draft, setTyping]);
-	// Leaving the page entirely still owes the room a final `false`.
-	useEffect(() => () => {
-		if (on.current) {
-			on.current = false;
-			setTyping(false);
-		}
-	}, [setTyping]);
-}
-
-// Long enough for a phone's keyboard to finish sliding in, so the second pass
-// measures the layout it leaves behind rather than the one mid-animation.
-const KEYBOARD_SETTLE_MS = 300;
-
-function typingText(names: Iterable<string>, except: string): string {
-	let first = "";
-	let second = "";
-	let count = 0;
-	for (const name of names) {
-		if (name === except) continue;
-		if (count === 0) first = name;
-		else if (count === 1) second = name;
-		count++;
-	}
-	if (count === 0) return "";
-	if (count === 1) return `${first} is typing…`;
-	if (count === 2) return `${first} and ${second} are typing…`;
-	return `${first}, ${second}, and ${count - 2} more are typing…`;
-}
-
+import { kindOf } from "./media.ts";
+import { FileChip, KEYBOARD_SETTLE_MS, nickSource, typingText, useTypingSignal } from "./composer/bits.tsx";
 export function Composer(
-	{ conv, nick, draft, draftFiles, changing, liveRooms, mobile, enabled, phase, keepLatestInView }: {
+	{
+		conv,
+		nick,
+		draft,
+		draftFiles,
+		changing,
+		draftKeeping,
+		liveRooms,
+		reachable,
+		mobile,
+		enabled,
+		phase,
+		keepLatestInView,
+	}: {
 		conv: Conv | null;
 		nick: string;
 		draft: string;
 		draftFiles: readonly File[];
 		/** Whether these words are a line being rewritten rather than a new one. */
-		changing: boolean;
+		/** The line being rewritten, or nothing while an ordinary message is being
+		 * written. The id rather than a flag, because moving from changing one line
+		 * to changing another is a change this has to notice. */
+		changing: number | undefined;
+		/** The files kept on a file line being changed, when the change is to one.
+		 * Present makes the composer a view of that line's files, each removable,
+		 * with the new ones added after them. */
+		draftKeeping: readonly AttachmentView[] | undefined;
 		liveRooms: ReadonlyMap<string, number>;
+		/** Names this directory says are reachable for a direct message. What a
+		 * command whose target is somebody to bring in — `/invite`, `/msg` —
+		 * completes against, since those want the people the members list omits. */
+		reachable: ReadonlySet<string>;
 		mobile: boolean;
 		enabled: boolean;
 		/** What this conversation's directory is doing. Read only when the field
@@ -117,14 +79,17 @@ export function Composer(
 	const [caret, setCaret] = useState(0);
 	const [picked, setPicked] = useState(0);
 	const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+	// Last submitted line currently sitting in the field because Up recalled it.
+	// Down restores empty while this still matches; any other edit drops it.
+	const [recalled, setRecalled] = useState<string | null>(null);
 	const trigger = focused && enabled ? triggerAt(draft, caret) : null;
 	const candidates = trigger !== null && trigger.start !== dismissedAt
 		? completeCandidates(trigger, {
-			nicks: trigger.kind === "nick"
-				? conv === null ? [] : conv.type === "room" ? [...conv.members.keys()] : [conv.id]
-				: [],
+			nicks: nickSource(trigger, conv, draft, reachable, nick),
 			rooms: trigger.kind === "room" ? [...liveRooms.keys()] : [],
 			grants: conv?.type === "room" ? conv.grants : undefined,
+			here: hereOf(conv),
+			targets: commandIn(draft)?.command.targets,
 		})
 		: [];
 	const listOpen = candidates.length > 0;
@@ -143,6 +108,9 @@ export function Composer(
 		if (trigger === null) setDismissedAt(null);
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on token identity, not the object
 	}, [triggerId]);
+	useEffect(() => {
+		if (recalled !== null && draft !== recalled) setRecalled(null);
+	}, [draft, recalled]);
 	const syncCaret = (box: HTMLTextAreaElement) => setCaret(box.selectionStart ?? 0);
 	const accept = (candidate: Candidate) => {
 		if (trigger === null) return;
@@ -178,6 +146,25 @@ export function Composer(
 		setEmojiOpen(false);
 		if (!mobile && enabled) field.current?.focus();
 	}, [conv?.key, mobile, enabled]);
+
+	useEffect(() => {
+		setRecalled(null);
+	}, [conv?.key]);
+
+	// Pressing Edit hands the words over; this hands the caret over with them, at
+	// the end of what is being rewritten. Without it the field fills up while the
+	// focus stays on the mark that was pressed — and that mark is gone the moment
+	// the menu closes, so the focus lands on nothing and a reader has to click
+	// into their own sentence before they can change it. On a phone too: the
+	// keyboard coming up is what was asked for here, unlike arriving at a
+	// conversation.
+	useEffect(() => {
+		if (changing === undefined) return;
+		const box = field.current;
+		if (box === null) return;
+		box.focus();
+		box.setSelectionRange(box.value.length, box.value.length);
+	}, [changing]);
 
 	// Fit the box to its content. The cap is the stylesheet's `max-height`, read
 	// rather than repeated: two copies of one number drift the moment either moves.
@@ -238,7 +225,18 @@ export function Composer(
 	const overBy = cost - lineCap;
 	const room = lineCap < MAX_LINE && cost > lineCap * 0.8 ? lineCap : null;
 	const files = draftFiles;
-	const canSend = draft.trim() !== "" || files.length > 0;
+	// Changing a file line can send with an empty field and no new files: removing
+	// every file with no caption left is a real instruction — it takes the line
+	// down. So a file-line change is always sendable; `draftKeeping` is what says
+	// this is one.
+	const canSend = draft.trim() !== "" || files.length > 0 || draftKeeping !== undefined;
+	// Editing a file line down to no files and no caption leaves nothing for the
+	// message to be, so sending takes it back. That is a real thing to want — it
+	// is how the last file comes off a message that was only ever its files — but
+	// it must not arrive as a surprise: the bar above says what will happen and
+	// the control below stops calling itself Send.
+	const emptiesLine = draftKeeping !== undefined && draftKeeping.length === 0 && files.length === 0 &&
+		draft.trim() === "";
 	const said = typingText(conv?.typers ?? [], nick);
 	// A field that cannot be used says why, rather than greying out under an
 	// invitation to type in it. The connection is stated in the rail's foot too,
@@ -249,7 +247,7 @@ export function Composer(
 	const placeholder = !enabled && conv
 		? PHASE_SAID[phase]
 		: conv
-		? (conv.type === "dm" ? "Message " + conv.id + " directly" : "Message #" + conv.id)
+		? (conv.type === "dm" ? "Message " + conv.id + " directly" : "Message " + roomCalled(conv.id, conv.held))
 		: "Message";
 
 	return (
@@ -286,6 +284,11 @@ export function Composer(
 							role="option"
 							tabIndex={-1}
 							aria-selected={i === pick}
+							// Said the way a reader would say it. The row draws its three
+							// parts with space between them, and space drawn by a layout is
+							// nothing to software that reads the text: without this the
+							// option announces as "/awaysay you have stepped away".
+							aria-label={[candidate.label, candidate.hint].filter(Boolean).join(", ")}
 							className={i === pick ? "complete-row picked" : "complete-row"}
 							// Keep the field focused, same rule as the emoji tray.
 							onMouseDown={(e) => e.preventDefault()}
@@ -294,6 +297,9 @@ export function Composer(
 						>
 							{candidate.glyph ? <span className="complete-glyph">{candidate.glyph}</span> : null}
 							<span className="complete-label">{candidate.label}</span>
+							{candidate.hint === undefined
+								? null
+								: <span className="complete-hint">{candidate.hint}</span>}
 						</button>
 					))}
 				</div>
@@ -334,18 +340,25 @@ export function Composer(
 				    the way out beside it, because a reader who has forgotten what
 				    Enter is about to do is looking at the field. */
 			}
-			{changing && (
+			{changing !== undefined && (
 				<div id="changing" className="changing-bar">
-					<span className="changing-said">Changing a message</span>
-					<Button
-						variant="link"
+					<span className="changing-said">
+						{emptiesLine
+							? "Nothing left on this message — sending takes it back"
+							: draftKeeping !== undefined
+							? "Editing this line's files"
+							: "Editing a message"}
+					</span>
+					<IconButton
+						icon="close"
+						label="Stop editing this message"
+						size="small"
+						variant="ghost"
 						onClick={() => {
 							peer.cancelChange();
 							field.current?.focus();
 						}}
-					>
-						Cancel
-					</Button>
+					/>
 				</div>
 			)}
 			<form
@@ -356,28 +369,34 @@ export function Composer(
 					peer.send();
 				}}
 			>
+				{
+					/* The files a file-line change is keeping, above the newly-picked
+					   ones, each removable. A × here drops a file the line already has;
+					   a × below drops one about to be added. */
+				}
+				{draftKeeping !== undefined && draftKeeping.length > 0 && (
+					<div className="composer-files" aria-label="Files on this line">
+						{draftKeeping.map((file, index) => (
+							<FileChip
+								key={`kept:${file.id}`}
+								image={kindOf(file.mime) === "image"}
+								name={file.name}
+								size={file.size}
+								onRemove={() => peer.dropKeptFile(index)}
+							/>
+						))}
+					</div>
+				)}
 				{files.length > 0 && (
 					<div className="composer-files" aria-label="Attached files">
 						{files.map((file, index) => (
-							<div className="composer-file" key={`${file.name}:${file.size}:${index}`}>
-								<span className="composer-file-kind">
-									<Icon name={kindOf(file.type) === "image" ? "image" : "file"} size={18} />
-								</span>
-								<span className="composer-file-copy">
-									<span className="composer-file-name" title={file.name}>{file.name}</span>
-									<span className="composer-file-size">{fileSize(file.size)}</span>
-								</span>
-								<IconButton
-									className="composer-file-remove"
-									icon="close"
-									label={`Remove ${file.name}`}
-									size="small"
-									variant="ghost"
-									tone="danger"
-									onClick={() =>
-										peer.removeFile(index)}
-								/>
-							</div>
+							<FileChip
+								key={`${file.name}:${file.size}:${index}`}
+								image={kindOf(file.type) === "image"}
+								name={file.name}
+								size={file.size}
+								onRemove={() => peer.removeFile(index)}
+							/>
 						))}
 					</div>
 				)}
@@ -389,6 +408,8 @@ export function Composer(
 						value={draft}
 						placeholder={placeholder}
 						autoComplete="off"
+						autoCapitalize="sentences"
+						enterKeyHint="send"
 						role="combobox"
 						aria-label="Message"
 						aria-autocomplete="list"
@@ -448,9 +469,40 @@ export function Composer(
 							}
 							// Escape backs out of rewriting a line, which is the one way
 							// out that does not need the mouse. The line stays as posted.
-							if (e.key === "Escape" && changing) {
+							if (e.key === "Escape" && changing !== undefined) {
 								peer.cancelChange();
 								return;
+							}
+							// An empty field's Up is otherwise a no-op. Fill it with the last
+							// line submitted here — including a command that never appeared in
+							// the log. Down restores empty while that recall is still intact.
+							if (
+								!e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey &&
+								!e.nativeEvent.isComposing
+							) {
+								if (
+									e.key === "ArrowUp" && changing === undefined &&
+									draft.trim() === "" && files.length === 0
+								) {
+									const last = peer.recallLastSent();
+									if (last !== null) {
+										e.preventDefault();
+										setRecalled(last);
+										const box = field.current;
+										queueMicrotask(() => {
+											if (!box) return;
+											box.selectionStart = box.selectionEnd = last.length;
+											box.focus();
+										});
+									}
+									return;
+								}
+								if (e.key === "ArrowDown" && recalled !== null && draft === recalled) {
+									e.preventDefault();
+									peer.setDraft("");
+									setRecalled(null);
+									return;
+								}
 							}
 							// isComposing guards against sending mid-IME-composition.
 							if (
@@ -503,11 +555,11 @@ export function Composer(
 					</div>
 					<IconButton
 						id="sendBtn"
-						icon="send"
-						label="Send"
+						icon={emptiesLine ? "close" : "send"}
+						label={emptiesLine ? "Take this message back" : "Send"}
 						size={mobile ? "large" : "normal"}
 						variant={canSend ? "solid" : "outline"}
-						tone={canSend ? "accent" : "neutral"}
+						tone={emptiesLine ? "danger" : canSend ? "accent" : "neutral"}
 						shape="circle"
 						type="submit"
 						disabled={!enabled || !canSend}

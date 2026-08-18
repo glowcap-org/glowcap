@@ -29,6 +29,7 @@ import { hostS } from "./internal/ffi/host.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outU64, readBytes } from "./internal/seam.ts";
 import { type Context, recordCallerlessFailure } from "./context.ts";
+import { PancakeError } from "./errors.ts";
 import { L } from "./internal/layout.ts";
 import {
 	CAPTP_NEXT,
@@ -43,11 +44,8 @@ import {
 } from "@pancake/abi";
 import { type DurableProvenance, provenanceFromAbi } from "./session.ts";
 
-type KnownTraceCodec = "syrup" | "capnp" | "unknown";
-type KnownTraceCaptpVersion = "1.0" | "pancake-next" | "unknown";
-type FutureTraceString = string & { readonly __trace_schema_future?: never };
-export type TraceCodec = KnownTraceCodec | FutureTraceString;
-export type TraceCaptpVersion = KnownTraceCaptpVersion | FutureTraceString;
+export type TraceCodec = "syrup" | "capnp";
+export type TraceCaptpVersion = "1.0" | "pancake-next";
 
 /** One wire event in the versioned timeline schema. */
 export type TraceEvent = {
@@ -94,13 +92,12 @@ export type TraceEvent = {
 	 * partner sent no session key. */
 	session_id?: string;
 	/** `ocapn.session-opened`: the negotiated wire grammar. Built-in codecs
-	 * use the model's own names; `"unknown"` means this ABI generation could
-	 * not name the negotiated codec. The signed hello carries the codec
+	 * use the model's own names. An ABI generation that cannot name the value
+	 * reports an internal projection failure instead of inventing a codec. The signed hello carries the codec
 	 * preference as a locator hint (ADR-0103). */
 	codec?: TraceCodec;
 	/** `ocapn.session-opened`: the negotiated CapTP profile, spelled the way
-	 * the handshake spells it, or `"unknown"` when this ABI generation cannot
-	 * name it. A trace reports on the wire, so it uses the wire's own word
+	 * the handshake spells it. A trace reports on the wire, so it uses the wire's own word
 	 * rather than the enum tag the implementation happens to hold it under.
 	 * Reported beside the codec because the two are one decision (ADR-0003). */
 	captp_version?: TraceCaptpVersion;
@@ -205,6 +202,18 @@ function retainSinkFailure(host: TracedHost, error: unknown): void {
 	});
 }
 
+function retainDecodeFailure(host: TracedHost, error: unknown): void {
+	recordCallerlessFailure(host.context, {
+		layer: "binding",
+		scope: "host",
+		scopeId: host.diagnosticId,
+		operation: "trace.decode",
+		primaryName: error instanceof Error ? error.name : "ThrownValue",
+		primaryResult: INTERNAL,
+		primaryMessage: error instanceof Error ? error.message : String(error),
+	});
+}
+
 function now_ns(): number {
 	return Math.round((performance.now() - t0) * 1_000_000);
 }
@@ -212,13 +221,13 @@ function now_ns(): number {
 function codecFromAbi(codec: number): TraceCodec {
 	if (codec === CODEC_CAPNP) return "capnp";
 	if (codec === CODEC_SYRUP) return "syrup";
-	return "unknown";
+	throw new PancakeError(INTERNAL, `pancake ABI returned unknown trace codec ${codec}`);
 }
 
 function captpVersionFromAbi(version: number): TraceCaptpVersion {
 	if (version === CAPTP_NEXT) return CAPTP_VERSION_WIRE.next;
 	if (version === CAPTP_V1_0) return CAPTP_VERSION_WIRE.v1_0;
-	return "unknown";
+	throw new PancakeError(INTERNAL, `pancake ABI returned unknown trace CapTP version ${version}`);
 }
 
 /** Base64 of a small buffer (bounded by the payload cap), chunked so
@@ -247,9 +256,8 @@ function view(dv: DataView, ptrOff: number, lenOff: number): string | undefined 
 	return utf8.decode(readBytes(ptr, len));
 }
 
-/** Turn one popped `PancakeTraceEvent` into its schema record, or null for a
- * kind this schema does not carry. */
-function decode(host: TracedHost, out: Uint8Array): TraceEvent | null {
+/** Turn one popped `PancakeTraceEvent` into its schema record. */
+function decode(host: TracedHost, out: Uint8Array): TraceEvent {
 	const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
 	const kind = dv.getUint32(L.TRACE_EVENT_KIND_OFF, true);
 	const session = `live-h${host.cookie}-s${dv.getBigUint64(L.TRACE_EVENT_SESSION_OFF, true)}`;
@@ -309,7 +317,7 @@ function decode(host: TracedHost, out: Uint8Array): TraceEvent | null {
 	if (kind === TRACE_SESSION_CLOSE) {
 		return { v: 1, sim_t_ns: now_ns(), kind: "ocapn.session-closed", session, ...gap };
 	}
-	return null;
+	throw new PancakeError(INTERNAL, `pancake ABI returned unknown trace event kind ${kind}`);
 }
 
 /** Scratch for one pop; the pop overwrites it and the string views it names
@@ -338,8 +346,13 @@ export function traceDrainHost(raw: Ptr): void {
 			if (hostS.pancake_host_next_trace(raw, ab(out)) !== 0) return;
 			const host = hosts.get(raw);
 			if (host == null) return;
-			const ev = decode(host, out);
-			if (ev == null) continue;
+			let ev: TraceEvent;
+			try {
+				ev = decode(host, out);
+			} catch (error) {
+				retainDecodeFailure(host, error);
+				continue;
+			}
 			try {
 				currentSink(ev);
 			} catch (error) {

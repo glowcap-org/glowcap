@@ -63,7 +63,10 @@ test "session inspect walks outbound answers from a sent deliver" {
         pos: u64 = 0,
         fn visit(c: *@This(), v: session.AnswerRowView) void {
             c.n += 1;
-            c.pos = v.position.int();
+            c.pos = switch (v.position) {
+                .wire => |wire| wire.int(),
+                .virtual => |virtual| virtual.int(),
+            };
         }
     };
     var out = Ctx{};

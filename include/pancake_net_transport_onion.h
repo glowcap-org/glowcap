@@ -115,6 +115,8 @@ typedef struct PancakeOnionConfig {
   size_t forward_len;
 } PancakeOnionConfig;
 
+/* Return the exact callable-surface fingerprint. Compare it with the binding-generated PANCAKE_ONION_ARCHIVE_FINGERPRINT before any other call. */
+uint64_t pancake_onion_archive_fingerprint(void);
 /* Create the onion netlayer handle from `config`, allocating through the library
    allocator. The configuration text is copied in, so your strings need not
    outlive this call. PANCAKE_ERR_INVALID_ARGUMENT for a missing socks endpoint or
@@ -135,52 +137,52 @@ int32_t pancake_onion_transport_provider(PancakeOnionNetlayer *netlayer, Pancake
 void pancake_onion_netlayer_shutdown(PancakeOnionNetlayer *netlayer);
 /* Release the onion netlayer after every connection and listener made from it is
    released. First stop new calls, invoke shutdown, and join the embedding's
-   operation leases; release must not race call initiation. */
-int32_t pancake_onion_netlayer_release(PancakeOnionNetlayer *netlayer);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   operation leases; release must not race call initiation.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_netlayer_release_with_diagnostic(PancakeOnionNetlayer *netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_netlayer_release(PancakeOnionNetlayer *netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Dial the onion service `service_id` through the configured Tor and return an
    owned connection framing on `codec`, refusing inbound frames over
    max_frame_bytes. `service_id` is the bare 56-character designator, borrowed.
    PANCAKE_ERR_INVALID_ARGUMENT for a designator that is not a well-formed version
    3 address, which is refused before any socket opens, and for a bad codec or a
-   zero frame cap. PANCAKE_ERR_IO (see pancake_onion_last_error) when Tor is not
-   reachable or could not reach the service. Blocking: a circuit takes seconds.
-   Release with pancake_onion_conn_release. */
-int32_t pancake_onion_connect(PancakeOnionNetlayer *netlayer, const uint8_t *service_id, size_t service_id_len, uint32_t codec, size_t max_frame_bytes, PancakeOnionConn **out_conn);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   zero frame cap. PANCAKE_ERR_IO when Tor is not reachable or could not reach the
+   service. Blocking: a circuit takes seconds. Release with
+   pancake_onion_conn_release.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_connect_with_diagnostic(PancakeOnionNetlayer *netlayer, const uint8_t *service_id, size_t service_id_len, uint32_t codec, size_t max_frame_bytes, PancakeOnionConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_connect(PancakeOnionNetlayer *netlayer, const uint8_t *service_id, size_t service_id_len, uint32_t codec, size_t max_frame_bytes, PancakeOnionConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Ask Tor for an onion service and bind its local end. out_service_id receives
    the designator with no NUL terminator, always PANCAKE_ONION_SERVICE_ID_LEN
    bytes. out_service_key receives the key that restores this exact service, or
    nothing when the service was restored rather than minted; store those bytes and
    pass them back as PancakeOnionConfig.service_key for a durable onion address.
-   Every out-parameter is optional, and a NULL buffer with a non-NULL length
+   The service output pairs are optional; a NULL buffer with a non-NULL length
    queries the length. Requires a configured control endpoint:
    PANCAKE_ERR_INVALID_ARGUMENT without one. Blocking. Release with
-   pancake_onion_listener_release, which also withdraws the service. */
-int32_t pancake_onion_listen(PancakeOnionNetlayer *netlayer, uint8_t *out_service_id, size_t out_service_id_cap, size_t *out_service_id_len, uint8_t *out_service_key, size_t out_service_key_cap, size_t *out_service_key_len, PancakeOnionListener **out_listener);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   pancake_onion_listener_release, which also withdraws the service.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_listen_with_diagnostic(PancakeOnionNetlayer *netlayer, uint8_t *out_service_id, size_t out_service_id_cap, size_t *out_service_id_len, uint8_t *out_service_key, size_t out_service_key_cap, size_t *out_service_key_len, PancakeOnionListener **out_listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_listen(PancakeOnionNetlayer *netlayer, uint8_t *out_service_id, size_t out_service_id_cap, size_t *out_service_id_len, uint8_t *out_service_key, size_t out_service_key_cap, size_t *out_service_key_len, PancakeOnionListener **out_listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Wait until pancake_onion_accept would make progress, up to timeout_ms. Writes 1
    into out_ready when the next accept should proceed and 0 on timeout.
    This is what lets a blocking accept loop check a stop flag without closing the
-   listener from another thread. */
-int32_t pancake_onion_listener_wait(PancakeOnionListener *listener, int32_t timeout_ms, uint32_t *out_ready);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   listener from another thread.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_listener_wait_with_diagnostic(PancakeOnionListener *listener, int32_t timeout_ms, uint32_t *out_ready, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_listener_wait(PancakeOnionListener *listener, int32_t timeout_ms, uint32_t *out_ready, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Hand back the descriptor this listener's circuits arrive on, so your loop can
    poll instead of blocking. Park on it with whatever your loop uses and call
    pancake_onion_accept once it is readable. Readiness means an accept can make
@@ -199,29 +201,29 @@ int32_t pancake_onion_conn_readiness_fd(PancakeOnionConn *conn, int32_t *out_fd)
 /* Block until Tor forwards a circuit to this service, returning an owned
    connection framing on `codec`. Same argument and release contract as
    pancake_onion_connect. The partner's claimed location is unverified on this
-   side: Tor tells a hidden service nothing about who dialed it. */
-int32_t pancake_onion_accept(PancakeOnionListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeOnionConn **out_conn);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   side: Tor tells a hidden service nothing about who dialed it.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_accept_with_diagnostic(PancakeOnionListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeOnionConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_accept(PancakeOnionListener *listener, uint32_t codec, size_t max_frame_bytes, PancakeOnionConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Block for one whole frame as an owned managed frame. Returns
-   PANCAKE_ERR_CLOSED on graceful EOF. */
-int32_t pancake_onion_conn_read_frame(PancakeOnionConn *conn, PancakeManagedFrame *out_frame);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   PANCAKE_ERR_CLOSED on graceful EOF.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_conn_read_frame_with_diagnostic(PancakeOnionConn *conn, PancakeManagedFrame *out_frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_conn_read_frame(PancakeOnionConn *conn, PancakeManagedFrame *out_frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Write one frame's borrowed bytes to the partner. Returns PANCAKE_ERR_CLOSED
-   after shutdown begins. */
-int32_t pancake_onion_conn_write_frame(PancakeOnionConn *conn, const PancakeFrame *frame);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   after shutdown begins.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_conn_write_frame_with_diagnostic(PancakeOnionConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_conn_write_frame(PancakeOnionConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal native admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
    Idempotent. Returns PANCAKE_ERR_IO when the socket cannot be interrupted; the
@@ -229,8 +231,13 @@ int32_t pancake_onion_conn_write_frame_with_diagnostic(PancakeOnionConn *conn, c
 int32_t pancake_onion_conn_shutdown(PancakeOnionConn *conn);
 /* After stopping new calls, invoke shutdown, join admitted operations, and free
    the handle. Returns the shutdown outcome after completing the ownership sweep.
-   Release must not race call initiation. */
-int32_t pancake_onion_conn_release(PancakeOnionConn *conn);
+   Release must not race call initiation.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_onion_conn_release(PancakeOnionConn *conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal native accept admission and interrupt a blocked accept without freeing the
    listener or withdrawing its service. May race operations; join the embedding's
    leases before release. Idempotent; the listener's pre-opened wake channel makes
@@ -239,18 +246,18 @@ void pancake_onion_listener_shutdown(PancakeOnionListener *listener);
 /* After stopping new calls, invoking shutdown, and joining the embedding's
    operation leases, withdraw the service and free the listener. Release must not
    race call initiation. This is the one release in the family with an effect a
-   partner can observe: the address stops being published. */
-int32_t pancake_onion_listener_release(PancakeOnionListener *listener);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   partner can observe: the address stops being published.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_onion_listener_release_with_diagnostic(PancakeOnionListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_onion_listener_release(PancakeOnionListener *listener, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Copy the calling thread's last onion-transport error into out_buf, the onion
    sibling of pancake_last_error, reading this archive's own per-thread slot. A
    pancake_onion_* call that returns a cause-bearing code records it here. Copies
    at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0 queries
-   the length. Returns the full message length, or 0 when none is set. */
+   the length. Returns the full message length, or 0 when none is set. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_onion_last_error(uint8_t *out_buf, size_t cap);
 /* Clear the calling thread's onion-transport last-error slot. */
 void pancake_onion_clear_last_error(void);

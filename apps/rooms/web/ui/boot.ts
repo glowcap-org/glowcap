@@ -22,7 +22,7 @@ import * as store from "./store.ts";
 
 /** The two states this module puts the document in. `running` closes the window
  * in which page.html's watcher may call the page lost; `done` is the last word
- * on the screen, and page.css draws the fade from it. */
+ * on the screen, and the rooms stylesheets draw the fade from it. */
 const RUNNING = "running";
 const HANDED_OVER = "done";
 
@@ -81,7 +81,29 @@ export function handOffNow(): void {
 	const floor = setTimeout(gone, HANDOVER_FLOOR_MS);
 }
 
-/** Hold the screen until the peer has answered, then hand over.
+/** Run `fn` once the mark has finished stacking its pancakes at least once.
+ *
+ * On a fast network the peer can answer before the first stack has landed,
+ * and a splash that vanishes mid-fall reads as a glitch, not a mark. The
+ * stylesheet owns the choreography, so it also states when one build is done:
+ * `--boot-stacked` on the mark, declared beside the keyframes it summarizes.
+ * How far in the animation is comes from the animation itself, which makes
+ * the reduced-motion case free: its near-zero run has already finished, no
+ * animation is left to read, and the wait is nothing — a reader who asked
+ * for less motion is not made to sit through timing they never saw. */
+function onceStacked(fn: () => void): void {
+	const mark = document.querySelector(".boot-mark");
+	if (mark === null) return fn();
+	const stacked = parseFloat(getComputedStyle(mark).getPropertyValue("--boot-stacked")) * 1000;
+	const elapsed = mark.getAnimations()[0]?.currentTime;
+	if (!Number.isFinite(stacked) || typeof elapsed !== "number") return fn();
+	const wait = stacked - elapsed;
+	if (wait <= 0) return fn();
+	setTimeout(fn, wait);
+}
+
+/** Hold the screen until the peer has answered and the mark has stacked one
+ * full set of pancakes, then hand over.
  *
  * Called at the end of the entry module, which is what moves the page out of
  * the opening state page.html stamped, and so out of the reach of its watcher:
@@ -90,10 +112,10 @@ export function handOffNow(): void {
 export function handOffWhenReady(): void {
 	if (handedOver()) return;
 	document.documentElement.dataset.boot = RUNNING;
-	if (settled()) return handOffNow();
+	if (settled()) return onceStacked(handOffNow);
 	const stop = store.subscribe(() => {
 		if (!settled()) return;
 		stop();
-		handOffNow();
+		onceStacked(handOffNow);
 	});
 }

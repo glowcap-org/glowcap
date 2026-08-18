@@ -1,7 +1,7 @@
 /**
  * What a segmented cell says it is.
  *
- * Each name in the class list is what a rule in styles.css matches on,
+ * Each name in the class list is what a rule in controls.css matches on,
  * so dropping one changes how the cell is drawn without changing
  * anything a type checker can see. `ocv-btn` brings the box, the
  * surface and the focus ring from the control baseline; `is-segment`

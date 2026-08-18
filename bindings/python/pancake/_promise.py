@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from . import _constants as _abi
-from ._codec import _args_to_c, _ref_to_c
+from ._abi_value import _args_to_c, _ref_to_c
 from ._errors import FetchFailed, PancakeError, _check_host
 from ._ffi_host import _host
 from ._ffi_ocapn import _byte_buf
@@ -25,11 +25,11 @@ from ._value import Ref
 _ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
 
 
-async def _await_minted(session, vow: int):
+async def _await_minted(session, vow: int, *, track_gc: bool):
     # The shared fetch/enliven wait: register the vow, keep the inbound
     # loop running (the completion's bytes arrive on it), kick the drain so
     # the deliver leaves now, and await the drain-routed outcome.
-    session.host.vow_minted(vow)
+    session.host.vow_minted(vow, track_gc=track_gc and session.gc_enabled)
     session.serve()
     settled = session.host.await_vow(vow)
     await session.host.kick_actions()
@@ -48,7 +48,7 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
     # The one mint/await/classify body under `fetch` and `enliven`: mint
     # the host vow with `mint`, await its drain-routed completion, and
     # classify — only an opaque Host reference is a live capability this
-    # surface can hand out. `track` marks fetched capabilities for
+    # surface can hand out. `track` enrolls the fulfilled value in
     # distributed GC: a fetch's import is finalizer-tracked, an enliven's
     # is owned by the ADR-0012 dedup cache instead (ADR-0063).
     session.guard_open()
@@ -56,10 +56,10 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
     buf, ptr = _byte_buf(swiss)
     out = ctypes.c_uint64()
     _check_host(mint(session.raw, ptr, len(swiss), ctypes.byref(out)))
-    result = await _await_minted(session, out.value)
+    result = await _await_minted(session, out.value, track_gc=track)
     if not isinstance(result, Ref):
         raise FetchFailed(label)
-    return session.gc.track_import(result) if track and session.gc_enabled else result
+    return result
 
 
 def _promise_for(session, vow: int) -> RemotePromise:
@@ -87,7 +87,7 @@ def _promise_for(session, vow: int) -> RemotePromise:
                 session.host.raw, vow, fptr, len(field), ctypes.byref(out),
             ))
         projected = out.value
-        session.host.vow_minted(projected)
+        session.host.vow_minted(projected, track_gc=session.gc_enabled)
         return _promise_for(session, projected)
 
     return RemotePromise.far(vow, begin, project)
@@ -303,7 +303,7 @@ def _listen_far(session, target) -> RemotePromise:
         session.raw, ctypes.byref(ref), ctypes.byref(out),
     ))
     vow = out.value
-    session.host.vow_minted(vow)
+    session.host.vow_minted(vow, track_gc=session.gc_enabled)
     return _promise_for(session, vow)
 
 
@@ -330,5 +330,5 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
             session.raw, ctypes.byref(ref), vptr, len(verb_bytes), arr, count, ctypes.byref(out),
         ))
     vow = out.value
-    session.host.vow_minted(vow)
+    session.host.vow_minted(vow, track_gc=session.gc_enabled)
     return _promise_for(session, vow)

@@ -25,7 +25,7 @@
 // Run: `deno run --allow-all apps/rooms/test/web_dm_viz_test.ts`.
 
 import { type Browser, chromium, type Page } from "playwright";
-import { connectVizViewer, scrapeVizSturdyref } from "./viz_viewer.ts";
+import { connectVizViewer, scrapeVizSturdyref, vizMemorySeed } from "./viz_viewer.ts";
 
 const WEB = new URL("../web/serve.ts", import.meta.url).pathname;
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -68,8 +68,16 @@ async function watch(port: number, sturdyref: string): Promise<Record_[]> {
 	return seen;
 }
 
-async function joinAs(browser: Browser, port: number, nick: string): Promise<Page> {
+async function joinAs(
+	browser: Browser,
+	port: number,
+	nick: string,
+	seed: { key: string; value: string },
+): Promise<Page> {
 	const context = await browser.newContext();
+	// The endpoint admits only capability-presenting sockets; the tab holds
+	// the swiss the way a reader's "Remember on this device" would have.
+	await context.addInitScript(({ key, value }) => localStorage.setItem(key, value), seed);
 	const tab = await context.newPage();
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	await tab.goto(`http://127.0.0.1:${port}/`);
@@ -113,7 +121,7 @@ const web = new Deno.Command("deno", {
 		String(roomPort),
 	],
 	cwd: ROOT,
-	env: { ROOMS_VIZ_PORT: String(vizPort) },
+	env: { PANCAKE_ROOMS_VIZ: "1", PANCAKE_ROOMS_VIZ_PORT: String(vizPort) },
 	stdout: "inherit",
 	stderr: "piped",
 }).spawn();
@@ -132,10 +140,11 @@ try {
 	}
 
 	const seen = await watch(vizPort, await vizRef);
+	const seed = vizMemorySeed(vizPort, await vizRef);
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
-	const alice = await joinAs(browser, httpPort, "web-alice");
-	const bob = await joinAs(browser, httpPort, "web-bob");
+	const alice = await joinAs(browser, httpPort, "web-alice", seed);
+	const bob = await joinAs(browser, httpPort, "web-bob", seed);
 
 	// Alice cold-dials Bob off-room and sends. Bob renders it, which is when the
 	// direct session has certainly carried traffic on both sides.

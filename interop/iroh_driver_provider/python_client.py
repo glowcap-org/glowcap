@@ -35,6 +35,7 @@ from pancake.iroh import (  # noqa: E402
     Reachability,
     adopt_loop_provider,
     listen,
+    locator,
 )
 
 GREETING = "hello through the Python iroh transport"
@@ -68,9 +69,10 @@ async def main() -> None:
     await adopt_loop_provider(
         loop, IrohConfig(Reachability.LOCAL_DISCOVERY, worker_threads=1)
     )
-    await loop.start()
+    loop.start()
 
-    session = await asyncio.wait_for(loop.dial("iroh", server_id), timeout=20)
+    session = await asyncio.wait_for(loop.dial(locator(server_id)), timeout=20)
+    loop.serve_session(session)
     print(
         "python-iroh-driver-provider: the loop dialed by endpoint id through the "
         "provider ABI and opened the keyed session"

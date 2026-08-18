@@ -42,9 +42,9 @@
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_driver_step_wait_ms)
 (define pancake_driver_step_wait_ms (wrap-out1 pancake_driver_step_wait_ms* _int32 0))
-(define-driver-loop pancake_driver_release (_fun _pointer -> _int32))
+(define-driver-loop pancake_driver_release (_fun _pointer (_or-null _PancakeDriverFailure-pointer) -> _int32))
 (define-driver-loop pancake_driver_add_provider
-  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) -> _int32))
+  (_fun _pointer (_or-null _PancakeTransportProvider-pointer) (_or-null _PancakeDriverFailure-pointer) -> _int32))
 (define-driver-loop pancake_driver_has_transport (_fun _pointer _pointer _size _pointer -> _int32))
 (define-driver-loop pancake_driver_dial*
   (_fun _pointer (_or-null _PancakeLocatorView-pointer) (_or-null _PancakeTransportOperationOptions-pointer) _pointer -> _int32)
@@ -67,7 +67,8 @@
 (define-driver-loop pancake_driver_listener_advertise
   (_fun _pointer _uint64 (_or-null _PancakeLocatorView-pointer) -> _int32))
 (define-driver-loop pancake_driver_listener_select (_fun _pointer _uint64 -> _int32))
-(define-driver-loop pancake_driver_listener_close (_fun _pointer _uint64 -> _int32))
+(define-driver-loop pancake_driver_listener_close
+  (_fun _pointer _uint64 (_or-null _PancakeDriverFailure-pointer) -> _int32))
 (define-driver-loop pancake_driver_readiness_fd*
   (_fun _pointer _pointer -> _int32)
   #:c-id pancake_driver_readiness_fd)

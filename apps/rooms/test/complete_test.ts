@@ -6,7 +6,9 @@
 import { acceptCompletion, completeCandidates, triggerAt } from "../web/ui/complete.ts";
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
 import { mentionsYou, PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
-import { actionIn, commandIn, noticeIn, notifiesYou } from "../web/ui/commands.ts";
+import { actionIn, commandIn, held, known, noticeIn, notifiesYou } from "../web/ui/commands.ts";
+import { nickSource } from "../web/ui/composer/bits.tsx";
+import type { Conv } from "../web/ui/types.ts";
 
 function fail(message: string): never {
 	throw new Error(message);
@@ -17,7 +19,7 @@ function assert(ok: boolean, what: string): void {
 	if (!ok) throw new Error(what);
 }
 
-const SOURCES = { nicks: ["alice", "alicia", "bob"], rooms: ["lobby", "logs", "dev"] };
+const SOURCES = { nicks: ["alice", "alicia", "bob"], rooms: ["lobby", "logs", "dev"], here: "room" as const };
 
 Deno.test("a sigil triggers only at the start of the token under the caret", () => {
 	assertEquals(triggerAt("@al", 3), { kind: "nick", start: 0, query: "al" });
@@ -51,10 +53,43 @@ Deno.test("slash commands are discoverable and have one parser", () => {
 		const name = candidate.insert.trim();
 		if (commandIn(name) === null) fail(`completion offered ${name}, which no command answers to`);
 	}
-	// A command nothing has handed out says so where it is offered, so the
-	// distinction is met before the refusal is.
-	const ungranted = offered.filter((candidate) => candidate.label.includes("(not granted here)"));
-	if (ungranted.length === 0) fail("no offered command said the room has not granted it");
+	// A command this place cannot run is not a discovery. `/invite` belongs to a
+	// room; offering it in a direct line only teaches the refusal. `/kick` waits
+	// on a grant the reader cannot fetch, so naming it is the same kind of miss.
+	const inADm = completeCandidates(trigger!, { ...SOURCES, here: "direct" });
+	if (inADm.some((candidate) => candidate.label === "/invite")) {
+		fail("a direct line offered /invite, which only a room can run");
+	}
+	if (inADm.some((candidate) => candidate.label === "/members")) {
+		fail("a direct line offered /members, which only a room has");
+	}
+	const askedKick = triggerAt("/kick", 5);
+	const forKick = completeCandidates(askedKick!, SOURCES);
+	if (forKick.some((candidate) => candidate.label === "/kick")) {
+		fail("/kick was offered before any room handed it over");
+	}
+	const askedInvite = triggerAt("/invite", 7);
+	if (completeCandidates(askedInvite!, SOURCES).every((candidate) => candidate.label !== "/invite")) {
+		fail("/invite was missing in a room, where handing the room over works");
+	}
+	const none: ReadonlySet<string> = new Set();
+	for (const here of ["room", "direct"] as const) {
+		const mine = new Set(held(none, here).map((command) => command.name));
+		for (const command of known()) {
+			const rows = completeCandidates(
+				{ kind: "command", start: 0, query: command.name },
+				{ ...SOURCES, here, grants: none },
+			);
+			const offered = rows.some((row) => row.label === `/${command.name}`);
+			if (offered !== mine.has(command.name)) {
+				fail(
+					`/${command.name} in a ${here}: completion ${offered ? "offered" : "hid"} it, held() ${
+						mine.has(command.name) ? "includes" : "omits"
+					} it`,
+				);
+			}
+		}
+	}
 	assertEquals(actionIn("/me waves"), "waves");
 	// A notice travels the same way and is read back the same way, but it is not
 	// an action: it keeps its author and gives up the notification instead.
@@ -111,11 +146,14 @@ Deno.test("an empty name query offers the people first, then the room itself", (
 	// first and alphabetically. The room-wide names follow rather than taking the
 	// top of a list this short.
 	assertEquals(all.slice(0, 3).map((c) => c.label), ["alice", "alicia", "bob"]);
-	const wide = all.slice(3).map((c) => c.label);
+	const wide = all.slice(3);
 	if (wide.length === 0) fail("reaching the whole room was not offered at all");
-	for (const label of wide) {
-		if (!label.includes("everyone in this room")) {
-			fail(`a name ranked behind the members is not a room-wide one: ${label}`);
+	for (const candidate of wide) {
+		// Said beside the name rather than inside it: the name is what a reader is
+		// choosing and never gives up room, and what it reaches is the half that
+		// explains it.
+		if (candidate.hint !== "everyone in this room") {
+			fail(`a name ranked behind the members is not a room-wide one: ${JSON.stringify(candidate)}`);
 		}
 	}
 });
@@ -125,6 +163,45 @@ Deno.test("typing toward a room-wide name brings it straight up", () => {
 	if (here[0]?.insert !== "@here ") {
 		fail(`typing @her offered ${JSON.stringify(here.map((c) => c.insert))} rather than @here first`);
 	}
+	const inADm = completeCandidates({ kind: "nick", start: 0, query: "her" }, {
+		...SOURCES,
+		nicks: ["herb"],
+		here: "direct",
+	});
+	if (inADm.some((candidate) => candidate.insert === "@here ")) {
+		fail("a direct line offered @here, which names everyone in a room");
+	}
+});
+
+Deno.test("a command that names a person does not offer the room itself", () => {
+	// `/invite` and `/msg` complete against reachable people, which is the
+	// opposite of a mention. `here` and `room` address everyone in this
+	// conversation; they are not somebody to hand the room to.
+	const empty = completeCandidates({ kind: "nick", start: 0, query: "" }, {
+		...SOURCES,
+		targets: "reachable",
+	});
+	if (empty.some((candidate) => candidate.hint === "everyone in this room")) {
+		fail("a person-target command offered a room-wide name");
+	}
+	const her = completeCandidates({ kind: "nick", start: 0, query: "her" }, {
+		...SOURCES,
+		nicks: ["herb"],
+		targets: "reachable",
+	});
+	if (her.some((candidate) => candidate.insert === "@here ")) {
+		fail("typing toward @here after /invite offered the room-wide name");
+	}
+});
+
+Deno.test("a person-target command does not offer your own name", () => {
+	const conv = { type: "room", dir: "d", members: new Map() } as unknown as Conv;
+	const trigger = { kind: "nick" as const, start: 8, query: "" };
+	const names = nickSource(trigger, conv, "/invite @", new Set(["alice", "bo"]), "alice");
+	if (names.some((name) => name.toLowerCase() === "alice")) {
+		fail("/invite offered the reader's own name");
+	}
+	if (!names.includes("bo")) fail("/invite hid somebody else with the reader's name");
 });
 
 Deno.test("every spelling of a room-wide call is understood, two are proposed", () => {

@@ -2,16 +2,30 @@
 //!
 //! A Peer owns one CapTP session. These callbacks let the node composition
 //! supply cross-session facilities without making the Peer know the Node's
-//! representation: outbound token lowering, Host-local object projection,
+//! representation: outbound capability-route lowering, Host-local object projection,
 //! live gifter lookup, authority-neutral parked-withdraw scheduling, and V1
 //! compatibility count issuance.
 
 const std = @import("std");
 const model = @import("model");
+const session = @import("session");
 const bootstrap = @import("bootstrap.zig");
 const PeerId = @import("peer_id.zig").PeerId;
 
-pub const LoweringError = error{TokenNotLiftable};
+pub const LoweringError = error{RouteNotLowerable};
+pub const OutboundStagingError = std.mem.Allocator.Error || session.Error || error{
+    RouteNotLowerable,
+    QueueCapExceeded,
+    CapabilitySpaceExhausted,
+    OutboundBackpressure,
+    MalformedView,
+    ExportRangeExhausted,
+    ProxyRecipientCapExceeded,
+    PeerGone,
+    session_not_open,
+    MissingPartnerDesignator,
+    UnsupportedPipelineOp,
+};
 pub const HandoffCountError = error{HandoffCountExhausted};
 pub const PromiseShorteningError = std.mem.Allocator.Error || error{
     UnexpectedMessage,
@@ -43,6 +57,7 @@ pub const NodeServices = struct {
 
     pub const VTable = struct {
         lower: *const fn (ctx: *anyopaque, peer_id: PeerId, reference: model.Reference) LoweringError!model.Reference,
+        stage_outbound: *const fn (ctx: *anyopaque, peer_id: PeerId, message: *model.Message) OutboundStagingError!bool,
         local_object_projection: *const fn (ctx: *anyopaque) ?bootstrap.LocalObjectProjection,
         gifter_session_resolver: *const fn (ctx: *anyopaque) ?bootstrap.GifterSessionResolver,
         pending_withdraw_added: *const fn (ctx: *anyopaque, receiver: PeerId, dependency: HandoffDependency) std.mem.Allocator.Error!void,
@@ -73,6 +88,10 @@ pub const NodeServices = struct {
 
             fn lowerThunk(erased: *anyopaque, id: PeerId, reference: model.Reference) LoweringError!model.Reference {
                 return implementation.lower(context(erased), id, reference);
+            }
+
+            fn stageOutboundThunk(erased: *anyopaque, id: PeerId, message: *model.Message) OutboundStagingError!bool {
+                return implementation.stage_outbound(context(erased), id, message);
             }
 
             fn localObjectProjectionThunk(erased: *anyopaque) ?bootstrap.LocalObjectProjection {
@@ -117,6 +136,7 @@ pub const NodeServices = struct {
 
             const vtable: VTable = .{
                 .lower = lowerThunk,
+                .stage_outbound = stageOutboundThunk,
                 .local_object_projection = localObjectProjectionThunk,
                 .gifter_session_resolver = gifterSessionResolverThunk,
                 .pending_withdraw_added = pendingWithdrawAddedThunk,
@@ -141,6 +161,7 @@ pub const NodeServices = struct {
     fn Implementation(comptime Context: type) type {
         return struct {
             lower: *const fn (Context, PeerId, model.Reference) LoweringError!model.Reference,
+            stage_outbound: *const fn (Context, PeerId, *model.Message) OutboundStagingError!bool,
             local_object_projection: *const fn (Context) ?bootstrap.LocalObjectProjection,
             gifter_session_resolver: *const fn (Context) ?bootstrap.GifterSessionResolver,
             pending_withdraw_added: *const fn (Context, PeerId, HandoffDependency) std.mem.Allocator.Error!void,
@@ -156,6 +177,13 @@ pub const NodeServices = struct {
 
     pub fn lower(self: NodeServices, reference: model.Reference) LoweringError!model.Reference {
         return self.vtable.lower(self.ctx, self.peer_id, reference);
+    }
+
+    /// Transfer an owned outbound message into Node staging when one of its
+    /// Passable values needs an inline three-party give. `true` means the Node
+    /// adopted the complete message; `false` leaves it with the caller.
+    pub fn stageOutbound(self: NodeServices, message: *model.Message) OutboundStagingError!bool {
+        return self.vtable.stage_outbound(self.ctx, self.peer_id, message);
     }
 
     pub fn localObjectProjection(self: NodeServices) ?bootstrap.LocalObjectProjection {

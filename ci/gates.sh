@@ -63,6 +63,11 @@ gate bash .devcontainer/post-create.sh
 gate bash tools/run-with-timeout-test.sh
 
 gate zig build check
+# The optional native secure-relay composition is deliberately absent from the
+# base library graph, so `check` cannot prove it. Fetch the pinned Mbed TLS
+# release by checksum and run both pollable and completion carriers through the
+# real local certificate/refusal/close/resource matrix here.
+gate zig build native-tls-build
 # Bounded mutation fuzzing over every surface that takes bytes somebody else
 # chose. It stays out of `zig build check` because it spawns a nested
 # `zig build`, and check's steps run in parallel over one cache — two builders
@@ -73,8 +78,8 @@ gate zig build check
 # budget applies per target and the cost therefore grows with the number of
 # targets. At the default the sweep runs for over an hour, which no per-gate
 # deadline short enough to catch a wedged socket would ever admit — and an hour
-# of CPU on every push is not a proportionate thing to ask of a forge. What CI
-# owes is that every target still builds and searches clean; depth is what a
+# of CPU on every workflow run is not a proportionate thing to ask of a forge.
+# What CI owes is that every target still builds and searches clean; depth is what a
 # local or nightly run with a larger -Dfuzz-runs is for, and the escapes each
 # target was validated against are recorded in its own header either way.
 gate zig build fuzz -Dfuzz-runs=25K
@@ -98,6 +103,10 @@ gate zig build wasm-abi-layout-check
 # The browser binding imports exactly the one behavior-dispatch seam
 # env.pancake_behavior_trampoline, nothing else (needs deno).
 gate zig build wasm-import-check
+# A real Chromium page registers its Wasm Host over local WSS/noise-relay; the
+# installed native CLI cold-dials, fetches and calls it, while the relay audits
+# that the CapTP canary never appeared outside the Noise channel.
+gate zig build web-peer-test
 gate zig build goblins-interop
 # The same live-Goblins conversation, once per binding. Without these the
 # bindings are only ever proved against pancake's own checks, which cannot
@@ -146,6 +155,10 @@ gate zig build iroh-interop
 # runtime is a row, never a fork, so no binding can silently lack a proof
 # (needs deno + uv + cargo; all three are already on PATH above).
 gate zig build bindings-relay
+# Every native binding links the same relay archive, projects exact hostname
+# and trust refusals from one local WSS fixture, then completes a call and its
+# close barrier. This catches both ABI drift and foreign-static-link gaps.
+gate zig build bindings-native-wss-relay
 # The matrix's iroh leg: each runtime's relay dials a real iroh endpoint over
 # QUIC and carries the browser peer's live session through it. iroh-interop
 # above already pays the cargo-iroh build, so the marginal cost is the wasm

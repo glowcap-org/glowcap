@@ -23,19 +23,8 @@
     0 8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
   --sidebar-w: 16rem;
   --content-max: 60rem;
-  /* Core palette, type, and mark come from ui/tokens.css, linked first. */
-  /* Text-safe accents. The fill colours above are tuned for backgrounds and
-     rules; these two are the versions that stay legible as small type, and they
-     are what every heading, link, and label uses. Splitting them is what lets
-     the dark theme re-point colour without rewriting a rule. */
-  --accent-text: light-dark(var(--accent-deep), #eda04a);
-  --teal-text: light-dark(var(--teal-deep), #5cc3cd);
-  /* A filled button's two colours. They are a pair, not two independent
-     choices: the fill has to carry legible label text on top of it, and the
-     combination that does that on cream paper is not the one that does it on a
-     dark roast, so both move together with the theme. */
-  --btn-fill: light-dark(var(--accent-deep), var(--accent));
-  --btn-ink: var(--paper);
+  /* Core palette, type, mark, and product ink/radius/cover come from
+     ui/tokens.css, linked first. */
   /* The diagrams override these two, so they need a light-theme identity of
      their own; otherwise every use carries a core colour as a literal fallback
      and the palette is restated in two more places. */
@@ -106,7 +95,7 @@ html {
   font-variant-ligatures: common-ligatures;
   -webkit-font-smoothing: antialiased;
   color: var(--ink);
-  background: var(--paper);
+  background: var(--page-bg);
   scroll-behavior: smooth;
 }
 
@@ -117,7 +106,7 @@ body {
      instead of leaving a ragged band of empty paper mid-page. */
   display: flex;
   flex-direction: column;
-  background: var(--paper);
+  background: var(--page-bg);
 }
 
 .shell {
@@ -130,16 +119,8 @@ body {
   }
 }
 
-/* The amber hairline that runs the full width above everything. */
-body::before {
-  content: "";
-  display: block;
-  height: 4px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--teal) 100%);
-}
-
 a {
-  color: var(--accent-text);
+  color: var(--accent-ink);
   text-decoration: none;
 }
 
@@ -151,7 +132,7 @@ a:focus-visible,
 .card:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-chip);
 }
 
 .skip-link {
@@ -165,7 +146,7 @@ a:focus-visible,
   z-index: 10;
   background: var(--paper-raised);
   padding: 0.4rem 0.8rem;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   box-shadow: var(--shadow);
 }
 
@@ -179,10 +160,22 @@ a:focus-visible,
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.7rem clamp(1rem, 4vw, 2.5rem);
-  background: color-mix(in srgb, var(--paper) 88%, transparent);
-  backdrop-filter: blur(8px);
+  padding: calc(0.7rem + var(--accent-line)) clamp(1rem, 4vw, 2.5rem) 0.7rem;
+  background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
+  backdrop-filter: blur(var(--frost));
+  -webkit-backdrop-filter: blur(var(--frost));
   border-bottom: 1px solid var(--rule);
+}
+
+/* The brand hairline rides with the sticky header, the way rooms' topbar
+   carries it — a stripe on the body would scroll away. Same 3px, same oklch
+   blend of accent into teal. */
+.site-header::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--accent-line);
+  background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--teal) 100%);
 }
 
 /* How far through the page you are, drawn along the bottom edge of the header
@@ -202,7 +195,7 @@ a:focus-visible,
       right: 0;
       bottom: -1px;
       height: 2px;
-      background: linear-gradient(90deg, var(--accent) 0%, var(--teal) 100%);
+      background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--teal) 100%);
       /* Revealed with a clip rather than scaled: scaling squeezes the whole
          gradient into whatever is shown, so the leading edge would read teal at
          every scroll position. Clipping leaves the gradient anchored to the
@@ -225,25 +218,17 @@ a:focus-visible,
   align-items: center;
   gap: 0.5rem;
   color: var(--ink);
-  font-weight: 700;
-  font-size: 1.15rem;
 }
 
 .brand:hover {
   text-decoration: none;
 }
 
-/* Compact silhouette shared with rooms (`--mark-stack` in tokens.css).
-   The full-colour mark stays on the home hero and in the footer. */
-.brand-mark {
-  display: block;
-  flex: none;
+/* The stacked mark from ui/mark.css. Size is this header's; colour, pieces,
+   and the hover landing are the shared sheet's. */
+.brand .icon-mark {
   width: 26px;
   height: 26px;
-  color: var(--ink);
-  background: currentColor;
-  -webkit-mask: var(--mark-stack) center / contain no-repeat;
-  mask: var(--mark-stack) center / contain no-repeat;
 }
 
 .top-nav {
@@ -270,19 +255,19 @@ a:focus-visible,
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   cursor: pointer;
   color: var(--ink-soft);
   background: transparent;
   border: 1px solid var(--rule);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .theme-toggle:hover {
-  color: var(--accent-text);
+  color: var(--accent-ink);
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
@@ -352,13 +337,13 @@ a:focus-visible,
   color: var(--ink);
   background: var(--paper-raised);
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .docs-nav-toggle::after {
   content: "+";
-  color: var(--teal-text);
+  color: var(--teal-ink);
   font-size: 1.1rem;
   line-height: 1;
 }
@@ -411,7 +396,7 @@ a:focus-visible,
 .toc-links a {
   position: relative;
   padding: 0.26rem 0.5rem 0.26rem 0.85rem;
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-chip) var(--radius-chip) 0;
   font-size: 0.85rem;
   line-height: 1.4;
   color: var(--ink-soft);
@@ -435,7 +420,7 @@ a:focus-visible,
    a two-line heading re-wraps the moment you scroll into it and the list jumps
    under the cursor. */
 .toc-links a.is-current {
-  color: var(--teal-text);
+  color: var(--teal-ink);
 }
 
 .toc-links a.is-current::before {
@@ -471,7 +456,7 @@ a:focus-visible,
 .nav-sub a {
   display: block;
   padding: 0.32rem 0.7rem;
-  border-radius: 7px;
+  border-radius: var(--radius-chip);
   color: var(--ink);
 }
 
@@ -505,7 +490,7 @@ a:focus-visible,
    has to be visible without the layout moving at all. */
 .nav .is-current {
   background: color-mix(in srgb, var(--teal) 14%, transparent);
-  color: var(--teal-text);
+  color: var(--teal-ink);
   position: relative;
 }
 
@@ -523,1006 +508,9 @@ a:focus-visible,
 
 .nav-sub a.is-current {
   background: color-mix(in srgb, var(--teal) 12%, transparent);
-  color: var(--teal-text);
+  color: var(--teal-ink);
 }
 
 .nav-sub a.is-current::before {
   height: 0.95em;
-}
-
-/* ── Content / prose ─────────────────────────────────────────────────────── */
-
-#content {
-  padding: 2rem 0 3rem;
-  min-width: 0;
-}
-
-.prose {
-  max-width: var(--content-max);
-}
-
-/* The end of the page, marked the way a book marks the end of a chapter: one
-   small ornament, centred, with room around it. It is the project's own stack,
-   used once and quietly, rather than a glyph repeated down the margin. */
-#content::after {
-  content: "";
-  display: block;
-  width: 1.35rem;
-  height: 1.35rem;
-  margin: 3.5rem auto 0.5rem;
-  color: var(--ink-soft);
-  opacity: 0.45;
-  background: currentColor;
-  -webkit-mask: var(--mark-stack) center / contain no-repeat;
-  mask: var(--mark-stack) center / contain no-repeat;
-}
-
-.prose > :first-child {
-  margin-top: 0;
-}
-
-h1, h2, h3, h4 {
-  line-height: 1.2;
-  color: var(--ink);
-  /* Keep an in-page anchor from landing under the sticky header. */
-  scroll-margin-top: 4.5rem;
-  /* A heading is short text, so balance its lines instead of letting a lone
-     word drop to a second row. */
-  text-wrap: balance;
-}
-
-/* Display sizes use Plex's semibold weight. Body emphasis keeps the stronger
-   bold, so page structure and emphasis remain distinct. */
-h1 {
-  color: var(--teal-text);
-  font-size: 2.9rem;
-  font-weight: 600;
-  margin: 0 0 0.6rem;
-  letter-spacing: 0;
-}
-
-h2 {
-  color: var(--accent-text);
-  font-size: 1.5rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  margin: 2.2rem 0 0.8rem;
-}
-
-/* Sections are separated by a rule, not by a glyph in front of the heading. A
-   hairline across the column is how a printed page marks a new section: it
-   reads at a glance while scrolling, costs no colour, and leaves the heading
-   itself to be read as words. */
-.prose h2 {
-  padding-top: 1.4rem;
-  border-top: 1px solid var(--rule);
-}
-
-h3 {
-  font-size: 1.15rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  margin: 1.8rem 0 0.5rem;
-}
-
-p, li {
-  color: var(--ink);
-  /* Tune the last lines of body copy so a paragraph or list item never strands
-     a single word on a line of its own. `pretty` only touches the tail, so the
-     rag of the rest is left alone; browsers without it fall back to normal. */
-  text-wrap: pretty;
-}
-
-/* Lists: an accent marker and a little room to breathe, so a bulleted or
-   numbered run reads as a tidy list rather than crowded paragraphs. */
-.prose ul,
-.prose ol {
-  padding-left: 1.4rem;
-  margin: 1rem 0;
-}
-
-.prose li {
-  margin: 0.35rem 0;
-}
-
-.prose li::marker {
-  color: var(--accent);
-}
-
-/* Diagrams. SuperMD renders a captioned image as a figure, and these are the
-   hand-drawn SVGs that sit inside the prose. The card framing tells a reader
-   "this is a picture of the idea," distinct from the clickable route cards. */
-.prose figure {
-  margin: 1.75rem 0;
-  padding: 1.1rem 1.1rem 0.5rem;
-  background: var(--paper-raised);
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-}
-
-/* While the swap below is in flight, the images it is about to replace are
-   hidden: they are painted in the light literals baked into each file, and on a
-   dark page that is a flash of cream artwork per diagram. Only the script that
-   performs the swap sets this class, and it removes it when every fetch has
-   settled or after three seconds, whichever comes first. */
-:root.inlining-diagrams .prose figure img[src$=".svg"] {
-  visibility: hidden;
-}
-
-/* A diagram that the page can actually reach into. The script in the base
-   template swaps each hand-drawn SVG from an `img` (which renders in its own
-   document, deaf to this stylesheet) into a shadow root, where the artwork
-   reads the tokens above and follows the theme, including the header's toggle.
-   The shadow root is what makes this safe at scale: a page can carry a dozen
-   diagrams whose internal stylesheets all use names like `.arc1`, and none of
-   them collide with each other or leak into the page.
-
-   Without JavaScript the `img` simply stays, drawn in the light palette its
-   literals name. */
-.prose .diagram {
-  display: block;
-  width: 100%;
-}
-
-/* Both kinds of drawing, the swapped-in diagrams and the inline walkthrough,
-   want the lighter end of the amber and teal ramps for their strokes and
-   labels. `--dia-*` carries a light identity of its own in `:root`, so this
-   needs no literal fallback; in the light theme it resolves to the core value
-   and nothing shifts. */
-.prose .diagram,
-.prose .capwalk {
-  --accent-deep: var(--dia-accent-deep);
-  --teal-deep: var(--dia-teal-deep);
-}
-
-.prose figure img {
-  display: block;
-  /* Full-width means a diagram's viewBox width sets its display scale: the
-     hand-drawn SVGs share a 760-unit canvas, and a narrower canvas magnifies. */
-  width: 100%;
-  height: auto;
-  margin: 0 auto;
-}
-
-.prose figcaption {
-  margin-top: 0.7rem;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  color: var(--ink-soft);
-  text-align: center;
-  /* Even the lines out so a short centered caption never strands a lone word
-     on a line of its own. */
-  text-wrap: balance;
-}
-
-/* Raster illustrations (the README art) are pictures, not diagrams, so they
-   drop the card frame and sit centered. The figure stays wide enough for the
-   caption to read as a sentence or two rather than a cramped column, while the
-   image itself stays modest. */
-.prose figure:has(img[src$=".png"]) {
-  max-width: 32rem;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0;
-  background: none;
-  border: none;
-}
-
-.prose figure:has(img[src$=".png"]) img {
-  width: auto;
-  max-width: 18rem;
-  border-radius: 14px;
-}
-
-code {
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-  background: var(--code-bg);
-  padding: 0.1em 0.34em;
-  border-radius: 4px;
-  /* Protocol tokens (`op:start-session`, `ocapn-sturdyref`) are single names;
-     keep the hyphen from being a line-break opportunity that splits one. */
-  white-space: nowrap;
-}
-
-pre {
-  background: var(--code-bg);
-  padding: 0.9rem 1.1rem;
-  border-radius: 9px;
-  overflow-x: auto;
-  border: 1px solid var(--rule);
-  box-shadow: var(--shadow-well);
-  /* The TypeScript examples are tab-indented, matching deno fmt; render the
-     tab four columns wide like every editor here, not the browser's eight. */
-  tab-size: 4;
-}
-
-/* Copy-to-clipboard. The button is built by the script in the base template, so
-   a reader without JavaScript simply gets the code block as it always was. It
-   stays faint until the block is hovered or the button itself is focused, so a
-   page of listings is not a page of buttons; it never fades out on touch, where
-   there is no hover to reveal it. */
-.code-block {
-  position: relative;
-}
-
-.copy-btn {
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--ink-soft);
-  background: color-mix(in srgb, var(--paper-raised) 85%, transparent);
-  border: 1px solid var(--rule);
-  border-radius: 7px;
-  padding: 0.32rem 0.6rem;
-  cursor: pointer;
-  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.code-block .copy-btn {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  opacity: 0;
-}
-
-.code-block:hover .copy-btn,
-.code-block .copy-btn:focus-visible {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .code-block .copy-btn {
-    opacity: 1;
-  }
-}
-
-/* Inside a tabbed block the button joins the tab strip and copies whichever tab
-   is showing. It matches the tabs' box exactly so the row is level, but it is
-   drawn as a quiet action rather than a chip: given the same border and fill as
-   the tabs it reads as a third tab, which is the one thing it must not do. */
-.code-tabs .tab-bar .copy-btn {
-  margin-left: auto;
-  align-self: stretch;
-  margin-bottom: 0;
-  background: transparent;
-  border-color: transparent;
-  font-weight: 600;
-}
-
-.code-tabs .tab-bar .copy-btn:hover {
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-}
-
-.copy-btn:hover {
-  color: var(--accent-text);
-  border-color: var(--accent);
-}
-
-.copy-btn:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 2px;
-}
-
-.copy-btn.is-done {
-  color: var(--teal-text);
-  border-color: var(--teal);
-}
-
-pre code {
-  background: none;
-  padding: 0;
-  font-size: 0.86em;
-  /* Block code follows its `pre` parent (preserve + scroll), not the inline
-     nowrap above, so multi-line listings stay multi-line. */
-  white-space: pre;
-}
-
-/* ── Syntax highlighting ─────────────────────────────────────────────────────
-   Zine tokenizes fenced code with TreeSitter and emits scope classes — a single
-   token can carry several (an identifier arrives as `constant variable type
-   variable`). We color only the scopes that carry meaning: keywords, strings,
-   comments, calls, numbers. Identifiers stay at ink, so a Zig sample reads in
-   color instead of turning to confetti. The palette is the site's own — plum
-   for keywords (a nod to the Goblins mascot), teal for calls, an olive string,
-   amber escapes and literals. Rules are ordered so a more specific scope (escape
-   over string) wins on tokens that carry both. */
-pre code .keyword,
-pre code .keyword_conditional,
-pre code .keyword_exception,
-pre code .keyword_repeat,
-pre code .keyword_return,
-pre code .keyword_operator,
-pre code .keyword_import,
-pre code .function_builtin {
-  color: var(--syn-keyword);
-}
-
-pre code .function_call,
-pre code .function {
-  color: var(--syn-call);
-}
-
-pre code .string {
-  color: var(--syn-string);
-}
-
-pre code .number,
-pre code .boolean,
-pre code .constant_builtin {
-  color: var(--syn-number);
-}
-
-pre code .string_escape {
-  color: var(--syn-number);
-}
-
-pre code .comment {
-  color: var(--syn-comment);
-  font-style: italic;
-}
-
-pre code .operator,
-pre code .punctuation_delimiter,
-pre code .punctuation_bracket {
-  color: var(--syn-punct);
-}
-
-/* Jargon callouts. A short aside that defines a term from the object-capability
-   and CapTP world — swiss-num, vat, promise pipelining — that a reader new to
-   ocaps will not have met. Each is authored as a blockquote led by the bold term
-   it defines, so the markup stays plain Markdown while the term reads as the
-   callout's label. */
-blockquote {
-  margin: 1.5rem 0;
-  padding: 0.85rem 1.1rem;
-  border: 1px solid color-mix(in srgb, var(--teal) 30%, var(--paper));
-  background: color-mix(in srgb, var(--teal) 7%, transparent);
-  border-radius: 9px;
-  color: var(--ink);
-}
-
-.prose blockquote p {
-  margin: 0.5rem 0;
-}
-
-.prose blockquote p:first-child {
-  margin-top: 0;
-}
-
-.prose blockquote p:last-child {
-  margin-bottom: 0;
-}
-
-/* The defined term leads the callout, lifted into the core teal and marked with
-   the page's twinkle, so a jargon aside is recognizable at a glance. A blockquote
-   that does not open with a bold term simply gets no twinkle. */
-.prose blockquote > p:first-child > strong:first-child {
-  color: var(--teal-text);
-}
-
-/* A table wider than its column scrolls inside itself. Without this the page
-   body scrolls sideways on a narrow screen, which moves the prose out from
-   under the reader along with the table. The markdown emits a bare `<table>`
-   with nothing to wrap, so the table is its own scroll container: `display:
-   block` is what makes `overflow-x` apply, and the inner `display: table` below
-   puts the grid layout back inside it. */
-table {
-  display: block;
-  overflow-x: auto;
-  max-width: 100%;
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 0.94em;
-  margin: 1.2rem 0;
-  /* Figures of equal width, so a column of measurements lines up digit under
-     digit instead of drifting. The benchmark tables are full of them. */
-  font-variant-numeric: tabular-nums;
-}
-/* Restore the grid inside the scrolling block. Without these the rows stack and
-   the columns stop lining up, which is the usual cost of the wrapper-free
-   scroll above. */
-table > thead,
-table > tbody {
-  display: table;
-  width: 100%;
-}
-table > thead > tr,
-table > tbody > tr {
-  display: table-row;
-}
-
-th, td {
-  text-align: left;
-  padding: 0.5rem 0.7rem;
-  border-bottom: 1px solid var(--rule);
-  vertical-align: top;
-  /* Balance a multi-line value cell so it never leaves one trailing word
-     alone on its own row. */
-  text-wrap: balance;
-}
-
-/* The first column of a doc table is the key — a codec, transport, surface, or
-   binding name — and reads best whole. Keep it on one line; the value columns
-   beside it do the wrapping. */
-.prose th:first-child,
-.prose td:first-child {
-  white-space: nowrap;
-}
-
-th {
-  color: var(--teal-text);
-  font-weight: 700;
-}
-
-tbody tr:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-hr {
-  border: none;
-  border-top: 1px solid var(--rule);
-  margin: 2rem 0;
-}
-
-/* The landing hero: the pancake mascot beside the wordmark and a one-line
-   promise. The mark is the README icon, reused so the front door matches the
-   project's own face. */
-.hero {
-  display: flex;
-  align-items: center;
-  gap: clamp(1rem, 3vw, 2.2rem);
-  margin: 0.5rem 0 2.25rem;
-  padding-bottom: 1.75rem;
-  border-bottom: 1px solid var(--rule);
-}
-
-.hero-mark {
-  flex: none;
-  width: clamp(96px, 17vw, 150px);
-  height: auto;
-  filter: drop-shadow(0 6px 16px color-mix(in srgb, var(--ink) 16%, transparent));
-}
-
-.hero-copy {
-  min-width: 0;
-}
-
-.hero-eyebrow {
-  margin: 0 0 0.15rem;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  color: var(--accent-text);
-}
-
-.hero h1 {
-  margin: 0 0 0.5rem;
-  font-size: 3.4rem;
-  letter-spacing: 0;
-}
-
-.hero-tagline {
-  margin: 0;
-  font-size: 1.15rem;
-  line-height: 1.5;
-  color: var(--ink-soft);
-  /* Even the two lines out so a short word like "boundary." can't strand
-     itself on a line of its own. */
-  text-wrap: balance;
-}
-
-/* The README's closing line, carried through as a light, playful kicker, with a
-   trailing twinkle to land the wink. */
-.hero-kicker {
-  margin: 0.5rem 0 0;
-  font-size: 0.95rem;
-  font-style: italic;
-  color: var(--accent-text);
-}
-
-/* The two doors out of the hero. A reader arrives either ready to build or
-   wanting to know why any of this matters, and those are different pages, so
-   the front door names both instead of leaving the choice to a wall of cards
-   further down. The filled one is the one most readers want. */
-.hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 1.15rem;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 1.05rem;
-  border-radius: 9px;
-  font-weight: 700;
-  font-size: 0.95rem;
-  border: 1px solid transparent;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease,
-    background 0.12s ease;
-}
-
-.btn:hover {
-  text-decoration: none;
-  transform: translateY(-1px);
-}
-
-.btn-primary {
-  background: var(--btn-fill);
-  color: var(--btn-ink);
-  box-shadow: var(--shadow);
-}
-
-.btn-primary:hover {
-  background: var(--accent);
-}
-
-.btn-secondary {
-  background: var(--paper-raised);
-  color: var(--ink);
-  border-color: var(--rule);
-}
-
-.btn-secondary:hover {
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-
-/* The arrow rides along on hover. It is a small thing, but it makes the button
-   feel like a door rather than a label. */
-.btn .btn-arrow {
-  flex: none;
-  transition: transform 0.15s ease;
-}
-
-.btn:hover .btn-arrow {
-  transform: translateX(3px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .btn,
-  .btn .btn-arrow,
-  .card {
-    transition: none;
-  }
-
-  .btn:hover {
-    transform: none;
-  }
-
-  .btn:hover .btn-arrow {
-    transform: none;
-  }
-}
-
-@media (max-width: 38rem) {
-  .hero {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-  }
-
-  .hero-actions {
-    justify-content: center;
-  }
-}
-
-/* ── Pizazz: cards and the module stack ──────────────────────────────────── */
-
-/* Route cards: a responsive grid a content page builds with a fenced block of
-   links. Authored in SuperMD as an HTML block. */
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: 1rem;
-  margin: 1.5rem 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* A card left on its own under a full row is the visual equivalent of a widow
-   in a paragraph: the eye reads the gap beside it as something missing rather
-   than as the end of the set. The two shapes below are the only ones a grid of
-   these sizes produces, and each is fixed where the fix is honest.
-
-   Four cards in three columns become two rows of two. The rule can only take
-   columns away, so at a width where the grid had already dropped to two it
-   changes nothing, and the media query only keeps it clear of the one-column
-   stack. */
-@media (min-width: 46rem) {
-  .cards:has(> .card:nth-child(4):last-child) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* The landing grid runs a full-width lead card and then seven more, so whatever
-   the column count, the last one starts a row it does not fill. It takes the
-   whole row instead of a third of it. At one column that is already true, so
-   the rule needs no width guard. */
-.cards:has(> .card-lead) > .card:last-child:nth-child(3n + 2) {
-  grid-column: 1 / -1;
-}
-
-.card {
-  display: block;
-  padding: 1.1rem 1.2rem;
-  background: var(--paper-raised);
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  color: var(--ink);
-  transition: transform 0.12s ease, border-color 0.12s ease;
-}
-
-.card {
-  position: relative;
-  overflow: hidden;
-}
-
-/* A hairline in the brand gradient sits along the bottom edge of every card and
-   wipes across on hover. It is the one moving part of an otherwise still grid,
-   and it points along the reading direction, toward the link the card is. */
-.card::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--teal) 100%);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.22s ease;
-}
-
-.card:hover {
-  text-decoration: none;
-  transform: translateY(-2px);
-  border-color: var(--accent);
-}
-
-.card:hover::after,
-.card:focus-visible::after {
-  transform: scaleX(1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .card::after {
-    transition: none;
-  }
-}
-
-/* A card's title is an `h2`: on the landing page these are the top-level
-   sections under the page title, and jumping straight to `h3` leaves a hole in
-   the outline that a screen reader announces as a missing level. Size is set
-   here rather than inherited from the document `h2`, because rank is structure
-   and size is presentation. */
-.card h2 {
-  margin: 0 0 0.3rem;
-  font-size: 1.08rem;
-  letter-spacing: 0;
-  color: var(--accent-text);
-}
-
-.card p {
-  margin: 0;
-  font-size: 0.94rem;
-  color: var(--ink-soft);
-}
-
-/* The lead card takes the full width of the grid's first row and states the
-   one thing a first-time reader most needs to hear. Everything after it is a
-   peer; this one is the recommendation. */
-.card-lead {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  background: linear-gradient(
-    120deg,
-    color-mix(in srgb, var(--teal) 10%, var(--paper-raised)),
-    var(--paper-raised) 60%
-  );
-  border-color: color-mix(in srgb, var(--teal) 35%, var(--rule));
-}
-
-.card-lead .card-lead-mark {
-  flex: none;
-  width: 2.1rem;
-  height: 2.1rem;
-  color: var(--teal);
-  background: currentColor;
-  -webkit-mask: var(--mark-stack) center / contain no-repeat;
-  mask: var(--mark-stack) center / contain no-repeat;
-}
-
-.card-lead h2 {
-  color: var(--teal-text);
-  font-size: 1.15rem;
-}
-
-/* The module stack: one connected panel of layers resting on layers, the way
-   the architecture composes. It is deliberately not card-shaped, the route
-   cards lift and link, this is a diagram that sits still and reads top to
-   bottom, so a colored left edge marks each band instead of a raised tile. */
-.stack {
-  margin: 1.5rem 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.layer {
-  padding: 0.7rem 1rem;
-  border-bottom: 1px solid var(--rule);
-  background: var(--paper-raised);
-}
-
-.layer:last-child {
-  border-bottom: none;
-}
-
-.layer strong {
-  color: var(--teal-text);
-}
-
-.layer.is-core {
-  background: color-mix(in srgb, var(--teal) 8%, var(--paper-raised));
-}
-
-.layer.is-adapter {
-  background: color-mix(in srgb, var(--accent) 8%, var(--paper-raised));
-}
-
-/* The local actor layer: sync and sans-io like the core, but resting on it
-   rather than inside it, so it gets its own neutral band. */
-.layer.is-local {
-  background: color-mix(in srgb, var(--ink-soft) 7%, var(--paper-raised));
-}
-
-.layer small {
-  display: block;
-  color: var(--ink-soft);
-  font-size: 0.86rem;
-  /* Same widow control as body copy, these read as sentences, not labels. */
-  text-wrap: pretty;
-}
-
-.tag {
-  display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  vertical-align: middle;
-}
-
-.tag-core {
-  color: var(--teal-text);
-  background: color-mix(in srgb, var(--teal) 18%, transparent);
-}
-
-.tag-adapter {
-  color: var(--accent-text);
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.tag-local {
-  color: var(--ink);
-  background: color-mix(in srgb, var(--ink-soft) 18%, transparent);
-}
-
-/* ── Footer ──────────────────────────────────────────────────────────────── */
-
-.site-footer {
-  flex: none;
-  width: 100%;
-  max-width: 84rem;
-  margin: 0 auto;
-  padding: 1rem clamp(1rem, 4vw, 2.5rem) 2.5rem;
-  font-size: 0.9rem;
-  color: var(--ink-soft);
-}
-
-/* The foot of every page. A reader who has finished a page is at a decision
-   point, so this offers the three directions the site actually goes rather than
-   a single line of legal text. */
-.footer-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
-  gap: 1.5rem 2rem;
-  margin-bottom: 1.5rem;
-}
-
-.footer-brand {
-  display: flex;
-  gap: 0.7rem;
-  align-items: flex-start;
-}
-
-.footer-brand img {
-  flex: none;
-  margin-top: 0.15rem;
-}
-
-.footer-brand p {
-  margin: 0;
-  font-size: 0.86rem;
-  line-height: 1.55;
-  color: var(--ink-soft);
-  text-wrap: pretty;
-}
-
-.footer-cols nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.footer-cols h2 {
-  margin: 0 0 0.25rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-
-.footer-cols a {
-  color: var(--ink-soft);
-  font-size: 0.88rem;
-}
-
-.footer-cols a:hover {
-  color: var(--accent-text);
-}
-
-.footer-legal {
-  margin: 0;
-  padding-top: 1rem;
-  border-top: 1px solid var(--rule);
-  font-size: 0.82rem;
-}
-
-@media (max-width: 52rem) {
-  .footer-cols {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .footer-brand {
-    grid-column: 1 / -1;
-  }
-}
-
-/* ── Narrow screens: the sidebar folds to a horizontal strip on top ──────── */
-
-@media (max-width: 52rem) {
-  .shell {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-
-  .sidebar {
-    position: static;
-    max-height: none;
-    overflow: visible;
-    padding: 1rem 0 0.5rem;
-    border-bottom: 1px solid var(--rule);
-    margin-bottom: 0.5rem;
-  }
-
-  .js .docs-nav-toggle {
-    display: flex;
-  }
-
-  .js #docsNav {
-    display: none;
-  }
-
-  .js #docsNav.is-open {
-    display: flex;
-  }
-
-  .nav {
-    flex-flow: row wrap;
-    gap: 0.3rem 0.5rem;
-    align-items: center;
-  }
-
-  .nav-heading {
-    width: 100%;
-    margin: 0.5rem 0 0;
-  }
-
-  .nav-sub {
-    flex-flow: row wrap;
-    margin: 0;
-    border-left: none;
-    padding-left: 0;
-    gap: 0.3rem;
-  }
-
-  #content {
-    padding-top: 1rem;
-  }
-}
-
-@media (max-width: 38rem) {
-  h1 {
-    font-size: 2.2rem;
-  }
-
-  .hero h1 {
-    font-size: 2.7rem;
-  }
-}
-
-/* ── Code tabs ───────────────────────────────────────────────────────────────
-   A `code-tabs` block holds label/code pairs (authored as bold one-word
-   paragraphs before each fence). The script in the base template turns the
-   pairs into tabs; without JavaScript the pairs render as labeled, stacked
-   code blocks, which is the intended fallback. */
-.code-tabs .tab-bar {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.3rem;
-  /* The bar sits directly on the panel below; the buttons themselves overlap
-     the panel's top border (see `margin-bottom` below), so the strip and the
-     code block read as one shape rather than two stacked boxes. */
-  position: relative;
-  z-index: 1;
-}
-
-.code-tabs .tab-bar button {
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--ink-soft);
-  background: color-mix(in srgb, var(--ink) 5%, var(--code-bg));
-  border: 1px solid var(--rule);
-  border-radius: 8px 8px 0 0;
-  padding: 0.3rem 0.9rem;
-  cursor: pointer;
-  /* Drop onto the panel's 1px top border so the active tab can punch through
-     it and unselected tabs share the same baseline. */
-  margin-bottom: -1px;
-}
-
-.code-tabs .tab-bar button[aria-pressed="true"] {
-  color: var(--teal-text);
-  /* Same fill as the panel, with the seam erased where they meet, so the
-     selected tab opens straight into the code block. */
-  background: var(--code-bg);
-  border-bottom-color: var(--code-bg);
-}
-
-.code-tabs .tab-bar button:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 2px;
-}
-
-/* Once the script has built a bar, every panel behind it drops its top margin
-   (`pre` keeps the browser default elsewhere) and squares its top corners so
-   the tabs sit flush on the panel; the bottom stays rounded. The no-JS
-   fallback has no bar, so its stacked blocks keep the normal `pre` shape. */
-.code-tabs .tab-bar ~ pre {
-  margin-top: 0;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-
-/* The no-JS fallback labels. The script removes them when it builds the bar. */
-.code-tabs > p {
-  margin: 0.6rem 0 -0.6rem;
-  font-size: 0.85rem;
-  color: var(--ink-soft);
 }

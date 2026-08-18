@@ -1,6 +1,6 @@
 /**
  * Lane-paint helpers — the pill rendering, glyph stamping, and
- * entity row-order resolution that the Scrubber's `drawScrubberScene`
+ * entity row-order resolution that the Scrubber's lane-stack paint
  * delegates to per lane. Pure paint code: no React, no state
  * mutation, no hit-test responsibility (that lives in `Scrubber.tsx`).
  * Callers thread `plotX` = the leftmost paintable content pixel
@@ -69,7 +69,7 @@ function fadeGradient(canvas: number, towardRight: boolean): FillGradient {
  * first (in the listed order), then unlisted entities sorted by
  * the bundle insertion order (which is first-event-t because
  * `buildLaneBundle` walks events in t-order). Stable + cheap.
- * Used inside `drawScrubberScene` where the byEntity map is in
+ * Used inside `drawLaneStack` where the byEntity map is in
  * scope; the React-side equivalent is `applyRowOrder` which
  * takes a pre-flattened insertion-ordered list. */
 export function orderEntities(

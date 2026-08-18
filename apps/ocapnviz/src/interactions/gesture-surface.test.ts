@@ -201,7 +201,7 @@ Deno.test("capture loss and pointer cancel end the gesture", () => {
  * let go or the system took the pointer away. So a surface left to guess commits
  * the cancellations, and does it invisibly — there is no error, just a selection
  * the reader did not ask for. `use-surface-pointer.ts` asks this AND
- * `releaseCompletes` (`pointer-machine.test.ts`), and needs both.
+ * `hasSomethingToCommit` (`pointer-machine-test/commit.test.ts`), and needs both.
  *
  * Validated by injection, one per row: filing `pointercancel` under `released`
  * fails that row, and so does filing `pointerup` under `cancelled`.

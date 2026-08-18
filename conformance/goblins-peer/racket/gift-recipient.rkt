@@ -1,7 +1,9 @@
 #lang racket/base
 ;; gift-recipient.rkt — Goblins Carol, the recipient in the pancake-as-gifter
 ;; three-party handoff proof. Dials the pancake gifter's introducer, asks it for
-;; the greeter, and calls the greeter once.
+;; the greeter, and calls it. With the optional `nested` mode the answer is a
+;; list containing two recursively placed gives; Carol must redeem and call
+;; both, proving that the gifter did not special-case a top-level answer.
 ;;
 ;; The introduction returns a `desc:handoff-give` pancake minted that names the
 ;; Goblins exporter (Bob). Goblins redeems it transparently: it dials Bob
@@ -11,7 +13,7 @@
 ;; integrity across the cross-implementation handoff.
 ;;
 ;; Usage:
-;;   racket gift-recipient.rkt <gifter-host:port> <introducer-swiss> <local-port> [expect-hint]
+;;   racket gift-recipient.rkt <gifter-host:port> <introducer-swiss> <local-port> [expect-hint] [nested]
 ;;
 ;; Prints `GIFT OK: <reply>` and exits 0 on success; `GIFT ERR`/`GIFT TIMEOUT`
 ;; and exits 1 otherwise. With the optional `expect-hint` name, the netlayer's
@@ -31,7 +33,11 @@
 (define gifter-designator (vector-ref argv 0)) ; "127.0.0.1:NNNNN"
 (define swiss-ascii (vector-ref argv 1))
 (define local-port (string->number (vector-ref argv 2)))
-(define expect-hint (and (> (vector-length argv) 3) (vector-ref argv 3)))
+(define optional-args
+  (for/list ([index (in-range 3 (vector-length argv))]) (vector-ref argv index)))
+(define nested? (and (member "nested" optional-args) #t))
+(define expect-hint
+  (for/first ([arg (in-list optional-args)] #:unless (string=? arg "nested")) arg))
 
 ;; The wire unmarshaller builds `ocapn-node` through the raw constructor, so a
 ;; decoded node can carry mapping-shaped hints even though the contracted
@@ -71,17 +77,33 @@
    (define introducer-vow (<- mycapn 'enliven introducer-sturdyref))
 
    ;; Ask the gifter to introduce the greeter, and wait for that to *resolve*
-   ;; before calling, the resolution is a handoff-give Goblins redeems to the
-   ;; live exporter cap. Redeem-then-call (rather than pipelining the greeter
-   ;; call onto the unresolved introduction) keeps the greeter call off the
-   ;; gifter entirely: it goes straight to the exporter, the same shape the
-   ;; `deno-goblins-handoff` recipient proof uses.
+   ;; before calling. In nested mode Goblins recursively unmarshals the two
+   ;; gives inside the list into promises; calling both proves each distinct
+   ;; signed introduction reached the exporter.
    (on (<- introducer-vow 'get-greeter)
-       (lambda (greeter)
-         (on (<- greeter "goblins-carol")
-             (lambda (val) (async-channel-put response-ch `(ok ,val)))
-             #:catch
-             (lambda (err) (async-channel-put response-ch `(err ,err)))))
+       (lambda (answer)
+         (with-handlers ([(lambda (_) #t)
+                          (lambda (err) (async-channel-put response-ch `(err ,err)))])
+           (define greeters
+             (if nested?
+                 (if (and (list? answer)
+                          (= (length answer) 2)
+                          (list? (cadr answer))
+                          (= (length (cadr answer)) 1))
+                     (list (car answer) (car (cadr answer)))
+                     (error 'gift-recipient "nested answer has the wrong shape: ~v" answer))
+                 (list answer)))
+           (on (<- (car greeters) "goblins-carol-one")
+               (lambda (first)
+                 (if nested?
+                     (on (<- (cadr greeters) "goblins-carol-two")
+                         (lambda (second)
+                           (async-channel-put response-ch `(nested-ok ,first ,second)))
+                         #:catch
+                         (lambda (err) (async-channel-put response-ch `(err ,err))))
+                     (async-channel-put response-ch `(ok ,first))))
+               #:catch
+               (lambda (err) (async-channel-put response-ch `(err ,err))))))
        #:catch
        (lambda (err) (async-channel-put response-ch `(err ,err))))))
 
@@ -89,6 +111,9 @@
 (case (and (pair? reply) (car reply))
   [(ok)
    (printf "GIFT OK: ~v~n" (cadr reply))
+   (exit 0)]
+  [(nested-ok)
+   (printf "GIFT NESTED OK: ~v | ~v~n" (cadr reply) (caddr reply))
    (exit 0)]
   [(err)
    (printf "GIFT ERR: ~v~n" (cadr reply))

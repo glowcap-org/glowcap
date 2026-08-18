@@ -8,14 +8,27 @@
 
 import { memo } from "react";
 import type { Conv } from "./types.ts";
+import { PresenceAvatar } from "./Avatar.tsx";
 import { Icon } from "./icons.tsx";
 import { IconButton } from "./IconButton.tsx";
+import { SettingsButton } from "./SettingsButton.tsx";
+import { StandingMenu } from "./Standing.tsx";
 import { usePeer } from "./peer.ts";
+import { roomCalled } from "./text.ts";
 
 /** What the title says, and what its mark would do. */
 function titleOf(conv: Conv | null): { name: string; said: string } {
 	if (!conv) return { name: "No room yet", said: "No room yet" };
-	if (conv.type === "room") return { name: conv.id, said: "Leave #" + conv.id };
+	if (conv.type === "room") {
+		// A held room's leave is one-way — there is no name to walk back in by —
+		// and the control is where that has to be said, before it is pressed.
+		return {
+			name: conv.id,
+			said: conv.held
+				? `Leave the private room ${conv.id}. You can only return if somebody hands it to you again`
+				: "Leave #" + conv.id,
+		};
+	}
 	return { name: conv.id, said: "Close the direct message with " + conv.id };
 }
 
@@ -36,15 +49,23 @@ function provenanceOf(conv: Conv, online: boolean, narrow: boolean): string {
 }
 
 function TopbarPane(
-	{ conv, online, unread, mobile, railShown, rosterShown, memberCount, settingsOpen }: {
+	{ conv, online, away, unread, mobile, railShown, rosterShown, memberCount, settingsOpen, standing, follows }: {
 		conv: Conv | null;
 		online: boolean;
+		/** Why a direct peer has stepped away, by the shared rooms' word, or
+		 * null while they are here; always null over a room. */
+		away: string | null;
 		unread: number;
 		mobile: boolean;
 		railShown: boolean;
 		rosterShown: boolean;
 		memberCount: number;
 		settingsOpen: boolean;
+		/** Where the reader stands in this room, whichever level is answering. */
+		standing: string;
+		/** What this room follows while it has no word of its own, named for a
+		 * reader: the directory it is on. */
+		follows: string;
 	},
 ) {
 	const peer = usePeer();
@@ -53,10 +74,22 @@ function TopbarPane(
 	// How many people are here now, rather than how many the room has ever seen —
 	// the roster behind this button draws the same distinction in words.
 	const said = "Members, " + memberCount + " online";
-	// The sigil in the title says what kind of line this is: a room keeps its
-	// hash, and a direct line takes two endpoints with nothing in between, which
-	// is what an introduction leaves behind once the room is out of the path.
-	const sigil = isRoom ? "#" : conv ? <Icon name="direct" size={17} /> : null;
+	// The title names the thing you are in. A room is a place, so it wears its
+	// hash — or a lock, if it is private, which is the one place a reader can
+	// see without leaving that this room is not one anybody can walk into by
+	// name. A direct line is a person, so it wears the same chip the rail and
+	// the log already use. What kind of path the messages take is the
+	// provenance beside the title, not a second mark fighting the face.
+	const heldRoom = conv?.type === "room" && conv.held;
+	const sigil = heldRoom ? <Icon name="lock" size={15} /> : isRoom ? "#" : conv
+		? (
+			<PresenceAvatar
+				name={conv.id}
+				state={online ? (away !== null ? "away" : "online") : "offline"}
+				reason={away ?? undefined}
+			/>
+		)
+		: null;
 	return (
 		<header className="topbar">
 			<IconButton
@@ -71,7 +104,14 @@ function TopbarPane(
 			/>
 			<h1 id="roomTitle">
 				<span className="title-chip">
-					<span className={isRoom ? "hash" : "at"} id="roomSigil" hidden={conv === null}>
+					<span
+						className={heldRoom ? "hash held-lock" : isRoom ? "hash" : undefined}
+						id="roomSigil"
+						hidden={conv === null}
+						title={heldRoom
+							? "A private room: it is not listed, and only people it was handed to are here"
+							: undefined}
+					>
 						{sigil}
 					</span>
 					<span id="roomName">{title.name}</span>
@@ -82,7 +122,11 @@ function TopbarPane(
 						label={title.said}
 						size="small"
 						variant="ghost"
-						tone="danger"
+						// Leaving a named room is calm and reversible, so the mark wears
+						// the quiet ink. Danger is kept for the one leave that cannot be
+						// walked back: a private room, which the label already warns
+						// about in the same condition.
+						tone={heldRoom ? "danger" : "neutral"}
 						hidden={conv === null}
 						onClick={peer.endConv}
 					/>
@@ -103,14 +147,30 @@ function TopbarPane(
 				</span>
 			</span>
 			<span className="spacer" />
-			<IconButton
-				id="settingsBtn"
-				icon="gear"
-				label="Settings"
-				size={mobile ? "large" : "normal"}
-				aria-pressed={settingsOpen}
-				onClick={() => settingsOpen ? peer.closeSettings() : peer.openSettings()}
-			/>
+			{
+				/* Settings travels with the list: in the rail while it is up, and
+				    on this bar when it is away. It sits to the left of standing,
+				    not beside members — that end of the bar is already the roster. */
+			}
+			{!railShown && <SettingsButton id="settingsBtn" mobile={mobile} settingsOpen={settingsOpen} />}
+			{
+				/* Where the reader stands in this one room. The innermost of the three
+			    levels, and the only one that belongs to a conversation rather than
+			    to the reader, which is why it is the only one drawn in a header.
+			    Not on a phone, where the header holds a back mark, a name, and two
+			    controls already; the other two levels are reachable there, from the
+			    foot of the rail and from a directory's card. */
+			}
+			{isRoom && conv !== null && !mobile && (
+				<StandingMenu
+					id="roomStanding"
+					own={conv.type === "room" ? conv.standing : null}
+					effective={standing}
+					follows={follows}
+					about={roomCalled(conv.id, conv.held)}
+					onSay={(said) => peer.setRoomStanding(conv.key, said)}
+				/>
+			)}
 			<IconButton
 				id="membersToggle"
 				icon="group"

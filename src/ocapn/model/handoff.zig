@@ -8,9 +8,11 @@
 
 const peer_locator = @import("peer_locator.zig");
 
-/// Width of the random gift identifier in the current OCapN profile. V1.0
-/// Goblins accepts a wider legacy domain, so session admission decides when
-/// this shape is required.
+/// Width of the random gift identifier the draft specifies, and what pancake
+/// mints on every profile. Session admission requires it inbound on
+/// `pancake-next`, where both ends are pancake's own, and admits a wider domain
+/// on `1.0`, which has to interoperate with peers that mint narrower ids
+/// (`conformance/ocapn-findings`, gift-id width).
 pub const GIFT_ID_BYTES: usize = 32;
 
 /// The gifter's signed gift: who may redeem it (`recipient_key`), where the

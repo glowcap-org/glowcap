@@ -138,7 +138,7 @@ personas. CapTP peer + Task subagent are one seat.
 
 | Knob | Default | Meaning |
 | ---- | ------- | ------- |
-| `ROOMS_TEAM_MAX_BOTS` | `4` | Max concurrent bots **including the lead** |
+| `PANCAKE_ROOMS_TEAM_MAX_BOTS` | `4` | Max concurrent bots **including the lead** |
 
 So default headroom is **3 members**. Human may raise/lower the env (or say a
 number in-session); lead announces the cap when it differs from 4.
@@ -191,7 +191,7 @@ zig build && export PATH="$PWD/zig-out/bin:$PATH"
    `rooms-net`.
 2. Spawn **active** members as **background** subagents (member prompt below;
    same `--room`, persona body inlined). Stay under
-   [`ROOMS_TEAM_MAX_BOTS`](#roster-capacity-spawn--dismiss) (default 4 incl. lead).
+   [`PANCAKE_ROOMS_TEAM_MAX_BOTS`](#roster-capacity-spawn--dismiss) (default 4 incl. lead).
    Call in / dismiss later as personas change — do not require the full cast
    up front.
 3. Orchestrate per strategy; peer chatter in the team room; health per
@@ -212,7 +212,7 @@ waits for lead `joined+registered`, prints speak-policy text (also
 `DIR/speak-policy.txt`), starts each member only after the lead is ready, and
 emits per-member Task prompt files (`DIR/task-prompt.txt`). **Harness still
 spawns member Tasks** and foreground-waits `tick` — spin never final-answers for
-them. `capacity` prints max / used / free seats (`ROOMS_TEAM_MAX_BOTS`, default 4,
+them. `capacity` prints max / used / free seats (`PANCAKE_ROOMS_TEAM_MAX_BOTS`, default 4,
 including lead). Pass current member nicks only (lead is implied).
 **Room speech:** `reply --dir DIR --text '…'` posts (outbox). With `--id`, also
 marks that pending item answered. Unsolicited lines omit `--id`. Never paste

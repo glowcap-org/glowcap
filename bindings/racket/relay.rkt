@@ -54,6 +54,7 @@
     (or (and v (string->number v)) 60000)))
 (define MAX-BYTES-PER-SESSION (expt 2 30)) ; 1 GiB
 (define READ-CHUNK 65536)                   ; 64 KiB
+(define CLOSE-TIMEOUT-MS 5000)
 
 ;; A raw TCP byte channel as a `byte-channel`: `read` blocks and returns eof on
 ;; close, `write` flushes (which blocks under the socket's send-buffer
@@ -119,13 +120,22 @@
   (define down 0)
   (define last-activity (current-inexact-monotonic-milliseconds))
   (define done (make-semaphore 0))
+  (define state-lock (make-semaphore 1))
   (define failures (box '()))
-  (define (record-failure! error)
-    (set-box! failures (append (unbox failures) (list error)))
-    (semaphore-post done))
-  (define (run-leg! body)
+  (define shutting-down? #f)
+  (define (record-pump-failure! error)
+    (define recorded?
+      (call-with-semaphore
+       state-lock
+       (lambda ()
+         (and (not shutting-down?)
+              (begin
+                (set-box! failures (append (unbox failures) (list error)))
+                #t)))))
+    (when recorded? (semaphore-post done)))
+  (define (run-pump-leg! body)
     (with-handlers ([(lambda (error) (not (exn:break? error)))
-                     record-failure!])
+                     record-pump-failure!])
       (body)))
   (define (over-cap?) (> (+ up down) MAX-BYTES-PER-SESSION))
   (define (touch!) (set! last-activity (current-inexact-monotonic-milliseconds)))
@@ -133,7 +143,7 @@
   (define ws->channel
     (thread
      (lambda ()
-       (run-leg!
+       (run-pump-leg!
         (lambda ()
           (let loop ()
             (define msg (recv conn #:payload-type 'auto))
@@ -150,7 +160,7 @@
   (define channel->ws
     (thread
      (lambda ()
-       (run-leg!
+       (run-pump-leg!
         (lambda ()
           (let loop ()
             (define chunk ((byte-channel-read ch)))
@@ -178,12 +188,47 @@
            [else (sleep (/ (- IDLE-TIMEOUT-MS idle) 1000.0)) (loop)])))))
 
   (semaphore-wait done)
+  ;; Closing the physical pair is the operation's barrier. Start both closes
+  ;; while the pump readers still exist: rfc6455 needs its reader to unwind the
+  ;; peer's close reply, and killing it first can strand the close handshake.
+  ;; Each close owns one stable result slot so scheduler order cannot reorder
+  ;; the byte-channel and WebSocket consequences.
+  (call-with-semaphore state-lock (lambda () (set! shutting-down? #t)))
+  (define close-results (vector #f #f)) ; #f or `(failure . exact-value)`
+  (define close-actions
+    (list (cons "byte-channel" (byte-channel-close! ch))
+          (cons "WebSocket" (lambda () (close-websocket conn)))))
+  (define close-workers
+    (for/list ([close (in-list close-actions)]
+               [index (in-naturals)])
+      (thread
+       (lambda ()
+         (with-handlers ([(lambda (error) (not (exn:break? error)))
+                          (lambda (error)
+                            (vector-set! close-results index (cons 'failure error)))])
+           ((cdr close)))))))
+  (define close-deadline (+ (current-inexact-monotonic-milliseconds)
+                            CLOSE-TIMEOUT-MS))
+  (for ([worker (in-list close-workers)]
+        [index (in-naturals)])
+    (define remaining-ms
+      (max 0 (- close-deadline (current-inexact-monotonic-milliseconds))))
+    (unless (sync/timeout (/ remaining-ms 1000.0) (thread-dead-evt worker))
+      (vector-set! close-results index
+                   (cons 'failure
+                         (exn:fail
+                          (format "relay ~a close timed out"
+                                  (car (list-ref close-actions index)))
+                          (current-continuation-marks))))
+      (kill-thread worker)))
+  (for ([worker (in-list close-workers)]) (thread-wait worker))
+  (for ([result (in-vector close-results)] #:when result)
+    (set-box! failures (append (unbox failures) (list (cdr result)))))
+
   (for ([worker (in-list (list ws->channel channel->ws watchdog))])
     (kill-thread worker))
   (for ([worker (in-list (list ws->channel channel->ws watchdog))])
     (thread-wait worker))
-  (run-leg! (lambda () ((byte-channel-close! ch))))
-  (run-leg! (lambda () (close-websocket conn)))
   (define ordered (unbox failures))
   (when (pair? ordered)
     (define primary (car ordered))

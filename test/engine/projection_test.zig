@@ -88,11 +88,16 @@ test "an arbitrary-precision op:index waits for the receiver then breaks out of 
 
 test "op:untag on a pending answer unwraps the matching Tagged's single value" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    // A silent peer means the Goblins-compatible feature baseline, but inbound
+    // untag is still part of OCapN 1.0 and must be answered.
+    var peer = peer_fixture.openPeerWith(allocator, .{
+        .captp_version = .v1_0,
+        .features = model.FeatureSet.baseline(),
+    });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>2\"cm12+>");
     // The projected answer is exported (installed) the moment the op:untag lands.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);

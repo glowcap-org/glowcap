@@ -132,6 +132,7 @@ pub fn classify(err: anyerror) Classification {
         error.NestingTooDeep,
         error.CompareBudgetExhausted,
         error.ExportRangeExhausted,
+        error.VirtualAnswerSpaceExhausted,
         error.FrameTooLarge,
         error.LocalDeliveryCapExceeded,
         error.OutboundBackpressure,

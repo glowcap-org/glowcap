@@ -108,7 +108,7 @@ def _codec_from_abi(codec: int) -> str:
         return "capnp"
     if codec == _abi.CODEC_SYRUP:
         return "syrup"
-    return "unknown"
+    raise ValueError(f"pancake ABI returned unknown trace codec {codec}")
 
 
 def _captp_version_from_abi(version: int) -> str:
@@ -116,7 +116,7 @@ def _captp_version_from_abi(version: int) -> str:
         return "pancake-next"
     if version == _abi.CAPTP_V1_0:
         return "1.0"
-    return "unknown"
+    raise ValueError(f"pancake ABI returned unknown trace CapTP version {version}")
 
 
 def _emit(sink: TraceSink, record: dict, owner) -> None:
@@ -143,6 +143,15 @@ def _on_native_event(ctx: int, event_ptr) -> None:
     owner = _owner_of(cookie)
     if owner is None:
         return
+    try:
+        _decode_native_event(sink, owner, cookie, ev)
+    except BaseException as error:
+        # This is a callerless binding/ABI projection failure, distinct from a
+        # sink that rejected a valid event. Nothing may unwind through ctypes.
+        owner._record_callerless_failure("trace.decode", error)
+
+
+def _decode_native_event(sink: TraceSink, owner, cookie: int, ev) -> None:
     session = f"live-h{cookie}-s{ev.session}"
     if ev.kind == _abi.TRACE_SESSION_OPEN:
         designator = (
@@ -221,6 +230,8 @@ def _on_native_event(ctx: int, event_ptr) -> None:
             "kind": "ocapn.session-closed",
             "session": session,
         }, owner)
+        return
+    raise ValueError(f"pancake ABI returned unknown trace event kind {ev.kind}")
 
 
 def _callback():

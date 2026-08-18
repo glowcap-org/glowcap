@@ -7,17 +7,16 @@
 // Topology (all TCP loopback):
 //   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
 //   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
-//                              publishes an "introducer"
-//                              that returns it, and listens for the recipient.
+//                              publishes an "introducer" that returns it twice
+//                              in one nested Passable value, and listens.
 //   Carol  (Goblins recipient) dials the pancake introducer, asks for the
-//                              greeter, transparently redeems pancake's give, and
-//                              calls the greeter directly on Bob.
+//                              greeters, transparently redeems both gives, and
+//                              calls both directly on Bob.
 //
-// pancake is the gifter: when Carol asks for the greeter, pancake deposits it
-// back with Bob over its own Bob connection and resolves Carol's send with a
-// signed give. Goblins Bob must accept pancake's deposit; Goblins Carol must
-// redeem pancake's give and reach Bob directly. The proof is Carol's `GIFT OK`
-// line carrying the greeter's reply with the name she sent.
+// pancake is the gifter: when Carol asks for the greeters, pancake deposits both
+// occurrences with Bob and resolves Carol's send with two signed gives. Goblins
+// must redeem both and reach Bob directly; Carol's `GIFT NESTED OK` line carries
+// both replies and the distinct names she sent.
 //
 // Needs `deno` + `racket` + the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-gift`.
@@ -98,25 +97,26 @@ try {
 	if (!(greeter instanceof Ref)) giftFail("the vendor reply was not a capability");
 	console.log("deno-goblins-gift: lifted goblins-bob's greeter from a reply");
 
-	// Publish the introducer host-wide. Returning Bob's greeter (home = the Bob
-	// connection) to the recipient's connection trips the transparent gifter,
-	// which deposits with Bob and resolves the recipient with a signed give.
+	// Publish the introducer host-wide. Two recursively placed occurrences of
+	// Bob's greeter force the binding's complete Value lowering path and the
+	// core's one-message/two-give transaction; neither is a top-level shortcut.
 	gifter.host.publishGiftable(
 		INTRODUCER_SWISS,
-		(verb) => (verb === "get-greeter" ? greeter : null),
+		(verb) => (verb === "get-greeter" ? [greeter, [greeter]] : null),
 	);
 	console.log(
 		`deno-goblins-gift: pancake publishing introducer swiss=${INTRODUCER_SWISS} on ${HOST}:${gifterPort}`,
 	);
 
 	// Spawn Carol (the Goblins recipient): she dials pancake's introducer, asks
-	// for the greeter, redeems pancake's give, and calls Bob directly.
+	// for both greeters, redeems both gives, and calls Bob directly.
 	carol = new Deno.Command(RACKET, {
 		args: [
 			RECIPIENT_SCRIPT,
 			tcp.addressDesignator(HOST, gifterPort),
 			INTRODUCER_SWISS,
 			String(PORT + 1),
+			"nested",
 		],
 		stdout: "piped",
 		stderr: "piped",
@@ -132,7 +132,11 @@ try {
 			`recipient exited non-zero${carolErr ? `; stderr:\n${carolErr}` : ""}`,
 		);
 	}
-	if (!reply.startsWith("GIFT OK:") || !reply.includes("goblins-carol")) {
+	if (
+		!reply.startsWith("GIFT NESTED OK:") ||
+		!reply.includes("goblins-carol-one") ||
+		!reply.includes("goblins-carol-two")
+	) {
 		giftFail(
 			`recipient did not confirm the greeter reply with its name: ${JSON.stringify(reply)}`,
 		);
@@ -140,11 +144,11 @@ try {
 
 	ok = true;
 	console.log(
-		"deno-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly",
+		"deno-goblins-gift OK: two nested binding values became distinct gives that live Goblins redeemed and called directly",
 	);
 
-	gifter.close();
-	toBob.close();
+	await gifter.close();
+	await toBob.close();
 	await runtime.close();
 	await Promise.allSettled([gifterAccept]);
 } finally {

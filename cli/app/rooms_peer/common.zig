@@ -44,12 +44,9 @@ pub const replied_cap: usize = 1200;
 /// Derive a dial-only keyed-relay rendezvous URL from an `http://host:port/…`
 /// rooms locator bootstrap (`ws://host:port/relay`). Returns null for
 /// `https://` (native keyed-relay speaks cleartext `ws://` only), non-http
-/// locators, or a host:port the relay URL grammar refuses after DNS. `localhost`
-/// maps to `127.0.0.1` because `RelayUrl` admits IP literals only. A DNS name
-/// such as `pancake-rooms` is resolved once here so the native tier still only
-/// dials an IP. The caller owns the returned string for the resident's life
-/// (`RelayUrl` borrows it).
-pub fn deriveRendezvousUrl(io: Io, gpa: Allocator, locator: []const u8) Allocator.Error!?[]u8 {
+/// locators, or a host:port the relay URL grammar refuses. The caller owns the
+/// returned string for the resident's life (`RelayUrl` borrows it).
+pub fn deriveRendezvousUrl(gpa: Allocator, locator: []const u8) Allocator.Error!?[]u8 {
     const scheme = "http://";
     if (!std.mem.startsWith(u8, locator, scheme)) return null;
     const rest = locator[scheme.len..];
@@ -57,74 +54,33 @@ pub fn deriveRendezvousUrl(io: Io, gpa: Allocator, locator: []const u8) Allocato
     const hostport = rest[0..slash];
     if (hostport.len == 0) return null;
     const colon = std.mem.lastIndexOfScalar(u8, hostport, ':') orelse return null;
-    var host = hostport[0..colon];
+    const host = hostport[0..colon];
     const port = hostport[colon + 1 ..];
     if (host.len == 0 or port.len == 0) return null;
-    if (std.mem.eql(u8, host, "localhost")) host = "127.0.0.1";
     const url = try std.fmt.allocPrint(gpa, "ws://{s}:{s}/relay", .{ host, port });
     defer gpa.free(url);
-    return admitRelayUrl(io, gpa, url);
+    return admitRelayUrl(gpa, url);
 }
 
 /// Resolve rendezvous URL: `PANCAKE_RENDEZVOUS` when set, else derive from an
 /// `http://…/locator` bootstrap. Owned string or null. An explicit env value
-/// that cannot be admitted as a `RelayUrl` (after DNS) is `error.InvalidRendezvousUrl`.
-pub fn resolveRendezvousUrl(io: Io, gpa: Allocator, environ_rendezvous: ?[]const u8, locator: []const u8) (Allocator.Error || error{InvalidRendezvousUrl})!?[]u8 {
+/// the relay URL grammar refuses is `error.InvalidRendezvousUrl`.
+pub fn resolveRendezvousUrl(gpa: Allocator, environ_rendezvous: ?[]const u8, locator: []const u8) (Allocator.Error || error{InvalidRendezvousUrl})!?[]u8 {
     if (environ_rendezvous) |url| {
-        return (try admitRelayUrl(io, gpa, url)) orelse error.InvalidRendezvousUrl;
+        return (try admitRelayUrl(gpa, url)) orelse error.InvalidRendezvousUrl;
     }
-    return deriveRendezvousUrl(io, gpa, locator);
+    return deriveRendezvousUrl(gpa, locator);
 }
 
-/// Admit a `ws://` relay URL. `RelayUrl.parse` takes IP literals only; a DNS
-/// host is resolved to an address so the native keyed-relay dial still sees an
-/// IP. The caller owns the returned string.
-pub fn admitRelayUrl(io: Io, gpa: Allocator, url: []const u8) Allocator.Error!?[]u8 {
-    if (net.relay.RelayUrl.parse(url)) |_| return try gpa.dupe(u8, url) else |_| {}
-    const rewritten = (try resolveRelayUrlHost(io, gpa, url)) orelse return null;
-    errdefer gpa.free(rewritten);
-    _ = net.relay.RelayUrl.parse(rewritten) catch {
-        gpa.free(rewritten);
-        return null;
-    };
-    return rewritten;
-}
-
-fn resolveRelayUrlHost(io: Io, gpa: Allocator, url: []const u8) Allocator.Error!?[]u8 {
-    const scheme = "ws://";
-    if (!std.mem.startsWith(u8, url, scheme)) return null;
-    const rest = url[scheme.len..];
-    const slash = std.mem.indexOfScalar(u8, rest, '/') orelse rest.len;
-    const authority = rest[0..slash];
-    const path = rest[slash..];
-    const split = model.uri.splitHostPort(authority) catch return null;
-    const ip = (try lookupRelayHost(io, gpa, split.host, split.port)) orelse return null;
-    defer gpa.free(ip);
-    if (std.mem.indexOfScalar(u8, ip, ':') != null) {
-        return try std.fmt.allocPrint(gpa, "ws://[{s}]:{d}{s}", .{ ip, split.port, path });
-    }
-    return try std.fmt.allocPrint(gpa, "ws://{s}:{d}{s}", .{ ip, split.port, path });
-}
-
-fn lookupRelayHost(io: Io, gpa: Allocator, host: []const u8, port: u16) Allocator.Error!?[]u8 {
-    if (net.tcp.parseHostPort(host, port)) |_| return try gpa.dupe(u8, host) else |_| {}
-    const name = Io.net.HostName.init(host) catch return null;
-    var results: [16]Io.net.HostName.LookupResult = undefined;
-    var queue = Io.Queue(Io.net.HostName.LookupResult).init(&results);
-    name.lookup(io, &queue, .{ .port = port, .family = .ip4 }) catch return null;
-    while (queue.getOneUncancelable(io)) |result| {
-        switch (result) {
-            .address => |addr| switch (addr) {
-                .ip4 => |ip4| {
-                    const b = ip4.bytes;
-                    return try std.fmt.allocPrint(gpa, "{d}.{d}.{d}.{d}", .{ b[0], b[1], b[2], b[3] });
-                },
-                .ip6 => continue,
-            },
-            .canonical_name => continue,
-        }
-    } else |_| {}
-    return null;
+/// Admit a `ws://` relay URL by the relay URL grammar alone: IP literals and
+/// validated DNS names both pass through verbatim, because the keyed-relay
+/// resident resolves a name at dial time and keeps the resolution failure a
+/// dial failure (`docs/shipped.md`). Resolving here as well would be a second
+/// resolver whose failures could only become null. The caller owns the
+/// returned string.
+pub fn admitRelayUrl(gpa: Allocator, url: []const u8) Allocator.Error!?[]u8 {
+    _ = net.relay.RelayUrl.parse(url) catch return null;
+    return try gpa.dupe(u8, url);
 }
 
 /// The longest nickname this peer will mint an inbox for, matching `MAX_NICK` in

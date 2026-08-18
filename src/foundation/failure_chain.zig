@@ -21,7 +21,9 @@ pub const Classification = enum {
 pub const FailureChain = struct {
     cause: anyerror,
     /// Optional stable name supplied by a boundary that cannot preserve the
-    /// originating Zig error identity. The bytes must outlive this chain.
+    /// originating Zig error identity. The bytes must be static or owned by
+    /// the boundary for as long as any projection of this chain can survive;
+    /// copying the value deliberately does not copy text.
     cause_name: ?[]const u8 = null,
     classification: ?Classification = null,
     secondary_cause: ?anyerror = null,

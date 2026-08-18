@@ -21,8 +21,8 @@ import {
 } from "./keyboard-input.ts";
 import { Engine } from "../engine/engine.ts";
 import type { TimelineDocument } from "../engine/timeline.ts";
-import { dialLiveFeed, startLiveMode } from "../engine/live-mode.ts";
-import { LiveFeed } from "../engine/live-feed.ts";
+import { dialLiveFeed, startLiveMode } from "../engine/live/mode.ts";
+import type { LiveFeed } from "../engine/live/connection.ts";
 import type { EngineError } from "../engine/errors.ts";
 import { pushError } from "../ui/error/error-bus.ts";
 import type { Theme } from "../ui/tokens.ts";

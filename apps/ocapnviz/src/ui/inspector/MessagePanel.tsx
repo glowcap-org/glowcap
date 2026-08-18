@@ -13,31 +13,23 @@ import { findMessageInDoc } from "../../engine/event-helpers.ts";
 import { messageEffective } from "../../engine/temporal/doc-resolver.ts";
 import { PayloadViewer } from "./PayloadViewer.tsx";
 import { LifecycleChip, type LifecycleStatus, MessageKindLabel } from "../EntityChips.tsx";
+import { EditableIdField, EnumSelect, Field, FieldGroup, InlineTextField, TimeScrubInput } from "./fields.tsx";
+import type { EditorBindings } from "./bindings.ts";
+import { useScrubBracket } from "./edit-bracket.ts";
+import { DivergenceHint, OptionalTimeRow } from "./trajectory.tsx";
+import { PeerLinkRow, SessionLinkRow, Unknown } from "./links.tsx";
 import {
-  DivergenceHint,
-  EditableIdField,
-  type EditorBindings,
   endRowScrubStyle,
-  EnumSelect,
-  Field,
-  FieldGroup,
-  formatTime,
   inlineHeadingInput,
-  InlineTextField,
   kv,
   linkRowList,
-  OptionalTimeRow,
   PanelHeading,
-  PeerLinkRow,
-  pickerLabelFor,
-  SessionLinkRow,
   subSection,
   subSectionLabel,
-  TimeScrubInput,
-  Unknown,
-  useScrubSession,
   valueMono,
-} from "./shared.tsx";
+} from "./styles.tsx";
+import { formatTime } from "../format.ts";
+import { pickerLabelFor } from "./picker-labels.ts";
 import { elideIdentifier, Identifier } from "../identifier.tsx";
 import { isInSelection, messageInfo, peerInfo, sessionInfo } from "./entity-info.ts";
 import { sessionPairName } from "../session-name.ts";
@@ -99,7 +91,7 @@ export function MessageFields(
   // The flight-time row's drag brackets, held by the same thing every
   // other editable row here uses, so a panel that goes away mid-drag
   // cannot leave the transaction open behind it.
-  const durationScrub = useScrubSession(editor, "Message duration");
+  const durationScrub = useScrubBracket(editor, "Message duration");
   const live = findMessageInFlight(engine, id)?.messageInFlight;
   const sentEv = findMessageInDoc(engine.doc, id);
   const def = engine.doc.entities?.messages?.[id];

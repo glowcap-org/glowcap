@@ -8,6 +8,7 @@ import { usePeer } from "./peer.ts";
 import { memo } from "react";
 import { membersHere, type RoomConv, type Standing } from "./types.ts";
 import { IconButton } from "./IconButton.tsx";
+import { PresenceAvatar } from "./Avatar.tsx";
 
 export interface Roster {
 	/** Members, online first and then alphabetical. */
@@ -31,12 +32,12 @@ function MemberRow(
 		reachable: boolean;
 	},
 ) {
-	// Presence is not carried by colour alone: the pip is a filled dot when
-	// online and a hollow ring when offline, and it names the state for a screen
-	// reader. The button beside it, when there is one, offers a direct line to
-	// any member the directory says is reachable, other than yourself; its glyph
-	// is the one a direct conversation already wears in its title, two endpoints
-	// with nothing in between.
+	// Presence is worn by the member's own chip: the pip over its corner is a
+	// filled dot when online and a hollow ring when offline, and it names the
+	// state for a screen reader. The button beside it, when there is one,
+	// offers a direct line to any member the directory says is reachable,
+	// other than yourself. Its glyph is two endpoints with nothing in between:
+	// that is the act of opening a line.
 	const peer = usePeer();
 	// Away is a third thing to be, and it is about somebody who is here rather
 	// than a way of being absent: the pip says away, and the reason goes beside
@@ -46,7 +47,7 @@ function MemberRow(
 	const said = away ? "away" : online ? "online" : "offline";
 	return (
 		<li className={said}>
-			<span className="pip" role="img" aria-label={said} title={away ? `away: ${standing.away}` : said} />
+			<PresenceAvatar name={name} state={said} reason={away ? standing.away : undefined} />
 			{
 				/* The name truncates, so it carries itself. This row is not a control,
 			    so unlike the rail's rows there is no label underneath holding the
@@ -54,7 +55,15 @@ function MemberRow(
 			}
 			<span className="name-line">
 				<span className="name" title={name}>{you ? name + " (you)" : name}</span>
-				{away && <span className="away-said" title={standing.away}>{standing.away}</span>}
+				{
+					/* The row's second line: the away reason when one was given, the
+				    state said small otherwise. Every row keeps the two-line shape,
+				    so a roster reads as a column of people rather than a ragged
+				    list that reflows when somebody steps away. */
+				}
+				{away
+					? <span className="away-said" title={standing.away}>{standing.away}</span>
+					: <span className="member-said">{said}</span>}
 			</span>
 			{!you && reachable && (
 				<IconButton

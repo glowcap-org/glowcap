@@ -72,6 +72,12 @@ export interface SymbolDef {
 // deno-lint-ignore no-explicit-any
 export type Symbols = Record<string, (...args: any[]) => any>;
 
+export interface ArchiveFingerprint {
+	readonly symbol: string;
+	readonly expected: bigint;
+	readonly archive: string;
+}
+
 /** A native callback backed by a JS function: its address and a release. The
  * function receives `bigint` for every pointer and 64-bit argument and returns a
  * `bigint` for a pointer result (or nothing for `void`). */
@@ -283,9 +289,37 @@ export const net: RuntimeNet = {
  * `pathFn` is resolved on first open too (it reads `ffi.libSuffix()`, which
  * needs the runtime ready). Deno and the browser open on the first real call,
  * which is already past import. */
-export function lazySymbols(pathFn: () => string, defs: Record<string, SymbolDef>): Symbols {
+export function requireArchiveFingerprint(symbols: Symbols, contract: ArchiveFingerprint): void {
+	const read = symbols[contract.symbol];
+	if (typeof read !== "function") {
+		throw new Error(
+			`${contract.archive}: missing archive fingerprint; rebuild the native libraries from this checkout`,
+		);
+	}
+	const actual = BigInt(read());
+	if (actual !== contract.expected) {
+		throw new Error(
+			`${contract.archive}: callable surface does not match this binding ` +
+				`(expected ${contract.expected.toString(16)}, got ${
+					actual.toString(16)
+				}); rebuild the native libraries`,
+		);
+	}
+}
+
+export function lazySymbols(
+	pathFn: () => string,
+	defs: Record<string, SymbolDef>,
+	contract?: ArchiveFingerprint,
+): Symbols {
 	let opened: Symbols | undefined;
-	const open = (): Symbols => (opened ??= active().ffi.dlopen(pathFn(), defs));
+	const open = (): Symbols => {
+		if (opened !== undefined) return opened;
+		const symbols = active().ffi.dlopen(pathFn(), defs);
+		if (contract !== undefined) requireArchiveFingerprint(symbols, contract);
+		opened = symbols;
+		return symbols;
+	};
 	return new Proxy({} as Symbols, {
 		get: (_t, prop) => open()[prop as string],
 		has: (_t, prop) => prop in open(),

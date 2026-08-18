@@ -6,7 +6,7 @@ import { z } from "zod";
  * property names. Documents stay property-graph-shaped; adding a
  * JSON-LD `@context` at any root promotes them to valid RDF without
  * renaming a single key. OCapN-specific vocabulary lives in
- * [`topology.ts`](./topology.ts).
+ * [`topology.ts`](./topology.ts) and [`session-end.ts`](./session-end.ts).
  */
 
 /** IRI prefixes for JSON-LD `@context`. Not used at validation time. */

@@ -39,6 +39,30 @@ class _DriverOptions(ctypes.Structure):
 pin_struct(_DriverOptions, "PANCAKE_DRIVER_OPTIONS")
 
 
+class _DriverFailure(ctypes.Structure):
+    """Caller-owned deterministic provider/install and loop-release outcome."""
+
+    _fields_ = [
+        ("abi_version", ctypes.c_uint32),
+        ("struct_size", ctypes.c_size_t),
+        ("primary_result", ctypes.c_int32),
+        ("secondary_result", ctypes.c_int32),
+        ("secondary_count", ctypes.c_uint32),
+        ("carrier_phase", ctypes.c_uint32),
+        ("carrier_detail_flags", ctypes.c_uint32),
+        ("carrier_verification_flags", ctypes.c_uint32),
+        ("carrier_peer_alert", ctypes.c_uint32),
+        ("carrier_engine_code", ctypes.c_int32),
+        ("primary_name", ctypes.c_void_p),
+        ("primary_name_len", ctypes.c_size_t),
+        ("secondary_name", ctypes.c_void_p),
+        ("secondary_name_len", ctypes.c_size_t),
+    ]
+
+
+pin_struct(_DriverFailure, "PANCAKE_DRIVER_FAILURE")
+
+
 class _DriverEvent(ctypes.Structure):
     # PancakeDriverEvent (pancake_driver.h) — one drained loop event. `kind`
     # selects the live fields; failure names and the views inside `action` are
@@ -48,6 +72,11 @@ class _DriverEvent(ctypes.Structure):
         ("primary_result", ctypes.c_int32),
         ("secondary_result", ctypes.c_int32),
         ("secondary_count", ctypes.c_uint32),
+        ("carrier_phase", ctypes.c_uint32),
+        ("carrier_detail_flags", ctypes.c_uint32),
+        ("carrier_verification_flags", ctypes.c_uint32),
+        ("carrier_peer_alert", ctypes.c_uint32),
+        ("carrier_engine_code", ctypes.c_int32),
         ("operation_id", ctypes.c_uint64),
         ("listener_id", ctypes.c_uint64),
         ("session", ctypes.c_void_p),
@@ -91,6 +120,7 @@ pin_struct(_TransportOperationOptions, "PANCAKE_TRANSPORT_OPERATION_OPTIONS")
 def _load():
     sigs = loop_sigs(
         _DriverOptions,
+        _DriverFailure,
         _CloseOptions,
         _DriverEvent,
         _LocatorView,

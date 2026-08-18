@@ -1,0 +1,115 @@
+/* Transient notices. While a native modal is open the stack is a child of it,
+   so a press lands; the dialog covers the viewport and makes everything else
+   inert. Geometry is the same either way: pinned to the top edge, each notice
+   taking its own width. */
+
+.toasts {
+	position: fixed;
+	/* Inset plus padding, not inset alone: this box is transformed to centre
+	   it, and a transformed layer clips descendant shadows to its border box.
+	   The padding is the room `--shadow` needs (0 14px 40px) so the notice can
+	   sit close to the top edge without the blur going hard. */
+	top: max(8px, env(safe-area-inset-top));
+	left: 50%;
+	transform: translateX(-50%);
+	width: min(calc(26rem + 80px), calc(100% - 16px));
+	padding: 28px 40px 40px;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	pointer-events: none;
+	z-index: 110;
+}
+.toast-slot {
+	display: grid;
+	grid-template-rows: 1fr;
+	transition: grid-template-rows .14s ease;
+	pointer-events: none;
+}
+.toast-slot.is-entering,
+.toast-slot.is-leaving {
+	grid-template-rows: 0fr;
+}
+.toast-clip {
+	min-height: 0;
+	/* The grid collapse needs a clip, but only while a slot is opening or
+	   closing. At rest this has to paint, because the notice's shadow is larger
+	   than the box and overflow would cut it into a hard edge. */
+	overflow: visible;
+	padding-bottom: 8px;
+	pointer-events: none;
+}
+.toast-slot.is-entering .toast-clip,
+.toast-slot.is-leaving .toast-clip {
+	overflow: hidden;
+}
+.toast {
+	pointer-events: auto;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 8px 8px 12px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-card);
+	background: var(--paper-raised);
+	box-shadow: var(--shadow);
+	color: var(--ink);
+	animation: toast-in .14s ease backwards;
+}
+.toast-slot.is-leaving .toast {
+	animation: toast-out .14s ease both;
+}
+.toast-mark {
+	flex: none;
+	display: inline-flex;
+}
+.toast[data-kind="success"] {
+	border-color: color-mix(in srgb, var(--teal) 45%, var(--rule));
+}
+.toast[data-kind="success"] .toast-mark {
+	color: var(--teal-ink);
+}
+.toast[data-kind="failure"] {
+	border-color: color-mix(in srgb, var(--danger) 50%, var(--rule));
+}
+.toast[data-kind="failure"] .toast-mark {
+	color: var(--danger);
+}
+.toast[data-kind="warning"] {
+	border-color: color-mix(in srgb, var(--warn) 50%, var(--rule));
+}
+.toast[data-kind="warning"] .toast-mark {
+	color: var(--warn);
+}
+.toast-text {
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+	font-size: var(--type-ui);
+	font-weight: 600;
+	line-height: 1.35;
+}
+.toast-dismiss {
+	flex: none;
+	pointer-events: auto;
+}
+@keyframes toast-in {
+	from {
+		opacity: 0;
+		transform: translateY(-10px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@keyframes toast-out {
+	from {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(-10px);
+	}
+}

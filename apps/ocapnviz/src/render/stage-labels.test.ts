@@ -6,8 +6,8 @@
  * keeps it the only place: the renderer is checked for a second spelling of a
  * size it should be reading, and the whole source tree is checked for a second
  * spelling of the word. The arithmetic itself is checked where it is used —
- * `keyframe-layout-system.test.ts` for the box a node reserves,
- * `draw-helpers.test.ts` for the stagger that keeps two chips apart.
+ * `keyframe-layout-test/separation.test.ts` for the box a node reserves,
+ * `draw-helpers-test/chips.test.ts` for the stagger that keeps two chips apart.
  *
  * They read source text, which is a blunt instrument and deliberate: a
  * duplicated constant compiles perfectly, and there is nothing else at this
@@ -24,7 +24,7 @@ import {
   peerLabelText,
   pillSize,
 } from "./stage-labels.ts";
-import { UNNAMED_END_LABEL } from "../schema/topology.ts";
+import { UNNAMED_END_LABEL } from "../schema/session-end.ts";
 import { IDENTIFIER_ELIDE_ABOVE } from "../ui/elide.ts";
 
 async function sourceOf(path: string): Promise<string> {
@@ -52,16 +52,26 @@ async function sourceFiles(): Promise<Array<{ path: string; text: string }>> {
   return out;
 }
 
+async function rendererSource(): Promise<string> {
+  const parts = [await sourceOf("./render-frame.ts")];
+  for await (const entry of Deno.readDir(new URL("./sprites/", import.meta.url))) {
+    if (entry.name.endsWith(".ts")) {
+      parts.push(await sourceOf(`./sprites/${entry.name}`));
+    }
+  }
+  return parts.join("\n");
+}
+
 Deno.test("the renderer sets every stage label from the shared metrics", async () => {
   // The drift this whole module exists to stop: the renderer spelling a font
   // size or a pill padding itself, while the layout goes on reserving room
   // for the size it used to be. Both stay green — one draws bigger labels and
   // the other separates the old boxes, and the labels overlap on screen.
-  const source = await sourceOf("./render-frame.ts");
+  const source = await rendererSource();
   assertEquals(
     source.match(/fontSize:\s*\d/g),
     null,
-    "render-frame.ts sets a font size from a number of its own rather than from stage-labels.ts",
+    "the renderer sets a font size from a number of its own rather than from stage-labels.ts",
   );
   const calls = [...source.matchAll(/layoutPillBackground\(([\s\S]*?)\);/g)];
   assert(calls.length > 0, "no pill is drawn at all");
@@ -77,7 +87,7 @@ Deno.test("the word for an end that claims nothing has one spelling", async () =
   // It is arithmetic as well as prose: the layout reserves room for this
   // phrase before the renderer writes it, so a second spelling one character
   // longer is a label wider than the box kept clear for it.
-  const owner = "schema/topology.ts";
+  const owner = "schema/session-end.ts";
   for (const file of await sourceFiles()) {
     if (file.path === owner || /\.test\.tsx?$/.test(file.path)) continue;
     assert(
@@ -151,7 +161,7 @@ Deno.test("no stage caption is set straight from an entity field", async () => {
   // clear for a string nobody drew. Every `Text` the stage builds takes its
   // string from a named function in `stage-labels.ts`, which is the same
   // function the layout measures.
-  const source = await sourceOf("./render-frame.ts");
+  const source = await rendererSource();
   const straight = [...source.matchAll(/text:\s*(e\.[\w.]+)/g)];
   assertEquals(
     straight.map((m) => m[1]),

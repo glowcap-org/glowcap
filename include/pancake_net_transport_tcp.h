@@ -61,6 +61,8 @@ typedef struct PancakeTcpConfig {
 typedef struct PancakeTcpOperationOptions {
   PancakeTcpStreamOptions stream;
 } PancakeTcpOperationOptions;
+/* Return the exact callable-surface fingerprint of this archive. A dynamic loader must compare it with the binding-generated PANCAKE_TCP_ARCHIVE_FINGERPRINT before calling any other pancake_tcp_* function. */
+uint64_t pancake_tcp_archive_fingerprint(void);
 /* Create the netlayer handle that owns the blocking I/O backend, allocating
    through the library allocator. `config` is required and supplies inherited
    stream defaults. Release with pancake_tcp_netlayer_release after releasing
@@ -86,14 +88,14 @@ void pancake_tcp_netlayer_release(PancakeTcpNetlayer *netlayer);
    refusing inbound frames over max_frame_bytes. `options == NULL` inherits the
    netlayer's stream defaults; a nonnull zeroed value disables keepalive for this
    connection. Blocking; `host` is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a
-   bad option, codec, frame cap, or address; PANCAKE_ERR_IO (see
-   pancake_tcp_last_error) when the dial fails. Release with pancake_tcp_conn_release. */
-int32_t pancake_tcp_connect(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   bad option, codec, frame cap, or address; PANCAKE_ERR_IO when the dial fails.
+   Release with pancake_tcp_conn_release.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_tcp_connect_with_diagnostic(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_tcp_connect(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Bind and listen on host:port (port 0 picks an OS-chosen port; read it back
    with pancake_tcp_listener_port). Release with pancake_tcp_listener_release. */
 int32_t pancake_tcp_listen(PancakeTcpNetlayer *netlayer, const uint8_t *host, size_t host_len, uint16_t port, PancakeTcpListener **out_listener);
@@ -105,29 +107,30 @@ int32_t pancake_tcp_listener_port(PancakeTcpListener *listener, uint16_t *out_po
    not close it or use it after pancake_tcp_listener_release. */
 int32_t pancake_tcp_listener_readiness_fd(PancakeTcpListener *listener, int32_t *out_fd);
 /* Block until a client connects, returning an owned connection framing on
-   `codec`. `options` has the same inherit-or-override contract as pancake_tcp_connect. */
-int32_t pancake_tcp_accept(PancakeTcpListener *listener, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   `codec`. `options` has the same inherit-or-override contract as
+   pancake_tcp_connect.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_tcp_accept_with_diagnostic(PancakeTcpListener *listener, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_tcp_accept(PancakeTcpListener *listener, const PancakeTcpStreamOptions *options, uint32_t codec, size_t max_frame_bytes, PancakeTcpConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Block for one whole frame as an owned managed frame. Returns PANCAKE_ERR_CLOSED
-   on graceful EOF, PANCAKE_ERR_IO on a socket fault. */
-int32_t pancake_tcp_conn_read_frame(PancakeTcpConn *conn, PancakeManagedFrame *out_frame);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   on graceful EOF, PANCAKE_ERR_IO on a socket fault.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_tcp_conn_read_frame_with_diagnostic(PancakeTcpConn *conn, PancakeManagedFrame *out_frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_tcp_conn_read_frame(PancakeTcpConn *conn, PancakeManagedFrame *out_frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Write one frame's borrowed bytes and flush. Returns PANCAKE_ERR_CLOSED after
-   shutdown begins. */
-int32_t pancake_tcp_conn_write_frame(PancakeTcpConn *conn, const PancakeFrame *frame);
-/* The same operation as its unsuffixed sibling, plus an atomic diagnostic
-   capture for runtimes that dispatch native calls to worker threads. out_error_len
-   is required and receives the full diagnostic length; out_error receives at most
+   shutdown begins.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
-int32_t pancake_tcp_conn_write_frame_with_diagnostic(PancakeTcpConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
+int32_t pancake_tcp_conn_write_frame(PancakeTcpConn *conn, const PancakeFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal native admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
    Idempotent. Returns PANCAKE_ERR_IO when the socket cannot be interrupted; the
@@ -135,8 +138,13 @@ int32_t pancake_tcp_conn_write_frame_with_diagnostic(PancakeTcpConn *conn, const
 int32_t pancake_tcp_conn_shutdown(PancakeTcpConn *conn);
 /* After stopping new calls, invoke shutdown, join admitted operations, and free
    the handle. Returns the shutdown outcome after completing the ownership sweep.
-   Release must not race call initiation. */
-int32_t pancake_tcp_conn_release(PancakeTcpConn *conn);
+   Release must not race call initiation.
+
+   out_error/out_error_len optionally capture this call's diagnostic before an
+   off-thread runtime regains control: omit all three diagnostic arguments, or
+   provide out_error_len. It receives the full length; out_error receives at most
+   error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
+int32_t pancake_tcp_conn_release(PancakeTcpConn *conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Seal native accept admission and interrupt a blocked accept without freeing the
    listener. May race operations; join the embedding's leases before release.
    Idempotent; the listener's pre-opened wake channel makes this operation infallible. */
@@ -148,7 +156,7 @@ void pancake_tcp_listener_release(PancakeTcpListener *listener);
    sibling of pancake_last_error, reading this archive's own per-thread slot. A
    pancake_tcp_* call that returns PANCAKE_ERR_IO records its concrete cause here.
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0
-   queries the length. Returns the full message length, or 0 when none is set. */
+   queries the length. Returns the full message length, or 0 when none is set. Every status-returning call clears the slot before validation; read it immediately after a failing call, and treat zero length as no additional detail. */
 size_t pancake_tcp_last_error(uint8_t *out_buf, size_t cap);
 /* Clear the calling thread's TCP-transport last-error slot. */
 void pancake_tcp_clear_last_error(void);

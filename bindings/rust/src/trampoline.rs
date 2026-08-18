@@ -159,11 +159,24 @@ impl Drop for DeliverGuard {
 	}
 }
 
-fn active_deliver() -> Option<Rc<SessionShared>> {
+fn active_deliver_host() -> Option<Rc<crate::host::HostShared>> {
 	ACTIVE_DELIVER.with(|active| match active.borrow().as_ref() {
-		Some(DeliverCtx::Session(session)) => session.upgrade(),
-		_ => None,
+		Some(DeliverCtx::Session(session)) => session.upgrade().map(|session| Rc::clone(&session.host)),
+		Some(DeliverCtx::Host(host)) => host.upgrade(),
+		None => None,
 	})
+}
+
+fn turn_session(turn: *mut ffi::PancakeHostTurn) -> crate::Result<Option<Rc<SessionShared>>> {
+	let host = active_deliver_host().ok_or_else(|| {
+		Error::with_detail(
+			sys::ERR_INTERNAL,
+			"hosted callback ran outside a session feed".to_string(),
+		)
+	})?;
+	let mut ptr = core::ptr::null_mut();
+	crate::host::check_host(unsafe { ffi::pancake_host_turn_session(turn, &mut ptr) })?;
+	Ok(host.session_for_ptr(ptr))
 }
 
 // The Host key of the running deliver, whichever bracket carries it: the
@@ -442,8 +455,21 @@ unsafe fn trampoline_body(
 	};
 	// The one owned lift per deliver: the borrowed C args become owned Rust
 	// values before any behavior code can run.
-	let args = args_from_sys(args, args_len);
-	let session = active_deliver();
+	let mut args = match args_from_sys(args, args_len) {
+		Ok(args) => args,
+		Err(error) => return turn_break(turn, &error.to_string()),
+	};
+	let session = match turn_session(turn) {
+		Ok(session) => session,
+		Err(error) => return turn_break(turn, &error.to_string()),
+	};
+	// Replace the loop's Host-only step bracket with the actual wrapper for the
+	// callback duration. This makes current-session and per-session policies
+	// exact without manufacturing a wrapper for an internal redeem leg.
+	let _arrival = session.as_ref().map(DeliverGuard::enter);
+	if let Some(session) = session.as_ref() {
+		crate::gc::track_arguments(session, &mut args);
+	}
 	let host_key = active_deliver_host_key();
 	let _guard = TurnGuard::enter(turn, host_key);
 	let outcome = (cell.behavior.borrow_mut())(&verb, &args);

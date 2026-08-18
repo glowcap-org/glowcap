@@ -194,9 +194,9 @@ capabilities.
 		</g>
 	</svg>
 	<div class="capwalk-controls" hidden>
-		<button type="button" data-dir="-1">Back</button>
+		<button type="button" class="btn btn-secondary" data-dir="-1">Back</button>
 		<span class="capwalk-where">Step 1 of 8</span>
-		<button type="button" data-dir="1">Next</button>
+		<button type="button" class="btn btn-secondary" data-dir="1">Next</button>
 	</div>
 	<ol class="capwalk-steps">
 		<li>Every request carries a credential, and the credential names you, not the action. The service looks you up in its permission table and decides.</li>

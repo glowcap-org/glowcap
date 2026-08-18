@@ -133,3 +133,42 @@ test "openAcceptedAdvertisedOver adopts an embedder-pinned peer: handshake, fetc
     // frees it exactly once under the testing allocator.
     try server.releaseSession(adopted);
 }
+
+test "openDialedOver retains onion profile knowledge through adoption" {
+    const allocator = std.testing.allocator;
+    var options = Host.Options.withFrameCap(frame_cap);
+    options.captp_version = .next;
+    options.codec = .capnp;
+    var host = test_host.init(allocator, [_]u8{0x0c} ** 32, options);
+    defer host.deinit();
+
+    try host.setAdvertisedLocator(.{
+        .transport = model.transport.onion,
+        .designator = "a" ** 56,
+        .hints = model.Hints.emptyFalse(),
+    });
+    var pinned = engine.Peer.initNegotiating(allocator);
+    defer pinned.deinit();
+    const profile_hints = [_]model.HintEntry{.{
+        .name = model.transport.hint_captp_version,
+        .value = .{ .string = model.CaptpVersion.next.wireString() },
+    }};
+    const session = try host.openDialedOver(&pinned, .{
+        .transport = model.transport.onion,
+        .designator = "b" ** 56,
+        .hints = .{ .entries = &profile_hints },
+    });
+    defer host.releaseSession(session) catch |err|
+        std.debug.panic("test session cleanup failed: {s}", .{@errorName(err)});
+
+    try std.testing.expect(pinned.session_state.partner_known_pancake);
+    var frame = (try session.takeOutbound()) orelse return error.MissingHello;
+    defer frame.deinit();
+    const body = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+    try std.testing.expect(body == .start_session);
+    const preference = try pancake.ocapn.session.parsePreferenceHints(
+        body.start_session.acceptable_location.hints,
+    );
+    try std.testing.expectEqual(model.CaptpVersion.next, preference.captp_version);
+    try std.testing.expectEqual(model.CodecId.capnp, preference.codec);
+}

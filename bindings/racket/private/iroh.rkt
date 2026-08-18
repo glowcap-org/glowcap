@@ -15,8 +15,7 @@
 ;; (`private/seam.rkt`); the core calls come from there. Everything above the
 ;; pump — vat, session-* verbs, events — is the core's; only the transport differs.
 ;;
-;; The product module exposes explicit provider and connector values, so a
-;; TCP-only program never needs the iroh library. `listen-iroh` registers the
+;; Explicit provider/connector values keep iroh out of TCP-only programs; `listen-iroh` registers the
 ;; endpoint as a provider with the native loop; the raw `iroh-endpoint` byte
 ;; path remains for consumers that run their own protocol.
 
@@ -32,6 +31,7 @@
          "host.rkt"
          "transport.rkt"
          "finalizer-diagnostics.rkt"
+         "iroh/netlayer.rkt"
          (only-in "locator.rkt"
                   locator parse-locator format-locator-uri
                   locator-transport locator-designator locator-hints))
@@ -87,110 +87,6 @@
                (hash))
            (if direct-addresses 'map 'boolean-false)))
 
-;; ── netlayer FFI wrappers ─────────────────────────────────────────────────────
-;; (iroh-last-error) -> the calling thread's last error message from the iroh
-;; archive, or #f when there is none. The iroh archive keeps its own
-;; thread-local slot (`pancake_iroh_last_error`), symbol-disjoint from the
-;; ocapn family's `last-error`. Query the length first (NULL buffer), then read.
-(define (iroh-last-error) (read-last-error (iroh-fn 'last-error)))
-
-;; Raise the same typed exn `check` raises, but read the diagnostic from the
-;; iroh archive's own last-error rather than the unrelated ocapn-family one.
-(define (check/iroh code) (check-with code iroh-last-error))
-
-;; The iroh endpoint handle, wrapped in a mutable struct the way the TCP netlayer
-;; is (`pancake-tcp.rkt`'s `(struct netlayer (handle) #:mutable)`). Wrapping lets
-;; close/release null the handle and stay idempotent, so a finalizer fallback can
-;; release the endpoint (and its OS fd) when the caller drops the owner without an
-;; explicit close, exactly the release-fallback parity every other handle in this
-;; binding already has (ADR-0057's loop still roots the live netlayer through
-;; `lp`, so no weak box is involved — the fallback rides the owner wrappers the
-;; loop thread does not root).
-(struct iroh-netlayer (handle) #:mutable)
-
-;; `reachability` is required, an IROH-REACH-* posture, no default.
-;; `seed` is a 32-byte Ed25519 secret for a stable endpoint id, or omitted for
-;; a fresh random key. Returns the netlayer and the seed that drove it so a
-;; caller can mint a Host from the same bytes (ADR-0075).
-;; One iroh endpoint's configuration, field-for-field with the header's
-;; `PancakeIrohConfig`, which documents what each setting means. `#f` for a
-;; timeout takes the transport's default.
-;;
-;; `reachability` is mandatory: enabling relays or a discovery service is always
-;; the caller's visible choice. `connect-timeout-ms` bounds getting a connection
-;; up, `idle-timeout-ms` bounds keeping one. Set `idle-timeout-ms` if you read a
-;; live session as presence, because it is what ends a connection whose peer was
-;; killed rather than closed.
-(struct iroh-config (reachability connect-timeout-ms idle-timeout-ms worker-threads)
-  #:transparent)
-
-(define (make-iroh-config reachability
-                          #:connect-timeout-ms [connect-timeout-ms #f]
-                          #:idle-timeout-ms [idle-timeout-ms #f]
-                          #:worker-threads [worker-threads #f])
-  (iroh-config reachability connect-timeout-ms idle-timeout-ms worker-threads))
-
-(define (iroh-netlayer-new config [seed #f])
-  (define seed* (or seed (crypto-random-bytes 32)))
-  (define-values (rc h)
-    ;; 0 = the built-in default for any of them (the header's zero-init contract).
-    ((iroh-fn 'netlayer-new) (pin-immobile seed*) (bytes-length seed*)
-                             (make-PancakeIrohConfig
-                              (iroh-config-reachability config)
-                              (or (iroh-config-connect-timeout-ms config) 0)
-                              (or (iroh-config-idle-timeout-ms config) 0)
-                              (or (iroh-config-worker-threads config) 0))))
-  (check/iroh rc)
-  (values (iroh-netlayer h) seed*))
-
-(define (iroh-netlayer-node-id nl)
-  (define buf (make-bytes 64)) ; an endpoint id is 64 lowercase-hex bytes
-  (define-values (rc len) ((iroh-fn 'netlayer-node-id) (iroh-netlayer-handle nl) buf 64))
-  (check/iroh rc)
-  (bytes->string/utf-8 (subbytes buf 0 len)))
-
-(define (iroh-netlayer-direct-addresses nl)
-  ;; A buffer too small is ERR-BUFFER-TOO-SMALL; grow until the comma-separated
-  ;; hint string fits (loopback hints are short, but be safe).
-  (let loop ([cap 256])
-    (define buf (make-bytes cap))
-    (define-values (rc len) ((iroh-fn 'netlayer-direct-addrs) (iroh-netlayer-handle nl) buf cap))
-    (cond
-      [(and (= rc ERR-BUFFER-TOO-SMALL) (< cap (* 64 1024))) (loop (* cap 4))]
-      [else (check/iroh rc) (bytes->string/utf-8 (subbytes buf 0 len))])))
-
-;; Admit one dial without parking the place. The sidecar parses the borrowed
-;; bytes before return and publishes the terminal result through EV-CONNECT.
-(define (iroh-netlayer-start-connect nl request-id node-id hints)
-  (define nb (string->bytes/utf-8 node-id))
-  (define hb (string->bytes/utf-8 hints))
-  (define nbuf (pin-immobile nb))
-  (define hbuf (pin-immobile hb))
-  (check/iroh
-   ((iroh-fn 'netlayer-start-connect)
-    (iroh-netlayer-handle nl) request-id
-    nbuf (bytes-length nb) hbuf (bytes-length hb))))
-
-(define (iroh-netlayer-finish-connect nl request-id)
-  (define-values (rc conn)
-    ((iroh-fn 'netlayer-finish-connect) (iroh-netlayer-handle nl) request-id))
-  (check/iroh rc)
-  conn)
-
-(define (iroh-netlayer-cancel-connect nl request-id)
-  (check/iroh
-   ((iroh-fn 'netlayer-cancel-connect) (iroh-netlayer-handle nl) request-id)))
-
-;; The archive-owned provider package for a fresh iroh endpoint.
-(define (iroh-loop-provider-parts config [seed #f])
-  (define-values (netlayer _seed)
-    (iroh-netlayer-new config seed))
-  (define close! (lambda () (iroh-netlayer-close/release! netlayer)))
-  (define package (make-PancakeTransportProvider 0 0 #f 0 #f #f #f #f))
-  (with-handlers ([(lambda (_) #t) (lambda (e) (close!) (raise e))])
-    (check/iroh ((iroh-fn 'transport-provider) (iroh-netlayer-handle netlayer) package)))
-  (values netlayer package close!))
-
 (define (iroh-provider config)
   (unless (iroh-config? config)
     (raise-argument-error 'iroh-provider "iroh-config?" config))
@@ -230,28 +126,6 @@
     ;; Registration retained the callback context. Drop only the constructor's
     ;; reference; shutting it down would invalidate the provider driver owns.
     (iroh-netlayer-release-construction! netlayer)))
-
-;; Close then release the endpoint, nulling the handle FIRST so a second teardown
-;; — an explicit close racing the finalizer, or the reverse — sees #f and does
-;; nothing, never a double close or double release. The caller must have stopped
-;; the readiness loop first (`loop-stop!` joins its thread), so no foreign call
-;; still touches the endpoint when this runs.
-(define (iroh-netlayer-close/release! nl)
-  (define h (iroh-netlayer-handle nl))
-  (when h
-    (set-iroh-netlayer-handle! nl #f)
-    ((iroh-fn 'netlayer-close) h)
-    ((iroh-fn 'netlayer-release) h)))
-
-;; Drop a construction reference after a successful provider registration.
-;; Unlike `iroh-netlayer-close/release!`, this does not shut down the endpoint:
-;; the driver's retained provider lease is the authority that keeps callback
-;; context alive until loop teardown.
-(define (iroh-netlayer-release-construction! nl)
-  (define h (iroh-netlayer-handle nl))
-  (when h
-    (set-iroh-netlayer-handle! nl #f)
-    ((iroh-fn 'netlayer-release) h)))
 
 ;; ── the iroh readiness loop (ADR-0057) ────────────────────────────────────────
 ;; The Racket sibling of the Deno binding's `IrohLoop`, the Python binding's
@@ -431,10 +305,11 @@
     (cond
       [(iroh-loop-stop? lp) (void)]
       [else
-       ;; Drain first, then re-arm the fd readiness so a record enqueued during
+       ;; Drain first, then re-arm fd readiness so a record enqueued during
        ;; the drain still leaves the fd readable and posts the semaphore at once.
        ;; rktio re-arms the semaphore on each call; it stays #f only for an fd it
        ;; cannot poll, which the invariant above rules out.
+       (loop-drain! lp)
        (define sema (unsafe-file-descriptor->semaphore fd 'read))
        (unless sema (park-fail "cannot be registered for polling"))
        (sync sema (semaphore-peek-evt (iroh-loop-stop-sema lp)))

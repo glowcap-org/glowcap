@@ -29,7 +29,7 @@ until session validation says otherwise.
 Review of the same table surfaced an adjacent live bug: every export row
 carries a local baseline of one (`allocateExport` / `registerExport` seed the
 row at count 1, and `count == 1 + wire references` was pinned by
-`test/session/session_test.zig`), but inbound `op:gc-exports` validated its
+`test/session/gc_test.zig`), but inbound `op:gc-exports` validated its
 deltas against the raw `count`, and `SlotTable.decrement` removes a row at
 zero. A hostile partner releasing one more than it was ever sent passed
 validation, drove the count to zero, and deleted the row: after which our own

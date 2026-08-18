@@ -56,7 +56,7 @@ initiates calls does not need to call it.
 >
 > # Noise_XK seals the CapTP stream end to end through the relay.
 > peer_key = "<64 lowercase hex characters from the server>"
-> relay_url = "wss://relay.example/rendezvous"
+> relay_url = "ws://192.0.2.10:8080/relay"
 > partner = relay.noise.locator(peer_key, relay_url)
 >
 > async with Runtime.open(provider=relay.provider(relay_url)) as runtime:
@@ -88,7 +88,7 @@ initiates calls does not need to call it.
 >
 > # The key names the peer; the hint names the relay that can reach it.
 > peer_key = "<64 lowercase hex characters from the server>"
-> relay_url = "wss://relay.example/rendezvous"
+> relay_url = "ws://192.0.2.10:8080/relay"
 > partner = relay.keyed.locator(peer_key, relay_url)
 >
 > async with Runtime.open(provider=relay.provider(relay_url)) as runtime:

@@ -4,6 +4,13 @@ use crate::sys;
 use crate::sys::host::PancakeCloseOptions;
 use crate::{Error, Result};
 
+/// Whether a final native release crossed its ownership boundary. Host and
+/// driver release share one pre-commit refusal: INVALID_ARGUMENT. Every other
+/// status is a teardown outcome and names an already-consumed handle.
+pub(crate) fn release_consumed(code: i32) -> bool {
+	code != sys::ERR_INVALID_ARGUMENT
+}
+
 /// What explicit close does with operations admitted before its barrier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PendingWork {
@@ -47,6 +54,14 @@ impl PendingWork {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn final_release_status_names_the_ownership_boundary() {
+		assert!(!release_consumed(sys::ERR_INVALID_ARGUMENT));
+		assert!(release_consumed(sys::OK));
+		assert!(release_consumed(sys::ERR_IO));
+		assert!(release_consumed(sys::ERR_INTERNAL));
+	}
 
 	#[test]
 	fn finite_grace_preserves_the_c_field_representation() {

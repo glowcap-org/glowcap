@@ -7,6 +7,9 @@
 // being handed an accepted one; the byte plumbing is this one module.
 
 import type { Channel } from "./session.ts";
+import { recordProcessBindingFailure } from "./context.ts";
+import { retainSecondaryFailure } from "./errors.ts";
+import { cancellationError } from "./internal/cancellation.ts";
 
 // A `WebSocket` has no drain event, so `write` gates outbound flow by polling
 // `bufferedAmount` down below this high-water before it resolves: a producer
@@ -14,6 +17,7 @@ import type { Channel } from "./session.ts";
 // which closes the far side's flow-control window instead of growing tab memory.
 const wsSendHighWaterBytes = 1 << 20; // 1 MiB
 const wsDrainPollMs = 4;
+const defaultWsCloseTimeoutMs = 5_000;
 // A WebSocket message is a transport chunk, not a CapTP frame: it may contain
 // several canonical outer frames. Keep this budget independent from the frame
 // cap so transport coalescing stays byte-transparent.
@@ -24,10 +28,16 @@ export interface WebSocketChannelOptions {
 	 * cannot be paused, so overflow closes with 1009. This is a transport-message
 	 * budget, deliberately independent from the CapTP frame cap. */
 	inboundHighWaterBytes?: number;
+	/** Maximum time to wait for the browser's close event after requesting a
+	 * close. The WebSocket API has no force-close primitive, so expiry rejects
+	 * the barrier instead of parking Host retirement forever. */
+	closeTimeoutMs?: number;
 }
 
 export interface WebSocketByteChannel extends Channel {
-	close(code?: number, reason?: string): void;
+	/** Request a close and join the browser's close event. Every caller receives
+	 * the same barrier; an abnormal close or synchronous refusal rejects it. */
+	close(code?: number, reason?: string): Promise<void>;
 	cancel(): Promise<void>;
 }
 
@@ -36,6 +46,15 @@ function inboundHighWaterBytes(options?: WebSocketChannelOptions): number {
 	if (value == null) return defaultWsInboundHighWaterBytes;
 	if (!Number.isSafeInteger(value) || value <= 0) {
 		throw new TypeError("WebSocket inbound high-water must be a positive safe integer");
+	}
+	return value;
+}
+
+function closeTimeoutMs(options?: WebSocketChannelOptions): number {
+	const value = options?.closeTimeoutMs;
+	if (value == null) return defaultWsCloseTimeoutMs;
+	if (!Number.isSafeInteger(value) || value <= 0) {
+		throw new TypeError("WebSocket close timeout must be a positive safe integer");
 	}
 	return value;
 }
@@ -110,7 +129,61 @@ export function webSocketChannel(
 ): WebSocketByteChannel {
 	ws.binaryType = "arraybuffer";
 	const inboundLimit = inboundHighWaterBytes(options);
+	const closeLimitMs = closeTimeoutMs(options);
 	let queuedBytes = 0;
+	let closeRequested = false;
+	let closeSettled = false;
+	let closeFailure: { readonly error: unknown } | null = null;
+	let resolveClose!: () => void;
+	let rejectClose!: (error: unknown) => void;
+	let closeTimer: number | null = null;
+	const closeBarrier = new Promise<void>((resolve, reject) => {
+		resolveClose = resolve;
+		rejectClose = reject;
+	});
+	// An unsolicited transport failure can precede the Session's retirement
+	// call. Mark this exact promise handled without replacing it; close() still
+	// returns it to the lifecycle owner for authoritative observation.
+	void closeBarrier.catch(() => {});
+	const retainCloseFailure = (error: unknown): void => {
+		if (closeSettled) {
+			recordProcessBindingFailure("websocket.close.late-settlement", error);
+			return;
+		}
+		closeFailure = closeFailure == null ? { error } : { error: retainSecondaryFailure(closeFailure.error, error) };
+	};
+	const finishClose = (): void => {
+		if (closeSettled) return;
+		closeSettled = true;
+		if (closeTimer !== null) clearTimeout(closeTimer);
+		if (closeFailure == null) resolveClose();
+		else rejectClose(closeFailure.error);
+	};
+	const abnormalClose = (event: CloseEvent): Error => {
+		const suffix = event.reason.length === 0 ? "" : `: ${event.reason}`;
+		return new Error(`WebSocket closed abnormally (code ${event.code})${suffix}`);
+	};
+	const requestClose = (code?: number, reason?: string): Promise<void> => {
+		if (closeRequested) return closeBarrier;
+		if (ws.readyState === WebSocket.CLOSED) {
+			if (!closeSettled) finishClose();
+			return closeBarrier;
+		}
+		closeRequested = true;
+		try {
+			ws.close(code, reason);
+		} catch (error) {
+			retainCloseFailure(error);
+			finishClose();
+		}
+		if (!closeSettled) {
+			closeTimer = setTimeout(() => {
+				retainCloseFailure(new Error(`WebSocket close timed out after ${closeLimitMs}ms`));
+				finishClose();
+			}, closeLimitMs) as unknown as number;
+		}
+		return closeBarrier;
+	};
 	// `Channel.write` is public and may be called concurrently. Keep one send
 	// authority so several callers cannot all cross the browser buffer's
 	// high-water before any one observes pressure. The retained call backlog
@@ -123,29 +196,47 @@ export function webSocketChannel(
 				try {
 					if (!(event.data instanceof ArrayBuffer)) {
 						controller.error(new Error("WebSocket text messages are not CapTP bytes"));
-						ws.close(1003, "binary messages required");
+						void requestClose(1003, "binary messages required");
 						return;
 					}
 					const chunk = new Uint8Array(event.data);
 					if (queuedBytes + chunk.byteLength > inboundLimit) {
 						controller.error(new Error("WebSocket inbound queue exceeded"));
-						ws.close(1009, "inbound queue exceeded");
+						void requestClose(1009, "inbound queue exceeded");
 						return;
 					}
 					queuedBytes += chunk.byteLength;
 					controller.enqueue(chunk);
 				} catch { /* stream already closed */ }
 			};
-			ws.onclose = () => {
+			ws.onclose = (event: CloseEvent) => {
+				const failure = event.wasClean === false ? abnormalClose(event) : null;
+				if (failure != null) retainCloseFailure(failure);
+				finishClose();
 				try {
-					controller.close();
+					if (failure == null) controller.close();
+					else controller.error(failure);
 				} catch { /* already closed */ }
 			};
 			ws.onerror = () => {
+				const failure = new Error("WebSocket error");
+				retainCloseFailure(failure);
 				try {
-					controller.error(new Error("WebSocket error"));
+					controller.error(failure);
 				} catch { /* already closed */ }
+				void requestClose();
 			};
+			// Adoption normally follows OPEN. Refuse a socket that closed between
+			// the caller's check and handler installation instead of returning a
+			// barrier whose close event can no longer arrive.
+			if (ws.readyState === WebSocket.CLOSED) {
+				const failure = new Error("WebSocket closed before channel adoption");
+				retainCloseFailure(failure);
+				finishClose();
+				try {
+					controller.error(failure);
+				} catch { /* already closed */ }
+			}
 		},
 	}).getReader();
 	return {
@@ -189,9 +280,7 @@ export function webSocketChannel(
 			writing = current;
 			return current;
 		},
-		close(code?: number, reason?: string): void {
-			ws.close(code, reason);
-		},
+		close: requestClose,
 		cancel: () => reader.cancel(),
 	};
 }
@@ -203,30 +292,77 @@ export function webSocketChannel(
 export function openWebSocketChannel(
 	url: string,
 	options?: WebSocketChannelOptions,
+	signal?: AbortSignal,
 ): Promise<WebSocketByteChannel> {
 	return new Promise((resolve, reject) => {
 		// Reject configuration before opening a network resource. Pass the checked
 		// value onward so construction and the established channel share one fact.
 		const checkedInboundHighWaterBytes = inboundHighWaterBytes(options);
+		const checkedCloseTimeoutMs = closeTimeoutMs(options);
+		if (signal?.aborted) {
+			reject(cancellationError(signal));
+			return;
+		}
 		const ws = new WebSocket(url);
 		let done = false;
+		let cancelFailure: unknown = null;
+		let cancelTimer: number | null = null;
 		const settle = (fn: () => void) => {
 			if (done) return;
 			done = true;
+			if (cancelTimer != null) clearTimeout(cancelTimer);
+			signal?.removeEventListener("abort", cancelOpen);
 			ws.onerror = null;
 			ws.onclose = null;
 			ws.onopen = null;
 			fn();
 		};
+		const finishCancellation = (secondary?: unknown): void => {
+			if (secondary !== undefined) retainSecondaryFailure(cancelFailure, secondary);
+			settle(() => reject(cancelFailure));
+		};
+		const cancelOpen = (): void => {
+			if (done || cancelFailure != null || signal == null) return;
+			cancelFailure = cancellationError(signal);
+			ws.onopen = null;
+			try {
+				ws.close();
+			} catch (error) {
+				finishCancellation(error);
+				return;
+			}
+			if (done) return;
+			if (ws.readyState === WebSocket.CLOSED) {
+				finishCancellation();
+				return;
+			}
+			cancelTimer = setTimeout(
+				() => finishCancellation(new Error(`WebSocket close timed out after ${checkedCloseTimeoutMs}ms`)),
+				checkedCloseTimeoutMs,
+			) as unknown as number;
+		};
 		// A pre-open error rejects the connect. Once open, `webSocketChannel`
 		// re-wires the handlers for the byte lifecycle.
-		ws.onerror = () => settle(() => reject(new Error(`WebSocket connect failed: ${url}`)));
-		ws.onclose = () => settle(() => reject(new Error(`WebSocket closed before open: ${url}`)));
+		ws.onerror = () => {
+			const failure = new Error(`WebSocket connect failed: ${url}`);
+			if (cancelFailure != null) retainSecondaryFailure(cancelFailure, failure);
+			else settle(() => reject(failure));
+		};
+		ws.onclose = (event: CloseEvent) => {
+			if (cancelFailure != null) {
+				const secondary = event.wasClean === false
+					? new Error(`WebSocket closed abnormally during cancellation (code ${event.code})`)
+					: undefined;
+				finishCancellation(secondary);
+			} else settle(() => reject(new Error(`WebSocket closed before open: ${url}`)));
+		};
 		ws.onopen = () =>
 			settle(() =>
 				resolve(webSocketChannel(ws, {
 					inboundHighWaterBytes: checkedInboundHighWaterBytes,
+					closeTimeoutMs: checkedCloseTimeoutMs,
 				}))
 			);
+		signal?.addEventListener("abort", cancelOpen, { once: true });
 	});
 }

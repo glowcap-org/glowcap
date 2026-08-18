@@ -1,6 +1,6 @@
 /**
- * The Timeline's side of the one cursor rule — § 10 of
- * `docs/interaction-model.md`, for the two surfaces that are not the Stage.
+ * The Timeline's side of the one cursor rule — `docs/cursor.md`,
+ * for the two surfaces that are not the Stage.
  *
  * The Scrubber and the Overview own DOM hosts stacked above the unified
  * canvas, so each has to write its own element's cursor. What neither may do
@@ -29,7 +29,8 @@ import {
   type SurfaceId,
 } from "../../interactions/types.ts";
 import type { TimelineDocument, TimelineEvent } from "../../engine/timeline.ts";
-import { GUTTER_DRAG_GRAB_PX, hitTestEvents, hitTestGutter, OVERVIEW_EDGE_GRAB_PX } from "./hit-test.ts";
+import { GUTTER_DRAG_GRAB_PX, hitTestGutter, OVERVIEW_EDGE_GRAB_PX } from "./hit-test.ts";
+import { hitTestEvents } from "./event-hit.ts";
 import { eyeGlyphStatus, HEADER_EYEBALL_X } from "./gutter-paint.ts";
 import { type RowDescriptor, RULER_HEIGHT } from "./row-layout.ts";
 import { canvasPxToT, gutterWidthOf, plotStartXOf, plotWidthOf, type TimelineView } from "./state.ts";
@@ -108,7 +109,7 @@ export function scrubberHoverAt(
   const t = canvasPxToT(px, size.width, view);
   if (py >= rulerTopY || py >= lanesBottomY) {
     // The ruler band plus the dead space between the last row and it: one
-    // scrub zone, as `handlePointerDown` reads it. In Live the feed is
+    // scrub zone, as the pointer host reads it. In Live the feed is
     // forward-only and the press does nothing, so there is nothing here to
     // describe — the same answer the left pad gives, where `t` is null.
     if (args.disabledScrub || t === null) return NOTHING;

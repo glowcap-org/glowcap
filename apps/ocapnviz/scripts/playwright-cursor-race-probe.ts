@@ -2,7 +2,7 @@
 /**
  * playwright-cursor-race-probe.ts — proves the canvas keeps the cursor the
  * app asked for while Space is held and the pointer is moving, which is the
- * Hand tool's convention (interaction model § 10).
+ * Hand tool's convention (`docs/cursor.md`).
  *
  * The bug it pins: Pixi writes the canvas cursor itself on every pointer
  * event, and its un-hover write reset the element to `"default"`. The Stage
@@ -43,9 +43,7 @@ async function cursorStyle(): Promise<string> {
     const c = document.querySelector(
       "canvas#ocv-pixi",
     ) as HTMLCanvasElement | null;
-    return c
-      ? globalThis.getComputedStyle(c).cursor || "(unset)"
-      : "(no-canvas)";
+    return c ? globalThis.getComputedStyle(c).cursor || "(unset)" : "(no-canvas)";
   });
 }
 

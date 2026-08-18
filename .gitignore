@@ -75,6 +75,11 @@ pancake-c-abi-cache/
 .env
 .worktrees/
 
+# per-worktree grid pane configuration for enter-grid.sh; only
+# panes.example.sh is tracked
+.devcontainer/panes.sh
+.devcontainer/panes-*.sh
+
 # captured stderr from a redirected demo/test run; scratch, never committed
 *.err
 

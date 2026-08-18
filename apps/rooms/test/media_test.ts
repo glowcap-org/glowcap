@@ -7,7 +7,9 @@
 // so the branch is pinned here rather than by carrying a video fixture through
 // a headless browser to learn the same fact.
 
-import { fileSize, kindOf } from "../web/ui/media.ts";
+import { fetchesOnArrival, fileSize, kindOf } from "../web/ui/media.ts";
+import { attachmentRefusal } from "../lib/attachment.ts";
+import { AUTO_IMAGE_BYTES, MAX_ATTACHMENT_BYTES } from "../lib/limits.ts";
 import { assertEquals } from "./assert.ts";
 
 Deno.test("a media type picks how the file is met", () => {
@@ -31,4 +33,44 @@ Deno.test("a size reads the way the reader is deciding about it", () => {
 	assertEquals(fileSize(1536), "1.5 kB");
 	assertEquals(fileSize(1024 * 1024), "1.0 MB");
 	assertEquals(fileSize(1468006), "1.4 MB");
+});
+
+Deno.test("a file a room will not take is refused in words that name it", () => {
+	// The sender checks so nothing moves, and the room checks because it cannot
+	// trust a sender. Two checks, one answer: they were written out twice, word
+	// for word, and two authorities for one rule drift the moment either moves.
+	assertEquals(attachmentRefusal("notes.txt", "text/plain", 12), null);
+	assertEquals(attachmentRefusal("", "text/plain", 12), "a file needs a name");
+
+	// Named, because a message may carry several and a rule stated in the
+	// abstract leaves a reader looking at eight chips with nothing to act on.
+	const big = attachmentRefusal("holiday.mov", "video/quicktime", MAX_ATTACHMENT_BYTES + 1);
+	assertEquals(big !== null && big.includes("holiday.mov"), true, `the refusal did not name the file: ${big}`);
+	assertEquals(big !== null && big.includes("MB"), true, `the refusal spoke in bytes: ${big}`);
+
+	// A size that is not a size at all, which is what a peer can put on the wire.
+	assertEquals(attachmentRefusal("x.bin", "application/octet-stream", -1) !== null, true);
+	assertEquals(attachmentRefusal("x.bin", "application/octet-stream", Number.NaN) !== null, true);
+
+	// A name too long to show is cut for the message rather than repeated whole.
+	const long = attachmentRefusal("y".repeat(500) + ".txt", "text/plain", 1);
+	assertEquals(long !== null && long.includes("504"), true, `the refusal did not say how long it was: ${long}`);
+});
+
+Deno.test("a small picture is fetched on arrival; other files wait to be asked", () => {
+	const picture = { mime: "image/png", size: 1024 };
+	assertEquals(fetchesOnArrival(picture, false), true);
+	// Anything that is not a picture has a control of its own, and a picture too
+	// large to spend a reader's bandwidth on unasked has one too.
+	assertEquals(fetchesOnArrival({ mime: "application/pdf", size: 1024 }, false), false);
+	assertEquals(fetchesOnArrival({ mime: "video/mp4", size: 1024 }, false), false);
+	assertEquals(fetchesOnArrival({ mime: "image/png", size: AUTO_IMAGE_BYTES + 1 }, false), false);
+});
+
+Deno.test("nothing is fetched on its own from a member the reader has silenced", () => {
+	// Silence has to reach the network, not just the drawing: a line the reader
+	// will not see must not pull bytes about itself either, and for a direct
+	// message that pull would reach the silenced person's own host. The reference
+	// is still kept, so unignoring and pressing the file works.
+	assertEquals(fetchesOnArrival({ mime: "image/png", size: 1024 }, true), false);
 });

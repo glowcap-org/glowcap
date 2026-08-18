@@ -119,7 +119,8 @@ spill always assumed.
 - Evidence: pool-of-one contention with two connections (both served, the
   starved read resumed on recycle), a frame split across two completions
   applying exactly once via the spill, and recycle-exactly-once assertions
-  across the scripted backends (`test/net/completion_loop_test.zig`); the
+  across the scripted backends (`test/net/completion_loop_stream_test.zig`,
+  `test/net/completion_loop_backpressure_test.zig`); the
   real-backend concurrency, churn, and dialer suites run unchanged over the new
   contract (`test/net/completion_loop_test.zig`,
   `test/net/completion_dialer_test.zig`).

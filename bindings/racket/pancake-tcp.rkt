@@ -28,6 +28,7 @@
          ffi/unsafe/port
          "private/constants.rkt"
          "private/ffi-tcp.rkt"
+         "private/finalizer-diagnostics.rkt"
          "private/locator.rkt"
          "private/socket-address.rkt"
          "private/tcp-config.rkt"
@@ -129,7 +130,12 @@
        (check/tcp rc)
        (connection h (make-semaphore 1) (make-semaphore 1) nl))
      connection-release!))
-  (register-finalizer cn (lambda (q) (connection-release! q)))
+  (register-finalizer
+   cn
+   (lambda (q)
+     (run-native-finalizer! "tcp-connection.finalize"
+                            (lambda () (connection-release! q))
+                            #:layer 'transport)))
   cn)
 
 (define (listener-port lst)
@@ -170,7 +176,12 @@
         (connection h (make-semaphore 1) (make-semaphore 1) nl)
         connection-release!
         'listener-accept))
-     (register-finalizer cn (lambda (q) (connection-release! q)))
+     (register-finalizer
+      cn
+      (lambda (q)
+        (run-native-finalizer! "tcp-connection.finalize"
+                               (lambda () (connection-release! q))
+                               #:layer 'transport)))
      cn)))
 
 (define (listener-release! lst)
@@ -219,6 +230,7 @@
 (define (connection-release! cn)
   (when (connection-handle cn)
     (define shutdown-failure #f)
+    (define release-failure #f)
     (with-handlers ([(lambda (_) #t)
                      (lambda (raised) (set! shutdown-failure raised))])
       (check/tcp (pancake_tcp_conn_shutdown (connection-handle cn))))
@@ -229,7 +241,9 @@
         (connection-write-gate cn)
         (lambda ()
           (when (connection-handle cn)
-            (pancake_tcp_conn_release (connection-handle cn))
+            (with-handlers ([(lambda (_) #t)
+                             (lambda (raised) (set! release-failure raised))])
+              (check/tcp (pancake_tcp_conn_release (connection-handle cn))))
             (set-connection-handle! cn #f)
             (netlayer-forget! (connection-netlayer cn) cn))))))
-    (when shutdown-failure (raise shutdown-failure))))
+    (raise-retained-failures shutdown-failure release-failure)))

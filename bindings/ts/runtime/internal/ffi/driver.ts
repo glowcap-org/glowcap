@@ -29,9 +29,9 @@ export const loopS = lazySymbols(() => libPath("pancake_driver"), {
 	pancake_driver_retire: { parameters: [P], result: I },
 	pancake_driver_lifecycle_state: { parameters: [P, B], result: I, outBuffers: [1] },
 	pancake_driver_step_wait_ms: { parameters: [P, B], result: I, outBuffers: [1] },
-	pancake_driver_release: { parameters: [P], result: I },
+	pancake_driver_release: { parameters: [P, B], result: I, outBuffers: [] },
 	// Transport providers.
-	pancake_driver_add_provider: { parameters: [P, P], result: I },
+	pancake_driver_add_provider: { parameters: [P, P, B], result: I, outBuffers: [] },
 	pancake_driver_has_transport: { parameters: [P, B, U, B], result: I, outBuffers: [3] },
 	// Dial, listen, readiness.
 	pancake_driver_dial: { parameters: [P, P, B, B], result: I, outBuffers: [3] },
@@ -42,7 +42,7 @@ export const loopS = lazySymbols(() => libPath("pancake_driver"), {
 	pancake_driver_listener_restoration_state: { parameters: [P, U64, B, U, B], result: I, outBuffers: [2, 4] },
 	pancake_driver_listener_advertise: { parameters: [P, U64, P], result: I },
 	pancake_driver_listener_select: { parameters: [P, U64], result: I },
-	pancake_driver_listener_close: { parameters: [P, U64], result: I },
+	pancake_driver_listener_close: { parameters: [P, U64, B], result: I, outBuffers: [] },
 	pancake_driver_readiness_fd: { parameters: [P, B], result: I, outBuffers: [1] },
 	// Step, wake, events.
 	pancake_driver_step: { parameters: [P, I], result: I },

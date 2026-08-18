@@ -20,7 +20,7 @@
 // by default, or point every dial at a byte gateway).
 
 import { makeWebAdapter, type WsUrl } from "./adapter.ts";
-import { INVALID_ARGUMENT } from "@pancake/abi";
+import { INVALID_ARGUMENT, TRANSPORT_ONION } from "@pancake/abi";
 import type {
 	CaptpVersion,
 	Codec,
@@ -249,18 +249,24 @@ function browserConnectors(
 	);
 	const connectors = [tcp];
 	if (options.relayUrl != null) {
+		const viaRelay =
+			(verifiedChannelKey: (locator: Locator) => string | null) =>
+			async (host: Host, locator: Locator, request: ConnectorRequest) =>
+				await establish(
+					host,
+					locator,
+					request,
+					options.relayUrl!(runtimeApi.formatLocatorUri(locator)),
+					verifiedChannelKey(locator),
+				);
 		connectors.push(
-			new runtimeApi.Connector(
-				[runtimeApi.TRANSPORT_IROH],
-				async (host, locator, request) =>
-					await establish(
-						host,
-						locator,
-						request,
-						options.relayUrl!(runtimeApi.formatLocatorUri(locator)),
-						locator.designator,
-					),
-			),
+			// The relay dials iroh itself and its QUIC handshake proves the node
+			// id, so the designator is the channel's verified key.
+			new runtimeApi.Connector([runtimeApi.TRANSPORT_IROH], viaRelay((locator) => locator.designator)),
+			// An onion service id is an address, not an identity (ADR-0108), so
+			// the relayed channel proves no key and the session reports what the
+			// partner claims about itself.
+			new runtimeApi.Connector([TRANSPORT_ONION], viaRelay(() => null)),
 		);
 	}
 	return connectors;

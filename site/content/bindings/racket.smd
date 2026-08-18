@@ -52,7 +52,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 >
 > ;; Noise_XK seals the CapTP stream end to end through the relay.
 > (define peer-key "<64 lowercase hex characters from the server>")
-> (define relay-url "wss://relay.example/rendezvous")
+> (define relay-url "ws://192.0.2.10:8080/relay")
 > (define partner (noise-relay-locator peer-key relay-url))
 > (define runtime
 >   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
@@ -83,7 +83,7 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 >
 > ;; The key names the peer; the hint names the relay that can reach it.
 > (define peer-key "<64 lowercase hex characters from the server>")
-> (define relay-url "wss://relay.example/rendezvous")
+> (define relay-url "ws://192.0.2.10:8080/relay")
 > (define partner (keyed-relay-locator peer-key relay-url))
 > (define runtime
 >   (open-runtime #:providers (list (relay-provider #:relay-url relay-url))))
@@ -201,9 +201,8 @@ From here, the CapTP workflow is the same for every transport:
 
 ## A Goblins-style actor API
 
-The verbs are Goblins's; the substrate is pancake. This is not a Goblins
-compatibility layer, and an existing Goblins program will not run on it
-unchanged. You define an actor constructor with
+The verbs follow Goblins. The vat and the wire are pancake, so an existing
+Goblins program will not run unchanged. You define an actor constructor with
 `(define (^name bcom arg ...) ...)`, return its `methods` behavior, and then
 `spawn` it. You call it near with `$`, send it eventually with `<-` or `<-np`,
 observe a promise with `on`, and become a new behavior with `bcom`, all inside

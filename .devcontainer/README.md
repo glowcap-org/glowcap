@@ -55,14 +55,50 @@ The option `--session NAME` selects another tmux session without creating
 another Docker container. Omitting it preserves the default
 `pancake-<worktree>` session; supplying it uses
 `pancake-<worktree>-<name>`. Each session opens its own shell, while all
-sessions for a worktree intentionally share that container's processes and
-filesystem. A session designator starts with a lowercase letter, ends with a
+sessions for a worktree share that container's processes and filesystem.
+A session designator starts with a lowercase letter, ends with a
 lowercase letter or digit, contains only lowercase letters, digits, and
 hyphens, and is at most 24 characters. Reusing the same command rejoins that
 exact session.
 
+From iTerm2, both launchers attach in tmux control mode (`tmux -CC`), so
+sessions and panes render as native iTerm2 windows and splits. Every other
+terminal attaches as an ordinary tmux client. Pass `--cc` or `--no-cc` to
+force either behavior; detection covers a local iTerm2 tab and, with iTerm2's
+shell integration installed, an ssh session from one.
+
 The same identity names both Docker artifacts. A `tree1` checkout uses the
 container `pancake-tree1` and builds the image `vsc-pancake-tree1`.
+
+[`enter-grid.sh`](enter-grid.sh) opens many worktrees at once: one tmux
+session holding a grid with one column per worktree. With no arguments, every
+worktree Git registers becomes a column; naming worktrees narrows the grid to
+those columns. It runs the same per-checkout `up.sh` lifecycle as `enter.sh`,
+so each column's panes share that worktree's container, and `--rebuild`,
+`--no-cache`, `--session`, `--cc`, and `--no-cc` work as in `enter.sh`, with
+sessions named `pancake-grid` or `pancake-grid-<name>`. Percentage splits
+need tmux 3.1 or newer.
+
+```sh
+bash .devcontainer/enter-grid.sh                  # tmux: pancake-grid
+bash .devcontainer/enter-grid.sh main tree2       # only these columns
+bash .devcontainer/enter-grid.sh --session review # tmux: pancake-grid-review
+```
+
+Each worktree configures its own column through the ignored
+`.devcontainer/panes.sh` in that checkout: plain bash that
+[`pane-rc.sh`](pane-rc.sh) sources in each of the column's panes after the
+container shell's own `~/.bashrc`. Top-level lines run in every pane, so an
+export there configures the whole column. A `pane1`, `pane2`, … function runs
+as that pane's startup command, and the highest `paneN` declared sets the
+column's row count: one full-height shell when the file declares none or is
+absent, at most twelve. Each command behaves as if typed at the prompt: it
+can be interrupted,
+it joins shell history, and the pane returns to its prompt when the command
+exits, so re-running it is its function name or one up-arrow.
+[`panes.example.sh`](panes.example.sh) shows the shape. With `--session NAME`,
+a `panes-NAME.sh` file is preferred when it exists, so one worktree can carry
+different grids, and different row counts, for different sessions.
 
 ## Worktree identity
 
@@ -78,7 +114,7 @@ cd .worktrees/tree1
 bash .devcontainer/configure.sh --port-offset 10000
 ```
 
-The offset produces host ports 18000, 19099, 19200, and 19300. Requiring that
+The offset produces host ports 18000, 19099, 19200, 19300, 15173, and 11990. Requiring that
 one explicit choice prevents a setup command from guessing whether ports are
 free and then racing Docker for them.
 
@@ -109,15 +145,17 @@ is necessary with the current Dev Containers CLI: its automatic common-dir
 mount is not applied to custom Compose workspace mounts.
 
 The same ignored file owns that worktree's host ports. The primary checkout
-uses 8000, 9099, 9200, and 9300. `configure.sh --port-offset` gives every
+uses 8000, 9099, 9200, 9300, 5173, and 1990. `configure.sh --port-offset` gives every
 concurrently running worktree a different set. The generated `tree1` file
 contains:
 
 ```dotenv
-PANCAKE_WEB_HOST_PORT=18000
-PANCAKE_CAPTP_HOST_PORT=19099
-PANCAKE_RELAY_HOST_PORT=19200
-PANCAKE_TRACE_HOST_PORT=19300
+PANCAKE_ROOMS_WEB_HOST_PORT=18000
+PANCAKE_ROOMS_CAPTP_HOST_PORT=19099
+PANCAKE_ROOMS_RELAY_HOST_PORT=19200
+PANCAKE_ROOMS_TRACE_HOST_PORT=19300
+PANCAKE_OCAPNVIZ_HOST_PORT=15173
+PANCAKE_DOCS_HOST_PORT=11990
 ```
 
 The file uses one plain `KEY=value` assignment per line. Exported host variables take
@@ -128,7 +166,7 @@ precedence over Compose `.env` files, so startup refuses an inherited
 
 | Phase | What runs |
 | --- | --- |
-| Before creation | `initialize.sh` creates missing primary-checkout configuration, validates Git identity and ports, and prepares the managed Docker networks |
+| Before creation | `initialize.sh` creates the shared host agent-state paths and missing primary-checkout configuration, validates Git identity and ports, and prepares the managed Docker networks |
 | Image build | `Dockerfile`, `install-*.sh`, then `verify-toolchains.sh` |
 | First open | `post-create.sh` fixes persistent-volume ownership and verifies the environment |
 | Development | You run `zig build check` and focused build steps |
@@ -144,13 +182,22 @@ in [`checksums.sh`](checksums.sh).
 | Conformance | Python, Racket, and Goblins | `install-python.sh`, `install-racket-goblins.sh` |
 | Bindings | Rust, Deno, Node, npm, and Bun | `install-rust.sh`, `install-js-toolchains.sh` |
 | Browsers | Playwright's Chromium and the libraries it needs | `install-playwright.sh` |
-| Agents | Serena, Claude Code, opencode, and Codex | their `install-*.sh` scripts |
+| Agents | Serena, Claude Code, the Cursor agent CLI, opencode, and Codex | their `install-*.sh` scripts |
 | Debugging | gdb, lldb, strace, valgrind, perf, hyperfine | `Dockerfile` |
 | Tor | the `tor` daemon the `onion` netlayer's live checks talk to | `Dockerfile` |
 
 The image also puts the repository's own CapTP CLI on PATH: `pancake` links to
 the repo-root shim, which builds `zig-out/bin/pancake` on first use, so the
 [CLI](../docs/cli.md) is callable from any directory in the container.
+
+Cursor's agent CLI answers to both of the names upstream installs, `agent` and
+`cursor-agent`. Upstream unpacks it into the user's home directory; here it is
+part of the image, under `/usr/local/share/cursor-agent`, so the pinned build
+comes with the container. Its own `agent update` still writes into
+`~/.local/bin`, which sits after `/usr/local/bin` on the path, so the pinned
+build keeps answering and `update-pins.sh` stays the way to move it. There is
+no browser in the container, so sign in with `NO_OPEN_BROWSER=1 agent login`
+and open the printed URL on the host; `agent status` says who you are.
 
 No Tor is running when the container opens, and that is deliberate: pancake
 reaches an onion service through a daemon whoever deployed it started, so the
@@ -189,10 +236,19 @@ release.
 | `PLAYWRIGHT_BROWSERS_PATH` | `/usr/local/share/ms-playwright` | unchanged |
 | `PLTUSERHOME` | `/opt/pancake-racket-userhome` | unchanged |
 | `ZIG_GLOBAL_CACHE_DIR` | `/home/vscode/.cache/zig` | same volume |
+| `CLAUDE_CONFIG_DIR` | `/home/vscode/.claude` | same host bind mount |
+| `CURSOR_CONFIG_DIR`, `CURSOR_DATA_DIR` | `/home/vscode/.cursor` | settings host bind; Linux tokens use `~/.config/cursor` |
 
 Rustup seeds the image under `/usr/local/cargo`; open containers persist
 downloaded crates in the user volume. `post-create.sh` also makes the ZLS cache
 writable.
+
+The last two rows are what make an agent CLI's settings survive a rebuild.
+Both tools choose their state directory from the environment, and both are
+pointed at the directories [`devcontainer.json`](devcontainer.json) binds from
+the host. The Cursor agent CLI on Linux still writes login tokens under
+`~/.config/cursor`, so that path is a separate host bind.
+[Host configuration](host-configuration.md) covers the mounts themselves.
 
 Playwright's default download directory is `~/.cache/ms-playwright`, which is
 neither a volume nor a bind mount here, so a browser landing there would have to
@@ -212,16 +268,20 @@ Two detailed guides cover the parts that vary by machine:
 
 - [Docker networking](networking.md): the rooms network, the private egress
   network, and how the rooms peer reaches the deployed app.
-- [Host configuration](host-configuration.md): Git, SSH, isolated tool-login
-  volumes, keyrings, and commit signing.
+- [Host configuration](host-configuration.md): Git, SSH, shared agent and
+  authentication state, keyrings, and commit signing.
 
 ### Ports the container forwards
 
-`docker-compose.yml` publishes the four ports the rooms workflow needs on the
-host loopback. Services always use 8000, 9099, 9200, and 9300 inside the
-container. Their host ports come from `.env`, so the primary checkout's web
-page is `http://localhost:8000`, while the example worktree above uses
-`http://localhost:18000`.
+`docker-compose.yml` publishes six ports on every host interface: the rooms
+web page (8000), the rooms directory's CapTP listener (9099), the reference
+relay (9200), the protocol-visualizer trace feed (9300), the ocapnviz Vite
+dev server (5173), and the documentation preview (1990). Services always use
+those canonical numbers inside the container. Their host ports come from
+`.env`, so the primary checkout's web page is `http://localhost:8000`, while
+the example worktree above uses `http://localhost:18000`. The ocapnviz page
+and the docs preview can be opened as localhost or as the machine's own
+hostname on that published port.
 
 They are declared rather than left to the editor noticing a listener, because a
 guessed forward goes away again when it stops noticing, and
@@ -248,15 +308,18 @@ fails container open and the CI push checks.
 | `pins.sh`, `checksums.sh` | Versions, paths, and download hashes | sourced |
 | `update-pins.sh` | Reports and bumps the pins against upstream | container |
 | `lib.sh` | Shared installer functions and context guards | sourced |
+| `launcher-lib.sh` | Shared mechanics of the tmux launchers: option grammar, lifecycle delegation, pane commands, attach | sourced |
 | `check-env-sync.sh` | Checks pins, mounts, names, and host lifecycle contracts | anywhere |
 | `test-host-invariants.sh` | Tests checkout configuration, identity, networks, and Git-owned lookup | anywhere |
 | `Dockerfile` | Builds the image | image build |
 | `devcontainer.json` | Editor settings and volumes | editor / CLI |
 | `.env.example` | Annotated primary-checkout form generated by `configure.sh` | host |
 | `configure.sh` | Creates the ignored checkout identity, paths, ports, and egress name | host |
-| `docker-compose.yml` | Worktree-specific container and image names, networks, host-loopback ports, and ptrace | host compose |
+| `docker-compose.yml` | Worktree-specific container and image names, networks, host ports, and ptrace | host compose |
 | `initialize.sh` | Bootstraps and validates checkout configuration, then prepares managed networks | host |
 | `enter.sh` | Starts or reuses a worktree container and attaches its default or a named tmux session | host |
+| `enter-grid.sh` | Starts or reuses every column worktree's container and attaches one tmux grid, rows per column set by each worktree's `panes.sh` | host |
+| `pane-rc.sh` | Initializes one grid pane's shell, then runs that pane's function from the worktree's ignored `panes.sh` | container |
 | `up.sh` | Starts or rebuilds the container from a host shell | host |
 | `post-create.sh` | Verifies and prepares an open container | container |
 | `verify-toolchains.sh` | Checks installed versions | image build + container |

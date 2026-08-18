@@ -7,6 +7,7 @@ const std = @import("std");
 const model = @import("model");
 const net = @import("net");
 const shared = @import("c_abi_shared");
+const provider_failure = @import("provider_failure.zig");
 
 const PANCAKE_OK = shared.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
@@ -19,14 +20,17 @@ const Capture = struct {
     allocator: std.mem.Allocator,
     locator: ?model.PeerLocator = null,
     called: bool = false,
+    failure: ?anyerror = null,
 
     fn receive(raw: ?*anyopaque, view: ?*const shared.PancakeLocatorView) callconv(.c) i32 {
         const self: *Capture = @ptrCast(@alignCast(raw orelse return PANCAKE_ERR_NULL_POINTER));
         if (self.called) return PANCAKE_ERR_INVALID_ARGUMENT;
         self.called = true;
         const borrowed_view = view orelse return PANCAKE_ERR_NULL_POINTER;
-        self.locator = shared.locator_adapter.cloneView(self.allocator, borrowed_view) catch |err|
+        self.locator = shared.locator_adapter.cloneView(self.allocator, borrowed_view) catch |err| {
+            self.failure = if (err == error.OutOfMemory) error.OutOfMemory else error.InvalidAddress;
             return shared.locatorAdapterErrorCode(err);
+        };
         return PANCAKE_OK;
     }
 
@@ -55,23 +59,26 @@ pub const Listener = struct {
         self: Listener,
         proposed: ?*const shared.PancakeLocatorView,
         result: *Capture,
+        report: *shared.PancakeProviderFailure,
     ) i32 {
         return if (proposed) |view|
-            self.canonicalize(self.ctx, view, result, Capture.receive)
+            self.canonicalize(self.ctx, view, result, Capture.receive, report)
         else
-            self.local(self.ctx, result, Capture.receive);
+            self.local(self.ctx, result, Capture.receive, report);
     }
+
+    pub const Outcome = net.netlayer.ListenerLocatorOutcome;
 
     fn capture(
         self: Listener,
         allocator: std.mem.Allocator,
         proposed: ?model.PeerLocator,
-    ) net.netlayer.ListenError!model.PeerLocator {
+    ) Outcome {
         var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.PancakeLocatorHintView = undefined;
         var projection: ?shared.locator_adapter.Projection = if (proposed) |locator|
             shared.locator_adapter.Projection.init(allocator, locator, &hint_stack) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => return error.InvalidAddress,
+                error.OutOfMemory => return .{ .failed = .init(error.OutOfMemory) },
+                else => return .{ .failed = .init(error.InvalidAddress) },
             }
         else
             null;
@@ -79,27 +86,34 @@ pub const Listener = struct {
 
         var result: Capture = .{ .allocator = allocator };
         defer result.deinit();
-        const code = self.invoke(if (projection) |*value| &value.view else null, &result);
-        switch (code) {
-            PANCAKE_OK => {},
-            shared.PANCAKE_ERR_INTERNAL => return error.OutOfMemory,
-            else => return error.InvalidAddress,
+        var report = shared.transport_provider.emptyProviderFailure();
+        const code = self.invoke(if (projection) |*value| &value.view else null, &result, &report);
+        if (code != PANCAKE_OK) {
+            if (result.failure) |failure| {
+                if (!provider_failure.isEmpty(report))
+                    return .{ .failed = .init(error.ProviderContract) };
+                return .{ .failed = .init(failure) };
+            }
+            const failure = provider_failure.chain(code, report) catch
+                return .{ .failed = .init(error.ProviderContract) };
+            return .{ .failed = failure };
         }
-        return result.take(self.transport);
+        if (!provider_failure.isEmpty(report))
+            return .{ .failed = .init(error.ProviderContract) };
+        const locator = result.take(self.transport) catch |err|
+            return .{ .failed = .init(err) };
+        return .{ .locator = locator };
     }
 
-    pub fn localLocator(
-        self: Listener,
-        allocator: std.mem.Allocator,
-    ) net.netlayer.ListenError!model.PeerLocator {
+    pub fn localLocatorOutcome(self: Listener, allocator: std.mem.Allocator) Outcome {
         return self.capture(allocator, null);
     }
 
-    pub fn canonicalizeLocator(
+    pub fn canonicalizeLocatorOutcome(
         self: Listener,
         allocator: std.mem.Allocator,
         proposed: model.PeerLocator,
-    ) net.netlayer.ListenError!model.PeerLocator {
+    ) Outcome {
         return self.capture(allocator, proposed);
     }
 };

@@ -1,3 +1,5 @@
+import { takeRuntimeFailures } from "../context.ts";
+import { secondaryFailures } from "../errors.ts";
 import { openWebSocketChannel, webSocketChannel } from "../websocket.ts";
 
 function assertEquals(actual: unknown, expected: unknown): void {
@@ -13,18 +15,26 @@ function assertIncludes(actual: string, expected: string): void {
 }
 
 class FakeWebSocket {
+	static readonly CONNECTING = 0;
+	static readonly OPEN = 1;
+	static readonly CLOSING = 2;
+	static readonly CLOSED = 3;
 	binaryType: BinaryType = "blob";
 	readyState: number = WebSocket.OPEN;
 	bufferedAmount: number = 0;
 	onmessage: ((event: MessageEvent) => void) | null = null;
-	onclose: (() => void) | null = null;
+	onclose: ((event: CloseEvent) => void) | null = null;
 	onerror: (() => void) | null = null;
+	onopen: (() => void) | null = null;
 	closeCode: number | undefined;
 	closeReason: string | undefined;
 	#listeners: Record<string, Array<() => void>> = {};
 	sendBufferedAmount = 0;
 	sendCount = 0;
 	sentLengths: number[] = [];
+	sent: Uint8Array[] = [];
+	closeCalls = 0;
+	autoClose = true;
 
 	addEventListener(type: string, listener: () => void): void {
 		(this.#listeners[type] ??= []).push(listener);
@@ -43,15 +53,26 @@ class FakeWebSocket {
 	send(data: Uint8Array): void {
 		this.sendCount++;
 		this.sentLengths.push(data.byteLength);
+		this.sent.push(data);
 		this.bufferedAmount = this.sendBufferedAmount;
 	}
 
 	close(code?: number, reason?: string): void {
+		this.closeCalls++;
 		this.closeCode = code;
 		this.closeReason = reason;
+		if (this.autoClose) this.finishClose(true, code ?? 1000, reason ?? "");
+	}
+
+	finishClose(wasClean: boolean, code = 1000, reason = ""): void {
 		this.readyState = WebSocket.CLOSED;
-		this.onclose?.();
+		this.onclose?.({ wasClean, code, reason } as CloseEvent);
 		this.#emit("close");
+	}
+
+	error(): void {
+		this.onerror?.();
+		this.#emit("error");
 	}
 
 	message(bytes: number): void {
@@ -137,7 +158,56 @@ Deno.test("webSocketChannel rejects a throttled write when the socket closes", a
 	throw new Error("expected closed socket to reject the pending write");
 });
 
-Deno.test("webSocketChannel returns a close refusal to its lifecycle owner", () => {
+Deno.test("webSocketChannel returns one joined close barrier to every lifecycle owner", async () => {
+	const ws = new FakeWebSocket();
+	ws.autoClose = false;
+	const channel = webSocketChannel(ws as unknown as WebSocket);
+	const first = channel.close();
+	const second = channel.close();
+	assertEquals(first, second);
+	assertEquals(ws.closeCalls, 1);
+	let settled = false;
+	void first.then(() => settled = true);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(settled, false);
+	ws.finishClose(true);
+	await first;
+	assertEquals(settled, true);
+});
+
+Deno.test("webSocketChannel rejects an abnormal close through its shared barrier", async () => {
+	const ws = new FakeWebSocket();
+	ws.autoClose = false;
+	const channel = webSocketChannel(ws as unknown as WebSocket);
+	const closed = channel.close();
+	ws.finishClose(false, 1006, "connection lost");
+	try {
+		await closed;
+	} catch (error) {
+		assertIncludes(String(error), "closed abnormally (code 1006): connection lost");
+		return;
+	}
+	throw new Error("expected abnormal close to reject the close barrier");
+});
+
+Deno.test("webSocketChannel keeps an I/O error primary while joining physical close", async () => {
+	const ws = new FakeWebSocket();
+	ws.autoClose = false;
+	const channel = webSocketChannel(ws as unknown as WebSocket);
+	const read = channel.read();
+	ws.error();
+	await read.catch((error) => assertIncludes(String(error), "WebSocket error"));
+	const closed = channel.close();
+	let settled = false;
+	void closed.catch(() => settled = true);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assertEquals(settled, false);
+	ws.finishClose(true);
+	await closed.catch((error) => assertIncludes(String(error), "WebSocket error"));
+	assertEquals(settled, true);
+});
+
+Deno.test("webSocketChannel returns a close refusal to its lifecycle owner", async () => {
 	const refusal = new Error("close refused");
 	class RefusingWebSocket extends FakeWebSocket {
 		override close(): void {
@@ -146,12 +216,51 @@ Deno.test("webSocketChannel returns a close refusal to its lifecycle owner", () 
 	}
 	const channel = webSocketChannel(new RefusingWebSocket() as unknown as WebSocket);
 	try {
-		channel.close();
+		await channel.close();
 	} catch (error) {
 		assertEquals(error, refusal);
 		return;
 	}
 	throw new Error("expected the close refusal to remain observable");
+});
+
+Deno.test("webSocketChannel preserves a non-Error close refusal", async () => {
+	const refusal: unknown = null;
+	class RefusingWebSocket extends FakeWebSocket {
+		override close(): void {
+			throw refusal;
+		}
+	}
+	const channel = webSocketChannel(new RefusingWebSocket() as unknown as WebSocket);
+	let observed: unknown = undefined;
+	await channel.close().catch((error) => observed = error);
+	assertEquals(observed, refusal);
+});
+
+Deno.test("webSocketChannel bounds a close whose event never arrives", async () => {
+	const ws = new FakeWebSocket();
+	ws.autoClose = false;
+	const channel = webSocketChannel(ws as unknown as WebSocket, { closeTimeoutMs: 5 });
+	try {
+		await channel.close();
+	} catch (error) {
+		assertIncludes(String(error), "close timed out after 5ms");
+		return;
+	}
+	throw new Error("expected a missing close event to reject the close barrier");
+});
+
+Deno.test("webSocketChannel reports an abnormal close after its barrier timed out", async () => {
+	takeRuntimeFailures();
+	const ws = new FakeWebSocket();
+	ws.autoClose = false;
+	const channel = webSocketChannel(ws as unknown as WebSocket, { closeTimeoutMs: 1 });
+	await channel.close().catch(() => {});
+	ws.finishClose(false, 1006, "late connection loss");
+	const failures = takeRuntimeFailures();
+	assertEquals(failures.length, 1);
+	assertEquals(failures[0].operation, "websocket.close.late-settlement");
+	assertIncludes(failures[0].primaryMessage, "late connection loss");
 });
 
 Deno.test("webSocketChannel serializes concurrent writers behind backpressure", async () => {
@@ -189,11 +298,15 @@ Deno.test("webSocketChannel bounds the retained concurrent write backlog", async
 Deno.test("webSocketChannel splits one oversized write into bounded transport chunks", async () => {
 	const ws = new FakeWebSocket();
 	const channel = webSocketChannel(ws as unknown as WebSocket);
+	const payload = new Uint8Array((1 << 20) + 7);
 
-	await channel.write(new Uint8Array((1 << 20) + 7));
+	await channel.write(payload);
 	assertEquals(ws.sendCount, 2);
 	assertEquals(ws.sentLengths[0], 1 << 20);
 	assertEquals(ws.sentLengths[1], 7);
+	assertEquals(ws.sent[0].buffer, payload.buffer);
+	assertEquals(ws.sent[1].buffer, payload.buffer);
+	assertEquals(ws.sent[1].byteOffset, 1 << 20);
 });
 
 Deno.test("webSocketChannel observes an open transition during listener installation", async () => {
@@ -257,6 +370,62 @@ Deno.test("openWebSocketChannel rejects when the socket closes before open", asy
 			return;
 		}
 		throw new Error("expected pre-open close to reject");
+	} finally {
+		(globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = realWebSocket;
+	}
+});
+
+Deno.test("openWebSocketChannel cancellation joins close and detaches callbacks", async () => {
+	const sockets: FakeWebSocket[] = [];
+	class PendingWebSocket extends FakeWebSocket {
+		constructor(_url: string) {
+			super();
+			this.readyState = WebSocket.CONNECTING;
+			this.autoClose = false;
+			sockets.push(this);
+		}
+	}
+	try {
+		(globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket =
+			PendingWebSocket as unknown as typeof WebSocket;
+		const controller = new AbortController();
+		const opened = openWebSocketChannel("ws://example.invalid", { closeTimeoutMs: 100 }, controller.signal);
+		controller.abort();
+		assertEquals(sockets[0].closeCalls, 1);
+		let settled = false;
+		void opened.catch(() => settled = true);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assertEquals(settled, false);
+		sockets[0].finishClose(true);
+		await opened.catch((error) => assertIncludes(String(error), "host released while dialing"));
+		assertEquals(sockets[0].onopen, null);
+		assertEquals(sockets[0].onclose, null);
+		assertEquals(sockets[0].onerror, null);
+	} finally {
+		(globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = realWebSocket;
+	}
+});
+
+Deno.test("openWebSocketChannel attaches a synchronous cancel refusal", async () => {
+	const refusal = new Error("pending WebSocket close refused");
+	class RefusingPendingWebSocket extends FakeWebSocket {
+		constructor(_url: string) {
+			super();
+			this.readyState = WebSocket.CONNECTING;
+		}
+		override close(): void {
+			throw refusal;
+		}
+	}
+	try {
+		(globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket =
+			RefusingPendingWebSocket as unknown as typeof WebSocket;
+		const controller = new AbortController();
+		const opened = openWebSocketChannel("ws://example.invalid", undefined, controller.signal);
+		controller.abort();
+		let observed: unknown;
+		await opened.catch((error) => observed = error);
+		assertEquals(secondaryFailures(observed)[0], refusal);
 	} finally {
 		(globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = realWebSocket;
 	}

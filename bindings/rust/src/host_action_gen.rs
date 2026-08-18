@@ -13,7 +13,7 @@
 use core::ffi::c_uint;
 
 use crate::sys::host as ffi;
-use crate::{arg_from_sys, Argument};
+use crate::{arg_from_sys, Argument, Error, Result};
 
 /// `PancakeHostAction.kind` — mirrors `PANCAKE_HOST_ACTION_*` in
 /// `pancake_host.h`.
@@ -58,15 +58,10 @@ pub enum HostAction {
 	},
 }
 
-/// Whether `kind` names a generated host action. Check this before
-/// decoding data received across the C boundary.
-pub fn is_known_kind(kind: c_uint) -> bool {
-    matches!(kind,HOST_ACTION_DIAL | HOST_ACTION_FLUSH | HOST_ACTION_NEED_GIFT_ID | HOST_ACTION_SETTLE | HOST_ACTION_FAIL | HOST_ACTION_CLOSE | HOST_ACTION_RESUME | HOST_ACTION_CANCEL_DIAL)
-}
-
 /// Decode a filled `PancakeHostAction` into an owned `HostAction`.
-/// The caller must first prove `is_known_kind(raw.kind)`.
-pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
+/// An unknown ABI discriminant is a returned internal failure, never a
+/// process panic.
+pub fn decode(raw: &ffi::PancakeHostAction) -> Result<HostAction> {
 	let view = |ptr: *const u8, len: usize| -> String {
 		if ptr.is_null() || len == 0 {
 			String::new()
@@ -76,7 +71,7 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 			String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) }).into_owned()
 		}
 	};
-	match raw.kind {
+	Ok(match raw.kind {
 		HOST_ACTION_DIAL => HostAction::Dial { ticket: raw.ticket },
 		HOST_ACTION_FLUSH => HostAction::Flush {
 			session: raw.session as usize,
@@ -84,7 +79,7 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 		HOST_ACTION_NEED_GIFT_ID => HostAction::NeedGiftId { ticket: raw.ticket },
 		HOST_ACTION_SETTLE => HostAction::Settle {
 			ticket: raw.ticket,
-			value: unsafe { arg_from_sys(&raw.value) },
+			value: unsafe { arg_from_sys(&raw.value) }?,
 		},
 		HOST_ACTION_FAIL => HostAction::Fail {
 			ticket: raw.ticket,
@@ -97,8 +92,11 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 		},
 		HOST_ACTION_RESUME => HostAction::Resume,
 		HOST_ACTION_CANCEL_DIAL => HostAction::CancelDial { ticket: raw.ticket },
-		kind => unreachable!("unknown host action kind {kind}"),
-	}
+		kind => return Err(Error::with_detail(
+			crate::sys::ERR_INTERNAL,
+			format!("pancake ABI returned unknown host action kind {kind}"),
+		)),
+	})
 }
 
 /// Exhaustive dispatch over `HostAction`. Handlers expose one async fn
@@ -108,25 +106,25 @@ where
     H: HostActionHandlers,
 {
     match action {
-        HostAction::Dial { .. } => handlers.dial(action).await,
-        HostAction::Flush { .. } => handlers.flush(action).await,
-        HostAction::NeedGiftId { .. } => handlers.need_gift_id(action).await,
-        HostAction::Settle { .. } => handlers.settle(action).await,
-        HostAction::Fail { .. } => handlers.fail(action).await,
-        HostAction::Close { .. } => handlers.close(action).await,
-        HostAction::Resume => handlers.resume(action).await,
-        HostAction::CancelDial { .. } => handlers.cancel_dial(action).await,
+        HostAction::Dial { ticket } => handlers.dial(ticket).await,
+        HostAction::Flush { session } => handlers.flush(session).await,
+        HostAction::NeedGiftId { ticket } => handlers.need_gift_id(ticket).await,
+        HostAction::Settle { ticket, value } => handlers.settle(ticket, value).await,
+        HostAction::Fail { ticket, result, message } => handlers.fail(ticket, result, message).await,
+        HostAction::Close { session, result } => handlers.close(session, result).await,
+        HostAction::Resume => handlers.resume().await,
+        HostAction::CancelDial { ticket } => handlers.cancel_dial(ticket).await,
     }
 }
 
 /// Per-arm I/O the binding supplies to [`dispatch`].
 pub trait HostActionHandlers {
-    fn dial(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn flush(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn need_gift_id(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn settle(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn fail(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn close(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn resume(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
-    fn cancel_dial(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn dial(&self, ticket: u64) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn flush(&self, session: usize) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn need_gift_id(&self, ticket: u64) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn settle(&self, ticket: u64, value: Argument) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn fail(&self, ticket: u64, result: i32, message: String) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn close(&self, session: usize, result: i32) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn resume(&self) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn cancel_dial(&self, ticket: u64) -> impl std::future::Future<Output = crate::Result<()>> + '_;
 }

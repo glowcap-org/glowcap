@@ -48,7 +48,7 @@ import threading
 import weakref
 from dataclasses import dataclass
 
-from ._codec import _codec_id
+from ._abi_value import _codec_id
 from . import _constants as _c
 from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE
 from ._constants import OK as _OK
@@ -130,15 +130,15 @@ def _bytes_of(value: str | bytes | None) -> bytes:
 
 
 def _release_conn(raw) -> None:
-    _onion_lib.pancake_onion_conn_release(raw)
+    _check_onion(_onion_lib.pancake_onion_conn_release(raw, None, 0, None))
 
 
 def _release_listener(raw) -> None:
-    _check_onion(_onion_lib.pancake_onion_listener_release(raw))
+    _check_onion(_onion_lib.pancake_onion_listener_release(raw, None, 0, None))
 
 
 def _release_netlayer(raw) -> None:
-    _check_onion(_onion_lib.pancake_onion_netlayer_release(raw))
+    _check_onion(_onion_lib.pancake_onion_netlayer_release(raw, None, 0, None))
 
 
 def _shutdown_conn(raw) -> None:
@@ -195,7 +195,9 @@ class OnionConnection(_NativeHandleOwner):
         with self._reads, self._native.lease() as raw:
             frame = _ManagedFrame()
             _check_onion(
-                _onion_lib.pancake_onion_conn_read_frame(raw, ctypes.byref(frame))
+                _onion_lib.pancake_onion_conn_read_frame(
+                    raw, ctypes.byref(frame), None, 0, None
+                )
             )
             return _copy_managed_frame(frame)
 
@@ -204,7 +206,9 @@ class OnionConnection(_NativeHandleOwner):
         f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
         with self._writes, self._native.lease() as raw:
             _check_onion(
-                _onion_lib.pancake_onion_conn_write_frame(raw, ctypes.byref(f))
+                _onion_lib.pancake_onion_conn_write_frame(
+                    raw, ctypes.byref(f), None, 0, None
+                )
             )
 
 
@@ -270,7 +274,7 @@ class OnionListener(_NativeHandleOwner):
         with self._native.lease() as raw:
             _check_onion(
                 _onion_lib.pancake_onion_listener_wait(
-                    raw, timeout_ms, ctypes.byref(out)
+                    raw, timeout_ms, ctypes.byref(out), None, 0, None
                 )
             )
         return out.value != 0
@@ -286,7 +290,13 @@ class OnionListener(_NativeHandleOwner):
             out = ctypes.c_void_p()
             _check_onion(
                 _onion_lib.pancake_onion_accept(
-                    raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out)
+                    raw,
+                    _codec_id(codec),
+                    max_frame_bytes,
+                    ctypes.byref(out),
+                    None,
+                    0,
+                    None,
                 )
             )
             return OnionConnection(out, self._netlayer)
@@ -425,6 +435,9 @@ class OnionNetlayer(_NativeHandleOwner):
                     _SERVICE_KEY_CAP,
                     ctypes.byref(key_len),
                     ctypes.byref(out),
+                    None,
+                    0,
+                    None,
                 )
             )
             return OnionListener(
@@ -454,6 +467,9 @@ class OnionNetlayer(_NativeHandleOwner):
                     _codec_id(codec),
                     max_frame_bytes,
                     ctypes.byref(out),
+                    None,
+                    0,
+                    None,
                 )
             )
             return OnionConnection(out, self)
@@ -546,8 +562,8 @@ def provider(config: OnionConfig) -> Provider:
             loop._install_provider(
                 lambda register: register(netlayer._transport_provider())
             )
-        except BaseException:
-            _rollback_failed_provider(loop, netlayer.release)
+        except BaseException as primary:
+            _rollback_failed_provider(primary, netlayer.release)
             raise
         netlayer._relinquish_provider_reference()
 

@@ -100,6 +100,7 @@ fn pyParamType(comptime T: type, comptime specials: []const Special) []const u8 
 fn pyReturnType(comptime T: type) []const u8 {
     return switch (T) {
         i32 => "i32",
+        u64 => "u64",
         usize => "size",
         void => "None",
         else => @compileError("unmapped result type"),
@@ -269,9 +270,11 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cdr, "loop_sigs", &.{
-        "_DriverOptions",             "_CloseOptions",      "_DriverEvent", "_LocatorView", "_Reference",
+        "_DriverOptions",             "_DriverFailure",     "_CloseOptions", "_DriverEvent", "_LocatorView", "_Reference",
         "_TransportOperationOptions", "_TransportProvider",
-    }, "``libpancake_driver`` loop-family signatures, in the inventory's order.", &.{});
+    }, "``libpancake_driver`` loop-family signatures, in the inventory's order.", &.{
+        .{ .T = cdr.PancakeDriverFailure, .spelling = "_DriverFailure" },
+    });
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, ct, "tcp_sigs", &.{
         "_Frame", "_ManagedFrame", "_TcpConfig", "_TcpStreamOptions", "_TransportProvider",
@@ -285,6 +288,6 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try out.appendSlice(gpa, "\n\n");
     try renderArchive(gpa, &out, cw, "webrtc_sigs", &.{ "_WebrtcReadyEvent", "_WebrtcConfig", "_TransportProvider" }, "``libpancake_net_transport_webrtc`` signatures, in the inventory's order.", &.{});
     try out.appendSlice(gpa, "\n\n");
-    try renderArchive(gpa, &out, cr, "relay_sigs", &.{ "_RelayConfig", "_TransportProvider" }, "``libpancake_net_transport_relay`` signatures, in the inventory's order.", &.{});
+    try renderArchive(gpa, &out, cr, "relay_sigs", &.{ "_RelayConfig", "_RelayTrustSummary", "_TransportProvider" }, "``libpancake_net_transport_relay`` signatures, in the inventory's order.", &.{});
     return out.toOwnedSlice(gpa);
 }

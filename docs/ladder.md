@@ -7,7 +7,7 @@ more ways to reach a peer.
 | Milestone | Standing |
 | --- | --- |
 | 1. Protocol conformance | In progress. Live Goblins and upstream-suite checks cover the main conversation and handoff paths; several edge cases still lack outside-peer evidence. |
-| 2. Performance at scale | In progress. Memory and latency budgets run on every push; 500,000 live socket sessions have not been measured. |
+| 2. Performance at scale | In progress. Memory and latency budgets run on main-branch pushes and pull requests; 500,000 live socket sessions have not been measured. |
 | 3. Hosted applications | Met. Native and cross-language applications exercise the public API. |
 | 4. C ABI and bindings | Met. Four bindings consume the generated C ABI and talk to Goblins. |
 | 5. Transport reachability | In progress. The first-party provider seams and routed relay cold dial ship; Windows support and macOS runtime evidence remain. |
@@ -42,7 +42,9 @@ pancake's projection responders, and the Goblins-side netlayer probe observes
 pancake fulfilling both projected answers with the expected payloads. Live
 Goblins-over-iroh covers sessions both ways (`goblins-iroh`) and one
 exporter-role rooms handoff (`goblins-rooms-dm-iroh`); the other two handoff
-roles stay TCP-only. Null and live `op:untag` also wait on upstream support.
+roles stay TCP-only. Null and outside-peer `op:untag` evidence also wait on
+upstream support; Pancake's complete 1.0 operation and negotiation paths are
+covered in-tree.
 [Community review](community-review.md) has the exact matrix.
 
 ## 2. Performance at scale
@@ -58,7 +60,7 @@ explicitly:
 | `engine.Peer` inline state | at most 1136 bytes |
 | Warm protocol state | at most 2 KiB |
 | Completion-loop slot beyond its embedded peer | exactly 128 bytes |
-| Completion-backed keyed-relay adapter state | exactly 264 bytes per relay leg |
+| Completion-backed keyed-relay adapter state | exactly 248 bytes per relay leg |
 | Sealing completion-adapter state (`noise-relay`) | exactly 936 bytes per sealed leg, on top of the leg it wraps |
 | Host session shell | at most 528 bytes |
 | Host session locator identity | one owned transport/designator block per session |

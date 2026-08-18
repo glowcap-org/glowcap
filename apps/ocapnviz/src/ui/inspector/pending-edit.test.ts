@@ -14,7 +14,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { pendingEdit } from "./shared.tsx";
+import { pendingEdit } from "./edit-bracket.ts";
 
 /** Records what the field would have been asked to hand up. */
 function recorder() {

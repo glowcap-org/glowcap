@@ -11,8 +11,10 @@ import {
 	formatPeerUri,
 	HINT_DIRECT_ADDRESSES,
 	Host,
+	listenerLoopUnavailable,
 	loopTierAvailable,
 	PancakeError,
+	prepareListenerLoop,
 	retainCleanupFailures,
 	stringHint,
 	TRANSPORT_KEYED_TCP,
@@ -48,39 +50,6 @@ export type KeyedListenOptions =
 		readonly host: Host;
 		readonly seed?: never;
 	});
-
-function loopUnavailable(): PancakeError {
-	return new PancakeError(
-		INVALID_ARGUMENT,
-		"native driver listeners require a runtime that can park the loop",
-	);
-}
-
-function prepareLoop(
-	host: Host | undefined,
-	seed: Uint8Array | undefined,
-	codec: Codec | undefined,
-): { loop: DriverLoop; ownsLoop: boolean } {
-	if (host != null) {
-		if (codec != null && codec !== host.codec) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				`codec "${codec}" conflicts with the host's "${host.codec}"; mint the host with it instead`,
-			);
-		}
-		if (seed != null) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"seed and host are alternative identity sources",
-			);
-		}
-		return {
-			loop: host.driverLoop != null ? host.driverLoop as DriverLoop : DriverLoop.takeHost(host),
-			ownsLoop: false,
-		};
-	}
-	return { loop: DriverLoop.open({ seed, codec }), ownsLoop: true };
-}
 
 /** A native-driver listener. Its Host is the driver's Host wrapper, which is
  * either minted by the loop or the exact supplied wrapper transferred through
@@ -170,10 +139,10 @@ async function listenProfile(
 		throw new PancakeError(INVALID_ARGUMENT, `${transport} listen: seed must be 32 bytes`);
 	}
 	await ensureRuntimeReady();
-	if (!loopTierAvailable()) throw loopUnavailable();
+	if (!loopTierAvailable()) throw listenerLoopUnavailable();
 	let prepared: { loop: DriverLoop; ownsLoop: boolean } | null = null;
 	try {
-		prepared = prepareLoop(options.host, seed, options.codec);
+		prepared = prepareListenerLoop(options.host, seed, options.codec);
 		const loop = prepared.loop;
 		const listener = await bindTcpProfileListener(loop, transport, bindHost, port, options);
 		return new Server({

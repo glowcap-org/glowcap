@@ -144,7 +144,7 @@ export type SelectionAction =
   // Drop whatever the document no longer holds. Undo and redo move
   // ids under the selection — a rename taken back leaves it pointing
   // at a name nothing answers to — and this is how it catches up.
-  // `undoWithSelection` / `redoWithSelection` in `builder/helpers.ts`
+  // `undoWithSelection` / `redoWithSelection` in `builder/selection-history.ts`
   // are what dispatch it, and the top bar and the Cmd-Z binding both
   // take history back through them.
   | { kind: "reconcile-with-doc"; doc: SelectionDocSnapshot }

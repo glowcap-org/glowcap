@@ -28,10 +28,12 @@ of `zig build check`, skipping itself on a machine without deno. The step
 and needs deno outright. None of them reach `scripts/`, so the Playwright probes
 there are proved only by being run.
 
-The dev server defaults to <http://127.0.0.1:5173>. Hit **Play** and watch Alice
-introduce Bob to Carol. The new Bob-to-Carol session lands on `syrup/v1_0`
-because Bob is Goblins-flavored, so codec and CapTP version negotiate per
-session.
+The dev server defaults to <http://127.0.0.1:5173> and answers only localhost
+Host headers, so a laptop run is not a LAN service. The devcontainer binds
+`0.0.0.0` and answers any Host header, so the published port works as localhost
+or as the machine's own hostname. Hit **Play** and watch Alice introduce Bob to
+Carol. The new Bob-to-Carol session lands on `syrup/v1_0` because Bob is
+Goblins-flavored, so codec and CapTP version negotiate per session.
 
 `dev.sh` supervises vite so that Ctrl-C and closing the terminal stop the dev
 server. A bare `deno run -A npm:vite` can outlive its terminal through deno's
@@ -42,11 +44,14 @@ npm-compat layer and keep holding the port. A vite process showing `PPID 1` in
 
 Switch the top-bar mode to **Live** and give the left pane the trace sturdyref
 printed as `ROOMS-VIZ-LISTENING`. The rooms server publishes one when started
-with `ROOMS_VIZ_PORT=9300` (see
+with `--viz` (see
 [rooms developing](../rooms/developing.md)). ocapnviz lazily loads its wasm
-Host, enlivens that read capability, and grants the endpoint an inbox. Other
-peers publish their own traces to the convergence endpoint, so sessions the
-room server never carries still appear.
+Host, enlivens that read capability, and grants the endpoint an inbox. The
+endpoint admits no socket without its capability; the sturdyref's swissnum is
+that capability and the viewer presents it on the socket itself, so the pasted
+announcement is still the whole setup. Other
+peers publish their own traces to the convergence endpoint — presenting the
+same capability — so sessions the room server never carries still appear.
 
 Live connects as soon as you enter it, and the dot under the sturdyref turns
 green when the CapTP session is open. Being connected is not recording. Press **Record** to
@@ -66,16 +71,15 @@ pulls each peer toward its region centroid. The recognized prefixes are `us` or
 ## Architecture
 
 ```text
-TimelineDocument                ← events at simulated-clock timestamps
-            ↓ Engine ingests
-Clock                           ← simulated time, play/pause/speed
-            ↓ tick(wallDt) → simDt
-World (miniplex ECS)            ← entities + components
+TimelineDocument                ← entities, observations, authored events
+            ↓ Engine (public door: tick, dispatch, seek)
+Playback                        ← drain intents, advance Clock, seek
+            ↓ materializeWorldAt(t)
+World (miniplex ECS)            ← entities whose effective range contains t
             ↓ Systems (fixed order each tick)
-   TimelineSystem               (events → world mutations)
-   KeyframeLayoutSystem         (lerp peer positions between keyframes)
-   MessageFlightSystem          (eased interpolation along edges)
-            ↓ RenderSystem
+   KeyframeLayoutSystem         (node positions as a function of t)
+   MessageFlightSystem          (eased interpolation along session edges)
+            ↓ Stage / render-frame
 PixiJS scene graph              ← derived from world each frame
             ↓ WebGL
 Canvas
@@ -101,7 +105,8 @@ its hit area.
 The shared UI idioms, and the one authority for each, live in
 [`docs/design-principles.md`](docs/design-principles.md). The gesture pipeline
 has its own specification in
-[`docs/interaction-model.md`](docs/interaction-model.md).
+[`docs/interaction-model.md`](docs/interaction-model.md); the cursor rule is
+[`docs/cursor.md`](docs/cursor.md).
 
 ## Troubleshooting
 

@@ -81,7 +81,7 @@ the section below.
 ## Consequences
 
 New `src/actors/{mod,vat}.zig`, exported from `src/root.zig`; a new arch rule
-and core-layer entry in `tools/check/arch_check.zig`. `test/actors/vat_test.zig`
+and core-layer entry in `tools/check/arch_check.zig`. `test/actors/vat/`
 proves near-call dispatch + become, eventual-send promise resolution +
 listeners, broken resolution on handler error, and intra-turn spawn/call. No
 engine, codec, or session code changed: the layer is purely additive.

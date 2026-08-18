@@ -7,20 +7,16 @@
 //! Topology (all TCP loopback):
 //!   Bob    (Goblins exporter)  hosts a greeter behind a swiss; long-lived.
 //!   Gifter (pancake)           lifts Bob's greeter from a vendor reply, then
-//!                              publishes an "introducer"
-//!                              that returns it, and listens for the recipient.
+//!                              returns it twice in one nested Passable value.
 //!   Carol  (Goblins recipient) dials the pancake introducer, asks for the
-//!                              greeter, transparently redeems pancake's give, and
-//!                              calls the greeter directly on Bob.
+//!                              greeters, transparently redeems both gives, and
+//!                              calls both directly on Bob.
 //!
-//! pancake is the gifter: when Carol asks for the greeter, returning Bob's
-//! greeter (whose home is the gifter↔Bob connection) on Carol's connection trips
-//! the transparent gifter — it deposits the greeter back with Bob over its own
-//! Bob connection and resolves Carol's send with a signed give. One node identity
-//! (`gifter.host()`) serves both the recipient and the exporter connection, so
-//! the give's signature matches the deposit. Goblins Bob must accept the deposit;
-//! Goblins Carol must redeem the give and reach Bob directly. The proof is
-//! Carol's `GIFT OK` line carrying the greeter's reply with the name she sent.
+//! pancake is the gifter: returning two occurrences of Bob's greeter (whose home
+//! is the gifter↔Bob connection) on Carol's connection deposits both with Bob and
+//! resolves Carol's send with two signed gives. One node identity (`gifter.host()`)
+//! serves both sides, so both signatures match their deposits. Carol's
+//! `GIFT NESTED OK` line proves Goblins redeemed both and reached Bob directly.
 //!
 //! Needs `racket` plus the `goblins` collection on PATH; run via
 //! `zig build rust-goblins-gift`.
@@ -129,6 +125,12 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
 		while let Ok(session) = server.accept().await {
+			let serving = session.serve();
+			tokio::task::spawn_local(async move {
+				if let Err(error) = serving.await {
+					eprintln!("rust-goblins-gift: accepted session serve failed: {error}");
+				}
+			});
 			held.push(session);
 		}
 	});
@@ -146,9 +148,8 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	let greeter = Ref::try_from(&offered).map_err(|_| format!("vendor did not return a capability: {offered:?}"))?;
 	println!("rust-goblins-gift: lifted goblins-bob's greeter from a reply");
 
-	// Publish the introducer Host-wide. Returning Bob's greeter (home = the Bob
-	// session) to the recipient's session trips the transparent gifter,
-	// which deposits with Bob and resolves the recipient with a signed give. The
+	// Publish two recursively placed occurrences. This forces the binding's
+	// complete Argument lowering and the core's one-message/two-give transaction. The
 	// giftable is a factory because an actor behavior is a `!Clone` `FnMut`: each
 	// session it is published on gets a freshly minted behavior with the same
 	// logic, all returning the one greeter.
@@ -156,7 +157,10 @@ async fn gift(port: u16) -> Result<(), Fail> {
 		let greeter = greeter.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {
 			if verb == "get-greeter" {
-				Ok(Argument::from(&greeter))
+				Ok(Argument::List(vec![
+					Argument::from(&greeter),
+					Argument::List(vec![Argument::from(&greeter)]),
+				]))
 			} else {
 				Err(format!("introducer: no such verb {verb:?}"))
 			}
@@ -165,13 +169,14 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	println!("rust-goblins-gift: pancake publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}");
 
 	// Spawn Carol (the Goblins recipient): she dials pancake's introducer, asks
-	// for the greeter, redeems pancake's give, and calls Bob directly.
+	// for both greeters, redeems both gives, and calls Bob directly.
 	let mut carol = Command::new(RACKET)
 		.args([
 			RECIPIENT_SCRIPT,
 			&tcp::address_designator(HOST, gifter_port),
 			INTRODUCER_SWISS,
 			&(port + 1).to_string(),
+			"nested",
 		])
 		.stdout(std::process::Stdio::piped())
 		.stderr(std::process::Stdio::piped())
@@ -197,13 +202,15 @@ async fn gift(port: u16) -> Result<(), Fail> {
 		)
 		.into());
 	}
-	if !reply.starts_with("GIFT OK:") || !reply.contains("goblins-carol") {
+	if !reply.starts_with("GIFT NESTED OK:")
+		|| !reply.contains("goblins-carol-one")
+		|| !reply.contains("goblins-carol-two")
+	{
 		return Err(format!("recipient did not confirm the greeter reply with its name: {reply:?}").into());
 	}
 
 	println!(
-		"rust-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, \
-         reaching the exporter directly"
+		"rust-goblins-gift OK: two nested binding values became distinct gives that live Goblins redeemed and called directly"
 	);
 	to_bob.close(pancake_rust_dogfood::PendingWork::Cancel).await?;
 	Ok(())

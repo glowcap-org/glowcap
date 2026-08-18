@@ -22,6 +22,7 @@
 //! encode-side V1.0 hooks live separately in `engine/v1_0.zig`; this is only the
 //! session bookkeeping they drive.
 
+const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
 
@@ -58,18 +59,7 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
 /// All-or-none: a failure on either map put rolls back everything already
 /// committed — the import retain and the forward entry — so no half-installed
 /// resolver row survives.
-pub fn installInboundResolver(self: *Session, answer: model.AnswerPosition, resolver_import: model.ImportPosition) !void {
-    // The position comes off the wire, and this path installs the import row
-    // itself rather than looking one up, so the ordinary reference checks never
-    // see it. The token band is the node's, reserved for the ids it hands the
-    // application for redeemed capabilities and documented as disjoint from any
-    // partner's import. Refuse it here, or a partner's `resolve_me_desc` can
-    // name an id into that band and break the one property it exists to
-    // provide.
-    switch (model.ImportName.classify(resolver_import.int())) {
-        .token => return session.Error.InvalidReference,
-        .wire => {},
-    }
+pub fn installInboundResolver(self: *Session, answer: model.AnswerName, resolver_import: model.ImportPosition) !void {
     try self.registerImport(resolver_import);
     // The `BiMap` put is all-or-none across both directions, so a failure needs
     // only the import retain rolled back (the one piece the map cannot own). The
@@ -83,30 +73,23 @@ pub fn installInboundResolver(self: *Session, answer: model.AnswerPosition, reso
 
 /// The partner's resolver import for an inbound `answer`, if one was
 /// advertised, the target our outbound resolution deliver addresses.
-pub fn resolverForInboundAnswer(self: *const Session, answer: model.AnswerPosition) ?model.ImportPosition {
+pub fn resolverForInboundAnswer(self: *const Session, answer: model.AnswerName) ?model.ImportPosition {
     return self.v1_0_inbound_resolver_link.getByKey(answer);
 }
 
 /// The inbound `answer` a resolver import was installed for, the reverse
 /// of `resolverForInboundAnswer`. Used by bootstrap-fetch detection when the
 /// V1.0 resolver-only pattern has no wire answer-position.
-pub fn answerForResolverImport(self: *const Session, resolver_import: model.ImportPosition) ?model.AnswerPosition {
+pub fn answerForResolverImport(self: *const Session, resolver_import: model.ImportPosition) ?model.AnswerName {
     return self.v1_0_inbound_resolver_link.getByValue(resolver_import);
 }
 
-/// Allocate a fresh virtual inbound answer for V1.0 resolver-only fetches,
-/// from the partner-refused band above `VIRTUAL_INBOUND_ANSWER_BASE`. The
-/// caller seats it in the inbound-answer table through
-/// `VirtualAnswer.answerPosition`, the one named crossing back into the wire
-/// space.
-pub fn allocateInboundAnswer(self: *Session) model.VirtualAnswer {
+/// Allocate a fresh virtual inbound answer for V1.0 resolver-only fetches. Its
+/// type is the namespace boundary: the counter can overlap every wire answer
+/// integer without aliasing one.
+pub fn allocateInboundAnswer(self: *Session) session.Error!model.VirtualAnswer {
     const id = self.next_virtual_inbound_answer;
-    // A plain `+=`, not a wrapping `+%=`: this counter must never wrap. Wrapping
-    // past `maxInt(u64)` would re-enter the partner-named range below
-    // `VIRTUAL_INBOUND_ANSWER_BASE` and alias a real inbound answer — the exact
-    // collision the range reservation exists to prevent. A Debug/ReleaseSafe
-    // overflow trap is the correct fail-loud verdict for an invariant that
-    // cannot be reached in practice (2^63 virtual fetches on one session).
-    self.next_virtual_inbound_answer += 1;
-    return @enumFromInt(id);
+    if (id == 0) return error.VirtualAnswerSpaceExhausted;
+    self.next_virtual_inbound_answer = if (id == std.math.maxInt(u64)) 0 else id + 1;
+    return .from(id);
 }

@@ -1,7 +1,7 @@
 /**
  * The one channel between the stage camera and the controls that drive it.
  *
- * The camera itself lives inside `Stage.tsx`, in a pixi-viewport the React tree
+ * The camera itself lives inside `use-stage-scene.ts`, in a pixi-viewport the React tree
  * does not own. Two things have to cross that boundary and they run in opposite
  * directions, which is why they are here together rather than as props: the
  * controls send commands down, and the readout reads the scale back up.
@@ -108,6 +108,13 @@ const INITIAL: StageCameraReadout = {
   settled: DEFAULT_STAGE_VIEW,
 };
 
+/** How long the camera must sit still before a look-around is a rest.
+ *
+ *  A quarter second is past the end of a scroll's inertia and under the time
+ *  it takes to look. Tests that wait for a settle read this rather than
+ *  restating it. */
+export const VIEW_SETTLE_MS = 250;
+
 /**
  * A live camera and the readout of it. One instance per app; `stageCamera` below
  * is it. Exported as a class so a test can drive one without touching the
@@ -129,6 +136,12 @@ export class StageCamera {
    *  arrives with no camera attached is dropped: the stage is mid-teardown or
    *  has not built its viewport yet, and there is nothing to move. */
   #port: StageCameraPort | null = null;
+  /** The wait for the camera to stop moving, and the view that wait is for.
+   *  Restarted on every moved frame so a stream of pans collapses into one
+   *  report after the last of them. Cleared when the viewport detaches, so a
+   *  stage rebuilt around a replaced buffer does not inherit the previous
+   *  wait. */
+  #pendingSettle: { timer: number; view: StageView } | null = null;
 
   /** Subscribe to readout changes. `useSyncExternalStore`-shaped. */
   subscribe = (onChange: () => void): () => void => {
@@ -184,8 +197,8 @@ export class StageCamera {
   /**
    * Say where the camera came to rest.
    *
-   * Called once per gesture, after the stage has waited for the camera to stop
-   * (`Stage.tsx`'s settle). Unconditional where `publishZoom` compares first,
+   * Called once per rest, after {@link noteViewWhenSettled} has waited for
+   * the camera to stop. Unconditional where `publishZoom` compares first,
    * because the caller has already established that the view moved — and the
    * comparison it would make is the one thing this snapshot exists to let somebody
    * else make.
@@ -197,12 +210,61 @@ export class StageCamera {
     for (const listener of this.#listeners) listener();
   }
 
+  /**
+   * Say where the camera came to rest, once it has stopped moving.
+   *
+   * Each call restarts the wait, so a stream of frames collapses into one
+   * report after the last of them. Nothing is lost if the reader keeps moving:
+   * the view reported is always the latest one seen.
+   *
+   * It reports rather than writes. Looking around is reading, so it changes
+   * no document and records no history — what it does is let the document
+   * panel offer: the Opens-at row's button compares this against what the
+   * document stores and lights up when they differ. The settle is what makes
+   * that cheap enough to publish at all, since it turns sixty frames of a
+   * pan into one wake.
+   *
+   * Three numbers rather than the view they describe, because this is called
+   * on every frame and the common answer is "nothing moved". Building the
+   * view to compare it would allocate one object and one center per frame of
+   * a still stage, to throw both away.
+   *
+   * A still camera republishes the same numbers every frame; restarting the
+   * timer for those would mean the write never lands.
+   */
+  noteViewWhenSettled(zoom: number, centerX: number, centerY: number): void {
+    const pending = this.#pendingSettle;
+    if (
+      pending && pending.view.zoom === zoom &&
+      pending.view.center.x === centerX &&
+      pending.view.center.y === centerY
+    ) {
+      return;
+    }
+    if (pending) clearTimeout(pending.timer);
+    const view = { zoom, center: { x: centerX, y: centerY } };
+    const timer = setTimeout(() => {
+      this.#pendingSettle = null;
+      this.publishSettledView(view);
+    }, VIEW_SETTLE_MS);
+    this.#pendingSettle = { timer, view };
+  }
+
+  #clearSettle(): void {
+    if (!this.#pendingSettle) return;
+    clearTimeout(this.#pendingSettle.timer);
+    this.#pendingSettle = null;
+  }
+
   /** Attach the camera. Returns the detach, so the owner's cleanup is one call
    *  and a late detach cannot unhook a camera that replaced this one. */
   attach(port: StageCameraPort): () => void {
+    this.#clearSettle();
     this.#port = port;
     return () => {
-      if (this.#port === port) this.#port = null;
+      if (this.#port !== port) return;
+      this.#port = null;
+      this.#clearSettle();
     };
   }
 

@@ -60,6 +60,38 @@ The container is named `pancake-rooms` and listens on port 8000 inside the
 proxy network. It serves the browser page, its `/relay` WebSocket, and
 `GET /locator`.
 
+`docker compose ps` shows whether it is *serving*, which is not the same as
+running: the health probe asks `/locator`, and that answers only once the page
+is being served and the room server it supervises has announced itself. A
+container stuck at `starting` or turning `unhealthy` is telling you the room
+server is not coming up, and `docker compose logs rooms` says why.
+
+The most likely why, after pulling new work, is that the prebuilt shared
+libraries under `zig-out/lib` are older than the source mounted beside them.
+They are mounted rather than baked in, so nothing rebuilds them for you and
+nothing checks the pair. The server says so when it can — a status no version
+defines is reported as exactly this — and the repair is to run
+`zig build rooms-deploy-prep` again in the devcontainer and restart the
+service.
+
+## Operations capabilities
+
+The deployed app can mint the same operator capabilities a local start can.
+Uncomment `PANCAKE_ROOMS_DIAGNOSTICS: "1"` in `docker-compose.yml` for the
+inspect capability, and `PANCAKE_ROOMS_ADMIN_LISTENERS: "1"` for listener
+administration; each is the same as starting with `--diagnostics` or
+`--admin-listeners`. Uncommenting `PANCAKE_ROOMS_VIZ: "1"` is the same as
+starting with `--viz`: it serves the live timeline endpoint (port 9300 unless
+`PANCAKE_ROOMS_VIZ_PORT` says otherwise) and mints the viz capability it
+requires of every socket, so
+reaching the port neither reads the timeline nor writes traces into it. The
+server prints each swiss number into the container
+logs (`docker compose logs rooms`), and the `rooms-state` volume keeps the
+names stable across restarts. Whoever can read those logs holds the
+capabilities, which is the whole of the access control: paste a swiss number
+when flipping its toggle on in the page's Settings → Advanced, or fetch a
+directory-session capability from any client.
+
 ## Put it behind a tunnel
 
 The page and WebSocket share one origin, so one Cloudflare ingress rule is
@@ -160,13 +192,13 @@ The service joins two external Docker networks:
 - `rooms-net` connects the deployment to the pancake devcontainer.
 - `EGRESS_NET` connects it to the reverse proxy.
 
-The deployment defaults to `ROOMS_REACHABILITY=discovery`. The room announces
+The deployment defaults to `PANCAKE_ROOMS_REACHABILITY=discovery`. The room announces
 only its iroh node id; peers resolve it through n0 relay and DNS/pkarr
 infrastructure.
 
-For a self-contained same-host setup, set `ROOMS_REACHABILITY=direct`. To run a
-TCP room instead, remove `--transport=iroh` and configure `ROOMS_BIND` and
-`ROOMS_ANNOUNCE_HOST`; TCP does not use iroh discovery.
+For a self-contained same-host setup, set `PANCAKE_ROOMS_REACHABILITY=direct`. To run a
+TCP room instead, remove `--transport=iroh` and configure `PANCAKE_ROOMS_BIND` and
+`PANCAKE_ROOMS_ANNOUNCE_HOST`; TCP does not use iroh discovery.
 
 The devcontainer and this deployment each have an `EGRESS_NET`, but they
 usually name different networks. Their shared network is always `rooms-net`.

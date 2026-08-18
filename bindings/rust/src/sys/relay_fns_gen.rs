@@ -14,20 +14,30 @@ use core::ffi::{c_int, c_uchar};
 
 use super::driver::PancakeTransportProvider;
 use super::ocapn::PancakeContext;
-use super::relay::{PancakeRelayConfig, PancakeRelayRuntime};
+use super::relay::{PancakeRelayConfig, PancakeRelayRuntime, PancakeRelayTrustSummary};
 
 extern "C" {
+	pub fn pancake_relay_archive_fingerprint() -> u64;
 	pub fn pancake_relay_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_relay_clear_last_error();
 	pub fn pancake_relay_runtime_new(
 		config: *const PancakeRelayConfig,
 		out_runtime: *mut *mut PancakeRelayRuntime,
 	) -> c_int;
+	pub fn pancake_relay_runtime_trust_summary(
+		runtime: *mut PancakeRelayRuntime,
+		out_summary: *mut PancakeRelayTrustSummary,
+	) -> c_int;
 	pub fn pancake_relay_transport_provider(
 		runtime: *mut PancakeRelayRuntime,
 		out_provider: *mut PancakeTransportProvider,
 	) -> c_int;
-	pub fn pancake_relay_runtime_release(runtime: *mut PancakeRelayRuntime) -> c_int;
+	pub fn pancake_relay_runtime_release(
+		runtime: *mut PancakeRelayRuntime,
+		out_error: *mut c_uchar,
+		error_cap: usize,
+		out_error_len: *mut usize,
+	) -> c_int;
 	pub fn pancake_relay_runtime_new_in(
 		context: *mut PancakeContext,
 		config: *const PancakeRelayConfig,

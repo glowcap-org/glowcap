@@ -29,7 +29,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
-import { attachedEndpoint, sessionEndpoint } from "../../schema/topology.ts";
+import { attachedEndpoint, sessionEndpoint } from "../../schema/session-end.ts";
 import type { TimelineDocument, TimelineEvent } from "../timeline.ts";
 import { projectFromObservations } from "./project-from-observations.ts";
 import { messageEffective, sessionEffective, sessionEndpointAt, sessionEndpointPlaceAt } from "./doc-resolver.ts";

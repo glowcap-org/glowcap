@@ -205,7 +205,9 @@ const GiveCapture = struct {
 test "a resolve carrying a handoff give fires the listener typed: verbatim envelope, dialable locator, recipient key" {
     const crypto = pancake.foundation.crypto;
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
+    const recipient_seed = [_]u8{9} ** crypto.SEED_BYTES;
+    const partner_seed = [_]u8{10} ** crypto.SEED_BYTES;
+    var pair = try engine.pairing.pairedWithKeys(allocator, recipient_seed, partner_seed);
     defer pair.deinit();
 
     // The client vat asks a far object a question; the partner will answer it
@@ -232,7 +234,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     // A genuine signed give whose exporter location is a verbatim locator
     // record, exactly what a gifter node would have minted.
     const gifter_secret = crypto.SecretKey.fromSeed([_]u8{7} ** crypto.SEED_BYTES);
-    const recipient_key = crypto.SecretKey.fromSeed([_]u8{9} ** crypto.SEED_BYTES).publicKey().asBytes();
+    const recipient_key = crypto.SecretKey.fromSeed(recipient_seed).publicKey().asBytes();
     const exporter_key = crypto.SecretKey.fromSeed([_]u8{8} ** crypto.SEED_BYTES).publicKey().asBytes();
     const location = try engine.encodePeerLocatorRecord(allocator, .{
         .transport = "tcp",
@@ -255,7 +257,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     );
     defer allocator.free(give);
 
-    try pair.p2.sendResolveHandoffGive(answer, give);
+    try pair.p2.sendResolveHandoffGive(.fromWire(answer), give);
     try shuttle(&pair.p2, &pair.p1);
     {
         var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
@@ -277,15 +279,13 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
 /// 100, recording what it saw; smaller replies pass through untouched.
 const ClaimBigReplies = struct {
     claimed: usize = 0,
-    seen_answer: u64 = 0,
 
-    fn fire(ctx: ?*anyopaque, answer: model.AnswerPosition, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
+    fn fire(ctx: ?*anyopaque, _: model.AnswerName, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
         const self: *ClaimBigReplies = @ptrCast(@alignCast(ctx.?));
         // `.claimed` claims the reply (the interceptor owns resolving it);
         // `.resolve` passes the value through for the vat to resolve as-is.
         if (fulfilled != .integer or fulfilled.integer <= 100) return .{ .resolve = fulfilled };
         self.claimed += 1;
-        self.seen_answer = answer.int();
         return .claimed;
     }
 };

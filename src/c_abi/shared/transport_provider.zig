@@ -12,6 +12,7 @@
 //! for an attempt that was never passed to finish.
 
 const model = @import("model");
+const foundation = @import("foundation");
 const locator = @import("locator.zig");
 
 pub const PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION: u32 = 1;
@@ -27,6 +28,25 @@ pub const PANCAKE_DESIGNATOR_SCHEME_KEY: u32 = 1;
 
 pub const PANCAKE_SEALED_CHANNEL_NONE: u32 = 0;
 pub const PANCAKE_SEALED_CHANNEL_NOISE_XK: u32 = 1;
+
+/// Optional carrier acquisition or byte-lifecycle phase on a structured
+/// provider failure. Zero means that this provider cannot name a carrier
+/// phase; progress states such as would-block never use this field.
+pub const PANCAKE_CARRIER_PHASE_NONE: u32 = 0;
+pub const PANCAKE_CARRIER_PHASE_RESOLVE: u32 = 1;
+pub const PANCAKE_CARRIER_PHASE_CONNECT: u32 = 2;
+pub const PANCAKE_CARRIER_PHASE_SECURE_HANDSHAKE: u32 = 3;
+pub const PANCAKE_CARRIER_PHASE_WEBSOCKET_UPGRADE: u32 = 4;
+pub const PANCAKE_CARRIER_PHASE_REGISTRATION: u32 = 5;
+pub const PANCAKE_CARRIER_PHASE_RECEIVE: u32 = 6;
+pub const PANCAKE_CARRIER_PHASE_TRANSMIT: u32 = 7;
+pub const PANCAKE_CARRIER_PHASE_SHUTDOWN: u32 = 8;
+pub const PANCAKE_CARRIER_DETAIL_PEER_ALERT: u32 = 1 << 0;
+pub const PANCAKE_CARRIER_DETAIL_ENGINE_CODE: u32 = 1 << 1;
+
+pub fn carrierPhaseValid(value: u32) bool {
+    return value <= PANCAKE_CARRIER_PHASE_SHUTDOWN;
+}
 
 /// Locator and channel semantics for one transport symbol. A provider entry
 /// points at one profile and one execution implementation, keeping semantic
@@ -60,6 +80,11 @@ pub const PancakeTransportOperationOptions = extern struct {
 /// the driver to retain them without allocating or copying on the wire path.
 pub const PancakeProviderFailure = extern struct {
     result: i32,
+    carrier_phase: u32,
+    carrier_detail_flags: u32,
+    carrier_verification_flags: u32,
+    carrier_peer_alert: u32,
+    carrier_engine_code: i32,
     primary_name: ?[*]const u8,
     primary_name_len: usize,
     secondary_result: i32,
@@ -71,6 +96,11 @@ pub const PancakeProviderFailure = extern struct {
 pub fn emptyProviderFailure() PancakeProviderFailure {
     return .{
         .result = 0,
+        .carrier_phase = PANCAKE_CARRIER_PHASE_NONE,
+        .carrier_detail_flags = 0,
+        .carrier_verification_flags = 0,
+        .carrier_peer_alert = 0,
+        .carrier_engine_code = 0,
         .primary_name = null,
         .primary_name_len = 0,
         .secondary_result = 0,
@@ -89,8 +119,47 @@ pub fn setProviderFailure(out: ?*PancakeProviderFailure, result: i32, cause: any
     slot.primary_name_len = name.len;
 }
 
+/// Project one neutral failure chain onto the fixed provider callback record.
+/// The callback's returned status remains the primary classification authority;
+/// `secondaryResult` supplies the transport family's stable classification for
+/// the first later consequence. Names come from the chain so a failure that
+/// crossed an earlier archive boundary is not flattened back to its Zig proxy
+/// error name.
+pub fn setProviderFailureChain(
+    out: ?*PancakeProviderFailure,
+    result: i32,
+    failure: foundation.FailureChain,
+    secondaryResult: anytype,
+) void {
+    const slot = out orelse return;
+    slot.* = emptyProviderFailure();
+    const primary_name = failure.primaryName();
+    slot.result = result;
+    slot.primary_name = primary_name.ptr;
+    slot.primary_name_len = primary_name.len;
+    const secondary = failure.secondary_cause orelse return;
+    const secondary_name = failure.secondaryName().?;
+    slot.secondary_result = secondaryResult(secondary);
+    slot.secondary_name = secondary_name.ptr;
+    slot.secondary_name_len = secondary_name.len;
+    slot.secondary_count = failure.secondary_count;
+}
+
+pub fn failProviderChain(
+    out: ?*PancakeProviderFailure,
+    result: i32,
+    failure: foundation.FailureChain,
+    secondaryResult: anytype,
+) i32 {
+    setProviderFailureChain(out, result, failure, secondaryResult);
+    return result;
+}
+
 pub fn providerFailureEmpty(report: PancakeProviderFailure) bool {
-    return report.result == 0 and report.primary_name == null and report.primary_name_len == 0 and
+    return report.result == 0 and report.carrier_phase == PANCAKE_CARRIER_PHASE_NONE and
+        report.carrier_detail_flags == 0 and report.carrier_verification_flags == 0 and
+        report.carrier_peer_alert == 0 and report.carrier_engine_code == 0 and
+        report.primary_name == null and report.primary_name_len == 0 and
         report.secondary_result == 0 and report.secondary_name == null and
         report.secondary_name_len == 0 and report.secondary_count == 0;
 }
@@ -199,6 +268,7 @@ pub const PancakeTransportListenerLocatorFn = *const fn (
     listener_ctx: ?*anyopaque,
     sink_ctx: ?*anyopaque,
     sink: locator.PancakeLocatorSinkFn,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 /// Validate and canonicalize a replacement locator for an active listener,
@@ -208,6 +278,7 @@ pub const PancakeTransportListenerAdvertiseFn = *const fn (
     locator_view: ?*const locator.PancakeLocatorView,
     sink_ctx: ?*anyopaque,
     sink: locator.PancakeLocatorSinkFn,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 /// Query or copy opaque provider-owned listener restoration state. Writes the
@@ -218,6 +289,7 @@ pub const PancakeTransportListenerRestorationStateFn = *const fn (
     out: ?[*]u8,
     cap: usize,
     out_len: ?*usize,
+    out_failure: ?*PancakeProviderFailure,
 ) callconv(.c) i32;
 
 pub const PancakeStreamAcceptFn = *const fn (

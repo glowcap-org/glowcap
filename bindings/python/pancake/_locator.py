@@ -17,7 +17,7 @@ from typing import NamedTuple, Optional, Union
 import ctypes
 
 from . import _constants as _abi
-from ._codec import _captp_version_id
+from ._abi_value import _captp_version_id
 from ._errors import _check, PancakeError
 from ._ffi_ocapn import _lib, _LocatorHintView, _LocatorView
 

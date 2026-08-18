@@ -110,13 +110,13 @@
   (cond
     [(= codec CODEC-CAPNP) "capnp"]
     [(= codec CODEC-SYRUP) "syrup"]
-    [else "unknown"]))
+    [else (error 'pancake "ABI returned unknown trace codec: ~a" codec)]))
 
 (define (captp-version<-abi version)
   (cond
     [(= version CAPTP-NEXT) "pancake-next"]
     [(= version CAPTP-V1-0) "1.0"]
-    [else "unknown"]))
+    [else (error 'pancake "ABI returned unknown trace CapTP version: ~a" version)]))
 
 (define (emit! row ev)
   (define s (unbox sink))
@@ -126,7 +126,7 @@
     (with-handlers ([(lambda (_) #t)
                      (lambda (error)
                        (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
-                         ((trace-host-report! row) error)))])
+                         ((trace-host-report! row) "trace.sink" error)))])
       (s ev))))
 
 (define (view->string ptr len)
@@ -135,6 +135,24 @@
       #f))
 
 (define (on-native-event ctx borrowed-event)
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (error)
+                     ;; Decoder failures are callerless binding failures. Keep
+                     ;; them behind the Host diagnostic owner and never unwind
+                     ;; through the native callback frame.
+                     (define cookie (if ctx (cast ctx _pointer _intptr) 0))
+                     (define row
+                       (with-registry
+                        (lambda ()
+                          (findf (lambda (candidate)
+                                   (= (trace-host-cookie candidate) cookie))
+                                 (unbox hosts)))))
+                     (when row
+                       (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
+                         ((trace-host-report! row) "trace.decode" error))))])
+    (on-native-event/checked ctx borrowed-event)))
+
+(define (on-native-event/checked ctx borrowed-event)
   (when (unbox sink)
     ;; Racket's FFI array-field view does not safely index an inline C array
     ;; through a callback's borrowed cstruct wrapper. Snapshot the fixed event
@@ -236,7 +254,8 @@
       [(= kind TRACE-SESSION-CLOSE)
        (when row
          (emit! row (hasheq 'v 1 'sim_t_ns (now-ns) 'kind "ocapn.session-closed"
-                            'session session-id)))])))
+                            'session session-id)))]
+      [else (error 'pancake "ABI returned unknown trace event kind: ~a" kind)])))
 
 ;; The SET half of the annotation channel: an application states which
 ;; partner a session carries, named for the same session row the tap names. A
@@ -296,7 +315,8 @@
 ;; Binding-internal: a host reports its owner, serialized installer, and own key
 ;; designator at mint so an installed trace covers it, and a trace installed
 ;; later finds it without retaining it.
-(define (trace-attach-host! owner install! [designator ""] [report! void])
+(define (trace-attach-host! owner install! [designator ""]
+                            [report! (lambda (_operation _error) (void))])
   (define row
     (with-registry
      (lambda ()

@@ -18,13 +18,21 @@
     }
   },
   "remoteUser": "vscode",
-  // Compose publishes the rooms ports from each worktree's ignored .env.
+  // Compose publishes the service ports from each worktree's ignored .env.
   // Do not also ask the editor to forward them: that creates a second host-port
   // allocator and makes two otherwise independent worktrees collide again.
   "containerEnv": {
     "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/bun/install",
     "CARGO_HOME": "/home/vscode/.cargo",
     "CARGO_TERM_COLOR": "always",
+    // Claude Code and the Cursor agent CLI each pick their state directory from
+    // an environment variable, so a bind alone does not share their login.
+    // Both are pointed at their host bind below. Claude Code otherwise keeps
+    // ~/.claude.json outside the bound directory, in the container's writable
+    // layer, and every new container starts unrecognized.
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "CURSOR_CONFIG_DIR": "/home/vscode/.cursor",
+    "CURSOR_DATA_DIR": "/home/vscode/.cursor",
     "DENO_DIR": "/home/vscode/.cache/deno",
     "npm_config_cache": "/home/vscode/.cache/npm",
     "PIP_CACHE_DIR": "/home/vscode/.cache/pip",
@@ -39,7 +47,20 @@
     "source=pancake-dev-deno-cache,target=/home/vscode/.cache/deno,type=volume",
     "source=pancake-dev-npm-cache,target=/home/vscode/.cache/npm,type=volume",
     "source=pancake-dev-pip-cache,target=/home/vscode/.cache/pip,type=volume",
-    "source=pancake-dev-zig-cache,target=/home/vscode/.cache/zig,type=volume"
+    "source=pancake-dev-zig-cache,target=/home/vscode/.cache/zig,type=volume",
+    // Agent tools authenticate and keep user-level harness state for the host
+    // user, not one checkout. These scoped binds give every worktree the same
+    // login, sessions, configuration, and user resources without mounting all
+    // of ~/.config. initialize.sh creates every source before Docker sees it.
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+    "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind",
+    "source=${localEnv:HOME}/.cursor,target=/home/vscode/.cursor,type=bind",
+    "source=${localEnv:HOME}/.config/cursor,target=/home/vscode/.config/cursor,type=bind",
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind",
+    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind",
+    "source=${localEnv:HOME}/.local/share/opencode,target=/home/vscode/.local/share/opencode,type=bind",
+    "source=${localEnv:HOME}/.config/agents,target=/home/vscode/.config/agents,type=bind",
+    "source=${localEnv:HOME}/.serena,target=/home/vscode/.serena,type=bind"
   ],
   "initializeCommand": "bash .devcontainer/initialize.sh",
   "postCreateCommand": "bash .devcontainer/post-create.sh",

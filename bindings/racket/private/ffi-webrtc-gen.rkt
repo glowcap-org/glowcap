@@ -16,6 +16,8 @@
 
 (define (webrtc-ffi-table L _PancakeWebrtcConfig-pointer)
   (hasheq
+   'archive-fingerprint
+   (get-ffi-obj 'pancake_webrtc_archive_fingerprint L (_fun -> _uint64))
    'last-error
    (get-ffi-obj 'pancake_webrtc_last_error L (_fun _pointer _size -> _size))
    'netlayer-new

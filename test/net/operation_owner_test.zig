@@ -14,7 +14,6 @@ test "cancelable operation interrupts blocking I/O before retirement" {
     defer owner.join();
 
     const Attempt = struct {
-        allocator: std.mem.Allocator,
         io: std.Io,
         retired: *std.atomic.Value(bool),
         operation: net.CancelableOperation = undefined,
@@ -26,17 +25,16 @@ test "cancelable operation interrupts blocking I/O before retirement" {
         fn retire(raw: *anyopaque) void {
             const self: *@This() = @ptrCast(@alignCast(raw));
             self.retired.store(true, .release);
-            self.allocator.destroy(self);
         }
     };
 
     var retired = std.atomic.Value(bool).init(false);
-    const attempt = try allocator.create(Attempt);
-    attempt.* = .{ .allocator = allocator, .io = io, .retired = &retired };
-    try owner.startCancelable(&attempt.operation, Attempt.run, .{attempt}, attempt, Attempt.retire);
+    var attempt = Attempt{ .io = io, .retired = &retired };
+    try owner.startCancelable(&attempt.operation, Attempt.run, .{&attempt}, &attempt, Attempt.retire);
 
     const started = std.Io.Clock.now(.real, io);
-    owner.cancel(&attempt.operation);
+    try std.testing.expect(owner.cancel(&attempt.operation));
+    try std.testing.expect(!owner.cancel(&attempt.operation));
     owner.shutdown();
     owner.join();
     const elapsed = started.durationTo(std.Io.Clock.now(.real, io));

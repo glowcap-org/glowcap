@@ -1,4 +1,4 @@
-// Shared cross-language demo orchestrator helpers.
+// Shared cross-language demo orchestrator.
 
 export interface CliOptions {
 	pinPort: number;

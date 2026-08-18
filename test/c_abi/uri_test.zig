@@ -371,7 +371,17 @@ test "a malformed URI is a named invalid argument, not a crash" {
 
 test "parse rejects null pointers" {
     var loc: ?*c.PancakeLocator = null;
+    const malformed = "https://example.invalid/";
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        c.pancake_uri_parse_peer(malformed.ptr, malformed.len, &loc),
+    );
+    try std.testing.expect(c.pancake_last_error(null, 0) > 0);
+
+    // This refusal has no richer cause. It must not inherit the malformed
+    // URI's diagnostic merely because both calls used this thread.
     try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_uri_parse_peer(null, 0, &loc));
+    try std.testing.expectEqual(@as(usize, 0), c.pancake_last_error(null, 0));
     const uri = "ocapn://x.tcp";
     try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_uri_parse_peer(uri.ptr, uri.len, null));
     // Releasing null is a no-op.

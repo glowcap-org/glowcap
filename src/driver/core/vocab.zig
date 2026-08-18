@@ -487,14 +487,30 @@ pub const SettleFlag = struct {
 /// deliberately not copied; a caller that needs it uses the settled-outcome
 /// verbs instead.
 pub const FetchCapture = struct {
-    outcome: ?union(enum) { capability: model.FarRef, broken, not_a_capability } = null,
+    /// Position-only capability shapes that remain valid after the listener's
+    /// borrowed settlement returns. A byte-fed peer yields `.far`; a Host fetch
+    /// enrolls the same import into Node identity first and yields `.routed`.
+    pub const Capability = union(enum) {
+        far: model.FarRef,
+        routed: model.RoutedRef,
+
+        pub fn reference(self: Capability) model.Reference {
+            return switch (self) {
+                .far => |far| .{ .far = far },
+                .routed => |routed| .{ .routed = routed },
+            };
+        }
+    };
+
+    outcome: ?union(enum) { capability: Capability, broken, not_a_capability } = null,
 
     pub fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *FetchCapture = @ptrCast(@alignCast(ctx.?));
         self.outcome = switch (resolution) {
             .fulfilled => |arg| switch (arg) {
                 .reference => |reference| switch (reference) {
-                    .far => |far| .{ .capability = far },
+                    .far => |far| .{ .capability = .{ .far = far } },
+                    .routed => |routed| .{ .capability = .{ .routed = routed } },
                     else => .not_a_capability,
                 },
                 else => .not_a_capability,

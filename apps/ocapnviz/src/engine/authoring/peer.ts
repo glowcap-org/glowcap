@@ -6,8 +6,9 @@
  *
  * `repositionPeer` stays on the Engine because it's a hot-path
  * special-case (called continuously during builder drags) that
- * mutates `Engine.#lastUpdateT` for the same-frame layout refresh.
- * Every other peer mutation lives here.
+ * refreshes playback's stage at the playhead the same frame.
+ * The document pin itself lives in `placement.ts`. Every other peer
+ * mutation lives here.
  */
 
 import type { PeerProfile } from "../../schema/topology.ts";
@@ -69,11 +70,11 @@ function syncPeerStartCleared(ctx: AuthoringContext, peerId: string): void {
  *
  * Commits like any other entity edit, because both fields this can write are
  * read by the layout: the name decides how wide a box the solver keeps for
- * this peer (`nodeFootprints`), and the durable name decides which session
- * ends are claims about it (`engine/claims.ts`). Re-seeking alone left the
- * layout answering from the peer's old identity, so an end that had just
- * become a claim was drawn as one while still standing where an ordinary body
- * had been solved. */
+ * this peer (`nodeFootprints` in `node-footprint.ts`), and the durable name
+ * decides which session ends are claims about it (`engine/claims.ts`).
+ * Re-seeking alone left the layout answering from the peer's old identity, so
+ * an end that had just become a claim was drawn as one while still standing
+ * where an ordinary body had been solved. */
 export function updatePeer(
   ctx: AuthoringContext,
   peerId: string,

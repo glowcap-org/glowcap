@@ -7,8 +7,8 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     var relay_resident = try pancake.net.relay.Resident.initRegisteredProfile(
         allocator,
         io,
-        "wss://relay.example/rendezvous",
-        "wss://relay.example/register",
+        "ws://192.0.2.10:8080/relay",
+        "ws://192.0.2.10:8080/register",
         secret.publicKey(),
         .noise,
     );

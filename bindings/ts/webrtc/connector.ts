@@ -53,6 +53,8 @@ export function connector(signaling: SignalingAuthority): Connector {
 		};
 		bringup.signal.addEventListener("abort", cancel, { once: true });
 		if (bringup.signal.aborted) cancel();
+		const retainLate = (operation: string) => (error: unknown) =>
+			host.recordCallerlessBindingFailure(operation, error);
 		try {
 			disposeCandidates = signaling.onCandidate(locator.designator, (ice) => {
 				void acceptRemoteCandidate(peer, ice).catch((error) => bringup.abort(error));
@@ -60,13 +62,26 @@ export function connector(signaling: SignalingAuthority): Connector {
 			peer.onLocalCandidate((candidate) =>
 				candidateSends.admit(() => signaling.candidate(locator.designator, JSON.stringify(candidate)))
 			);
-			const offer = await abortable(peer.createOffer(), bringup.signal);
+			const offer = await abortable(
+				peer.createOffer(),
+				bringup.signal,
+				retainLate("webrtc.offer.cancel.late-settlement"),
+			);
 			const answer = await abortable(
 				signaling.offer(locator.designator, offer),
 				bringup.signal,
+				retainLate("webrtc.signaling.cancel.late-settlement"),
 			);
-			await abortable(peer.setRemoteAnswer(answer), bringup.signal);
-			await abortable(peer.waitOpen(), bringup.signal);
+			await abortable(
+				peer.setRemoteAnswer(answer),
+				bringup.signal,
+				retainLate("webrtc.remote-answer.cancel.late-settlement"),
+			);
+			await abortable(
+				peer.waitOpen(),
+				bringup.signal,
+				retainLate("webrtc.open.cancel.late-settlement"),
+			);
 			session = await abortable(
 				Session.establishDialedLocator(
 					host,
@@ -75,6 +90,7 @@ export function connector(signaling: SignalingAuthority): Connector {
 					request.handshakeTimeoutMs,
 				),
 				bringup.signal,
+				(error) => host.recordCallerlessBindingFailure("webrtc.session.cancel.cleanup", error),
 				(opened) => opened.closeTransport(),
 			);
 		} catch (error) {

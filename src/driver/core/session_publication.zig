@@ -1,0 +1,86 @@
+//! Session-scoped actor publication transactions.
+//!
+//! The Host owns capability identity and the Vat owns actors. These verbs
+//! reserve both sides before publishing or spawning so a refusal never leaves
+//! an actor without its Host capability, or a capability without its actor.
+
+const actors = @import("actors");
+
+const capability = @import("capability.zig");
+const host_mod = @import("host.zig");
+
+const Host = host_mod.Host;
+const HostSession = host_mod.HostSession;
+
+fn prepareLocalCapability(self: *Host, session: *HostSession) !capability.FreshLocalReservation {
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+    try self.admitSessionOperation(session);
+    return self.reserveFreshCapability(session);
+}
+
+/// Publish a Zig actor under one session's bootstrap namespace and return its
+/// Host-scoped capability. Export allocation, publication rollback, actor
+/// rooting, and capability adoption are one core transaction.
+pub fn publish(
+    self: *Host,
+    session: *HostSession,
+    name: []const u8,
+    comptime Behavior: type,
+    initial: Behavior,
+) !capability.Ref {
+    const reservation = try prepareLocalCapability(self, session);
+
+    const exported = try session.served.publish(&self.vat, name, Behavior, initial);
+    return self.retainReservedLocalCapability(reservation, exported.ref);
+}
+
+/// Foreign-callback twin of `publish`. Adapters construct only the HostedActor
+/// trampoline; the ownership transaction stays here.
+pub fn publishHosted(
+    self: *Host,
+    session: *HostSession,
+    name: []const u8,
+    hosted: actors.HostedActor,
+) !capability.Ref {
+    var hosted_pending = true;
+    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+
+    const reservation = try prepareLocalCapability(self, session);
+
+    hosted_pending = false;
+    const exported = try session.served.publishHosted(&self.vat, name, hosted);
+    return self.retainReservedLocalCapability(reservation, exported.ref);
+}
+
+/// Spawn a Zig actor and adopt its spawn root into one opaque Host capability.
+/// Wire positions remain lazy until the capability is marshalled.
+pub fn spawn(
+    self: *Host,
+    session: *HostSession,
+    comptime Behavior: type,
+    initial: Behavior,
+) !capability.Ref {
+    const reservation = try prepareLocalCapability(self, session);
+
+    const actor = try self.vat.spawn(Behavior, initial);
+    errdefer self.vat.discardFreshActor(actor);
+    return self.adoptReservedLocalCapability(reservation, actor);
+}
+
+/// Foreign-callback twin of `spawn`.
+pub fn spawnHosted(
+    self: *Host,
+    session: *HostSession,
+    hosted: actors.HostedActor,
+) !capability.Ref {
+    var hosted_pending = true;
+    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+
+    const reservation = try prepareLocalCapability(self, session);
+
+    hosted_pending = false;
+    const actor = try self.vat.spawnHosted(hosted);
+    errdefer self.vat.discardFreshActor(actor);
+    return self.adoptReservedLocalCapability(reservation, actor);
+}

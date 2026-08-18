@@ -54,7 +54,7 @@ pub const VowRow = struct {
 
     /// What settlement does to the resolution before it is dispatched: a
     /// `fetch` vow's fulfilled far capability is enrolled under a
-    /// node-unique token first (ADR-0069).
+    /// node-unique route first (ADR-0069).
     const Kind = enum { plain, fetch };
 
     /// The retire listener installed at mint.
@@ -291,6 +291,48 @@ pub fn cancelVowReservation(self: *Host, reservation: VowReservation) void {
     self.allocator.destroy(reservation.row);
 }
 
+/// Mint a Host vow whose producing operation is admitted now but cannot be
+/// attached to its eventual session yet. Inline handoff sends use this while
+/// redemption is pending. The row is fully observable to `vowOn` immediately;
+/// its producer later settles it through `fireVow` and may transfer its
+/// session ownership with `moveDeferredVow` before that settlement.
+pub fn mintDeferredVow(self: *Host, session: *HostSession) !u64 {
+    const id = self.next_vow;
+    const row = try reserveVowRow(self, session, .plain, id);
+    row.vow = .{ .local = id };
+    self.vows.putAssumeCapacity(id, row);
+    self.next_vow += 1;
+    self.beginSessionOperation(session);
+    return id;
+}
+
+/// Transfer one admitted deferred producer from the session on which the
+/// caller learned the promise to the session that now owns its real send.
+pub fn moveDeferredVow(self: *Host, vow_id: u64, target: *HostSession) void {
+    const row = self.vows.get(vow_id) orelse return;
+    const source_peer = row.peer_id orelse unreachable;
+    if (source_peer == target.peer_id) return;
+    if (self.sessions.get(source_peer)) |source| self.finishSessionOperation(source);
+    self.beginSessionOperation(target);
+    row.peer_id = target.peer_id;
+}
+
+/// Attach a pre-minted deferred Host vow directly to the real Vat/Port vow.
+/// The existing `VowRow` is both public identity and listener context, so a
+/// separate forwarding allocation would duplicate the same ownership.
+pub fn attachDeferredVow(
+    self: *Host,
+    vow_id: u64,
+    target: *HostSession,
+    listener: actors.ListenerReservation,
+    vow: actors.Vow,
+) void {
+    moveDeferredVow(self, vow_id, target);
+    const row = self.vows.get(vow_id) orelse unreachable;
+    row.vow = vow;
+    target.served.port.onReserved(&self.vat, listener, vow, .{ .ctx = row, .func = VowRow.fire });
+}
+
 /// Publish a vow using only resources reserved before its semantic operation.
 pub fn commitVow(
     self: *Host,
@@ -522,26 +564,21 @@ fn settleResolverRow(self: *Host, resolver_id: u64, resolution: actors.Resolutio
 }
 
 /// The fetch settlement mapping: enroll a fulfilled far capability under
-/// a node-unique token *before* the outcome is dispatched, so a reply
+/// a node-unique route *before* the outcome is dispatched, so a reply
 /// that immediately re-gifts it routes to the right exporter. A
-/// reference already in the token range (an auto-redeemed give settled
-/// with a routable token) passes through unwrapped — enrolling a token
+/// reference already carrying the explicit routed arm (an auto-redeemed give)
+/// passes through unwrapped — enrolling a route
 /// would double-wrap it into a reference no session can lower. An
 /// unenrollable capability would mis-route a later re-gift, so it fails
 /// loud as a break rather than surfacing half-usable.
 fn enrollFetched(self: *Host, peer_id: engine.PeerId, resolution: actors.Resolution) actors.Resolution {
+    if (resolution == .fulfilled and resolution.fulfilled == .reference and
+        resolution.fulfilled.reference == .routed) return resolution;
     if (resolution == .fulfilled) if (asFarRef(resolution.fulfilled)) |far| {
-        switch (model.ImportName.classify(far.import_position.int())) {
-            // Already a token: enrolling again would double-wrap it into a
-            // reference no session can lower.
-            .token => {},
-            .wire => {
-                const token = self.node.enrollForeign(peer_id, .{ .far = far }) catch |err| {
-                    return .{ .broken = @errorName(err) };
-                };
-                return .{ .fulfilled = .{ .reference = token } };
-            },
-        }
+        const route = self.node.enrollForeign(peer_id, .{ .far = far }) catch |err| {
+            return .{ .broken = @errorName(err) };
+        };
+        return .{ .fulfilled = .{ .reference = route } };
     };
     return resolution;
 }

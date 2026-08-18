@@ -11,7 +11,7 @@ usage() {
 	echo "       $0 capacity [ACTIVE_MEMBER_NICK...]" >&2
 	echo "       $0 spin --room ROOM --locator URL --lead NICK MEMBER [MEMBER...]" >&2
 	echo "       $0 speak-policy [--lead NICK]" >&2
-	echo "ROOMS_TEAM_MAX_BOTS (default 4) includes the lead." >&2
+	echo "PANCAKE_ROOMS_TEAM_MAX_BOTS (default 4) includes the lead." >&2
 	exit 2
 }
 
@@ -199,10 +199,10 @@ run_spin() {
 		usage
 	fi
 
-	local max=${ROOMS_TEAM_MAX_BOTS:-4}
+	local max=${PANCAKE_ROOMS_TEAM_MAX_BOTS:-4}
 	local used=$((1 + ${#members[@]}))
 	if [[ "$used" -gt "$max" ]]; then
-		echo "{\"ok\":false,\"error\":\"over_cap\",\"detail\":\"1 lead + ${#members[@]} members > ROOMS_TEAM_MAX_BOTS=$max\"}" >&2
+		echo "{\"ok\":false,\"error\":\"over_cap\",\"detail\":\"1 lead + ${#members[@]} members > PANCAKE_ROOMS_TEAM_MAX_BOTS=$max\"}" >&2
 		exit 1
 	fi
 
@@ -281,9 +281,9 @@ export PATH="${PWD}/zig-out/bin:${PATH}"
 
 case "$verb" in
 capacity)
-	max=${ROOMS_TEAM_MAX_BOTS:-4}
+	max=${PANCAKE_ROOMS_TEAM_MAX_BOTS:-4}
 	if ! [[ "$max" =~ ^[1-9][0-9]*$ ]]; then
-		echo "{\"ok\":false,\"error\":\"ROOMS_TEAM_MAX_BOTS must be a positive integer\"}" >&2
+		echo "{\"ok\":false,\"error\":\"PANCAKE_ROOMS_TEAM_MAX_BOTS must be a positive integer\"}" >&2
 		exit 2
 	fi
 	members=$#

@@ -25,6 +25,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const identity = @import("identity.zig");
+const said = @import("said.zig");
 const accountable = @import("accountable.zig");
 const affordance = @import("affordance.zig");
 const log = @import("log.zig");
@@ -48,7 +49,7 @@ const HostArgs = struct {
     allocator: std.mem.Allocator,
     store: *accountable.Store,
     served: *usize,
-    last_subject: *[identity.SAID_LEN]u8,
+    last_subject: *[said.SAID_LEN]u8,
 };
 
 /// Accept one connection, publish the Affordance by name, and serve invocations
@@ -95,7 +96,7 @@ fn invoke(
     cv: *driver.BlockingSession,
     target: actors.Ref,
     caller: *const identity.Identity,
-    key: identity.Key,
+    key: said.Key,
     request: []const u8,
     tamper: bool,
     arena: std.mem.Allocator,
@@ -177,7 +178,7 @@ pub fn main(init: std.process.Init) !void {
     const address = listener.localAddress();
 
     var served: usize = 0;
-    var last_subject: [identity.SAID_LEN]u8 = undefined;
+    var last_subject: [said.SAID_LEN]u8 = undefined;
     var host_future = try io.concurrent(hostServe, .{HostArgs{
         .listener = &listener,
         .allocator = allocator,

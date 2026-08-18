@@ -19,35 +19,27 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Engine } from "../../engine/engine.ts";
-import type { MoveIntent } from "../../engine/authoring/events.ts";
+import type { MoveIntent } from "../../engine/authoring/moves.ts";
 import type { StageSelection } from "../../render/types.ts";
 import { parseEntityKey } from "../../interactions/types.ts";
 import type { EntityRefKey } from "../../interactions/types.ts";
 import { c, PANEL, SIZE, SPACE } from "../tokens.ts";
 import { ScrubInput } from "../Timeline/ScrubInput.tsx";
-import {
-  BulkEnumSelect,
-  type EditorBindings,
-  type EditSession,
-  endRowButtonStyle,
-  Field,
-  FieldGroup,
-  formatTime,
-  kv,
-  PanelHeading,
-  useScrubSession,
-  valueMono,
-  valueText,
-} from "./shared.tsx";
+import { BulkEnumSelect, Field, FieldGroup } from "./fields.tsx";
+import type { EditorBindings } from "./bindings.ts";
+import type { EditBracket } from "./edit-bracket.ts";
+import { useScrubBracket } from "./edit-bracket.ts";
+import { endRowButtonStyle, kv, PanelHeading, valueMono, valueText } from "./styles.tsx";
+import { formatTime } from "../format.ts";
 import { elideIdentifier } from "../identifier.tsx";
 import {
   CAPTP_VERSION_OPTIONS,
   captpVersionLabel,
   CODEC_OPTIONS,
-  parseEndpointStageId,
   PROFILE_OPTIONS,
   SessionState,
 } from "../../schema/topology.ts";
+import { parseEndpointStageId } from "../../schema/session-end.ts";
 import { endpointLabelText } from "../../render/stage-labels.ts";
 import { peerInfo, sessionInfo } from "./entity-info.ts";
 import { sessionPairName } from "../session-name.ts";
@@ -427,7 +419,7 @@ function BulkShiftInput(
   // step rather than one per pixel. The scrub bracket is the shared
   // one, which is what closes it when the panel goes away under the
   // pointer.
-  const scrub = useScrubSession({ beginEdit, endEdit }, MOVE_EVENTS_LABEL);
+  const scrub = useScrubBracket({ beginEdit, endEdit }, MOVE_EVENTS_LABEL);
   const handleChange = useCallback((next: number) => {
     setDelta(next);
     bulkApply(
@@ -496,7 +488,7 @@ export function deleteSelection(
  *  pair is all a batch needs and it is what the row-level controls
  *  have to hand. */
 function bulkApply<T>(
-  session: EditSession,
+  session: EditBracket,
   refs: readonly T[],
   label: string,
   apply: (ref: T) => void,

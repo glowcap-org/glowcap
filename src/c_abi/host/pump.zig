@@ -31,6 +31,7 @@ pub export fn pancake_host_pump_drain(
     out_acted: ?*u32,
     out_yielded: ?*u32,
 ) i32 {
+    shared.lastErrorClear();
     const inst = common.instanceFrom(host) orelse {
         shared.setLastError("null host", .{});
         return PANCAKE_ERR_NULL_POINTER;

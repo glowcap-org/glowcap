@@ -26,7 +26,14 @@
 
 const std = @import("std");
 
+const model = @import("model");
+
 const foundation = @import("foundation");
+const crypto = foundation.crypto;
+
+const host_mod = @import("host.zig");
+const host_pump = @import("host_pump.zig");
+const sessions_mod = @import("sessions.zig");
 
 pub const DialTarget = struct {
     transport: []const u8,
@@ -114,3 +121,56 @@ pub const CrossedHellos = struct {
         self.entries.deinit(allocator);
     }
 };
+
+/// Run the crossed-hellos tiebreak for an inbound start-session on an
+/// accepted CapTP session (ADR-0030): with an outbound dial registered to the
+/// same partner, the not-lower side condemns its accepted session, and
+/// the strictly lower side condemns its own dialed one — immediately, no
+/// deferred flag, because one thread drives the host.
+pub fn tiebreakInbound(self: *host_mod.Host, session: *host_mod.HostSession, ss: model.view.StartSession) !void {
+    const partner_key = try crypto.PeerKey.fromSlice(ss.session_pubkey);
+    const partner_pid = crypto.derivePublicIdentifier(partner_key);
+    const designator = ss.acceptable_location.designator;
+    // The designator here is a claim, not a proof. The handshake signature
+    // establishes that the partner holds `session_pubkey` and made this
+    // locator claim; it does not establish ownership of the durable key or
+    // address the claim names. On the transports
+    // whose designator *is* the identity, the two must agree, or any peer
+    // able to open a connection could name a designator we are dialing and
+    // have us abort our own verified outbound session to it — repeatedly,
+    // and against an exporter it never has to reach or hold a key for.
+    // `liveSessionForDial` already refuses to trust this same field as a
+    // dial match key for the same reason.
+    //
+    // An address designator stays an unverifiable claim, and it still
+    // decides the tiebreak, because the OCapN suite's crossed-hellos test
+    // requires exactly that: an address transport has nothing else to match
+    // on at hello time. Refusing to act on it there is not ours to choose —
+    // dropping it makes that test hang waiting for the abort. So on an
+    // address transport a peer that can open a connection and name an
+    // address we are dialing can condemn our dial to it. That exposure is
+    // ADR-0030's model, not an oversight, and it is why a designator that
+    // *is* an identity is the one that gets checked; see
+    // `docs/boundaries.md`.
+    if (try self.designatorScheme(ss.acceptable_location.transport) == .key) {
+        const claimed = crypto.PeerKey.fromDesignator(designator) orelse return;
+        if (!std.mem.eql(u8, &claimed.bytes, &partner_key.bytes)) return;
+    }
+    const dial_target: DialTarget = .{
+        .transport = ss.acceptable_location.transport,
+        .designator = designator,
+    };
+    const verdict = self.hellos.checkInbound(dial_target, partner_pid) orelse return;
+    if (verdict.abort_inbound) {
+        // Not lower: this accepted session is the loser; the pair keeps
+        // the session our own dial opened.
+        try host_pump.condemn(self, session, .crossed_hellos, "crossed hellos: higher-keyed side aborting its inbound session");
+        return;
+    }
+    // Strictly lower: our own dial to this partner is the loser; the pair
+    // keeps this accepted session. `dialed_by_target` is the O(1)
+    // index (populated at enroll); do not rescan every live session.
+    if (sessions_mod.liveIndexedSession(self, self.dialed_by_target.get(dial_target))) |candidate| {
+        try host_pump.condemn(self, candidate, .crossed_hellos, "crossed hellos: lower-keyed side aborting its outbound session");
+    }
+}

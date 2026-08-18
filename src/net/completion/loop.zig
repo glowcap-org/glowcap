@@ -32,105 +32,10 @@
 //! view of the pool buffer the backend selected for it. The loop consumes the bytes:
 //! whole frames apply zero-copy straight from the completion view; a partial
 //! frame tail absorbs into the connection's bounded spill (ADR-0041). It then
-//! hands the buffer back with `recycleRecv`, exactly once per completion that
+//! hands the buffer back with `recycleBorrowed`, exactly once per completion that
 //! carried one. An idle connection therefore costs no read-buffer memory at
 //! all, and a recv that finds the pool momentarily empty parks buffer-starved
 //! until a buffer recycles; it is never a connection failure.
-//!
-//! ## Backend interface
-//!
-//! A backend is a struct providing the platform completion primitive. The server
-//! calls only these; nothing here issues a syscall directly:
-//!
-//!   * `pub const Fd = <platform socket handle type>;`
-//!   * `pub fn init(allocator, queue_entries: u16, read_buffers: u16, read_buffer_bytes: u32) !Backend;`
-//!     — `read_buffers` buffers of `read_buffer_bytes` each form the shared
-//!     recv pool the backend owns.
-//!   * `pub fn deinit(self: *Backend) void;`
-//!   * `pub fn openListener(self: *Backend, port: u16) !Fd;` — bind+listen
-//!     (TCP) or arm the transport's acceptor (a userspace backend). Instance
-//!     method so a backend that already carries endpoint state (iroh) can use
-//!     it; socket backends ignore `self`.
-//!   * `pub const ConnectTarget;` — Backend-owned dial target type. TCP's is an
-//!     `IpAddress`; iroh's is `{ id, hints }`. There is no shared union: a
-//!     Backend cannot be handed a target shape it refuses.
-//!   * `pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd;`
-//!     — start one outbound dial and return the connection handle for the Loop
-//!     slot. The Backend owns the whole start (mint a socket or a pending
-//!     synthetic handle, submit the connect, clean up on failure). Every backend
-//!     reports terminal connect success as result 0; the returned `Fd` already
-//!     belongs to the slot before that completion arrives.
-//!   * `pub const ListenerAddress;`
-//!   * `pub fn listenerAddress(self: *Backend, fd: Fd) !ListenerAddress;`
-//!     — the backend-owned address published for the listener, returned by
-//!     value so moving the backend cannot invalidate it.
-//!   * `pub fn listenerPort(address: ListenerAddress) ?u16;` — total projection
-//!     for TCP convenience; transports without a TCP address return null.
-//!   * `pub fn closeFd(self: *Backend, fd: Fd) void;` — release a handle.
-//!     Instance method so a userspace backend can free transport state keyed by
-//!     `Fd`; socket backends ignore `self`.
-//!   * `pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void;`
-//!     — success reports the accepted handle in `Completion.accepted_fd` (or,
-//!     for an ordinary non-negative OS fd, in `result`); failure reports a
-//!     negative `result` and no handle.
-//!   * `pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void;` — no
-//!     caller buffer: the backend selects one from its shared pool when data
-//!     arrives and surfaces it on the completion (`Completion.recv_bytes`). A
-//!     recv that finds the pool empty completes with
-//!     `Completion.recv_no_buffer` instead of failing the connection.
-//!   * `pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void;`
-//!   * `pub fn submitCancel(self: *Backend, cancel_user_data: u64,
-//!     target_user_data: u64, fd: Fd) !void;` — cancel the exact submitted recv
-//!     named by `target_user_data` without closing the caller-owned `fd`. A
-//!     successful submit eventually yields both the target recv completion and
-//!     one completion carrying `cancel_user_data`; either may arrive first.
-//!   * `pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void;` —
-//!     including the listen handle: cancel a pending accept (yield one accept
-//!     completion with `result < 0` when one was armed) and close the fd so
-//!     `Loop.closeAndDrain` cannot hang on an idle acceptor.
-//!     For connection handles, `Loop` calls `shutdownFd` first. A userspace
-//!     backend whose shutdown is a no-op must synthesize one completion for
-//!     every pending recv/send when it accepts the close.
-//!     The close completion reports the close result; a negative result means
-//!     the backend did not release the handle and the Loop must call `closeFd`.
-//!   * A `submit*` that returns an error must have minted **no** completion for
-//!     that `user_data`. The loop counts an op only after a successful submit,
-//!     so a completion for a refused submit lands on a seat the loop believes is
-//!     idle and drives the in-flight count below the truth. That frees a
-//!     connection's outbound buffer while the backend is still reading from it.
-//!   * `pub fn shutdownFd(self: *Backend, fd: Fd) void;` — unblock an armed
-//!     recv (TCP: `SHUT_RDWR`) so `closeAndDrain` does not wait on a quiet
-//!     peer. Required on every Backend; a userspace backend's body may be a
-//!     no-op.
-//!   * `pub fn recycleRecv(self: *Backend, completion: Completion) void;` — hand
-//!     the pool buffer behind a recv completion back. The loop calls it exactly
-//!     once per completion whose `recv_bytes` is non-null, after consuming the
-//!     bytes; the borrowed view is invalid afterward.
-//!   * `pub fn poll(self: *Backend, out: []Completion, timeout_ms: i32) !usize;` —
-//!     flush submitted operations and wait for completions. A negative
-//!     `timeout_ms` blocks until at least one completion or explicit backend
-//!     wake is observed. A non-negative `timeout_ms` waits at most that many
-//!     milliseconds; zero completions after a timeout or explicit stopper wake
-//!     returns 0, not an error. Fills `out` with up to `out.len` completions and
-//!     returns the count.
-//!
-//! The Loop is also parameterized by a `DialResolver`: OCapN
-//! `(transport, designator, hint)` maps to `Backend.ConnectTarget`. That grammar
-//! belongs on the netlayer (`tcp.DialResolver`, `iroh.DialResolver`), never on a
-//! platform Backend. `Loop.dialLocator` is the only public dial verb.
-//!
-//! A readiness-based platform (kqueue) makes its backend look completion-shaped
-//! internally: `submitRecv` records the request and `poll` performs the read once
-//! the fd is ready — into a buffer from its own scratch pool — synthesizing the
-//! completion. The loop sees the same interface either way.
-//!
-//! Every submitted op must eventually yield exactly one completion — including a
-//! recv or send still pending when `submitClose` runs on its fd. The loop counts
-//! a connection's in-flight ops and defers teardown until each retires, so a
-//! backend that silently dropped a pending op on close would strand the slot.
-//! The loop calls `shutdownFd` before every connection close so kernel socket
-//! operations are forced to complete; a userspace backend whose shutdown is a
-//! no-op synthesizes pending-operation completions in `submitClose`.
 
 const std = @import("std");
 
@@ -138,271 +43,25 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const frame_stream = @import("../frame_stream.zig");
+const failure_projection = @import("failure_projection.zig");
 const clock = @import("../clock.zig");
+const contract = @import("contract.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
 
 /// Re-export so loop callers configure keepalive without a second import path.
 pub const Keepalive = tcp_keepalive.Keepalive;
 
-/// Shared recv scratch pool for readiness backends (kqueue, iroh). Re-exported
-/// so the out-of-graph iroh resident reaches it through `net.completion` rather
-/// than dual-homing the source file.
-pub const ScratchPool = @import("scratch_pool.zig").ScratchPool;
+/// Shared bounded byte-buffer pool for readiness backends and completion
+/// adapters. Re-exported so out-of-graph transport modules reach the same
+/// owner through `net.completion` rather than dual-homing the source file.
+pub const BufferPool = @import("buffer_pool.zig").BufferPool;
 
-/// One collision-free namespace layer for a completion-backend adapter.
-///
-/// Adapters share connection handles, completion `user_data`, and receive
-/// buffer tokens with the backend they wrap. Ad-hoc sentinel ranges do not
-/// compose: two wrappers can claim the same high bit and consume each other's
-/// events. A wrapped backend therefore publishes `adapter_depth`; this type
-/// derives the next disjoint layer for all three channels from that one fact.
-///
-/// Platform backends start at depth zero. Synthetic fds use successively
-/// longer negative prefixes (`10`, `110`, ...), while user data and recv tokens
-/// claim one high bit per layer. OS fds stay non-negative and Loop user data
-/// stays below bit 35 (`max_conns < maxInt(u32)`), so neither can collide.
-pub fn AdapterNamespace(comptime Platform: type) type {
-    if (!@hasDecl(Platform, "adapter_depth"))
-        @compileError(@typeName(Platform) ++ " must declare `pub const adapter_depth = 0` before it can be wrapped by a completion adapter");
-    if (Platform.Fd != i32)
-        @compileError("completion adapter namespaces currently require a signed 32-bit Fd");
-
-    const child_depth: u6 = Platform.adapter_depth;
-    if (child_depth >= 30)
-        @compileError("completion adapter namespace depth exhausted");
-
-    return struct {
-        pub const depth: u6 = child_depth + 1;
-
-        const fd_prefix_bits: u6 = child_depth + 2;
-        const fd_id_bits: u6 = 32 - fd_prefix_bits;
-        const fd_id_mask: u32 = (@as(u32, 1) << @intCast(fd_id_bits)) - 1;
-        const fd_prefix: u32 = (~@as(u32, 0)) << @intCast(32 - (child_depth + 1));
-        const fd_prefix_mask: u32 = (~@as(u32, 0)) << @intCast(32 - fd_prefix_bits);
-        const user_data_bit: u64 = @as(u64, 1) << @intCast(63 - child_depth);
-        const recv_token_bit: u32 = @as(u32, 1) << @intCast(31 - child_depth);
-        pub const max_fd_id: u32 = fd_id_mask;
-
-        pub fn fdFromId(id: u32) error{AdapterHandleExhausted}!i32 {
-            if (id > fd_id_mask) return error.AdapterHandleExhausted;
-            return @bitCast(fd_prefix | id);
-        }
-
-        pub fn ownsFd(fd: i32) bool {
-            const bits: u32 = @bitCast(fd);
-            return bits & fd_prefix_mask == fd_prefix;
-        }
-
-        pub fn fdId(fd: i32) u32 {
-            std.debug.assert(ownsFd(fd));
-            return @as(u32, @bitCast(fd)) & fd_id_mask;
-        }
-
-        pub fn userData(payload: u64) u64 {
-            std.debug.assert(payload & user_data_bit == 0);
-            return payload | user_data_bit;
-        }
-
-        pub fn ownsUserData(value: u64) bool {
-            return value & user_data_bit != 0;
-        }
-
-        pub fn userDataPayload(value: u64) u64 {
-            std.debug.assert(ownsUserData(value));
-            return value & ~user_data_bit;
-        }
-
-        pub fn recvToken(token: u32) u32 {
-            std.debug.assert(token & recv_token_bit == 0);
-            return token | recv_token_bit;
-        }
-
-        pub fn ownsRecvToken(token: u32) bool {
-            return token & recv_token_bit != 0;
-        }
-
-        pub fn recvTokenPayload(token: u32) u32 {
-            std.debug.assert(ownsRecvToken(token));
-            return token & ~recv_token_bit;
-        }
-    };
-}
-
-/// Compile-time check that `Backend` declares the total dial/I/O contract the
-/// Loop calls. Soft optionality (`@hasDecl` at call sites) is forbidden: a
-/// missing member fails here, not as a latent special case on one path.
-fn validateBackend(comptime Backend: type) void {
-    const required = .{
-        "Fd",
-        "ConnectTarget",
-        "ListenerAddress",
-        "deinit",
-        "openListener",
-        "listenerAddress",
-        "listenerPort",
-        "closeFd",
-        "startDial",
-        "shutdownFd",
-        "submitAccept",
-        "submitRecv",
-        "submitSend",
-        "submitCancel",
-        "submitClose",
-        "recycleRecv",
-        "poll",
-        "verifiedChannelKey",
-        "applyKeepalive",
-    };
-    inline for (required) |name| {
-        if (!@hasDecl(Backend, name)) {
-            @compileError("completion Backend missing `" ++ name ++ "` — total contract, no optional dial/shutdown members");
-        }
-    }
-}
-
-/// Compile-time check that `DialResolver` turns OCapN locator parts into
-/// `ConnectTarget`. Netlayer-owned; never a platform Backend concern.
-fn validateDialResolver(comptime DialResolver: type, comptime ConnectTarget: type) void {
-    if (!@hasDecl(DialResolver, "resolve")) {
-        @compileError("completion DialResolver missing `resolve` — OCapN locator → ConnectTarget");
-    }
-    // And that it resolves to *this* backend's target. Taking the type and
-    // discarding it checked the half that never goes wrong: a `resolve` that
-    // returns some other backend's target is the mismatch worth catching, and
-    // it is exactly what a comptime parameter can see.
-    const info = @typeInfo(@TypeOf(DialResolver.resolve));
-    if (info != .@"fn") @compileError("completion DialResolver.resolve must be a function");
-    const returns = info.@"fn".return_type orelse
-        @compileError("completion DialResolver.resolve must have a concrete return type");
-    const payload = switch (@typeInfo(returns)) {
-        .error_union => |eu| eu.payload,
-        else => returns,
-    };
-    if (payload != ConnectTarget) {
-        @compileError("completion DialResolver.resolve must return " ++ @typeName(ConnectTarget) ++
-            ", found " ++ @typeName(payload));
-    }
-}
-
-/// One finished operation reported by a backend: the `user_data` the submit
-/// carried, and the platform result (bytes transferred, status, or negative on
-/// error, the same sign convention as the underlying syscall).
-pub const Completion = struct {
-    user_data: u64,
-    result: i32,
-    /// Typed operation failure when `result < 0`. Backends that cannot recover
-    /// a more specific cause leave this null; the loop records an operation-
-    /// specific fallback so a negative result never tears down anonymously.
-    failure: ?anyerror = null,
-    /// The connection handle produced by a successful accept. Kept separate
-    /// from `result` because composable userspace backends use collision-free
-    /// negative synthetic handles, while `result < 0` remains the uniform
-    /// operation-failure convention. Platform backends that report an ordinary
-    /// non-negative OS fd in `result` remain valid.
-    accepted_fd: ?i32 = null,
-    /// For a recv completion that selected a shared pool buffer: a borrowed
-    /// view of backend-owned storage holding the received bytes. Valid until
-    /// the loop hands the buffer back via `recycleRecv`; the loop consumes the
-    /// bytes first and retains no reference after the recycle.
-    recv_bytes: ?[]const u8 = null,
-    /// Backend-opaque token identifying the pool buffer behind `recv_bytes`,
-    /// passed back verbatim through `recycleRecv`. Meaningless when
-    /// `recv_bytes` is null.
-    recv_token: u32 = 0,
-    /// True when a recv completed without data only because the shared pool
-    /// was momentarily empty. The loop parks the connection buffer-starved and
-    /// re-arms it when a buffer recycles; it never closes the connection for
-    /// this.
-    recv_no_buffer: bool = false,
-};
-
-/// Project a platform errno onto the stable diagnostic vocabulary carried by
-/// `Completion.failure`. Backends retain the raw integer in `result`; this name
-/// is the portable fact close observers and bindings can act on.
-pub fn failureFromErrno(errno: std.posix.E) anyerror {
-    return switch (errno) {
-        .CONNABORTED => error.ConnectionAborted,
-        .CONNREFUSED => error.ConnectionRefused,
-        .CONNRESET => error.ConnectionResetByPeer,
-        .TIMEDOUT => error.TimedOut,
-        .NETDOWN => error.NetworkDown,
-        .NETUNREACH => error.NetworkUnreachable,
-        .HOSTUNREACH => error.HostUnreachable,
-        .PIPE => error.BrokenPipe,
-        .CANCELED => error.Canceled,
-        .BADF => error.InvalidFileDescriptor,
-        .NOMEM => error.OutOfMemory,
-        .NOSPC => error.SystemResources,
-        else => error.Unexpected,
-    };
-}
-
-/// The queue of ready completions a readiness backend fills and the loop drains,
-/// shared by the kqueue backend and the iroh completion `Backend`.
-///
-/// A read cursor, not a slide. The loop drains a fixed batch per poll, so a
-/// burst of `M` completions is handed over in `M / batch` calls, and sliding the
-/// remainder forward each time moves `M²/batch` entries in total. A mass close
-/// at the 500k destination queues on the order of a million completions in one
-/// sweep, which is where that arithmetic stops being academic. Advancing a
-/// cursor instead is `O(M)` over the whole burst, and the storage is reused
-/// because the cursor and the list reset together the moment the queue empties.
-pub const ReadyQueue = struct {
-    items: std.ArrayList(Completion) = .empty,
-    /// How far into `items` the drains have read. The prefix behind it is dead
-    /// storage, reclaimed when the queue empties or when the dead prefix
-    /// outgrows the live remainder, so neither the cursor nor the list grows
-    /// with uptime.
-    head: usize = 0,
-
-    pub fn deinit(self: *ReadyQueue, allocator: std.mem.Allocator) void {
-        self.items.deinit(allocator);
-        self.head = 0;
-    }
-
-    /// How many completions are still waiting to be drained.
-    pub fn len(self: *const ReadyQueue) usize {
-        return self.items.items.len - self.head;
-    }
-
-    pub fn append(self: *ReadyQueue, allocator: std.mem.Allocator, c: Completion) !void {
-        try self.items.append(allocator, c);
-    }
-
-    pub fn ensureUnusedCapacity(self: *ReadyQueue, allocator: std.mem.Allocator, n: usize) !void {
-        try self.items.ensureUnusedCapacity(allocator, n);
-    }
-
-    pub fn appendAssumeCapacity(self: *ReadyQueue, c: Completion) void {
-        self.items.appendAssumeCapacity(c);
-    }
-
-    /// Move up to `out.len` completions out, and return how many moved.
-    pub fn drain(self: *ReadyQueue, out: []Completion) usize {
-        const n = @min(self.len(), out.len);
-        if (n == 0) return 0;
-        @memcpy(out[0..n], self.items.items[self.head..][0..n]);
-        self.head += n;
-        const rest = self.items.items.len - self.head;
-        if (rest == 0) {
-            self.items.clearRetainingCapacity();
-            self.head = 0;
-        } else if (self.head >= rest) {
-            // The cursor bounds the copying, not the storage. A queue that
-            // never empties in a single drain never reclaims the prefix behind
-            // the cursor, and a backend whose reads complete synchronously
-            // keeps one permanently — so the list would grow for as long as the
-            // loop runs. Compacting once the dead prefix outgrows the live
-            // remainder halves it each time, which keeps the whole burst at
-            // `O(M)` moved entries while bounding the storage by the backlog
-            // instead of by uptime.
-            std.mem.copyForwards(Completion, self.items.items[0..rest], self.items.items[self.head..]);
-            self.items.shrinkRetainingCapacity(rest);
-            self.head = 0;
-        }
-        return n;
-    }
-};
+pub const AdapterNamespace = contract.AdapterNamespace;
+pub const CloseReason = contract.CloseReason;
+pub const CloseReport = contract.CloseReport;
+pub const Completion = contract.Completion;
+pub const ReadyQueue = contract.ReadyQueue;
+pub const failureFromErrno = contract.failureFromErrno;
 
 /// Builds and configures the `Peer` for one accepted connection. The callback
 /// chooses the handshake policy, publishes the shared application's bootstrap
@@ -434,30 +93,6 @@ pub const Serve = *const fn (conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *
 /// Tear down a per-connection context built by `MakeConnCtx`, on connection
 /// close. Receives the shared `ctx` and the per-connection context to free.
 pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void;
-
-/// Why a connection is tearing down (ADR-0082). Surfaced on `OnClose` so an
-/// embedder can separate ordinary peer loss from the two reclaims the loop
-/// performs on its own initiative.
-pub const CloseReason = enum {
-    /// Partner EOF, read error, keepalive, `closeSlot`, refused dial, …
-    ordinary,
-    /// Stayed `.parked` past `Options.park_kill_ms`.
-    park_kill,
-    /// The partner did not read this connection's terminal bytes within
-    /// `Options.drain_kill_ms`. Distinct from `park_kill` because it says
-    /// nothing about how fast a *healthy* partner reads, because the close
-    /// had already been requested when the wait began.
-    drain_kill,
-};
-
-/// Complete teardown evidence captured before the loop releases the peer.
-/// `failure` preserves the peer's typed local cause when one was recorded;
-/// absence means the close was requested or the transport supplied no cause.
-pub const CloseReport = struct {
-    opened: bool,
-    reason: CloseReason,
-    failure: ?engine.AbortInfo,
-};
 
 /// Close notification, fired once per connection at teardown, before
 /// `free_conn_ctx` releases the per-connection context. Receives the shared
@@ -728,8 +363,8 @@ const RecvVerdict = enum {
 /// The portable completion-driven connection loop over a platform `Backend`
 /// and a netlayer `DialResolver` (OCapN locator parts to `Backend.ConnectTarget`).
 pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
-    comptime validateBackend(Backend);
-    comptime validateDialResolver(DialResolver, Backend.ConnectTarget);
+    comptime contract.validateBackend(Backend);
+    comptime contract.validateDialResolver(DialResolver, Backend.ConnectTarget);
     return struct {
         const Self = @This();
         const Fd = Backend.Fd;
@@ -1464,7 +1099,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 .wake => {
                     std.debug.assert(self.wake_armed);
                     self.wake_armed = false;
-                    if (comp.recv_bytes != null) self.recycleRecvBuffer(comp);
+                    if (comp.borrowed.active()) self.recycleBorrowedPayload(comp);
                     // Shutdown owns no callbacks and no new recv submissions.
                     // The separate cancel completion may arrive before or after
                     // this target completion, so each retires only its own seat.
@@ -1489,13 +1124,18 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 .wake_cancel => {
                     std.debug.assert(self.wake_cancel_pending);
                     self.wake_cancel_pending = false;
+                    if (comp.borrowed.active()) self.recycleBorrowedPayload(comp);
                 },
                 // The only handler that may fail the loop: an accept operation
                 // or dead re-arm is loop-global. Every per-connection handler
                 // resolves its own failures by closing that one connection.
-                .accept => try self.onAccept(comp),
+                .accept => {
+                    defer if (comp.borrowed.active()) self.recycleBorrowedPayload(comp);
+                    try self.onAccept(comp);
+                },
                 .connect => {
                     self.onConnect(slot, comp);
+                    if (comp.borrowed.active()) self.recycleBorrowedPayload(comp);
                     self.retireConnOp(slot);
                 },
                 // Each per-connection op decrements its in-flight count after the
@@ -1505,19 +1145,20 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                     // exactly once per completion that carried one, on every
                     // verdict — then act on the verdict.
                     const verdict = self.onRecvConsume(slot, comp);
-                    if (comp.recv_bytes != null) self.recycleRecvBuffer(comp);
+                    if (comp.borrowed.active()) self.recycleBorrowedPayload(comp);
                     self.onRecvFinish(slot, verdict);
                     self.retireConnOp(slot);
                 },
                 .send => {
                     self.onSend(slot, comp);
+                    if (comp.borrowed.active()) self.recycleBorrowedPayload(comp);
                     self.retireConnOp(slot);
                 },
                 .close => {
                     if (comp.result < 0) {
                         if (slot < self.conns.len) {
                             const c = &self.conns[slot];
-                            c.peer.recordFailure(comp.failure orelse error.CloseFailed);
+                            failure_projection.record(&c.peer, comp, error.CloseFailed);
                             if (c.state == .closing) self.backend.closeFd(c.fd);
                         }
                         if (slot == self.conns.len) {
@@ -1528,6 +1169,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                         self.listener_close_pending = false;
                         self.listener_close_fd = null;
                     }
+                    if (comp.borrowed.active()) self.recycleBorrowedPayload(comp);
                     self.retireConnOp(slot);
                 },
             }
@@ -1567,7 +1209,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             // loop again, but it does not erase the completed operation's
             // failure. There is no connection peer to carry an accept error,
             // so the loop owner is its only honest diagnostic surface.
-            const fd = accepted orelse return comp.failure orelse error.AcceptFailed;
+            const fd = accepted orelse return failure_projection.primary(comp, error.AcceptFailed);
 
             const slot = self.freeSlot(.ordinary) orelse {
                 self.backend.closeFd(fd);
@@ -1585,7 +1227,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         fn onConnect(self: *Self, slot: usize, comp: Completion) void {
             const c = self.liveConn(slot) orelse return;
             if (comp.result < 0) {
-                c.peer.recordFailure(comp.failure orelse error.ConnectFailed);
+                failure_projection.record(&c.peer, comp, error.ConnectFailed);
                 self.closeConn(slot, c);
                 return;
             }
@@ -2126,11 +1768,11 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
                 // result == 0 is a clean EOF; negative is a read error. Either
                 // ends the connection.
                 if (comp.result < 0)
-                    c.peer.recordFailure(comp.failure orelse error.ReadFailed);
+                    failure_projection.record(&c.peer, comp, error.ReadFailed);
                 return .close;
             }
 
-            const incoming = comp.recv_bytes orelse &.{};
+            const incoming = comp.borrowed.recvBytes() orelse &.{};
 
             // Apply every whole frame in this completion's bytes, carrying a
             // partial tail into the connection's spill. recvStreamPrefix projects
@@ -2268,9 +1910,10 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// calls this exactly once per completion that carried one — then re-arm
         /// one buffer-starved connection, since exactly one buffer just became
         /// available.
-        fn recycleRecvBuffer(self: *Self, comp: Completion) void {
-            self.backend.recycleRecv(comp);
-            self.resumeStarved(.one);
+        fn recycleBorrowedPayload(self: *Self, comp: Completion) void {
+            const freed_recv = comp.borrowed.kind == .recv;
+            self.backend.recycleBorrowed(comp);
+            if (freed_recv) self.resumeStarved(.one);
         }
 
         /// Re-arm starved connections. `.one` re-arms the first that can read —
@@ -2429,7 +2072,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
             const c = &self.conns[slot];
             if (c.state != .open and c.state != .draining) return;
             if (comp.result <= 0) {
-                c.peer.recordFailure(comp.failure orelse error.WriteFailed);
+                failure_projection.record(&c.peer, comp, error.WriteFailed);
                 self.closeConn(slot, c);
                 return;
             }

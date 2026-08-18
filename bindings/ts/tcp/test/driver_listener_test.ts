@@ -14,7 +14,8 @@ Deno.test("high-level servers expose the driver's complete listener locator", as
 		seed: new Uint8Array(32).fill(8),
 	});
 	try {
-		assert(plain.uri.endsWith(".tcp"), "plain server did not expose a tcp locator");
+		assert(plain.locator.transport === "tcp", "plain server did not expose a tcp locator");
+		assert(formatLocatorUri(plain.locator) === plain.uri, "plain server URI drifted from its locator");
 		assert(keyed.uri.includes(".keyed-tcp?"), "keyed server did not expose its locator hint");
 		assert(noise.uri.includes(".noise-tcp?"), "noise server did not expose its locator hint");
 		assert(

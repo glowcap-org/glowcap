@@ -245,7 +245,7 @@ fn restartCycle(
     dial_id: []const u8,
 ) !void {
     var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
-    defer client.deinit();
+    defer client.deinit() catch |err| std.log.err("iroh client teardown failed: {s}", .{@errorName(err)});
 
     const s_entries = [_]net.netlayer.Netlayer{server.netlayer()};
     const c_entries = [_]net.netlayer.Netlayer{client.netlayer()};
@@ -280,12 +280,12 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-interop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer server.deinit();
+    defer server.deinit() catch |err| std.log.err("iroh server teardown failed: {s}", .{@errorName(err)});
     var client = iroh.Resident.init(io, null, .{ .reachability = .direct }) catch |err| {
         std.debug.print("iroh-interop: client endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer client.deinit();
+    defer client.deinit() catch |err| std.log.err("iroh client teardown failed: {s}", .{@errorName(err)});
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);
@@ -338,7 +338,7 @@ pub fn main(init: std.process.Init) !void {
     {
         const seed: [32]u8 = @splat(0x42);
         var seeded = try iroh.Resident.init(io, &seed, .{ .reachability = .direct });
-        defer seeded.deinit();
+        defer seeded.deinit() catch |err| std.log.err("iroh seeded endpoint teardown failed: {s}", .{@errorName(err)});
         var seeded_buf: [iroh.node_id_len]u8 = undefined;
         const seeded_id = seeded.nodeId(&seeded_buf);
         const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
@@ -351,9 +351,9 @@ pub fn main(init: std.process.Init) !void {
         const d_server_seed: [32]u8 = @splat(0x33);
         const d_server_secret = pancake.foundation.crypto.SecretKey.fromSeed(d_server_seed);
         var d_server = try iroh.Resident.init(io, &d_server_seed, .{ .reachability = .local_discovery });
-        defer d_server.deinit();
+        defer d_server.deinit() catch |err| std.log.err("iroh discovery server teardown failed: {s}", .{@errorName(err)});
         var d_client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
-        defer d_client.deinit();
+        defer d_client.deinit() catch |err| std.log.err("iroh discovery client teardown failed: {s}", .{@errorName(err)});
 
         var d_id_buf: [iroh.node_id_len]u8 = undefined;
         const d_server_id = d_server.nodeId(&d_id_buf);
@@ -384,9 +384,9 @@ pub fn main(init: std.process.Init) !void {
         const client_secret = crypto.SecretKey.fromSeed(client_seed);
 
         var u_server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
-        defer u_server.deinit();
+        defer u_server.deinit() catch |err| std.log.err("iroh unification server teardown failed: {s}", .{@errorName(err)});
         var u_client = try iroh.Resident.init(io, &client_seed, .{ .reachability = .local_discovery });
-        defer u_client.deinit();
+        defer u_client.deinit() catch |err| std.log.err("iroh unification client teardown failed: {s}", .{@errorName(err)});
 
         var u_server_buf: [iroh.node_id_len]u8 = undefined;
         const u_server_id = u_server.nodeId(&u_server_buf);
@@ -418,14 +418,14 @@ pub fn main(init: std.process.Init) !void {
 
         {
             var v1 = try iroh.Resident.init(io, &dur_seed, .{ .reachability = .local_discovery });
-            defer v1.deinit();
+            defer v1.deinit() catch |err| std.log.err("iroh durable endpoint teardown failed: {s}", .{@errorName(err)});
             _ = v1.nodeId(&sturdyref);
             try restartCycle(io, allocator, &v1, dur_secret, sturdyref[0..]);
         }
 
         {
             var v2 = try iroh.Resident.init(io, &dur_seed, .{ .reachability = .local_discovery });
-            defer v2.deinit();
+            defer v2.deinit() catch |err| std.log.err("iroh restarted endpoint teardown failed: {s}", .{@errorName(err)});
             var v2_buf: [iroh.node_id_len]u8 = undefined;
             const v2_id = v2.nodeId(&v2_buf);
             if (!std.mem.eql(u8, v2_id, sturdyref[0..])) return error.NodeIdNotDurable;

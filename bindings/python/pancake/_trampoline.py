@@ -31,7 +31,7 @@ import weakref
 from typing import Callable, Optional
 
 from . import _constants as _abi
-from ._codec import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
+from ._abi_value import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
 from ._errors import _check_host, _host_last_error, PancakeError, VowBroken
 from ._ffi_host import _host, _HostBehavior
 from ._ffi_ocapn import _Argument, _byte_buf, _Reference
@@ -199,6 +199,24 @@ def _exit_deliver(prior: Optional[object]) -> None:
     _turn_state.active_deliver_session = prior
 
 
+def _turn_arriving_session(turn: int) -> tuple[object, object]:
+    """Resolve the core-owned turn to its existing public Session wrapper.
+
+    A driver step is bracketed by a Host-only carrier because an internal
+    redeemed session may have no wrapper. The turn is the authority for the
+    actual ingress session; retain the carrier only when no wrapper exists.
+    Returns ``(carrier, arriving)`` so the trampoline can restore the outer
+    bracket exactly.
+    """
+    carrier = getattr(_turn_state, "active_deliver_session", None)
+    owner = getattr(carrier, "host", None) if carrier is not None else None
+    if owner is None:
+        raise RuntimeError("hosted callback ran outside a session feed")
+    out = ctypes.c_void_p()
+    _check_host(_host.pancake_host_turn_session(turn, ctypes.byref(out)))
+    return carrier, owner.get_session(out.value) or carrier
+
+
 def _current_turn_for(session: object) -> Optional[int]:
     """The current turn pointer when it belongs to ``session``'s Host."""
     current_turn = getattr(_turn_state, "current_turn", None)
@@ -281,12 +299,22 @@ def _trampoline_body(ctx, turn, verb_ptr, verb_len, args_ptr, args_len, out_repl
     entry = _registry.get(ctx or 0)
     if entry is None:
         return _turn_break(turn, "no such hosted object")
+    carrier = None
+    restore_deliver = False
     try:
+        carrier, arriving = _turn_arriving_session(turn)
+        _turn_state.active_deliver_session = arriving
+        restore_deliver = True
         verb = ctypes.string_at(verb_ptr, verb_len).decode(errors="replace") if verb_len else ""
         args = [_arg_from_c(args_ptr[i]) for i in range(args_len)]
+        if getattr(arriving, "gc_enabled", False):
+            getattr(arriving, "gc").track_arguments(args)
         return _settle_reply(turn, _run_hosted(entry, verb, args, turn=turn), out_reply)
     except BaseException as error:  # noqa: BLE001 — nothing crosses the C frame
         return _turn_break(turn, str(error) or type(error).__name__)
+    finally:
+        if restore_deliver:
+            _turn_state.active_deliver_session = carrier
 
 
 # The one native callback, module-lifetime by construction: a per-spawn

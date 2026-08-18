@@ -42,12 +42,12 @@
 ;; watching while you type is that this member is not a pancake peer: the room
 ;; settles this one session on the OCapN v1.0 Syrup baseline while every pancake
 ;; member on the same server keeps pancake's native profile. Start the server
-;; with `ROOMS_VIZ_PORT` set and the ocapnviz viewer draws that split live.
+;; with `--viz` and the ocapnviz viewer draws that split live.
 ;;
-;; Set `ROOMS_VIZ_URL` to that endpoint's address and this vat publishes its own
+;; Set `PANCAKE_ROOMS_VIZ_URL` to that endpoint's address and this vat publishes its own
 ;; trace there too, so the sessions it holds appear beside every other peer's:
 ;;
-;;   ROOMS_VIZ_URL=ws://127.0.0.1:9300/ racket -y rooms-chat.rkt \
+;;   PANCAKE_ROOMS_VIZ_URL=ws://127.0.0.1:9300/ racket -y rooms-chat.rkt \
 ;;     127.0.0.1:9099 general goblins-carol
 ;;
 ;; With the variable unset the vat holds no publishing socket and sends nothing.

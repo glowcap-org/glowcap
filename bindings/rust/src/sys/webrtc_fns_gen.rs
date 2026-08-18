@@ -17,6 +17,7 @@ use super::driver::PancakeTransportProvider;
 use super::webrtc::{PancakeWebrtcConfig, PancakeWebrtcNetlayer, PancakeWebrtcPeer, PancakeWebrtcReadyEvent};
 
 extern "C" {
+	pub fn pancake_webrtc_archive_fingerprint() -> u64;
 	pub fn pancake_webrtc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
 	pub fn pancake_webrtc_netlayer_new(
 		config: *const PancakeWebrtcConfig,

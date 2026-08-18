@@ -44,6 +44,14 @@ error_slot!(
 	ffi::pancake_inproc_last_error
 );
 
+fn require_archive() -> Result<()> {
+	crate::require_archive_fingerprint(
+		"inproc",
+		unsafe { ffi::pancake_inproc_archive_fingerprint() },
+		crate::abi_constants::INPROC_ARCHIVE_FINGERPRINT,
+	)
+}
+
 /// Owns the in-process switchboard and its one I/O backend. Connections and
 /// listeners borrow it (via `&self`), so the borrow checker rejects an
 /// [`Connection`] or [`Listener`] that outlives the netlayer that produced it. The
@@ -57,6 +65,7 @@ pub struct Netlayer<'ctx> {
 
 impl<'ctx> Netlayer<'ctx> {
 	pub fn new() -> Result<Netlayer<'ctx>> {
+		require_archive()?;
 		let mut raw: *mut ffi::PancakeInprocNetlayer = core::ptr::null_mut();
 		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new(&mut raw) })?;
 		Ok(Netlayer {
@@ -70,6 +79,7 @@ impl<'ctx> Netlayer<'ctx> {
 	/// allocate through `context`. The context must outlive the netlayer, which
 	/// `'ctx` enforces.
 	pub fn new_in(context: &'ctx Context) -> Result<Netlayer<'ctx>> {
+		require_archive()?;
 		let mut raw: *mut ffi::PancakeInprocNetlayer = core::ptr::null_mut();
 		check_inproc(unsafe { ffi::pancake_inproc_netlayer_new_in(context.raw(), &mut raw) })?;
 		Ok(Netlayer {
@@ -104,6 +114,9 @@ impl<'ctx> Netlayer<'ctx> {
 				codec.to_c(),
 				max_frame_bytes,
 				&mut raw,
+				core::ptr::null_mut(),
+				0,
+				core::ptr::null_mut(),
 			)
 		})?;
 		Ok(Connection { raw, _nl: PhantomData })
@@ -152,7 +165,17 @@ impl Listener<'_> {
 	/// listener (and thus the netlayer) and cannot outlive it.
 	pub fn accept(&self, codec: Codec, max_frame_bytes: usize) -> Result<Connection<'_>> {
 		let mut raw: *mut ffi::PancakeInprocConn = core::ptr::null_mut();
-		check_inproc(unsafe { ffi::pancake_inproc_accept(self.raw, codec.to_c(), max_frame_bytes, &mut raw) })?;
+		check_inproc(unsafe {
+			ffi::pancake_inproc_accept(
+				self.raw,
+				codec.to_c(),
+				max_frame_bytes,
+				&mut raw,
+				core::ptr::null_mut(),
+				0,
+				core::ptr::null_mut(),
+			)
+		})?;
 		Ok(Connection { raw, _nl: PhantomData })
 	}
 
@@ -161,7 +184,9 @@ impl Listener<'_> {
 			return Ok(());
 		}
 		let raw = core::mem::replace(&mut self.raw, core::ptr::null_mut());
-		check_inproc(unsafe { ffi::pancake_inproc_listener_release(raw) })
+		check_inproc(unsafe {
+			ffi::pancake_inproc_listener_release(raw, core::ptr::null_mut(), 0, core::ptr::null_mut())
+		})
 	}
 
 	/// Close explicitly and return the native teardown failure, if any.
@@ -206,7 +231,9 @@ impl Connection<'_> {
 	/// reports a clean EOF.
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
 		let mut frame: crate::sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
-		check_inproc(unsafe { ffi::pancake_inproc_conn_read_frame(self.raw, &mut frame) })?;
+		check_inproc(unsafe {
+			ffi::pancake_inproc_conn_read_frame(self.raw, &mut frame, core::ptr::null_mut(), 0, core::ptr::null_mut())
+		})?;
 		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
 		unsafe { crate::sys::pancake_managed_frame_release(&mut frame) };
 		Ok(out)
@@ -219,7 +246,9 @@ impl Connection<'_> {
 			len: bytes.len(),
 			shape: crate::sys::FRAME_SHAPE_BYTE,
 		};
-		check_inproc(unsafe { ffi::pancake_inproc_conn_write_frame(self.raw, &f) })
+		check_inproc(unsafe {
+			ffi::pancake_inproc_conn_write_frame(self.raw, &f, core::ptr::null_mut(), 0, core::ptr::null_mut())
+		})
 	}
 }
 

@@ -16,7 +16,7 @@
  * bridge (clear-all, clear-on-empty-click).
  */
 
-import { parseEndpointStageId } from "../schema/topology.ts";
+import { parseEndpointStageId } from "../schema/session-end.ts";
 import {
   type DeclaredEntities,
   EMPTY_SELECTION,

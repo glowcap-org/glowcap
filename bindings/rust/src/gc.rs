@@ -1,8 +1,7 @@
 //! Distributed GC (ADR-0063), opt-in and off by default. Owns the
-//! [`ImportGuard`] death rite, fetch [`track_import`], and the
+//! [`CapabilityGuard`] death rite, recursive application-value tracking, and the
 //! `pancake_host_ref_release` drain. Session holds only the opt-in flag; the
 //! Host owns the pending queue because a Ref may outlive its arrival session.
-//! Binding spine Pass 3b.
 
 use std::cell::Cell;
 use std::rc::{Rc, Weak};
@@ -10,6 +9,7 @@ use std::rc::{Rc, Weak};
 use crate::host::HostShared;
 use crate::session_shared::SessionShared;
 use crate::sys::host as ffi;
+use crate::Argument;
 use crate::Ref;
 
 /// Drops to one parked `pancake_host_ref_release` delta of 1 for a Host id.
@@ -18,13 +18,13 @@ use crate::Ref;
 /// the host-driving verbs are refused, so the release itself always runs on the
 /// pumping task, never here.
 #[derive(Debug)]
-pub(crate) struct ImportGuard {
+pub(crate) struct CapabilityGuard {
 	pub(crate) token: u64,
 	pub(crate) host: Weak<HostShared>,
 	armed: Cell<bool>,
 }
 
-impl Drop for ImportGuard {
+impl Drop for CapabilityGuard {
 	fn drop(&mut self) {
 		if self.armed.get() {
 			if let Some(host) = self.host.upgrade() {
@@ -36,7 +36,7 @@ impl Drop for ImportGuard {
 }
 
 /// Drain the parked GC releases: one release delta per reclaimed token. The
-/// op:gc-exports flush rides the kick `ImportGuard::drop` scheduled when it
+/// op:gc-exports flush rides the kick `CapabilityGuard::drop` scheduled when it
 /// parked the id, so the drain itself never kicks. A token leaves the queue
 /// only after its native release commits. Called at the head of Host progress
 /// and whenever a finalizer schedules it.
@@ -57,12 +57,12 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 	}
 }
 
-/// Build an [`ImportGuard`] when GC is on.
-pub(crate) fn guard_for(session: &Rc<SessionShared>, id: u64) -> Option<Rc<ImportGuard>> {
+/// Build a [`CapabilityGuard`] when GC is on.
+pub(crate) fn guard_for_ref(session: &Rc<SessionShared>, id: u64) -> Option<Rc<CapabilityGuard>> {
 	if !session.gc.get() {
 		return None;
 	}
-	Some(Rc::new(ImportGuard {
+	Some(Rc::new(CapabilityGuard {
 		token: id,
 		host: Rc::downgrade(&session.host),
 		armed: Cell::new(true),
@@ -75,14 +75,55 @@ pub(crate) fn disarm(reference: &Ref) {
 	}
 }
 
-/// Wrap a fetched capability into a [`Ref`]. The Host resolves its opaque id
-/// to the capability and any corresponding wire retain when release fires.
-/// The guard captures only the bare id, never the `Ref`.
-pub(crate) fn track_import(shared: &Rc<SessionShared>, reference: Ref) -> Ref {
-	if let Some(guard) = guard_for(shared, reference.id()) {
-		return Ref::tracked_id(reference.id(), guard);
+/// Attach one finalizer unit to every capability occurrence in a value the
+/// native Host has just projected to this GC-enabled session. The walk mutates
+/// only `Ref` leaves; container identity and application data stay unchanged.
+/// Each native occurrence owns one Host retain, so repeated equal ids remain
+/// distinct guards rather than being deduplicated in the binding.
+pub(crate) fn track_argument(shared: &Rc<SessionShared>, argument: &mut Argument) {
+	if !shared.gc.get() {
+		return;
 	}
-	reference
+	match argument {
+		Argument::Reference(reference) => {
+			if reference.guard().is_none() {
+				if let Some(guard) = guard_for_ref(shared, reference.id()) {
+					reference.attach_guard(guard);
+				}
+			}
+		}
+		Argument::List(items) | Argument::Set(items) => {
+			for item in items {
+				track_argument(shared, item);
+			}
+		}
+		Argument::Tagged { value, .. } => {
+			for item in value {
+				track_argument(shared, item);
+			}
+		}
+		Argument::Struct(entries) => {
+			for (_, value) in entries {
+				track_argument(shared, value);
+			}
+		}
+		Argument::Integer(_)
+		| Argument::Float(_)
+		| Argument::Boolean(_)
+		| Argument::Bytes(_)
+		| Argument::String(_)
+		| Argument::Symbol(_)
+		| Argument::Error(_)
+		| Argument::Keyword(_)
+		| Argument::Void
+		| Argument::BigInteger { .. } => {}
+	}
+}
+
+pub(crate) fn track_arguments(shared: &Rc<SessionShared>, arguments: &mut [Argument]) {
+	for argument in arguments {
+		track_argument(shared, argument);
+	}
 }
 
 /// Release one capability retain deterministically, because the application says it is

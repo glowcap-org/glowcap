@@ -156,7 +156,10 @@ class Context:
         def text(pointer: int | None, length: int) -> str:
             if not pointer or length == 0:
                 return ""
-            return ctypes.string_at(pointer, length).decode(errors="replace")
+            # The native journal validates reports and truncates only at UTF-8
+            # boundaries.  A decoding error is therefore an ABI violation, not
+            # text that this projection is allowed to repair.
+            return ctypes.string_at(pointer, length).decode()
 
         return FailureEvent(
             sequence=event.sequence,

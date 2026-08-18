@@ -1,10 +1,12 @@
 import * as tcp from "../../tcp/mod.ts";
+import { INVALID_ARGUMENT, IO, LIFECYCLE_ACTIVE, LIFECYCLE_CLOSED, OK } from "@pancake/abi";
 import { Connector } from "../transport.ts";
 import { Host } from "../host.ts";
-import { type CloseOptions, encodeCloseOptions } from "../lifecycle.ts";
+import { type CloseOptions, encodeCloseOptions, lifecycleClosed, releaseConsumed } from "../lifecycle.ts";
 import { Runtime } from "../runtime.ts";
 import { Context, recordCallerlessFailure, takeRuntimeFailures } from "../context.ts";
 import type { Session } from "../session.ts";
+import { requireArchiveFingerprint } from "../internal/ffi/runtime.ts";
 
 function assert(value: unknown, message: string): asserts value {
 	if (!value) throw new Error(message);
@@ -13,6 +15,41 @@ function assert(value: unknown, message: string): asserts value {
 function fakeSession(id: number): Session {
 	return { id } as unknown as Session;
 }
+
+Deno.test("final release status names the ownership boundary", () => {
+	assert(!releaseConsumed(INVALID_ARGUMENT), "INVALID_ARGUMENT must remain retryable");
+	assert(releaseConsumed(OK), "successful release must consume ownership");
+	assert(releaseConsumed(IO), "teardown failure must consume ownership");
+});
+
+Deno.test("native lifecycle decoding rejects unknown states", () => {
+	assert(!lifecycleClosed(LIFECYCLE_ACTIVE), "active was decoded as closed");
+	assert(lifecycleClosed(LIFECYCLE_CLOSED), "closed was decoded as active");
+	let refused = false;
+	try {
+		lifecycleClosed(0xffff_ffff);
+	} catch (error) {
+		refused = error instanceof Error && error.message.includes("unknown lifecycle state");
+	}
+	assert(refused, "unknown lifecycle state was normalized into progress");
+});
+
+Deno.test("archive fingerprints refuse stale callable surfaces before use", () => {
+	requireArchiveFingerprint(
+		{ pancake_test_archive_fingerprint: () => 0x1234n },
+		{ symbol: "pancake_test_archive_fingerprint", expected: 0x1234n, archive: "test" },
+	);
+	let refused = false;
+	try {
+		requireArchiveFingerprint(
+			{ pancake_test_archive_fingerprint: () => 0x5678n },
+			{ symbol: "pancake_test_archive_fingerprint", expected: 0x1234n, archive: "test" },
+		);
+	} catch (error) {
+		refused = error instanceof Error && error.message.includes("callable surface does not match");
+	}
+	assert(refused, "stale callable surface was admitted");
+});
 
 Deno.test("callerless failure without a surviving Context reaches the process seam", () => {
 	takeRuntimeFailures();

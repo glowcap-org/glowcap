@@ -326,7 +326,7 @@ test "forwardVow checks vows that are settled or already observed" {
         .self_ref = .{ .local = 0 },
         .ingress = .local,
         .arena = allocator,
-        .origin = .{ .served = .from(1) },
+        .origin = .{ .served = .fromWire(.from(1)) },
     };
     try std.testing.expectError(actors.Error.AlreadySettled, settled_turn.forwardVow(settled.vow));
     try std.testing.expect(!settled_turn.forwarded);
@@ -340,7 +340,7 @@ test "forwardVow checks vows that are settled or already observed" {
         .self_ref = .{ .local = 0 },
         .ingress = .local,
         .arena = allocator,
-        .origin = .{ .served = .from(2) },
+        .origin = .{ .served = .fromWire(.from(2)) },
     };
     try std.testing.expectError(actors.Error.AlreadyListening, observed_turn.forwardVow(observed.vow));
     try std.testing.expect(!observed_turn.forwarded);

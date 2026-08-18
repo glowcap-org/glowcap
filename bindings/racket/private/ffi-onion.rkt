@@ -18,5 +18,68 @@
 ;; The bound functions and their out-cell wrappers are generated from the
 ;; archive's annotated symbol inventory (`ffi-onion-gen.rkt`, `zig build
 ;; gen-binding-racket-ffi`); this module owns the prose and re-provides them.
-(require "ffi-onion-gen.rkt")
-(provide (all-from-out "ffi-onion-gen.rkt"))
+(require ffi/unsafe
+         "ffi-shared.rkt"
+         "ffi-onion-gen.rkt")
+(provide (except-out (all-from-out "ffi-onion-gen.rkt")
+                     pancake_onion_netlayer_release*
+                     pancake_onion_connect*
+                     pancake_onion_listen*
+                     pancake_onion_listener_wait*
+                     pancake_onion_accept*
+                     pancake_onion_conn_read_frame*
+                     pancake_onion_conn_write_frame*
+                     pancake_onion_conn_release*
+                     pancake_onion_listener_release*)
+         pancake_onion_netlayer_release
+         pancake_onion_connect
+         pancake_onion_listen
+         pancake_onion_listener_wait
+         pancake_onion_accept
+         pancake_onion_conn_read_frame
+         pancake_onion_conn_write_frame
+         pancake_onion_conn_release
+         pancake_onion_listener_release)
+
+(define (pancake_onion_netlayer_release netlayer)
+  (call/without-diagnostic pancake_onion_netlayer_release* netlayer))
+
+(define (pancake_onion_connect netlayer service-id service-id-len codec max-frame)
+  (call/out _pointer #f
+            (lambda (out)
+              (call/without-diagnostic pancake_onion_connect*
+                                       netlayer service-id service-id-len codec
+                                       max-frame out))))
+
+(define (pancake_onion_listen netlayer out-service-id out-service-id-cap
+                              out-service-key out-service-key-cap)
+  (call/outs (list (cons _size 0) (cons _size 0) (cons _pointer #f))
+             (lambda (out-id-len out-key-len out-listener)
+               (call/without-diagnostic
+                pancake_onion_listen*
+                netlayer out-service-id out-service-id-cap out-id-len
+                out-service-key out-service-key-cap out-key-len out-listener))))
+
+(define (pancake_onion_listener_wait listener timeout-ms)
+  (call/out _uint32 0
+            (lambda (out)
+              (call/without-diagnostic pancake_onion_listener_wait*
+                                       listener timeout-ms out))))
+
+(define (pancake_onion_accept listener codec max-frame)
+  (call/out _pointer #f
+            (lambda (out)
+              (call/without-diagnostic pancake_onion_accept*
+                                       listener codec max-frame out))))
+
+(define (pancake_onion_conn_read_frame conn frame)
+  (call/without-diagnostic pancake_onion_conn_read_frame* conn frame))
+
+(define (pancake_onion_conn_write_frame conn frame)
+  (call/without-diagnostic pancake_onion_conn_write_frame* conn frame))
+
+(define (pancake_onion_conn_release conn)
+  (call/without-diagnostic pancake_onion_conn_release* conn))
+
+(define (pancake_onion_listener_release listener)
+  (call/without-diagnostic pancake_onion_listener_release* listener))

@@ -25,7 +25,7 @@ shelling out. Same product binary as argv/REPL
 | Cursor | [`.cursor/mcp.json`](../../../.cursor/mcp.json) → `./pancake mcp --tools default` |
 | Claude | [`.mcp.json`](../../../.mcp.json) → `./pancake mcp --tools default` |
 | Shim | [`pancake`](../../../pancake) → `zig-out/bin/pancake` |
-| Portable stub (PATH `pancake`) | [`docs/examples/pancake-mcp.json`](../../../docs/examples/pancake-mcp.json) |
+| Portable stub (PATH `pancake`) | [`docs/pancake-mcp.json`](../../../docs/pancake-mcp.json) |
 | Human recipes | [`docs/cli.md`](../../../docs/cli.md) |
 | Shell / REPL / listen | [pancake-cli](../pancake-cli/SKILL.md) |
 | Session lifetimes (all fronts) | [pancake-cli](../pancake-cli/SKILL.md) § Session model |

@@ -101,8 +101,11 @@ impl Runtime {
 			composition,
 			handshake_timeout,
 		} = config;
-		let Composition::Providers(providers) = composition else {
-			return Self::open_connectors(adopt_host, handshake_timeout, composition).await;
+		let providers = match composition {
+			Composition::Providers(providers) => providers,
+			Composition::Connectors(connectors) => {
+				return Self::open_connectors(adopt_host, handshake_timeout, connectors).await;
+			}
 		};
 		let created_host = adopt_host.is_none();
 		let handshake_ms = Self::timeout_millis(handshake_timeout)?;
@@ -142,11 +145,8 @@ impl Runtime {
 	async fn open_connectors(
 		host: Option<Host>,
 		handshake_timeout: Option<std::time::Duration>,
-		composition: Composition,
+		connectors: Vec<Connector>,
 	) -> Result<Self> {
-		let Composition::Connectors(connectors) = composition else {
-			unreachable!("provider composition is opened before connector composition")
-		};
 		let created_host = host.is_none();
 		let host = match host {
 			Some(host) => host,

@@ -64,7 +64,7 @@ const io = threaded.io();
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Discovery resolves a bare iroh node ID without an address hint.
 >     var iroh_resident = try iroh.Resident.init(io, null, .{ .reachability = .discovery });
->     defer iroh_resident.deinit();
+>     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
 >     const netlayers = [_]pancake.net.netlayer.Netlayer{iroh_resident.netlayer()};
 >     const node_id = "<64 lowercase hex characters from the server>";
 >     const partner = iroh.locator(node_id);
@@ -93,7 +93,7 @@ const io = threaded.io();
 > const pancake = @import("pancake");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     const relay_url = "wss://relay.example/rendezvous";
+>     const relay_url = "ws://192.0.2.10:8080/relay";
 >     var relay_resident = try pancake.net.relay.Resident.initProfile(allocator, io, relay_url, .noise);
 >     defer relay_resident.deinit();
 >     const netlayers = [_]pancake.net.netlayer.Netlayer{relay_resident.netlayer()};
@@ -137,7 +137,7 @@ const io = threaded.io();
 > const pancake = @import("pancake");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
->     const relay_url = "wss://relay.example/rendezvous";
+>     const relay_url = "ws://192.0.2.10:8080/relay";
 >     var relay_resident = try pancake.net.relay.Resident.initProfile(allocator, io, relay_url, .keyed);
 >     defer relay_resident.deinit();
 >     const netlayers = [_]pancake.net.netlayer.Netlayer{relay_resident.netlayer()};
@@ -234,7 +234,7 @@ accept, and serve.
 >     const seed = [_]u8{7} ** 32; // keep this seed to preserve the node id
 >     const secret = pancake.foundation.crypto.SecretKey.fromSeed(seed);
 >     var iroh_resident = try iroh.Resident.init(io, &seed, .{ .reachability = .discovery });
->     defer iroh_resident.deinit();
+>     defer iroh_resident.deinit() catch |err| std.log.err("iroh teardown failed: {s}", .{@errorName(err)});
 >     var server = try pancake.driver.listen(
 >         allocator,
 >         iroh_resident.netlayer(),
@@ -287,8 +287,8 @@ accept, and serve.
 >     var relay_resident = try pancake.net.relay.Resident.initRegisteredProfile(
 >         allocator,
 >         io,
->         "wss://relay.example/rendezvous",
->         "wss://relay.example/register",
+>         "ws://192.0.2.10:8080/relay",
+>         "ws://192.0.2.10:8080/register",
 >         secret.publicKey(),
 >         .noise,
 >     );
@@ -378,8 +378,8 @@ accept, and serve.
 >     var relay_resident = try pancake.net.relay.Resident.initRegisteredProfile(
 >         allocator,
 >         io,
->         "wss://relay.example/rendezvous",
->         "wss://relay.example/register",
+>         "ws://192.0.2.10:8080/relay",
+>         "ws://192.0.2.10:8080/register",
 >         secret.publicKey(),
 >         .keyed,
 >     );

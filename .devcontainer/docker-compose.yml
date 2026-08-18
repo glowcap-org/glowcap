@@ -24,6 +24,14 @@ services:
     working_dir: /workspaces/pancake
     environment:
       PANCAKE_WORKTREE: ${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}
+      # The ocapnviz Vite dev server keeps loopback as its bare-host default;
+      # inside the container it must bind wide or the published port above
+      # reaches nothing. The config reads this variable and opens Vite's
+      # Host-header allowlist for that same wide bind.
+      OCAPNVIZ_HOST: 0.0.0.0
+      # Zine's docs-serve is the same shape: loopback on a laptop, wide in
+      # the container so the published 1990 mapping reaches the process.
+      DOCS_SERVE_HOST: 0.0.0.0
     volumes:
       # Workspace bind — required when using dockerComposeFile.
       - ..:/workspaces/pancake:cached
@@ -33,38 +41,20 @@ services:
       - type: bind
         source: ${PANCAKE_GIT_COMMON_DIR:?Set PANCAKE_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
         target: ${PANCAKE_GIT_COMMON_DIR:?Set PANCAKE_GIT_COMMON_DIR in .devcontainer/.env (see .env.example)}
-      # Tool credentials and user-level agent state belong to this checkout's
-      # identity. Named volumes persist across rebuilds without giving a branch
-      # ambient read access to the host's credential stores or another
-      # worktree's agent sessions.
-      - type: volume
-        source: claude-home
-        target: /home/vscode/.claude
-      - type: volume
-        source: gh-config
-        target: /home/vscode/.config/gh
-      - type: volume
-        source: opencode-data
-        target: /home/vscode/.local/share/opencode
-      - type: volume
-        source: opencode-config
-        target: /home/vscode/.config/opencode
-      - type: volume
-        source: codex-home
-        target: /home/vscode/.codex
-      - type: volume
-        source: agent-resources
-        target: /home/vscode/.config/agents
+      # User-level agent and authentication state comes from the scoped host
+      # binds in devcontainer.json, shared by every pancake worktree.
     # Editor-owned build caches stay in devcontainer.json because they are safe
     # to share across worktrees and contain no tool identity.
     command: sleep infinity
     # `.env` gives each worktree its own host ports while services retain their
-    # canonical container ports. Bound to loopback so none reaches the LAN.
+    # canonical container ports. Published on every host interface.
     ports:
-      - "127.0.0.1:${PANCAKE_WEB_HOST_PORT:?Run bash .devcontainer/configure.sh}:8000"
-      - "127.0.0.1:${PANCAKE_CAPTP_HOST_PORT:?Run bash .devcontainer/configure.sh}:9099"
-      - "127.0.0.1:${PANCAKE_RELAY_HOST_PORT:?Run bash .devcontainer/configure.sh}:9200"
-      - "127.0.0.1:${PANCAKE_TRACE_HOST_PORT:?Run bash .devcontainer/configure.sh}:9300"
+      - "0.0.0.0:${PANCAKE_ROOMS_WEB_HOST_PORT:?Run bash .devcontainer/configure.sh}:8000"
+      - "0.0.0.0:${PANCAKE_ROOMS_CAPTP_HOST_PORT:?Run bash .devcontainer/configure.sh}:9099"
+      - "0.0.0.0:${PANCAKE_ROOMS_RELAY_HOST_PORT:?Run bash .devcontainer/configure.sh}:9200"
+      - "0.0.0.0:${PANCAKE_ROOMS_TRACE_HOST_PORT:?Run bash .devcontainer/configure.sh}:9300"
+      - "0.0.0.0:${PANCAKE_OCAPNVIZ_HOST_PORT:?Run bash .devcontainer/configure.sh}:5173"
+      - "0.0.0.0:${PANCAKE_DOCS_HOST_PORT:?Run bash .devcontainer/configure.sh}:1990"
     cap_add:
       - SYS_PTRACE
     security_opt:
@@ -85,17 +75,3 @@ networks:
   egress-net:
     name: ${EGRESS_NET:?Set EGRESS_NET in .devcontainer/.env (see .env.example)}
     external: true
-
-volumes:
-  claude-home:
-    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-claude-home
-  gh-config:
-    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-gh-config
-  opencode-data:
-    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-opencode-data
-  opencode-config:
-    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-opencode-config
-  codex-home:
-    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-codex-home
-  agent-resources:
-    name: pancake-${PANCAKE_WORKTREE:?Run bash .devcontainer/configure.sh}-agent-resources

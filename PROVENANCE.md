@@ -62,8 +62,9 @@ Those checks show that pancake agrees with its own expectations.
 
 External evidence is separate:
 
-- `zig build ocapn-conformance` runs the upstream OCapN test suite against a
-  pancake peer.
+- `zig build ocapn-conformance` runs every portable upstream OCapN test module
+  except its TCP-reset-sensitive `op:abort` case, then runs pancake's stricter
+  pre-setup abort and handshake-refusal probe against the same peer.
 - `zig build goblins-interop` runs a two-way conversation with a live
   [Spritely Goblins](https://spritely.institute/goblins/) vat.
 - `zig build goblins-handoff`, `goblins-gift`, and `goblins-exporter` exercise

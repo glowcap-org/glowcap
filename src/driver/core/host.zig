@@ -2,7 +2,7 @@
 //! `driver_core` I/O ban. A `Host` owns one `engine.Node` (identity,
 //! live-session directory, routing, the redeem serve step) and mints byte-fed
 //! sessions (`HostSession`) whose peers are node-registered, so
-//! everything the node decides — where a token routes, which exporter a give
+//! everything the node decides — where a capability route leads, which exporter a give
 //! withdraws from, when a served reply becomes a signed give — happens under
 //! every session the host holds, with no socket in sight. The embedder owns
 //! the loop, the sockets, and the entropy: it feeds inbound bytes with `feed`
@@ -46,6 +46,7 @@ const enliven_mod = @import("enliven.zig");
 const vows_mod = @import("vows.zig");
 const sessions_mod = @import("sessions.zig");
 const handoff_mod = @import("handoff.zig");
+const capability_promise = @import("capability_promise.zig");
 const trace = @import("trace.zig");
 const publish_mod = @import("publish.zig");
 const host_close = @import("host_close.zig");
@@ -78,7 +79,7 @@ pub const HostError = error{
     /// A top-level (host-driving) verb was re-entered from inside a listener
     /// or behavior callback. Every public verb is one of two kinds: top-level
     /// verbs refuse this error under the latch, and the enqueueing verbs —
-    /// `send`/`tell`, `listenTo`, the vow verbs, `gcRelease`,
+    /// `send`/`tell`, `listenTo`, the vow verbs, `releaseCapability`,
     /// `setExporterLocation` — are legal there, their effects encoded and
     /// pumped when the enclosing top-level verb unwinds.
     ReenteredHost,
@@ -111,15 +112,9 @@ pub const HostError = error{
     /// `deferTurn` was called for a served tell. A tell carries no answer to
     /// defer, so minting a resolver would create authority with no effect.
     NoAnswer,
-    /// The target token's exporter session is gone; the send is dropped,
+    /// The target capability route's exporter session is gone; the send is dropped,
     /// not mis-sent (the node's fail-closed contract).
-    TokenRetired,
-    /// `gcRelease` was given an id below the node's token range; only a
-    /// fetched capability's token resolves to a wire import to release.
-    NotAToken,
-    /// `releaseImport` was handed a node-minted token rather than a position
-    /// the partner named. `gcRelease` is the verb for those.
-    NotAWirePosition,
+    CapabilityRouteUnavailable,
     /// `partnerIdentity` was asked for an identity the partner has not sent
     /// yet: its `op:start-session` has not arrived with a key.
     HandshakeIncomplete,
@@ -145,6 +140,12 @@ pub const HostError = error{
     /// first lift established its canonical Host identity; accepting the
     /// conflicting observation would make one wire name identify two targets.
     ImportKindConflict,
+    /// An eventual send targeted a Host promise before its handoff redemption
+    /// completed. Promise-aware verbs queue at this boundary; direct routing
+    /// reports the still-pending state rather than guessing a session.
+    PromisePending,
+    /// A Host promise's handoff redemption settled broken.
+    PromiseBroken,
     /// Every export range in this host's slot is held by a live session, so a
     /// new one cannot be given numbers of its own. The mint is refused rather
     /// than handed a range another session is already using: the point of the
@@ -162,9 +163,6 @@ pub const HostError = error{
     /// Lift was called again for an import whose wire retains have all already
     /// been surfaced as Host handles.
     NoUnliftedImportRetain,
-    /// A position-based release tried to bypass the opaque Host handle that
-    /// owns release of this import row.
-    ImportLifted,
     /// A sturdyref's `(transport, designator)` does not name the selected
     /// session. The swiss is never interpreted outside its peer namespace.
     PeerIdentityMismatch,
@@ -208,6 +206,12 @@ pub const HostError = error{
     InvalidTransportName,
 };
 
+/// Refusals from `Host.releaseSession`. Every error is pre-commit: the session
+/// remains owned and may be retried or released with its Host. Ingress errors
+/// name an internal lifecycle disagreement without converting it into process
+/// policy; the release does not free a shell its Vat may still reference.
+pub const SessionReleaseError = HostError || actors.IngressCancellationError;
+
 /// Domain separator for session-seed derivation, so a root can never yield
 /// bytes that collide with another use of the same key material.
 /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
@@ -247,29 +251,35 @@ pub fn asFarRef(arg: model.Argument) ?@FieldType(model.Reference, "far") {
 }
 
 /// The served-reply interceptor body every host session shares: offer a
-/// fulfilled far capability to the node. A foreign **promise** token is
+/// fulfilled capability to the node. A foreign **promise** route is
 /// rewritten to a third-party import-promise on this session (ADR-0009
-/// introducing-session proxy). A foreign **object** token whose home is
+/// introducing-session proxy). A foreign **object** route whose home is
 /// another session becomes a signed give (`.claimed` — the vat resolves
 /// nothing; the node asks for gift-id entropy and originates it). Anything
 /// else passes through unchanged for the vat to resolve as-is. Same-home
-/// token lowering is not this seam's job: the outbound chokepoint
-/// (`Peer.send`, ADR-0069) rewrites a node-local token to its wire reference.
+/// same-home lowering is not this seam's job: the outbound chokepoint
+/// (`Peer.send`, ADR-0069) rewrites a node-local route to its wire reference.
 /// The actions a claim queued pump at the enclosing verb's unwind.
 fn interceptFulfilled(
     node: *engine.Node,
     peer_id: engine.PeerId,
-    answer: model.AnswerPosition,
+    answer: model.AnswerName,
     fulfilled: model.Argument,
 ) !actors.InterceptOutcome {
-    const far = asFarRef(fulfilled) orelse return .{ .resolve = fulfilled };
-    const far_id = far.import_position.int();
-    // Break reasons reach the wire via vat `@errorName`; Node uses snake_case
-    // (`session_not_open`) so the CapTP string is not Zig PascalCase.
-    if (try node.proxyForeignPromiseFulfill(peer_id, far_id)) |proxy| {
-        return .{ .resolve = .{ .reference = proxy } };
+    if (fulfilled != .reference) return .{ .resolve = fulfilled };
+    const reference = fulfilled.reference;
+    if (reference == .routed) {
+        const route_id = reference.routed.id;
+        // Break reasons reach the wire via vat `@errorName`; Node uses snake_case
+        // (`session_not_open`) so the CapTP string is not Zig PascalCase.
+        if (try node.proxyForeignPromiseFulfill(peer_id, route_id)) |proxy| {
+            return .{ .resolve = .{ .reference = proxy } };
+        }
+        if (try node.interceptFulfilledRouteNamed(peer_id, answer, route_id)) return .claimed;
+        // Same-home routes lower at the one outbound chokepoint below.
+        return .{ .resolve = fulfilled };
     }
-    if (try node.interceptFulfilledRef(peer_id, answer.int(), far_id)) return .claimed;
+    const far = asFarRef(fulfilled) orelse return .{ .resolve = fulfilled };
     // Nothing claimed it, so this reply is about to go out as a plain far on
     // this session. A position this session does not hold names nothing here:
     // the application is replying with a capability it came by somewhere else
@@ -717,11 +727,13 @@ const Publication = struct {
     actor: actors.Ref,
 };
 
-/// `pub` for the Host-core siblings, not for embedders. Host-core internal.
-pub fn actorIdOf(ref: actors.Ref) u64 {
+/// The Vat-local id carried by `ref`. `pub` only for Host-core siblings: the
+/// total result keeps general `actors.Ref` inputs from becoming an implicit
+/// local-only precondition at a public Host verb.
+pub fn localActorId(ref: actors.Ref) actors.Error!u64 {
     return switch (ref) {
         .local => |id| id,
-        .far => unreachable,
+        .far => actors.Error.NotLocal,
     };
 }
 
@@ -764,6 +776,10 @@ pub const Host = struct {
     /// session. Wire positions remain owned by their session; this table keeps
     /// the owning peer beside the target and rejects stale generations.
     capabilities: capability.Registry = .{},
+    /// Inline handoff promises. Rows exist only while redemption is pending or
+    /// while their opaque capability identity remains live.
+    capability_promises: std.AutoHashMapUnmanaged(capability.PromiseId, capability_promise.Row) = .empty,
+    next_capability_promise: u64 = 1,
     /// Incarnation stamp for remote import rows first lifted into Host space.
     /// Monotonic for the Host lifetime; zero is never issued.
     next_import_incarnation: u64 = 1,
@@ -944,8 +960,10 @@ pub const Host = struct {
         captp_version: model.CaptpVersion = model.Preference.baseline.captp_version,
         /// Optional CapTP features this host offers. Defaults to full pancake
         /// support; each session intersects this set with the partner's offer
-        /// at handshake.
-        features: model.FeatureSet = model.Preference.baseline.features,
+        /// at handshake. A peer with no Pancake feature hint gets the baseline
+        /// compatibility set, which keeps outbound `op:untag` disabled without
+        /// changing the session's OCapN version.
+        features: model.FeatureSet = model.FeatureSet.full(),
         /// Per-session amplification cap. When set, a session that still has
         /// local work after this many turns is condemned; this is an explicit
         /// hostile/self-amplification policy, not the Host scheduler quantum.
@@ -1180,6 +1198,7 @@ pub const Host = struct {
         self.pending_enlivens.deinit(self.allocator);
         self.pending_flush.deinit(self.allocator);
         self.session_close_timing.deinit(self.allocator);
+        capability_promise.deinit(self);
         self.capabilities.deinit(self.allocator);
         return first_failure;
     }
@@ -1221,7 +1240,7 @@ pub const Host = struct {
             .captp_version = self.opts.captp_version,
             .codec = self.opts.codec,
             .features = self.opts.features,
-        });
+        }, false);
         return model.clonePeerLocator(allocator, complete);
     }
 
@@ -1274,7 +1293,7 @@ pub const Host = struct {
             .captp_version = self.opts.captp_version,
             .codec = self.opts.codec,
             .features = self.opts.features,
-        });
+        }, false);
         try self.node.ensureAdvertisedLocator(complete);
     }
 
@@ -1709,7 +1728,7 @@ pub const Host = struct {
     /// Eventual-send `msg` to `target` and mint a host vow for the answer,
     /// observed with `vowOn`. A near target (an export this host bound) runs
     /// in-process; a far target routes through the node, so a redeemed or
-    /// fetched token rides its exporter session transparently. A far
+    /// fetched route rides its exporter session transparently. A far
     /// argument foreign to the routed session is refused whole
     /// (`ForeignArgument`) rather than mis-encoded.
     pub fn send(self: *Host, session: *HostSession, target: model.Reference, msg: actors.Message) !u64 {
@@ -1727,7 +1746,7 @@ pub const Host = struct {
     /// Eventual-send through an opaque Host capability. Local actors are
     /// reached directly without manufacturing a Port position; remote targets
     /// ride the session retained by the capability row rather than enrolling a
-    /// synthetic token only to route it back again.
+    /// intermediate Node route only to resolve it back again.
     pub fn sendCapability(
         self: *Host,
         session: *HostSession,
@@ -1784,13 +1803,41 @@ pub const Host = struct {
         drive_now: bool,
     ) !u64 {
         try self.admitApplicationOperation();
+        const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
+        if (resolved_target == .deferred) {
+            const promise = self.capability_promises.get(resolved_target.deferred) orelse
+                return error.UnknownCapability;
+            switch (promise.state) {
+                .pending, .settling => {
+                    const id = try capability_promise.queueSendValues(
+                        self,
+                        resolved_target.deferred,
+                        session,
+                        verb,
+                        values,
+                    );
+                    if (drive_now) host_pump.finishCommittedWork(self, session);
+                    return id;
+                },
+                .fulfilled, .broken => {},
+            }
+        }
         const routed = try self.routeCapability(session, target, true);
         try self.checkOutboundAdmission(routed.session);
+        const retained = try self.retainValueCapabilities(arena, values);
+        var retained_live = true;
+        defer if (retained_live) self.releaseUntransferredCapabilityRetains(retained);
         var prepared = try self.prepareValues(routed.session, arena, values);
         defer prepared.deinit();
-        try self.validateRoutedArguments(routed.session, prepared.values);
-        const id = try self.commitRoutedSend(routed, .{ .verb = verb, .args = prepared.values }, drive_now);
+        const id = try self.commitRoutedSend(
+            routed,
+            .{ .verb = verb, .args = prepared.values },
+            drive_now,
+            .{ .arena = arena, .retained = retained },
+        );
         _ = prepared.commit();
+        self.releaseUntransferredCapabilityRetains(retained);
+        retained_live = false;
         return id;
     }
 
@@ -1804,7 +1851,7 @@ pub const Host = struct {
         try self.admitApplicationOperation();
         const routed = try self.routeSend(session, target, msg.args);
         try self.checkOutboundAdmission(routed.session);
-        return self.commitRoutedSend(routed, msg, drive_now);
+        return self.commitRoutedSend(routed, msg, drive_now, null);
     }
 
     fn sendCapabilityWithProgress(
@@ -1816,12 +1863,23 @@ pub const Host = struct {
     ) !u64 {
         try self.admitApplicationOperation();
         const routed = try self.routeCapability(session, target, true);
-        try self.validateRoutedArguments(routed.session, msg.args);
         try self.checkOutboundAdmission(routed.session);
-        return self.commitRoutedSend(routed, msg, drive_now);
+        try self.validateRoutedArguments(routed.session, msg.args);
+        return self.commitRoutedSend(routed, msg, drive_now, null);
     }
 
-    fn commitRoutedSend(self: *Host, routed: RoutedSend, msg: actors.Message, drive_now: bool) !u64 {
+    const OutboundStagingContext = struct {
+        arena: std.mem.Allocator,
+        retained: []StagedCapabilityRetain,
+    };
+
+    fn commitRoutedSend(
+        self: *Host,
+        routed: RoutedSend,
+        msg: actors.Message,
+        drive_now: bool,
+        staging: ?OutboundStagingContext,
+    ) !u64 {
         const location: actors.VowLocation = switch (routed.target) {
             .local => .local,
             .far => .far,
@@ -1829,7 +1887,16 @@ pub const Host = struct {
         const reservation = try self.reserveVow(routed.session, location, .plain);
         var reservation_live = true;
         errdefer if (reservation_live) self.cancelVowReservation(reservation);
-        const vow = try routed.session.served.send(&self.vat, routed.target, msg);
+        const vow = if (staging) |context|
+            try self.servedSendWithStaging(
+                routed.session,
+                routed.target,
+                msg,
+                context.arena,
+                context.retained,
+            )
+        else
+            try routed.session.served.send(&self.vat, routed.target, msg);
         const id = self.commitVow(routed.session, reservation, vow);
         reservation_live = false;
         self.node.exporterApplicationOwned(routed.session.peer_id);
@@ -1852,8 +1919,8 @@ pub const Host = struct {
     pub fn tellCapability(self: *Host, session: *HostSession, target: capability.Ref, msg: actors.Message) !void {
         try self.admitApplicationOperation();
         const routed = try self.routeCapability(session, target, true);
-        try self.validateRoutedArguments(routed.session, msg.args);
         try self.checkOutboundAdmission(routed.session);
+        try self.validateRoutedArguments(routed.session, msg.args);
         return self.commitRoutedTell(routed, msg);
     }
 
@@ -1867,13 +1934,42 @@ pub const Host = struct {
         arena: std.mem.Allocator,
     ) !void {
         try self.admitApplicationOperation();
+        const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
+        if (resolved_target == .deferred) {
+            const promise = self.capability_promises.get(resolved_target.deferred) orelse
+                return error.UnknownCapability;
+            switch (promise.state) {
+                .pending, .settling => {
+                    try capability_promise.queueTellValues(
+                        self,
+                        resolved_target.deferred,
+                        session,
+                        verb,
+                        values,
+                    );
+                    host_pump.finishCommittedWork(self, session);
+                    return;
+                },
+                .fulfilled, .broken => {},
+            }
+        }
         const routed = try self.routeCapability(session, target, true);
         try self.checkOutboundAdmission(routed.session);
+        const retained = try self.retainValueCapabilities(arena, values);
+        var retained_live = true;
+        defer if (retained_live) self.releaseUntransferredCapabilityRetains(retained);
         var prepared = try self.prepareValues(routed.session, arena, values);
         defer prepared.deinit();
-        try self.validateRoutedArguments(routed.session, prepared.values);
-        try routed.session.served.tell(&self.vat, routed.target, .{ .verb = verb, .args = prepared.values });
+        try self.servedTellWithStaging(
+            routed.session,
+            routed.target,
+            .{ .verb = verb, .args = prepared.values },
+            arena,
+            retained,
+        );
         _ = prepared.commit();
+        self.releaseUntransferredCapabilityRetains(retained);
+        retained_live = false;
         self.node.exporterApplicationOwned(routed.session.peer_id);
         try host_pump.dirtyThenPump(self, routed.session.peer_id);
     }
@@ -1902,7 +1998,7 @@ pub const Host = struct {
     /// Fetch the partner capability published as `name`, minting a host vow
     /// for the outcome: observe it in-process with `vowOn`, or drain its
     /// `settled`/`failed` completion from the action queue. A fulfilled far
-    /// capability settles *already enrolled* under a node-unique token
+    /// capability settles *already enrolled* under a node-unique route
     /// (ADR-0069) — recorded before the outcome is dispatched, so a reply
     /// that immediately re-gifts it routes to the right exporter. Top-level:
     /// refused from inside a callback.
@@ -1941,8 +2037,8 @@ pub const Host = struct {
     /// introducing session's proxy for a third party's promise (ADR-0009) —
     /// settles through a notification the partner delivers, and this is the
     /// verb that asks for it. A far target routes through the node first, the
-    /// way `send` and `tell` route, so a node token is listened on the session
-    /// that exports it rather than the session the token was learned on. The
+    /// way `send` and `tell` route, so a Node route is listened on the session
+    /// that exports it rather than the session where it was learned. The
     /// vow is `.plain`, not `.fetch`: a listen makes no blanket claim that
     /// what arrives is a capability, and a give that does arrive is
     /// auto-redeemed on the way through, exactly as one arriving in a call's
@@ -1987,7 +2083,7 @@ pub const Host = struct {
         try self.admitSessionOperation(session);
         var home = session;
         var wire = target;
-        if (target == .far) {
+        if (target == .far or target == .routed) {
             const routed = try self.routeSend(session, target, &.{});
             home = routed.session;
             wire = .{ .far = routed.target.far };
@@ -2009,6 +2105,19 @@ pub const Host = struct {
     ) !u64 {
         self.assertOwner();
         try self.admitApplicationOperation();
+        const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
+        if (resolved_target == .deferred) {
+            const promise = self.capability_promises.get(resolved_target.deferred) orelse
+                return error.UnknownCapability;
+            switch (promise.state) {
+                .pending, .settling => {
+                    const id = try capability_promise.queueListen(self, resolved_target.deferred, session);
+                    if (drive_now) host_pump.finishCommittedWork(self, session);
+                    return id;
+                },
+                .fulfilled, .broken => {},
+            }
+        }
         const routed = try self.routeCapability(session, target, false);
         const wire = switch (routed.target) {
             .local => return error.InvalidReference,
@@ -2138,7 +2247,7 @@ pub const Host = struct {
     pub const openDialedLocator = sessions_mod.openDialedLocator;
     pub const openPendingDial = sessions_mod.openPendingDial;
     pub const openDialedOver = sessions_mod.openDialedOver;
-    const openDialedWith = sessions_mod.openDialedWith;
+    const openDialedKnowing = sessions_mod.openDialedKnowing;
     pub const ensureAcceptAdvertisedLocator = sessions_mod.ensureAcceptAdvertisedLocator;
     pub const openAcceptedAdvertised = sessions_mod.openAcceptedAdvertised;
     pub const openAcceptedAdvertisedOver = sessions_mod.openAcceptedAdvertisedOver;
@@ -2189,6 +2298,9 @@ pub const Host = struct {
     const reserveVow = vows_mod.reserveVow;
     pub const reserveVowAt = vows_mod.reserveVowAt;
     pub const cancelVowReservation = vows_mod.cancelVowReservation;
+    pub const mintDeferredVow = vows_mod.mintDeferredVow;
+    pub const moveDeferredVow = vows_mod.moveDeferredVow;
+    pub const attachDeferredVow = vows_mod.attachDeferredVow;
     const commitVow = vows_mod.commitVow;
     pub const commitVowWithListener = vows_mod.commitVowWithListener;
     pub const fireVow = vows_mod.fireVow;
@@ -2239,74 +2351,6 @@ pub const Host = struct {
     const continueParkedEnliven = enliven_mod.continueParkedEnliven;
     const settleParkedEnlivens = enliven_mod.settleParkedEnlivens;
     const cancelParkedEnlivens = enliven_mod.cancelParkedEnlivens;
-
-    /// Release `delta` references on the fetched capability `token` holds: the
-    /// token resolves through the node to its home session and real wire
-    /// import, and the release rides that peer as `op:gc-exports`. A dead home
-    /// is a no-op success — the session teardown already reclaimed the counts.
-    /// Release `delta` references on an import this session holds, because the
-    /// application is done with it.
-    ///
-    /// The deliberate counterpart to `gcRelease`, which takes a node-minted
-    /// token for a *fetched* capability and routes it to its home. This takes
-    /// a plain wire position, which is what a capability lifted from a deliver
-    /// argument or a reply actually is, and which `gcRelease` refuses. An
-    /// import position means something only on the session that holds it, so
-    /// the session is the argument rather than something to be looked up.
-    ///
-    /// Dropping authority deliberately is a capability act, not a memory
-    /// optimisation, and it is why this exists beside the finalizer-driven
-    /// path in ADR-0063 rather than being replaced by it: that path is
-    /// best-effort, opt-in, and scoped to fetch results.
-    ///
-    /// The caller must stop naming the position afterwards. The partner is
-    /// free to reuse it for a different object once its count reaches zero,
-    /// so a handle kept past its release names whatever arrives next. The
-    /// bindings enforce that by poisoning the handle; a Zig caller holds the
-    /// position itself and owns the same rule.
-    pub fn releaseImport(self: *Host, session: *HostSession, position: u64, delta: u64) !void {
-        self.assertOwner();
-        try self.checkSession(session);
-        // A token is not a wire position: it names a row in the node's routing
-        // table, and releasing it here would send the partner a position it
-        // never exported. `gcRelease` is the verb for those.
-        switch (model.ImportName.classify(position)) {
-            .token => return HostError.NotAWirePosition,
-            .wire => {},
-        }
-        const import_position = model.ImportPosition.from(position);
-        if (session.served.port.peer.session_state.hostCapabilityFor(import_position) != null)
-            return HostError.ImportLifted;
-        // The token memo lives on the import row and disappears with its last
-        // retain, so capture it before recordSend applies the decrement.
-        const enrolled_token = session.served.port.peer.session_state.foreignTokenFor(import_position);
-        const positions = [_]u64{position};
-        const deltas = [_]u64{delta};
-        try session.served.port.peer.sendCopying(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
-        if (enrolled_token) |token| self.node.retireReleasedToken(token);
-        try host_pump.dirtyThenPump(self, session.peer_id);
-    }
-
-    pub fn gcRelease(self: *Host, token: u64, delta: u64) !void {
-        self.assertOwner();
-        // The embedder hands over a bare integer, so this is one of the seams
-        // where an id becomes a name. A wire position is not a token, and
-        // saying so here is what keeps the rest of the verb honest.
-        switch (model.ImportName.classify(token)) {
-            .wire => return HostError.NotAToken,
-            .token => {},
-        }
-        const routed = self.node.routeToken(token) orelse return;
-        const session = self.sessions.get(routed.peer_id) orelse return;
-        try self.checkSession(session);
-        if (routed.target == .far and session.served.port.peer.session_state.hostCapabilityFor(routed.target.far.import_position) != null)
-            return HostError.ImportLifted;
-        const positions = [_]u64{routed.target.far.import_position.int()};
-        const deltas = [_]u64{delta};
-        try session.served.port.peer.sendCopying(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
-        self.node.retireReleasedToken(token);
-        try host_pump.dirtyThenPump(self, session.peer_id);
-    }
 
     /// Break every far vow still parked on `session`'s vat, firing each listener
     /// inside this call with the partner's retained abort diagnostic when one
@@ -2602,17 +2646,21 @@ pub const Host = struct {
         /// This observation claimed one of the import row's wire retains. A
         /// Host-internal re-observation can add only an application retain.
         claimed_wire_retain: bool,
+        /// A redeemed Node route is consumed only when the application-facing
+        /// projection commits. Keeping it live through preparation makes an
+        /// allocation refusal retryable at the Node action boundary.
+        redeemed_route_id: ?model.CapabilityRouteId = null,
     };
 
     /// Lift one session-scoped wire reference into this Host's opaque identity
-    /// space and report the ownership claimed by this exact observation. Token
+    /// space and report the ownership claimed by this exact observation. Routed
     /// references are first resolved to their real owning session, so a direct
     /// import and the same import reached through Node routing reuse one
     /// canonical Host row.
     pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: model.Reference) !CapabilityLift {
         self.assertOwner();
         try self.checkSession(session);
-        const source_token = engine.Node.tokenIdOf(reference);
+        const source_route_id = self.node.redeemedRouteId(reference);
         var claimed_wire_retain = false;
         const target: capability.Target = switch (reference) {
             .near => |near| blk: {
@@ -2624,9 +2672,9 @@ pub const Host = struct {
                 };
                 break :blk .{ .local = actor_id };
             },
-            .far => blk: {
-                const routed = self.node.routeReference(session.peer_id, reference) orelse return HostError.TokenRetired;
-                const home = self.sessions.get(routed.peer_id) orelse return HostError.TokenRetired;
+            .far, .routed => blk: {
+                const routed = self.node.routeReference(session.peer_id, reference) orelse return HostError.CapabilityRouteUnavailable;
+                const home = self.sessions.get(routed.peer_id) orelse return HostError.CapabilityRouteUnavailable;
                 try self.checkSession(home);
                 const far = switch (routed.target) {
                     .far => |value| value,
@@ -2641,7 +2689,7 @@ pub const Host = struct {
                             if (remote.peer_id != routed.peer_id or remote.far.import_position != far.import_position or remote.far.kind != far.kind)
                                 return HostError.ImportKindConflict;
                         },
-                        .local => return HostError.ForeignArgument,
+                        .local, .deferred => return HostError.ForeignArgument,
                     }
                     const retained = try self.capabilities.retain(self.allocator, existing_target);
                     // A fresh wire occurrence contributes another import retain;
@@ -2656,8 +2704,11 @@ pub const Host = struct {
                         };
                         claimed_wire_retain = true;
                     }
-                    if (source_token) |token| _ = self.node.consumeRedeemedToken(token);
-                    return .{ .ref = retained, .claimed_wire_retain = claimed_wire_retain };
+                    return .{
+                        .ref = retained,
+                        .claimed_wire_retain = claimed_wire_retain,
+                        .redeemed_route_id = source_route_id,
+                    };
                 }
                 const incarnation = self.next_import_incarnation;
                 if (incarnation == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
@@ -2675,23 +2726,37 @@ pub const Host = struct {
         };
         const ref = try self.capabilities.retain(self.allocator, target);
         errdefer _ = self.capabilities.release(ref, 1) catch unreachable;
-        const home = self.sessions.get(target.remote.peer_id) orelse return HostError.TokenRetired;
+        const home = self.sessions.get(target.remote.peer_id) orelse return HostError.CapabilityRouteUnavailable;
         try home.served.port.peer.session_state.noteHostCapability(target.remote.far.import_position, ref.raw());
         claimed_wire_retain = true;
         self.next_import_incarnation = target.remote.incarnation + 1;
-        if (source_token) |token| _ = self.node.consumeRedeemedToken(token);
-        return .{ .ref = ref, .claimed_wire_retain = claimed_wire_retain };
+        return .{
+            .ref = ref,
+            .claimed_wire_retain = claimed_wire_retain,
+            .redeemed_route_id = source_route_id,
+        };
     }
 
     pub fn liftCapability(self: *Host, session: *HostSession, reference: model.Reference) !capability.Ref {
-        return (try self.liftCapabilityTracked(session, reference)).ref;
+        const lifted = try self.liftCapabilityTracked(session, reference);
+        self.commitCapabilityLift(lifted);
+        return lifted.ref;
+    }
+
+    /// Commit a prepared lift's only external authority transfer. Registry and
+    /// session ownership were already established by `liftCapabilityTracked`;
+    /// the redeemed route stays in the Node until this point so rollback and
+    /// retry can still name it.
+    pub fn commitCapabilityLift(self: *Host, lifted: CapabilityLift) void {
+        if (lifted.redeemed_route_id) |route_id|
+            std.debug.assert(self.node.consumeRedeemedRoute(route_id));
     }
 
     /// Retain one already-rooted actor as a Host capability. A fresh slot adds
     /// its own Vat root; repeated observations reuse that root and identity.
     pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
         self.assertOwner();
-        const actor_id = actorIdOf(actor);
+        const actor_id = try localActorId(actor);
         const target: capability.Target = .{ .local = actor_id };
         const fresh = !self.capabilities.hasTarget(target);
         const ref = try self.capabilities.retain(self.allocator, target);
@@ -2707,7 +2772,7 @@ pub const Host = struct {
     /// handle alone and the final release reclaims it.
     pub fn liftLocalActor(self: *Host, actor: actors.Ref) !capability.Ref {
         self.assertOwner();
-        const id = actorIdOf(actor);
+        const id = try localActorId(actor);
         const target: capability.Target = .{ .local = id };
         const fresh = !self.capabilities.hasTarget(target);
         const ref = try self.retainLocalCapability(actor);
@@ -2727,7 +2792,7 @@ pub const Host = struct {
         const target = self.capabilities.resolve(lifted.ref) orelse unreachable;
         var cleanup_failed = false;
         if (lifted.claimed_wire_retain) switch (target) {
-            .local => unreachable,
+            .local, .deferred => unreachable,
             .remote => |remote| {
                 const session = self.sessions.get(remote.peer_id) orelse unreachable;
                 const positions = [_]u64{remote.far.import_position.int()};
@@ -2743,14 +2808,17 @@ pub const Host = struct {
             },
         };
         const retired = self.capabilities.release(lifted.ref, 1) catch unreachable;
-        if (retired != null and target == .local) self.vat.releaseActor(target.local);
-        if (retired != null and target == .remote) {
-            const session = self.sessions.get(target.remote.peer_id) orelse unreachable;
-            session.served.port.peer.session_state.forgetHostCapability(
-                target.remote.far.import_position,
-                lifted.ref.raw(),
-            );
-        }
+        if (retired != null) switch (target) {
+            .local => self.vat.releaseActor(target.local),
+            .remote => {
+                const session = self.sessions.get(target.remote.peer_id) orelse unreachable;
+                session.served.port.peer.session_state.forgetHostCapability(
+                    target.remote.far.import_position,
+                    lifted.ref.raw(),
+                );
+            },
+            .deferred => |id| capability_promise.abandon(self, id),
+        };
         if (cleanup_failed and target == .remote) {
             const session = self.sessions.get(target.remote.peer_id) orelse return;
             host_pump.condemnAndClose(self, session, .resource_exhausted, "failed capability projection cleanup");
@@ -2767,6 +2835,7 @@ pub const Host = struct {
             host_pump.condemnAndClose(self, session, .resource_exhausted, "failed capability projection cleanup");
             return;
         };
+        self.commitCapabilityLift(lifted);
         self.rollbackCapabilityLift(lifted);
     }
 
@@ -2786,7 +2855,7 @@ pub const Host = struct {
         actor: actors.Ref,
     ) capability.Ref {
         self.assertOwner();
-        const actor_id = actorIdOf(actor);
+        const actor_id = localActorId(actor) catch unreachable;
         const ref = self.capabilities.commitFreshLocal(reservation, actor_id);
         self.vat.retainActor(actor_id);
         return ref;
@@ -2799,7 +2868,7 @@ pub const Host = struct {
         actor: actors.Ref,
     ) capability.Ref {
         self.assertOwner();
-        return self.capabilities.commitFreshLocal(reservation, actorIdOf(actor));
+        return self.capabilities.commitFreshLocal(reservation, localActorId(actor) catch unreachable);
     }
 
     const CapabilityLoweringReceipt = union(enum) {
@@ -2809,6 +2878,11 @@ pub const Host = struct {
             position: u64,
         },
         foreign: engine.Node.ForeignEnrollmentRollback,
+        deferred_projection: struct {
+            session: *HostSession,
+            promise_id: capability.PromiseId,
+            export_position: model.ExportPosition,
+        },
     };
     const capability_lowering_receipt_budget_bytes = 40;
     comptime {
@@ -2871,6 +2945,217 @@ pub const Host = struct {
         }
     };
 
+    /// One extra Host retain accompanying a capability occurrence while an
+    /// owning-tier message crosses into the engine. An inline-Passable batch marks
+    /// it transferred; otherwise the caller rolls it back immediately after
+    /// the synchronous enqueue.
+    pub const StagedCapabilityRetain = struct {
+        ref: capability.Ref,
+        transferred: bool = false,
+    };
+
+    fn countValueCapabilitiesAt(
+        values: []const value_mod.Value,
+        depth: usize,
+    ) error{ OutOfMemory, NestingTooDeep }!usize {
+        if (depth > model.max_value_depth) return error.NestingTooDeep;
+        var count: usize = 0;
+        for (values) |value| {
+            const added: usize = switch (value) {
+                .capability => 1,
+                .list, .set => |items| try countValueCapabilitiesAt(items, depth + 1),
+                .tagged => |tagged| try countValueCapabilitiesAt(tagged.value, depth + 1),
+                .@"struct" => |entries| blk: {
+                    var nested: usize = 0;
+                    for (entries) |entry| nested = std.math.add(
+                        usize,
+                        nested,
+                        try countValueCapabilitiesAt(&.{entry.value}, depth + 1),
+                    ) catch return error.OutOfMemory;
+                    break :blk nested;
+                },
+                else => 0,
+            };
+            count = std.math.add(usize, count, added) catch return error.OutOfMemory;
+        }
+        return count;
+    }
+
+    fn countValueCapabilities(values: []const value_mod.Value) error{ OutOfMemory, NestingTooDeep }!usize {
+        return countValueCapabilitiesAt(values, 0);
+    }
+
+    fn retainValueCapabilitiesInto(
+        self: *Host,
+        values: []const value_mod.Value,
+        out: []StagedCapabilityRetain,
+        index: *usize,
+        depth: usize,
+    ) !void {
+        if (depth > model.max_value_depth) return error.NestingTooDeep;
+        for (values) |value| switch (value) {
+            .capability => |ref| {
+                const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+                out[index.*] = .{ .ref = try self.capabilities.retain(self.allocator, target) };
+                index.* += 1;
+            },
+            .list, .set => |items| try self.retainValueCapabilitiesInto(items, out, index, depth + 1),
+            .tagged => |tagged| try self.retainValueCapabilitiesInto(tagged.value, out, index, depth + 1),
+            .@"struct" => |entries| for (entries) |entry|
+                try self.retainValueCapabilitiesInto(&.{entry.value}, out, index, depth + 1),
+            else => {},
+        };
+    }
+
+    pub fn retainValueCapabilities(
+        self: *Host,
+        arena: std.mem.Allocator,
+        values: []const value_mod.Value,
+    ) ![]StagedCapabilityRetain {
+        const retained = try arena.alloc(StagedCapabilityRetain, try countValueCapabilities(values));
+        var index: usize = 0;
+        errdefer while (index != 0) {
+            index -= 1;
+            const retired = self.capabilities.release(retained[index].ref, 1) catch unreachable;
+            std.debug.assert(retired == null);
+        };
+        try self.retainValueCapabilitiesInto(values, retained, &index, 0);
+        return retained;
+    }
+
+    pub fn releaseUntransferredCapabilityRetains(
+        self: *Host,
+        retained: []StagedCapabilityRetain,
+    ) void {
+        for (retained) |item| {
+            if (item.transferred) continue;
+            const retired = self.capabilities.release(item.ref, 1) catch unreachable;
+            std.debug.assert(retired == null);
+        }
+    }
+
+    fn releaseValueCapabilitiesTerminalAt(
+        self: *Host,
+        values: []const value_mod.Value,
+        closing_peer: ?engine.PeerId,
+    ) void {
+        for (values) |value| switch (value) {
+            .capability => |ref| self.releaseCapabilityTerminal(ref, closing_peer),
+            .list, .set => |items| self.releaseValueCapabilitiesTerminalAt(items, closing_peer),
+            .tagged => |tagged| self.releaseValueCapabilitiesTerminalAt(tagged.value, closing_peer),
+            .@"struct" => |entries| for (entries) |entry|
+                self.releaseValueCapabilitiesTerminalAt(&.{entry.value}, closing_peer),
+            else => {},
+        };
+    }
+
+    fn bindOutboundStagingLeaseArgument(
+        arg: model.Argument,
+        retained: []StagedCapabilityRetain,
+        leases: []engine.Node.OutboundStagingLease,
+        index: *usize,
+    ) void {
+        switch (arg) {
+            .reference => |reference| {
+                const route_id: model.CapabilityRouteId = switch (reference) {
+                    .routed => |routed| routed.id,
+                    else => .from(0),
+                };
+                leases[index.*] = .{
+                    .route_id = route_id,
+                    .capability = retained[index.*].ref.raw(),
+                };
+                index.* += 1;
+            },
+            .list, .set => |items| for (items) |item|
+                bindOutboundStagingLeaseArgument(item, retained, leases, index),
+            .tagged => |tagged| for (tagged.value) |item|
+                bindOutboundStagingLeaseArgument(item, retained, leases, index),
+            .@"struct" => |entries| for (entries) |entry|
+                bindOutboundStagingLeaseArgument(entry.value, retained, leases, index),
+            else => {},
+        }
+    }
+
+    fn beginOutboundStagingLeases(
+        self: *Host,
+        arena: std.mem.Allocator,
+        args: []const model.Argument,
+        retained: []StagedCapabilityRetain,
+    ) ![]engine.Node.OutboundStagingLease {
+        const leases = try arena.alloc(engine.Node.OutboundStagingLease, retained.len);
+        var index: usize = 0;
+        for (args) |arg| bindOutboundStagingLeaseArgument(arg, retained, leases, &index);
+        std.debug.assert(index == retained.len);
+        self.node.beginOutboundStagingLeases(leases);
+        return leases;
+    }
+
+    fn finishOutboundStagingLeases(
+        self: *Host,
+        retained: []StagedCapabilityRetain,
+        leases: []const engine.Node.OutboundStagingLease,
+    ) void {
+        self.node.endOutboundStagingLeases();
+        for (retained, leases) |*item, lease| item.transferred = lease.claimed;
+    }
+
+    pub fn servedSendWithStaging(
+        self: *Host,
+        session: *HostSession,
+        target: actors.Ref,
+        msg: actors.Message,
+        arena: std.mem.Allocator,
+        retained: []StagedCapabilityRetain,
+    ) !actors.Vow {
+        const leases = try self.beginOutboundStagingLeases(arena, msg.args, retained);
+        errdefer self.finishOutboundStagingLeases(retained, leases);
+        const vow = try session.served.send(&self.vat, target, msg);
+        self.finishOutboundStagingLeases(retained, leases);
+        return vow;
+    }
+
+    pub fn servedTellWithStaging(
+        self: *Host,
+        session: *HostSession,
+        target: actors.Ref,
+        msg: actors.Message,
+        arena: std.mem.Allocator,
+        retained: []StagedCapabilityRetain,
+    ) !void {
+        const leases = try self.beginOutboundStagingLeases(arena, msg.args, retained);
+        errdefer self.finishOutboundStagingLeases(retained, leases);
+        try session.served.tell(&self.vat, target, msg);
+        self.finishOutboundStagingLeases(retained, leases);
+    }
+
+    /// One capability lowering whose newly-created projection remains
+    /// rollback-owned until the surrounding Host-core transaction commits.
+    /// Sibling modules use this instead of discarding the receipt returned by
+    /// the private lowering walk.
+    pub const PreparedCapability = struct {
+        host: *Host,
+        lowered: LoweredCapability,
+        committed: bool = false,
+
+        pub fn reference(self: *const PreparedCapability) model.Reference {
+            return self.lowered.reference;
+        }
+
+        pub fn commit(self: *PreparedCapability) model.Reference {
+            self.committed = true;
+            return self.lowered.reference;
+        }
+
+        pub fn deinit(self: *PreparedCapability) void {
+            if (!self.committed) if (self.lowered.receipt) |receipt| {
+                const receipts = [_]CapabilityLoweringReceipt{receipt};
+                self.host.rollbackCapabilityLowerings(&receipts);
+            };
+            self.* = undefined;
+        }
+    };
+
     fn rollbackCapabilityLowerings(self: *Host, receipts: []const CapabilityLoweringReceipt) void {
         var i = receipts.len;
         while (i != 0) {
@@ -2882,6 +3167,12 @@ pub const Host = struct {
                     local.position,
                 ),
                 .foreign => |foreign| self.node.rollbackForeignEnrollment(foreign),
+                .deferred_projection => |projection| capability_promise.rollbackProjection(
+                    self,
+                    projection.promise_id,
+                    projection.session,
+                    projection.export_position,
+                ),
             }
         }
     }
@@ -2922,19 +3213,59 @@ pub const Host = struct {
                 }
                 break :blk .{ .reference = .{ .far = remote.far }, .receipt = null };
             },
+            .deferred => |id| blk: {
+                const row = self.capability_promises.get(id) orelse return error.UnknownCapability;
+                switch (row.state) {
+                    .fulfilled => |resolved| break :blk try self.lowerCapabilityTracked(session, resolved),
+                    .broken => return error.PromiseBroken,
+                    .pending, .settling => {
+                        const projection = try capability_promise.prepareProjection(self, id, session);
+                        break :blk .{
+                            .reference = projection.reference,
+                            .receipt = if (projection.created) .{ .deferred_projection = .{
+                                .session = session,
+                                .promise_id = id,
+                                .export_position = projection.reference.near.export_position,
+                            } } else null,
+                        };
+                    },
+                }
+            },
         };
     }
 
     /// Lower one capability and publish any canonical projection it creates.
     pub fn lowerCapability(self: *Host, session: *HostSession, ref: capability.Ref) !model.Reference {
-        return (try self.lowerCapabilityTracked(session, ref)).reference;
+        var prepared = try self.prepareCapability(session, ref);
+        defer prepared.deinit();
+        return prepared.commit();
+    }
+
+    /// Prepare a capability lowering without surrendering rollback authority.
+    /// Host-core settlement bridges commit only after their resolve/gift
+    /// consequence is durably queued.
+    pub fn prepareCapability(self: *Host, session: *HostSession, ref: capability.Ref) !PreparedCapability {
+        return .{ .host = self, .lowered = try self.lowerCapabilityTracked(session, ref) };
+    }
+
+    /// Apply the same promise-proxy → object-gift → plain-resolution decision
+    /// used by ordinary served replies to a Host-core synthesized fulfillment.
+    /// The caller still owns publishing `.resolve`; `.claimed` means the Node
+    /// owns the eventual settlement.
+    pub fn interceptFulfilledReference(
+        self: *Host,
+        session: *HostSession,
+        answer: model.AnswerName,
+        reference: model.Reference,
+    ) !actors.InterceptOutcome {
+        return interceptFulfilled(&self.node, session.peer_id, answer, .{ .reference = reference });
     }
 
     /// Lower one owning-tier `Value` into a wire-shaped `model.Argument` on
     /// `session`: data arms are borrowed as they stand, and each `.capability`
     /// lowers through `lowerCapability`, so a local target projects on this
     /// session's Port and a cross-home capability becomes a routable Node
-    /// token. Spine containers (lists, sets, tagged bodies, struct entries)
+    /// reference. Spine containers (lists, sets, tagged bodies, struct entries)
     /// are allocated in `arena`; leaf bytes stay borrowed from the caller's
     /// value, which the send verbs' borrowed-args contract already covers. A
     /// stale or foreign capability fails the whole value closed with
@@ -2962,6 +3293,7 @@ pub const Host = struct {
                 if (lowered.receipt) |receipt| receipts.appendAssumeCapacity(receipt);
                 break :blk .{ .reference = lowered.reference };
             },
+            .@"error" => |reason| .{ .@"error" = reason },
             .string => |v| .{ .string = v },
             .integer => |v| .{ .integer = v },
             .boolean => |v| .{ .boolean = v },
@@ -3027,20 +3359,25 @@ pub const Host = struct {
     /// must own or outlive them in the same arena (the settle captures do). A
     /// failure mid-tree rolls back every lift this call performed — the same
     /// receipts discipline the C projection carries — so a refused value
-    /// retains no invisible authority. The `.@"error"` and `.handoff` arms are
-    /// refused `error.UnsupportedValue`: a break surfaces as `Reply.broken`,
-    /// and the host redeems a give before the application sees it.
+    /// retains no invisible authority. A signed give is replaced by a
+    /// Host-owned promise immediately and redeemed behind that identity; a
+    /// handoff receive is an exporter bootstrap request and is not an
+    /// application value. Error values remain fulfilled data; a rejected
+    /// outcome separately surfaces as `Reply.broken`.
     pub fn liftValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, arg: model.Argument) anyerror!value_mod.Value {
         var lifts = CapabilityLiftReceipts{};
         errdefer {
             const items = lifts.items();
+            self.commitCapabilityLifts(items);
             var i = items.len;
             while (i != 0) {
                 i -= 1;
                 self.rollbackCapabilityLift(items[i]);
             }
         }
-        return self.liftValueInner(session, arena, arg, &lifts);
+        const value = try self.liftValueInner(session, arena, arg, &lifts);
+        self.commitCapabilityLifts(lifts.items());
+        return value;
     }
 
     fn projectedValueType(comptime project: anytype) type {
@@ -3065,10 +3402,12 @@ pub const Host = struct {
             self.failValueProjection(session, arg, lifts.items());
             return err;
         };
-        return project(context, value) catch |err| {
+        const projected = project(context, value) catch |err| {
             self.failValueProjection(session, arg, lifts.items());
             return err;
         };
+        self.commitCapabilityLifts(lifts.items());
+        return projected;
     }
 
     /// `projectValue` over a whole argument list under one capability
@@ -3086,10 +3425,12 @@ pub const Host = struct {
             self.failValuesProjection(session, args, lifts.items());
             return err;
         };
-        return project(context, values) catch |err| {
+        const projected = project(context, values) catch |err| {
             self.failValuesProjection(session, args, lifts.items());
             return err;
         };
+        self.commitCapabilityLifts(lifts.items());
+        return projected;
     }
 
     /// The application-facing form of one queued completion, parameterized by
@@ -3181,6 +3522,7 @@ pub const Host = struct {
         arg: model.Argument,
         lifts: []const CapabilityLift,
     ) void {
+        self.commitCapabilityLifts(lifts);
         self.rollbackCapabilityLifts(lifts);
         var skip = lifts.len;
         self.discardUnprojectedArgumentReferences(session, arg, &skip);
@@ -3193,6 +3535,7 @@ pub const Host = struct {
         args: []const model.Argument,
         lifts: []const CapabilityLift,
     ) void {
+        self.commitCapabilityLifts(lifts);
         self.rollbackCapabilityLifts(lifts);
         var skip = lifts.len;
         for (args) |arg| self.discardUnprojectedArgumentReferences(session, arg, &skip);
@@ -3205,6 +3548,10 @@ pub const Host = struct {
             i -= 1;
             self.rollbackCapabilityLift(lifts[i]);
         }
+    }
+
+    fn commitCapabilityLifts(self: *Host, lifts: []const CapabilityLift) void {
+        for (lifts) |lifted| self.commitCapabilityLift(lifted);
     }
 
     fn discardUnprojectedArgumentReferences(
@@ -3247,6 +3594,7 @@ pub const Host = struct {
                 lifts.appendAssumeCapacity(lifted);
                 break :blk .{ .capability = lifted.ref };
             },
+            .@"error" => |reason| .{ .@"error" = reason },
             .string => |v| .{ .string = v },
             .integer => |v| .{ .integer = v },
             .boolean => |v| .{ .boolean = v },
@@ -3268,7 +3616,17 @@ pub const Host = struct {
                 };
                 break :blk .{ .@"struct" = out };
             },
-            .@"error", .handoff => error.UnsupportedValue,
+            .handoff => |handoff| switch (handoff.*) {
+                .give => |give| blk: {
+                    try lifts.ensureOne(arena);
+                    const lifted = try capability_promise.liftInlineGive(self, session, give);
+                    lifts.appendAssumeCapacity(lifted);
+                    break :blk .{ .capability = lifted.ref };
+                },
+                // A receive is an exporter bootstrap request, never an
+                // application Passable value.
+                .receive => error.UnsupportedValue,
+            },
         };
     }
 
@@ -3290,13 +3648,16 @@ pub const Host = struct {
         var lifts = CapabilityLiftReceipts{};
         errdefer {
             const items = lifts.items();
+            self.commitCapabilityLifts(items);
             var i = items.len;
             while (i != 0) {
                 i -= 1;
                 self.rollbackCapabilityLift(items[i]);
             }
         }
-        return self.liftValuesInner(session, arena, args, &lifts);
+        const values = try self.liftValuesInner(session, arena, args, &lifts);
+        self.commitCapabilityLifts(lifts.items());
+        return values;
     }
 
     /// Re-scope an ABI-stored raw id to this Host. Resolution still validates
@@ -3314,7 +3675,7 @@ pub const Host = struct {
         const target = self.capabilities.resolve(ref) orelse return null;
         return switch (target) {
             .local => |id| .{ .local = id },
-            .remote => null,
+            .remote, .deferred => null,
         };
     }
 
@@ -3325,7 +3686,7 @@ pub const Host = struct {
     pub fn capabilitySession(self: *Host, ref: capability.Ref) ?*HostSession {
         const target = self.capabilities.resolve(ref) orelse return null;
         return switch (target) {
-            .local => null,
+            .local, .deferred => null,
             .remote => |remote| self.sessions.get(remote.peer_id),
         };
     }
@@ -3335,13 +3696,21 @@ pub const Host = struct {
     /// sturdyref cache reissues the same identity). Keep enough wire retains to
     /// back the surviving application retains and return only the surplus; the
     /// final application release returns every remaining wire retain. Local
-    /// releases affect only the Host identity row.
+    /// releases affect only the Host identity row. If the remote home already
+    /// closed, its release-only row consumes the outstanding unit as a no-op:
+    /// session teardown already reclaimed the wire authority, while the
+    /// application handle still deserves a deterministic terminal recipient.
     pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
         self.assertOwner();
-        const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
         const retains = self.capabilities.retainCount(ref) orelse return error.UnknownCapability;
         if (delta > retains) return error.ReleaseExceedsRetains;
         if (delta == 0) return;
+
+        const target = self.capabilities.resolve(ref) orelse {
+            const retired = try self.capabilities.release(ref, delta);
+            std.debug.assert(retired == null);
+            return;
+        };
 
         var flush_peer: ?engine.PeerId = null;
         switch (target) {
@@ -3359,27 +3728,29 @@ pub const Host = struct {
                     const remaining_app_retains = retains - delta;
                     const wire_delta = identity.lifted_retains -| remaining_app_retains;
                     if (wire_delta != 0) {
-                        const enrolled_token = session.served.port.peer.session_state.foreignTokenFor(position);
+                        const enrolled_route = session.served.port.peer.session_state.foreignRouteIdFor(position);
                         const positions = [_]u64{position.int()};
                         const deltas = [_]u64{wire_delta};
                         try session.served.port.peer.sendCopying(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
-                        if (enrolled_token) |token| self.node.retireReleasedToken(token);
+                        if (enrolled_route) |route_id| self.node.retireReleasedRoute(route_id);
                         session.served.port.peer.session_state.releaseHostCapabilityRetains(position, ref.raw(), wire_delta);
                         flush_peer = remote.peer_id;
                     }
                 }
             },
+            .deferred => {},
         }
         // Every fallible protocol operation is above this commit point. The
         // retain count was validated before the wire release, so registry
         // mutation cannot now fail without an internal invariant breach.
         const retired = self.capabilities.release(ref, delta) catch unreachable;
-        if (retired != null and target == .remote) {
-            if (self.sessions.get(target.remote.peer_id)) |session|
-                session.served.port.peer.session_state.forgetHostCapability(target.remote.far.import_position, ref.raw());
-        }
-        // A retired local slot releases the actor root it held (ADR-0101).
-        if (retired != null and target == .local) self.vat.releaseActor(target.local);
+        if (retired != null) switch (target) {
+            .remote => if (self.sessions.get(target.remote.peer_id)) |session|
+                session.served.port.peer.session_state.forgetHostCapability(target.remote.far.import_position, ref.raw()),
+            // A retired local slot releases the actor root it held (ADR-0101).
+            .local => self.vat.releaseActor(target.local),
+            .deferred => |id| capability_promise.abandon(self, id),
+        };
         if (flush_peer) |peer_id| {
             host_pump.dirtyThenPump(self, peer_id) catch {
                 // The GC message, import decrement, and Host retain release
@@ -3391,14 +3762,51 @@ pub const Host = struct {
         }
     }
 
+    /// Consume a cleanup retain after its initiating operation can no longer
+    /// return an error. A live remote home is condemned if ordinary GC
+    /// publication fails; a dead home is skipped. Registry/Vat ownership is
+    /// then retired exactly once so terminal cleanup never parks forever.
+    pub fn releaseCapabilityTerminal(
+        self: *Host,
+        ref: capability.Ref,
+        closing_peer: ?engine.PeerId,
+    ) void {
+        self.releaseCapability(ref, 1) catch {
+            const target = self.capabilities.resolve(ref) orelse return;
+            if (target == .remote) {
+                const is_closing = if (closing_peer) |peer_id|
+                    peer_id == target.remote.peer_id
+                else
+                    false;
+                if (!is_closing) if (self.sessions.get(target.remote.peer_id)) |home|
+                    host_pump.condemnAndClose(
+                        self,
+                        home,
+                        .resource_exhausted,
+                        "failed terminal capability cleanup",
+                    );
+            }
+            const retired = self.capabilities.release(ref, 1) catch unreachable;
+            if (retired != null) switch (target) {
+                .local => self.vat.releaseActor(target.local),
+                .remote => if (self.sessions.get(target.remote.peer_id)) |home|
+                    home.served.port.peer.session_state.forgetHostCapability(
+                        target.remote.far.import_position,
+                        ref.raw(),
+                    ),
+                .deferred => |id| capability_promise.abandon(self, id),
+            };
+        };
+    }
+
     pub const RoutedSend = struct { session: *HostSession, target: actors.Ref };
 
     const RouteScope = enum { host, session };
 
     /// Resolve a send's target to the session and vat reference it rides: a
     /// near export to its local actor on `session`, a far reference through the
-    /// node's routing (a token to its exporter session with the real
-    /// reference swapped in). Fails closed when a token's exporter is gone.
+    /// node's routing (a routed reference to its exporter session with the real
+    /// reference swapped in). Fails closed when its exporter is gone.
     pub fn routeSend(self: *Host, session: *HostSession, target: model.Reference, args: []const model.Argument) !RoutedSend {
         return self.routeTarget(session, target, args, .host);
     }
@@ -3430,18 +3838,31 @@ pub const Host = struct {
                     return error.UnknownCapability;
                 break :blk .{ .session = home, .target = .{ .far = remote.far } };
             },
+            .deferred => |id| return self.routeCapability(
+                session,
+                try capability_promise.resolvedRef(self, id),
+                object_only,
+            ),
         };
     }
 
-    fn validateRoutedArguments(self: *Host, session: *HostSession, args: []const model.Argument) HostError!void {
+    /// Raw/model callers have no Host capability retain to transfer into a
+    /// delayed inline-Passable transaction. Refuse cross-session references at
+    /// this tier; owning `Value` verbs retain and stage them explicitly.
+    fn validateRoutedArguments(
+        self: *Host,
+        session: *HostSession,
+        args: []const model.Argument,
+    ) HostError!void {
         for (args) |argument| {
-            if (self.argIsForeignDeep(session.peer_id, argument)) return HostError.ForeignArgument;
+            if (self.argIsForeignDeep(session.peer_id, argument))
+                return HostError.ForeignArgument;
         }
     }
 
     /// Resolve a turn-forward target without allowing the turn to cross its
     /// ingress session. C behavior callbacks adapt through this authority
-    /// rather than reimplementing token routing and foreign-argument policy.
+    /// rather than reimplementing capability routing and foreign-argument policy.
     pub fn routeTurnTarget(self: *Host, session: *HostSession, target: model.Reference, args: []const model.Argument) !actors.Ref {
         return (try self.routeTarget(session, target, args, .session)).target;
     }
@@ -3477,27 +3898,26 @@ pub const Host = struct {
                 const ref = session.served.refForExport(near.export_position.int()) orelse return actors.Error.NoSuchActor;
                 return .{ .session = session, .target = ref };
             },
-            .far => {
-                const routed = self.node.routeReference(session.peer_id, target) orelse return HostError.TokenRetired;
+            .far, .routed => {
+                const routed = self.node.routeReference(session.peer_id, target) orelse return HostError.CapabilityRouteUnavailable;
                 if (scope == .session and routed.peer_id != session.peer_id) return HostError.ForeignArgument;
-                const routed_conn = self.sessions.get(routed.peer_id) orelse return HostError.TokenRetired;
+                const routed_conn = self.sessions.get(routed.peer_id) orelse return HostError.CapabilityRouteUnavailable;
                 if (routed_conn != session) {
                     try self.admitSessionOperation(routed_conn);
                     try self.checkSession(routed_conn);
                 }
-                for (args) |argument| {
-                    if (self.argIsForeignDeep(routed_conn.peer_id, argument)) return HostError.ForeignArgument;
-                }
+                try self.validateRoutedArguments(routed_conn, args);
                 return .{ .session = routed_conn, .target = .{ .far = routed.target.far } };
             },
             else => return vocab.Error.UncallableTarget,
         }
     }
 
-    /// Whether any reference in `argument`'s tree is foreign to `peer_id`
-    /// (see `engine.Node.argIsForeign`). Caller-supplied data, so the walk
-    /// recurses the application's own nesting.
-    fn argIsForeignDeep(self: *Host, peer_id: engine.PeerId, argument: model.Argument) bool {
+    fn argIsForeignDeep(
+        self: *Host,
+        peer_id: engine.PeerId,
+        argument: model.Argument,
+    ) bool {
         return switch (argument) {
             .reference => |ref| self.node.argIsForeign(peer_id, ref),
             .list, .set => |items| for (items) |item| {
@@ -3520,7 +3940,7 @@ pub const Host = struct {
     /// crossed-hellos tiebreak and partner-key refuse (skipping serve when
     /// this session is condemned); a resolve fulfilling with a signed handoff
     /// give is auto-redeemed — the node accepts it and the vat never sees a
-    /// raw give, so the vow later settles with the routable token; any other
+    /// raw give, so the vow later settles with the routed capability; any other
     /// resolve is offered to the node, which claims it when it settles a
     /// pending withdraw.
     /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
@@ -3547,7 +3967,26 @@ pub const Host = struct {
             try host.refuseDuplicatePartnerKey(session, body.start_session);
             // Condemnation must skip apply: a duplicate/tiebreak loser must not
             // learn partner key / open the session on this same feed turn.
-            return session.isTerminating();
+            if (session.isTerminating()) return true;
+            // An onion accept deferred its hello until this one arrived
+            // (ADR-0118, `sessions.zig`'s `acceptedHelloAndEnroll`): only the
+            // initiator's hello can say whether the partner is pancake and so
+            // which preference ours may state. Answer it now, before the
+            // inbound half applies, so the send-side apply still sees an
+            // unsent local half; the inbound apply then opens the session.
+            // Every other transport said hello at open and skips this.
+            if (session.role == .accepted and
+                !session.served.port.peer.session_state.handshake_local_sent)
+            {
+                const advertised = host.node.acceptableLocator() orelse
+                    return HostError.MissingAdvertisedLocator;
+                try session.served.port.peer.answerDeferredHello(
+                    body.start_session,
+                    advertised,
+                    session.sessionSecret(),
+                );
+            }
+            return false;
         }
         // Introducing-session proxy: a home-session listen fire for a
         // re-exported foreign promise is Node choreography, not a vat deliver.
@@ -3594,7 +4033,7 @@ pub const Host = struct {
     }
 
     /// `pub` for the Host-core siblings, not for embedders. Host-core internal.
-    pub fn hostResolveInterceptor(ctx: ?*anyopaque, answer: model.AnswerPosition, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
+    pub fn hostResolveInterceptor(ctx: ?*anyopaque, answer: model.AnswerName, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
         const session: *HostSession = @ptrCast(@alignCast(ctx.?));
         // A claim's `need_gift_id` and flush actions pump at the enclosing
         // feed's unwind; nothing blocks here.
@@ -3624,61 +4063,74 @@ pub const Host = struct {
         // for a wire bug that is not there.
         const view_res = engine.events.resolutionFromResolverCallback(deliver.args) catch
             return error.UnexpectedMessage;
-        return try host.node.claimProxyListenerFire(host.allocator, peer_id, export_pos, view_res);
+        switch (view_res) {
+            .@"break" => return try host.node.claimProjectedProxyListenerFire(
+                host.allocator,
+                peer_id,
+                export_pos,
+                view_res,
+            ),
+            .fulfill => {},
+        }
+
+        const session = host.sessions.get(peer_id) orelse return error.UnknownConnection;
+        const owned = try view_res.toOwned(host.allocator);
+        defer model.freeResolution(host.allocator, owned);
+        var arena_state = std.heap.ArenaAllocator.init(host.allocator);
+        defer arena_state.deinit();
+        const value = host.projectValue(
+            session,
+            arena_state.allocator(),
+            owned.fulfill,
+            {},
+            struct {
+                fn project(_: void, projected: value_mod.Value) !value_mod.Value {
+                    return projected;
+                }
+            }.project,
+        ) catch {
+            std.debug.assert(host.node.breakProxyListenerFire(peer_id, export_pos));
+            return true;
+        };
+        defer host.releaseValueCapabilitiesTerminalAt(&.{value}, null);
+
+        const Projection = struct {
+            host: *Host,
+            value: *const value_mod.Value,
+
+            fn recipient(context: *@This(), relay: *engine.Node.RelayRecipient) void {
+                const recipient_session = context.host.sessions.get(relay.peerId()) orelse return;
+                var recipient_arena = std.heap.ArenaAllocator.init(context.host.allocator);
+                defer recipient_arena.deinit();
+                const allocator = recipient_arena.allocator();
+                const values = [_]value_mod.Value{context.value.*};
+                const retained = context.host.retainValueCapabilities(allocator, &values) catch return;
+                defer context.host.releaseUntransferredCapabilityRetains(retained);
+                var prepared = context.host.prepareValues(recipient_session, allocator, &values) catch return;
+                defer prepared.deinit();
+                const leases = context.host.beginOutboundStagingLeases(
+                    allocator,
+                    prepared.values,
+                    retained,
+                ) catch return;
+                const adopted = relay.adopt(.{ .fulfill = prepared.values[0] });
+                context.host.finishOutboundStagingLeases(retained, leases);
+                if (adopted) _ = prepared.commit();
+            }
+        };
+        var projection: Projection = .{ .host = host, .value = &value };
+        std.debug.assert(host.node.projectProxyListenerFire(
+            peer_id,
+            export_pos,
+            &projection,
+            Projection.recipient,
+        ));
+        return true;
     }
 
-    /// Run the crossed-hellos tiebreak for an inbound start-session on an
-    /// accepted CapTP session (ADR-0030): with an outbound dial registered to the
-    /// same partner, the not-lower side condemns its accepted session, and
-    /// the strictly lower side condemns its own dialed one — immediately, no
-    /// deferred flag, because one thread drives the host.
-    fn tiebreakInbound(self: *Host, session: *HostSession, ss: model.view.StartSession) !void {
-        const partner_key = try crypto.PeerKey.fromSlice(ss.session_pubkey);
-        const partner_pid = crypto.derivePublicIdentifier(partner_key);
-        const designator = ss.acceptable_location.designator;
-        // The designator here is a claim, not a proof. The handshake signature
-        // establishes that the partner holds `session_pubkey` and made this
-        // locator claim; it does not establish ownership of the durable key or
-        // address the claim names. On the transports
-        // whose designator *is* the identity, the two must agree, or any peer
-        // able to open a connection could name a designator we are dialing and
-        // have us abort our own verified outbound session to it — repeatedly,
-        // and against an exporter it never has to reach or hold a key for.
-        // `liveSessionForDial` already refuses to trust this same field as a
-        // dial match key for the same reason.
-        //
-        // An address designator stays an unverifiable claim, and it still
-        // decides the tiebreak, because the OCapN suite's crossed-hellos test
-        // requires exactly that: an address transport has nothing else to match
-        // on at hello time. Refusing to act on it there is not ours to choose —
-        // dropping it makes that test hang waiting for the abort. So on an
-        // address transport a peer that can open a connection and name an
-        // address we are dialing can condemn our dial to it. That exposure is
-        // ADR-0030's model, not an oversight, and it is why a designator that
-        // *is* an identity is the one that gets checked; see
-        // `docs/boundaries.md`.
-        if (try self.designatorScheme(ss.acceptable_location.transport) == .key) {
-            const claimed = crypto.PeerKey.fromDesignator(designator) orelse return;
-            if (!std.mem.eql(u8, &claimed.bytes, &partner_key.bytes)) return;
-        }
-        const dial_target: DialTarget = .{
-            .transport = ss.acceptable_location.transport,
-            .designator = designator,
-        };
-        const verdict = self.hellos.checkInbound(dial_target, partner_pid) orelse return;
-        if (verdict.abort_inbound) {
-            // Not lower: this accepted session is the loser; the pair keeps
-            // the session our own dial opened.
-            try host_pump.condemn(self, session, .crossed_hellos, "crossed hellos: higher-keyed side aborting its inbound session");
-            return;
-        }
-        // Strictly lower: our own dial to this partner is the loser; the pair
-        // keeps this accepted session. `dialed_by_target` is the O(1)
-        // index (populated at enroll); do not rescan every live session.
-        if (self.liveIndexedSession(self.dialed_by_target.get(dial_target))) |candidate| {
-            try host_pump.condemn(self, candidate, .crossed_hellos, "crossed hellos: lower-keyed side aborting its outbound session");
-        }
-    }
+    /// Crossed-hellos tiebreak for an inbound start-session on an accepted
+    /// session. Body lives in `crossed_hellos.zig`, which owns the flow.
+    const tiebreakInbound = crossed_hellos.tiebreakInbound;
 };
 
 /// One delivery into a Value-shaped hosted behavior (see `Hosting`): the

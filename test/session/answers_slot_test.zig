@@ -1,4 +1,4 @@
-//! Answer-to-Slot projection and AnswerCell (status derived from binding).
+//! Answer-to-Slot projection and typed answer-row storage.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -49,34 +49,36 @@ test "pending inbound answer through real syrup codec matches answer oracle fixt
     try std.testing.expectEqualStrings(fixture.bytes(), encoded);
 }
 
-test "AnswerCell derives status from Slot; payload hangs off binding" {
-    var cell = answers.AnswerCell.initPending(.from(11), 42);
+test "AnswerCell carries status independently of wire position" {
+    var cell = answers.AnswerCell.initPending(42);
     try std.testing.expectEqual(answers.AnswerStatus.pending, cell.status());
-    try std.testing.expectEqual(slot.Slot{ .remote_unresolved = 11 }, cell.binding);
     try std.testing.expect(cell.payload == null);
 
     try cell.fulfill();
     try std.testing.expectEqual(answers.AnswerStatus.fulfilled, cell.status());
-    try std.testing.expectEqual(slot.Slot{ .remote_value = 11 }, cell.binding);
 
-    cell = answers.AnswerCell.initPending(.from(11), 42);
+    cell = answers.AnswerCell.initPending(42);
     try cell.breakCell();
     try std.testing.expectEqual(answers.AnswerStatus.broken, cell.status());
-    try std.testing.expectEqual(slot.Slot{ .broken = .{ .mint = .remote, .position = 11 } }, cell.binding);
 }
 
-test "AnswerTable stores AnswerCell rows by answer position" {
+test "InboundAnswerTable stores wire and virtual names independently" {
     const allocator = std.testing.allocator;
-    var table: answers.AnswerTable = .empty;
+    var table: answers.InboundAnswerTable = .empty;
     defer table.deinit(allocator);
 
-    try table.put(allocator, .from(11), answers.AnswerCell.initPending(.from(11), 1));
-    try std.testing.expect(table.contains(.from(11)));
-    try std.testing.expectEqual(@as(usize, 1), table.len());
-    const cell = table.getPtr(.from(11)).?;
+    const wire = model.AnswerName.fromWire(.from(11));
+    const virtual = model.AnswerName.fromVirtual(.from(11));
+    try table.put(allocator, wire, answers.AnswerCell.initPending(1));
+    try table.put(allocator, virtual, answers.AnswerCell.initPending(2));
+    try std.testing.expect(table.contains(wire));
+    try std.testing.expect(table.contains(virtual));
+    try std.testing.expectEqual(@as(usize, 2), table.len());
+    const cell = table.getPtr(wire).?;
     try std.testing.expectEqual(answers.AnswerStatus.pending, cell.status());
     try cell.fulfill();
-    try std.testing.expectEqual(answers.AnswerStatus.fulfilled, table.getPtr(.from(11)).?.status());
+    try std.testing.expectEqual(answers.AnswerStatus.fulfilled, table.getPtr(wire).?.status());
+    try std.testing.expectEqual(answers.AnswerStatus.pending, table.getPtr(virtual).?.status());
 }
 
 test "Session.inboundAnswerSlot projects live AnswerCell onto Slot" {

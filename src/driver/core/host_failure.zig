@@ -29,7 +29,7 @@ pub const HostFailure = struct {
         return switch (cause) {
             error.OutOfMemory => .internal,
 
-            error.TokenRetired,
+            error.CapabilityRouteUnavailable,
             error.NoSuchVow,
             error.UnknownCapability,
             error.UnknownPublication,
@@ -57,9 +57,6 @@ pub const HostFailure = struct {
             error.NoAnswer,
             error.ImportKindConflict,
             error.NoUnliftedImportRetain,
-            error.ImportLifted,
-            error.NotAToken,
-            error.NotAWirePosition,
             error.InvalidChannelKey,
             error.ChannelKeyConflict,
             error.UnheldIdentity,
@@ -95,11 +92,13 @@ pub const HostFailure = struct {
             error.SessionClosing,
             error.HostClosing,
             error.SealedChannelFailed,
+            error.PromiseBroken,
             => .closed,
 
             error.HandshakeIncomplete,
             error.OutboundBackpressure,
             error.SessionOperationLimitReached,
+            error.PromisePending,
             => .would_block,
 
             error.PartnerUnverified,

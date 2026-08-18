@@ -5,9 +5,17 @@
 // to argv. Each client configures an unusable local fallback, so success proves
 // the target's advertised relay route selected the bridge.
 //
-// Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts -- <client argv...>
+// Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts [--native-wss] -- <client argv...>
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
+const TLS_CERT = new URL("../../../test/net/fixtures/tls_server.pem", import.meta.url).pathname;
+const TLS_KEY = new URL("../../../test/net/fixtures/tls_server.key", import.meta.url).pathname;
+const TLS_ROOT = new URL("../../../test/net/fixtures/tls_root.pem", import.meta.url).pathname;
+const LIB_DIR = new URL("../../../zig-out/lib/", import.meta.url).pathname;
+const installedArchiveEnv = {
+	PANCAKE_LIB_DIR: LIB_DIR,
+	...(Deno.build.os === "darwin" ? { DYLD_LIBRARY_PATH: LIB_DIR } : { LD_LIBRARY_PATH: LIB_DIR }),
+};
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -15,6 +23,11 @@ function fail(message: string): never {
 }
 
 const sep = Deno.args.indexOf("--");
+const harnessArgs = sep === -1 ? [...Deno.args] : Deno.args.slice(0, sep);
+if (harnessArgs.some((arg) => arg !== "--native-wss")) {
+	fail(`unknown harness option: ${harnessArgs.find((arg) => arg !== "--native-wss")}`);
+}
+const nativeWss = harnessArgs.includes("--native-wss");
 const clientArgv = sep === -1 ? [...Deno.args] : Deno.args.slice(sep + 1);
 if (clientArgv.length === 0) fail("harness needs a client argv after --");
 
@@ -66,6 +79,13 @@ const relay = new Deno.Command("deno", {
 		"0",
 	],
 	cwd: ROOT,
+	env: nativeWss
+		? {
+			...installedArchiveEnv,
+			PANCAKE_RELAY_TLS_CERT: TLS_CERT,
+			PANCAKE_RELAY_TLS_KEY: TLS_KEY,
+		}
+		: installedArchiveEnv,
 	stdout: "piped",
 	stderr: "inherit",
 }).spawn();
@@ -74,30 +94,36 @@ let peer: Deno.ChildProcess | null = null;
 let clientCode = 1;
 try {
 	const relayPort = await awaitMarker(relay, "DENO-RELAY-READY", "relay");
+	const relayUrl = `${nativeWss ? "wss" : "ws"}://localhost:${relayPort}/relay`;
 
 	peer = new Deno.Command("deno", {
 		args: [
 			"run",
+			...(nativeWss ? ["--unsafely-ignore-certificate-errors=localhost"] : []),
 			"--allow-net",
 			"--allow-ffi",
 			"--allow-env",
 			"--allow-read",
 			"bindings/proofs/keyed_relay_rendezvous/registered_peer.ts",
-			relayPort,
+			relayUrl,
 		],
 		cwd: ROOT,
+		env: installedArchiveEnv,
 		stdout: "piped",
 		stderr: "inherit",
 	}).spawn();
 	const locator = await awaitMarker(peer, "REGISTERED-PEER-READY", "peer");
-	// The registration socket is opened asynchronously after the marker; give
-	// the relay a moment to hold it before the client bridges on. The client
-	// itself retries nothing — a missing registration is a loud refusal.
-	await new Promise((r) => setTimeout(r, 500));
 
 	const client = new Deno.Command(clientArgv[0], {
 		args: [...clientArgv.slice(1), locator],
 		cwd: ROOT,
+		env: nativeWss
+			? {
+				...installedArchiveEnv,
+				PANCAKE_PROOF_NATIVE_RELAY_URL: relayUrl,
+				PANCAKE_PROOF_NATIVE_RELAY_CA_FILE: TLS_ROOT,
+			}
+			: installedArchiveEnv,
 		stdout: "inherit",
 		stderr: "inherit",
 	}).spawn();

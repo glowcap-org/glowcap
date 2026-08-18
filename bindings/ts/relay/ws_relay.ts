@@ -14,6 +14,53 @@ import {
 	webSocketChannel as byteWebSocketChannel,
 	type WebSocketChannelOptions,
 } from "@pancake/runtime/websocket";
+import { retainCleanupFailures } from "@pancake/runtime/transport";
+
+/** A far-side dial the relay could not complete. The browser's socket was
+ * already closed with code 1011 and the caller's dial-fail reason, so nothing
+ * about this rejection is unhandled; it exists so an embedder can log an
+ * ordinary environmental failure as what it is (an unreachable or refusing
+ * target, usually retried by the browser on a backoff) instead of an
+ * unexpected serving fault. `cause` carries the dial's own error. */
+export class RelayDialFailed extends Error {
+	constructor(reason: string, cause: unknown) {
+		super(`${reason}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+		this.name = "RelayDialFailed";
+	}
+}
+
+/** Log one relay-serving rejection in the runtime-line vocabulary: a dial
+ * failure is a quiet, coalesced `relay: dial failed` line (identical messages
+ * within the window collapse to one line with a count), and anything else
+ * keeps the loud `unexpected error` label it deserves. One authority, so the
+ * embedders that host `webSocketRelay` cannot drift apart in wording. */
+export function relayFailureLogger(
+	log: (line: string) => void = (line) => console.error(line),
+	windowMs = 30_000,
+): (err: unknown) => void {
+	const seen = new Map<string, { count: number; timer: ReturnType<typeof setTimeout> }>();
+	return (err) => {
+		if (!(err instanceof RelayDialFailed)) {
+			log(`relay: unexpected error: ${err instanceof Error ? err.message : String(err)}`);
+			return;
+		}
+		const line = `relay: dial failed: ${err.message}`;
+		const held = seen.get(line);
+		if (held !== undefined) {
+			held.count++;
+			return;
+		}
+		log(line);
+		const entry = { count: 0, timer: undefined as unknown as ReturnType<typeof setTimeout> };
+		entry.timer = setTimeout(() => {
+			seen.delete(line);
+			if (entry.count > 0) log(`${line} (repeated ${entry.count} more times)`);
+		}, windowMs);
+		// A pending flush must not pin the process open past its last socket.
+		if (typeof entry.timer === "number") Deno.unrefTimer?.(entry.timer);
+		seen.set(line, entry);
+	};
+}
 
 /** WebSocket-specific relay adapter limits. */
 export interface WebSocketRelayOptions extends WebSocketChannelOptions {
@@ -37,7 +84,7 @@ export const MAX_RELAY_WEBSOCKET_MESSAGE_BYTES = 1 << 20;
 interface WsByteIo {
 	source: ByteSource;
 	sink: ByteSink;
-	close: (code?: number, reason?: string) => void;
+	close: (code?: number, reason?: string) => Promise<void>;
 	cancel: () => Promise<void>;
 }
 
@@ -93,16 +140,15 @@ export async function webSocketRelay(
 	try {
 		channel = await getChannel();
 	} catch (err) {
-		console.error(`relay: dial failed: ${err instanceof Error ? err.message : String(err)}`);
-		close(1011, dialFailReason);
-		await cancel();
-		return;
+		throw new RelayDialFailed(
+			dialFailReason,
+			await retainCleanupFailures(err, [
+				cancel,
+				() => close(1011, dialFailReason),
+			]),
+		);
 	}
-	try {
-		await relayBytes(source, sink, channel, config, () => close());
-	} finally {
-		close();
-	}
+	await relayBytes(source, sink, channel, config, () => close());
 }
 
 /**

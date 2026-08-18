@@ -122,6 +122,15 @@ pub fn ActionFifo(comptime T: type) type {
             return self.list.items[self.head..];
         }
 
+        /// Remove one live row by its offset within `unpopped`, preserving the
+        /// order of every other row. Transaction rollback uses this after an
+        /// infallible reserved push whose later work failed; it never allocates
+        /// and never touches rows already handed to a consumer.
+        pub fn removeUnpopped(self: *Self, offset: usize) T {
+            std.debug.assert(offset < self.list.items.len - self.head);
+            return self.list.orderedRemove(self.head + offset);
+        }
+
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.list.deinit(allocator);
         }

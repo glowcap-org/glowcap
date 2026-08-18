@@ -62,6 +62,11 @@ zig build release-pack
 This writes checksummed, target-specific archives under `zig-out/release/`.
 The tarballs contain regular files rather than library symlinks.
 
+The optional native relay archive is self-contained: its pinned, namespaced
+Mbed TLS client is linked privately into `libpancake_net_transport_relay` and
+is not a second runtime library for a binding to discover or distribute.
+Packages that omit the relay archive acquire no TLS artifact or dependency.
+
 The release workflow uses the same archive set. A manual workflow run builds
 artifacts without publishing a GitHub release.
 

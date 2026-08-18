@@ -44,7 +44,7 @@ export interface KeyboardShortcutBindings {
   /** Cmd-Shift-Z / Cmd-Y: take history forward, selection and all. */
   onRedo: () => void;
   /** Cmd-C: extract a payload from the current selection into the
-   *  clipboard slot. Host (App) holds the clipboard between copy
+   *  clipboard slot. `useSelectionClipboard` holds it between copy
    *  and paste; the engine doesn't carry clipboard state. */
   onCopySelection: () => void;
   /** Cmd-V: paste the stashed clipboard payload at the playhead.

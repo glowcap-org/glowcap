@@ -12,11 +12,21 @@
 ;; its retain to the Host.
 (struct ref (id [released? #:auto #:mutable])
   #:transparent
-  #:constructor-name make-ref/internal)
+  #:constructor-name make-ref/internal
+  ;; One projected occurrence owns one retain, so two Equal capabilities may
+  ;; be distinct structs with independent release flags. OCapN Target equality
+  ;; follows the immutable Host id and cannot change when either occurrence is
+  ;; released.
+  #:property prop:equal+hash
+  (list (lambda (a b _recur) (= (ref-id a) (ref-id b)))
+        (lambda (a recur) (recur (ref-id a)))
+        (lambda (a recur) (recur (ref-id a)))))
 (struct sym (value) #:transparent)             ; tag a string as an OCapN symbol
 (struct kw (value) #:transparent)              ; an OCapN keyword
+(struct error-arg (message) #:transparent)     ; a fulfilled OCapN Error value
 (struct pset (items) #:transparent)             ; an OCapN set
 (struct tagged-arg (tag value) #:transparent)   ; an OCapN tagged record
+(struct struct-arg (entries) #:transparent)     ; unique String key/value pairs
 
 ;; The typed cause of a connection's most recent refused frame, carried on the
 ;; `abort` field of the `exn:fail:pancake` the feeding path raises. `domain` is

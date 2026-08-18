@@ -142,7 +142,7 @@ fn dialGoblinsVat(io: std.Io, allocator: std.mem.Allocator, environ_map: *std.pr
         std.debug.print("goblins-iroh: client endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer endpoint.deinit();
+    defer endpoint.deinit() catch |err| std.log.err("iroh client endpoint teardown failed: {s}", .{@errorName(err)});
     const entries = [_]net.netlayer.Netlayer{endpoint.netlayer()};
     var client_id_buf: [iroh.node_id_len]u8 = undefined;
     const client_node_id = endpoint.nodeId(&client_id_buf);
@@ -288,7 +288,7 @@ fn serveGoblinsClient(io: std.Io, allocator: std.mem.Allocator, environ_map: *st
         std.debug.print("goblins-iroh: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
-    defer endpoint.deinit();
+    defer endpoint.deinit() catch |err| std.log.err("iroh server endpoint teardown failed: {s}", .{@errorName(err)});
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const node_id = endpoint.nodeId(&id_buf);

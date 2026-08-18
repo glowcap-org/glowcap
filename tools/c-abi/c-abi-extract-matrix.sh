@@ -22,6 +22,7 @@ mkdir -p "$FIX/good/$PREFIX" "$FIX/slip_src" "$FIX/link/$PREFIX"
 
 echo 'ok' >"$FIX/good/$PREFIX/pancake ocapn.so"
 (cd "$FIX/good" && tar -czf "$FIX/good.tar.gz" "$PREFIX")
+(cd "$FIX/good" && tar -cjf "$FIX/good.tar.bz2" "$PREFIX")
 
 # Zip-slip member: lib/../evil.txt (GNU tar --transform).
 echo evil >"$FIX/slip_src/evil.txt"
@@ -137,6 +138,12 @@ if archive_hygiene_check "$FIX/good.tar.gz" "$PREFIX"; then
 	pass "shell good"
 else
 	bad "shell good"
+fi
+if archive_hygiene_check_compressed "$FIX/good.tar.bz2" "$PREFIX" j; then
+	validators=$((validators + 1))
+	pass "shell bzip2 good"
+else
+	bad "shell bzip2 good"
 fi
 if [ "$HAVE_SLIP" = 1 ]; then
 	if archive_hygiene_check "$FIX/slip.tar.gz" "$PREFIX"; then

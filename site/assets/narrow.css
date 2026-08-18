@@ -1,0 +1,66 @@
+/* The narrow fold, loaded last: on a phone the sidebar folds to a strip on
+   top, the hero and the article tighten, and these overrides must come
+   after every sheet whose rules they fold. */
+
+/* ── Narrow screens: the sidebar folds to a horizontal strip on top ──────── */
+
+@media (max-width: 52rem) {
+  .shell {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .sidebar {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 1rem 0 0.5rem;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 0.5rem;
+  }
+
+  .js .docs-nav-toggle {
+    display: flex;
+  }
+
+  .js #docsNav {
+    display: none;
+  }
+
+  .js #docsNav.is-open {
+    display: flex;
+  }
+
+  .nav {
+    flex-flow: row wrap;
+    gap: 0.3rem 0.5rem;
+    align-items: center;
+  }
+
+  .nav-heading {
+    width: 100%;
+    margin: 0.5rem 0 0;
+  }
+
+  .nav-sub {
+    flex-flow: row wrap;
+    margin: 0;
+    border-left: none;
+    padding-left: 0;
+    gap: 0.3rem;
+  }
+
+  #content {
+    padding-top: 1rem;
+  }
+}
+
+@media (max-width: 38rem) {
+  h1 {
+    font-size: 2.2rem;
+  }
+
+  .hero h1 {
+    font-size: 2.7rem;
+  }
+}

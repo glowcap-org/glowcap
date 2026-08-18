@@ -634,7 +634,7 @@ pub fn runDrivenHandoff(allocator: std.mem.Allocator, codec_id: model.CodecId) !
     defer allocator.free(give_bytes);
     try gifter_to_exporter.sendDepositGift(&gift_id, fetched);
     try out.appendSlice(allocator, "gifter=sent:deposit_gift\n");
-    try gifter_to_recipient.sendResolveHandoffGive(.from(42), give_bytes);
+    try gifter_to_recipient.sendResolveHandoffGive(.fromWire(.from(42)), give_bytes);
     try out.appendSlice(allocator, "gifter=sent:resolve_give:answer=42\n");
 
     // The give reaches the recipient first; the deposit stays queued on the

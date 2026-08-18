@@ -15,7 +15,7 @@ import ctypes
 import secrets
 
 from . import _constants as _abi
-from ._errors import _check_host, _vow_failure
+from ._errors import _check_host, _vow_failure, PancakeError
 from ._ffi_host import _HostPumpArmFn, _HostPumpHooks, _host
 from ._ffi_ocapn import _byte_buf
 from ._host_action_gen import (
@@ -40,10 +40,16 @@ def _park_actions(host) -> tuple[list[HostAction], bool]:
     actions in queue order. Views are copied inside ``decode`` before the
     next pop frees them."""
     parked: list[HostAction] = []
+    callback_failure: BaseException | None = None
 
     @_HostPumpArmFn
     def park(_ctx, _host_ptr, action, out_progressed) -> int:
-        parked.append(decode(action.contents))
+        nonlocal callback_failure
+        try:
+            parked.append(decode(action.contents))
+        except BaseException as error:
+            callback_failure = error
+            return _abi.ERR_INTERNAL
         if out_progressed:
             out_progressed[0] = 1
         return _OK
@@ -53,14 +59,18 @@ def _park_actions(host) -> tuple[list[HostAction], bool]:
     hooks = _HostPumpHooks(None, park, park, park, park, park)
     acted = ctypes.c_uint32(0)
     yielded = ctypes.c_uint32(0)
-    _check_host(
-        _host.pancake_host_pump_drain(
-            host.raw,
-            ctypes.byref(hooks),
-            ctypes.byref(acted),
-            ctypes.byref(yielded),
-        )
+    rc = _host.pancake_host_pump_drain(
+        host.raw,
+        ctypes.byref(hooks),
+        ctypes.byref(acted),
+        ctypes.byref(yielded),
     )
+    if callback_failure is not None:
+        raise PancakeError(
+            _abi.ERR_INTERNAL,
+            f"pancake ABI returned an invalid host action: {callback_failure}",
+        ) from callback_failure
+    _check_host(rc)
     return parked, yielded.value != 0
 
 

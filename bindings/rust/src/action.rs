@@ -24,14 +24,16 @@ unsafe extern "C" fn park_arm(
 	action: *const ffi::PancakeHostAction,
 	out_progressed: *mut u32,
 ) -> i32 {
-	debug_assert!(!ctx.is_null());
-	debug_assert!(!action.is_null());
-	let action = unsafe { &*action };
-	if !host_action_gen::is_known_kind(action.kind) {
-		return sys::ERR_INTERNAL;
+	if ctx.is_null() || action.is_null() {
+		return sys::ERR_NULL_POINTER;
 	}
+	let action = unsafe { &*action };
+	let action = match host_action_gen::decode(action) {
+		Ok(action) => action,
+		Err(error) => return error.code(),
+	};
 	let parked = unsafe { &mut *(ctx as *mut Vec<HostAction>) };
-	parked.push(host_action_gen::decode(action));
+	parked.push(action);
 	if !out_progressed.is_null() {
 		unsafe { *out_progressed = 1 };
 	}
@@ -72,11 +74,8 @@ fn retain_detached_failure(host: &HostShared, context: &str, error: Error) {
 }
 
 impl HostActionHandlers for Handlers<'_> {
-	async fn dial(&self, action: HostAction) -> Result<()> {
-		let HostAction::Dial { ticket } = action else {
-			unreachable!("dispatch routes only Dial here");
-		};
-		if self.host.spawn_dial_task(ticket, move |host| async move {
+	async fn dial(&self, ticket: u64) -> Result<()> {
+		let spawned = self.host.spawn_dial_task(ticket, move |host| async move {
 			if let Err(error) = run_dial_ticket(&host, ticket).await {
 				retain_detached_failure(&host, "dial terminal report failed", error);
 				return;
@@ -90,17 +89,29 @@ impl HostActionHandlers for Handlers<'_> {
 					retain_detached_failure(&host, "action drain failed after dial completion", error);
 				}
 			}
-		}) {
-			return Ok(());
+		});
+		match spawned {
+			Ok(true) => Ok(()),
+			Ok(false) => {
+				let reason = b"dial executor unavailable";
+				check_host(unsafe {
+					ffi::pancake_host_dial_failed(self.host.raw(), ticket, reason.as_ptr(), reason.len())
+				})
+			}
+			Err(primary) => {
+				let reason = primary.to_string();
+				let report = check_host(unsafe {
+					ffi::pancake_host_dial_failed(self.host.raw(), ticket, reason.as_ptr(), reason.len())
+				});
+				match report {
+					Ok(()) => Ok(()),
+					Err(cleanup) => Err(primary.with_secondary(cleanup)),
+				}
+			}
 		}
-		let reason = b"dial executor unavailable";
-		check_host(unsafe { ffi::pancake_host_dial_failed(self.host.raw(), ticket, reason.as_ptr(), reason.len()) })
 	}
 
-	async fn flush(&self, action: HostAction) -> Result<()> {
-		let HostAction::Flush { session } = action else {
-			unreachable!("dispatch routes only Flush here");
-		};
+	async fn flush(&self, session: usize) -> Result<()> {
 		let target = self.host.sessions.borrow().get(&session).cloned();
 		match target {
 			Some(session) => {
@@ -117,10 +128,7 @@ impl HostActionHandlers for Handlers<'_> {
 		}
 	}
 
-	async fn close(&self, action: HostAction) -> Result<()> {
-		let HostAction::Close { session, result } = action else {
-			unreachable!("dispatch routes only Close here");
-		};
+	async fn close(&self, session: usize, result: i32) -> Result<()> {
 		let target = self.host.sessions.borrow().get(&session).cloned();
 		if let Some(session) = target {
 			if let Err(error) = crate::pump::flush_outbound(&session).await {
@@ -132,10 +140,7 @@ impl HostActionHandlers for Handlers<'_> {
 		Ok(())
 	}
 
-	async fn need_gift_id(&self, action: HostAction) -> Result<()> {
-		let HostAction::NeedGiftId { ticket } = action else {
-			unreachable!("dispatch routes only NeedGiftId here");
-		};
+	async fn need_gift_id(&self, ticket: u64) -> Result<()> {
 		let mut gift_id = [0u8; 32];
 		let provided = getrandom::fill(&mut gift_id).is_ok()
 			&& check_host(unsafe {
@@ -148,38 +153,21 @@ impl HostActionHandlers for Handlers<'_> {
 		check_host(unsafe { ffi::pancake_host_gift_id_failed(self.host.raw(), ticket) })
 	}
 
-	async fn settle(&self, action: HostAction) -> Result<()> {
-		let HostAction::Settle { ticket, value } = action else {
-			unreachable!("dispatch routes only Settle here");
-		};
+	async fn settle(&self, ticket: u64, value: crate::Argument) -> Result<()> {
 		self.host.settle_vow(ticket, Ok(value));
 		Ok(())
 	}
 
-	async fn fail(&self, action: HostAction) -> Result<()> {
-		let HostAction::Fail {
-			ticket,
-			result,
-			message,
-		} = action
-		else {
-			unreachable!("dispatch routes only Fail here");
-		};
+	async fn fail(&self, ticket: u64, result: i32, message: String) -> Result<()> {
 		self.host.settle_vow(ticket, Err(Error::with_detail(result, message)));
 		Ok(())
 	}
 
-	async fn resume(&self, action: HostAction) -> Result<()> {
-		let HostAction::Resume = action else {
-			unreachable!("dispatch routes only Resume here");
-		};
+	async fn resume(&self) -> Result<()> {
 		Ok(())
 	}
 
-	async fn cancel_dial(&self, action: HostAction) -> Result<()> {
-		let HostAction::CancelDial { ticket } = action else {
-			unreachable!("dispatch routes only CancelDial here");
-		};
+	async fn cancel_dial(&self, ticket: u64) -> Result<()> {
 		self.host.cancel_dial_task(ticket).await
 	}
 }
@@ -193,6 +181,34 @@ mod tests {
 		let mut parked = Vec::new();
 		let mut action: ffi::PancakeHostAction = unsafe { core::mem::zeroed() };
 		action.kind = u32::MAX;
+		let error = host_action_gen::decode(&action)
+			.err()
+			.expect("generated decoder must reject an unknown ABI discriminant");
+		assert_eq!(error.code(), sys::ERR_INTERNAL);
+		assert!(error.message().unwrap_or_default().contains("unknown host action kind"));
+		let rc = unsafe {
+			park_arm(
+				&mut parked as *mut Vec<HostAction> as *mut core::ffi::c_void,
+				core::ptr::null_mut(),
+				&action,
+				core::ptr::null_mut(),
+			)
+		};
+		assert_eq!(rc, sys::ERR_INTERNAL);
+		assert!(parked.is_empty());
+	}
+
+	#[test]
+	fn unknown_nested_argument_kind_is_a_returned_callback_failure() {
+		let mut parked = Vec::new();
+		let mut action: ffi::PancakeHostAction = unsafe { core::mem::zeroed() };
+		action.kind = host_action_gen::HOST_ACTION_SETTLE;
+		action.value.kind = u32::MAX;
+		let error = host_action_gen::decode(&action)
+			.err()
+			.expect("generated decoder must reject an unknown nested argument kind");
+		assert_eq!(error.code(), sys::ERR_INTERNAL);
+		assert!(error.message().unwrap_or_default().contains("unknown argument kind"));
 		let rc = unsafe {
 			park_arm(
 				&mut parked as *mut Vec<HostAction> as *mut core::ffi::c_void,

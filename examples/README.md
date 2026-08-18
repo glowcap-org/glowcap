@@ -1,9 +1,11 @@
 # Learn pancake by example
 
-Start with chapter 01 and continue in number order. The first two chapters use
-the application APIs over TCP. Later chapters open the layers underneath.
+Numbered chapters teach the API. Start at 01 and continue in order. The first
+two use the application APIs over TCP; later chapters open the layers
+underneath. Rooms and the other apps in the table below are complete programs
+on this same API.
 
-Every example is a runnable build target:
+Every chapter and helper is a runnable build target:
 
 ```sh
 zig build examples
@@ -32,14 +34,16 @@ These programs use the same small API from several languages:
 
 | Application | What it demonstrates | Run it |
 | --- | --- | --- |
-| [Rooms](../apps/rooms/) | A chat server hands clients room and inbox capabilities. Zig, Rust, TypeScript, Python, and Racket clients exchange broadcasts. | `zig build demo-rooms` |
+| [Rooms](../apps/rooms/) | A chat server hands clients room and inbox capabilities. Zig, Rust, TypeScript, Python, and Racket clients exchange broadcasts. The browser UI is `zig build rooms-web`. | `zig build demo-rooms` |
 | [Tasks](../apps/tasks/) | A shared task board combines request-response calls, structured values, and change notifications. | `zig build demo-tasks` |
 | [Tools](../apps/tools/) | A coordinator grants agents tool capabilities, narrows them to read-only use, and revokes them. | `zig build demo-tools` |
-| [Accountability](../apps/accountability-on-pancake/) | Signed identity and an audit log sit above an ordinary capability call. | `zig build accountability` |
+| [Accountability](../apps/accountability-on-pancake/) | Signed identity and an audit log sit above an ordinary capability call. | `zig build demo-accountability` |
 
 The demos start their own server on an available port. Pass `-Dport=9099` to
 choose one. Rooms, tasks, and tools also accept `-Dattach=true` when you want
-their clients to join a server you started separately.
+their clients to join a server you started separately. Accountability's Zig-only
+sibling, `zig build accountability`, is the same app under `check`, without the
+other language callers.
 
 Missing optional language runtimes are reported as skipped. Each application's
 README has its standalone commands.
@@ -50,6 +54,9 @@ README has its standalone commands.
   client shown in the root README and supplies the greeter it calls.
 - [`connect_explicit_buffers.zig`](zig/connect_explicit_buffers.zig) repeats
   chapter 01 with caller-owned buffers and the lower-level blocking API.
+- [`many_sessions_one_loop.zig`](zig/many_sessions_one_loop.zig) repeats
+  chapter 02's introduction on the completion-loop tier, where one thread
+  serves many connections.
 - [`frame_view.zig`](zig/frame_view.zig) shows an owned frame becoming a
   borrowed view.
 
@@ -63,3 +70,10 @@ README has its standalone commands.
 
 The [C guide](../docs/consuming-from-c.md) explains which API and libraries to
 choose before you adapt one of these programs.
+
+## Nearby, but different
+
+| Path | Role |
+| --- | --- |
+| [`site/examples/`](../site/examples/README.md) | Per-transport first-call tabs on Start building, the binding pages, and the transport pages |
+| [`bindings/proofs/`](../bindings/proofs/README.md) | Cross-language binding proofs; the Rust clients live where Cargo expects them, under `bindings/rust/examples/` |

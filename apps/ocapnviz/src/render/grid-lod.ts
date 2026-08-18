@@ -49,6 +49,51 @@ export function gridTierOpacity(spacingPx: number): number {
   return over <= 0 ? 0 : over >= 1 ? 1 : over;
 }
 
+/**
+ * The three lattices, coarse last so it reads as the major intersection
+ * against the field of finer ones at default zoom. One row per tier so
+ * paint and the level-of-detail decision share the same `step`.
+ */
+export const GRID_TIER_SPECS = [
+  { step: 50, radius: 1.0, alpha: 0.22 },
+  { step: 250, radius: 2.5, alpha: 0.32 },
+  { step: 1000, radius: 5.0, alpha: 0.42 },
+] as const;
+
+export type StageGridLayers = readonly [Container, Container, Container];
+
+/** Stamp every tier's tiles in the given color. */
+export function paintGridTiers(
+  [fine, medium, coarse]: StageGridLayers,
+  color: number,
+): void {
+  const [a, b, c] = GRID_TIER_SPECS;
+  populateGridLOD(fine, a.step, a.radius, color, a.alpha);
+  populateGridLOD(medium, b.step, b.radius, color, b.alpha);
+  populateGridLOD(coarse, c.step, c.radius, color, c.alpha);
+}
+
+/**
+ * Each tier appears when its own dots are far enough apart on screen to
+ * read as a grid. Every tier answers to the same rule, coarse included:
+ * it used to be pinned always-on, which was true while the camera stopped
+ * at 0.2 and became a sub-pixel haze once it could reach one percent.
+ */
+export function applyGridLod(
+  [fine, medium, coarse]: StageGridLayers,
+  zoom: number,
+): void {
+  const [a, b, c] = GRID_TIER_SPECS;
+  const apply = (layer: Container, spec: (typeof GRID_TIER_SPECS)[number]) => {
+    const opacity = gridTierOpacity(spec.step * zoom);
+    layer.alpha = opacity;
+    layer.visible = opacity > 0;
+  };
+  apply(fine, a);
+  apply(medium, b);
+  apply(coarse, c);
+}
+
 /** Per-LOD grid is split into N×N tiles so the culler can skip
  * tiles outside the marker rect before vertex submission. 4 keeps
  * each tile roughly one viewport wide at default zoom. */

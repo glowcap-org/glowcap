@@ -37,7 +37,7 @@ const model = @import("model");
 const engine = @import("engine");
 const net = @import("net");
 const completion = net.completion;
-const ScratchPool = completion.ScratchPool;
+const BufferPool = completion.BufferPool;
 
 const crypto = foundation.crypto;
 const Io = std.Io;
@@ -539,7 +539,7 @@ const resident_ctx = net.netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{
     .profile = known_transport.metadata(),
-    .dial = .{ .blocking = residentDial },
+    .dial = .{ .blocking = net.netlayer.adaptBlockingDial(residentDial) },
     .listen = residentListen,
     .io = resident_ctx.io,
 };
@@ -675,10 +675,10 @@ const listener_vtable: Listener.VTable = .{
     // addresses the endpoint knows.
     .designator_scheme = known_transport.metadata().designator_scheme,
     .sealed_channel = known_transport.metadata().sealed_channel,
-    .accept = listenerAccept,
-    .waitAcceptable = listenerWaitAcceptable,
-    .localLocator = listenerLocalLocator,
-    .canonicalizeLocator = listenerCanonicalizeLocator,
+    .accept = net.netlayer.adaptAccept(listenerAccept),
+    .wait_acceptable = net.netlayer.adaptAcceptReadiness(listenerWaitAcceptable),
+    .local_locator = net.netlayer.adaptListenerLocator(listenerLocalLocator),
+    .canonicalize_locator = net.netlayer.adaptListenerCanonicalize(listenerCanonicalizeLocator),
     .close = listenerClose,
 };
 
@@ -825,7 +825,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         /// Sentinel listen handle: not an OS fd; `openListener` returns it after
         /// arming non-blocking accept on the endpoint.
-        pub const listen_fd: Fd = Namespace.fdFromId(0) catch unreachable;
+        pub const listen_fd: Fd = Namespace.fdFromComptimeId(0);
 
         const Signal = enum(u1) { readiness, wake };
 
@@ -882,7 +882,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         wake_fd: Fd,
         wake_armed: bool = false,
         next_id: u32 = 1,
-        scratch_pool: ScratchPool,
+        buffer_pool: BufferPool,
 
         /// Bind a backend to `resident`'s endpoint. The resident must outlive the
         /// loop and be driven by no other consumer for accept/connection I/O.
@@ -910,8 +910,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
             errdefer owned_platform.deinit();
             const wake_channel = try net.wake_channel.WakeChannel.open();
             errdefer wake_channel.deinit();
-            var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
-            errdefer scratch_pool.deinit();
+            var buffer_pool = try BufferPool.init(allocator, read_buffers, read_buffer_bytes);
+            errdefer buffer_pool.deinit();
             const readiness_source = pancake_iroh_sidecar_endpoint_readiness_fd(resident.endpoint);
             if (readiness_source < 0) return error.ListenFailed;
 
@@ -926,7 +926,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 .pending_dials = std.AutoHashMap(Fd, u64).init(allocator),
                 .wake_channel = wake_channel,
                 .wake_fd = wake_channel.read,
-                .scratch_pool = scratch_pool,
+                .buffer_pool = buffer_pool,
             };
         }
 
@@ -946,7 +946,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.platform.deinit();
             self.wake_channel.deinit();
             self.ready.deinit(self.allocator);
-            self.scratch_pool.deinit();
+            self.buffer_pool.deinit();
         }
 
         /// Wake a parked `poll` so owner-thread stop or teardown state can be
@@ -1017,11 +1017,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (!Namespace.ownsFd(fd)) self.platform.shutdownFd(fd);
         }
 
-        pub fn recycleRecv(self: *Self, comp: completion.Completion) void {
-            if (Namespace.ownsRecvToken(comp.recv_token)) {
-                self.scratch_pool.release(@intCast(Namespace.recvTokenPayload(comp.recv_token)));
+        pub fn recycleBorrowed(self: *Self, comp: completion.Completion) void {
+            if (Namespace.ownsBorrowToken(comp.borrowed.token)) {
+                self.buffer_pool.release(@intCast(Namespace.borrowTokenPayload(comp.borrowed.token)));
             } else {
-                self.platform.recycleRecv(comp);
+                self.platform.recycleBorrowed(comp);
             }
         }
 
@@ -1148,20 +1148,19 @@ pub fn CompletionBackend(comptime Platform: type) type {
         fn completeRecv(self: *Self, fd: Fd, entry: *ConnEntry) void {
             const ud = entry.pending.read_ud orelse return;
             var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
-            if (self.scratch_pool.acquire()) |idx| {
-                const buf = self.scratch_pool.buffer(idx);
+            if (self.buffer_pool.acquire()) |idx| {
+                const buf = self.buffer_pool.buffer(idx);
                 const n = pancake_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
                 if (n == would_block) {
                     // Edge spent without bytes: keep the pending recv; a later
                     // readable (or a left-over hint) will retry.
-                    self.scratch_pool.release(idx);
+                    self.buffer_pool.release(idx);
                     entry.pending.readable_hint = false;
                     return;
                 }
                 if (n > 0) {
                     comp.result = @intCast(n);
-                    comp.recv_bytes = buf[0..@intCast(n)];
-                    comp.recv_token = Namespace.recvToken(idx);
+                    comp.borrowed = .recv(buf[0..@intCast(n)], Namespace.borrowToken(idx));
                     // More may still be buffered: leave the hint so the next
                     // submitRecv completes without waiting for another edge.
                     entry.pending.readable_hint = true;
@@ -1169,7 +1168,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                     // 0 = clean EOF, negative = fault.
                     comp.result = if (n == 0) 0 else -1;
                     if (n < 0) comp.failure = error.IrohReadFailed;
-                    self.scratch_pool.release(idx);
+                    self.buffer_pool.release(idx);
                     entry.pending.readable_hint = false;
                 }
             } else {
@@ -1360,7 +1359,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 return;
             }
 
-            if (comp.recv_bytes != null) self.platform.recycleRecv(comp);
+            if (comp.borrowed.active()) self.platform.recycleBorrowed(comp);
             const signal: Signal = @enumFromInt(@as(u1, @truncate(Namespace.userDataPayload(comp.user_data))));
             switch (signal) {
                 .readiness => self.readiness_armed = false,

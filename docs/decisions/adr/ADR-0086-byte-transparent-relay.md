@@ -7,7 +7,7 @@ decision: "A browser peer reaches a native CapTP server through a byte-transpare
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0117]
 ---
 
 # ADR-0086 Byte-transparent relay for browser peers
@@ -54,7 +54,7 @@ pancake's; the code that fills them is each runtime's, and the cross-runtime
 relay matrix (below) proves every runtime filled them the same way.
 
 1. **A raw byte channel** to the target, `read() -> bytes | null`,
-   `write(bytes)`, `close()` (idempotent). For an iroh target this is a pancake
+   `write(bytes)`, and one idempotent result-bearing close barrier. For an iroh target this is a pancake
    C-ABI primitive (below); for a TCP target it is the runtime's own socket,
    which is already byte-level and already backpressured by the kernel.
 2. **The pump** that moves bytes between the two legs with the semantics below.
@@ -98,7 +98,9 @@ against every runtime's relay.
 **Pair-atomic lifetime.** Either leg ending, for any reason (EOF, error, the
 byte cap, the idle timeout, or a clean close), tears both legs down: the channel
 through `close()` and the WebSocket through the caller's closer. Both closes are
-idempotent, so no session half-closes and no leg leaks. CapTP does not use
+idempotent and joined before the pump returns; a refusal remains the result when
+no earlier I/O failure exists, otherwise it is retained as a consequence. Thus
+no session half-closes and no leg leaks. CapTP does not use
 half-close, so full pair-close is the correct semantics.
 
 **Byte-transparency and no capability.** The pump moves bytes and holds no

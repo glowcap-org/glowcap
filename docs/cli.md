@@ -211,7 +211,7 @@ flag and positional at a time (`--repl` stays argv-only). `call`, `tell`, and
 positional `args` array still works. After `zig build`, reload the MCP server
 in the host so the tools pick up the new binary. For hosts where `pancake` is
 already on `PATH`, a portable stub (no shim; set `PANCAKE_STATE` explicitly)
-lives at [`docs/examples/pancake-mcp.json`](examples/pancake-mcp.json).
+lives at [`docs/pancake-mcp.json`](pancake-mcp.json).
 
 ## Sit in a room
 
@@ -238,10 +238,14 @@ session summary: the front, the state path, and the partner's `abort_kind` and
 A `keyed-relay` locator names a peer that holds no listening socket (a
 browser tab, or any process that registered its identity at a relay instead).
 Its `rendezvous-relay` hint carries the dial route; `PANCAKE_RENDEZVOUS` is
-the deployment fallback for a bare locator. The relay carries cleartext CapTP
-frames and does not prove who answered. Native peers can seal that path with
-`noise-relay`. A browser tab on the accepting side still uses WebRTC or
-cleartext `keyed-relay` rendezvous
+the deployment fallback for a bare locator. It accepts `ws` or `wss`; WSS uses
+the platform root store by default. A process that owns a private deployment
+can set `PANCAKE_RELAY_CA_FILE` to a PEM root bundle; the CLI reads it once and
+the relay initializer copies the bounded snapshot. The relay carries cleartext CapTP frames and does not
+prove who answered. Native peers can seal that path with `noise-relay`. The
+browser's managed WebSocket connector can accept the same sealed profile;
+`web-peer-test` proves the native CLI can call it through a real Chromium peer
+and a local WSS relay
 ([known limitations](boundaries.md#browser-reachability)):
 
 ```sh
@@ -257,7 +261,7 @@ holds an inbound socket at the registration endpoint and prints a
 ```sh
 pancake --json ocapn listen \
   --rendezvous ws://127.0.0.1:8000/register \
-  --rendezvous-relay ws://relay.example/relay \
+  --rendezvous-relay ws://relay.example:8000/relay \
   --publish greeter
 ```
 

@@ -70,43 +70,117 @@ const RECORD_SPAN = 7;
 export function readAttachments(args: Argument[], recordAt = ROOM_RECORD_AT): Attachment[] {
 	const out: Attachment[] = [];
 	for (let at = recordAt; args[at] === "file"; at += RECORD_SPAN) {
-		if (out.length === MAX_MESSAGE_FILES) {
-			throw new Error(`a message may carry at most ${MAX_MESSAGE_FILES} files`);
-		}
-		const name = args[at + 1];
-		const mime = args[at + 2];
-		const size = args[at + 3];
-		const blob = args[at + 4];
-		if (typeof name !== "string" || name.length === 0 || name.length > MAX_FILE_NAME) break;
-		if (typeof mime !== "string" || mime.length > MAX_MIME) break;
-		if (typeof size !== "bigint" || size < 0n || size > BigInt(MAX_ATTACHMENT_BYTES)) break;
-		if (!(blob instanceof Ref)) break;
-		out.push({
-			name,
-			mime,
-			size: Number(size),
-			blob,
-			width: pixelCount(args[at + 5]),
-			height: pixelCount(args[at + 6]),
-		});
+		// Stop at the cap rather than throw: this walks a message a peer or room
+		// controls, and a throw here escapes the receive turn and erases the
+		// whole message — worse than showing the first files, which is exactly
+		// what a malformed record below already does. Bound on receive, one way.
+		if (out.length === MAX_MESSAGE_FILES) break;
+		const record = readAttachmentRecord(args, at);
+		if (record === null) break;
+		out.push(record);
 	}
 	return out;
+}
+
+/** Parse exactly one attachment record. Message readers may stop on null;
+ * mutation verbs use the same parser but reject null and trailing arguments,
+ * so the record vocabulary has one authority without making ordinary message
+ * display all-or-nothing. */
+function readAttachmentRecord(args: Argument[], at: number): Attachment | null {
+	if (args[at] !== "file") return null;
+	const name = args[at + 1];
+	const mime = args[at + 2];
+	const size = args[at + 3];
+	const blob = args[at + 4];
+	if (typeof name !== "string" || name.length === 0 || name.length > MAX_FILE_NAME) return null;
+	if (typeof mime !== "string" || mime.length > MAX_MIME) return null;
+	if (typeof size !== "bigint" || size < 0n || size > BigInt(MAX_ATTACHMENT_BYTES)) return null;
+	if (!(blob instanceof Ref)) return null;
+	return {
+		name,
+		mime,
+		size: Number(size),
+		blob,
+		width: pixelCount(args[at + 5]),
+		height: pixelCount(args[at + 6]),
+	};
+}
+
+/** Read a direct line's `refile(caption, ...keep, ...records)` arguments: the
+ * caption, the kept indices, and the new files riding inline.
+ *
+ * This is the receiving half of `PostedLine.refile` with sources, and every
+ * argument is the peer's, so the shape is refused rather than trusted:
+ * an index that repeats, or names no file among the line's `currentFiles`,
+ * and a result past `MAX_MESSAGE_FILES` all throw. The count bound matters
+ * beyond one call — kept files compound across refiles, so without it a peer
+ * could grow one line's set without limit, one refile at a time. */
+export function readRefileChange(
+	args: Argument[],
+	currentFiles: number,
+): { caption: string; keep: number[]; records: Attachment[] } {
+	if (typeof args[0] !== "string") throw new Error("refile needs a caption");
+	const caption = args[0];
+	// Keep indices are the bigints after the caption, up to where the file
+	// records begin — a record always opens with the string "file".
+	let recordAt = 1;
+	const keep: number[] = [];
+	const seen = new Set<number>();
+	while (recordAt < args.length && typeof args[recordAt] === "bigint") {
+		const at = Number(args[recordAt] as bigint);
+		if (!Number.isSafeInteger(at) || at < 0 || at >= currentFiles) {
+			throw new Error(`no file at index ${at} on this line`);
+		}
+		if (seen.has(at)) throw new Error(`file ${at} is kept twice`);
+		seen.add(at);
+		keep.push(at);
+		recordAt += 1;
+	}
+	const records: Attachment[] = [];
+	while (recordAt < args.length) {
+		const record = readAttachmentRecord(args, recordAt);
+		if (record === null) throw new Error("refile has a malformed file record");
+		records.push(record);
+		recordAt += RECORD_SPAN;
+	}
+	if (keep.length + records.length > MAX_MESSAGE_FILES) {
+		throw new Error(`a message may carry at most ${MAX_MESSAGE_FILES} files`);
+	}
+	return { caption, keep, records };
 }
 
 /** Validate a source before minting an actor for it. A direct-message sender is
  * its file host, so this is the same admission boundary the room server owns
  * for room-hosted files. */
+/** Why a room will not take a file described this way, or null when it will.
+ *
+ * Both sides ask: a sender so it fails before a byte moves, and the room because
+ * it cannot trust a sender. The checks belong in both places; the sentences do
+ * not, and they were written out twice — the same three, word for word, in the
+ * client and in the room, which is two authorities for one answer and a drift
+ * waiting to happen.
+ *
+ * Each one names the file it is about, because a message may carry several and a
+ * reader looking at eight chips cannot act on a rule stated in the abstract. */
+export function attachmentRefusal(name: string, mime: string, size: number): string | null {
+	const shown = name.length > 60 ? name.slice(0, 57) + "…" : name;
+	if (name.length === 0) return "a file needs a name";
+	if (name.length > MAX_FILE_NAME) {
+		return `a file name may be at most ${MAX_FILE_NAME} characters, and this one is ${name.length}`;
+	}
+	if (mime.length > MAX_MIME) return `"${shown}" declares a media type longer than ${MAX_MIME} characters`;
+	if (!Number.isSafeInteger(size) || size < 0) return `"${shown}" declares a size that is not a file size`;
+	if (size > MAX_ATTACHMENT_BYTES) {
+		const cap = MAX_ATTACHMENT_BYTES / (1024 * 1024);
+		return `a file may be at most ${cap} MB, and "${shown}" is ${(size / (1024 * 1024)).toFixed(1)} MB`;
+	}
+	return null;
+}
+
 export function validateAttachmentSource(source: AttachmentSource): number {
 	const size = sourceSize(source);
-	if (source.name.length === 0 || source.name.length > MAX_FILE_NAME) {
-		throw new Error(`a file name may be 1 to ${MAX_FILE_NAME} characters`);
-	}
-	if (source.mime.length > MAX_MIME) {
-		throw new Error(`a media type may be at most ${MAX_MIME} characters`);
-	}
-	if (!Number.isSafeInteger(size) || size < 0 || size > MAX_ATTACHMENT_BYTES) {
-		throw new Error(`a file may be at most ${MAX_ATTACHMENT_BYTES} bytes`);
-	}
+	const refused = attachmentRefusal(source.name, source.mime, size);
+	if (refused !== null) throw new Error(refused);
 	if (source.bytes === undefined && source.read === undefined && size > 0) {
 		throw new Error("an attachment source with bytes needs a reader");
 	}
@@ -188,17 +262,24 @@ function sourceBlob(slot: HostedSource): Behavior {
  *
  * The local handles are handed back after the send settles. A successful send
  * has already granted the receiver the export retain that keeps each blob
- * callable; a failed one granted nobody anything. */
+ * callable; a failed one granted nobody anything.
+ *
+ * Answers whatever the target answered — a direct line's `dm` answers a line
+ * handle the sender holds to change or take the message back, so this passes it
+ * up rather than discarding it. */
 export async function sendWithAttachments(
 	session: Session,
 	target: Ref,
 	verb: string,
 	leading: Argument[],
 	sources: AttachmentSource[],
-): Promise<void> {
+): Promise<Argument> {
 	if (sources.length === 0) {
-		await answerWithin(session.send(target, verb, leading), "they did not answer the message", REQUEST_TIMEOUT_MS);
-		return;
+		return await answerWithin(
+			session.send(target, verb, leading),
+			"they did not answer the message",
+			REQUEST_TIMEOUT_MS,
+		);
 	}
 	if (sources.length > MAX_MESSAGE_FILES) {
 		throw new Error(`a message may carry at most ${MAX_MESSAGE_FILES} files`);
@@ -228,12 +309,13 @@ export async function sendWithAttachments(
 				height: sourcePixelCount(source.height),
 			}));
 		}
-		await answerWithin(
+		const answer = await answerWithin(
 			session.send(target, verb, [...leading, ...records]),
 			"they did not answer the message its files ride on",
 			REQUEST_TIMEOUT_MS,
 		);
 		delivered = true;
+		return answer;
 	} finally {
 		if (!delivered) {
 			for (const slot of slots) dropHostedSource(slot);

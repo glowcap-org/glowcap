@@ -37,7 +37,16 @@
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 
-export { FetchFailed, PancakeError, secondaryFailureCount, secondaryFailures, VowBroken } from "./errors.ts";
+export {
+	FetchFailed,
+	PancakeError,
+	retainCleanupFailures,
+	retainSecondaryFailure,
+	secondaryFailureCount,
+	secondaryFailures,
+	VowBroken,
+} from "./errors.ts";
+export type { CarrierFailure, CarrierPhase } from "./carrier_failure.ts";
 export {
 	type Argument,
 	type Behavior,
@@ -46,6 +55,7 @@ export {
 	type FeatureSet,
 	Kw,
 	PSet,
+	PStruct,
 	Reachability,
 	Ref,
 	Sym,

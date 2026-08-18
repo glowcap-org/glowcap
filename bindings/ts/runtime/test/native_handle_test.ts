@@ -1,4 +1,10 @@
-import { NativeHandle, NativeParent, type NativeRetirement, SingleFlight } from "../transport/native_handle.ts";
+import {
+	consumedReleaseFailure,
+	NativeHandle,
+	NativeParent,
+	type NativeRetirement,
+	SingleFlight,
+} from "../transport/native_handle.ts";
 
 function assertEquals(actual: unknown, expected: unknown): void {
 	if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -141,6 +147,21 @@ Deno.test("NativeHandle reports failed release to its owner", async () => {
 	assertEquals(retirements, [{ released: false, outcome: { ok: false, error: failure } }]);
 });
 
+Deno.test("NativeHandle distinguishes consumed release failures", async () => {
+	const failure = new Error("released with cleanup failure");
+	const retirements: NativeRetirement[] = [];
+	const handle = new NativeHandle(
+		"test",
+		1n,
+		undefined,
+		() => Promise.resolve().then(() => consumedReleaseFailure(failure)),
+		(retirement) => retirements.push(retirement),
+	);
+
+	await assertRejects(handle.waitClosed(), failure);
+	assertEquals(retirements, [{ released: true, outcome: { ok: false, error: failure } }]);
+});
+
 Deno.test("NativeParent retains a rejected late child through release", async () => {
 	let constructChild!: () => void;
 	const construct = new Promise<void>((resolve) => {
@@ -208,4 +229,26 @@ Deno.test("NativeParent pins its backend when child release fails", async () => 
 
 	await assertRejects(parent.waitClosed(), failure);
 	assertEquals(events, ["child shutdown", "parent shutdown"]);
+});
+
+Deno.test("NativeParent retires a child whose failed release consumed it", async () => {
+	const failure = new Error("child cleanup failed after release");
+	const events: string[] = [];
+	const parent = new NativeParent<TestChild>(
+		"parent",
+		1n,
+		() => events.push("parent shutdown"),
+		() => {
+			events.push("parent release");
+		},
+	);
+	const child = new TestChild(
+		parent,
+		() => events.push("child shutdown"),
+		() => Promise.resolve().then(() => consumedReleaseFailure(failure)),
+	);
+	assertEquals(child.admitted, true);
+
+	await assertRejects(parent.waitClosed(), failure);
+	assertEquals(events, ["child shutdown", "parent shutdown", "parent release"]);
 });

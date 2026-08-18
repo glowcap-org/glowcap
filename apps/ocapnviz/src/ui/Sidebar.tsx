@@ -16,7 +16,8 @@ import { PANEL, SPACE } from "./tokens.ts";
 import { useClockSnapshot } from "./useClockSnapshot.ts";
 import { useDocVersion } from "./useDocVersion.ts";
 import { TrashGlyph } from "./glyphs.tsx";
-import { type EditorBindings, placeholder } from "./inspector/shared.tsx";
+import type { EditorBindings } from "./inspector/bindings.ts";
+import { placeholder } from "./inspector/styles.tsx";
 import { PeerConnections, PeerFields } from "./inspector/PeerPanel.tsx";
 import { SessionConnections, SessionFields } from "./inspector/SessionPanel.tsx";
 import { MessageConnections, MessageFields } from "./inspector/MessagePanel.tsx";
@@ -160,7 +161,7 @@ export function EntityDetails(
   }
   // `anchor` is already what the Inspector is showing rather than what is
   // logically selected — `inspectorView` resolved it once for every part of the
-  // pane (`App.tsx`), so there is nothing left to ask here.
+  // pane (`AppView.tsx`), so there is nothing left to ask here.
   const at = anchor;
   if (!at) {
     return (

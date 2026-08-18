@@ -17,7 +17,7 @@ import { useGestureSurface } from "../../interactions/use-gesture-surface.ts";
 import { FONT, SIZE } from "../tokens.ts";
 
 const SCRUB_INPUT_SURFACE_TAG = "ui-scrub-input";
-// Chrome lives in `.ocv-input.is-numeric` in styles.css — the input
+// Chrome lives in `.ocv-input.is-numeric` in controls.css — the input
 // family, because a value you can type is what this is. The scrub is a
 // gesture the component adds on top, not a different kind of control.
 const NUMERIC_CLASS = "ocv-input is-numeric";

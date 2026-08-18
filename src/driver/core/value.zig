@@ -17,12 +17,14 @@ pub const Capability = capability.Ref;
 
 /// A passable value on the owning host tier. Data arms mirror
 /// `model.Argument`; a capability mention is opaque. There is no handoff arm
-/// because the host redeems a give before the application sees it, and no
-/// break-reason arm because a broken outcome surfaces as `Reply.broken`.
+/// because the host redeems a give before the application sees it. An Error is
+/// a first-class value and remains distinct from `Reply.broken`: returning one
+/// fulfills with an Error, while breaking rejects the reply.
 pub const Value = union(enum) {
     bytes: []const u8,
     symbol: []const u8,
     capability: Capability,
+    @"error": model.BreakReason,
     string: []const u8,
     integer: i64,
     boolean: bool,

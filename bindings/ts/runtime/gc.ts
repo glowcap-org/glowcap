@@ -1,14 +1,14 @@
 // Distributed GC (ADR-0063), opt-in and off by default. Owns the Host-wide
-// `HostGc` state, fetch `trackImport` / verb-head `drainGc` choreography, and
+// `HostGc` state, recursive application-value tracking / verb-head `drainGc`, and
 // `pancake_host_ref_release`. Session keeps `withGc` as a thin opt-in; Host
-// owns the finalizer state. Binding spine Pass 3b.
+// owns the finalizer state.
 
 import { hostS } from "./internal/ffi/host.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
 import { checkHost } from "./errors.ts";
-import { refStruct } from "./codec.ts";
+import { refStruct } from "./abi_value.ts";
 import { ab } from "./internal/seam.ts";
-import { Ref, refFromId } from "./value.ts";
+import { type Argument, isReference, PSet, PStruct, Ref, refFromId, Tagged } from "./value.ts";
 
 /** Host callbacks HostGc needs without importing Host. */
 export interface GcHandle {
@@ -20,7 +20,7 @@ export interface GcHandle {
 	scheduleDrain(run: () => void): void;
 }
 
-/** Host-wide GC state. A fetched Ref may be homed on a sibling session, and it
+/** Host-wide GC state. A projected Ref may be homed on a sibling session, and it
  * may outlive the session through which it arrived, so neither the finalizer
  * registry nor its release queue may belong to a Session. */
 export class HostGc {
@@ -33,13 +33,14 @@ export class HostGc {
 		this.#h = h;
 	}
 
-	/** Register a fetched capability selected by a GC-enabled session. The id
-	 * is an opaque Host-scoped identity (ADR-0096) — the fetch seam is what
-	 * scopes tracking, not any id-range branch here — and the host resolves it
+	/** Register one projected capability occurrence selected by a GC-enabled
+	 * session. The id is an opaque Host-scoped identity (ADR-0096) — the
+	 * application projection seam scopes tracking, never an id-range branch —
+	 * and the host resolves it
 	 * to its home connection and real wire import when the release fires. The
 	 * finalizer captures only the bare id bigint, never the `Ref`, so it
 	 * cannot resurrect the handle whose death it waits on. */
-	trackImport(ref: Ref): Ref {
+	trackRef(ref: Ref): Ref {
 		const h = this.#h;
 		if (h === null) return ref;
 		if (this.#registry === null) {
@@ -54,6 +55,28 @@ export class HostGc {
 		this.#registry.unregister(ref);
 		this.#registry.register(ref, ref.id, ref);
 		return ref;
+	}
+
+	/** Attach one finalizer unit to every capability occurrence in a value the
+	 * native Host has just projected. Containers stay intact; equal ids in two
+	 * leaves remain two guards because native projection minted two retains. */
+	trackArgument(value: Argument): Argument {
+		if (isReference(value)) return this.trackRef(value);
+		if (Array.isArray(value)) {
+			for (const item of value) this.trackArgument(item);
+		} else if (value instanceof PSet) {
+			for (const item of value.items) this.trackArgument(item);
+		} else if (value instanceof Tagged) {
+			for (const item of value.value) this.trackArgument(item);
+		} else if (value instanceof PStruct) {
+			for (const [, item] of value.entries) this.trackArgument(item);
+		}
+		return value;
+	}
+
+	trackArguments(values: Argument[]): Argument[] {
+		for (const value of values) this.trackArgument(value);
+		return values;
 	}
 
 	/** Disarm a tracked ref after deterministic release committed. */

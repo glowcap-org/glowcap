@@ -1,35 +1,66 @@
 // What is known about one directory this tab holds, on its own surface.
 //
 // A room's row says which directory it is on; this is what that line opens. It
-// answers the three questions a locator raises and a name cannot, and it answers
-// them with the same block Settings uses, so asking about a directory gives one
-// answer wherever it is asked.
-//
-// Only for a directory that is not the page's own. Settings already describes
-// this directory and nothing else, so asking about that one opens Settings
-// rather than a second surface repeating it; see `net.aboutDirectory`. That
-// split is why this card never has to say *which* directory it is describing in
-// the way Settings would have to if it grew the same job.
+// answers the three questions a locator raises and a name cannot. Settings
+// keeps this page's locators and opens this same card for the directory that
+// served the page, so asking about a directory gives one answer wherever it is
+// asked.
 
-import { useRef, useState } from "react";
-import type { DirView } from "./types.ts";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { DirId, DirView } from "./types.ts";
 import { usePeer } from "./peer.ts";
 import { directoryName } from "./text.ts";
-import { useModalDialog } from "./modal.ts";
+import { useHeldModal, useModalDialog } from "./modal.ts";
 import { IconButton } from "./IconButton.tsx";
 import { Button } from "./Button.tsx";
+import { StandingMenu } from "./Standing.tsx";
 import { CopyField } from "./Copy.tsx";
 import { Icon } from "./icons.tsx";
 import { DirectoryFacts, GrantedNameNote } from "./DirectoryFacts.tsx";
 
-/** Mounted only while a directory is being asked about, so the dialog it holds
- * opens on mount the way every other modal here does. The hook that runs the
- * modal lifecycle keys on nothing but its own mount, which is exactly why the
- * open/closed decision belongs out here rather than inside it. */
+/** Stays mounted through the close transition so the card can leave the way
+ * it arrived. The open/closed decision still belongs out here: the dialog
+ * hook keys on that boolean, not on its own mount. */
 export function DirectoryCard(
-	{ dir, rooms, lines, marked }: { dir: DirView | null; rooms: number; lines: number; marked: boolean },
+	{ dir, rooms, lines, mark, standing, homeDir, onLayer }: {
+		dir: DirView | null;
+		rooms: number;
+		lines: number;
+		mark: string | undefined;
+		standing: string;
+		homeDir: DirId | null;
+		onLayer: (held: boolean) => void;
+	},
 ) {
-	return dir === null ? null : <DirectoryDialog dir={dir} rooms={rooms} lines={lines} marked={marked} />;
+	type View = {
+		dir: DirView;
+		rooms: number;
+		lines: number;
+		mark: string | undefined;
+		standing: string;
+		homeDir: DirId | null;
+	};
+	// The whole painted answer shares the card's held lifetime. Retaining only
+	// the directory while App has already zeroed its counts rewrites the card as
+	// it leaves, so the reverse transition would show facts that were never true.
+	const last = useRef<View | null>(
+		dir === null ? null : { dir, rooms, lines, mark, standing, homeDir },
+	);
+	if (dir !== null) last.current = { dir, rooms, lines, mark, standing, homeDir };
+	const shown = last.current;
+	const { held, onExited } = useHeldModal(dir !== null);
+	useLayoutEffect(() => {
+		onLayer(held);
+		return () => onLayer(false);
+	}, [held, onLayer]);
+	if (!held || shown === null) return null;
+	return (
+		<DirectoryDialog
+			open={dir !== null}
+			onExited={onExited}
+			{...shown}
+		/>
+	);
 }
 
 /** What leaving costs, in the things a reader would miss. Counted rather than
@@ -44,7 +75,16 @@ function whatGoes(rooms: number, lines: number): string {
 }
 
 function DirectoryDialog(
-	{ dir, rooms, lines, marked }: { dir: DirView; rooms: number; lines: number; marked: boolean },
+	{ open, onExited, dir, rooms, lines, mark, standing, homeDir }: {
+		open: boolean;
+		onExited: () => void;
+		dir: DirView;
+		rooms: number;
+		lines: number;
+		mark: string | undefined;
+		standing: string;
+		homeDir: DirId | null;
+	},
 ) {
 	const peer = usePeer();
 	const close = useRef<HTMLButtonElement>(null);
@@ -52,19 +92,19 @@ function DirectoryDialog(
 	// The hook owns the whole modal lifecycle — showing, Escape, the backdrop
 	// press, and where focus lands — so this component never opens a dialog by
 	// hand and never has a second way to close one.
-	useModalDialog(dialog, () => peer.aboutDirectory(null), close);
+	useModalDialog(dialog, () => peer.aboutDirectory(null), close, open, onExited);
 	// Asked before it is done, and asked in this card rather than in one over it:
 	// a dialog on top of a dialog is a shape neither the browser nor a screen
 	// reader handles well, and the question belongs to the thing being described
 	// anyway. Local state, because nothing outside this card is waiting on a
 	// question this card has not been answered yet.
 	const [asking, setAsking] = useState(false);
-	const name = directoryName(dir.id, null);
+	const name = directoryName(dir.id, homeDir);
 	return (
-		// The two classes every modal here wears: `modal` is the layer that dims
-		// and blurs the page, `modal-card` the panel that rises in it. Naming its
-		// own shapes instead got this dialog none of that, and it opened as the
-		// browser's own grey box in the middle of the screen.
+		// `modal` is the layer; its ::backdrop uses the same `--cover` paint as
+		// the phone's `#cover`. `modal-card` is the panel that rises in it. Naming
+		// its own shapes instead got this dialog none of that, and it opened as
+		// the browser's own grey box in the middle of the screen.
 		<dialog ref={dialog} className="modal" aria-labelledby="dircardTitle">
 			{
 				/* The card wears the directory's own mark, the same one its rows carry
@@ -74,7 +114,7 @@ function DirectoryDialog(
 				    marking at all, so the card never asserts a distinction nothing
 				    else on screen is drawing. */
 			}
-			<div className="modal-card dircard" data-dir={marked ? dir.slot : undefined}>
+			<div className="modal-card dircard" data-dir={mark}>
 				<div className="settings-head-row">
 					<h2 id="dircardTitle">
 						<span className="dircard-mark" aria-hidden="true">
@@ -94,14 +134,40 @@ function DirectoryDialog(
 				</div>
 
 				{
-					/* No label over the field: the heading above is the directory's name,
-				    and Settings says the same three things about this page's own
-				    directory under the same shape. */
+					/* No label over the field: the heading above is the directory's name.
+				    What the directory is sits in one well — the locator, its facts,
+				    and the granted-name note are all one answer. */
 				}
-				<div className="group">
-					<CopyField id="dircardLocator" text={dir.id} label={"Copy the locator for " + name} />
+				<div className="group well">
+					<CopyField
+						id="dircardLocator"
+						text={peer.dirAddress(dir.id)}
+						label={"Copy the locator for " + name}
+					/>
 					<DirectoryFacts dir={dir} rooms={rooms} />
 					<GrantedNameNote />
+				</div>
+				{
+					/* Where the reader stands on this one directory, in a well of its
+				    own: it is the card's one thing the reader can change, so it does
+				    not sit among the facts. Away is a thing you are on a server in
+				    IRC, in every channel on it at once, and this is that answer —
+				    one level in from the foot of the rail, which is about the reader
+				    everywhere. */
+				}
+				<div className="group well">
+					<p className="dircard-standing">
+						<span>Where you are here</span>
+						<StandingMenu
+							id="dircardStanding"
+							own={dir.standing}
+							effective={dir.standing ?? standing}
+							follows="you"
+							about={name}
+							up
+							onSay={(said) => peer.setDirStanding(dir.id, said)}
+						/>
+					</p>
 				</div>
 
 				{

@@ -33,6 +33,7 @@ Deno.test("closing iroh admission leaves a sibling TCP listener live", async () 
 	try {
 		await iroh.stopAdmission();
 		assert(!host.released, "iroh listener close released the shared loop");
+		tcpServer.select();
 		const next = tcpServer[Symbol.asyncIterator]().next();
 		client = await runtime.connect(tcp.locator("127.0.0.1", tcpServer.port));
 		const result = await next;

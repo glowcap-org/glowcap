@@ -18,5 +18,39 @@
 ;; park (they do not free the place's green threads — this one-call surface
 ;; is driven single-threaded). Netlayer shutdown cancels a connect owned by a
 ;; different native thread before parent release joins it.
-(require "ffi-tcp-gen.rkt")
-(provide (all-from-out "ffi-tcp-gen.rkt"))
+(require ffi/unsafe
+         "ffi-shared.rkt"
+         "ffi-tcp-gen.rkt")
+(provide (except-out (all-from-out "ffi-tcp-gen.rkt")
+                     pancake_tcp_connect*
+                     pancake_tcp_accept*
+                     pancake_tcp_conn_read_frame*
+                     pancake_tcp_conn_write_frame*
+                     pancake_tcp_conn_release*)
+         pancake_tcp_connect
+         pancake_tcp_accept
+         pancake_tcp_conn_read_frame
+         pancake_tcp_conn_write_frame
+         pancake_tcp_conn_release)
+
+(define (pancake_tcp_connect netlayer host host-len port options codec max-frame)
+  (call/out _pointer #f
+            (lambda (out)
+              (call/without-diagnostic pancake_tcp_connect*
+                                       netlayer host host-len port options codec
+                                       max-frame out))))
+
+(define (pancake_tcp_accept listener options codec max-frame)
+  (call/out _pointer #f
+            (lambda (out)
+              (call/without-diagnostic pancake_tcp_accept*
+                                       listener options codec max-frame out))))
+
+(define (pancake_tcp_conn_read_frame conn frame)
+  (call/without-diagnostic pancake_tcp_conn_read_frame* conn frame))
+
+(define (pancake_tcp_conn_write_frame conn frame)
+  (call/without-diagnostic pancake_tcp_conn_write_frame* conn frame))
+
+(define (pancake_tcp_conn_release conn)
+  (call/without-diagnostic pancake_tcp_conn_release* conn))

@@ -32,8 +32,10 @@ makes calls does not need `session.serve()`.
 ## Sessions and actors
 
 Python values map directly to pancake values: integers, floats, booleans,
-bytes, strings, and lists, plus `Symbol`, `Keyword`, `Set`, `Tagged`, and the
-capability type `Ref`.
+bytes, strings, and lists, plus `Symbol`, `Keyword`, `Set`, `Tagged`, `Struct`,
+the fulfilled-data `ErrorValue`, and the capability type `Ref`. `ErrorValue`
+does not reject a `RemotePromise`; raising an exception or returning a broken
+vow does.
 
 `await tcp.listen(host, port)` returns a `tcp.Server` whose iterator yields a
 `Session` for each partner. `publish` and `spawn` host ordinary Python

@@ -3,7 +3,7 @@ id: ADR-0068
 status: accepted
 date: 2026-07-05
 tags: [driver, actors, handoff, three-party, host, crossed-hellos, api]
-decision: "The native multi-session tier is `driver.core.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered sessions. An introduction is a typed third outcome (`actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there)) and the native forms of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every session, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connection attempts compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/core_host_test.zig` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
+decision: "The native multi-session tier is `driver.core.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered sessions. An introduction is a typed third outcome (`actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there)) and the native forms of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every session, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connection attempts compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/core_host/` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
 supersedes: []
 superseded_by: []
 amends: []
@@ -54,7 +54,7 @@ it (a claimed resolve is serve-step bookkeeping, never the application's), and
 the vat's served-reply interceptor: a new, single seam on `actors.Vat`,
 turns a reply that fulfills with a foreign-homed capability into a signed give
 through the node, drawing gift-id entropy at the host's I/O boundary.
-`call`/`send`/`tell` route through `Node.routeReference`, so a redeemed token
+`call`/`send`/`tell` route through `Node.routeReference`, so a redeemed route
 is addressable from any of the host's connections.
 
 An introduction is a typed outcome, not a dead argument. `actors.Resolution`
@@ -90,7 +90,7 @@ exporter.
 ## Consequences
 
 The native tier reaches parity with the bindings, proven the same way: the
-hermetic three-host scenario (`test/driver/core_host_test.zig`) runs
+hermetic three-host scenario (`test/driver/core_host/`) runs
 originate, give, redeem, and the direct call over real loopback sockets: the
 first time `zig build check` proves native origination: and the live
 `goblins-handoff` driver consumes `Host.redeem` against a real Goblins

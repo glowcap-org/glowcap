@@ -255,6 +255,7 @@ extern "C" {
 		field_len: usize,
 		out_vow: *mut u64,
 	) -> c_int;
+	pub fn pancake_host_turn_session(turn: *mut PancakeHostTurn, out_session: *mut *mut PancakeHostSession) -> c_int;
 	pub fn pancake_host_turn_forward(
 		turn: *mut PancakeHostTurn,
 		target: *const PancakeReference,

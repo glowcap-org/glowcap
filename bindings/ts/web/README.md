@@ -4,9 +4,10 @@ The browser entry for the pancake runtime. A browser tab becomes a real OCapN pe
 protocol core the native archives link, compiled to `wasm32`, with the byte channel on a WebSocket.
 This is [ADR-0070] Milestone 1: the same `@pancake/runtime` surface every dlopen runtime uses, on top
 of a swapped runtime adapter, with no protocol reimplemented in JavaScript. The build check covers
-the keyed handshake, fetch and call, a call back into a wasm-hosted object, and both wire grammars
-(Syrup and Cap'n Proto); handoff redeem through a browser dial is compiled in but has no
-browser-path check yet.
+the keyed handshake, fetch and call, a call back into a wasm-hosted object, both wire grammars
+(Syrup and Cap'n Proto), and a native peer cold-dialing a Chromium-hosted object over
+`noise-relay`. Handoff redeem through a browser dial is compiled in but has no browser-path check
+yet.
 
 [ADR-0070]: ../../../docs/decisions/adr/ADR-0070-browser-binding-via-wasm.md
 
@@ -50,15 +51,16 @@ proxies, three-party redemption.
 - **Sockets over WebSocket.** `connect` opens a WebSocket to `ws://host:port/` by default; pass
   `wsUrl` to route every dial through a byte gateway instead. The socket carries raw OCapN frames
   (the host's stream delimiter owns framing), so the accepting side is a byte bearer, never a
-  protocol translator. A browser cannot bind a listener; `listen` refuses. Neither direction is
-  bounded yet: `write` resolves when the socket buffers the bytes, and inbound chunks queue until
-  read, so a peer streaming faster than its partner processes grows tab memory.
+  protocol translator. A browser cannot bind a listener; `listen` refuses. Outbound writes wait for
+  the browser send buffer to fall below its high-water. Inbound bytes enter a bounded queue because
+  browser WebSockets cannot pause their producer; overflow closes the socket instead of growing tab
+  memory.
 
 ## Byte-transparent relay
 
 Browser peers cannot dial native sockets directly. A relay endpoint accepts a WebSocket connection
-and forwards bytes to a target TCP locator without parsing CapTP frames, so the keyed handshake and
-session authority run end to end unchanged. Pass `wsUrl` to `init()` with a function that maps
+and forwards bytes without parsing CapTP frames, so the keyed or Noise handshake and session
+authority run end to end unchanged. Pass `wsUrl` to `init()` with a function that maps
 `(host, port)` to the relay's URL, for example `` (h, p) => `ws://relay/relay?to=${h}:${p}` ``. The
 reference relay ships as [`@pancake/relay`](../relay/README.md). The rooms app wraps it at
 [`apps/rooms/web/relay.ts`](../../../apps/rooms/web/relay.ts), which allow-lists the room server's
@@ -70,11 +72,13 @@ from this binding through that relay to a native TCP host.
 
 `zig build web-peer-test` runs [`test/web_peer_test.ts`](test/web_peer_test.ts): a native host
 ([`test/serve_ws_host.ts`](test/serve_ws_host.ts)) accepts WebSocket connections straight into
-`Session.establishAccepted`, and a second process loads the runtime through `@pancake/web` — wasm
-module, linear-memory FFI, WebSocket channel, no `Deno.dlopen` anywhere in its graph — completes the
-keyed handshake inside the wasm peer, fetches and calls a published object, and receives a call back
-into an object the wasm peer hosts. Deno supplies the same `WebAssembly`/`WebSocket` globals a
-browser does, which keeps the check in-tree and socket-real at once.
+`Session.establishAccepted`, and a second process loads the runtime through `@pancake/web` (wasm
+module, linear-memory FFI, WebSocket channel, and no `Deno.dlopen` anywhere in its graph). That peer
+completes the keyed handshake, fetches and calls a published object, and receives a call back into
+an object it hosts. The same check then launches Chromium, registers the page's Wasm Host at the
+reference relay under `noise-relay`, and has the installed native CLI cold-dial and call it.
+That rendezvous leg is WSS with a test authority supplied independently to the browser and native
+process; the relay also audits a plaintext canary.
 
 [`test/wasm_handshake_smoke.ts`](test/wasm_handshake_smoke.ts) (`zig build
 wasm-driver-test`) is the layer

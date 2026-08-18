@@ -50,6 +50,7 @@ import {
 	checkDiagnosedCall,
 	checkedMaxFrameBytes,
 	codecId,
+	consumedReleaseFailure,
 	DriverListener,
 	DriverLoop,
 	DriverServer,
@@ -205,7 +206,7 @@ export async function installProvider(loop: ProviderTarget, options: NetlayerOpt
 	} finally {
 		await new NativeDiagnostic("onion").check(
 			"netlayer release",
-			(error, cap, errorLen) => onionS.pancake_onion_netlayer_release_with_diagnostic(raw, error, cap, errorLen),
+			(error, cap, errorLen) => onionS.pancake_onion_netlayer_release(raw, error, cap, errorLen),
 		);
 	}
 }
@@ -283,7 +284,17 @@ export class Connection {
 			"onion connection",
 			raw,
 			(p) => checkOnion(onionS.pancake_onion_conn_shutdown(p)),
-			(p) => onionS.pancake_onion_conn_release(p),
+			async (p) => {
+				try {
+					await checkDiagnosedCall(
+						"onion",
+						"connection release",
+						(error, cap, errorLen) => onionS.pancake_onion_conn_release(p, error, cap, errorLen),
+					);
+				} catch (error) {
+					consumedReleaseFailure(error);
+				}
+			},
 			(retirement) => this.#parent.retire(this, retirement),
 		);
 		if (!parent.adopt(this)) throw new Error("onion netlayer is released");
@@ -307,7 +318,7 @@ export class Connection {
 				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
-						onionS.pancake_onion_conn_read_frame_with_diagnostic(
+						onionS.pancake_onion_conn_read_frame(
 							raw,
 							mf,
 							error,
@@ -338,7 +349,7 @@ export class Connection {
 		return this.#writes.run(frame, (owned) =>
 			this.#native.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
-					onionS.pancake_onion_conn_write_frame_with_diagnostic(
+					onionS.pancake_onion_conn_write_frame(
 						raw,
 						owned.argument(),
 						error,
@@ -382,12 +393,16 @@ export class Listener {
 			"onion listener",
 			raw,
 			(p) => onionS.pancake_onion_listener_shutdown(p),
-			(p) =>
-				this.#releaseDiagnostic.check(
-					"listener release",
-					(error, cap, errorLen) =>
-						onionS.pancake_onion_listener_release_with_diagnostic(p, error, cap, errorLen),
-				),
+			async (p) => {
+				try {
+					await this.#releaseDiagnostic.check(
+						"listener release",
+						(error, cap, errorLen) => onionS.pancake_onion_listener_release(p, error, cap, errorLen),
+					);
+				} catch (error) {
+					consumedReleaseFailure(error);
+				}
+			},
 			(retirement) => this.#parent.retire(this, retirement),
 		);
 		if (!parent.adopt(this)) throw new Error("onion netlayer is released");
@@ -411,7 +426,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
-					onionS.pancake_onion_accept_with_diagnostic(
+					onionS.pancake_onion_accept(
 						raw,
 						codecId(codec),
 						BigInt(frameLimit),
@@ -444,7 +459,7 @@ export class Listener {
 			this.#native.use(async (raw) => {
 				const out = new Uint8Array(4);
 				await this.#waitDiagnostic.check("wait for accept", (error, cap, errorLen) =>
-					onionS.pancake_onion_listener_wait_with_diagnostic(
+					onionS.pancake_onion_listener_wait(
 						raw,
 						timeoutMs,
 						out,
@@ -470,8 +485,7 @@ export class Netlayer {
 			(p) =>
 				new NativeDiagnostic("onion").check(
 					"netlayer release",
-					(error, cap, errorLen) =>
-						onionS.pancake_onion_netlayer_release_with_diagnostic(p, error, cap, errorLen),
+					(error, cap, errorLen) => onionS.pancake_onion_netlayer_release(p, error, cap, errorLen),
 				),
 		);
 	}
@@ -503,7 +517,7 @@ export class Netlayer {
 				"onion",
 				"listen",
 				(error, cap, errorLen) =>
-					onionS.pancake_onion_listen_with_diagnostic(
+					onionS.pancake_onion_listen(
 						raw,
 						id,
 						BigInt(id.length),
@@ -547,7 +561,7 @@ export class Netlayer {
 				"onion",
 				"connect",
 				(error, cap, errorLen) =>
-					onionS.pancake_onion_connect_with_diagnostic(
+					onionS.pancake_onion_connect(
 						raw,
 						d,
 						BigInt(d.length),
@@ -563,3 +577,14 @@ export class Netlayer {
 		});
 	}
 }
+
+/** This package's one profile, in its own words (`ProfileInfo`). */
+export const profiles = [
+	{
+		transport: "onion",
+		summary: "A Tor onion service, published through a running Tor.",
+		reference: "https://community.torproject.org/onion-services/",
+		referenceName: "onion services",
+		takes: [],
+	},
+] as const satisfies readonly import("@pancake/runtime/transport").ProfileInfo[];

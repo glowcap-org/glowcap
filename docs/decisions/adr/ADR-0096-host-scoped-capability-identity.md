@@ -174,11 +174,16 @@ Host-owned id index maps its live ids to reusable private slots; another Host's
 raw C id is absent and fails closed. A remote import row records its live id;
 repeated mentions retain that row and preserve wire-delta accounting. Final
 application release removes the remote row and id index entry, then releases
-the import. Session close invalidates every row homed there. A local registry
-row remains only while an application handle retains it; publications, gifts,
-and Port projections retain the actor directly in the Host Vat. Ordinary
-retired capabilities leave no per-id tombstone, so retained storage is bounded
-by live capabilities and stale handles fail closed.
+the import. Session close invalidates every row homed there and removes its
+target/canonical index immediately. A release-only row containing only the id
+and outstanding application-retain count survives so a later binding finalizer
+can settle each already-issued unit without addressing the dead session. It
+cannot resolve or project, and disappears with the last release. A local
+registry row remains only while an application handle retains it; publications,
+gifts, and Port projections retain the actor directly in the Host Vat. Ordinary
+final release leaves no per-id tombstone, so retained storage is bounded by live
+capabilities plus invalidated handles that applications can still drop; stale
+handles fail closed.
 
 Every inbound reference is lifted while its owning session is known. This
 includes fetch and enliven settlements, ordinary call settlements, delivered
@@ -316,8 +321,10 @@ Named costs are:
 
 - lifting a newly observed import installs one Host row and records its id on
   the existing import row;
-- final release reclaims that row and retires its never-reused id; ordinary
-  capability churn retains no per-id tombstones;
+- final release reclaims that row and retires its never-reused id; session
+  invalidation retains only the id and outstanding release count until those
+  already-issued units settle, while ordinary capability churn retains no
+  per-id tombstones;
 - projecting a local target on a new port installs one export and one sparse
   reverse row;
 - lowering is fused into the existing outbound ownership clone, with no second
@@ -377,7 +384,7 @@ The decision is accepted only when these production-Host scenarios pass:
 ### Evidence standing
 
 Items 1 and 5 are held by
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig):
+[`test/driver/core_host/`](../../../test/driver/core_host/):
 the alias-replacement scenario mutates A, deposits it through the
 gifter-facing Port, replaces the alias with B, withdraws through a second
 exporter Port, calls A through the redeemed capability, and fetches B by name
@@ -385,7 +392,7 @@ exporter Port, calls A through the redeemed capability, and fetches B by name
 removal half; and the become scenario holds item 5's history half, one `bump`
 per Port observed from the other. The same file holds item 2 (an unnamed
 maker-spawned actor deposited and withdrawn as the exact mutated target),
-item 7 (the redeemed token and a direct fetch over the same exporter session
+item 7 (the redeemed route and a direct fetch over the same exporter session
 lift to one Host identity and compare Equal), item 10 (restore under two live
 sessions breaks only the missing target's answers, typed, with no retarget),
 and item 12 (gifter-session close reclaims the gift and later withdrawal
@@ -401,15 +408,20 @@ budgets; the engine's own send-path budgets are unchanged and hold the
 capability-free arms.
 
 Item 9: the engine scenario in
-[`test/engine/cross_peer_test.zig`](../../../test/engine/cross_peer_test.zig)
+[`test/engine/cross_peer/`](../../../test/engine/cross_peer/)
 holds the opaque capture/projection seam, and the driven oracle asserts the
-recipient's direct call addresses the exact projected position. Each binding
+recipient's direct call addresses the exact projected position. The C Host
+handoff scenario additionally fetches the withdrawn target over its exporter
+session and requires the two opaque ids to compare equal. Each binding
 proves the exact-gift mutation case on its public surface: the Deno stack in
 `bindings/ts/dogfood/gifter_handoff.ts`, Python in the `zig_smoke.py`
 direct-message scene, Racket in the `zig-smoke.rkt` redeem-dial scene, and
 Rust in `bindings/rust/examples/iroh_handoff.rs` — each mutates the held
 object, replaces the alias with a decoy, and asserts the withdrawn object is
-the mutated original. The browser surface shares the same `@pancake/runtime`
+the mutated original. Their recurring sturdyref scenarios also require a
+cached Host id to compare equal through Rust `PartialEq`, Python `==`, Racket
+`equal?`, and TypeScript `Ref.equals`; release state is not part of that fact.
+The browser surface shares the same `@pancake/runtime`
 gift logic over the wasm adapter, whose equivalence `zig build web-peer-test`
 holds and whose live redemption `zig build rooms-web-dm` proves in a real
 Chromium. The live Goblins exporter fixture (`zig build goblins-exporter`)
@@ -421,7 +433,7 @@ Item 3 is held in two layers. The engine scenario verifies an early receive,
 accepts its replay count before waiting, rejects a duplicate certificate, and
 settles it after the deposit from the retained pending row. The production Host
 scenario in
-[`test/driver/core_host_test.zig`](../../../test/driver/core_host_test.zig)
+[`test/driver/core_host/`](../../../test/driver/core_host/)
 proves that only a live session with a verified partner key can resolve the
 gifter side and signed session name; unverified sessions enter neither identity
 index. Item 12 is held by the adjacent production Host scenario: it delivers the

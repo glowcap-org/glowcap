@@ -19,9 +19,9 @@
 
 import { loopS } from "./internal/ffi/driver.ts";
 import { ffi, NULL, type Ptr, type Symbols } from "./internal/ffi/runtime.ts";
-import { ab, outPointer, outU64, readBytes, readErrorSlot } from "./internal/seam.ts";
+import { ab, outPointer, outU64, readErrorSlot } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
-import { decodeHostAction, type HostAction } from "./internal/host_action.ts";
+import { decodeDriverEvent, type LoopEvent } from "./internal/driver_event.ts";
 import { PancakeError, retainSecondaryFailure, vowFailure } from "./errors.ts";
 import { recordCallerlessFailure } from "./context.ts";
 import { Host, type HostFinalizerState, retireHostFinalizerState } from "./host.ts";
@@ -29,8 +29,9 @@ import { type DriverLoopHandle, type LoopChannel, Session } from "./session.ts";
 import { enterDeliver, exitDeliver, insideTurn } from "./trampoline.ts";
 import type { Codec } from "./value.ts";
 import { type Locator, OwnedLocator, parseLocator, withOwnedLocator } from "./locator.ts";
-import { type CloseOptions, encodeCloseOptions } from "./lifecycle.ts";
+import { type CloseOptions, encodeCloseOptions, lifecycleClosed, releaseConsumed } from "./lifecycle.ts";
 import { traceDetachHost, traceDrainHost } from "./trace.ts";
+import { addDriverProvider, closeDriverListener, driverCall, driverFailureError } from "./internal/driver_failure.ts";
 import {
 	BUFFER_TOO_SMALL,
 	CLOSED,
@@ -39,30 +40,19 @@ import {
 	DRIVER_DEFAULT_MAX_PENDING_OPENS,
 	DRIVER_DEFAULT_SETTLE_MS,
 	DRIVER_DEFAULT_WIRE_BUFFER_BYTES,
-	DRIVER_EVENT_ACCEPTED,
-	DRIVER_EVENT_COMPLETION,
-	DRIVER_EVENT_OPEN_FAILED,
-	DRIVER_EVENT_OPENED,
-	DRIVER_EVENT_SESSION_CLOSED,
 	DRIVER_OPTIONS_ABI_VERSION,
 	HOST_ACTION_FAIL,
 	HOST_ACTION_SETTLE,
 	INTERNAL,
 	INVALID_ARGUMENT,
 	IO,
-	LIFECYCLE_CLOSED,
 	OK,
 	TIMEOUT,
 	WOULD_BLOCK,
 } from "@pancake/abi";
-import {
-	DRIVER_DEFAULT_LISTENER_SETUP_MS,
-	DRIVER_EVENT_LISTENER_FAILED,
-	DRIVER_EVENT_LISTENER_READY,
-} from "./internal/constants.ts";
+import { DRIVER_DEFAULT_LISTENER_SETUP_MS } from "./internal/constants.ts";
 
 const utf8Encoder = new TextEncoder();
-const utf8Decoder = new TextDecoder();
 
 /** How long one off-thread park waits before stepping anyway. A wake (or any
  * readiness) returns early; the bound exists because an in-flight handshake's
@@ -179,8 +169,13 @@ const driverLoopFinalizer = new FinalizationRegistry<DriverLoopFinalizerState>((
 	if (state.handle === NULL) return;
 	const hostRaw = state.host.raw;
 	traceDrainHost(hostRaw);
-	const rc = loopS.pancake_driver_release(state.handle);
-	if (rc !== OK) {
+	const outcome = driverCall(
+		"driver-loop.finalizer.release",
+		(out) => loopS.pancake_driver_release(state.handle, out),
+	);
+	const rc = outcome.code;
+	if (outcome.error !== null) {
+		const consumed = releaseConsumed(rc);
 		if (!state.releaseFailureReported) {
 			state.releaseFailureReported = true;
 			recordCallerlessFailure(state.host.context, {
@@ -188,13 +183,19 @@ const driverLoopFinalizer = new FinalizationRegistry<DriverLoopFinalizerState>((
 				scope: "host",
 				scopeId: state.host.diagnosticId,
 				operation: "driver-loop.finalizer.release",
-				primaryName: "DriverLoopReleaseRefused",
-				primaryResult: rc,
-				primaryMessage: driverLastError() ?? `native driver release failed (code ${rc})`,
+				primaryName: outcome.failure?.primaryName ??
+					(consumed ? "DriverLoopReleaseFailed" : "DriverLoopReleaseRefused"),
+				primaryResult: outcome.error.code,
+				primaryMessage: outcome.error?.detail ?? `native driver release failed (code ${rc})`,
+				secondaryName: outcome.failure?.secondaryName,
+				secondaryResult: outcome.failure?.secondaryResult,
+				secondaryCount: outcome.failure?.secondaryCount,
 			});
 		}
-		refusedDriverFinalizers.add(state);
-		return;
+		if (!consumed) {
+			refusedDriverFinalizers.add(state);
+			return;
+		}
 	}
 	state.handle = NULL;
 	traceDetachHost(hostRaw);
@@ -284,29 +285,6 @@ function loopClosedError(): PancakeError {
 	return new PancakeError(CLOSED, "the loop is closed");
 }
 
-interface DriverFailure {
-	primaryResult: number;
-	primaryName: string;
-	secondaryResult: number;
-	secondaryCount: number;
-	secondaryName: string;
-}
-
-function driverEventFailure(failure: DriverFailure, operation: string): PancakeError {
-	const detail = failure.primaryName.length > 0
-		? `${operation} failed: ${failure.primaryName}`
-		: `${operation} failed`;
-	const error = new PancakeError(failure.primaryResult, detail);
-	if (failure.secondaryCount > 0) {
-		retainSecondaryFailure(
-			error,
-			new PancakeError(failure.secondaryResult, failure.secondaryName),
-			failure.secondaryCount,
-		);
-	}
-	return error;
-}
-
 function asPancakeError(error: unknown, operation: string): PancakeError {
 	if (error instanceof PancakeError) return error;
 	return new PancakeError(INTERNAL, `${operation}: ${String(error)}`);
@@ -329,17 +307,6 @@ function libcSyms(): Symbols {
 	}
 	return libc;
 }
-
-/** One drained loop event, in owned form (the C views die at the next pop, so
- * byte payloads are copied out in the pop loop). */
-type LoopEvent =
-	| { kind: "opened"; operationId: bigint; session: Ptr }
-	| ({ kind: "openFailed"; operationId: bigint } & DriverFailure)
-	| { kind: "listenerReady"; listener: bigint }
-	| ({ kind: "listenerFailed"; listener: bigint } & DriverFailure)
-	| { kind: "accepted"; listener: bigint; session: Ptr }
-	| ({ kind: "sessionClosed"; session: Ptr } & DriverFailure)
-	| { kind: "completion"; action: HostAction };
 
 interface DialWaiter {
 	resolve: (session: Ptr) => void;
@@ -556,20 +523,24 @@ export class DriverLoop implements DriverLoopHandle {
 		if (this.#released) return;
 		const wrapper = this.#wrapper;
 		wrapper.prepareLoopTeardown();
-		const rc = loopS.pancake_driver_release(this.#h);
-		if (rc !== INVALID_ARGUMENT) {
+		const outcome = driverCall(
+			"driver-loop.background.release",
+			(out) => loopS.pancake_driver_release(this.#h, out),
+		);
+		const rc = outcome.code;
+		if (releaseConsumed(rc)) {
 			if (this.#finalizerState != null) this.#finalizerState.handle = NULL;
 			driverLoopFinalizer.unregister(this);
 			this.#h = NULL;
 			this.#released = true;
-			wrapper.finishLoopTeardown();
+			void wrapper.finishLoopTeardown().catch((cleanup) => {
+				retainSecondaryFailure(failure, cleanup);
+			});
 		}
-		try {
-			checkDriver(rc);
-		} catch (releaseError) {
+		if (outcome.error !== null) {
 			// INVALID_ARGUMENT refused before consumption; every other failure is
 			// the outcome of a completed consuming teardown.
-			failure.cause = releaseError;
+			failure.cause = outcome.error;
 		}
 	}
 
@@ -628,7 +599,7 @@ export class DriverLoop implements DriverLoopHandle {
 		const rc = loopS.pancake_driver_lifecycle_state(this.#h, ab(out));
 		if (rc !== OK && rc !== TIMEOUT) checkDriver(rc);
 		return {
-			closed: new DataView(out.buffer).getUint32(0, true) === LIFECYCLE_CLOSED,
+			closed: lifecycleClosed(new DataView(out.buffer).getUint32(0, true)),
 			timedOut: rc === TIMEOUT,
 		};
 	}
@@ -726,8 +697,12 @@ export class DriverLoop implements DriverLoopHandle {
 			// Driver release below then frees loop, sessions, and host together.
 			wrapper.prepareLoopTeardown();
 			const handle = this.#h;
-			const releaseResult = loopS.pancake_driver_release(handle);
-			if (releaseResult !== INVALID_ARGUMENT) {
+			const releaseOutcome = driverCall(
+				"driver-loop.close.release",
+				(out) => loopS.pancake_driver_release(handle, out),
+			);
+			const releaseResult = releaseOutcome.code;
+			if (releaseConsumed(releaseResult)) {
 				if (this.#finalizerState != null) this.#finalizerState.handle = NULL;
 				driverLoopFinalizer.unregister(this);
 				this.#h = NULL;
@@ -736,9 +711,9 @@ export class DriverLoop implements DriverLoopHandle {
 					this.#closingListeners.add(listener);
 					this.#finishListenerClose(listener, loopClosedError());
 				}
-				wrapper.finishLoopTeardown();
+				await wrapper.finishLoopTeardown();
 			}
-			checkDriver(releaseResult);
+			if (releaseOutcome.error !== null) throw releaseOutcome.error;
 			if (wakeFailure !== null) throw wakeFailure;
 			if (timedOut) {
 				throw new PancakeError(TIMEOUT, "finish close exhausted its grace period");
@@ -865,7 +840,7 @@ export class DriverLoop implements DriverLoopHandle {
 			waiter.reject(new PancakeError(rc, driverLastError() ?? undefined));
 			return;
 		}
-		if (new DataView(out.buffer).getUint32(0, true) !== LIFECYCLE_CLOSED) return;
+		if (!lifecycleClosed(new DataView(out.buffer).getUint32(0, true))) return;
 		this.#sessionCloses.delete(ptr);
 		if (rc === TIMEOUT) waiter.reject(new PancakeError(TIMEOUT, "finish close exhausted its grace period"));
 		else waiter.resolve();
@@ -885,7 +860,10 @@ export class DriverLoop implements DriverLoopHandle {
 			if (!active || registered) {
 				throw new PancakeError(INVALID_ARGUMENT, "provider registrar is no longer active");
 			}
-			checkDriver(loopS.pancake_driver_add_provider(this.#h, ffi.pointerOf(packageBytes)));
+			addDriverProvider(
+				(provider, out) => loopS.pancake_driver_add_provider(this.#h, provider, out),
+				packageBytes,
+			);
 			registered = true;
 		};
 		try {
@@ -1028,69 +1006,7 @@ export class DriverLoop implements DriverLoopHandle {
 			const rc = loopS.pancake_driver_next_event(this.#h, ab(buf));
 			if (rc === WOULD_BLOCK) return out;
 			checkDriver(rc);
-			const dv = new DataView(buf.buffer);
-			const kind = dv.getUint32(L.DRIVER_EVENT_KIND_OFF, true);
-			const failure: DriverFailure = {
-				primaryResult: dv.getInt32(L.DRIVER_EVENT_PRIMARY_RESULT_OFF, true),
-				primaryName: utf8Decoder.decode(readBytes(
-					L.getPtr(dv, L.DRIVER_EVENT_PRIMARY_NAME_OFF),
-					L.getUsize(dv, L.DRIVER_EVENT_PRIMARY_NAME_LEN_OFF),
-				)),
-				secondaryResult: dv.getInt32(L.DRIVER_EVENT_SECONDARY_RESULT_OFF, true),
-				secondaryCount: dv.getUint32(L.DRIVER_EVENT_SECONDARY_COUNT_OFF, true),
-				secondaryName: utf8Decoder.decode(readBytes(
-					L.getPtr(dv, L.DRIVER_EVENT_SECONDARY_NAME_OFF),
-					L.getUsize(dv, L.DRIVER_EVENT_SECONDARY_NAME_LEN_OFF),
-				)),
-			};
-			const operationId = dv.getBigUint64(L.DRIVER_EVENT_OPERATION_ID_OFF, true);
-			const listenerId = dv.getBigUint64(L.DRIVER_EVENT_LISTENER_ID_OFF, true);
-			const session = L.getPtr(dv, L.DRIVER_EVENT_SESSION_OFF);
-			switch (kind) {
-				case DRIVER_EVENT_OPENED:
-					out.push({ kind: "opened", operationId, session });
-					break;
-				case DRIVER_EVENT_OPEN_FAILED:
-					out.push({
-						kind: "openFailed",
-						operationId,
-						...failure,
-					});
-					break;
-				case DRIVER_EVENT_LISTENER_READY:
-					out.push({ kind: "listenerReady", listener: listenerId });
-					break;
-				case DRIVER_EVENT_LISTENER_FAILED:
-					out.push({
-						kind: "listenerFailed",
-						listener: listenerId,
-						...failure,
-					});
-					break;
-				case DRIVER_EVENT_ACCEPTED:
-					out.push({ kind: "accepted", listener: listenerId, session });
-					break;
-				case DRIVER_EVENT_SESSION_CLOSED:
-					out.push({
-						kind: "sessionClosed",
-						session,
-						...failure,
-					});
-					break;
-				case DRIVER_EVENT_COMPLETION:
-					// Decode into owned values while the C views are live (they die
-					// at the next pop): the same generated decoder the byte-fed
-					// drain uses, so a loop-routed settle carries the same shapes.
-					out.push({
-						kind: "completion",
-						action: decodeHostAction(
-							new DataView(buf.buffer, L.DRIVER_EVENT_ACTION_OFF),
-						),
-					});
-					break;
-				default:
-					throw new PancakeError(INVALID_ARGUMENT, `unknown loop event kind ${kind}`);
-			}
+			out.push(decodeDriverEvent(buf));
 		}
 	}
 
@@ -1113,7 +1029,7 @@ export class DriverLoop implements DriverLoopHandle {
 				case "openFailed": {
 					const waiter = this.#pendingDials.get(event.operationId);
 					this.#pendingDials.delete(event.operationId);
-					waiter?.reject(driverEventFailure(event, "dial"));
+					waiter?.reject(driverFailureError(event, "dial"));
 					break;
 				}
 				case "listenerReady": {
@@ -1124,7 +1040,7 @@ export class DriverLoop implements DriverLoopHandle {
 					break;
 				}
 				case "listenerFailed": {
-					const failure = driverEventFailure(event, "listener");
+					const failure = driverFailureError(event, "listener");
 					if (this.#closingListeners.has(event.listener)) {
 						this.#finishListenerClose(event.listener, failure, true);
 						break;
@@ -1157,7 +1073,7 @@ export class DriverLoop implements DriverLoopHandle {
 				}
 				case "sessionClosed": {
 					this.#finishSessionCloseIfClosed(event.session);
-					const failure = event.primaryResult === OK ? null : driverEventFailure(event, "session");
+					const failure = event.primaryResult === OK ? null : driverFailureError(event, "session");
 					// The pump's EOF choreography, one tier up: `closeTransport`
 					// records local teardown and retires the shell so a later verb
 					// refuses CLOSED. The native side already broke the far vows and
@@ -1408,7 +1324,7 @@ export class DriverLoop implements DriverLoopHandle {
 	}
 
 	#closeListenerNative(listener: bigint): void {
-		checkDriver(loopS.pancake_driver_listener_close(this.#h, listener));
+		closeDriverListener(this.#h, listener);
 	}
 
 	#finishListenerClose(listener: bigint, reason?: PancakeError, rejectAccepts = false): void {

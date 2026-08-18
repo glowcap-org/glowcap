@@ -12,7 +12,10 @@ const engine = @import("engine");
 const net = @import("net");
 const driver = @import("driver");
 const provider_locator = @import("provider_locator.zig");
+const provider_failure = @import("provider_failure.zig");
+const validation = @import("provider_registry/validation.zig");
 const driver_error = @import("error.zig");
+const failure_output = @import("failure_output.zig");
 
 const shared = @import("c_abi_shared");
 
@@ -24,36 +27,28 @@ const PANCAKE_ERR_NULL_POINTER = shared.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = shared.PANCAKE_ERR_INVALID_ARGUMENT;
 const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 
-fn projectOperationOptions(
-    options: net.OperationOptions,
-    storage: *shared.PancakeTransportOperationOptions,
-) ?*const shared.PancakeTransportOperationOptions {
-    const data = options.data orelse return null;
-    storage.* = .{ .data = data, .size = options.size };
-    return storage;
-}
+pub const ProviderInstallOutcome = struct {
+    result: i32 = PANCAKE_OK,
+    failure: ?driver.OperationFailure = null,
 
-fn multiplexedIoResultValid(result: isize, capacity: usize) bool {
-    if (result == -1 or result == shared.PANCAKE_MULTIPLEXED_WOULD_BLOCK) return true;
-    if (result < 0) return false;
-    return @as(usize, @intCast(result)) <= capacity;
-}
+    fn fromError(err: anyerror) ProviderInstallOutcome {
+        const failure = driver.OperationFailure.fromError(err);
+        return .{ .result = driver_error.code(failure.kind), .failure = failure };
+    }
 
-const untouched_listen_state = std.math.maxInt(u32);
+    fn fromCode(result: i32, err: anyerror) ProviderInstallOutcome {
+        return .{ .result = result, .failure = driver.OperationFailure.fromError(err) };
+    }
 
-fn emptyListenResult() shared.PancakeListenResult {
-    return .{
-        .state = untouched_listen_state,
-        .listener = null,
-        .attempt = null,
-        .readiness_fd = -1,
-    };
-}
-
-fn listenResultUntouched(result: shared.PancakeListenResult) bool {
-    return result.state == untouched_listen_state and
-        result.listener == null and result.attempt == null and result.readiness_fd == -1;
-}
+    fn note(self: *ProviderInstallOutcome, later: driver.OperationFailure) void {
+        if (self.failure) |*failure| {
+            failure.noteFailure(later);
+        } else {
+            self.result = driver_error.code(later.kind);
+            self.failure = later;
+        }
+    }
+};
 
 const PreparedPackage = struct {
     registry: *Registry,
@@ -89,108 +84,51 @@ const PreparedPackage = struct {
     }
 };
 
-fn providerStatusError(code: i32) anyerror {
-    return switch (code) {
-        shared.PANCAKE_ERR_NULL_POINTER => error.ProviderNullPointer,
-        shared.PANCAKE_ERR_INVALID_ARGUMENT => error.ProviderInvalidArgument,
-        shared.PANCAKE_ERR_INTERNAL => error.ProviderInternal,
-        shared.PANCAKE_ERR_WOULD_BLOCK => error.ProviderWouldBlock,
-        shared.PANCAKE_ERR_CLOSED => error.ProviderClosed,
-        shared.PANCAKE_ERR_TIMEOUT => error.ProviderTimedOut,
-        shared.PANCAKE_ERR_SESSION => error.ProviderSession,
-        shared.PANCAKE_ERR_MALFORMED => error.ProviderMalformed,
-        shared.PANCAKE_ERR_FRAME_TOO_LARGE => error.ProviderFrameTooLarge,
-        shared.PANCAKE_ERR_IO => error.ProviderIo,
-        else => error.ProviderFailure,
-    };
-}
+const operationFailureFromProvider = provider_failure.operation;
+const failureChainFromProvider = provider_failure.chain;
+const dialErrorFromCode = provider_failure.dialError;
+const dialFailureFromProvider = provider_failure.dial;
+const providerFailureIsEmpty = provider_failure.isEmpty;
 
-fn providerStatusClassification(code: i32) foundation.FailureClassification {
-    return switch (code) {
-        shared.PANCAKE_ERR_NULL_POINTER,
-        shared.PANCAKE_ERR_INVALID_ARGUMENT,
-        => .invalid_argument,
-        shared.PANCAKE_ERR_INTERNAL => .internal,
-        shared.PANCAKE_ERR_WOULD_BLOCK => .would_block,
-        shared.PANCAKE_ERR_CLOSED => .closed,
-        shared.PANCAKE_ERR_TIMEOUT => .timeout,
-        shared.PANCAKE_ERR_SESSION => .session,
-        shared.PANCAKE_ERR_MALFORMED => .malformed,
-        shared.PANCAKE_ERR_FRAME_TOO_LARGE => .frame_too_large,
-        shared.PANCAKE_ERR_IO => .io,
-        else => unreachable,
-    };
-}
-
-fn providerStatusIsStable(code: i32) bool {
-    return switch (code) {
-        shared.PANCAKE_ERR_NULL_POINTER,
-        shared.PANCAKE_ERR_INVALID_ARGUMENT,
-        shared.PANCAKE_ERR_INTERNAL,
-        shared.PANCAKE_ERR_WOULD_BLOCK,
-        shared.PANCAKE_ERR_CLOSED,
-        shared.PANCAKE_ERR_TIMEOUT,
-        shared.PANCAKE_ERR_SESSION,
-        shared.PANCAKE_ERR_MALFORMED,
-        shared.PANCAKE_ERR_FRAME_TOO_LARGE,
-        shared.PANCAKE_ERR_IO,
-        => true,
-        else => false,
-    };
-}
-
-fn providerFailureName(pointer: ?[*]const u8, len: usize) ?[]const u8 {
-    if (len == 0 or pointer == null) return null;
-    const name = pointer.?[0..len];
-    if (!std.unicode.utf8ValidateSlice(name)) return null;
-    return name;
-}
-
-fn operationFailureFromProvider(
-    code: i32,
-    report: shared.PancakeProviderFailure,
-) error{InvalidProviderFailure}!driver.OperationFailure {
-    const primary_name = providerFailureName(report.primary_name, report.primary_name_len);
-    const secondary_name = providerFailureName(report.secondary_name, report.secondary_name_len);
-    const valid_secondary = if (report.secondary_count == 0)
-        report.secondary_result == 0 and report.secondary_name == null and report.secondary_name_len == 0
+fn appendFailure(target: *?foundation.FailureChain, later: foundation.FailureChain) void {
+    if (target.*) |*failure|
+        failure.noteChain(later)
     else
-        report.secondary_count <= std.math.maxInt(u16) and
-            providerStatusIsStable(report.secondary_result) and secondary_name != null;
-    if (report.result != code or !providerStatusIsStable(code) or primary_name == null or !valid_secondary)
-        return error.InvalidProviderFailure;
-    var failure = driver.OperationFailure.fromError(providerStatusError(code));
-    failure.kind = driver.OperationFailure.fromClassification(providerStatusClassification(code));
-    failure.namePrimary(primary_name.?);
-    if (report.secondary_count != 0) {
-        failure.noteNamed(providerStatusError(report.secondary_result), secondary_name.?);
-        failure.secondary_kind = driver.OperationFailure.fromClassification(providerStatusClassification(report.secondary_result));
-        failure.secondary_count = @intCast(report.secondary_count);
+        target.* = later;
+}
+
+fn listenerRestorationOutcome(
+    owner: *Registry,
+    callback: shared.transport_provider.PancakeTransportListenerRestorationStateFn,
+    listener_ctx: *anyopaque,
+    out: []u8,
+) net.netlayer.ListenerRestorationOutcome {
+    var needed: usize = 0;
+    var report = shared.transport_provider.emptyProviderFailure();
+    const code = callback(
+        listener_ctx,
+        if (out.len == 0) null else out.ptr,
+        out.len,
+        &needed,
+        &report,
+    );
+    const completed = (code == PANCAKE_OK and needed <= out.len) or
+        (code == shared.PANCAKE_ERR_BUFFER_TOO_SMALL and needed > out.len);
+    if (completed) {
+        if (providerFailureIsEmpty(report)) return .{ .size = needed };
+        owner.failContract("listener restoration state reported failure data on success");
+        owner.retainContradictoryReport(report, null);
+        return .{ .failed = .init(error.ProviderContract) };
     }
-    return failure;
-}
-
-fn failureChainFromProvider(
-    code: i32,
-    report: shared.PancakeProviderFailure,
-) error{InvalidProviderFailure}!foundation.FailureChain {
-    const failure = try operationFailureFromProvider(code, report);
-    return .{
-        .cause = failure.cause,
-        .cause_name = failure.cause_name,
-        .classification = providerStatusClassification(code),
-        .secondary_cause = failure.secondary_cause,
-        .secondary_cause_name = failure.secondary_cause_name,
-        .secondary_classification = if (report.secondary_count != 0)
-            providerStatusClassification(report.secondary_result)
-        else
-            null,
-        .secondary_count = failure.secondary_count,
+    const failure = failureChainFromProvider(code, report) catch {
+        owner.failContract("listener restoration state returned an invalid structured failure");
+        return .{ .failed = .init(error.ProviderContract) };
     };
-}
-
-fn providerFailureIsEmpty(report: shared.PancakeProviderFailure) bool {
-    return shared.transport_provider.providerFailureEmpty(report);
+    if (needed != 0) {
+        owner.failContract("listener restoration state published a size on failure");
+        owner.runtime.noteTerminalOperationFailure(.fromChain(failure));
+    }
+    return .{ .failed = failure };
 }
 
 const PreparedEntry = struct {
@@ -224,6 +162,22 @@ pub const Registry = struct {
         shared.setLastError("driver: transport provider contract violation: {s}", .{message});
     }
 
+    /// A success status accompanied by a well-formed failure report is still a
+    /// contract violation, but the report remains an observed provider fact.
+    /// Retain it and any rollback consequence behind ProviderContract.
+    fn retainContradictoryReport(
+        self: *Registry,
+        report: shared.PancakeProviderFailure,
+        cleanup: ?foundation.FailureChain,
+    ) void {
+        var reported = failureChainFromProvider(report.result, report) catch {
+            if (cleanup) |failure| self.runtime.noteTerminalOperationFailure(.fromChain(failure));
+            return;
+        };
+        if (cleanup) |failure| reported.noteChain(failure);
+        self.runtime.noteTerminalOperationFailure(.fromChain(reported));
+    }
+
     fn providerCallbackFailure(
         self: *Registry,
         code: i32,
@@ -233,6 +187,7 @@ pub const Registry = struct {
         if (code == PANCAKE_OK) {
             if (providerFailureIsEmpty(report)) return null;
             self.failContract("provider callback reported failure data on success");
+            self.retainContradictoryReport(report, null);
             return driver.OperationFailure.fromError(error.ProviderContract);
         }
         return operationFailureFromProvider(code, report) catch {
@@ -247,28 +202,29 @@ pub const Registry = struct {
     pub fn addProvider(
         self: *Registry,
         provider: ?*const shared.PancakeTransportProvider,
-    ) i32 {
-        const package = provider orelse return PANCAKE_ERR_NULL_POINTER;
-        self.runtime.checkApplicationAdmission() catch |err| return errToCode(err);
+    ) ProviderInstallOutcome {
+        const package = provider orelse
+            return .fromCode(PANCAKE_ERR_NULL_POINTER, error.NullPointer);
+        self.runtime.checkApplicationAdmission() catch |err| return errorOutcome(err);
         if (package.abi_version != shared.transport_provider.PANCAKE_TRANSPORT_PROVIDER_ABI_VERSION or
             package.struct_size < @sizeOf(shared.PancakeTransportProvider) or
             package.entry_count == 0 or package.entries == null or
             package.same_configuration == null or package.retain == null or package.release == null)
         {
             shared.setLastError("driver: invalid transport provider package", .{});
-            return PANCAKE_ERR_INVALID_ARGUMENT;
+            return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
         }
 
         const entries = package.entries.?[0..package.entry_count];
         const decoded_profiles = self.allocator.alloc(model.transport.Metadata, entries.len) catch
-            return shared.PANCAKE_ERR_INTERNAL;
+            return .fromError(error.OutOfMemory);
         defer self.allocator.free(decoded_profiles);
         for (entries, decoded_profiles) |entry, *profile| {
             const profile_table = entry.profile orelse {
                 shared.setLastError("driver: provider entry has no transport profile", .{});
-                return PANCAKE_ERR_INVALID_ARGUMENT;
+                return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
             };
-            profile.* = decodeTransportProfile(profile_table) catch |err| return errToCode(err);
+            profile.* = validation.transportProfile(profile_table) catch |err| return errorOutcome(err);
         }
 
         var retain_report = shared.transport_provider.emptyProviderFailure();
@@ -287,8 +243,8 @@ pub const Registry = struct {
                     "provider package retain rollback",
                 )) |cleanup| failure.noteFailure(cleanup);
             }
-            setProviderFailure("driver provider retain", failure);
-            return driver_error.code(failure.kind);
+            failure_output.setLastError("driver provider retain", failure);
+            return .{ .result = driver_error.code(failure.kind), .failure = failure };
         }
 
         var lease_consumed = false;
@@ -296,11 +252,14 @@ pub const Registry = struct {
         if (lease_consumed) return result;
         var release_report = shared.transport_provider.emptyProviderFailure();
         const release_code = package.release.?(package.lease_ctx, &release_report);
-        return retainReleaseOutcome(result, self.providerCallbackFailure(
+        var outcome = result;
+        if (self.providerCallbackFailure(
             release_code,
             release_report,
             "provider package rollback release",
-        ));
+        )) |cleanup| outcome.note(cleanup);
+        if (outcome.failure) |failure| failure_output.setLastError("driver provider registration", failure);
+        return outcome;
     }
 
     fn addRetainedProvider(
@@ -309,12 +268,12 @@ pub const Registry = struct {
         entries: []const shared.PancakeTransportProviderEntry,
         decoded_profiles: []const model.transport.Metadata,
         lease_consumed: *bool,
-    ) i32 {
+    ) ProviderInstallOutcome {
         const prepared_entries = self.allocator.alloc(PreparedEntry, entries.len) catch
-            return shared.PANCAKE_ERR_INTERNAL;
+            return .fromError(error.OutOfMemory);
         defer self.allocator.free(prepared_entries);
         const owned_adapters = self.allocator.alloc(Adapter, entries.len) catch
-            return shared.PANCAKE_ERR_INTERNAL;
+            return .fromError(error.OutOfMemory);
         defer self.allocator.free(owned_adapters);
         var prepared: usize = 0;
         var owned: usize = 0;
@@ -324,7 +283,7 @@ pub const Registry = struct {
         for (entries, prepared_entries, decoded_profiles) |entry, *prepared_entry, profile| {
             const implementation = entry.implementation orelse {
                 shared.setLastError("driver: provider entry has no implementation table", .{});
-                return PANCAKE_ERR_INVALID_ARGUMENT;
+                return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
             };
             for (prepared_entries[0..prepared]) |prior| {
                 if (prior.implementation != implementation) continue;
@@ -334,19 +293,19 @@ pub const Registry = struct {
                 };
                 if (!same_model) {
                     shared.setLastError("driver: one implementation table cannot use two execution models", .{});
-                    return PANCAKE_ERR_INVALID_ARGUMENT;
+                    return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
                 }
                 if (entry.execution_model == shared.transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM) {
                     shared.setLastError("driver: each stream profile requires its own implementation table", .{});
-                    return PANCAKE_ERR_INVALID_ARGUMENT;
+                    return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
                 }
             }
 
             const adapter: Adapter = switch (entry.execution_model) {
                 shared.transport_provider.PANCAKE_TRANSPORT_EXEC_STREAM => blk: {
-                    const table = implementationTable(shared.PancakeStreamTransport, implementation, "stream") catch |err|
-                        return errToCode(err);
-                    const adapter = prepareStreamAdapter(self, profile, table) catch |err| return errToCode(err);
+                    const table = validation.implementationTable(shared.PancakeStreamTransport, implementation, "stream") catch |err|
+                        return errorOutcome(err);
+                    const adapter = prepareStreamAdapter(self, profile, table) catch |err| return errorOutcome(err);
                     owned_adapters[owned] = .{ .stream = adapter };
                     owned += 1;
                     break :blk .{ .stream = adapter };
@@ -355,16 +314,16 @@ pub const Registry = struct {
                     for (prepared_entries[0..prepared]) |prior| {
                         if (prior.implementation == implementation) break :blk prior.adapter;
                     }
-                    const table = implementationTable(shared.PancakeMultiplexedTransport, implementation, "multiplexed") catch |err|
-                        return errToCode(err);
-                    const adapter = prepareMultiplexedAdapter(self, table) catch |err| return errToCode(err);
+                    const table = validation.implementationTable(shared.PancakeMultiplexedTransport, implementation, "multiplexed") catch |err|
+                        return errorOutcome(err);
+                    const adapter = prepareMultiplexedAdapter(self, table) catch |err| return errorOutcome(err);
                     owned_adapters[owned] = .{ .multiplexed = adapter };
                     owned += 1;
                     break :blk .{ .multiplexed = adapter };
                 },
                 else => {
                     shared.setLastError("driver: provider entry has an unknown execution model", .{});
-                    return PANCAKE_ERR_INVALID_ARGUMENT;
+                    return .fromCode(PANCAKE_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
                 },
             };
             prepared_entry.* = .{
@@ -376,21 +335,21 @@ pub const Registry = struct {
         }
 
         const registrations = self.allocator.alloc(driver.HostRuntime.ProviderRegistration, entries.len) catch
-            return shared.PANCAKE_ERR_INTERNAL;
+            return .fromError(error.OutOfMemory);
         defer self.allocator.free(registrations);
         const resident_indices = self.allocator.alloc(?usize, entries.len) catch
-            return shared.PANCAKE_ERR_INTERNAL;
+            return .fromError(error.OutOfMemory);
         defer self.allocator.free(resident_indices);
         for (prepared_entries, registrations) |entry, *registration| {
             registration.* = entry.registration();
         }
 
         const adapter_owners = self.allocator.dupe(Adapter, owned_adapters[0..owned]) catch
-            return shared.PANCAKE_ERR_INTERNAL;
+            return .fromError(error.OutOfMemory);
         var adapter_owners_live = true;
         defer if (adapter_owners_live) self.allocator.free(adapter_owners);
         const prepared_package = self.allocator.create(PreparedPackage) catch
-            return shared.PANCAKE_ERR_INTERNAL;
+            return .fromError(error.OutOfMemory);
         prepared_package.* = .{
             .registry = self,
             .adapters = adapter_owners,
@@ -413,88 +372,22 @@ pub const Registry = struct {
                 shared.setLastError("driver: transport profiles are already owned by another provider configuration", .{});
             var failure = driver.OperationFailure.fromError(err);
             if (PreparedPackage.releaseOwner(prepared_package)) |cleanup| failure.noteFailure(cleanup);
-            setProviderFailure("driver provider registration", failure);
-            return driver_error.code(failure.kind);
+            failure_output.setLastError("driver provider registration", failure);
+            return .{ .result = driver_error.code(failure.kind), .failure = failure };
         };
         if (!installed) {
             if (PreparedPackage.releaseOwner(prepared_package)) |failure| {
-                setProviderFailure("driver provider release", failure);
-                return driver_error.code(failure.kind);
+                failure_output.setLastError("driver provider release", failure);
+                return .{ .result = driver_error.code(failure.kind), .failure = failure };
             }
         }
-        return PANCAKE_OK;
+        return .{};
     }
 };
 
-fn retainReleaseOutcome(primary_code: i32, release_failure: ?driver.OperationFailure) i32 {
-    const cleanup = release_failure orelse return primary_code;
-    if (primary_code == PANCAKE_OK) {
-        setProviderFailure("driver provider release", cleanup);
-        return driver_error.code(cleanup.kind);
-    }
-
-    var primary: [256]u8 = undefined;
-    const reported_len = shared.lastErrorRead(&primary, primary.len);
-    const primary_len = @min(reported_len, primary.len - 1);
-    if (primary_len == 0) {
-        shared.setLastError("driver provider registration failed with status {d}; cleanup release failed: {s}", .{
-            primary_code,
-            cleanup.primaryName(),
-        });
-    } else {
-        shared.setLastError("{s}; cleanup release failed: {s}", .{ primary[0..primary_len], cleanup.primaryName() });
-    }
-    return primary_code;
-}
-
-fn setProviderFailure(prefix: []const u8, failure: driver.OperationFailure) void {
-    if (failure.secondary_cause) |_| {
-        shared.setLastError("{s}: {s}; cleanup: {s} ({d} secondary failures)", .{
-            prefix,
-            failure.primaryName(),
-            failure.secondaryName().?,
-            failure.secondary_count,
-        });
-    } else {
-        shared.setLastError("{s}: {s}", .{ prefix, failure.primaryName() });
-    }
-}
-
-fn errToCode(err: anyerror) i32 {
+fn errorOutcome(err: anyerror) ProviderInstallOutcome {
     if (err != error.InvalidArgument) shared.setLastError("driver provider: {s}", .{@errorName(err)});
-    return driver_error.fromError(err);
-}
-
-fn dialErrorFromCode(code: i32) net.netlayer.DialError {
-    return switch (code) {
-        shared.PANCAKE_ERR_INVALID_ARGUMENT => error.InvalidAddress,
-        shared.PANCAKE_ERR_TIMEOUT => error.TimedOut,
-        shared.PANCAKE_ERR_INTERNAL => error.OutOfMemory,
-        else => error.ConnectionLost,
-    };
-}
-
-fn validateOperationGroup(any: bool, complete: bool, kind: []const u8) !bool {
-    if (any != complete) {
-        shared.setLastError("driver: provider has a partial {s} operation group", .{kind});
-        return error.InvalidArgument;
-    }
-    return complete;
-}
-
-fn implementationTable(comptime T: type, raw: *const anyopaque, kind: []const u8) !*const T {
-    if (@intFromPtr(raw) % @alignOf(T) != 0) {
-        shared.setLastError("driver: {s} provider table is misaligned", .{kind});
-        return error.InvalidArgument;
-    }
-    return @ptrCast(@alignCast(raw));
-}
-
-fn validateTablePrefix(comptime T: type, table: *const T, version: u32, kind: []const u8) !void {
-    if (table.abi_version != version or table.struct_size < @sizeOf(T)) {
-        shared.setLastError("driver: {s} provider has an unsupported ABI", .{kind});
-        return error.InvalidArgument;
-    }
+    return .fromError(err);
 }
 
 fn ownProfile(registry: *Registry, profile: model.transport.Metadata) !model.transport.Metadata {
@@ -576,6 +469,11 @@ const StreamAdapter = struct {
 
     const ForeignStream = net.netlayer.PinnedStream(Source, ConnContext);
 
+    const ConnectionBuildOutcome = union(enum) {
+        connected: net.Connection,
+        failed: driver.OperationFailure,
+    };
+
     const ListenerBox = struct {
         adapter: *StreamAdapter,
         handle: *anyopaque,
@@ -599,7 +497,7 @@ const StreamAdapter = struct {
         bufs: net.netlayer.Buffers,
         handle: *anyopaque,
         fd: i32,
-    ) net.netlayer.DialError!net.Connection {
+    ) ConnectionBuildOutcome {
         const source: Source = .{ .adapter = self, .conn = handle };
         const stream = ForeignStream.create(peer.allocator, source, source, bufs, .{
             .adapter = self,
@@ -608,10 +506,9 @@ const StreamAdapter = struct {
         }) catch |err| {
             var failure = driver.OperationFailure.fromError(err);
             if (self.closeConnection(handle)) |cleanup| failure.noteFailure(cleanup);
-            self.owner.runtime.noteTerminalOperationFailure(failure);
-            return err;
+            return .{ .failed = failure };
         };
-        return stream.intoConnection(self.owner.io, peer);
+        return .{ .connected = stream.intoConnection(self.owner.io, peer) };
     }
 
     fn closeConnection(self: *StreamAdapter, handle: *anyopaque) ?driver.OperationFailure {
@@ -620,6 +517,7 @@ const StreamAdapter = struct {
         if (code == PANCAKE_OK) {
             if (providerFailureIsEmpty(report)) return null;
             self.owner.failContract("stream close reported failure data on success");
+            self.owner.retainContradictoryReport(report, null);
             return driver.OperationFailure.fromError(error.ProviderContract);
         }
         return operationFailureFromProvider(code, report) catch {
@@ -648,24 +546,29 @@ const StreamAdapter = struct {
         const code = self.table.start_connect.?(
             self.table.ctx,
             &projection.view,
-            projectOperationOptions(options, &options_storage),
+            validation.projectOperationOptions(options, &options_storage),
             &attempt,
             &fd,
             &report,
         );
         if (code != PANCAKE_OK) {
-            if (attempt != null or fd != -1)
-                self.owner.failContract("stream connect start published outputs on failure");
-            const chain = failureChainFromProvider(code, report) catch {
+            var failure = dialFailureFromProvider(code, report) catch blk: {
                 self.owner.failContract("stream connect start returned an invalid structured failure");
-                return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
+                break :blk net.netlayer.DialFailure.fromChain(error.InvalidOptions, .init(error.ProviderContract));
             };
-            return .{ .failed = .fromChain(mapDialError(code), chain) };
+            if (attempt != null or fd != -1) {
+                self.owner.failContract("stream connect start published outputs on failure");
+                if (attempt) |handle| if (self.cancelDialHandle(handle)) |cleanup|
+                    failure.chain.noteChain(cleanup);
+                self.owner.runtime.noteTerminalOperationFailure(.fromDialFailure(failure));
+            }
+            failure.classification = mapDialError(code);
+            return .{ .failed = failure };
         }
         if (!providerFailureIsEmpty(report)) {
             self.owner.failContract("stream connect start reported failure data on success");
-            if (attempt) |handle| if (self.cancelDialHandle(handle)) |cleanup|
-                self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
+            const cleanup = if (attempt) |handle| self.cancelDialHandle(handle) else null;
+            self.owner.retainContradictoryReport(report, cleanup);
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
         const handle = attempt orelse {
@@ -708,18 +611,26 @@ const StreamAdapter = struct {
             &report,
         );
         if (code != PANCAKE_OK) {
-            if (handle != null or fd != -1)
-                self.owner.failContract("stream connect finish published outputs on failure");
-            const chain = failureChainFromProvider(code, report) catch {
+            var failure = dialFailureFromProvider(code, report) catch blk: {
                 self.owner.failContract("stream connect finish returned an invalid structured failure");
-                return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
+                break :blk net.netlayer.DialFailure.fromChain(error.InvalidOptions, .init(error.ProviderContract));
             };
-            return .{ .failed = .fromChain(mapDialError(code), chain) };
+            if (handle != null or fd != -1) {
+                self.owner.failContract("stream connect finish published outputs on failure");
+                if (handle) |conn| if (self.closeConnection(conn)) |cleanup|
+                    failure.chain.noteChain(cleanup.toChain());
+                self.owner.runtime.noteTerminalOperationFailure(.fromDialFailure(failure));
+            }
+            failure.classification = mapDialError(code);
+            return .{ .failed = failure };
         }
         if (!providerFailureIsEmpty(report)) {
             self.owner.failContract("stream connect finish reported failure data on success");
-            if (handle) |conn| if (self.closeConnection(conn)) |cleanup|
-                self.owner.runtime.noteTerminalOperationFailure(cleanup);
+            const cleanup = if (handle) |conn|
+                if (self.closeConnection(conn)) |failure| failure.toChain() else null
+            else
+                null;
+            self.owner.retainContradictoryReport(report, cleanup);
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
         const conn = handle orelse {
@@ -732,9 +643,13 @@ const StreamAdapter = struct {
                 self.owner.runtime.noteTerminalOperationFailure(cleanup);
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
-        const connection = self.makeConnection(peer, bufs, conn, fd) catch |err|
-            return .{ .failed = .init(err) };
-        return .{ .connected = connection };
+        return switch (self.makeConnection(peer, bufs, conn, fd)) {
+            .connected => |connection| .{ .connected = connection },
+            .failed => |failure| .{ .failed = .fromChain(
+                dialErrorFromCode(driver_error.code(failure.kind)),
+                failure.toChain(),
+            ) },
+        };
     }
 
     fn cancelDial(owner: *anyopaque, attempt: *anyopaque) ?foundation.FailureChain {
@@ -756,6 +671,9 @@ const StreamAdapter = struct {
         const code = callback(attempt, &report);
         if (code == PANCAKE_OK) {
             if (providerFailureIsEmpty(report)) return null;
+            self.owner.failContract(operation);
+            self.owner.retainContradictoryReport(report, null);
+            return foundation.FailureChain.init(error.ProviderContract);
         } else if (!providerFailureIsEmpty(report)) {
             return failureChainFromProvider(code, report) catch {
                 self.owner.failContract(operation);
@@ -772,6 +690,7 @@ const StreamAdapter = struct {
         if (code == PANCAKE_OK) {
             if (providerFailureIsEmpty(report)) return null;
             self.owner.failContract("stream listener close reported failure data on success");
+            self.owner.retainContradictoryReport(report, null);
             return .init(error.ProviderContract);
         }
         return failureChainFromProvider(code, report) catch {
@@ -805,7 +724,7 @@ const StreamAdapter = struct {
             identity_storage = key.toDesignator();
             break :blk &identity_storage;
         } else &.{};
-        var result = emptyListenResult();
+        var result = validation.emptyListenResult();
         var report = shared.transport_provider.emptyProviderFailure();
         var options_storage: shared.PancakeTransportOperationOptions = undefined;
         const code = self.table.listen.?(
@@ -814,17 +733,25 @@ const StreamAdapter = struct {
             config.designator.len,
             identity.ptr,
             identity.len,
-            projectOperationOptions(config.options, &options_storage),
+            validation.projectOperationOptions(config.options, &options_storage),
             &result,
             &report,
         );
         if (code == PANCAKE_OK and !providerFailureIsEmpty(report)) {
             var failure = net.netlayer.ListenFailure.init(error.ProviderContract);
+            var cleanup_chain: ?foundation.FailureChain = null;
             if (result.listener) |listener| {
-                if (self.closeListenerHandle(listener)) |cleanup| failure.noteChain(cleanup);
+                if (self.closeListenerHandle(listener)) |cleanup| {
+                    failure.noteChain(cleanup);
+                    appendFailure(&cleanup_chain, cleanup);
+                }
             }
-            if (result.attempt) |attempt| if (self.cancelListenHandle(attempt)) |cleanup| failure.noteChain(cleanup);
+            if (result.attempt) |attempt| if (self.cancelListenHandle(attempt)) |cleanup| {
+                failure.noteChain(cleanup);
+                appendFailure(&cleanup_chain, cleanup);
+            };
             self.owner.failContract("stream listen reported failure data on success");
+            self.owner.retainContradictoryReport(report, cleanup_chain);
             return .{ .failed = failure };
         }
         if (code != PANCAKE_OK) {
@@ -836,8 +763,10 @@ const StreamAdapter = struct {
                 if (self.closeListenerHandle(listener)) |cleanup| failure.noteChain(cleanup);
             }
             if (result.attempt) |attempt| if (self.cancelListenHandle(attempt)) |cleanup| failure.noteChain(cleanup);
-            if (!listenResultUntouched(result))
+            if (!validation.listenResultUntouched(result)) {
                 self.owner.failContract("stream listen published outputs on failure");
+                self.owner.runtime.noteTerminalOperationFailure(.fromChain(failure));
+            }
             return .{ .failed = failure };
         }
         return switch (result.state) {
@@ -915,19 +844,27 @@ const StreamAdapter = struct {
         const code = self.table.finish_listen.?(attempt, &handle, &report);
         if (code == PANCAKE_OK and !providerFailureIsEmpty(report)) {
             var failure = net.netlayer.ListenFailure.init(error.ProviderContract);
+            var cleanup_chain: ?foundation.FailureChain = null;
             if (handle) |listener| {
-                if (self.closeListenerHandle(listener)) |cleanup| failure.noteChain(cleanup);
+                if (self.closeListenerHandle(listener)) |cleanup| {
+                    failure.noteChain(cleanup);
+                    appendFailure(&cleanup_chain, cleanup);
+                }
             }
             self.owner.failContract("stream listener finish reported failure data on success");
+            self.owner.retainContradictoryReport(report, cleanup_chain);
             return .{ .failed = failure };
         }
         if (code != PANCAKE_OK) {
-            if (handle != null)
-                self.owner.failContract("stream listener finish published an output on failure");
-            const failure = failureChainFromProvider(code, report) catch blk: {
+            var failure = failureChainFromProvider(code, report) catch blk: {
                 self.owner.failContract("stream listener finish returned an invalid structured failure");
                 break :blk net.netlayer.ListenFailure.init(error.ProviderContract);
             };
+            if (handle != null) {
+                self.owner.failContract("stream listener finish published an output on failure");
+                if (self.closeListenerHandle(handle.?)) |cleanup| failure.noteChain(cleanup);
+                self.owner.runtime.noteTerminalOperationFailure(.fromChain(failure));
+            }
             return .{ .failed = failure };
         }
         const listener_handle = handle orelse {
@@ -958,7 +895,7 @@ const StreamAdapter = struct {
         };
     }
 
-    fn listenerAcceptDetailed(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netlayer.Buffers) net.netlayer.AcceptOutcome {
+    fn listenerAcceptOutcome(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netlayer.Buffers) net.netlayer.AcceptOutcome {
         const box = listenerOf(ctx);
         var handle: ?*anyopaque = null;
         var fd: i32 = -1;
@@ -971,18 +908,25 @@ const StreamAdapter = struct {
             &report,
         );
         if (code != PANCAKE_OK) {
-            if (handle != null or fd != -1)
-                box.adapter.owner.failContract("stream accept published outputs on failure");
-            const chain = failureChainFromProvider(code, report) catch {
+            var chain = failureChainFromProvider(code, report) catch blk: {
                 box.adapter.owner.failContract("stream accept returned an invalid failure report");
-                return .{ .failed = .init(error.ConnectionLost) };
+                break :blk foundation.FailureChain.init(error.ProviderContract);
             };
+            if (handle != null or fd != -1) {
+                box.adapter.owner.failContract("stream accept published outputs on failure");
+                if (handle) |conn| if (box.adapter.closeConnection(conn)) |cleanup|
+                    chain.noteChain(cleanup.toChain());
+                box.adapter.owner.runtime.noteTerminalOperationFailure(.fromChain(chain));
+            }
             return .{ .failed = .fromChain(acceptClassification(code), chain) };
         }
         if (!providerFailureIsEmpty(report)) {
             box.adapter.owner.failContract("stream accept reported failure on success");
-            if (handle) |conn| if (box.adapter.closeConnection(conn)) |cleanup|
-                box.adapter.owner.runtime.noteTerminalOperationFailure(cleanup);
+            const cleanup = if (handle) |conn|
+                if (box.adapter.closeConnection(conn)) |failure| failure.toChain() else null
+            else
+                null;
+            box.adapter.owner.retainContradictoryReport(report, cleanup);
             return .{ .failed = .init(error.ConnectionLost) };
         }
         const conn = handle orelse {
@@ -995,31 +939,23 @@ const StreamAdapter = struct {
                 box.adapter.owner.runtime.noteTerminalOperationFailure(cleanup);
             return .{ .failed = .init(error.ConnectionLost) };
         }
-        return .{ .accepted = box.adapter.makeConnection(peer, bufs, conn, fd) catch |err|
-            return .{ .failed = .init(if (err == error.OutOfMemory) error.OutOfMemory else error.ConnectionLost) } };
-    }
-
-    fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netlayer.Buffers) net.netlayer.AcceptError!net.Connection {
-        return switch (listenerAcceptDetailed(ctx, peer, bufs)) {
-            .accepted => |conn| conn,
-            .failed => |failure| failure.classification,
+        return switch (box.adapter.makeConnection(peer, bufs, conn, fd)) {
+            .connected => |connection| .{ .accepted = connection },
+            .failed => |failure| .{ .failed = .fromChain(
+                acceptClassification(driver_error.code(failure.kind)),
+                failure.toChain(),
+            ) },
         };
     }
 
-    fn listenerWait(ctx: *anyopaque, timeout_ms: i32, callback: shared.transport_provider.PancakeStreamListenerWaitFn) net.netlayer.AcceptError!bool {
-        return switch (listenerWaitDetailed(ctx, timeout_ms, callback)) {
-            .ready => |ready| ready,
-            .failed => |failure| failure.classification,
-        };
-    }
-
-    fn listenerWaitDetailed(ctx: *anyopaque, timeout_ms: i32, callback: shared.transport_provider.PancakeStreamListenerWaitFn) net.netlayer.AcceptReadinessOutcome {
+    fn listenerWaitOutcome(ctx: *anyopaque, timeout_ms: i32, callback: shared.transport_provider.PancakeStreamListenerWaitFn) net.netlayer.AcceptReadinessOutcome {
         const box = listenerOf(ctx);
         var report = std.mem.zeroes(shared.PancakeProviderFailure);
         const code = callback(box.adapter.table.ctx, box.handle, timeout_ms, &report);
         if (code == PANCAKE_OK or code == PANCAKE_ERR_WOULD_BLOCK) {
             if (!providerFailureIsEmpty(report)) {
                 box.adapter.owner.failContract("stream listener wait reported failure on success");
+                box.adapter.owner.retainContradictoryReport(report, null);
                 return .{ .failed = .init(error.ConnectionLost) };
             }
             return .{ .ready = code == PANCAKE_OK };
@@ -1031,56 +967,43 @@ const StreamAdapter = struct {
         return .{ .failed = .fromChain(acceptClassification(code), chain) };
     }
 
-    fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptError!bool {
+    fn listenerWaitAcceptableOutcome(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptReadinessOutcome {
         const box = listenerOf(ctx);
-        return listenerWait(ctx, timeout_ms, box.adapter.table.listener_wait_acceptable.?);
+        return listenerWaitOutcome(ctx, timeout_ms, box.adapter.table.listener_wait_acceptable.?);
     }
 
-    fn listenerWaitAcceptableDetailed(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptReadinessOutcome {
-        const box = listenerOf(ctx);
-        return listenerWaitDetailed(ctx, timeout_ms, box.adapter.table.listener_wait_acceptable.?);
-    }
-
-    fn localLocator(ctx: *anyopaque, allocator: std.mem.Allocator) net.netlayer.ListenError!model.PeerLocator {
+    fn localLocatorOutcome(ctx: *anyopaque, allocator: std.mem.Allocator) net.netlayer.ListenerLocatorOutcome {
         const box = listenerOf(ctx);
         return (provider_locator.Listener{
             .ctx = box.handle,
             .transport = box.adapter.transport,
             .local = box.adapter.table.listener_locator.?,
             .canonicalize = box.adapter.table.listener_advertise.?,
-        }).localLocator(allocator);
+        }).localLocatorOutcome(allocator);
     }
 
-    fn canonicalizeLocator(
+    fn canonicalizeLocatorOutcome(
         ctx: *anyopaque,
         allocator: std.mem.Allocator,
         locator: model.PeerLocator,
-    ) net.netlayer.ListenError!model.PeerLocator {
+    ) net.netlayer.ListenerLocatorOutcome {
         const box = listenerOf(ctx);
         return (provider_locator.Listener{
             .ctx = box.handle,
             .transport = box.adapter.transport,
             .local = box.adapter.table.listener_locator.?,
             .canonicalize = box.adapter.table.listener_advertise.?,
-        }).canonicalizeLocator(allocator, locator);
+        }).canonicalizeLocatorOutcome(allocator, locator);
     }
 
-    fn listenerRestorationState(ctx: *anyopaque, out: []u8) net.netlayer.RestorationStateError!usize {
+    fn listenerRestorationStateOutcome(ctx: *anyopaque, out: []u8) net.netlayer.ListenerRestorationOutcome {
         const box = listenerOf(ctx);
-        var needed: usize = 0;
-        const code = box.adapter.table.listener_restoration_state.?(
+        return listenerRestorationOutcome(
+            box.adapter.owner,
+            box.adapter.table.listener_restoration_state.?,
             box.handle,
-            if (out.len == 0) null else out.ptr,
-            out.len,
-            &needed,
+            out,
         );
-        const valid = (code == PANCAKE_OK and needed <= out.len) or
-            (code == shared.PANCAKE_ERR_BUFFER_TOO_SMALL and needed > out.len);
-        if (!valid) {
-            box.adapter.owner.failContract("stream listener returned an invalid restoration-state result");
-            return error.ProviderFailure;
-        }
-        return needed;
     }
 
     fn listenerReadinessFd(ctx: *anyopaque) i32 {
@@ -1146,11 +1069,13 @@ const MultiplexedAdapter = struct {
                     self.failContract("drain_ready returned an invalid structured failure");
                     return error.ProviderContract;
                 };
+                if (got != 0) self.failContract("drain_ready published a count on failure");
                 self.owner.runtime.noteTerminalOperationFailure(failure);
                 return error.ProviderContract;
             }
             if (!providerFailureIsEmpty(report)) {
                 self.failContract("drain_ready reported failure data on success");
+                self.owner.retainContradictoryReport(report, null);
                 return error.ProviderContract;
             }
             if (got > cap) {
@@ -1232,20 +1157,20 @@ const MultiplexedAdapter = struct {
             self.table.ctx,
             @intCast(request_id),
             &projection.view,
-            projectOperationOptions(options, &options_storage),
+            validation.projectOperationOptions(options, &options_storage),
             &report,
         );
         if (code != PANCAKE_OK) {
-            const chain = failureChainFromProvider(code, report) catch {
+            const failure = dialFailureFromProvider(code, report) catch {
                 self.failContract("multiplexed connect start returned an invalid structured failure");
                 return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
             };
-            return .{ .failed = .fromChain(dialErrorFromCode(code), chain) };
+            return .{ .failed = failure };
         }
         if (!providerFailureIsEmpty(report)) {
             self.failContract("multiplexed connect start reported failure data on success");
-            if (self.callSubjectTeardown(self.table.cancel_connect.?, request_id, "cancel_connect")) |cleanup|
-                self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
+            const cleanup = self.callSubjectTeardown(self.table.cancel_connect.?, request_id, "cancel_connect");
+            self.owner.retainContradictoryReport(report, cleanup);
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
         return .admitted;
@@ -1257,17 +1182,25 @@ const MultiplexedAdapter = struct {
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.finish_connect.?(self.table.ctx, @intCast(request_id), &conn, &report);
         if (code != PANCAKE_OK) {
-            if (conn != 0) self.failContract("finish_connect published an output on failure");
-            const chain = failureChainFromProvider(code, report) catch {
+            var failure = dialFailureFromProvider(code, report) catch blk: {
                 self.failContract("multiplexed connect finish returned an invalid structured failure");
-                return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
+                break :blk net.netlayer.DialFailure.fromChain(error.InvalidOptions, .init(error.ProviderContract));
             };
-            return .{ .failed = .fromChain(dialErrorFromCode(code), chain) };
+            if (conn != 0) {
+                self.failContract("finish_connect published an output on failure");
+                if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
+                    failure.chain.noteChain(cleanup);
+                self.owner.runtime.noteTerminalOperationFailure(.fromDialFailure(failure));
+            }
+            return .{ .failed = failure };
         }
         if (!providerFailureIsEmpty(report)) {
             self.failContract("multiplexed connect finish reported failure data on success");
-            if (conn != 0) if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
-                self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
+            const cleanup = if (conn != 0)
+                self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")
+            else
+                null;
+            self.owner.retainContradictoryReport(report, cleanup);
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
         const connection = std.math.cast(usize, conn) orelse {
@@ -1289,16 +1222,24 @@ const MultiplexedAdapter = struct {
         const code = self.table.claim_external.?(self.table.ctx, @intCast(subject), &conn, &report);
         if (code == PANCAKE_OK and !providerFailureIsEmpty(report)) {
             self.failContract("claim_external reported failure data on success");
-            if (conn != 0) if (self.callSubjectTeardown(self.table.conn_close.?, conn, "claim_external rollback")) |cleanup|
-                self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
+            const cleanup = if (conn != 0)
+                self.callSubjectTeardown(self.table.conn_close.?, conn, "claim_external rollback")
+            else
+                null;
+            self.owner.retainContradictoryReport(report, cleanup);
             return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
         }
         if (code != PANCAKE_OK) {
-            if (conn != 0) self.failContract("claim_external published an output on failure");
-            const chain = failureChainFromProvider(code, report) catch {
+            var chain = failureChainFromProvider(code, report) catch blk: {
                 self.failContract("claim_external returned an invalid structured failure");
-                return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
+                break :blk foundation.FailureChain.init(error.ProviderContract);
             };
+            if (conn != 0) {
+                self.failContract("claim_external published an output on failure");
+                if (self.callSubjectTeardown(self.table.conn_close.?, conn, "claim_external rollback")) |cleanup|
+                    chain.noteChain(cleanup);
+                self.owner.runtime.noteTerminalOperationFailure(.fromChain(chain));
+            }
             return .{ .failed = .fromChain(dialErrorFromCode(code), chain) };
         }
         const connection = std.math.cast(usize, conn) orelse {
@@ -1314,10 +1255,11 @@ const MultiplexedAdapter = struct {
         transport: []const u8,
         requested_designator: []const u8,
         options: net.OperationOptions,
-    ) net.netlayer.ListenError!net.multiplexed_resident.RawListenResult {
+    ) net.multiplexed_resident.MultiplexedResident.RawListenStartOutcome {
         const self = of(ctx);
-        var result = emptyListenResult();
+        var result = validation.emptyListenResult();
         var options_storage: shared.PancakeTransportOperationOptions = undefined;
+        var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.listen.?(
             self.table.ctx,
             @intCast(route_id),
@@ -1325,17 +1267,39 @@ const MultiplexedAdapter = struct {
             transport.len,
             requested_designator.ptr,
             requested_designator.len,
-            projectOperationOptions(options, &options_storage),
+            validation.projectOperationOptions(options, &options_storage),
             &result,
+            &report,
         );
         if (code != PANCAKE_OK) {
-            if (!listenResultUntouched(result))
-                self.failContract("multiplexed listen published outputs on failure");
-            return switch (code) {
-                shared.PANCAKE_ERR_INVALID_ARGUMENT => error.InvalidAddress,
-                shared.PANCAKE_ERR_INTERNAL => error.OutOfMemory,
-                else => error.BindFailed,
+            var failure = failureChainFromProvider(code, report) catch blk: {
+                self.failContract("multiplexed listen returned an invalid structured failure");
+                break :blk net.netlayer.ListenFailure.init(error.ProviderContract);
             };
+            if (!validation.listenResultUntouched(result)) {
+                self.failContract("multiplexed listen published outputs on failure");
+                if (result.listener) |listener| if (self.callStopListen(listener)) |cleanup|
+                    failure.noteChain(cleanup);
+                if (self.table.cancel_listen) |cancel| if (self.callSubjectTeardown(cancel, route_id, "cancel_listen")) |cleanup|
+                    failure.noteChain(cleanup);
+                self.owner.runtime.noteTerminalOperationFailure(.fromChain(failure));
+            }
+            return .{ .failed = failure };
+        }
+        if (!providerFailureIsEmpty(report)) {
+            self.failContract("multiplexed listen reported failure data on success");
+            var failure = net.netlayer.ListenFailure.init(error.ProviderContract);
+            var cleanup_chain: ?foundation.FailureChain = null;
+            if (result.listener) |listener| if (self.callStopListen(listener)) |cleanup| {
+                failure.noteChain(cleanup);
+                appendFailure(&cleanup_chain, cleanup);
+            };
+            if (self.table.cancel_listen) |cancel| if (self.callSubjectTeardown(cancel, route_id, "cancel_listen")) |cleanup| {
+                failure.noteChain(cleanup);
+                appendFailure(&cleanup_chain, cleanup);
+            };
+            self.owner.retainContradictoryReport(report, cleanup_chain);
+            return .{ .failed = failure };
         }
         return switch (result.state) {
             shared.PANCAKE_LISTEN_READY => blk: {
@@ -1343,21 +1307,21 @@ const MultiplexedAdapter = struct {
                     if (self.table.cancel_listen) |cancel| if (self.callSubjectTeardown(cancel, route_id, "cancel_listen")) |cleanup|
                         self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
                     self.failContract("ready multiplexed listen returned no listener");
-                    return error.BindFailed;
+                    return .{ .failed = .init(error.ProviderContract) };
                 };
                 if (result.attempt != null or result.readiness_fd != -1) {
                     if (self.callStopListen(listener)) |cleanup| self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
                     self.failContract("ready multiplexed listen returned pending fields");
-                    return error.BindFailed;
+                    return .{ .failed = .init(error.ProviderContract) };
                 }
-                break :blk .{ .ready = listener };
+                break :blk .{ .admitted = .{ .ready = listener } };
             },
             shared.PANCAKE_LISTEN_PENDING => blk: {
                 if (self.table.finish_listen == null or self.table.cancel_listen == null) {
                     if (result.listener) |listener| if (self.callStopListen(listener)) |cleanup|
                         self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
                     self.failContract("immediate-only multiplexed listener returned pending");
-                    return error.BindFailed;
+                    return .{ .failed = .init(error.ProviderContract) };
                 }
                 if (result.listener != null or result.attempt != null or result.readiness_fd != -1) {
                     if (result.listener) |listener| if (self.callStopListen(listener)) |cleanup|
@@ -1365,9 +1329,9 @@ const MultiplexedAdapter = struct {
                     if (self.callSubjectTeardown(self.table.cancel_listen.?, route_id, "cancel_listen")) |cleanup|
                         self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
                     self.failContract("pending multiplexed listen returned stream-owned fields");
-                    return error.BindFailed;
+                    return .{ .failed = .init(error.ProviderContract) };
                 }
-                break :blk .pending;
+                break :blk .{ .admitted = .pending };
             },
             else => {
                 if (result.listener) |listener| if (self.callStopListen(listener)) |cleanup|
@@ -1375,28 +1339,41 @@ const MultiplexedAdapter = struct {
                 if (self.table.cancel_listen) |cancel| if (self.callSubjectTeardown(cancel, route_id, "cancel_listen")) |cleanup|
                     self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
                 self.failContract("multiplexed listen returned an unknown state");
-                return error.BindFailed;
+                return .{ .failed = .init(error.ProviderContract) };
             },
         };
     }
 
-    fn finishListen(ctx: *anyopaque, route_id: usize) net.netlayer.ListenError!*anyopaque {
+    fn finishListen(ctx: *anyopaque, route_id: usize) net.multiplexed_resident.MultiplexedResident.RawListenFinishOutcome {
         const self = of(ctx);
         var listener: ?*anyopaque = null;
-        const code = self.table.finish_listen.?(self.table.ctx, @intCast(route_id), &listener);
+        var report = shared.transport_provider.emptyProviderFailure();
+        const code = self.table.finish_listen.?(self.table.ctx, @intCast(route_id), &listener, &report);
         if (code != PANCAKE_OK) {
-            if (listener != null)
-                self.failContract("multiplexed listener finish published an output on failure");
-            return switch (code) {
-                shared.PANCAKE_ERR_INVALID_ARGUMENT => error.InvalidAddress,
-                shared.PANCAKE_ERR_INTERNAL => error.OutOfMemory,
-                else => error.BindFailed,
+            var failure = failureChainFromProvider(code, report) catch blk: {
+                self.failContract("multiplexed listener finish returned an invalid structured failure");
+                break :blk net.netlayer.ListenFailure.init(error.ProviderContract);
             };
+            if (listener) |handle| {
+                self.failContract("multiplexed listener finish published an output on failure");
+                if (self.callStopListen(handle)) |cleanup| failure.noteChain(cleanup);
+                self.owner.runtime.noteTerminalOperationFailure(.fromChain(failure));
+            }
+            return .{ .failed = failure };
         }
-        return listener orelse {
+        if (!providerFailureIsEmpty(report)) {
+            self.failContract("multiplexed listener finish reported failure data on success");
+            var failure = net.netlayer.ListenFailure.init(error.ProviderContract);
+            const cleanup = if (listener) |handle| self.callStopListen(handle) else null;
+            if (cleanup) |consequence| failure.noteChain(consequence);
+            self.owner.retainContradictoryReport(report, cleanup);
+            return .{ .failed = failure };
+        }
+        const handle = listener orelse {
             self.failContract("multiplexed listener finish returned no listener");
-            return error.BindFailed;
+            return .{ .failed = .init(error.ProviderContract) };
         };
+        return .{ .listener = handle };
     }
 
     fn cancelListen(ctx: *anyopaque, route_id: usize) ?foundation.FailureChain {
@@ -1404,92 +1381,93 @@ const MultiplexedAdapter = struct {
         return self.callSubjectTeardown(self.table.cancel_listen.?, route_id, "cancel_listen");
     }
 
-    fn localLocator(
+    fn localLocatorOutcome(
         ctx: *anyopaque,
         listener_ctx: *anyopaque,
         transport: []const u8,
         allocator: std.mem.Allocator,
-    ) net.netlayer.ListenError!model.PeerLocator {
+    ) net.netlayer.ListenerLocatorOutcome {
         const self = of(ctx);
         return (provider_locator.Listener{
             .ctx = listener_ctx,
             .transport = transport,
             .local = self.table.listener_locator.?,
             .canonicalize = self.table.listener_advertise.?,
-        }).localLocator(allocator);
+        }).localLocatorOutcome(allocator);
     }
 
-    fn canonicalizeLocator(
+    fn canonicalizeLocatorOutcome(
         ctx: *anyopaque,
         listener_ctx: *anyopaque,
         transport: []const u8,
         allocator: std.mem.Allocator,
         locator: model.PeerLocator,
-    ) net.netlayer.ListenError!model.PeerLocator {
+    ) net.netlayer.ListenerLocatorOutcome {
         const self = of(ctx);
         return (provider_locator.Listener{
             .ctx = listener_ctx,
             .transport = transport,
             .local = self.table.listener_locator.?,
             .canonicalize = self.table.listener_advertise.?,
-        }).canonicalizeLocator(allocator, locator);
+        }).canonicalizeLocatorOutcome(allocator, locator);
     }
 
-    fn listenerRestorationState(
+    fn listenerRestorationStateOutcome(
         ctx: *anyopaque,
         listener_ctx: *anyopaque,
         out: []u8,
-    ) net.netlayer.RestorationStateError!usize {
+    ) net.netlayer.ListenerRestorationOutcome {
         const self = of(ctx);
-        var needed: usize = 0;
-        const code = self.table.listener_restoration_state.?(
+        return listenerRestorationOutcome(
+            self.owner,
+            self.table.listener_restoration_state.?,
             listener_ctx,
-            if (out.len == 0) null else out.ptr,
-            out.len,
-            &needed,
+            out,
         );
-        const valid = (code == PANCAKE_OK and needed <= out.len) or
-            (code == shared.PANCAKE_ERR_BUFFER_TOO_SMALL and needed > out.len);
-        if (!valid) {
-            self.failContract("multiplexed listener returned an invalid restoration-state result");
-            return error.ProviderFailure;
-        }
-        return needed;
     }
 
-    fn finishAccept(ctx: *anyopaque, listener_ctx: *anyopaque) net.netlayer.AcceptError!?usize {
-        return switch (finishAcceptDetailed(ctx, listener_ctx)) {
-            .connection => |conn| conn,
-            .failed => |failure| failure.classification,
-        };
-    }
-
-    fn finishAcceptDetailed(ctx: *anyopaque, listener_ctx: *anyopaque) net.multiplexed_resident.MultiplexedResident.RawFinishAcceptOutcome {
+    fn finishAcceptOutcome(ctx: *anyopaque, listener_ctx: *anyopaque) net.multiplexed_resident.MultiplexedResident.RawFinishAcceptOutcome {
         const self = of(ctx);
         var conn: u64 = 0;
         var report = std.mem.zeroes(shared.PancakeProviderFailure);
         const code = self.table.finish_accept.?(listener_ctx, &conn, &report);
-        if (code != PANCAKE_OK and conn != 0) {
-            self.failContract("finish_accept published an output on failure");
-            return .{ .failed = .init(error.ConnectionLost) };
-        }
         if (code == PANCAKE_OK or code == PANCAKE_ERR_WOULD_BLOCK) {
             if (!providerFailureIsEmpty(report)) {
-                self.failContract("finish_accept reported failure on success");
-                if (conn != 0) if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
-                    self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
+                self.failContract(if (code == PANCAKE_OK)
+                    "finish_accept reported failure on success"
+                else
+                    "finish_accept reported failure while blocked");
+                const cleanup = if (conn != 0)
+                    self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")
+                else
+                    null;
+                self.owner.retainContradictoryReport(report, cleanup);
                 return .{ .failed = .init(error.ConnectionLost) };
             }
-            if (code == PANCAKE_ERR_WOULD_BLOCK) return .{ .connection = null };
+            if (code == PANCAKE_ERR_WOULD_BLOCK) {
+                if (conn != 0) {
+                    self.failContract("finish_accept published a connection while blocked");
+                    if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
+                        self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
+                    return .{ .failed = .init(error.ConnectionLost) };
+                }
+                return .{ .connection = null };
+            }
             return .{ .connection = std.math.cast(usize, conn) orelse {
                 self.failContract("finish_accept returned a connection id outside the host range");
                 return .{ .failed = .init(error.ConnectionLost) };
             } };
         }
-        const chain = failureChainFromProvider(code, report) catch {
+        var chain = failureChainFromProvider(code, report) catch blk: {
             self.failContract("finish_accept returned an invalid failure report");
-            return .{ .failed = .init(error.ConnectionLost) };
+            break :blk foundation.FailureChain.init(error.ProviderContract);
         };
+        if (conn != 0) {
+            self.failContract("finish_accept published an output on failure");
+            if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
+                chain.noteChain(cleanup);
+            self.owner.runtime.noteTerminalOperationFailure(.fromChain(chain));
+        }
         const classification: net.netlayer.AcceptError = if (code == shared.PANCAKE_ERR_INTERNAL) error.OutOfMemory else error.ConnectionLost;
         return .{ .failed = .fromChain(classification, chain) };
     }
@@ -1508,7 +1486,7 @@ const MultiplexedAdapter = struct {
     fn tryRead(ctx: *anyopaque, conn: usize, buf: []u8) isize {
         const self = of(ctx);
         const got = self.table.try_read.?(self.table.ctx, @intCast(conn), buf.ptr, buf.len);
-        if (!multiplexedIoResultValid(got, buf.len)) {
+        if (!validation.multiplexedIoResultValid(got, buf.len)) {
             self.failContract(if (got < 0)
                 "try_read returned an undocumented negative status"
             else
@@ -1521,7 +1499,7 @@ const MultiplexedAdapter = struct {
     fn tryWrite(ctx: *anyopaque, conn: usize, bytes: []const u8) isize {
         const self = of(ctx);
         const wrote = self.table.try_write.?(self.table.ctx, @intCast(conn), bytes.ptr, bytes.len);
-        if (!multiplexedIoResultValid(wrote, bytes.len)) {
+        if (!validation.multiplexedIoResultValid(wrote, bytes.len)) {
             self.failContract(if (wrote < 0)
                 "try_write returned an undocumented negative status"
             else
@@ -1586,7 +1564,7 @@ const MultiplexedAdapter = struct {
         const result = self.table.conn_remote_key.?(self.table.ctx, @intCast(conn), &key);
         return switch (result) {
             0 => null,
-            1 => crypto.PeerKey.fromSlice(&key) catch unreachable,
+            1 => crypto.PeerKey.fromBytes(key),
             else => {
                 self.failContract("conn_remote_key returned an invalid status");
                 return error.ProviderContract;
@@ -1595,56 +1573,18 @@ const MultiplexedAdapter = struct {
     }
 };
 
-fn decodeTransportProfile(profile: *const shared.PancakeTransportProfile) !model.transport.Metadata {
-    if (profile.abi_version != shared.transport_provider.PANCAKE_TRANSPORT_PROFILE_ABI_VERSION or
-        profile.struct_size < @sizeOf(shared.PancakeTransportProfile))
-    {
-        shared.setLastError("driver: provider profile has an unsupported ABI", .{});
-        return error.InvalidArgument;
-    }
-    const name_ptr = profile.transport_name orelse {
-        shared.setLastError("driver: provider transport_name must be set", .{});
-        return error.InvalidArgument;
-    };
-    if (profile.transport_name_len == 0) {
-        shared.setLastError("driver: provider transport_name must be nonempty", .{});
-        return error.InvalidArgument;
-    }
-    const scheme: net.netlayer.DesignatorScheme = switch (profile.designator_scheme) {
-        shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_ADDRESS => .address,
-        shared.transport_provider.PANCAKE_DESIGNATOR_SCHEME_KEY => .key,
-        else => {
-            shared.setLastError("driver: provider has an invalid designator_scheme", .{});
-            return error.InvalidArgument;
-        },
-    };
-    const sealed_channel = switch (profile.sealed_channel) {
-        shared.transport_provider.PANCAKE_SEALED_CHANNEL_NONE => false,
-        shared.transport_provider.PANCAKE_SEALED_CHANNEL_NOISE_XK => true,
-        else => {
-            shared.setLastError("driver: provider has an invalid sealed_channel", .{});
-            return error.InvalidArgument;
-        },
-    };
-    return .{
-        .symbol = name_ptr[0..profile.transport_name_len],
-        .designator_scheme = scheme,
-        .sealed_channel = sealed_channel,
-    };
-}
-
 fn prepareStreamAdapter(
     registry: *Registry,
     profile: model.transport.Metadata,
     table_ptr: *const shared.PancakeStreamTransport,
 ) !*StreamAdapter {
-    try validateTablePrefix(shared.PancakeStreamTransport, table_ptr, shared.transport_provider.PANCAKE_STREAM_TRANSPORT_ABI_VERSION, "stream");
+    try validation.tablePrefix(shared.PancakeStreamTransport, table_ptr, shared.transport_provider.PANCAKE_STREAM_TRANSPORT_ABI_VERSION, "stream");
     const table = table_ptr.*;
     const dial_any = table.start_connect != null or table.finish_connect != null or table.cancel_connect != null;
-    const dial = try validateOperationGroup(dial_any, table.start_connect != null and
+    const dial = try validation.operationGroup(dial_any, table.start_connect != null and
         table.finish_connect != null and table.cancel_connect != null, "stream dial");
     const listen_completion_any = table.finish_listen != null or table.cancel_listen != null;
-    _ = try validateOperationGroup(listen_completion_any, table.finish_listen != null and
+    _ = try validation.operationGroup(listen_completion_any, table.finish_listen != null and
         table.cancel_listen != null, "stream listen completion");
     const listen_operation = table.listen != null;
     const listen_any = listen_operation or table.finish_listen != null or table.cancel_listen != null or
@@ -1652,7 +1592,7 @@ fn prepareStreamAdapter(
         table.listener_locator != null or table.listener_advertise != null or
         table.listener_restoration_state != null or
         table.accept != null or table.listener_close != null;
-    const listen = try validateOperationGroup(listen_any, listen_operation and
+    const listen = try validation.operationGroup(listen_any, listen_operation and
         table.listener_wait_acceptable != null and
         table.listener_readiness_fd != null and table.listener_locator != null and
         table.listener_advertise != null and table.accept != null and table.listener_close != null, "stream listen");
@@ -1678,13 +1618,11 @@ fn prepareStreamAdapter(
             .transport_name = owned_profile.symbol,
             .designator_scheme = profile.designator_scheme,
             .sealed_channel = profile.sealed_channel,
-            .accept = StreamAdapter.listenerAccept,
-            .accept_detailed = StreamAdapter.listenerAcceptDetailed,
-            .waitAcceptable = StreamAdapter.listenerWaitAcceptable,
-            .wait_acceptable_detailed = StreamAdapter.listenerWaitAcceptableDetailed,
-            .localLocator = StreamAdapter.localLocator,
-            .canonicalizeLocator = StreamAdapter.canonicalizeLocator,
-            .restoration_state = if (table.listener_restoration_state != null) StreamAdapter.listenerRestorationState else null,
+            .accept = StreamAdapter.listenerAcceptOutcome,
+            .wait_acceptable = StreamAdapter.listenerWaitAcceptableOutcome,
+            .local_locator = StreamAdapter.localLocatorOutcome,
+            .canonicalize_locator = StreamAdapter.canonicalizeLocatorOutcome,
+            .restoration_state = if (table.listener_restoration_state != null) StreamAdapter.listenerRestorationStateOutcome else null,
             .readiness_fd = StreamAdapter.listenerReadinessFd,
             .close = StreamAdapter.listenerClose,
         },
@@ -1696,7 +1634,7 @@ fn prepareMultiplexedAdapter(
     registry: *Registry,
     table_ptr: *const shared.PancakeMultiplexedTransport,
 ) !*MultiplexedAdapter {
-    try validateTablePrefix(shared.PancakeMultiplexedTransport, table_ptr, shared.multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION, "multiplexed");
+    try validation.tablePrefix(shared.PancakeMultiplexedTransport, table_ptr, shared.multiplexed_transport.PANCAKE_MULTIPLEXED_TRANSPORT_ABI_VERSION, "multiplexed");
     const table = table_ptr.*;
     if (table.readiness_fd == null or table.drain_ready == null or table.try_read == null or
         table.try_write == null or table.conn_close == null or table.conn_take_failure == null or table.conn_remote_key == null)
@@ -1705,11 +1643,11 @@ fn prepareMultiplexedAdapter(
         return error.InvalidArgument;
     }
     const dial_any = table.start_connect != null or table.finish_connect != null or table.cancel_connect != null;
-    const dial = try validateOperationGroup(dial_any, table.start_connect != null and
+    const dial = try validation.operationGroup(dial_any, table.start_connect != null and
         table.finish_connect != null and table.cancel_connect != null, "multiplexed dial");
     const external_claim = table.claim_external != null;
     const listen_completion_any = table.finish_listen != null or table.cancel_listen != null;
-    const listen_completion = try validateOperationGroup(
+    const listen_completion = try validation.operationGroup(
         listen_completion_any,
         table.finish_listen != null and table.cancel_listen != null,
         "multiplexed listen completion",
@@ -1718,7 +1656,7 @@ fn prepareMultiplexedAdapter(
         table.listener_locator != null or
         table.listener_advertise != null or table.listener_restoration_state != null or
         table.finish_accept != null or table.stop_listen != null;
-    const listen = try validateOperationGroup(listen_any, table.listen != null and
+    const listen = try validation.operationGroup(listen_any, table.listen != null and
         table.listener_locator != null and table.listener_advertise != null and
         table.finish_accept != null and table.stop_listen != null, "multiplexed listen");
     if (!dial and !listen and !external_claim) {
@@ -1747,11 +1685,10 @@ fn prepareMultiplexedAdapter(
                     .finish = MultiplexedAdapter.finishListen,
                     .cancel = MultiplexedAdapter.cancelListen,
                 } else null,
-                .local_locator = MultiplexedAdapter.localLocator,
-                .canonicalize_locator = MultiplexedAdapter.canonicalizeLocator,
-                .restoration_state = if (table.listener_restoration_state != null) MultiplexedAdapter.listenerRestorationState else null,
-                .finish_accept = MultiplexedAdapter.finishAccept,
-                .finish_accept_detailed = MultiplexedAdapter.finishAcceptDetailed,
+                .local_locator = MultiplexedAdapter.localLocatorOutcome,
+                .canonicalize_locator = MultiplexedAdapter.canonicalizeLocatorOutcome,
+                .restoration_state = if (table.listener_restoration_state != null) MultiplexedAdapter.listenerRestorationStateOutcome else null,
+                .finish_accept = MultiplexedAdapter.finishAcceptOutcome,
                 .stop_listen = MultiplexedAdapter.stopListen,
             } else null,
             .try_read = MultiplexedAdapter.tryRead,

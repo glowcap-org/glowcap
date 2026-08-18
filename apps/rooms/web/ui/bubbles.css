@@ -1,0 +1,545 @@
+/* ── Rich text inside bubbles ─────────────────────────────────────────── */
+.bubble a {
+	color: var(--teal-ink);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.row.mine .bubble a {
+	color: var(--on-accent);
+}
+/* The page-wide inline-code chip serves the bubble too; only our own
+   bubble's amber ground needs a wash the cream chip cannot give it. */
+.row.mine .bubble code {
+	background: color-mix(in srgb, var(--on-accent) 20%, transparent);
+}
+.bubble .code-block {
+	max-width: min(70vw, 520px);
+	margin: 6px 0 2px;
+	padding: 10px 12px;
+	overflow-x: auto;
+	border: 1px solid var(--rule);
+	border-radius: 8px;
+	background: var(--paper);
+	color: var(--ink);
+	white-space: pre;
+	line-height: 1.45;
+	tab-size: 4;
+}
+.bubble .code-block code,
+.row.mine .bubble .code-block code {
+	display: block;
+	padding: 0;
+	border-radius: 0;
+	background: transparent;
+	color: inherit;
+	font-size: 12.5px;
+}
+.row.mine .bubble .code-block {
+	border-color: color-mix(in srgb, var(--on-accent) 28%, transparent);
+}
+.mention {
+	color: var(--accent-ink);
+	background: color-mix(in srgb, var(--accent) 16%, transparent);
+	padding: 0 4px;
+	border-radius: 5px;
+	font-weight: 600;
+}
+.row.mine .mention {
+	color: var(--on-accent);
+	background: color-mix(in srgb, var(--on-accent) 24%, transparent);
+}
+.mention.you {
+	background: var(--mine-from);
+	color: var(--on-accent);
+}
+
+/* What a room is about, over what is being said in it.
+
+   A rule under it rather than a fill, because it sits between the header and the
+   conversation and a third surface there would make the page read as three
+   stacked panels. Quieter than a message and louder than the header's metadata:
+   it is not something anybody said, but it is the first thing worth reading.
+
+   One line, ellipsed. A topic is a sentence somebody wanted everybody to see,
+   and letting it wrap to four lines pushes the conversation off the screen to
+   make room for something that has not changed in a week — so it truncates, and
+   carries the whole of itself in a title the way every other truncating name in
+   this page does. */
+/* The message log fills this column absolutely, so the bar has to say it is on
+   top or it is a picture of a bar: the words show through and every press lands
+   in the log behind them. Messages pass underneath it, which is what its opaque
+   ground is for, and the log's own top padding below keeps the first of them
+   from starting out of sight. */
+.topic {
+	position: relative;
+	z-index: 2;
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	box-sizing: border-box;
+	min-height: var(--topic-h);
+	padding: 4px calc(var(--rail-pad) + var(--row-pad));
+	border-bottom: 1px solid var(--rule);
+	background: var(--paper-raised);
+	font-size: var(--type-ui);
+	color: var(--ink-soft);
+}
+/* The words take the row and give way at its end, so a long topic ends in an
+   ellipsis rather than pushing the way to change it off the edge. */
+.topic-said {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* Why somebody stepped away, beside their name in the member list. Quiet and
+   truncating, because it is a note about a person rather than a second name for
+   them, and a long one must not push the list about. */
+.away-said {
+	flex: 0 100 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11.5px;
+	font-style: italic;
+	color: var(--ink-soft);
+}
+/* A link in a topic is the reason topics have links, so it carries the weight
+   the rest of the line gives up rather than the quiet the bar is set in. */
+.topic a {
+	color: var(--teal-ink);
+}
+
+/* A line taken back. It keeps its place — a line that vanished would leave every
+   reply to it reading as a non-sequitur — and shows none of what it said, since
+   striking the words through would leave them readable while claiming they had
+   been withdrawn. */
+.bubble.withdrawn {
+	background: none;
+	border: 1px dashed var(--rule);
+	color: var(--ink-soft);
+	font-style: italic;
+}
+.withdrawn-said,
+.edited-said {
+	font-size: 11px;
+	color: var(--ink-soft);
+}
+/* On a bubble with the accent fill behind it, the ink is the bubble's own,
+   quieted rather than greyed: a grey chosen against paper turns to mud on
+   amber, and this is small text that still has to be read. Quieting by mixing
+   toward the fill rather than by opacity, so what it lands on is stated here
+   instead of being whatever happens to be underneath. */
+.row.mine .withdrawn-said,
+.row.mine .edited-said {
+	color: var(--on-accent-soft);
+}
+/* After the words rather than among them, because it qualifies what was said
+   rather than being part of it. */
+.edited-said {
+	margin-left: 6px;
+}
+
+/* Quoted from somewhere else. A rule down the side rather than a fill, because a
+   quote inside a bubble is already on a surface and a second one would read as a
+   box within a box. The ink stays the bubble's, only quieter: this is still the
+   line's own text, said by somebody else. */
+.bubble blockquote {
+	margin: 4px 0;
+	padding: 2px 0 2px 10px;
+	border-left: 3px solid color-mix(in srgb, currentColor 28%, transparent);
+	opacity: .82;
+}
+/* Hidden until it is asked for. Covered, it is a control and looks like one to a
+   pointer; opened, it is ordinary text and stops being pressable, because there
+   is nothing left to ask. The covered form keeps the text in the document so it
+   still lays out at its real width — a spoiler that resizes the message when it
+   opens gives itself away before it is read. */
+.spoiler {
+	all: unset;
+	border-radius: 5px;
+	background: color-mix(in srgb, currentColor 78%, transparent);
+	color: transparent;
+	cursor: pointer;
+}
+.spoiler:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+.spoiler.shown {
+	background: color-mix(in srgb, currentColor 12%, transparent);
+	color: inherit;
+	cursor: auto;
+}
+
+/* A call to the whole room. Addressed to you, so it carries the weight a
+   mention carries, but not *to you in particular* — so it takes the teal this
+   interface already spends on the other kind of reach rather than the amber a
+   name wears. Outlined instead of filled, because filling it would make it
+   compete with your own name in a line that carries both. */
+.mention.room {
+	color: var(--teal-ink);
+	background: color-mix(in srgb, var(--teal) 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 34%, transparent);
+}
+.row.them .bubble.hl {
+	/* A line that names you: a warm tint and a firmer border. The bubble's
+	   corners are too round to carry an edge marker, so the fill does the work
+	   and the message stays the loudest thing in the row. */
+	border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+	background: color-mix(in srgb, var(--accent) 13%, var(--paper-raised));
+}
+
+/* ── Day + unread dividers ────────────────────────────────────────────── */
+.divider {
+	align-self: stretch;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 20px;
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+}
+.divider::before,
+.divider::after {
+	content: "";
+	height: 1px;
+	background: var(--rule);
+	flex: 1;
+}
+.divider span {
+	white-space: nowrap;
+	font-weight: 600;
+}
+.divider.unread {
+	color: var(--accent-ink);
+}
+.divider.unread::before,
+.divider.unread::after {
+	background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* ── /me action lines ─────────────────────────────────────────────────── */
+/* Something somebody did, or a quiet aside, said in the room's centre. Italic
+   and no fill: a pill in the accent was wearing the colour that already means
+   "this is about you", and neither of these is. Wrapped lines stay centred;
+   start-aligned text inside a centred box was the leftover of the pill that
+   holds /list. */
+.sys.action .sys-line,
+.sys.notice .sys-line {
+	font-style: italic;
+	background: none;
+	padding: 2px 4px;
+	text-align: center;
+}
+.sys.action .sys-line {
+	color: var(--ink);
+}
+.sys.notice .sys-line {
+	color: var(--ink-soft);
+}
+
+/* ── Per-message hover actions ────────────────────────────────────────── */
+.row {
+	position: relative;
+}
+/* What you can do to one line of your own, as against the bar above the group
+   which acts on all of them. Outside the bubble on the side away from the text,
+   so it never covers a word, and revealed the same way the group's bar is: a
+   control that only exists under the pointer cannot be found by looking, but a
+   row of them on every line you ever wrote is a page full of chrome.
+
+   Kept off touch, where there is no pointer to reveal with and where the same
+   two acts are reachable by typing them. */
+.bubble {
+	position: relative;
+}
+/* And the bubble's hover reaches out to where its mark will be. A reader coming
+   at the mark from the margin — which is where it is, and so where they aim —
+   was hovering nothing until they crossed into the message itself, and the mark
+   they were aiming at only existed once they had stopped needing to aim. The
+   strip is transparent and sits over the empty column beside the message; a
+   pseudo-element hovers as part of the element that owns it, which is what
+   makes this the bubble's own reach rather than a second thing to hover. */
+.bubble::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	right: 100%;
+	width: var(--reach);
+	--reach: 44px;
+}
+.row.them .bubble::before {
+	right: auto;
+	left: 100%;
+}
+/* The mark sits outside the bubble, so the space between them belongs to this
+   rather than to nothing: reaching for the mark meant crossing six pixels that
+   hovered neither, and the mark it was reaching for went away mid-journey. The
+   gap is padding now, which draws the same and hovers as part of the mark. */
+.line-acts {
+	position: absolute;
+	top: 50%;
+	translate: 0 -50%;
+	right: 100%;
+	padding-right: 6px;
+	display: none;
+	gap: 2px;
+	z-index: 2;
+}
+@media (hover: hover) {
+	.bubble:hover .line-acts,
+	.bubble:focus-within .line-acts {
+		display: flex;
+	}
+}
+/* Where there is no pointer to hover with, the mark is simply there. Quiet
+   until it is aimed at, because it sits beside every message and a row of them
+   down the log would read as decoration. */
+@media (hover: none) {
+	.line-acts {
+		display: flex;
+		opacity: .45;
+	}
+	.line-acts:focus-within {
+		opacity: 1;
+	}
+}
+/* On somebody else's message the bubble is on the left, so the mark goes to its
+   right rather than off the edge of the column. Same bridge, other side. */
+.row.them .line-acts {
+	right: auto;
+	left: 100%;
+	padding-right: 0;
+	padding-left: 6px;
+}
+
+/* Everything else this message can be asked to do. Anchored under the mark, and
+   over the log rather than in its flow: it is a menu, not part of the
+   conversation. */
+.line-menu {
+	animation: acts-in .12s ease-out;
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 0;
+	min-width: 152px;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	padding: 4px;
+	box-shadow: var(--shadow);
+	z-index: 7;
+}
+/* Opened upward when the mark is near the foot of the log, so the reader at the
+   end of a conversation — who is exactly the one pressing it — is not offered a
+   menu that runs off the bottom. */
+.line-menu.above {
+	top: auto;
+	bottom: calc(100% + 6px);
+}
+.row.them .line-menu {
+	right: auto;
+	left: 0;
+}
+/* Toward the bubble, when the default side would leave the viewport. A wide
+   picture leaves no gutter for a menu that insists on sitting outside it. */
+.line-menu.inward {
+	right: auto;
+	left: 0;
+}
+.row.them .line-menu.inward {
+	left: auto;
+	right: 0;
+}
+.line-menu-row {
+	all: unset;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 7px 10px;
+	border-radius: var(--radius-chip);
+	font-size: var(--type-ui);
+	line-height: 1.2;
+	color: var(--ink);
+	white-space: nowrap;
+	cursor: pointer;
+}
+/* The column a menu's tick stands in, held open on every row of that menu so
+   choosing one does not shift the words on the others. */
+.menu-mark {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--accent-ink);
+}
+.line-menu-row:hover {
+	background: var(--paper);
+}
+.line-menu-row:focus-visible {
+	background: var(--paper);
+	outline: 2px solid var(--accent-ink);
+	outline-offset: -2px;
+}
+.line-menu-row.danger {
+	color: var(--danger);
+}
+.line-menu-row.danger:hover,
+.line-menu-row.danger:focus-visible {
+	background: color-mix(in srgb, var(--danger) 12%, var(--paper));
+}
+/* Named for the bar that is gone; the menu that replaced it rises the same
+   way. */
+@keyframes acts-in {
+	from {
+		opacity: 0;
+		transform: translateY(3px);
+	}
+}
+/* The roster control's badge lives in IconButton. It reserves two tabular
+   digits there, so ordinary joins and leaves do not walk the toolbar sideways. */
+/* The rooms rail's toggle, and the left-hand answer to the Members button at the
+   other end of the topbar: one control per rail, each reporting whether its rail
+   is showing. What it does differs by layout because the rails do — on desktop
+   the rail sits beside the conversation and this collapses it, on a phone the
+   rail is a screen of its own and this opens it — but "is the rooms list up?" is
+   the same question in both, so it is the same button and the same aria-pressed.
+
+   It wears the pancake mark rather than a drawn menu glyph, because the mark is
+   already three stacked bars: a hamburger that happens to be breakfast. The
+   unread dot flags activity behind the rail while it is closed. */
+#backBtn {
+	display: none;
+	position: relative;
+	margin-right: 2px;
+}
+.app.rooms-hidden #backBtn {
+	display: inline-flex;
+}
+#backBtn.has-unread::after {
+	content: "";
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+/* ── Emoji picker popup ───────────────────────────────────────────────── */
+/* Inline completion: the list a sigil raises over the composer. One column,
+   keyboard-first — the picked row is state, not :hover, so the arrows and the
+   pointer highlight the same way. Anchored like the emoji tray, sized to its
+   rows, and never taller than a handful: ranking already did the narrowing. */
+/* Against the field it is completing, not the band around it. Anchored to the
+   composer's own top edge it stood forty-three pixels clear of the input, with
+   the reserved hint line in the space between, and read as a thing that had
+   arrived rather than one the caret had raised. This measures past the fade and
+   that line so it rests just above the box being typed in. */
+.complete-pop {
+	position: absolute;
+	bottom: calc(100% - var(--composer-fade) - var(--composer-status-h) - var(--composer-status-gap) + 6px);
+	left: 20px;
+	/* As wide as what it holds, up to the cap: one name is a small list and was
+	   being drawn as a bar the width of the longest command's summary. */
+	width: max-content;
+	/* Wide enough to say what a command does. At 360 the summaries were cut
+	   mid-word, and the note saying a command is not granted here — the one thing
+	   on the row a reader has to act on — was cut off the end entirely. */
+	max-width: min(520px, calc(100% - 40px));
+	display: flex;
+	flex-direction: column;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 12px;
+	padding: 3px;
+	box-shadow: var(--shadow);
+	z-index: 6;
+}
+/* While the list is up, the line above the field is answering the wrong
+   question: it says what Enter does, and Enter belongs to the list. */
+.composer:has(#completePop) .composer-status {
+	visibility: hidden;
+}
+.complete-row {
+	all: unset;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 9px;
+	border-radius: var(--radius-chip);
+	font-size: var(--type-ui);
+	line-height: 1.35;
+	color: var(--ink);
+	cursor: pointer;
+}
+/* The row Enter will take. It was a wash a shade off the surface, which is
+   enough to follow while the arrows are moving and not enough to answer "what
+   happens if I press Enter now" at a glance.
+
+   Colour and a wash, and nothing that changes the text's size: bolding the name
+   widens it, so every row the arrows pass would shift the words beside it and
+   the list would twitch under a reader who is only looking. */
+.complete-row.picked {
+	background: color-mix(in srgb, var(--accent) 16%, transparent);
+	color: var(--accent-ink);
+}
+.complete-glyph {
+	font-size: var(--type-title);
+	flex: none;
+}
+/* The name never gives up room: it is what the reader is choosing. */
+.complete-label {
+	flex: none;
+	white-space: nowrap;
+}
+/* What that name is. Quieter, and the first thing to give up room, because the
+   beginning of a summary is what answers "which one is this". */
+.complete-hint {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+}
+.complete-row.picked .complete-hint {
+	color: inherit;
+}
+
+.emoji-pop {
+	position: absolute;
+	bottom: 64px;
+	right: 20px;
+	display: none;
+	grid-template-columns: repeat(8, 1fr);
+	gap: 2px;
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	border-radius: 12px;
+	padding: 8px;
+	box-shadow: var(--shadow);
+	z-index: 6;
+}
+.emoji-pop.show {
+	display: grid;
+}
+.emoji-pop button {
+	all: unset;
+	cursor: pointer;
+	font-size: 19px;
+	padding: 5px;
+	border-radius: 8px;
+	text-align: center;
+}
+.emoji-pop button:hover {
+	background: var(--hover);
+}

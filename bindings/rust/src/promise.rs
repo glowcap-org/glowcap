@@ -17,9 +17,9 @@ use crate::{sys, Argument, Error, Ref, Result, SendArena};
 
 /// Shared fetch/enliven wait: the mint already registered the vow; kick the
 /// drain so the deliver leaves now, and await the drain-routed outcome.
-pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result<Argument> {
+pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64, track_gc: bool) -> Result<Argument> {
 	shared.attend_inbound()?;
-	shared.host.vow_minted(vow);
+	shared.host.vow_minted(vow, track_gc.then_some(shared));
 	let settled = shared.host.await_vow(vow);
 	shared.host.kick_actions().await?;
 	settled.await
@@ -28,22 +28,20 @@ pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result
 /// The one mint/await/classify body under `fetch` and `enliven`: mint the
 /// host vow with `mint`, await its drain-routed completion, and classify —
 /// only an opaque Host reference is a capability this surface can hand out.
-/// `track` marks fetched capabilities for distributed GC via `track_import`.
+/// `track` enrolls the fulfilled application value in distributed GC.
 pub(crate) async fn fetch_like(
 	shared: &Rc<SessionShared>,
 	swiss: &[u8],
 	label: &str,
 	mint: unsafe extern "C" fn(*mut ffi::PancakeHostSession, *const u8, usize, *mut u64) -> i32,
 	track: bool,
-	track_import: impl FnOnce(Ref) -> Ref,
 ) -> Result<Ref> {
 	shared.guard_open()?;
 	shared.drain_gc()?;
 	let mut vow: u64 = 0;
 	check_host(unsafe { mint(shared.ptr.get(), swiss.as_ptr(), swiss.len(), &mut vow) })?;
-	let value = await_minted(shared, vow).await?;
+	let value = await_minted(shared, vow, track).await?;
 	match value {
-		Argument::Reference(reference) if track => Ok(track_import(reference)),
 		Argument::Reference(reference) => Ok(reference),
 		_ => Err(Error::broken(format!("{label:?} did not resolve to a capability"))),
 	}
@@ -75,7 +73,7 @@ pub(crate) fn listen_far(shared: &Rc<SessionShared>, target: &crate::Ref) -> Rem
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
 	}
-	shared.host.vow_minted(vow);
+	shared.host.vow_minted(vow, Some(shared));
 	if let Err(error) = shared.host.schedule_kick() {
 		shared.host.settle_vow(vow, Err(error));
 	}
@@ -156,7 +154,7 @@ pub(crate) fn send_promise(
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
 	}
-	shared.host.vow_minted(vow);
+	shared.host.vow_minted(vow, Some(shared));
 	// The deliver is queued; the kick (scheduled, so a synchronous batch of
 	// pipelined sends travels together) flushes it whether or not the
 	// handle is ever awaited.
@@ -312,7 +310,7 @@ impl RemotePromise {
 		};
 		match check_host(rc) {
 			Ok(()) => {
-				self.session.host.vow_minted(vow);
+				self.session.host.vow_minted(vow, Some(&self.session));
 				RemotePromise::far(vow, Rc::clone(&self.session))
 			}
 			Err(error) => RemotePromise::failed(error, Rc::clone(&self.session)),

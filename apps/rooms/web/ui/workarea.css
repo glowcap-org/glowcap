@@ -1,0 +1,514 @@
+/* ── Main column ──────────────────────────────────────────────────────── */
+.workarea {
+	min-width: 0;
+	min-height: 0;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+/* The topbar pins to the top as the page scrolls under it (the mobile page-scroll
+   is what makes this visible; on desktop nothing scrolls past it). It stays above
+   the message stream but below the reconnect banner and the mobile roster sheet. A
+   backdrop blur makes the translucent background read as frosted glass rather than
+   letting messages bleed through. */
+.topbar {
+	/* Pin to the shared header height so the bottom border matches the sidebar
+	   workspace header. min-height (not height) so the mobile query can still grow it
+	   past this for the safe-area inset. */
+	min-height: var(--header-h);
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: calc(12px + var(--accent-line)) 20px 12px;
+	border-bottom: 1px solid var(--rule);
+	background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
+	backdrop-filter: blur(var(--frost));
+	-webkit-backdrop-filter: blur(var(--frost));
+}
+/* The accent hairline lives on the topbar, so it rides along with the sticky header
+   instead of scrolling away at the top of the page. */
+.topbar::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: var(--accent-line);
+	background: linear-gradient(90deg in oklch, var(--accent) 0%, var(--teal) 100%);
+}
+/* On the join screen the card below carries the same stripe, and one screen
+   gets one flourish: the card's is the page's, so the bar's stands down. */
+.app.joining .topbar::before {
+	content: none;
+}
+.topbar h1 {
+	margin: 0;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+/* The room's name is a title, and the mark beside it is the one control that
+   acts on it. That is the grammar this interface already uses for a chip whose
+   mark takes it away — the composer's attached files — and the header now reads
+   the same way: pressing the name does nothing, because a name is not a thing
+   you press, and leaving the room is the mark's job alone.
+
+   The mark keeps its place whether or not it is showing, so the title never
+   shifts under the pointer, and it stays quiet until a pointer is over the
+   heading, so a header at rest is a name rather than a name and a way to lose
+   it. */
+.topbar .title-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--mark-gap);
+	min-width: 0;
+	height: var(--control-h);
+	font-size: var(--type-title);
+	font-weight: 800;
+	letter-spacing: -.01em;
+	/* The line box has to fit the glyphs, not the em: at `1` it is shorter than
+	   the text it holds, and the name truncates with `overflow: hidden` on the
+	   narrow layout, so the descender of a `g` was cut off. Nothing here needs a
+	   tight line box — the chip has a fixed height and centres its contents — so
+	   the font's own metrics decide it. */
+	line-height: normal;
+	color: var(--ink);
+	white-space: nowrap;
+}
+.topbar .title-chip:has(.avatar-chip) {
+	gap: var(--avatar-gap);
+}
+.topbar .leave-x {
+	flex: none;
+	margin-left: 2px;
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+#roomTitle:hover .leave-x,
+#roomTitle:focus-within .leave-x {
+	opacity: 1;
+}
+.topbar h1 .hash {
+	color: var(--accent);
+	font-weight: 700;
+}
+/* Before the first join there is no room, and the header used to name one
+   anyway: a `#` and the word "rooms", which reads as a room called rooms. The
+   sigil is what claims a room, so it stays off until there is one, and the line
+   holds the state instead — in the muted register the roster and the rails use
+   for the same moment. */
+.topbar .title-chip:has(#roomSigil[hidden]) {
+	color: var(--ink-soft);
+	font-weight: 600;
+}
+.topbar .spacer {
+	flex: 1;
+}
+/* A toggle has to look toggled. The Members button has always carried
+   aria-pressed, so assistive software knew whether the roster was up; everyone
+   else was told only by the roster itself, which is the one thing the button
+   takes away. */
+/* A floating status pill that overlays the stream rather than reflowing it.
+   Kind is explicit: a notice is session words; ongoing work spins in warning
+   ink; an error is an alert and never impersonates a reconnect attempt. */
+.banner {
+	position: absolute;
+	top: 14px;
+	left: 50%;
+	z-index: 6;
+	display: inline-flex;
+	align-items: center;
+	gap: 9px;
+	padding: 7px 15px 7px 13px;
+	border-radius: var(--radius-pill);
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	color: var(--ink);
+	font-size: var(--type-ui);
+	font-weight: 600;
+	box-shadow: var(--shadow);
+	opacity: 0;
+	pointer-events: none;
+	transform: translateX(-50%) translateY(-10px);
+	transition: opacity .2s ease, transform .2s ease;
+}
+.banner.show {
+	opacity: 1;
+	transform: translateX(-50%) translateY(0);
+}
+.banner.working {
+	border-color: color-mix(in srgb, var(--warn) 45%, var(--rule));
+}
+.banner.working::before {
+	content: "";
+	width: 13px;
+	height: 13px;
+	flex: none;
+	border-radius: 50%;
+	border: 2px solid color-mix(in srgb, var(--warn) 30%, transparent);
+	border-top-color: var(--warn);
+}
+.banner.working.show::before {
+	animation: bannerspin .7s linear infinite;
+}
+.banner.error {
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+}
+.banner-mark {
+	flex: none;
+	display: inline-flex;
+	color: var(--danger);
+}
+@keyframes bannerspin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.content {
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(0,1fr) var(--rail-w);
+}
+.content.no-members {
+	grid-template-columns: minmax(0,1fr);
+}
+.content.no-members .members {
+	display: none;
+}
+
+/* ── Message stream, left/right chat bubbles ─────────────────────────── */
+.stream {
+	position: relative;
+	min-height: 0;
+}
+/* One authority for the bar's height: it sets the bar and the room the log
+   leaves for it, so the two cannot drift into overlapping. */
+.stream {
+	--topic-h: 30px;
+}
+.stream:has(#topic) #log {
+	padding-top: calc(16px + var(--topic-h));
+}
+#log {
+	position: absolute;
+	inset: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+	/* The composer floats over the bottom of this column, so the last message
+	   stops at the band's top edge, where the ramp above is still fully clear:
+	   nothing is veiled while it sits still, and the ramp is the space between
+	   the conversation and the field.
+	   main.ts measures the band and keeps --composer-h honest; the fallback is
+	   its resting height, for the first paint before the observer has run. */
+	padding: 16px 0 var(--composer-h, 113px);
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+/* Pin messages to the bottom (just above the composer) when a conversation is
+   short, on both desktop and mobile; when it overflows there is no free space so
+   it scrolls normally. */
+#log > :first-child {
+	margin-top: auto;
+}
+/* The panel that opens a conversation. It is the top of the log, so it carries
+   the room's own name and one plain sentence about what this conversation is.
+   Bounded to the same width as the system pills so the column reads as one
+   measure, and left-aligned because it is prose, not a notice. */
+.conv-intro {
+	align-self: center;
+	box-sizing: border-box;
+	width: var(--card-max);
+	margin: 8px 20px 14px;
+	padding: 16px 18px;
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-card);
+	background: linear-gradient(150deg, color-mix(in srgb, var(--teal) 9%,
+		var(--paper-raised)), var(--paper-raised) 65%);
+}
+.conv-intro h2 {
+	display: flex;
+	align-items: center;
+	gap: var(--mark-gap);
+	margin: 0 0 6px;
+	font-size: var(--type-title);
+	color: var(--teal-ink);
+}
+.conv-intro h2:has(.avatar-chip) {
+	gap: var(--avatar-gap);
+}
+.conv-intro .hash {
+	color: var(--accent);
+	font-weight: 700;
+}
+.conv-intro p {
+	margin: 0;
+	font-size: var(--type-ui);
+	line-height: 1.6;
+	color: var(--ink-soft);
+	text-wrap: pretty;
+}
+
+/* Each scroll panel keeps its touch scrolling to itself (the body is locked), so
+   flinging the rail or the roster does not rubber-band or chain to anything else.
+   The left rail's scroller is the region under the title, not each list. */
+.sidebar-body,
+#members {
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+}
+.row {
+	display: flex;
+	gap: 10px;
+	padding: 2px 20px;
+	align-items: flex-start;
+}
+.row.them {
+	justify-content: flex-start;
+}
+.row.mine {
+	justify-content: flex-end;
+}
+.avatar-chip {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: var(--radius-chip);
+	color: #fff;
+	font-weight: 700;
+	font-size: 10.5px;
+}
+/* The person chip wearing their presence. The ring around the pip borrows
+   the surface it sits on through --presence-ring, so each context names its
+   own background and the pip reads as punched out of the chip. */
+.avatar-presence {
+	position: relative;
+	display: inline-flex;
+	flex: none;
+}
+/* A tint can land near whatever surface is behind it, so the chip keeps a
+   hairline of ink; the pip stays small enough to read as worn, not held. */
+.avatar-presence .avatar-chip {
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent);
+}
+.avatar-presence .presence-pip {
+	position: absolute;
+	right: -2px;
+	bottom: -2px;
+	width: 8px;
+	height: 8px;
+	box-sizing: border-box;
+	border-radius: 50%;
+	border: 1.5px solid var(--teal);
+	background: var(--teal);
+	/* The punch-out ring, then the same hairline of ink the chip itself keeps:
+	   the pip is a tint that can land on an identical tint — light's teal
+	   avatars are the very teal the pip wears — so the ring alone reads as one
+	   shape. The hairline draws the pip's own edge in both themes. A box-shadow
+	   takes a colour, not a gradient, so the ring is the surface's flat tone —
+	   handing it --page-bg or --rail-fill (both gradients) invalidates the
+	   whole declaration and the pip melts into the chip. */
+	box-shadow:
+		0 0 0 2px var(--presence-ring, var(--paper)),
+		0 0 0 3px color-mix(in srgb, var(--ink) 26%, transparent);
+}
+/* Away is a way of being here, so the pip keeps the online dot's shape and
+   says so by weight; offline is the hollow ring. */
+.avatar-presence.away .presence-pip {
+	opacity: .45;
+}
+.avatar-presence.offline .presence-pip {
+	background: transparent;
+	border-color: var(--ink-soft);
+}
+.row .avatar-chip {
+	width: 32px;
+	height: 32px;
+	border-radius: 10px;
+	font-size: var(--type-ui);
+	box-shadow: var(--shadow-sm);
+}
+.stack {
+	display: flex;
+	flex-direction: column;
+	max-width: var(--bubble-max);
+	min-width: 0;
+}
+.row.mine .stack {
+	align-items: flex-end;
+}
+/* Scoped wherever a name sits above a line. Unscoped, `.who` is a word general
+   enough that somewhere else in this page will want it, and the next element to
+   carry the class inherits a message author's indent for no reason it can see —
+   which is exactly what happened to the member list. */
+.stack .who {
+	font-size: var(--type-caption);
+	font-weight: 700;
+	color: var(--ink-soft);
+	margin: 0 0 4px 12px;
+}
+.bubble {
+	background: var(--paper-raised);
+	border: 1px solid var(--rule);
+	color: var(--ink);
+	padding: 8px 13px;
+	border-radius: 16px;
+	border-top-left-radius: 6px;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+	box-shadow: var(--shadow-sm);
+}
+.bubble + .bubble {
+	margin-top: 3px;
+}
+.row.mine .bubble {
+	background: linear-gradient(135deg, var(--mine-from) 0%, var(--mine-to) 100%);
+	color: var(--on-accent);
+	border-color: transparent;
+	border-radius: 16px;
+	border-top-right-radius: 6px;
+	border-top-left-radius: 16px;
+}
+/* Our own optimistic sends. A line dims while "sending", waiting on the wire
+   to confirm it, and tints "failed" when the send rejects. Failure adds its
+   own retry action without turning message content or attachment controls into
+   one outer control. */
+.bubble.sending {
+	opacity: .55;
+}
+.row.mine .bubble.failed {
+	background: linear-gradient(135deg, var(--danger) 0%,
+		color-mix(in srgb, var(--danger) 78%, #000) 100%);
+}
+.delivery-failure {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: 6px;
+	font-size: var(--type-caption);
+	font-weight: 700;
+}
+.time {
+	font-size: 10.5px;
+	color: var(--ink-soft);
+	margin: 4px 0 2px 12px;
+}
+.row.mine .time {
+	margin: 4px 4px 2px 0;
+}
+.sys {
+	align-self: stretch;
+	text-align: center;
+	/* Same 20px inset as a message row, so a full-width pill and a bubble share
+	   an edge. The pill then measures 100% of that inset rather than 90% of the
+	   raw column. */
+	padding: 6px 20px;
+}
+/* inline-block, so a message that wraps stays one rounded pill instead of
+   breaking into a jagged box per line. */
+.sys-line {
+	display: inline-block;
+	max-width: min(var(--card-cap), 100%);
+	/* The pill hugs its words, so a single line still reads as centred; what
+	   this changes is a pill with more than one, where the answers to /list and
+	   /directories are a list rather than a sentence and centring each row
+	   scattered them. */
+	text-align: start;
+	/* Both are about text nobody composed: a command's answer arrives with the
+	   line breaks it was written with, and a locator is one unbroken word wider
+	   than a phone. Without these the breaks were swallowed and the address ran
+	   off the side of the screen. */
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.5;
+	text-wrap: pretty; /* keep a multi-line system pill's last line from dangling */
+	font-size: 12.5px;
+	color: var(--ink-soft);
+	background: color-mix(in srgb, var(--ink) 6%, transparent);
+	padding: 4px 13px;
+	border-radius: 12px;
+}
+/* Consecutive system lines of one kind share one outer box. The gap is the
+   same 3px a stacked pair of bubbles uses, so a run of joins or of local
+   answers reads as one stretch rather than a column of separate events. */
+.sys-run {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	min-width: 0;
+}
+/* Local answers are one aside, not N speaker names. The well is the group:
+   its edge is what a packed log can see, and the mark names the well, not
+   each line. Members inside are text, not a second stack of pills. */
+.sys.here {
+	display: flex;
+	justify-content: flex-end;
+	padding: 8px 20px;
+	text-align: end;
+}
+.sys-aside {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 5px;
+	box-sizing: border-box;
+	max-width: var(--bubble-max);
+	min-width: 0;
+	padding: 6px 10px 8px;
+	/* Recedes from a bubble: no fill, and a dashed rule mixed down so the well
+	   is an edge you can find rather than a second card in the log. */
+	border: 1px dashed color-mix(in srgb, var(--rule) 72%, var(--paper));
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--ink) 2.5%, transparent);
+}
+.aside-mark {
+	font-size: var(--type-tiny);
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	color: var(--ink-soft);
+	line-height: 1;
+}
+.sys.here .sys-run {
+	align-items: stretch;
+	width: 100%;
+	gap: 6px;
+}
+.sys.here .sys-line {
+	max-width: none;
+	background: none;
+	padding: 0;
+	border-radius: 0;
+}
+.jump {
+	position: absolute;
+	left: 50%;
+	bottom: calc(var(--composer-h, 113px) + 8px);
+	transform: translateX(-50%);
+	display: none;
+	cursor: pointer;
+	border: 1px solid var(--rule);
+	background: var(--paper-raised);
+	color: var(--accent-ink);
+	font: inherit;
+	font-size: var(--type-ui);
+	font-weight: 700;
+	padding: 7px 16px;
+	border-radius: 20px;
+	box-shadow: var(--shadow);
+	/* Above the .stream::after dim scrim (z-index 2), so the button reads on top of
+	   the fade rather than behind it. */
+	z-index: 3;
+}
+.jump.show {
+	/* Flex, not block: the label sits beside its arrow. */
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}

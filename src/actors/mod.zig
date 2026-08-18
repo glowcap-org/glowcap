@@ -38,6 +38,7 @@ pub const steady_list_bytes = vat.steady_list_bytes;
 /// can name the value it holds between the two calls (ADR-0060).
 pub const Snapshot = vat.Snapshot;
 pub const Error = vat.Error;
+pub const IngressCancellationError = vat.IngressCancellationError;
 
 /// Object-capability forwarding proxies — a revocable caretaker and a verb
 /// allow-list attenuator — over any local or far reference.

@@ -22,9 +22,9 @@ const Greeter = struct {
     greeting: []const u8,
 
     pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "hello")) return error.NoSuchMethod;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
         // A partner chooses the arity, so read the argument through the
-        // accessor: a `hello` with no argument breaks its own answer instead of
+        // accessor: a `greet` with no argument breaks its own answer instead of
         // indexing past the slice.
         const name = try msg.argString(0);
         return .{ .string = try std.fmt.allocPrint(turn.arena, "{s}, {s}!", .{ self.greeting, name }) };
@@ -91,7 +91,7 @@ pub fn main() !void {
     const ref: actors.Ref = .{ .far = model.FarRef.object(5) };
     var result = Result{};
     const vow = try caller_port.send(&caller_vat, ref, .{
-        .verb = "hello",
+        .verb = "greet",
         .args = &.{.{ .string = "world" }},
     });
     try caller_port.on(&caller_vat, vow, .{ .ctx = &result, .func = onResolve });

@@ -7,7 +7,7 @@ decision: "One end-to-end sealed channel, Noise_XK over any byte pipe, carried b
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0113]
+amended_by: [ADR-0113, ADR-0117]
 ---
 
 # ADR-0107 A sealed byte channel for the cleartext netlayers
@@ -269,7 +269,7 @@ Each item names what carries it, or says plainly that nothing does yet.
    [`test/driver/noise_tcp_live_test.zig`](../../../test/driver/noise_tcp_live_test.zig).
    The C driver-loop projection repeats the live proof through only exported
    ABI verbs, including both listener-locator halves and an application fetch,
-   in [`test/c_abi/driver_loop_test.zig`](../../../test/c_abi/driver_loop_test.zig).
+   in [`test/c_abi/driver_loop/archive_test.zig`](../../../test/c_abi/driver_loop/archive_test.zig).
 3. **Replay is refused.** A recorded handshake replayed onto a fresh connection
    fails, and no CapTP session opens. Held by
    [`test/driver/sealed_channel_test.zig`](../../../test/driver/sealed_channel_test.zig).
@@ -287,7 +287,7 @@ Each item names what carries it, or says plainly that nothing does yet.
    [`test/net/noise_relay_test.zig`](../../../test/net/noise_relay_test.zig)
    both hold this for their plaintext probes. The C driver repeats the live
    registered-provider path in
-   [`test/c_abi/driver_loop_test.zig`](../../../test/c_abi/driver_loop_test.zig).
+   [`test/c_abi/driver_loop/archive_test.zig`](../../../test/c_abi/driver_loop/archive_test.zig).
 Items 2 and 4 are the load-bearing identity claims: the channel reports a
 stronger fact only after proving the exact key it reports.
 

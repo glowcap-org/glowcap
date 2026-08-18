@@ -58,6 +58,19 @@ how the bytes travel.
 > await using runtime = web.runtime;
 > const partner = locator("<64 lowercase hex characters from the peer>");
 > ```
+> **noise-relay**
+> ```ts
+> import { connector, noise } from "@pancake/relay";
+> import { init } from "@pancake/web";
+>
+> const relayUrl = "wss://relay.example/relay";
+> const web = await init({
+> 	wasm: fetch("/pancake_host.wasm"),
+> 	connectors: [connector()],
+> });
+> await using runtime = web.runtime;
+> const partner = noise.locator("<64 lowercase hex characters>", relayUrl);
+> ```
 > **keyed-tcp**
 > ```ts
 > import { keyed } from "@pancake/tcp";
